@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     clock::Clock,
-    event::{Cardinality, EventPayload, EventSource},
+    event::{Cardinality, EventPayload, EventSource, PromptTemplateName},
     ids::{EntryId, MemoryId, MemoryName, RelationName, Seq},
     settings::Settings,
     store::{Store, StoreError},
@@ -77,14 +77,14 @@ pub fn rollout(
         return Ok(Rollout::AlreadyComplete);
     }
 
-    let mut templates_present: BTreeSet<(String, u32)> = BTreeSet::new();
+    let mut templates_present: BTreeSet<(PromptTemplateName, u32)> = BTreeSet::new();
     let mut relations_present: BTreeSet<String> = BTreeSet::new();
     let mut config_present = false;
     let mut self_present = false;
     for event in &existing {
         match &event.payload {
             EventPayload::PromptTemplateRegistered { name, version, .. } => {
-                templates_present.insert((name.clone(), *version));
+                templates_present.insert((*name, *version));
             }
             EventPayload::LinkTypeRegistered { name, .. } => {
                 relations_present.insert(name.as_str().to_owned());
@@ -103,9 +103,9 @@ pub fn rollout(
     let mut to_emit: Vec<EventPayload> = Vec::new();
 
     for template in &templates {
-        if !templates_present.contains(&(template.name.to_owned(), template.version)) {
+        if !templates_present.contains(&(template.name, template.version)) {
             to_emit.push(EventPayload::PromptTemplateRegistered {
-                name: template.name.to_owned(),
+                name: template.name,
                 version: template.version,
                 body: template.body.to_owned(),
                 source: EventSource::Orchestration,
@@ -151,7 +151,7 @@ pub fn rollout(
 
     let template_versions: BTreeMap<String, u32> = templates
         .iter()
-        .map(|t| (t.name.to_owned(), t.version))
+        .map(|t| (t.name.as_str().to_owned(), t.version))
         .collect();
     to_emit.push(EventPayload::GenesisCompleted {
         manifest_hash: manifest_hash(seed, &templates),
@@ -171,7 +171,7 @@ fn is_genesis_completed(event: &crate::event::Event) -> bool {
 /// A build-default prompt template. Bodies are first-pass placeholders; final wording is authored
 /// by the build over time (spec §Initialization: prompt content is deferred to the build).
 struct TemplateDef {
-    name: &'static str,
+    name: PromptTemplateName,
     version: u32,
     body: &'static str,
 }
@@ -179,17 +179,17 @@ struct TemplateDef {
 fn default_templates() -> Vec<TemplateDef> {
     vec![
         TemplateDef {
-            name: "scaffold",
+            name: PromptTemplateName::Scaffold,
             version: 1,
             body: "<draft system-prompt scaffold — see docs/spec.md §System prompt>",
         },
         TemplateDef {
-            name: "description-regen",
+            name: PromptTemplateName::DescriptionRegen,
             version: 1,
             body: "<draft description-regeneration template>",
         },
         TemplateDef {
-            name: "temporal-extraction",
+            name: PromptTemplateName::TemporalExtraction,
             version: 1,
             body: "<draft temporal-extraction template>",
         },
@@ -267,7 +267,7 @@ fn manifest_hash(seed: &SeedSelf, templates: &[TemplateDef]) -> String {
         hasher.update([0]);
     }
     for template in templates {
-        hasher.update(template.name.as_bytes());
+        hasher.update(template.name.as_str().as_bytes());
         hasher.update(template.version.to_le_bytes());
     }
     hasher

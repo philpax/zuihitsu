@@ -9,14 +9,17 @@
 
 use serde::Deserialize;
 
+use std::collections::BTreeSet;
+
 use crate::{
     clock::Clock,
-    event::{EventPayload, Initiation, TerminalCause, TurnRole},
-    graph::Graph,
-    ids::{ConversationId, TurnId},
+    event::{EventPayload, Initiation, PromptTemplateName, TerminalCause, TurnRole},
+    graph::{EntryView, Graph, GraphError, MemoryView},
+    ids::{ConversationId, MemoryId, Seq, TurnId},
     lua::{BlockOutcome, LuaError, Session},
     model::{Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolSpec},
     store::{Store, StoreError},
+    templates,
 };
 
 /// What a completed turn delivers to the platform client.
@@ -49,61 +52,164 @@ pub async fn run_turn(
         TurnRole::Participant,
         inbound.to_owned(),
     )?;
+    // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
+    let cycle_start = store.head()?;
 
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it.
     let turn_id = TurnId::generate();
     let tools = vec![run_lua_tool()];
     let mut messages = vec![Message::user(inbound)];
 
-    for _ in 0..max_steps {
-        let request = GenerateRequest {
-            system: String::new(),
-            messages: messages.clone(),
-            tools: tools.clone(),
-        };
-        match model.generate(&request).await? {
-            Completion::ToolCalls(calls) => {
-                messages.push(Message::assistant_tool_calls(calls.clone()));
-                for call in &calls {
-                    let result = run_tool_call(session, store, graph, clock, turn_id, call)?;
-                    messages.push(Message::tool_result(call.id.clone(), result));
+    let outcome = 'cycle: {
+        for _ in 0..max_steps {
+            let request = GenerateRequest {
+                system: String::new(),
+                messages: messages.clone(),
+                tools: tools.clone(),
+            };
+            match model.generate(&request).await? {
+                Completion::ToolCalls(calls) => {
+                    messages.push(Message::assistant_tool_calls(calls.clone()));
+                    for call in &calls {
+                        let result = run_tool_call(session, store, graph, clock, turn_id, call)?;
+                        messages.push(Message::tool_result(call.id.clone(), result));
+                    }
+                }
+                Completion::Reply(text) => {
+                    append_turn(
+                        store,
+                        clock,
+                        conversation,
+                        turn_id,
+                        TurnRole::Agent,
+                        text.clone(),
+                    )?;
+                    break 'cycle TurnOutcome::Reply(text);
+                }
+                Completion::Silent => {
+                    append_turn(
+                        store,
+                        clock,
+                        conversation,
+                        turn_id,
+                        TurnRole::Agent,
+                        String::new(),
+                    )?;
+                    break 'cycle TurnOutcome::Silent;
                 }
             }
-            Completion::Reply(text) => {
-                append_turn(
-                    store,
-                    clock,
-                    conversation,
-                    turn_id,
-                    TurnRole::Agent,
-                    text.clone(),
-                )?;
-                return Ok(TurnOutcome::Reply(text));
-            }
-            Completion::Silent => {
-                append_turn(
-                    store,
-                    clock,
-                    conversation,
-                    turn_id,
-                    TurnRole::Agent,
-                    String::new(),
-                )?;
-                return Ok(TurnOutcome::Silent);
-            }
+        }
+        let surfaced = format!("max steps ({max_steps}) reached without a reply");
+        append_turn(
+            store,
+            clock,
+            conversation,
+            turn_id,
+            TurnRole::Agent,
+            surfaced,
+        )?;
+        TurnOutcome::MaxStepsExceeded
+    };
+
+    // Write path: coalesce the memories the turn wrote and regenerate each one's description from
+    // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
+    // conversational outcome.
+    let written = collect_written_memories(store, cycle_start)?;
+    regenerate_descriptions(model, store, graph, clock, &written).await?;
+
+    Ok(outcome)
+}
+
+/// The distinct memories that gained content (a create or an append) since `cycle_start`, in first-
+/// write order. Coalescing here means a memory written several times in the turn regenerates once.
+fn collect_written_memories(
+    store: &dyn Store,
+    cycle_start: Seq,
+) -> Result<Vec<MemoryId>, TurnError> {
+    let mut seen = BTreeSet::new();
+    let mut ordered = Vec::new();
+    for event in store.read_from(cycle_start.next())? {
+        let id = match event.payload {
+            EventPayload::MemoryCreated { id, .. }
+            | EventPayload::MemoryContentAppended { id, .. } => id,
+            _ => continue,
+        };
+        if seen.insert(id) {
+            ordered.push(id);
+        }
+    }
+    Ok(ordered)
+}
+
+/// Regenerate the description of each written memory from its entries, committing the new
+/// descriptions in one batch. A memory with no entries is skipped; a model failure on one memory is
+/// logged and that memory keeps its prior description rather than failing the whole turn.
+async fn regenerate_descriptions(
+    model: &dyn ModelClient,
+    store: &mut dyn Store,
+    graph: &mut Graph,
+    clock: &dyn Clock,
+    written: &[MemoryId],
+) -> Result<(), TurnError> {
+    let Some(template) = templates::latest_template(store, PromptTemplateName::DescriptionRegen)?
+    else {
+        return Ok(());
+    };
+
+    let mut events = Vec::new();
+    for &id in written {
+        let Some(memory) = graph.memory_by_id(id)? else {
+            continue;
+        };
+        let entries = graph.entries(id)?;
+        if entries.is_empty() {
+            continue;
+        }
+        match synthesize_description(model, &template.body, &memory, &entries).await {
+            Ok(Some(description)) => events.push(EventPayload::MemoryDescriptionRegenerated {
+                id,
+                new_text: description,
+            }),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                memory = %memory.name.as_str(),
+                %error,
+                "description regeneration failed; keeping the prior description"
+            ),
         }
     }
 
-    let surfaced = format!("max steps ({max_steps}) reached without a reply");
-    append_turn(
-        store,
-        clock,
-        conversation,
-        turn_id,
-        TurnRole::Agent,
-        surfaced,
-    )?;
-    Ok(TurnOutcome::MaxStepsExceeded)
+    if !events.is_empty() {
+        store.append(clock.now(), events)?;
+        graph.materialize_from(store)?;
+    }
+    Ok(())
+}
+
+/// Ask the model to synthesize a description from a memory's entries. `None` means the model didn't
+/// answer with text (a tool call or a stay-silent), which a regeneration ignores.
+async fn synthesize_description(
+    model: &dyn ModelClient,
+    template_body: &str,
+    memory: &MemoryView,
+    entries: &[EntryView],
+) -> Result<Option<String>, ModelError> {
+    let mut prompt = format!("Memory: {}\n\nEntries:\n", memory.name.as_str());
+    for entry in entries {
+        prompt.push_str("- ");
+        prompt.push_str(&entry.text);
+        prompt.push('\n');
+    }
+
+    let request = GenerateRequest {
+        system: template_body.to_owned(),
+        messages: vec![Message::user(prompt)],
+        tools: Vec::new(),
+    };
+    match model.generate(&request).await? {
+        Completion::Reply(text) => Ok(Some(text)),
+        Completion::Silent | Completion::ToolCalls(_) => Ok(None),
+    }
 }
 
 /// Execute one tool call and render the text the model sees next: the block's result on success,
@@ -200,14 +306,16 @@ pub enum TurnError {
     Model(ModelError),
     Lua(LuaError),
     Store(StoreError),
+    Graph(GraphError),
 }
 
 impl std::fmt::Display for TurnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TurnError::Model(error) => write!(f, "turn: {error}"),
-            TurnError::Lua(error) => write!(f, "turn: {error}"),
-            TurnError::Store(error) => write!(f, "turn: {error}"),
+            TurnError::Model(error) => write!(f, "turn (model): {error}"),
+            TurnError::Lua(error) => write!(f, "turn (lua): {error}"),
+            TurnError::Store(error) => write!(f, "turn (store): {error}"),
+            TurnError::Graph(error) => write!(f, "turn (graph): {error}"),
         }
     }
 }
@@ -218,6 +326,7 @@ impl std::error::Error for TurnError {
             TurnError::Model(error) => Some(error),
             TurnError::Lua(error) => Some(error),
             TurnError::Store(error) => Some(error),
+            TurnError::Graph(error) => Some(error),
         }
     }
 }
@@ -237,5 +346,11 @@ impl From<LuaError> for TurnError {
 impl From<StoreError> for TurnError {
     fn from(error: StoreError) -> Self {
         TurnError::Store(error)
+    }
+}
+
+impl From<GraphError> for TurnError {
+    fn from(error: GraphError) -> Self {
+        TurnError::Graph(error)
     }
 }

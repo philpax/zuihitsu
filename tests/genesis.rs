@@ -3,7 +3,7 @@
 //! GenesisCompleted, never log emptiness (spec §Initialization).
 
 use zuihitsu::{
-    ManualClock, MemoryStore, SeedSelf, Seq, Settings, Store, Timestamp,
+    ManualClock, MemoryStore, PromptTemplateName, SeedSelf, Seq, Settings, Store, Timestamp,
     event::EventPayload,
     genesis::{self, GenesisStatus, Rollout},
 };
@@ -87,14 +87,14 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
             Timestamp::from_millis(500),
             vec![
                 EventPayload::PromptTemplateRegistered {
-                    name: "scaffold".to_owned(),
+                    name: PromptTemplateName::Scaffold,
                     version: 1,
                     body: "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
                         .to_owned(),
                     source: zuihitsu::EventSource::Orchestration,
                 },
                 EventPayload::PromptTemplateRegistered {
-                    name: "description-regen".to_owned(),
+                    name: PromptTemplateName::DescriptionRegen,
                     version: 1,
                     body: "<draft description-regeneration template>".to_owned(),
                     source: zuihitsu::EventSource::Orchestration,
@@ -121,7 +121,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
     let scaffold = events
         .iter()
         .filter(|e| {
-            matches!(&e.payload, EventPayload::PromptTemplateRegistered { name, .. } if name == "scaffold")
+            matches!(&e.payload, EventPayload::PromptTemplateRegistered { name, .. } if *name == PromptTemplateName::Scaffold)
         })
         .count();
     assert_eq!(scaffold, 1);

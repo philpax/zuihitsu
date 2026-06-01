@@ -7,11 +7,19 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    Completion, ScriptedModel, Seq, Store, ToolCall, TurnOutcome, TurnRole, event::EventPayload,
-    run_turn,
+    Completion, ScriptedModel, SeedSelf, Seq, Store, ToolCall, TurnOutcome, TurnRole,
+    event::EventPayload, genesis, run_turn,
 };
 #[cfg(feature = "openai")]
 use zuihitsu::{EnvConfig, OpenAiClient};
+
+fn seed() -> SeedSelf {
+    SeedSelf {
+        agent_name: "Kestrel".to_owned(),
+        persona: "A companion.".to_owned(),
+        seed_entries: Vec::new(),
+    }
+}
 
 fn run_lua_call(script: &str) -> Completion {
     Completion::ToolCalls(vec![ToolCall {
@@ -78,6 +86,44 @@ async fn tool_call_then_reply_commits_and_replies() {
         events
             .iter()
             .any(|e| matches!(e.payload, EventPayload::LuaExecuted { .. }))
+    );
+}
+
+#[tokio::test]
+async fn descriptions_regenerate_after_a_turn() {
+    let mut h = Harness::new();
+    // Genesis registers the description-regen template the write path reads.
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
+        Completion::Reply("Noted — I'll remember Dave.".to_owned()),
+        // The post-turn regeneration call, synthesizing the description from Dave's entries.
+        Completion::Reply("Dave, whom I met at the climbing gym.".to_owned()),
+    ]);
+
+    run_turn(
+        &h.session,
+        &model,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "Remember Dave",
+        8,
+    )
+    .await
+    .unwrap();
+
+    // The written memory's description was regenerated from its entries after the cycle.
+    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
+    assert_eq!(dave.description, "Dave, whom I met at the climbing gym.");
+    assert!(
+        h.store
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e.payload, EventPayload::MemoryDescriptionRegenerated { .. }))
     );
 }
 

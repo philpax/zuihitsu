@@ -288,9 +288,9 @@ pub enum LuaError {
 impl std::fmt::Display for LuaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LuaError::Vm(error) => write!(f, "lua: VM error: {error}"),
-            LuaError::Store(error) => write!(f, "lua: block commit failed: {error}"),
-            LuaError::Graph(error) => write!(f, "lua: block commit failed: {error}"),
+            LuaError::Vm(error) => write!(f, "lua (vm): {error}"),
+            LuaError::Store(error) => write!(f, "lua (store): {error}"),
+            LuaError::Graph(error) => write!(f, "lua (graph): {error}"),
         }
     }
 }

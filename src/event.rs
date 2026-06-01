@@ -136,6 +136,29 @@ pub enum TerminalCause {
     Aborted(String),
 }
 
+/// The orchestration prompt templates the build ships — a closed, build-defined set (spec
+/// §Initialization → prompt templates). Serialized in kebab-case to match the human-facing names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PromptTemplateName {
+    /// The system-prompt scaffold.
+    Scaffold,
+    /// Synthesizes a memory's description from its entries.
+    DescriptionRegen,
+    /// Extracts temporal references from text.
+    TemporalExtraction,
+}
+
+impl PromptTemplateName {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PromptTemplateName::Scaffold => "scaffold",
+            PromptTemplateName::DescriptionRegen => "description-regen",
+            PromptTemplateName::TemporalExtraction => "temporal-extraction",
+        }
+    }
+}
+
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
 /// [`Event`] envelope rather than here, because they are assigned by the store at append time.
 ///
@@ -226,7 +249,7 @@ pub enum EventPayload {
     /// Registers a versioned prompt template (scaffold, regen, …). Orchestration config, not
     /// agent-editable; updating a template is a new registration with a bumped version.
     PromptTemplateRegistered {
-        name: String,
+        name: PromptTemplateName,
         version: u32,
         body: String,
         source: EventSource,
@@ -310,7 +333,7 @@ impl EventPayload {
             EventPayload::TagCreated { name, .. }
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
-            EventPayload::PromptTemplateRegistered { name, .. } => Some(name.clone()),
+            EventPayload::PromptTemplateRegistered { name, .. } => Some(name.as_str().to_owned()),
             // A whole-settings snapshot, not about a single entity.
             EventPayload::ConfigSet { .. } => None,
             // Touches many memories rather than one; recoverable from its `touched` set, not a

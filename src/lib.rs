@@ -27,14 +27,15 @@ pub mod search;
 pub mod server;
 pub mod settings;
 pub mod store;
+pub mod templates;
 pub mod vector;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
-    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, TerminalCause, TurnRole,
-    Volatility,
+    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, PromptTemplateName,
+    TerminalCause, TurnRole, Volatility,
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
@@ -50,6 +51,7 @@ pub use settings::{
     TurnSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
+pub use templates::{PromptTemplate, latest_template};
 pub use vector::{InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex};
 
 // The feature-gated re-exports are grouped per feature so the `#[cfg]` lives in one place rather
