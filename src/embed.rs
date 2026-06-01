@@ -14,6 +14,9 @@ pub type Embedding = Vec<f32>;
 #[async_trait]
 pub trait Embedder: Send + Sync {
     fn dimensions(&self) -> usize;
+    /// The id of the model producing these embeddings, stamped onto each vector as provenance so a
+    /// mixed-embedding-space state is detectable (spec §Storage → vector store).
+    fn model_id(&self) -> &str;
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError>;
 }
 
@@ -34,6 +37,10 @@ impl FakeEmbedder {
 impl Embedder for FakeEmbedder {
     fn dimensions(&self) -> usize {
         self.dimensions
+    }
+
+    fn model_id(&self) -> &str {
+        "fake-embedder"
     }
 
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError> {

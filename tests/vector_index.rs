@@ -3,12 +3,22 @@
 
 #![cfg(feature = "sqlite")]
 
-use zuihitsu::{Embedder, FakeEmbedder, SqliteVectorIndex, VectorError, VectorId, VectorIndex};
+use zuihitsu::{
+    Embedder, FakeEmbedder, SqliteVectorIndex, VectorError, VectorId, VectorIndex, VectorRecord,
+};
 
 const DIMS: usize = 32;
 
 async fn vector(embedder: &FakeEmbedder, text: &str) -> Vec<f32> {
     embedder.embed(&[text.to_owned()]).await.unwrap().remove(0)
+}
+
+async fn record(embedder: &FakeEmbedder, id: &str, text: &str) -> VectorRecord {
+    VectorRecord {
+        id: VectorId::new(id),
+        embedding: vector(embedder, text).await,
+        model_id: embedder.model_id().into(),
+    }
 }
 
 #[tokio::test]
@@ -18,9 +28,7 @@ async fn ranks_nearest_first_and_replaces_on_reinsert() {
     assert!(index.is_empty().unwrap());
 
     for text in ["climbing gym", "sourdough bread", "tax return"] {
-        index
-            .upsert(VectorId::new(text), vector(&embedder, text).await)
-            .unwrap();
+        index.upsert(record(&embedder, text, text).await).unwrap();
     }
     assert_eq!(index.len().unwrap(), 3);
 
@@ -34,10 +42,7 @@ async fn ranks_nearest_first_and_replaces_on_reinsert() {
 
     // Re-inserting an existing id replaces rather than duplicates.
     index
-        .upsert(
-            VectorId::new("climbing gym"),
-            vector(&embedder, "climbing gym").await,
-        )
+        .upsert(record(&embedder, "climbing gym", "climbing gym").await)
         .unwrap();
     assert_eq!(index.len().unwrap(), 3);
 
@@ -56,8 +61,13 @@ async fn ranks_nearest_first_and_replaces_on_reinsert() {
 async fn rejects_a_wrong_dimensioned_embedding() {
     let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
     let wrong = vec![0.0_f32; DIMS + 1];
+    let record = VectorRecord {
+        id: VectorId::new("x"),
+        embedding: wrong.clone(),
+        model_id: "fake-embedder".into(),
+    };
     assert!(matches!(
-        index.upsert(VectorId::new("x"), wrong.clone()),
+        index.upsert(record),
         Err(VectorError::Dimension {
             expected: DIMS,
             found,

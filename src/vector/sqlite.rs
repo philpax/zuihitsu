@@ -3,11 +3,11 @@
 
 use std::{path::Path, sync::Once};
 
-use rusqlite::{Connection, ffi::sqlite3_auto_extension, params};
+use rusqlite::{Connection, OptionalExtension, ffi::sqlite3_auto_extension, params};
 use sqlite_vec::sqlite3_vec_init;
 
-use super::{ScoredHit, VectorError, VectorId, VectorIndex};
-use crate::embed::Embedding;
+use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
+use crate::ids::Seq;
 
 pub struct SqliteVectorIndex {
     conn: Connection,
@@ -35,7 +35,9 @@ impl SqliteVectorIndex {
     fn init(conn: Connection, dimensions: usize) -> Result<SqliteVectorIndex, VectorError> {
         conn.execute_batch(&format!(
             "CREATE VIRTUAL TABLE IF NOT EXISTS vectors USING vec0(\
-                 id TEXT PRIMARY KEY, embedding float[{dimensions}] distance_metric=cosine);"
+                 id TEXT PRIMARY KEY, embedding float[{dimensions}] distance_metric=cosine, \
+                 +model_id TEXT);\
+             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);"
         ))
         .map_err(backend)?;
         Ok(SqliteVectorIndex { conn, dimensions })
@@ -53,16 +55,19 @@ impl SqliteVectorIndex {
 }
 
 impl VectorIndex for SqliteVectorIndex {
-    fn upsert(&mut self, id: VectorId, vector: Embedding) -> Result<(), VectorError> {
-        self.require_dimensions(&vector)?;
-        let embedding = serde_json::to_string(&vector).map_err(backend)?;
+    fn upsert(&mut self, record: VectorRecord) -> Result<(), VectorError> {
+        self.require_dimensions(&record.embedding)?;
+        let embedding = serde_json::to_string(&record.embedding).map_err(backend)?;
         // vec0 has no in-place update, so replace is delete-then-insert, atomic in one transaction.
         let tx = self.conn.transaction().map_err(backend)?;
-        tx.execute("DELETE FROM vectors WHERE id = ?1", params![id.0.as_str()])
-            .map_err(backend)?;
         tx.execute(
-            "INSERT INTO vectors (id, embedding) VALUES (?1, ?2)",
-            params![id.0.as_str(), embedding],
+            "DELETE FROM vectors WHERE id = ?1",
+            params![record.id.0.as_str()],
+        )
+        .map_err(backend)?;
+        tx.execute(
+            "INSERT INTO vectors (id, embedding, model_id) VALUES (?1, ?2, ?3)",
+            params![record.id.0.as_str(), embedding, record.model_id.as_str()],
         )
         .map_err(backend)?;
         tx.commit().map_err(backend)?;
@@ -112,6 +117,28 @@ impl VectorIndex for SqliteVectorIndex {
             });
         }
         Ok(hits)
+    }
+
+    fn cursor(&self) -> Result<Seq, VectorError> {
+        let value: Option<i64> = self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = 'cursor'", [], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(backend)?;
+        Ok(Seq(value.unwrap_or(0) as u64))
+    }
+
+    fn set_cursor(&mut self, seq: Seq) -> Result<(), VectorError> {
+        self.conn
+            .execute(
+                "INSERT INTO meta (key, value) VALUES ('cursor', ?1) \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![seq.0 as i64],
+            )
+            .map_err(backend)?;
+        Ok(())
     }
 }
 

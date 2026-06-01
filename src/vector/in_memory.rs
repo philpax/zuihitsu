@@ -2,12 +2,13 @@
 //! scale. Swapped for [`SqliteVectorIndex`](super::SqliteVectorIndex) when persistence is needed.
 //! Infallible, so every operation returns `Ok`.
 
-use super::{ScoredHit, VectorError, VectorId, VectorIndex};
-use crate::embed::Embedding;
+use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
+use crate::ids::Seq;
 
 #[derive(Default)]
 pub struct InMemoryVectorIndex {
-    vectors: Vec<(VectorId, Embedding)>,
+    records: Vec<VectorRecord>,
+    cursor: Seq,
 }
 
 impl InMemoryVectorIndex {
@@ -17,39 +18,44 @@ impl InMemoryVectorIndex {
 }
 
 impl VectorIndex for InMemoryVectorIndex {
-    fn upsert(&mut self, id: VectorId, vector: Embedding) -> Result<(), VectorError> {
-        match self
-            .vectors
-            .iter_mut()
-            .find(|(existing, _)| *existing == id)
-        {
-            Some(slot) => slot.1 = vector,
-            None => self.vectors.push((id, vector)),
+    fn upsert(&mut self, record: VectorRecord) -> Result<(), VectorError> {
+        match self.records.iter_mut().find(|slot| slot.id == record.id) {
+            Some(slot) => *slot = record,
+            None => self.records.push(record),
         }
         Ok(())
     }
 
     fn remove(&mut self, id: &VectorId) -> Result<(), VectorError> {
-        self.vectors.retain(|(existing, _)| existing != id);
+        self.records.retain(|record| &record.id != id);
         Ok(())
     }
 
     fn len(&self) -> Result<usize, VectorError> {
-        Ok(self.vectors.len())
+        Ok(self.records.len())
     }
 
     fn search(&self, query: &[f32], k: usize) -> Result<Vec<ScoredHit>, VectorError> {
         let mut hits: Vec<ScoredHit> = self
-            .vectors
+            .records
             .iter()
-            .map(|(id, vector)| ScoredHit {
-                id: id.clone(),
-                score: cosine(query, vector),
+            .map(|record| ScoredHit {
+                id: record.id.clone(),
+                score: cosine(query, &record.embedding),
             })
             .collect();
         hits.sort_by(|a, b| b.score.total_cmp(&a.score));
         hits.truncate(k);
         Ok(hits)
+    }
+
+    fn cursor(&self) -> Result<Seq, VectorError> {
+        Ok(self.cursor)
+    }
+
+    fn set_cursor(&mut self, seq: Seq) -> Result<(), VectorError> {
+        self.cursor = seq;
+        Ok(())
     }
 }
 

@@ -4,6 +4,7 @@
 use zuihitsu::{
     CannedFetcher, Completion, Embedder, FakeEmbedder, FetchError, Fetcher, GenerateRequest,
     InMemoryVectorIndex, ModelClient, ModelError, ScriptedModel, ToolCall, VectorId, VectorIndex,
+    VectorRecord,
 };
 
 #[tokio::test]
@@ -63,8 +64,14 @@ async fn vector_index_ranks_nearest_first() {
     let embedder = FakeEmbedder::new(32);
     let mut index = InMemoryVectorIndex::new();
     for text in ["climbing gym", "sourdough bread", "tax return"] {
-        let vector = embedder.embed(&[text.to_owned()]).await.unwrap().remove(0);
-        index.upsert(VectorId::new(text), vector).unwrap();
+        let embedding = embedder.embed(&[text.to_owned()]).await.unwrap().remove(0);
+        index
+            .upsert(VectorRecord {
+                id: VectorId::new(text),
+                embedding,
+                model_id: embedder.model_id().into(),
+            })
+            .unwrap();
     }
     assert_eq!(index.len().unwrap(), 3);
 

@@ -125,6 +125,10 @@ impl Embedder for OpenAiEmbedder {
         self.dimensions
     }
 
+    fn model_id(&self) -> &str {
+        &self.model
+    }
+
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError> {
         let request = CreateEmbeddingRequestArgs::default()
             .model(self.model.clone())

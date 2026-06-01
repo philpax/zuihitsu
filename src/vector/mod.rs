@@ -13,7 +13,7 @@ pub use sqlite::SqliteVectorIndex;
 
 use smol_str::SmolStr;
 
-use crate::embed::Embedding;
+use crate::{embed::Embedding, ids::Seq};
 
 /// A stored vector's key. A string, so both entry and description vectors can share one index; the
 /// entry-vs-description distinction and visibility metadata arrive when search becomes
@@ -32,6 +32,17 @@ impl VectorId {
 pub struct ScoredHit {
     pub id: VectorId,
     pub score: f32,
+}
+
+/// A vector to store, with the provenance the index keeps alongside it. `model_id` is the embedding
+/// model that produced the vector, recorded **at creation** so a mixed-embedding-space state is
+/// detectable rather than silent (spec §Storage → vector store); retrofitting it would itself be a
+/// full re-embed. Visibility metadata joins this struct when search becomes visibility-aware.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VectorRecord {
+    pub id: VectorId,
+    pub embedding: Embedding,
+    pub model_id: SmolStr,
 }
 
 /// A vector-index failure: a backend error, or an embedding whose dimensionality does not match the
@@ -58,8 +69,8 @@ impl std::error::Error for VectorError {}
 
 /// Approximate (here, exact) nearest-neighbour search over embeddings.
 pub trait VectorIndex {
-    /// Insert or replace the vector for `id`.
-    fn upsert(&mut self, id: VectorId, vector: Embedding) -> Result<(), VectorError>;
+    /// Insert or replace a vector and its provenance.
+    fn upsert(&mut self, record: VectorRecord) -> Result<(), VectorError>;
 
     /// Remove the vector for `id`, if present.
     fn remove(&mut self, id: &VectorId) -> Result<(), VectorError>;
@@ -72,4 +83,14 @@ pub trait VectorIndex {
 
     /// The `k` stored vectors most similar to `query` by cosine similarity, best first.
     fn search(&self, query: &[f32], k: usize) -> Result<Vec<ScoredHit>, VectorError>;
+
+    /// The highest log `Seq` the indexer has processed into this index, or `Seq::ZERO` if none.
+    /// Catch-up resumes from `cursor().next()`, so a persistent index doesn't re-embed the log on
+    /// every boot; an ephemeral one reports `ZERO` and is rebuilt from the log.
+    fn cursor(&self) -> Result<Seq, VectorError>;
+
+    /// Record that the index has processed the log through `seq`. Written after the batch's vectors
+    /// are durable, so a crash in between re-processes that batch (an idempotent re-embed) rather
+    /// than skipping it.
+    fn set_cursor(&mut self, seq: Seq) -> Result<(), VectorError>;
 }

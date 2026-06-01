@@ -8,7 +8,9 @@ use ulid::Ulid;
 
 /// A position in the event log's single total order. The first event is `Seq(1)`; `Seq::ZERO`
 /// denotes "before any event" and is the lower bound for a full read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Seq(pub u64);
 
 impl Seq {

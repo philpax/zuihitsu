@@ -16,6 +16,7 @@ pub mod genesis;
 #[cfg(feature = "sqlite")]
 pub mod graph;
 pub mod ids;
+pub mod index;
 #[cfg(feature = "lua")]
 pub mod lua;
 pub mod model;
@@ -42,6 +43,7 @@ pub use genesis::{GenesisStatus, Rollout, SeedSelf};
 pub use ids::{
     ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,
 };
+pub use index::{IndexError, Indexer};
 pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
     ToolSpec,
@@ -52,7 +54,9 @@ pub use settings::{
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use templates::{PromptTemplate, latest_template};
-pub use vector::{InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex};
+pub use vector::{
+    InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,
+};
 
 // The feature-gated re-exports are grouped per feature so the `#[cfg]` lives in one place rather
 // than on every line; each private module is glob-re-exported into the crate root.

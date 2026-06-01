@@ -7,6 +7,7 @@
 use zuihitsu::{
     Embedder, EntryId, FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName,
     MemoryStore, SeedSelf, Settings, Store, TagName, Timestamp, VectorId, VectorIndex,
+    VectorRecord,
     event::EventPayload,
     genesis::{self},
     search,
@@ -66,14 +67,18 @@ impl Corpus {
             )
             .unwrap();
         self.graph.materialize_from(&self.store).unwrap();
-        let vector = self
+        let embedding = self
             .embedder
             .embed(&[description.to_owned()])
             .await
             .unwrap()
             .remove(0);
         self.index
-            .upsert(VectorId::new(id.0.to_string()), vector)
+            .upsert(VectorRecord {
+                id: VectorId::new(id.0.to_string()),
+                embedding,
+                model_id: self.embedder.model_id().into(),
+            })
             .unwrap();
         id
     }
