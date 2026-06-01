@@ -1,0 +1,176 @@
+//! Agent-loop tests: a scripted model drives the step loop through tool calls and terminals, and
+//! the resulting turns and side effects land in the log (spec §Agent loop).
+
+#![cfg(feature = "lua")]
+
+mod common;
+
+use common::Harness;
+use zuihitsu::{
+    Completion, ScriptedModel, Seq, Store, ToolCall, TurnOutcome, TurnRole, event::EventPayload,
+    run_turn,
+};
+
+fn run_lua_call(script: &str) -> Completion {
+    Completion::ToolCalls(vec![ToolCall {
+        id: "1".to_owned(),
+        name: "run_lua".to_owned(),
+        arguments: serde_json::json!({ "script": script }).to_string(),
+    }])
+}
+
+fn count_agent_turns(store: &impl Store) -> usize {
+    store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                &e.payload,
+                EventPayload::ConversationTurn {
+                    role: TurnRole::Agent,
+                    ..
+                }
+            )
+        })
+        .count()
+}
+
+#[tokio::test]
+async fn tool_call_then_reply_commits_and_replies() {
+    let mut h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
+        Completion::Reply("Noted — I'll remember Dave.".to_owned()),
+    ]);
+
+    let outcome = run_turn(
+        &h.session,
+        &model,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "Remember Dave",
+        8,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        outcome,
+        TurnOutcome::Reply("Noted — I'll remember Dave.".to_owned())
+    );
+    // The tool call's side effect committed and projected.
+    assert!(h.graph.memory_by_name("person/dave").unwrap().is_some());
+    // Exactly one agent turn for the cycle, plus the inbound participant turn and a LuaExecuted.
+    assert_eq!(count_agent_turns(&h.store), 1);
+    let events = h.store.read_from(Seq::ZERO).unwrap();
+    assert!(events.iter().any(|e| matches!(
+        &e.payload,
+        EventPayload::ConversationTurn {
+            role: TurnRole::Participant,
+            ..
+        }
+    )));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e.payload, EventPayload::LuaExecuted { .. }))
+    );
+}
+
+#[tokio::test]
+async fn stay_silent_terminal_posts_nothing() {
+    let mut h = Harness::new();
+    let model = ScriptedModel::new([Completion::Silent]);
+
+    let outcome = run_turn(
+        &h.session,
+        &model,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "(chatter)",
+        8,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome, TurnOutcome::Silent);
+    // Auditable silence: an agent turn is still recorded, with empty text.
+    let silent_recorded = h.store.read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::ConversationTurn { role: TurnRole::Agent, text, .. } if text.is_empty()
+        )
+    });
+    assert!(silent_recorded);
+}
+
+#[tokio::test]
+async fn max_steps_ends_the_turn_with_a_surfaced_error() {
+    let mut h = Harness::new();
+    // A model that only ever calls tools, never terminating.
+    let model = ScriptedModel::new([
+        run_lua_call("return 1"),
+        run_lua_call("return 2"),
+        run_lua_call("return 3"),
+    ]);
+
+    let outcome = run_turn(
+        &h.session,
+        &model,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "loop forever",
+        2,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
+    // The cycle still records exactly one agent turn, carrying the surfaced error.
+    assert_eq!(count_agent_turns(&h.store), 1);
+    let surfaced = h.store.read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::ConversationTurn { role: TurnRole::Agent, text, .. } if text.contains("max steps")
+        )
+    });
+    assert!(surfaced);
+}
+
+#[tokio::test]
+async fn tool_result_feeds_back_across_steps() {
+    let mut h = Harness::new();
+    // First create, then a second block reads it back, then reply — exercising multi-step flow.
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("topic/climbing", "Bouldering and sport climbing")"#),
+        run_lua_call(r#"return memory.get("topic/climbing"):entries()"#),
+        Completion::Reply("done".to_owned()),
+    ]);
+
+    let outcome = run_turn(
+        &h.session,
+        &model,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "go",
+        8,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, TurnOutcome::Reply("done".to_owned()));
+
+    // Two LuaExecuted events (two blocks), both committed.
+    let lua_events = h
+        .store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter(|e| matches!(e.payload, EventPayload::LuaExecuted { .. }))
+        .count();
+    assert_eq!(lua_events, 2);
+}

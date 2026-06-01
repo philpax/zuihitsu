@@ -47,11 +47,14 @@ pub struct GenerateRequest {
 }
 
 /// A single step's outcome: the model either calls tools or produces a final reply, never both in
-/// one step (spec §Agent loop). The stay-silent terminal arrives with the loop in Stage 4.
+/// one step (spec §Agent loop), or it ends the turn silently — a first-class outcome, distinct
+/// from an empty reply, for messages not addressed to the agent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Completion {
     ToolCalls(Vec<ToolCall>),
     Reply(String),
+    /// End the turn with no reply (the stay-silent terminal).
+    Silent,
 }
 
 /// The inference interface. The agent server holds one of these; tests substitute a fake.
@@ -72,9 +75,12 @@ pub enum ModelError {
 impl std::fmt::Display for ModelError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModelError::Backend(message) => write!(f, "model backend error: {message}"),
+            ModelError::Backend(message) => write!(f, "model: {message}"),
             ModelError::Exhausted => {
-                write!(f, "the scripted model has no more programmed responses")
+                write!(
+                    f,
+                    "model: the scripted model has no more programmed responses"
+                )
             }
         }
     }

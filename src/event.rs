@@ -102,6 +102,25 @@ pub enum EventSource {
     Orchestration,
 }
 
+/// The author of a conversation turn (spec §Event sourcing → ConversationTurn). The participant and
+/// session bindings arrive with the conversation machinery at Stage 8.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TurnRole {
+    /// An inbound participant message.
+    Participant,
+    /// The agent's response cycle — exactly one per turn, however it ends.
+    Agent,
+    /// An injected system message (a join brief, a `<time_update/>`).
+    System,
+}
+
+/// Whether a turn is the agent responding to a message or acting unprompted (spec §Time).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Initiation {
+    Responding,
+    Initiated,
+}
+
 /// How a Lua block ended when the agent saw the outcome (spec §Event sourcing). A block that
 /// commits normally has no terminal cause; one the agent observed failing or deliberately aborting
 /// records why.
@@ -237,6 +256,16 @@ pub enum EventPayload {
         touched: Vec<MemoryId>,
         terminal_cause: Option<TerminalCause>,
     },
+    /// A turn in the conversation: an inbound participant message, the agent's response (a reply, a
+    /// silent terminal with empty `text`, or a surfaced `max_steps` error), or a system message. The
+    /// participant and session bindings arrive at Stages 6-8.
+    ConversationTurn {
+        conversation: ConversationId,
+        turn_id: TurnId,
+        role: TurnRole,
+        text: String,
+        initiation: Initiation,
+    },
 }
 
 impl EventPayload {
@@ -260,6 +289,7 @@ impl EventPayload {
             EventPayload::PromptTemplateRegistered { .. } => "PromptTemplateRegistered",
             EventPayload::ConfigSet { .. } => "ConfigSet",
             EventPayload::LuaExecuted { .. } => "LuaExecuted",
+            EventPayload::ConversationTurn { .. } => "ConversationTurn",
         }
     }
 
@@ -291,6 +321,8 @@ impl EventPayload {
             // Touches many memories rather than one; recoverable from its `touched` set, not a
             // single target column.
             EventPayload::LuaExecuted { .. } => None,
+            // Keyed by conversation, not a memory; filtered on conversation when that lands.
+            EventPayload::ConversationTurn { .. } => None,
         }
     }
 }

@@ -62,7 +62,7 @@ pub enum GraphError {
 impl std::fmt::Display for GraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphError::Backend(message) => write!(f, "materialized graph error: {message}"),
+            GraphError::Backend(message) => write!(f, "materialized graph: {message}"),
         }
     }
 }
@@ -172,7 +172,8 @@ impl Graph {
             EventPayload::GenesisCompleted { .. }
             | EventPayload::PromptTemplateRegistered { .. }
             | EventPayload::ConfigSet { .. }
-            | EventPayload::LuaExecuted { .. } => {}
+            | EventPayload::LuaExecuted { .. }
+            | EventPayload::ConversationTurn { .. } => {}
             EventPayload::MemoryCreated { id, name } => {
                 self.conn
                     .execute(

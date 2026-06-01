@@ -5,6 +5,8 @@
 //! abstraction seams (clock, store, and later the model/fetcher/vector seams) that make a complete
 //! agent constructible in memory for tests without a database, a network, or a wall clock.
 
+#[cfg(feature = "lua")]
+pub mod agent;
 pub mod clock;
 pub mod config;
 pub mod embed;
@@ -22,12 +24,14 @@ pub mod server;
 pub mod store;
 pub mod vector;
 
+#[cfg(feature = "lua")]
+pub use agent::{TurnError, TurnOutcome, run_turn};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EnvConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
-    Cardinality, ConfigValue, Event, EventPayload, EventSource, LinkSource, TerminalCause,
-    Volatility,
+    Cardinality, ConfigValue, Event, EventPayload, EventSource, Initiation, LinkSource,
+    TerminalCause, TurnRole, Volatility,
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
