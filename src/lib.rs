@@ -9,6 +9,8 @@ pub mod clock;
 pub mod embed;
 pub mod event;
 pub mod fetch;
+#[cfg(feature = "sqlite")]
+pub mod graph;
 pub mod ids;
 pub mod model;
 pub mod store;
@@ -16,8 +18,10 @@ pub mod vector;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
-pub use event::{Event, EventPayload};
+pub use event::{Event, EventPayload, Volatility};
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
+#[cfg(feature = "sqlite")]
+pub use graph::{EntryView, Graph, GraphError, MemoryView};
 pub use ids::{EntryId, MemoryId, MemoryName, Seq, TagName, Timestamp};
 pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,

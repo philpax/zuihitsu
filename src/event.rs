@@ -1,16 +1,44 @@
-//! The event envelope and the (small, deliberately growing) catalogue of event payloads.
+//! The event envelope and the (deliberately growing) catalogue of event payloads.
 //!
 //! All state is events; graph state is a pure projection (spec §Event sourcing). Every payload
-//! carries a `type` tag and a `version`, and the materializer (Stage 2) dispatches on
-//! `(type, version)`. A new capability adds a new variant or a higher version, and old logs replay
-//! unchanged — extensibility without migrations. The set below is the Stage 1 core; the
-//! content-, visibility-, and time-bearing events arrive with the stages that need them.
+//! carries a `type` tag and a `version`, and the materializer dispatches on `(type, version)`. A
+//! new capability adds a new variant or a higher version, and old logs replay unchanged —
+//! extensibility without migrations. The content-, link-, visibility-, and time-bearing events
+//! continue to arrive with the stages that need them (visibility at 6, time at 9).
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{MemoryId, MemoryName, Seq, TagName, Timestamp};
+use crate::ids::{EntryId, MemoryId, MemoryName, Seq, TagName, Timestamp};
+
+/// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Volatility {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl Volatility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Volatility::Low => "Low",
+            Volatility::Medium => "Medium",
+            Volatility::High => "High",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Volatility> {
+        match text {
+            "Low" => Some(Volatility::Low),
+            "Medium" => Some(Volatility::Medium),
+            "High" => Some(Volatility::High),
+            _ => None,
+        }
+    }
+}
 
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
 /// [`Event`] envelope rather than here, because they are assigned by the store at append time.
@@ -37,9 +65,41 @@ pub enum EventPayload {
     MemoryDeleted {
         id: MemoryId,
     },
+    /// Records a content entry. Provenance and bi-temporality (told_by, visibility, occurred_at)
+    /// are added at higher versions with the stages that introduce them (6, 9).
+    MemoryContentAppended {
+        id: MemoryId,
+        entry_id: EntryId,
+        asserted_at: Timestamp,
+        text: String,
+    },
+    /// Replaces a memory's synthesized description. The text is produced by the model (Stage 5);
+    /// applying it to the projection is purely mechanical.
+    MemoryDescriptionRegenerated {
+        id: MemoryId,
+        new_text: String,
+    },
+    MemoryVolatilitySet {
+        id: MemoryId,
+        volatility: Volatility,
+    },
+    /// Creates a tag, which always forces a purpose. Distinct from application, which never mutates
+    /// the description (spec §Lua API → tags).
     TagCreated {
         name: TagName,
         description: String,
+    },
+    TagDescriptionChanged {
+        name: TagName,
+        new_description: String,
+    },
+    TagAppliedToMemory {
+        memory: MemoryId,
+        tag: TagName,
+    },
+    TagRemovedFromMemory {
+        memory: MemoryId,
+        tag: TagName,
     },
 }
 
@@ -51,11 +111,17 @@ impl EventPayload {
             EventPayload::MemoryCreated { .. } => "MemoryCreated",
             EventPayload::MemoryRenamed { .. } => "MemoryRenamed",
             EventPayload::MemoryDeleted { .. } => "MemoryDeleted",
+            EventPayload::MemoryContentAppended { .. } => "MemoryContentAppended",
+            EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
+            EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
+            EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
+            EventPayload::TagAppliedToMemory { .. } => "TagAppliedToMemory",
+            EventPayload::TagRemovedFromMemory { .. } => "TagRemovedFromMemory",
         }
     }
 
-    /// The payload-schema version. All Stage 1 payloads are `1`; higher versions add fields.
+    /// The payload-schema version. All current payloads are `1`; higher versions add fields.
     pub fn version(&self) -> u32 {
         1
     }
@@ -67,8 +133,14 @@ impl EventPayload {
             EventPayload::GenesisCompleted { .. } => None,
             EventPayload::MemoryCreated { id, .. }
             | EventPayload::MemoryRenamed { id, .. }
-            | EventPayload::MemoryDeleted { id } => Some(id.0.to_string()),
-            EventPayload::TagCreated { name, .. } => Some(name.as_str().to_owned()),
+            | EventPayload::MemoryDeleted { id }
+            | EventPayload::MemoryContentAppended { id, .. }
+            | EventPayload::MemoryDescriptionRegenerated { id, .. }
+            | EventPayload::MemoryVolatilitySet { id, .. }
+            | EventPayload::TagAppliedToMemory { memory: id, .. }
+            | EventPayload::TagRemovedFromMemory { memory: id, .. } => Some(id.0.to_string()),
+            EventPayload::TagCreated { name, .. }
+            | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
         }
     }
 }
