@@ -3,8 +3,10 @@
 
 use std::sync::mpsc::{Sender, channel};
 
-use crate::event::{Event, EventPayload};
-use crate::ids::{Seq, Timestamp};
+use crate::{
+    event::{Event, EventPayload},
+    ids::{Seq, Timestamp},
+};
 
 use super::{Store, StoreError, Subscription, notify};
 

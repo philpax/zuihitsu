@@ -4,8 +4,7 @@
 //! §Testability). The request/response shape is deliberately small here and grows with the agent
 //! loop and tool protocol in Stage 4.
 
-use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::{collections::VecDeque, sync::Mutex};
 
 use async_trait::async_trait;
 

@@ -9,9 +9,11 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use ulid::Ulid;
 
-use crate::event::{Cardinality, Event, EventPayload, Volatility};
-use crate::ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};
-use crate::store::Store;
+use crate::{
+    event::{Cardinality, Event, EventPayload, Volatility},
+    ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp},
+    store::Store,
+};
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
 #[derive(Clone, Debug, PartialEq)]

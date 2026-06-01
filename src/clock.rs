@@ -1,9 +1,13 @@
 //! The clock seam. `now()` reads an injected clock so tests can drive time explicitly — recency
 //! decay, calendar windows, scheduled wake-ups — without real time passing (spec §Testability).
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::ids::Timestamp;
 

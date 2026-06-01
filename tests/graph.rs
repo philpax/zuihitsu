@@ -4,10 +4,9 @@
 
 #![cfg(feature = "sqlite")]
 
-use zuihitsu::event::EventPayload;
 use zuihitsu::{
     Cardinality, EntryId, Graph, LinkSource, MemoryId, MemoryName, MemoryStore, RelationName, Seq,
-    Store, TagName, Timestamp, Volatility,
+    Store, TagName, Timestamp, Volatility, event::EventPayload,
 };
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.

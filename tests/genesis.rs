@@ -2,9 +2,11 @@
 //! emitting only what's missing, and a complete one is left alone — all keyed on the presence of
 //! GenesisCompleted, never log emptiness (spec §Initialization).
 
-use zuihitsu::event::EventPayload;
-use zuihitsu::genesis::{self, GenesisStatus, Rollout};
-use zuihitsu::{ManualClock, MemoryStore, SeedSelf, Seq, Store, Timestamp};
+use zuihitsu::{
+    ManualClock, MemoryStore, SeedSelf, Seq, Store, Timestamp,
+    event::EventPayload,
+    genesis::{self, GenesisStatus, Rollout},
+};
 
 fn seed() -> SeedSelf {
     SeedSelf {

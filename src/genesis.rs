@@ -12,10 +12,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sha2::{Digest, Sha256};
 
-use crate::clock::Clock;
-use crate::event::{Cardinality, ConfigValue, EventPayload, EventSource};
-use crate::ids::{EntryId, MemoryId, MemoryName, RelationName, Seq};
-use crate::store::{Store, StoreError};
+use crate::{
+    clock::Clock,
+    event::{Cardinality, ConfigValue, EventPayload, EventSource},
+    ids::{EntryId, MemoryId, MemoryName, RelationName, Seq},
+    store::{Store, StoreError},
+};
 
 /// The seed identity an operator provides at creation: a name for the agent, a one-line persona,
 /// and optional seed disposition entries. A freshly-born agent knows nothing else — genesis seeds

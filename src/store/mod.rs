@@ -15,8 +15,10 @@ pub use sqlite::SqliteStore;
 
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::event::{Event, EventPayload};
-use crate::ids::{Seq, Timestamp};
+use crate::{
+    event::{Event, EventPayload},
+    ids::{Seq, Timestamp},
+};
 
 /// A live feed of events committed after the subscription was taken. The debugger and other
 /// read-side clients use this for incremental updates (spec §Observability).
