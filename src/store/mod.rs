@@ -59,9 +59,9 @@ pub enum StoreError {
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StoreError::Backend(message) => write!(f, "event store error: {message}"),
+            StoreError::Backend(message) => write!(f, "event store: {message}"),
             StoreError::Serialize(error) => {
-                write!(f, "event payload serialization error: {error}")
+                write!(f, "event store: could not serialize a payload: {error}")
             }
         }
     }

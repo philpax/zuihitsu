@@ -64,7 +64,7 @@
 - Two-tier error model:
   - `ExpectedError`: User/external errors with semantic exit codes.
   - Internal errors: Programming errors that may panic or use internal error types.
-- Error display messages should be descriptive and self-contained: name the operation or subsystem and the cause (e.g. "event store error: …", "could not open the event log at /path: …"), and add context like the path or resource at the layer that has it. Avoid bare "failed to {x}" glue.
+- Every error's `Display` leads with a `<context>:` prefix naming the subsystem or operation it belongs to (e.g. `event store: …`, `lua: block commit failed: …`, `could not open the event log at /path: …`), then the cause. Aggregating errors prefix their own layer's context and delegate the inner error, so a chained error reads as nested context (`turn: lua: block commit failed: event store: …`). Add resource context like a path at the layer that has it. Avoid bare "failed to {x}" glue.
 
 ### Async patterns
 

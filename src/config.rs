@@ -63,8 +63,8 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigError::Io(error) => write!(f, "could not read the config file: {error}"),
-            ConfigError::Parse(error) => write!(f, "invalid config TOML: {error}"),
+            ConfigError::Io(error) => write!(f, "config: could not read the file: {error}"),
+            ConfigError::Parse(error) => write!(f, "config: invalid TOML: {error}"),
         }
     }
 }

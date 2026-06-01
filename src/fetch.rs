@@ -26,9 +26,9 @@ pub enum FetchError {
 impl std::fmt::Display for FetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FetchError::NotFound => write!(f, "no content is available for that URL"),
-            FetchError::Blocked(reason) => write!(f, "the URL was rejected: {reason}"),
-            FetchError::Backend(message) => write!(f, "page fetch error: {message}"),
+            FetchError::NotFound => write!(f, "fetch: no content is available for that URL"),
+            FetchError::Blocked(reason) => write!(f, "fetch: the URL was rejected: {reason}"),
+            FetchError::Backend(message) => write!(f, "fetch: {message}"),
         }
     }
 }
