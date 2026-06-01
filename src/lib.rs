@@ -14,6 +14,8 @@ pub mod genesis;
 #[cfg(feature = "sqlite")]
 pub mod graph;
 pub mod ids;
+#[cfg(feature = "lua")]
+pub mod lua;
 pub mod model;
 #[cfg(feature = "sqlite")]
 pub mod server;
@@ -24,13 +26,18 @@ pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EnvConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
-    Cardinality, ConfigValue, Event, EventPayload, EventSource, LinkSource, Volatility,
+    Cardinality, ConfigValue, Event, EventPayload, EventSource, LinkSource, TerminalCause,
+    Volatility,
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
 #[cfg(feature = "sqlite")]
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView};
-pub use ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};
+pub use ids::{
+    ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,
+};
+#[cfg(feature = "lua")]
+pub use lua::{BlockOutcome, LuaError, Session};
 pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
     ToolSpec,

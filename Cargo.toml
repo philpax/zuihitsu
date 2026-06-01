@@ -15,6 +15,7 @@ path = "src/main.rs"
 async-trait = "0.1.89"
 clap = { version = "4.6.1", features = ["derive"] }
 fs2 = { version = "0.4.3", optional = true }
+mlua = { version = "0.11.6", features = ["lua54", "vendored"], optional = true }
 rusqlite = { version = "0.40.0", features = ["bundled"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
@@ -26,10 +27,13 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 ulid = { version = "1.2.1", features = ["serde"] }
 
 [features]
-default = ["sqlite"]
-# The SQLite-backed event store. With this off, only the in-memory store and fakes are built,
-# which is the pure no-I/O configuration the tests exercise via --no-default-features.
+default = ["lua"]
+# The SQLite-backed event store and materialized graph. With this off, only the in-memory store
+# and seam fakes are built — the pure no-I/O configuration the tests exercise via
+# --no-default-features.
 sqlite = ["dep:rusqlite", "dep:fs2"]
+# The Lua VM and agent execution layer. Implies `sqlite`, since a block commits to the graph.
+lua = ["dep:mlua", "sqlite"]
 
 [dev-dependencies]
 tokio = { version = "1.52.3", features = ["rt", "macros"] }

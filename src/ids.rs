@@ -50,6 +50,30 @@ impl MemoryId {
     }
 }
 
+/// A durable conversation (a room the agent meets again and again). The full locator/session
+/// machinery lands at Stage 8; for now this is the identity threaded through the agent loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConversationId(pub Ulid);
+
+impl ConversationId {
+    pub fn generate() -> ConversationId {
+        ConversationId(Ulid::new())
+    }
+}
+
+/// One run of the agent loop — a whole response cycle, producing exactly one `role = agent`
+/// turn. A block's buffered side effects and its `LuaExecuted` share their turn's id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TurnId(pub Ulid);
+
+impl TurnId {
+    pub fn generate() -> TurnId {
+        TurnId(Ulid::new())
+    }
+}
+
 /// The stable, globally-unique identity of a single content entry — addressable for supersession,
 /// arbitration references, and per-entry vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

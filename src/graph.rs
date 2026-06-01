@@ -171,7 +171,8 @@ impl Graph {
             // server reads from the log rather than the graph.
             EventPayload::GenesisCompleted { .. }
             | EventPayload::PromptTemplateRegistered { .. }
-            | EventPayload::ConfigSet { .. } => {}
+            | EventPayload::ConfigSet { .. }
+            | EventPayload::LuaExecuted { .. } => {}
             EventPayload::MemoryCreated { id, name } => {
                 self.conn
                     .execute(

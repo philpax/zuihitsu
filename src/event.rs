@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};
+use crate::ids::{
+    ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,
+};
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -98,6 +100,17 @@ pub enum EventSource {
     Agent,
     Debugger,
     Orchestration,
+}
+
+/// How a Lua block ended when the agent saw the outcome (spec §Event sourcing). A block that
+/// commits normally has no terminal cause; one the agent observed failing or deliberately aborting
+/// records why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalCause {
+    /// A runtime error the agent saw, as its message.
+    Error(String),
+    /// An explicit `block.abort(reason)`.
+    Aborted(String),
 }
 
 /// A behavioral tunable's value. Flat per-key scalars, never structured policy objects (spec
@@ -212,6 +225,18 @@ pub enum EventPayload {
         value: ConfigValue,
         source: EventSource,
     },
+    /// Records one executed Lua block — what the agent saw. The stored `result` is the value
+    /// rendered back into the next inference step (text, not a live handle), so faithful replay
+    /// feeds the model exactly the string it saw. `touched` is the set of memories the block read
+    /// or wrote; `terminal_cause` is set only for agent-visible error/abort outcomes.
+    LuaExecuted {
+        conversation: ConversationId,
+        turn_id: TurnId,
+        script: String,
+        result: Option<String>,
+        touched: Vec<MemoryId>,
+        terminal_cause: Option<TerminalCause>,
+    },
 }
 
 impl EventPayload {
@@ -234,6 +259,7 @@ impl EventPayload {
             EventPayload::LinkRemoved { .. } => "LinkRemoved",
             EventPayload::PromptTemplateRegistered { .. } => "PromptTemplateRegistered",
             EventPayload::ConfigSet { .. } => "ConfigSet",
+            EventPayload::LuaExecuted { .. } => "LuaExecuted",
         }
     }
 
@@ -262,6 +288,9 @@ impl EventPayload {
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.clone()),
             EventPayload::ConfigSet { key, .. } => Some(key.clone()),
+            // Touches many memories rather than one; recoverable from its `touched` set, not a
+            // single target column.
+            EventPayload::LuaExecuted { .. } => None,
         }
     }
 }
