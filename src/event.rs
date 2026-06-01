@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{EntryId, MemoryId, MemoryName, Seq, TagName, Timestamp};
+use crate::ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -35,6 +35,55 @@ impl Volatility {
             "Low" => Some(Volatility::Low),
             "Medium" => Some(Volatility::Medium),
             "High" => Some(Volatility::High),
+            _ => None,
+        }
+    }
+}
+
+/// A relation endpoint's cardinality. `One` means a memory has at most one link of this relation
+/// in that direction (enforcement of the replace-on-`One` rule is the Lua layer's, Stage 4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Cardinality {
+    One,
+    Many,
+}
+
+impl Cardinality {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Cardinality::One => "One",
+            Cardinality::Many => "Many",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Cardinality> {
+        match text {
+            "One" => Some(Cardinality::One),
+            "Many" => Some(Cardinality::Many),
+            _ => None,
+        }
+    }
+}
+
+/// Who authored a link: the agent itself, or an operator acting through the control panel/debugger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LinkSource {
+    Agent,
+    Debugger,
+}
+
+impl LinkSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LinkSource::Agent => "Agent",
+            LinkSource::Debugger => "Debugger",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<LinkSource> {
+        match text {
+            "Agent" => Some(LinkSource::Agent),
+            "Debugger" => Some(LinkSource::Debugger),
             _ => None,
         }
     }
@@ -101,6 +150,30 @@ pub enum EventPayload {
         memory: MemoryId,
         tag: TagName,
     },
+    /// Registers a relation in the schema, accessible under either label; the inverse view's
+    /// cardinality is computed (spec §Data model: the registry lives in data, not code).
+    LinkTypeRegistered {
+        name: RelationName,
+        inverse: RelationName,
+        from_card: Cardinality,
+        to_card: Cardinality,
+        symmetric: bool,
+        reflexive: bool,
+    },
+    /// Creates a directed edge. The materializer canonicalizes direction at write time, so a link
+    /// asserted under either label produces the same stored edge. `told_by` (for asymmetric-belief
+    /// relations) arrives with identity at Stage 6/7.
+    LinkCreated {
+        from: MemoryId,
+        to: MemoryId,
+        relation: RelationName,
+        source: LinkSource,
+    },
+    LinkRemoved {
+        from: MemoryId,
+        to: MemoryId,
+        relation: RelationName,
+    },
 }
 
 impl EventPayload {
@@ -118,6 +191,9 @@ impl EventPayload {
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
             EventPayload::TagAppliedToMemory { .. } => "TagAppliedToMemory",
             EventPayload::TagRemovedFromMemory { .. } => "TagRemovedFromMemory",
+            EventPayload::LinkTypeRegistered { .. } => "LinkTypeRegistered",
+            EventPayload::LinkCreated { .. } => "LinkCreated",
+            EventPayload::LinkRemoved { .. } => "LinkRemoved",
         }
     }
 
@@ -138,9 +214,12 @@ impl EventPayload {
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
             | EventPayload::TagAppliedToMemory { memory: id, .. }
-            | EventPayload::TagRemovedFromMemory { memory: id, .. } => Some(id.0.to_string()),
+            | EventPayload::TagRemovedFromMemory { memory: id, .. }
+            | EventPayload::LinkCreated { from: id, .. }
+            | EventPayload::LinkRemoved { from: id, .. } => Some(id.0.to_string()),
             EventPayload::TagCreated { name, .. }
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
+            EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
         }
     }
 }

@@ -18,11 +18,11 @@ pub mod vector;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
-pub use event::{Event, EventPayload, Volatility};
+pub use event::{Cardinality, Event, EventPayload, LinkSource, Volatility};
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 #[cfg(feature = "sqlite")]
-pub use graph::{EntryView, Graph, GraphError, MemoryView};
-pub use ids::{EntryId, MemoryId, MemoryName, Seq, TagName, Timestamp};
+pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView};
+pub use ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};
 pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
     ToolSpec,

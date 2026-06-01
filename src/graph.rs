@@ -9,8 +9,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use ulid::Ulid;
 
-use crate::event::{Event, EventPayload, Volatility};
-use crate::ids::{EntryId, MemoryId, MemoryName, Seq, TagName, Timestamp};
+use crate::event::{Cardinality, Event, EventPayload, Volatility};
+use crate::ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};
 use crate::store::Store;
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
@@ -30,6 +30,25 @@ pub struct EntryView {
     pub entry_id: EntryId,
     pub asserted_at: Timestamp,
     pub text: String,
+}
+
+/// A registered relation as projected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelationView {
+    pub name: RelationName,
+    pub inverse: RelationName,
+    pub from_card: Cardinality,
+    pub to_card: Cardinality,
+    pub symmetric: bool,
+    pub reflexive: bool,
+}
+
+/// A stored edge in its canonical direction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkView {
+    pub from: MemoryId,
+    pub to: MemoryId,
+    pub relation: RelationName,
 }
 
 /// A failure projecting or querying the graph. Display messages are lowercase fragments suitable
@@ -91,7 +110,26 @@ impl Graph {
                  tag       TEXT NOT NULL,
                  PRIMARY KEY (memory_id, tag)
              );
-             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);",
+             CREATE TABLE IF NOT EXISTS relations (
+                 name      TEXT    PRIMARY KEY,
+                 inverse   TEXT    NOT NULL,
+                 from_card TEXT    NOT NULL,
+                 to_card   TEXT    NOT NULL,
+                 symmetric INTEGER NOT NULL,
+                 reflexive INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS links (
+                 from_id  TEXT NOT NULL,
+                 to_id    TEXT NOT NULL,
+                 relation TEXT NOT NULL,
+                 source   TEXT NOT NULL,
+                 PRIMARY KEY (from_id, to_id, relation)
+             );
+             CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_id, relation);
+             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+             CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                 name, description, content, memory_id UNINDEXED
+             );",
         )
         .map_err(backend)?;
         Ok(Graph { conn })
@@ -139,11 +177,24 @@ impl Graph {
                         ],
                     )
                     .map_err(backend)?;
+                self.conn
+                    .execute(
+                        "INSERT INTO memories_fts (memory_id, name, description, content)
+                         VALUES (?1, ?2, '', '')",
+                        params![id.0.to_string(), name.as_str()],
+                    )
+                    .map_err(backend)?;
             }
             EventPayload::MemoryRenamed { id, new_name, .. } => {
                 self.conn
                     .execute(
                         "UPDATE memories SET name = ?1 WHERE id = ?2",
+                        params![new_name.as_str(), id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+                self.conn
+                    .execute(
+                        "UPDATE memories_fts SET name = ?1 WHERE memory_id = ?2",
                         params![new_name.as_str(), id.0.to_string()],
                     )
                     .map_err(backend)?;
@@ -175,11 +226,24 @@ impl Graph {
                         ],
                     )
                     .map_err(backend)?;
+                self.conn
+                    .execute(
+                        "UPDATE memories_fts SET content = content || ' ' || ?1
+                         WHERE memory_id = ?2",
+                        params![text, id.0.to_string()],
+                    )
+                    .map_err(backend)?;
             }
             EventPayload::MemoryDescriptionRegenerated { id, new_text } => {
                 self.conn
                     .execute(
                         "UPDATE memories SET description = ?1 WHERE id = ?2",
+                        params![new_text, id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+                self.conn
+                    .execute(
+                        "UPDATE memories_fts SET description = ?1 WHERE memory_id = ?2",
                         params![new_text, id.0.to_string()],
                     )
                     .map_err(backend)?;
@@ -224,6 +288,57 @@ impl Graph {
                     .execute(
                         "DELETE FROM memory_tags WHERE memory_id = ?1 AND tag = ?2",
                         params![memory.0.to_string(), tag.as_str()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::LinkTypeRegistered {
+                name,
+                inverse,
+                from_card,
+                to_card,
+                symmetric,
+                reflexive,
+            } => {
+                self.conn
+                    .execute(
+                        "INSERT INTO relations (name, inverse, from_card, to_card, symmetric, reflexive)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                         ON CONFLICT(name) DO UPDATE SET
+                             inverse = excluded.inverse, from_card = excluded.from_card,
+                             to_card = excluded.to_card, symmetric = excluded.symmetric,
+                             reflexive = excluded.reflexive",
+                        params![
+                            name.as_str(),
+                            inverse.as_str(),
+                            from_card.as_str(),
+                            to_card.as_str(),
+                            i64::from(*symmetric),
+                            i64::from(*reflexive),
+                        ],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::LinkCreated {
+                from,
+                to,
+                relation,
+                source,
+            } => {
+                let edge = self.canonical_edge(*from, *to, relation)?;
+                self.conn
+                    .execute(
+                        "INSERT OR IGNORE INTO links (from_id, to_id, relation, source)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![edge.0, edge.1, edge.2, source.as_str()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::LinkRemoved { from, to, relation } => {
+                let edge = self.canonical_edge(*from, *to, relation)?;
+                self.conn
+                    .execute(
+                        "DELETE FROM links WHERE from_id = ?1 AND to_id = ?2 AND relation = ?3",
+                        params![edge.0, edge.1, edge.2],
                     )
                     .map_err(backend)?;
             }
@@ -312,6 +427,156 @@ impl Graph {
             .map_err(backend)
     }
 
+    /// A registered relation by its canonical name, or `None`.
+    pub fn relation(&self, name: &str) -> Result<Option<RelationView>, GraphError> {
+        self.conn
+            .query_row(
+                "SELECT name, inverse, from_card, to_card, symmetric, reflexive
+                 FROM relations WHERE name = ?1",
+                params![name],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, i64>(4)?,
+                        r.get::<_, i64>(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(backend)?
+            .map(
+                |(name, inverse, from_card, to_card, symmetric, reflexive)| {
+                    Ok(RelationView {
+                        name: RelationName::new(name),
+                        inverse: RelationName::new(inverse),
+                        from_card: parse_cardinality(&from_card)?,
+                        to_card: parse_cardinality(&to_card)?,
+                        symmetric: symmetric != 0,
+                        reflexive: reflexive != 0,
+                    })
+                },
+            )
+            .transpose()
+    }
+
+    /// Live neighbours reachable from `id` under `relation` (given as either label). Resolves the
+    /// label through the registry, follows the canonical edge in the right direction (both
+    /// directions for a symmetric relation), and skips soft-deleted neighbours.
+    pub fn outgoing(&self, id: MemoryId, relation: &str) -> Result<Vec<MemoryView>, GraphError> {
+        let resolved: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT name, symmetric FROM relations WHERE name = ?1 OR inverse = ?1",
+                params![relation],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some((canonical, symmetric)) = resolved else {
+            return Ok(Vec::new());
+        };
+
+        let id = id.0.to_string();
+        let neighbour_ids = if symmetric != 0 {
+            self.query_ids(
+                "SELECT to_id FROM links WHERE from_id = ?1 AND relation = ?2
+                 UNION SELECT from_id FROM links WHERE to_id = ?1 AND relation = ?2",
+                &id,
+                &canonical,
+            )?
+        } else if relation == canonical {
+            self.query_ids(
+                "SELECT to_id FROM links WHERE from_id = ?1 AND relation = ?2",
+                &id,
+                &canonical,
+            )?
+        } else {
+            self.query_ids(
+                "SELECT from_id FROM links WHERE to_id = ?1 AND relation = ?2",
+                &id,
+                &canonical,
+            )?
+        };
+
+        let mut neighbours = Vec::new();
+        for neighbour in neighbour_ids {
+            if let Some(memory) = self.memory_by_id(MemoryId(parse_ulid(&neighbour)?))? {
+                neighbours.push(memory);
+            }
+        }
+        Ok(neighbours)
+    }
+
+    /// All canonical edges touching `id`, with both endpoints live. For inspection and tests; the
+    /// agent-facing oriented view is [`Graph::outgoing`].
+    pub fn links(&self, id: MemoryId) -> Result<Vec<LinkView>, GraphError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT l.from_id, l.to_id, l.relation FROM links l
+                 JOIN memories mf ON mf.id = l.from_id
+                 JOIN memories mt ON mt.id = l.to_id
+                 WHERE (l.from_id = ?1 OR l.to_id = ?1) AND mf.deleted = 0 AND mt.deleted = 0
+                 ORDER BY l.relation, l.to_id",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![id.0.to_string()], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(backend)?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            let (from, to, relation) = row.map_err(backend)?;
+            links.push(LinkView {
+                from: MemoryId(parse_ulid(&from)?),
+                to: MemoryId(parse_ulid(&to)?),
+                relation: RelationName::new(relation),
+            });
+        }
+        Ok(links)
+    }
+
+    /// Full-text search over name, description, and content, best match first. Over-fetches and
+    /// filters soft-deleted memories, mirroring how visibility-aware search will filter hits later.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryView>, GraphError> {
+        let match_query = build_match(query);
+        if match_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let over_fetch = limit.saturating_mul(4).max(limit + 10) as i64;
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?1
+                 ORDER BY rank LIMIT ?2",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![match_query, over_fetch], |r| r.get::<_, String>(0))
+            .map_err(backend)?;
+
+        let mut hits = Vec::new();
+        for row in rows {
+            let id = MemoryId(parse_ulid(&row.map_err(backend)?)?);
+            if let Some(memory) = self.memory_by_id(id)? {
+                hits.push(memory);
+                if hits.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(hits)
+    }
+
     fn fetch_memory(&self, column: &str, value: &str) -> Result<Option<MemoryView>, GraphError> {
         let sql = format!(
             "SELECT id, name, description, volatility, created_at FROM memories
@@ -355,6 +620,53 @@ impl Graph {
         }
         Ok(tags)
     }
+
+    /// Resolve a link (asserted under either label) to its stored canonical direction:
+    /// `(from_id, to_id, canonical_relation)`. A relation matched by its inverse swaps endpoints;
+    /// a symmetric relation orders endpoints so `(a, b)` and `(b, a)` collapse to one edge. An
+    /// unregistered relation is stored as given (the Lua layer enforces registration in Stage 4).
+    fn canonical_edge(
+        &self,
+        from: MemoryId,
+        to: MemoryId,
+        relation: &RelationName,
+    ) -> Result<(String, String, String), GraphError> {
+        let from = from.0.to_string();
+        let to = to.0.to_string();
+        let label = relation.as_str();
+
+        let resolved: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT name, symmetric FROM relations WHERE name = ?1 OR inverse = ?1",
+                params![label],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()
+            .map_err(backend)?;
+
+        Ok(match resolved {
+            None => (from, to, label.to_owned()),
+            Some((canonical, symmetric)) if symmetric != 0 => {
+                let (lo, hi) = if from <= to { (from, to) } else { (to, from) };
+                (lo, hi, canonical)
+            }
+            Some((canonical, _)) if label == canonical => (from, to, canonical),
+            Some((canonical, _)) => (to, from, canonical),
+        })
+    }
+
+    fn query_ids(&self, sql: &str, id: &str, relation: &str) -> Result<Vec<String>, GraphError> {
+        let mut stmt = self.conn.prepare(sql).map_err(backend)?;
+        let rows = stmt
+            .query_map(params![id, relation], |r| r.get::<_, String>(0))
+            .map_err(backend)?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row.map_err(backend)?);
+        }
+        Ok(ids)
+    }
 }
 
 /// The raw memory columns, shared by the single- and multi-row read paths.
@@ -372,6 +684,22 @@ fn row_to_memory_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryColu
 
 fn parse_ulid(text: &str) -> Result<Ulid, GraphError> {
     Ulid::from_string(text).map_err(|e| GraphError::Backend(format!("invalid ulid {text:?}: {e}")))
+}
+
+fn parse_cardinality(text: &str) -> Result<Cardinality, GraphError> {
+    Cardinality::parse(text)
+        .ok_or_else(|| GraphError::Backend(format!("unknown cardinality {text:?}")))
+}
+
+/// Build an FTS5 MATCH expression from free text: each whitespace-separated term becomes a quoted
+/// phrase (with embedded quotes doubled), joined as an implicit AND. Empty input yields an empty
+/// string, which the caller treats as "no query".
+fn build_match(query: &str) -> String {
+    query
+        .split_whitespace()
+        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn backend(error: rusqlite::Error) -> GraphError {

@@ -91,3 +91,19 @@ impl TagName {
         self.0.as_str()
     }
 }
+
+/// A link relation's canonical name (e.g. `mentor_of`). One relation has two labels — itself and
+/// its inverse — and the materializer canonicalizes to this name (spec §Data model: link relation).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RelationName(pub SmolStr);
+
+impl RelationName {
+    pub fn new(name: impl Into<SmolStr>) -> RelationName {
+        RelationName(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
