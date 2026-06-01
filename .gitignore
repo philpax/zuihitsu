@@ -3,6 +3,9 @@
 # Environmental config — endpoints, credentials, DB paths. Per-instance, never committed.
 /config.toml
 
+# Per-instance databases (the default config puts them here).
+/data/
+
 # Stage 0 spike (throwaway) — venv, caches, and run artifacts.
 /spike/.venv/
 __pycache__/

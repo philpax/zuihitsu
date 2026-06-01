@@ -72,6 +72,7 @@ pub fn rollout(
 ) -> Result<Rollout, StoreError> {
     let existing = store.read_from(Seq::ZERO)?;
     if existing.iter().any(is_genesis_completed) {
+        tracing::debug!("genesis already complete; nothing to roll out");
         return Ok(Rollout::AlreadyComplete);
     }
 
@@ -161,6 +162,7 @@ pub fn rollout(
 
     let events_emitted = to_emit.len();
     store.append(clock.now(), to_emit)?;
+    tracing::info!(events_emitted, agent = %seed.agent_name, "rolled out genesis");
     Ok(Rollout::Created { events_emitted })
 }
 

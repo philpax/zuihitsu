@@ -45,8 +45,10 @@ impl Server {
     /// in the commit window — and classify the log for the caller to act on. The single-writer log
     /// lock is acquired when the (file-backed) store is opened, before the server is constructed.
     pub fn boot(&mut self) -> Result<GenesisStatus, ServerError> {
-        self.graph.materialize_from(self.store.as_ref())?;
-        Ok(genesis::status(self.store.as_ref())?)
+        let applied = self.graph.materialize_from(self.store.as_ref())?;
+        let status = genesis::status(self.store.as_ref())?;
+        tracing::info!(?status, applied, "server booted");
+        Ok(status)
     }
 
     /// The operator-authority API facet.

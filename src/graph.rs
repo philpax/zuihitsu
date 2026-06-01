@@ -53,8 +53,7 @@ pub struct LinkView {
     pub relation: RelationName,
 }
 
-/// A failure projecting or querying the graph. Display messages are lowercase fragments suitable
-/// for "failed to {…}".
+/// A failure projecting or querying the graph.
 #[derive(Debug)]
 pub enum GraphError {
     Backend(String),
@@ -63,7 +62,7 @@ pub enum GraphError {
 impl std::fmt::Display for GraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphError::Backend(message) => write!(f, "access the materialized graph: {message}"),
+            GraphError::Backend(message) => write!(f, "materialized graph error: {message}"),
         }
     }
 }
@@ -160,6 +159,7 @@ impl Graph {
         for event in &events {
             self.apply(event)?;
         }
+        tracing::debug!(applied = events.len(), from = from.0, "materialized graph");
         Ok(events.len())
     }
 

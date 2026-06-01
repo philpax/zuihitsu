@@ -6,6 +6,7 @@
 //! agent constructible in memory for tests without a database, a network, or a wall clock.
 
 pub mod clock;
+pub mod config;
 pub mod embed;
 pub mod event;
 pub mod fetch;
@@ -20,6 +21,7 @@ pub mod store;
 pub mod vector;
 
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use config::{ConfigError, EnvConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
     Cardinality, ConfigValue, Event, EventPayload, EventSource, LinkSource, Volatility,

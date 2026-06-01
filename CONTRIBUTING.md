@@ -64,13 +64,19 @@
 - Two-tier error model:
   - `ExpectedError`: User/external errors with semantic exit codes.
   - Internal errors: Programming errors that may panic or use internal error types.
-- Error display messages should be lowercase sentence fragments suitable for "failed to {error}".
+- Error display messages should be descriptive and self-contained: name the operation or subsystem and the cause (e.g. "event store error: …", "could not open the event log at /path: …"), and add context like the path or resource at the layer that has it. Avoid bare "failed to {x}" glue.
 
 ### Async patterns
 
 - Do not introduce async to a project without async.
 - Use `tokio` for async runtime (multi-threaded).
 - Use async for I/O and concurrency, keep other code synchronous.
+
+### Logging
+
+- Use `tracing` for diagnostic and operational logging throughout, emitting at meaningful points, not noisily.
+- Install the subscriber only in binaries, and send logs to stderr.
+- The CLI is an operator/diagnostic tool, so its output goes through `tracing` too — the user-facing interface is the web frontend. Reserve `stdout`/`println!` for genuine machine-readable command output if a command ever needs it.
 
 ### Module organization
 
