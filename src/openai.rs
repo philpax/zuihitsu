@@ -264,7 +264,10 @@ fn into_completion(message: ChatCompletionResponseMessage) -> Completion {
         Some(calls) if !calls.is_empty() => {
             Completion::ToolCalls(calls.into_iter().filter_map(response_tool_call).collect())
         }
-        _ => Completion::Reply(message.content.unwrap_or_default()),
+        // Trim surrounding whitespace: with thinking on, the content after the reasoning block
+        // arrives with leading newlines from the template's reasoning/content boundary, and that
+        // would otherwise be recorded verbatim in the durable turn.
+        _ => Completion::Reply(message.content.unwrap_or_default().trim().to_owned()),
     }
 }
 
