@@ -148,4 +148,21 @@ mod sqlite {
         let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
         let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
+
+    /// One log, one writer: a second open of the same file is refused while the first is held, and
+    /// succeeds once it is released.
+    #[test]
+    fn exclusive_lock_blocks_a_second_writer() {
+        let path =
+            std::env::temp_dir().join(format!("zuihitsu-lock-{}.sqlite", MemoryId::generate().0));
+
+        let first = SqliteStore::open(&path).unwrap();
+        assert!(SqliteStore::open(&path).is_err()); // already open
+        drop(first);
+        assert!(SqliteStore::open(&path).is_ok()); // lock released
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    }
 }

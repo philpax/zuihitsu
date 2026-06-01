@@ -2,37 +2,56 @@
 //! once and never modified; if everything else is lost, the system rebuilds from this (spec
 //! §Storage). The per-process subscriber set is shared with the in-memory backend via `notify`.
 
-use std::path::Path;
-use std::sync::mpsc::{Sender, channel};
+use std::{
+    fs::File,
+    path::Path,
+    sync::mpsc::{Sender, channel},
+};
 
+use fs2::FileExt;
 use rusqlite::{Connection, params};
 
-use crate::event::{Event, EventPayload};
-use crate::ids::{Seq, Timestamp};
+use crate::{
+    event::{Event, EventPayload},
+    ids::{Seq, Timestamp},
+};
 
 use super::{Store, StoreError, Subscription, notify};
 
 pub struct SqliteStore {
     conn: Connection,
     subscribers: Vec<Sender<Event>>,
+    // Held for the store's lifetime: an exclusive advisory lock enforcing one log, one writer
+    // (spec principle 10). `None` for in-memory logs, which can't be shared. Released on drop.
+    _lock: Option<File>,
 }
 
 impl SqliteStore {
-    /// Open (creating if absent) a file-backed log in WAL mode.
+    /// Open (creating if absent) a file-backed log in WAL mode, taking an exclusive lock on it.
+    /// Fails if another writer already holds the log — the runtime enforcement of one-writer.
     pub fn open(path: impl AsRef<Path>) -> Result<SqliteStore, StoreError> {
+        let path = path.as_ref();
         let conn = Connection::open(path).map_err(backend)?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(backend)?;
-        Self::init(conn)
+        let lock =
+            File::open(path).map_err(|e| StoreError::Backend(format!("open log lock: {e}")))?;
+        lock.try_lock_exclusive().map_err(|_| {
+            StoreError::Backend(format!(
+                "event log {} is already open by another writer",
+                path.display()
+            ))
+        })?;
+        Self::init(conn, Some(lock))
     }
 
-    /// Open an ephemeral in-memory log. Used by tests; WAL is not applicable here.
+    /// Open an ephemeral in-memory log. Used by tests; WAL and locking are not applicable here.
     pub fn open_in_memory() -> Result<SqliteStore, StoreError> {
         let conn = Connection::open_in_memory().map_err(backend)?;
-        Self::init(conn)
+        Self::init(conn, None)
     }
 
-    fn init(conn: Connection) -> Result<SqliteStore, StoreError> {
+    fn init(conn: Connection, lock: Option<File>) -> Result<SqliteStore, StoreError> {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS events (
                  seq         INTEGER PRIMARY KEY,
@@ -48,6 +67,7 @@ impl SqliteStore {
         Ok(SqliteStore {
             conn,
             subscribers: Vec::new(),
+            _lock: lock,
         })
     }
 }

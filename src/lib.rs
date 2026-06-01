@@ -14,6 +14,8 @@ pub mod genesis;
 pub mod graph;
 pub mod ids;
 pub mod model;
+#[cfg(feature = "sqlite")]
+pub mod server;
 pub mod store;
 pub mod vector;
 
@@ -31,6 +33,8 @@ pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
     ToolSpec,
 };
+#[cfg(feature = "sqlite")]
+pub use server::{Control, Server, ServerError};
 #[cfg(feature = "sqlite")]
 pub use store::SqliteStore;
 pub use store::{MemoryStore, Store, StoreError};
