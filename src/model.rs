@@ -60,7 +60,7 @@ pub trait ModelClient: Send + Sync {
     async fn generate(&self, request: &GenerateRequest) -> Result<Completion, ModelError>;
 }
 
-/// A model-inference failure. Display messages are lowercase fragments suitable for "failed to {…}".
+/// A model-inference failure.
 #[derive(Debug)]
 pub enum ModelError {
     /// The backend (network, inference server) failed.
@@ -72,12 +72,9 @@ pub enum ModelError {
 impl std::fmt::Display for ModelError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModelError::Backend(message) => write!(f, "reach the model backend: {message}"),
+            ModelError::Backend(message) => write!(f, "model backend error: {message}"),
             ModelError::Exhausted => {
-                write!(
-                    f,
-                    "produce a model response: the scripted model is exhausted"
-                )
+                write!(f, "the scripted model has no more programmed responses")
             }
         }
     }

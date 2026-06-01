@@ -12,7 +12,7 @@ pub trait Fetcher: Send + Sync {
     async fn fetch_page(&self, url: &str) -> Result<String, FetchError>;
 }
 
-/// A fetch failure. Display messages are lowercase fragments suitable for "failed to {…}".
+/// A fetch failure.
 #[derive(Debug)]
 pub enum FetchError {
     /// No content is available for the URL (the canned fetcher has nothing for it).
@@ -26,9 +26,9 @@ pub enum FetchError {
 impl std::fmt::Display for FetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FetchError::NotFound => write!(f, "fetch the page: no content for this url"),
-            FetchError::Blocked(reason) => write!(f, "fetch the page: blocked: {reason}"),
-            FetchError::Backend(message) => write!(f, "fetch the page: {message}"),
+            FetchError::NotFound => write!(f, "no content is available for that URL"),
+            FetchError::Blocked(reason) => write!(f, "the URL was rejected: {reason}"),
+            FetchError::Backend(message) => write!(f, "page fetch error: {message}"),
         }
     }
 }

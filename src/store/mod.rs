@@ -47,7 +47,7 @@ pub trait Store {
     fn subscribe(&mut self) -> Subscription;
 }
 
-/// An event-store failure. Display messages are lowercase fragments suitable for "failed to {…}".
+/// An event-store failure.
 #[derive(Debug)]
 pub enum StoreError {
     /// The underlying backend (e.g. SQLite) reported an error.
@@ -59,8 +59,10 @@ pub enum StoreError {
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StoreError::Backend(message) => write!(f, "access the event store: {message}"),
-            StoreError::Serialize(error) => write!(f, "serialize an event payload: {error}"),
+            StoreError::Backend(message) => write!(f, "event store error: {message}"),
+            StoreError::Serialize(error) => {
+                write!(f, "event payload serialization error: {error}")
+            }
         }
     }
 }
