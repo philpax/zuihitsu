@@ -1,1 +1,10 @@
 /target
+
+# Environmental config — endpoints, credentials, DB paths. Per-instance, never committed.
+/config.toml
+
+# Stage 0 spike (throwaway) — venv, caches, and run artifacts.
+/spike/.venv/
+__pycache__/
+*.pyc
+/spike/runs/
