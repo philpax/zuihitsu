@@ -12,6 +12,7 @@ name = "zuihitsu"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = "0.1.89"
 rusqlite = { version = "0.40.0", features = ["bundled"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
@@ -23,3 +24,6 @@ default = ["sqlite"]
 # The SQLite-backed event store. With this off, only the in-memory store and fakes are built,
 # which is the pure no-I/O configuration the tests exercise via --no-default-features.
 sqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+tokio = { version = "1.52.3", features = ["rt", "macros"] }
