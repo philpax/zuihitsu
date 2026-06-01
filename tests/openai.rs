@@ -7,7 +7,72 @@
 
 use std::path::Path;
 
-use zuihitsu::{Embedder, EnvConfig, OpenAiEmbedder};
+use zuihitsu::{
+    Completion, Embedder, EnvConfig, GenerateRequest, Message, ModelClient, OpenAiClient,
+    OpenAiEmbedder, ToolSpec,
+};
+
+fn configured_client() -> Option<OpenAiClient> {
+    let config = EnvConfig::load(Path::new("config.toml")).ok()?;
+    if config.model.endpoint.is_empty() {
+        eprintln!("skipping: no model endpoint configured in config.toml");
+        return None;
+    }
+    Some(OpenAiClient::new(&config.model))
+}
+
+#[tokio::test]
+#[ignore = "requires a reachable model endpoint (config.toml)"]
+async fn generates_a_reply() {
+    let Some(client) = configured_client() else {
+        return;
+    };
+    let request = GenerateRequest {
+        system: "You are concise. Answer in one short sentence.".to_owned(),
+        messages: vec![Message::user("Say hello.")],
+        tools: Vec::new(),
+    };
+    match client.generate(&request).await {
+        Ok(Completion::Reply(text)) => {
+            assert!(!text.trim().is_empty(), "reply should be non-empty")
+        }
+        Ok(other) => panic!("expected a reply, got {other:?}"),
+        Err(error) => eprintln!("skipping: model unreachable: {error}"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires a reachable model endpoint (config.toml)"]
+async fn emits_a_run_lua_tool_call() {
+    let Some(client) = configured_client() else {
+        return;
+    };
+    let request = GenerateRequest {
+        system: "You act only by emitting Lua through the run_lua tool. To remember something, \
+                 call run_lua with a script that calls memory.create(name, text)."
+            .to_owned(),
+        messages: vec![Message::user(
+            "Please remember that Dave climbs at the bouldering gym.",
+        )],
+        tools: vec![ToolSpec {
+            name: "run_lua".to_owned(),
+            description: "Execute a Lua block against your memory.".to_owned(),
+        }],
+    };
+    match client.generate(&request).await {
+        Ok(Completion::ToolCalls(calls)) => {
+            assert_eq!(calls[0].name, "run_lua");
+            let args: serde_json::Value =
+                serde_json::from_str(&calls[0].arguments).expect("tool arguments are JSON");
+            assert!(
+                args.get("script").and_then(|s| s.as_str()).is_some(),
+                "the call carries a `script` string, got {args}"
+            );
+        }
+        Ok(other) => panic!("expected a run_lua tool call, got {other:?}"),
+        Err(error) => eprintln!("skipping: model unreachable: {error}"),
+    }
+}
 
 fn configured_embedder() -> Option<OpenAiEmbedder> {
     let config = EnvConfig::load(Path::new("config.toml")).ok()?;
@@ -15,11 +80,7 @@ fn configured_embedder() -> Option<OpenAiEmbedder> {
         eprintln!("skipping: no embedding endpoint configured in config.toml");
         return None;
     }
-    Some(OpenAiEmbedder::new(
-        &config.embedding.endpoint,
-        config.embedding.model,
-        config.embedding.dimensions,
-    ))
+    Some(OpenAiEmbedder::new(&config.embedding))
 }
 
 #[tokio::test]

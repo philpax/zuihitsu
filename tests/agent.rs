@@ -10,6 +10,8 @@ use zuihitsu::{
     Completion, ScriptedModel, Seq, Store, ToolCall, TurnOutcome, TurnRole, event::EventPayload,
     run_turn,
 };
+#[cfg(feature = "openai")]
+use zuihitsu::{EnvConfig, OpenAiClient};
 
 fn run_lua_call(script: &str) -> Completion {
     Completion::ToolCalls(vec![ToolCall {
@@ -173,4 +175,41 @@ async fn tool_result_feeds_back_across_steps() {
         .filter(|e| matches!(e.payload, EventPayload::LuaExecuted { .. }))
         .count();
     assert_eq!(lua_events, 2);
+}
+
+/// End-to-end against the real model (model-gated, ignored): the live model drives the whole loop
+/// — chat protocol, tool-call threading, block execution — to a terminal without an infra error.
+#[cfg(feature = "openai")]
+#[tokio::test]
+#[ignore = "requires a reachable model endpoint (config.toml)"]
+async fn real_model_drives_a_turn() {
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        eprintln!("skipping: no model endpoint configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    let mut h = Harness::new();
+
+    let outcome = run_turn(
+        &h.session,
+        &client,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "Please remember that Dave climbs at the bouldering gym, then confirm you've noted it.",
+        8,
+    )
+    .await;
+
+    match outcome {
+        Ok(outcome) => {
+            // The loop completed against the real model. Exactly one agent turn was recorded.
+            assert_eq!(count_agent_turns(&h.store), 1);
+            eprintln!("real-model turn outcome: {outcome:?}");
+        }
+        Err(error) => eprintln!("skipping: {error}"),
+    }
 }

@@ -8,11 +8,47 @@ use std::{collections::VecDeque, sync::Mutex};
 
 use async_trait::async_trait;
 
-/// A message in the conversation handed to the model.
+/// A message in the conversation handed to the model. `tool_calls` is populated on an assistant
+/// message that called tools; `tool_call_id` ties a tool-result message to the call it answers —
+/// the threading the OpenAI protocol needs across multi-step tool use.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub role: Role,
     pub content: String,
+    pub tool_calls: Vec<ToolCall>,
+    pub tool_call_id: Option<String>,
+}
+
+impl Message {
+    /// An inbound user message.
+    pub fn user(content: impl Into<String>) -> Message {
+        Message {
+            role: Role::User,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+
+    /// The assistant's step that emitted these tool calls.
+    pub fn assistant_tool_calls(tool_calls: Vec<ToolCall>) -> Message {
+        Message {
+            role: Role::Assistant,
+            content: String::new(),
+            tool_calls,
+            tool_call_id: None,
+        }
+    }
+
+    /// The result of one tool call, answering `tool_call_id`.
+    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Message {
+        Message {
+            role: Role::Tool,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: Some(tool_call_id.into()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

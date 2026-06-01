@@ -15,9 +15,7 @@ use crate::{
     graph::Graph,
     ids::{ConversationId, TurnId},
     lua::{BlockOutcome, LuaError, Session},
-    model::{
-        Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ToolCall, ToolSpec,
-    },
+    model::{Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolSpec},
     store::{Store, StoreError},
 };
 
@@ -55,10 +53,7 @@ pub async fn run_turn(
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it.
     let turn_id = TurnId::generate();
     let tools = vec![run_lua_tool()];
-    let mut messages = vec![Message {
-        role: Role::User,
-        content: inbound.to_owned(),
-    }];
+    let mut messages = vec![Message::user(inbound)];
 
     for _ in 0..max_steps {
         let request = GenerateRequest {
@@ -68,16 +63,10 @@ pub async fn run_turn(
         };
         match model.generate(&request).await? {
             Completion::ToolCalls(calls) => {
-                for call in calls {
-                    let result = run_tool_call(session, store, graph, clock, turn_id, &call)?;
-                    messages.push(Message {
-                        role: Role::Assistant,
-                        content: format!("[{}] {}", call.name, call.arguments),
-                    });
-                    messages.push(Message {
-                        role: Role::Tool,
-                        content: result,
-                    });
+                messages.push(Message::assistant_tool_calls(calls.clone()));
+                for call in &calls {
+                    let result = run_tool_call(session, store, graph, clock, turn_id, call)?;
+                    messages.push(Message::tool_result(call.id.clone(), result));
                 }
             }
             Completion::Reply(text) => {

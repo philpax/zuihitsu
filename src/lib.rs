@@ -49,7 +49,7 @@ pub use model::{
     ToolSpec,
 };
 #[cfg(feature = "openai")]
-pub use openai::OpenAiEmbedder;
+pub use openai::{OpenAiClient, OpenAiEmbedder};
 #[cfg(feature = "sqlite")]
 pub use server::{Control, Server, ServerError};
 #[cfg(feature = "sqlite")]

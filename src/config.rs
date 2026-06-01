@@ -20,12 +20,21 @@ pub struct EnvConfig {
     pub embedding: EmbeddingConfig,
 }
 
-/// Where to reach the generation model. An empty `endpoint` means "not configured".
+/// Where to reach the generation model, and how to sample from it. An empty `endpoint` means "not
+/// configured". Each sampling field is optional: unset fields are simply not sent, so the serving
+/// layer applies its own per-model default.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct ModelConfig {
     pub endpoint: String,
     pub llm: String,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub top_k: Option<u32>,
+    pub min_p: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    /// Override the serving layer's thinking default (`chat_template_kwargs.enable_thinking`).
+    pub thinking: Option<bool>,
 }
 
 /// Where to reach the embedding model, and the dimensionality it produces.
