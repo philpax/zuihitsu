@@ -585,6 +585,40 @@ impl Graph {
         Ok(hits)
     }
 
+    /// Lexical hits with their raw FTS5 bm25 score (more negative is a better match), for the
+    /// multi-signal ranker to normalize and blend. Deleted memories are excluded.
+    pub fn search_lexical(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(MemoryId, f32)>, GraphError> {
+        let match_query = build_match(query);
+        if match_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.memory_id, bm25(memories_fts) AS score
+                 FROM memories_fts f JOIN memories m ON m.id = f.memory_id
+                 WHERE memories_fts MATCH ?1 AND m.deleted = 0
+                 ORDER BY score LIMIT ?2",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![match_query, limit as i64], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(backend)?;
+
+        let mut hits = Vec::new();
+        for row in rows {
+            let (id, score) = row.map_err(backend)?;
+            hits.push((MemoryId(parse_ulid(&id)?), score as f32));
+        }
+        Ok(hits)
+    }
+
     fn fetch_memory(&self, column: &str, value: &str) -> Result<Option<MemoryView>, GraphError> {
         let sql = format!(
             "SELECT id, name, description, volatility, created_at FROM memories

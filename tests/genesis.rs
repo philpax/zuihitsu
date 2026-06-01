@@ -3,7 +3,7 @@
 //! GenesisCompleted, never log emptiness (spec §Initialization).
 
 use zuihitsu::{
-    ManualClock, MemoryStore, SeedSelf, Seq, Store, Timestamp,
+    ManualClock, MemoryStore, SeedSelf, Seq, Settings, Store, Timestamp,
     event::EventPayload,
     genesis::{self, GenesisStatus, Rollout},
 };
@@ -139,8 +139,7 @@ fn manifest_hash_is_stable_across_a_resume() {
         .append(
             Timestamp::from_millis(500),
             vec![EventPayload::ConfigSet {
-                key: "max_steps".to_owned(),
-                value: zuihitsu::ConfigValue::Int(12),
+                settings: Settings::default(),
                 source: zuihitsu::EventSource::Bootstrap,
             }],
         )

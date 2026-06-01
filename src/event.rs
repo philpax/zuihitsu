@@ -10,8 +10,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{
-    ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,
+use crate::{
+    ids::{
+        ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp,
+        TurnId,
+    },
+    settings::Settings,
 };
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
@@ -132,20 +136,10 @@ pub enum TerminalCause {
     Aborted(String),
 }
 
-/// A behavioral tunable's value. Flat per-key scalars, never structured policy objects (spec
-/// §Initialization → configuration).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ConfigValue {
-    Int(i64),
-    Float(f64),
-    Text(String),
-    Bool(bool),
-}
-
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
 /// [`Event`] envelope rather than here, because they are assigned by the store at append time.
 ///
-/// Not `Eq`: [`ConfigValue`] carries an `f64`. Equality is `PartialEq` throughout.
+/// Not `Eq`: [`Settings`] carries `f32` search weights. Equality is `PartialEq` throughout.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum EventPayload {
@@ -237,11 +231,11 @@ pub enum EventPayload {
         body: String,
         source: EventSource,
     },
-    /// Sets a behavioral tunable. Current config is the latest `ConfigSet` per key; defaults are
-    /// seeded at genesis. Lives in the log so replay reproduces the behavior the value produced.
+    /// Sets the behavioral tunables to a whole [`Settings`] snapshot. The current settings are the
+    /// latest `ConfigSet`; defaults are seeded at genesis. Lives in the log so replay reproduces the
+    /// behavior the values produced.
     ConfigSet {
-        key: String,
-        value: ConfigValue,
+        settings: Settings,
         source: EventSource,
     },
     /// Records one executed Lua block — what the agent saw. The stored `result` is the value
@@ -317,7 +311,8 @@ impl EventPayload {
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.clone()),
-            EventPayload::ConfigSet { key, .. } => Some(key.clone()),
+            // A whole-settings snapshot, not about a single entity.
+            EventPayload::ConfigSet { .. } => None,
             // Touches many memories rather than one; recoverable from its `touched` set, not a
             // single target column.
             EventPayload::LuaExecuted { .. } => None,

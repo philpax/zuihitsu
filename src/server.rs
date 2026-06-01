@@ -10,10 +10,9 @@
 
 use crate::{
     clock::Clock,
-    event::{ConfigValue, EventPayload},
     genesis::{self, GenesisStatus, Rollout, SeedSelf},
     graph::{Graph, GraphError, MemoryView},
-    ids::Seq,
+    settings::Settings,
     store::{MemoryStore, Store, StoreError},
 };
 
@@ -84,22 +83,9 @@ impl Control<'_> {
         Ok(self.server.graph.memory_by_name(name)?)
     }
 
-    /// The current value of a behavioral tunable: the latest `ConfigSet` for `key`.
-    pub fn config(&self, key: &str) -> Result<Option<ConfigValue>, ServerError> {
-        let events = self.server.store.read_from(Seq::ZERO)?;
-        let mut current = None;
-        for event in events {
-            if let EventPayload::ConfigSet {
-                key: set_key,
-                value,
-                ..
-            } = event.payload
-                && set_key == key
-            {
-                current = Some(value);
-            }
-        }
-        Ok(current)
+    /// The agent's current behavioral settings: the latest `ConfigSet` snapshot.
+    pub fn settings(&self) -> Result<Settings, ServerError> {
+        Ok(Settings::from_store(self.server.store.as_ref())?)
     }
 }
 

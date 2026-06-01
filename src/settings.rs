@@ -1,0 +1,166 @@
+//! Behavioral settings — the agent's tunables, stored in the log as a single typed struct.
+//!
+//! These are distinct from [`EnvConfig`](crate::config::EnvConfig), which is the serving/environment
+//! config read from `config.toml` (endpoints, sampling). Settings instead live *in the log*: a
+//! `ConfigSet` event carries a whole [`Settings`] snapshot, seeded at genesis and replaced when an
+//! operator changes a tunable, so replay reproduces the behavior each value produced. The current
+//! settings are the latest snapshot ([`Settings::from_store`]).
+//!
+//! The schema is **append-only**: fields are deprecated, never removed, so every snapshot ever
+//! written still deserializes. A field absent from an older snapshot deserializes to its build
+//! default — every struct is `#[serde(default)]` over a [`Default`] of the spec's starting values —
+//! which is exactly the "a knob that didn't exist at this agent's genesis adopts the build default"
+//! behavior the configuration design calls for (spec §Initialization → configuration). This is a
+//! grouped, typed struct, deliberately not a per-context policy language: per-context variation, if
+//! ever wanted, belongs in the agent's reasoning over the `context/*` memory, not here.
+
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    event::EventPayload,
+    ids::Seq,
+    store::{Store, StoreError},
+};
+
+/// The agent's behavioral tunables, grouped by the subsystem each shapes. [`Default`] is the spec's
+/// starting values (each substruct carries its own).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub compaction: CompactionSettings,
+    pub brief: BriefSettings,
+    pub turn: TurnSettings,
+    pub search: SearchSettings,
+}
+
+/// Session segmentation and the carryover across a compaction seam.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompactionSettings {
+    /// Buffer token budget that triggers a re-segment.
+    pub token_budget: i64,
+    /// Quiet period that ends a session.
+    pub idle_gap_seconds: i64,
+    /// How much raw transcript crosses a compaction boundary.
+    pub carryover_char_budget: i64,
+}
+
+/// Brief composition: what enters each brief, and how many participants get one.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BriefSettings {
+    pub token_budget: i64,
+    pub recent_facts: i64,
+    pub present_set_cap: i64,
+}
+
+/// The agent step loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TurnSettings {
+    /// Per-turn step bound; hitting it ends the turn with a surfaced error.
+    pub max_steps: i64,
+}
+
+/// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
+/// decay.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchSettings {
+    pub cosine: f32,
+    pub bm25: f32,
+    pub tag: f32,
+    pub recency: RecencySettings,
+}
+
+/// The recency bonus and its volatility-dependent decay constant.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecencySettings {
+    /// Maximum recency contribution (at zero age).
+    pub bonus: f32,
+    /// Decay time constant in days, by the memory's volatility.
+    pub tau_days: TauDays,
+}
+
+/// The recency decay constant (in days) for each [`Volatility`](crate::event::Volatility) level.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TauDays {
+    pub high: f32,
+    pub medium: f32,
+    pub low: f32,
+}
+
+impl Default for CompactionSettings {
+    fn default() -> Self {
+        CompactionSettings {
+            token_budget: 24_000,
+            idle_gap_seconds: 1_800,
+            carryover_char_budget: 4_000,
+        }
+    }
+}
+
+impl Default for BriefSettings {
+    fn default() -> Self {
+        BriefSettings {
+            token_budget: 2_000,
+            recent_facts: 8,
+            present_set_cap: 10,
+        }
+    }
+}
+
+impl Default for TurnSettings {
+    fn default() -> Self {
+        TurnSettings { max_steps: 12 }
+    }
+}
+
+impl Default for SearchSettings {
+    fn default() -> Self {
+        SearchSettings {
+            cosine: 0.5,
+            bm25: 0.3,
+            tag: 0.2,
+            recency: RecencySettings::default(),
+        }
+    }
+}
+
+impl Default for RecencySettings {
+    fn default() -> Self {
+        RecencySettings {
+            bonus: 0.3,
+            tau_days: TauDays::default(),
+        }
+    }
+}
+
+impl Default for TauDays {
+    fn default() -> Self {
+        TauDays {
+            high: 90.0,
+            medium: 365.0,
+            low: 3650.0,
+        }
+    }
+}
+
+impl Settings {
+    /// The current settings: the latest `ConfigSet` snapshot in the log, or [`Default`] if none has
+    /// been written yet.
+    pub fn from_store(store: &dyn Store) -> Result<Settings, StoreError> {
+        let mut settings = Settings::default();
+        for event in store.read_from(Seq::ZERO)? {
+            if let EventPayload::ConfigSet {
+                settings: logged, ..
+            } = event.payload
+            {
+                settings = logged;
+            }
+        }
+        Ok(settings)
+    }
+}

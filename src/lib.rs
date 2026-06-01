@@ -22,7 +22,10 @@ pub mod model;
 #[cfg(feature = "openai")]
 pub mod openai;
 #[cfg(feature = "sqlite")]
+pub mod search;
+#[cfg(feature = "sqlite")]
 pub mod server;
+pub mod settings;
 pub mod store;
 pub mod vector;
 
@@ -32,8 +35,8 @@ pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
-    Cardinality, ConfigValue, Event, EventPayload, EventSource, Initiation, LinkSource,
-    TerminalCause, TurnRole, Volatility,
+    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, TerminalCause, TurnRole,
+    Volatility,
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
@@ -51,7 +54,13 @@ pub use model::{
 #[cfg(feature = "openai")]
 pub use openai::{OpenAiClient, OpenAiEmbedder};
 #[cfg(feature = "sqlite")]
+pub use search::{SearchHit, search};
+#[cfg(feature = "sqlite")]
 pub use server::{Control, Server, ServerError};
+pub use settings::{
+    BriefSettings, CompactionSettings, RecencySettings, SearchSettings, Settings, TauDays,
+    TurnSettings,
+};
 #[cfg(feature = "sqlite")]
 pub use store::SqliteStore;
 pub use store::{MemoryStore, Store, StoreError};

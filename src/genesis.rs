@@ -14,8 +14,9 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     clock::Clock,
-    event::{Cardinality, ConfigValue, EventPayload, EventSource},
+    event::{Cardinality, EventPayload, EventSource},
     ids::{EntryId, MemoryId, MemoryName, RelationName, Seq},
+    settings::Settings,
     store::{Store, StoreError},
 };
 
@@ -78,7 +79,7 @@ pub fn rollout(
 
     let mut templates_present: BTreeSet<(String, u32)> = BTreeSet::new();
     let mut relations_present: BTreeSet<String> = BTreeSet::new();
-    let mut configs_present: BTreeSet<String> = BTreeSet::new();
+    let mut config_present = false;
     let mut self_present = false;
     for event in &existing {
         match &event.payload {
@@ -88,8 +89,8 @@ pub fn rollout(
             EventPayload::LinkTypeRegistered { name, .. } => {
                 relations_present.insert(name.as_str().to_owned());
             }
-            EventPayload::ConfigSet { key, .. } => {
-                configs_present.insert(key.clone());
+            EventPayload::ConfigSet { .. } => {
+                config_present = true;
             }
             EventPayload::MemoryCreated { name, .. } if name.as_str() == "self" => {
                 self_present = true;
@@ -125,14 +126,11 @@ pub fn rollout(
         }
     }
 
-    for (key, value) in default_config() {
-        if !configs_present.contains(&key) {
-            to_emit.push(EventPayload::ConfigSet {
-                key,
-                value,
-                source: EventSource::Bootstrap,
-            });
-        }
+    if !config_present {
+        to_emit.push(EventPayload::ConfigSet {
+            settings: Settings::default(),
+            source: EventSource::Bootstrap,
+        });
     }
 
     if !self_present {
@@ -254,31 +252,6 @@ fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
         },
     ]
-}
-
-/// Default behavioral tunables, with the concrete values the spec sets so the system is buildable
-/// and testable from day one (spec §Time → search scoring, §Initialization → configuration).
-fn default_config() -> Vec<(String, ConfigValue)> {
-    use ConfigValue::{Float, Int};
-    [
-        ("compaction_token_budget", Int(24_000)),
-        ("idle_gap_seconds", Int(1_800)),
-        ("carryover_char_budget", Int(4_000)),
-        ("brief_token_budget", Int(2_000)),
-        ("recent_facts_count", Int(8)),
-        ("present_set_cap", Int(10)),
-        ("max_steps", Int(12)),
-        ("search_weight_cosine", Float(0.5)),
-        ("search_weight_bm25", Float(0.3)),
-        ("search_weight_tag", Float(0.2)),
-        ("recency_bonus_max", Float(0.3)),
-        ("recency_tau_high_days", Int(90)),
-        ("recency_tau_medium_days", Int(365)),
-        ("recency_tau_low_days", Int(3_650)),
-    ]
-    .into_iter()
-    .map(|(key, value)| (key.to_owned(), value))
-    .collect()
 }
 
 /// A content hash over the genesis manifest — the seed-self and the template versions — so it is

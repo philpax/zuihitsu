@@ -4,7 +4,7 @@
 #![cfg(feature = "sqlite")]
 
 use zuihitsu::{
-    ConfigValue, Graph, ManualClock, MemoryId, SeedSelf, Server, SqliteStore, Timestamp,
+    Graph, ManualClock, MemoryId, SeedSelf, Server, SqliteStore, Timestamp,
     genesis::{GenesisStatus, Rollout},
 };
 
@@ -42,10 +42,7 @@ fn control_creates_and_inspects_an_agent() {
             .as_str(),
         "self"
     );
-    assert_eq!(
-        server.control().config("max_steps").unwrap(),
-        Some(ConfigValue::Int(12))
-    );
+    assert_eq!(server.control().settings().unwrap().turn.max_steps, 12);
     assert!(server.control().memory("person/nobody").unwrap().is_none());
 
     // Creating again is a no-op on a born agent.
