@@ -165,7 +165,11 @@ impl Graph {
     /// `(type, version)` dispatch; a wrong arm is a silent-leak class the eval harness backstops.
     pub fn apply(&mut self, event: &Event) -> Result<(), GraphError> {
         match &event.payload {
-            EventPayload::GenesisCompleted { .. } => {}
+            // No graph projection: genesis marker, and orchestration/behavioral config which the
+            // server reads from the log rather than the graph.
+            EventPayload::GenesisCompleted { .. }
+            | EventPayload::PromptTemplateRegistered { .. }
+            | EventPayload::ConfigSet { .. } => {}
             EventPayload::MemoryCreated { id, name } => {
                 self.conn
                     .execute(

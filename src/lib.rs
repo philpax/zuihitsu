@@ -9,6 +9,7 @@ pub mod clock;
 pub mod embed;
 pub mod event;
 pub mod fetch;
+pub mod genesis;
 #[cfg(feature = "sqlite")]
 pub mod graph;
 pub mod ids;
@@ -18,8 +19,11 @@ pub mod vector;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
-pub use event::{Cardinality, Event, EventPayload, LinkSource, Volatility};
+pub use event::{
+    Cardinality, ConfigValue, Event, EventPayload, EventSource, LinkSource, Volatility,
+};
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
+pub use genesis::{GenesisStatus, Rollout, SeedSelf};
 #[cfg(feature = "sqlite")]
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView};
 pub use ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp};

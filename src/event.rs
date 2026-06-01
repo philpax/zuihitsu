@@ -89,9 +89,32 @@ impl LinkSource {
     }
 }
 
+/// Provenance for events that carry an authority, distinct from a participant teller: `Bootstrap`
+/// for genesis, `Orchestration` for prompt templates, `Debugger` for operator/control writes, and
+/// `Agent` for the agent's own (spec §Initialization, §Trust model).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventSource {
+    Bootstrap,
+    Agent,
+    Debugger,
+    Orchestration,
+}
+
+/// A behavioral tunable's value. Flat per-key scalars, never structured policy objects (spec
+/// §Initialization → configuration).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConfigValue {
+    Int(i64),
+    Float(f64),
+    Text(String),
+    Bool(bool),
+}
+
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
 /// [`Event`] envelope rather than here, because they are assigned by the store at append time.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Not `Eq`: [`ConfigValue`] carries an `f64`. Equality is `PartialEq` throughout.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum EventPayload {
     /// Marks a completed genesis sequence; boot branches on its presence, not on log emptiness.
@@ -174,6 +197,21 @@ pub enum EventPayload {
         to: MemoryId,
         relation: RelationName,
     },
+    /// Registers a versioned prompt template (scaffold, regen, …). Orchestration config, not
+    /// agent-editable; updating a template is a new registration with a bumped version.
+    PromptTemplateRegistered {
+        name: String,
+        version: u32,
+        body: String,
+        source: EventSource,
+    },
+    /// Sets a behavioral tunable. Current config is the latest `ConfigSet` per key; defaults are
+    /// seeded at genesis. Lives in the log so replay reproduces the behavior the value produced.
+    ConfigSet {
+        key: String,
+        value: ConfigValue,
+        source: EventSource,
+    },
 }
 
 impl EventPayload {
@@ -194,6 +232,8 @@ impl EventPayload {
             EventPayload::LinkTypeRegistered { .. } => "LinkTypeRegistered",
             EventPayload::LinkCreated { .. } => "LinkCreated",
             EventPayload::LinkRemoved { .. } => "LinkRemoved",
+            EventPayload::PromptTemplateRegistered { .. } => "PromptTemplateRegistered",
+            EventPayload::ConfigSet { .. } => "ConfigSet",
         }
     }
 
@@ -220,13 +260,15 @@ impl EventPayload {
             EventPayload::TagCreated { name, .. }
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
+            EventPayload::PromptTemplateRegistered { name, .. } => Some(name.clone()),
+            EventPayload::ConfigSet { key, .. } => Some(key.clone()),
         }
     }
 }
 
 /// A committed event: a payload assigned a position in the log's total order and stamped with the
 /// wall-clock time it was recorded. This is what a read returns; it is immutable.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Event {
     pub seq: Seq,
     pub recorded_at: Timestamp,
