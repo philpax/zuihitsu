@@ -7,8 +7,8 @@
 //! embedded by the caller (the embedder is async; the ranker is synchronous), so this stays testable
 //! with the fake embedder and in-memory index.
 //!
-//! This first cut indexes a semantic vector per memory (its description) and ranks live memories;
-//! per-entry vectors, the tag signal, and the namespace filter follow.
+//! This cut indexes a semantic vector per memory (its description) and ranks live memories;
+//! per-entry vectors and the real sqlite-vec backend follow.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,7 +17,7 @@ use ulid::Ulid;
 use crate::{
     event::Volatility,
     graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, Timestamp},
+    ids::{MemoryId, TagName, Timestamp},
     settings::SearchSettings,
     vector::VectorIndex,
 };
@@ -31,13 +31,25 @@ pub struct SearchHit {
     pub score: f32,
 }
 
-/// Rank live memories for `query`, blending semantic similarity (`query_embedding` against the
-/// vector index), lexical bm25, and a recency bonus. `now` drives recency decay.
+/// A search request: free text plus its `embedding` (computed by the caller), optionally narrowed to
+/// a name `namespace` prefix and carrying `tags` whose overlap with a memory feeds the tag signal.
+pub struct SearchQuery<'a> {
+    pub text: &'a str,
+    pub embedding: &'a [f32],
+    /// Restrict results to memories whose name starts with this prefix (e.g. `"person/"`); `None`
+    /// searches every namespace.
+    pub namespace: Option<&'a str>,
+    /// Tags the caller is looking for; the tag signal is the fraction of these a memory carries.
+    pub tags: &'a [TagName],
+}
+
+/// Rank live memories for `query`, blending semantic similarity (the query embedding against the
+/// vector index), lexical bm25, tag overlap, and a recency bonus. `now` drives recency decay; the
+/// namespace prefix, if any, filters candidates.
 pub fn search(
     graph: &Graph,
     vectors: &dyn VectorIndex,
-    query: &str,
-    query_embedding: &[f32],
+    query: &SearchQuery,
     settings: &SearchSettings,
     now: Timestamp,
     limit: usize,
@@ -46,14 +58,14 @@ pub fn search(
 
     // Semantic: cosine per memory, clamped to [0, 1] (negative similarity contributes nothing).
     let mut cosine: BTreeMap<MemoryId, f32> = BTreeMap::new();
-    for hit in vectors.search(query_embedding, over_fetch) {
+    for hit in vectors.search(query.embedding, over_fetch) {
         if let Ok(ulid) = Ulid::from_string(hit.id.0.as_str()) {
             cosine.insert(MemoryId(ulid), hit.score.max(0.0));
         }
     }
 
     // Lexical: normalized bm25 per memory.
-    let bm25 = normalize_bm25(&graph.search_lexical(query, over_fetch)?);
+    let bm25 = normalize_bm25(&graph.search_lexical(query.text, over_fetch)?);
 
     let candidates: BTreeSet<MemoryId> = cosine.keys().chain(bm25.keys()).copied().collect();
 
@@ -62,15 +74,34 @@ pub fn search(
         let Some(memory) = graph.memory_by_id(id)? else {
             continue;
         };
+        if let Some(prefix) = query.namespace
+            && !memory.name.as_str().starts_with(prefix)
+        {
+            continue;
+        }
         let recency = recency_bonus(&memory, graph, now, settings)?;
         let score = settings.cosine * cosine.get(&id).copied().unwrap_or(0.0)
             + settings.bm25 * bm25.get(&id).copied().unwrap_or(0.0)
+            + settings.tag * tag_match(&memory, query.tags)
             + settings.recency.bonus * recency;
         hits.push(SearchHit { memory, score });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     hits.truncate(limit);
     Ok(hits)
+}
+
+/// The fraction of the query's `tags` a memory carries, in `[0, 1]`; zero when no tags are
+/// requested, so the tag signal contributes nothing to a plain text search.
+fn tag_match(memory: &MemoryView, query_tags: &[TagName]) -> f32 {
+    if query_tags.is_empty() {
+        return 0.0;
+    }
+    let matched = query_tags
+        .iter()
+        .filter(|tag| memory.tags.contains(tag))
+        .count();
+    matched as f32 / query_tags.len() as f32
 }
 
 /// Normalize raw bm25 scores (more negative is a better match) to `[0, 1]`, best at 1.

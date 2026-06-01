@@ -54,7 +54,7 @@ pub use model::{
 #[cfg(feature = "openai")]
 pub use openai::{OpenAiClient, OpenAiEmbedder};
 #[cfg(feature = "sqlite")]
-pub use search::{SearchHit, search};
+pub use search::{SearchHit, SearchQuery, search};
 #[cfg(feature = "sqlite")]
 pub use server::{Control, Server, ServerError};
 pub use settings::{

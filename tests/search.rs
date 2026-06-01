@@ -6,10 +6,11 @@
 
 use zuihitsu::{
     Embedder, EntryId, FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName,
-    MemoryStore, SeedSelf, Settings, Store, Timestamp, VectorId, VectorIndex,
+    MemoryStore, SeedSelf, Settings, Store, TagName, Timestamp, VectorId, VectorIndex,
     event::EventPayload,
     genesis::{self},
     search,
+    search::SearchQuery,
 };
 
 const DIMS: usize = 32;
@@ -75,18 +76,55 @@ impl Corpus {
         id
     }
 
+    /// Create `tag` and apply it to `id`. Only one memory per tag in these tests, so the create is
+    /// unconditional.
+    fn tag(&mut self, id: MemoryId, tag: &str, at_ms: i64) {
+        self.store
+            .append(
+                Timestamp::from_millis(at_ms),
+                vec![
+                    EventPayload::TagCreated {
+                        name: TagName::new(tag),
+                        description: format!("about {tag}"),
+                    },
+                    EventPayload::TagAppliedToMemory {
+                        memory: id,
+                        tag: TagName::new(tag),
+                    },
+                ],
+            )
+            .unwrap();
+        self.graph.materialize_from(&self.store).unwrap();
+    }
+
     async fn query(&self, text: &str, now_ms: i64, limit: usize) -> Vec<MemoryId> {
+        self.query_in(text, None, &[], now_ms, limit).await
+    }
+
+    async fn query_in(
+        &self,
+        text: &str,
+        namespace: Option<&str>,
+        tags: &[TagName],
+        now_ms: i64,
+        limit: usize,
+    ) -> Vec<MemoryId> {
         let embedding = self
             .embedder
             .embed(&[text.to_owned()])
             .await
             .unwrap()
             .remove(0);
+        let query = SearchQuery {
+            text,
+            embedding: &embedding,
+            namespace,
+            tags,
+        };
         search(
             &self.graph,
             &self.index,
-            text,
-            &embedding,
+            &query,
             &Settings::default().search,
             Timestamp::from_millis(now_ms),
             limit,
@@ -150,6 +188,68 @@ async fn recency_breaks_a_tie() {
     let ranked = corpus.query("shared topic text", 100 * DAY_MS, 5).await;
     assert_eq!(ranked.first(), Some(&fresh));
     assert!(ranked.contains(&stale));
+}
+
+#[tokio::test]
+async fn a_query_tag_boosts_a_carrier() {
+    let mut corpus = Corpus::new();
+    // Identical text → identical semantic, lexical, and recency scores; only the tag differs.
+    let plain = corpus
+        .add(
+            "topic/plain",
+            "shared topic text",
+            "shared topic text",
+            1_000,
+        )
+        .await;
+    let tagged = corpus
+        .add(
+            "topic/tagged",
+            "shared topic text",
+            "shared topic text",
+            1_000,
+        )
+        .await;
+    corpus.tag(tagged, "climbing", 1_000);
+
+    let ranked = corpus
+        .query_in(
+            "shared topic text",
+            None,
+            &[TagName::new("climbing")],
+            1_000,
+            5,
+        )
+        .await;
+    assert_eq!(ranked.first(), Some(&tagged));
+    assert!(ranked.contains(&plain));
+}
+
+#[tokio::test]
+async fn a_namespace_filters_out_other_kinds() {
+    let mut corpus = Corpus::new();
+    let dave = corpus
+        .add(
+            "person/dave",
+            "shared marker text",
+            "shared marker text",
+            1_000,
+        )
+        .await;
+    corpus
+        .add(
+            "topic/marker",
+            "shared marker text",
+            "shared marker text",
+            1_000,
+        )
+        .await;
+
+    // The topic matches lexically and semantically, but the person/ prefix excludes it.
+    let ranked = corpus
+        .query_in("shared marker text", Some("person/"), &[], 1_000, 5)
+        .await;
+    assert_eq!(ranked, vec![dave]);
 }
 
 #[tokio::test]
