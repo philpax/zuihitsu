@@ -72,7 +72,9 @@ impl Corpus {
             .await
             .unwrap()
             .remove(0);
-        self.index.upsert(VectorId::new(id.0.to_string()), vector);
+        self.index
+            .upsert(VectorId::new(id.0.to_string()), vector)
+            .unwrap();
         id
     }
 

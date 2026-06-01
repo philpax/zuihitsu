@@ -19,7 +19,7 @@ use crate::{
     graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, TagName, Timestamp},
     settings::SearchSettings,
-    vector::VectorIndex,
+    vector::{VectorError, VectorIndex},
 };
 
 const MILLIS_PER_DAY: f32 = 86_400_000.0;
@@ -29,6 +29,43 @@ const MILLIS_PER_DAY: f32 = 86_400_000.0;
 pub struct SearchHit {
     pub memory: MemoryView,
     pub score: f32,
+}
+
+/// A search failure, from either the graph projection or the vector index.
+#[derive(Debug)]
+pub enum SearchError {
+    Graph(GraphError),
+    Vector(VectorError),
+}
+
+impl std::fmt::Display for SearchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchError::Graph(error) => write!(f, "search (graph): {error}"),
+            SearchError::Vector(error) => write!(f, "search (vector): {error}"),
+        }
+    }
+}
+
+impl std::error::Error for SearchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SearchError::Graph(error) => Some(error),
+            SearchError::Vector(error) => Some(error),
+        }
+    }
+}
+
+impl From<GraphError> for SearchError {
+    fn from(error: GraphError) -> SearchError {
+        SearchError::Graph(error)
+    }
+}
+
+impl From<VectorError> for SearchError {
+    fn from(error: VectorError) -> SearchError {
+        SearchError::Vector(error)
+    }
 }
 
 /// A search request: free text plus its `embedding` (computed by the caller), optionally narrowed to
@@ -53,12 +90,12 @@ pub fn search(
     settings: &SearchSettings,
     now: Timestamp,
     limit: usize,
-) -> Result<Vec<SearchHit>, GraphError> {
+) -> Result<Vec<SearchHit>, SearchError> {
     let over_fetch = limit.saturating_mul(4).max(20);
 
     // Semantic: cosine per memory, clamped to [0, 1] (negative similarity contributes nothing).
     let mut cosine: BTreeMap<MemoryId, f32> = BTreeMap::new();
-    for hit in vectors.search(query.embedding, over_fetch) {
+    for hit in vectors.search(query.embedding, over_fetch)? {
         if let Ok(ulid) = Ulid::from_string(hit.id.0.as_str()) {
             cosine.insert(MemoryId(ulid), hit.score.max(0.0));
         }

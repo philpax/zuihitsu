@@ -64,20 +64,20 @@ async fn vector_index_ranks_nearest_first() {
     let mut index = InMemoryVectorIndex::new();
     for text in ["climbing gym", "sourdough bread", "tax return"] {
         let vector = embedder.embed(&[text.to_owned()]).await.unwrap().remove(0);
-        index.upsert(VectorId::new(text), vector);
+        index.upsert(VectorId::new(text), vector).unwrap();
     }
-    assert_eq!(index.len(), 3);
+    assert_eq!(index.len().unwrap(), 3);
 
     let query = embedder
         .embed(&["climbing gym".to_owned()])
         .await
         .unwrap()
         .remove(0);
-    let hits = index.search(&query, 2);
+    let hits = index.search(&query, 2).unwrap();
     assert_eq!(hits.len(), 2);
     assert_eq!(hits[0].id, VectorId::new("climbing gym")); // exact match ranks first
 
-    index.remove(&VectorId::new("climbing gym"));
-    assert_eq!(index.len(), 2);
-    assert!(!index.is_empty());
+    index.remove(&VectorId::new("climbing gym")).unwrap();
+    assert_eq!(index.len().unwrap(), 2);
+    assert!(!index.is_empty().unwrap());
 }

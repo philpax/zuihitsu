@@ -29,8 +29,6 @@ pub mod settings;
 pub mod store;
 pub mod vector;
 
-#[cfg(feature = "lua")]
-pub use agent::{TurnError, TurnOutcome, run_turn};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
@@ -40,28 +38,48 @@ pub use event::{
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
-#[cfg(feature = "sqlite")]
-pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView};
 pub use ids::{
     ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,
 };
-#[cfg(feature = "lua")]
-pub use lua::{BlockOutcome, LuaError, Session};
 pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
     ToolSpec,
 };
-#[cfg(feature = "openai")]
-pub use openai::{OpenAiClient, OpenAiEmbedder};
-#[cfg(feature = "sqlite")]
-pub use search::{SearchHit, SearchQuery, search};
-#[cfg(feature = "sqlite")]
-pub use server::{Control, Server, ServerError};
 pub use settings::{
     BriefSettings, CompactionSettings, RecencySettings, SearchSettings, Settings, TauDays,
     TurnSettings,
 };
-#[cfg(feature = "sqlite")]
-pub use store::SqliteStore;
 pub use store::{MemoryStore, Store, StoreError};
-pub use vector::{InMemoryVectorIndex, ScoredHit, VectorId, VectorIndex};
+pub use vector::{InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex};
+
+// The feature-gated re-exports are grouped per feature so the `#[cfg]` lives in one place rather
+// than on every line; each private module is glob-re-exported into the crate root.
+#[cfg(feature = "lua")]
+mod __lua {
+    pub use crate::{
+        agent::{TurnError, TurnOutcome, run_turn},
+        lua::{BlockOutcome, LuaError, Session},
+    };
+}
+#[cfg(feature = "lua")]
+pub use __lua::*;
+
+#[cfg(feature = "sqlite")]
+mod __sqlite {
+    pub use crate::{
+        graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView},
+        search::{SearchError, SearchHit, SearchQuery, search},
+        server::{Control, Server, ServerError},
+        store::SqliteStore,
+        vector::SqliteVectorIndex,
+    };
+}
+#[cfg(feature = "sqlite")]
+pub use __sqlite::*;
+
+#[cfg(feature = "openai")]
+mod __openai {
+    pub use crate::openai::{OpenAiClient, OpenAiEmbedder};
+}
+#[cfg(feature = "openai")]
+pub use __openai::*;
