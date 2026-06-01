@@ -16,6 +16,25 @@ use serde::Deserialize;
 #[serde(default)]
 pub struct EnvConfig {
     pub storage: StorageConfig,
+    pub model: ModelConfig,
+    pub embedding: EmbeddingConfig,
+}
+
+/// Where to reach the generation model. An empty `endpoint` means "not configured".
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ModelConfig {
+    pub endpoint: String,
+    pub llm: String,
+}
+
+/// Where to reach the embedding model, and the dimensionality it produces.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct EmbeddingConfig {
+    pub endpoint: String,
+    pub model: String,
+    pub dimensions: usize,
 }
 
 /// Where this instance's two databases live. The event log is the source of truth; the graph is a

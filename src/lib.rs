@@ -19,6 +19,8 @@ pub mod ids;
 #[cfg(feature = "lua")]
 pub mod lua;
 pub mod model;
+#[cfg(feature = "openai")]
+pub mod openai;
 #[cfg(feature = "sqlite")]
 pub mod server;
 pub mod store;
@@ -27,7 +29,7 @@ pub mod vector;
 #[cfg(feature = "lua")]
 pub use agent::{TurnError, TurnOutcome, run_turn};
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use config::{ConfigError, EnvConfig};
+pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
     Cardinality, ConfigValue, Event, EventPayload, EventSource, Initiation, LinkSource,
@@ -46,6 +48,8 @@ pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
     ToolSpec,
 };
+#[cfg(feature = "openai")]
+pub use openai::OpenAiEmbedder;
 #[cfg(feature = "sqlite")]
 pub use server::{Control, Server, ServerError};
 #[cfg(feature = "sqlite")]
