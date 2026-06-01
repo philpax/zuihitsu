@@ -7,8 +7,8 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    Completion, ScriptedModel, SeedSelf, Seq, Store, ToolCall, TurnOutcome, TurnRole,
-    event::EventPayload, genesis, run_turn,
+    Completion, PromptTemplateName, ScriptedModel, SeedSelf, Seq, Store, ToolCall, TurnOutcome,
+    TurnRole, event::EventPayload, genesis, run_turn,
 };
 #[cfg(feature = "openai")]
 use zuihitsu::{EnvConfig, OpenAiClient};
@@ -118,13 +118,24 @@ async fn descriptions_regenerate_after_a_turn() {
     // The written memory's description was regenerated from its entries after the cycle.
     let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
     assert_eq!(dave.description, "Dave, whom I met at the climbing gym.");
-    assert!(
-        h.store
-            .read_from(Seq::ZERO)
-            .unwrap()
-            .iter()
-            .any(|e| matches!(e.payload, EventPayload::MemoryDescriptionRegenerated { .. }))
+    // It carries provenance: which model and template produced it.
+    let produced_by = h
+        .store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .find_map(|e| match e.payload {
+            EventPayload::MemoryDescriptionRegenerated { produced_by, .. } => Some(produced_by),
+            _ => None,
+        })
+        .expect("a description was regenerated")
+        .expect("regeneration records its provenance");
+    assert_eq!(produced_by.model_id, "scripted-model");
+    assert_eq!(
+        produced_by.template_name,
+        PromptTemplateName::DescriptionRegen
     );
+    assert_eq!(produced_by.template_version, 1);
 }
 
 #[tokio::test]

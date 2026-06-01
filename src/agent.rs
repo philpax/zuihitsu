@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, Initiation, PromptTemplateName, TerminalCause, TurnRole},
+    event::{EventPayload, Initiation, ProducedBy, PromptTemplateName, TerminalCause, TurnRole},
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, MemoryId, Seq, TurnId},
     lua::{BlockOutcome, LuaError, Session},
@@ -169,6 +169,11 @@ async fn regenerate_descriptions(
             Ok(Some(description)) => events.push(EventPayload::MemoryDescriptionRegenerated {
                 id,
                 new_text: description,
+                produced_by: Some(ProducedBy {
+                    model_id: model.model_id().into(),
+                    template_name: PromptTemplateName::DescriptionRegen,
+                    template_version: template.version,
+                }),
             }),
             Ok(None) => {}
             Err(error) => tracing::warn!(

@@ -83,6 +83,10 @@ impl OpenAiClient {
 
 #[async_trait]
 impl ModelClient for OpenAiClient {
+    fn model_id(&self) -> &str {
+        &self.config.llm
+    }
+
     async fn generate(&self, request: &GenerateRequest) -> Result<Completion, ModelError> {
         let response: CreateChatCompletionResponse = self
             .client

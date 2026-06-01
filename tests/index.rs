@@ -30,6 +30,7 @@ async fn catch_up_embeds_each_memorys_description() {
                 EventPayload::MemoryDescriptionRegenerated {
                     id: dave,
                     new_text: "An avid rock climber".to_owned(),
+                    produced_by: None,
                 },
             ],
         )
@@ -63,6 +64,7 @@ async fn catch_up_resumes_from_the_cursor() {
             vec![EventPayload::MemoryDescriptionRegenerated {
                 id: dave,
                 new_text: "An avid rock climber".to_owned(),
+                produced_by: None,
             }],
         )
         .unwrap();
@@ -97,6 +99,7 @@ async fn catch_up_resumes_from_the_cursor() {
             vec![EventPayload::MemoryDescriptionRegenerated {
                 id: erin,
                 new_text: "A tax accountant".to_owned(),
+                produced_by: None,
             }],
         )
         .unwrap();
@@ -122,6 +125,7 @@ async fn drain_indexes_subscribed_events() {
             vec![EventPayload::MemoryDescriptionRegenerated {
                 id: dave,
                 new_text: "An avid rock climber".to_owned(),
+                produced_by: None,
             }],
         )
         .unwrap();
@@ -191,6 +195,7 @@ fn events(store: &mut MemoryStore, id: MemoryId, description: &str) -> Vec<zuihi
             vec![EventPayload::MemoryDescriptionRegenerated {
                 id,
                 new_text: description.to_owned(),
+                produced_by: None,
             }],
         )
         .unwrap()

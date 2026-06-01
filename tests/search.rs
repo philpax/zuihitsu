@@ -62,6 +62,7 @@ impl Corpus {
                     EventPayload::MemoryDescriptionRegenerated {
                         id,
                         new_text: description.to_owned(),
+                        produced_by: None,
                     },
                 ],
             )

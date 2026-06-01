@@ -97,6 +97,7 @@ fn description_and_volatility_update_in_place() {
         EventPayload::MemoryDescriptionRegenerated {
             id,
             new_text: "An ongoing migration effort.".to_owned(),
+            produced_by: None,
         },
         EventPayload::MemoryVolatilitySet {
             id,
@@ -344,6 +345,7 @@ fn search_matches_name_description_and_content() {
         EventPayload::MemoryDescriptionRegenerated {
             id: erin,
             new_text: "An avid rock climber.".to_owned(),
+            produced_by: None,
         },
     ]);
 
@@ -401,6 +403,7 @@ fn materialize_is_incremental() {
             vec![EventPayload::MemoryDescriptionRegenerated {
                 id,
                 new_text: "A function defined in terms of itself.".to_owned(),
+                produced_by: None,
             }],
         )
         .unwrap();

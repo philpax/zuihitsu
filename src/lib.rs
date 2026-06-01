@@ -35,8 +35,8 @@ pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
-    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, PromptTemplateName,
-    TerminalCause, TurnRole, Volatility,
+    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ProducedBy,
+    PromptTemplateName, TerminalCause, TurnRole, Volatility,
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};

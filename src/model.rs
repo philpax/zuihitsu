@@ -96,6 +96,9 @@ pub enum Completion {
 /// The inference interface. The agent server holds one of these; tests substitute a fake.
 #[async_trait]
 pub trait ModelClient: Send + Sync {
+    /// The id of the model behind this client, recorded as `produced_by` provenance on the events
+    /// its inference produces (spec §Storage → provenance on inference).
+    fn model_id(&self) -> &str;
     async fn generate(&self, request: &GenerateRequest) -> Result<Completion, ModelError>;
 }
 
@@ -140,6 +143,10 @@ impl ScriptedModel {
 
 #[async_trait]
 impl ModelClient for ScriptedModel {
+    fn model_id(&self) -> &str {
+        "scripted-model"
+    }
+
     async fn generate(&self, _request: &GenerateRequest) -> Result<Completion, ModelError> {
         self.steps
             .lock()

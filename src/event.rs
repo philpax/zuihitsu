@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 use crate::{
     ids::{
@@ -159,6 +160,17 @@ impl PromptTemplateName {
     }
 }
 
+/// Provenance for an event produced by model inference: the model and the prompt template (by name
+/// and version) that wrote it (spec §Storage → provenance on inference). Carried by inference events
+/// so "which model and template produced this" is answerable, and so regenerative replay knows what
+/// to re-run; purely mechanical events leave it `None`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProducedBy {
+    pub model_id: SmolStr,
+    pub template_name: PromptTemplateName,
+    pub template_version: u32,
+}
+
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
 /// [`Event`] envelope rather than here, because they are assigned by the store at append time.
 ///
@@ -195,10 +207,12 @@ pub enum EventPayload {
         text: String,
     },
     /// Replaces a memory's synthesized description. The text is produced by the model (Stage 5);
-    /// applying it to the projection is purely mechanical.
+    /// applying it to the projection is purely mechanical. `produced_by` records the inference that
+    /// wrote it (`None` only for a hand-seeded description).
     MemoryDescriptionRegenerated {
         id: MemoryId,
         new_text: String,
+        produced_by: Option<ProducedBy>,
     },
     MemoryVolatilitySet {
         id: MemoryId,

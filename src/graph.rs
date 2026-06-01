@@ -242,7 +242,7 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
-            EventPayload::MemoryDescriptionRegenerated { id, new_text } => {
+            EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                 self.conn
                     .execute(
                         "UPDATE memories SET description = ?1 WHERE id = ?2",

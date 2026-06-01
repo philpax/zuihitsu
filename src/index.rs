@@ -68,7 +68,7 @@ impl<'a> Indexer<'a> {
         let mut actions: BTreeMap<MemoryId, Action> = BTreeMap::new();
         for event in events {
             match &event.payload {
-                EventPayload::MemoryDescriptionRegenerated { id, new_text } => {
+                EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                     actions.insert(*id, Action::Embed(new_text.clone()));
                 }
                 EventPayload::MemoryDeleted { id } => {
