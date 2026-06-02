@@ -1,6 +1,8 @@
 //! The materializer: folding committed events into the graph projection in `Seq` order. Dispatch is
 //! on the payload's `(type, version)`; a wrong arm is a silent-leak class the eval harness backstops.
 
+use std::collections::BTreeMap;
+
 use rusqlite::{OptionalExtension, params};
 
 use super::{Graph, GraphError, backend};
@@ -22,9 +24,11 @@ impl Graph {
             | EventPayload::LuaExecuted { .. }
             | EventPayload::ConversationTurn { .. } => {}
             EventPayload::MemoryCreated { id, name } => {
+                // A lone memory is its own class; a later same_as merge recomputes class_id.
                 self.conn
                     .execute(
-                        "INSERT INTO memories (id, name, created_at) VALUES (?1, ?2, ?3)",
+                        "INSERT INTO memories (id, name, created_at, class_id)
+                         VALUES (?1, ?2, ?3, ?1)",
                         params![
                             id.0.to_string(),
                             name.as_str(),
@@ -200,6 +204,9 @@ impl Graph {
                         params![edge.0, edge.1, edge.2, source.as_str()],
                     )
                     .map_err(backend)?;
+                if RelationName::new(edge.2.as_str()) == RelationName::SameAs {
+                    self.recompute_classes()?;
+                }
             }
             EventPayload::LinkRemoved { from, to, relation } => {
                 let edge = self.canonical_edge(*from, *to, relation)?;
@@ -209,6 +216,9 @@ impl Graph {
                         params![edge.0, edge.1, edge.2],
                     )
                     .map_err(backend)?;
+                if RelationName::new(edge.2.as_str()) == RelationName::SameAs {
+                    self.recompute_classes()?;
+                }
             }
         }
 
@@ -256,4 +266,70 @@ impl Graph {
             Some((canonical, _)) => (to, from, canonical),
         })
     }
+
+    /// Recompute the denormalized `class_id` on every memory by union-find over the `same_as` edges,
+    /// setting each class's id to its **earliest member by ULID** — the primary stub. Run on every
+    /// `same_as` link change: a merge unions two classes, an unmerge re-splits the component, and a
+    /// whole recompute is correct for both without a local patch (trivial at personal-agent class
+    /// sizes). Operator-designated primaries are a later refinement.
+    fn recompute_classes(&self) -> Result<(), GraphError> {
+        let ids: Vec<String> = self
+            .conn
+            .prepare("SELECT id FROM memories")
+            .map_err(backend)?
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(backend)?
+            .collect::<rusqlite::Result<Vec<String>>>()
+            .map_err(backend)?;
+        let edges: Vec<(String, String)> = self
+            .conn
+            .prepare("SELECT from_id, to_id FROM links WHERE relation = ?1")
+            .map_err(backend)?
+            .query_map(params![RelationName::SameAs.as_str()], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(backend)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(backend)?;
+
+        let mut parent: BTreeMap<String, String> =
+            ids.iter().map(|id| (id.clone(), id.clone())).collect();
+        for (a, b) in &edges {
+            let (ra, rb) = (find(&parent, a), find(&parent, b));
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+
+        // Each component's class id is its earliest member by ULID (ULIDs sort chronologically).
+        let mut primary: BTreeMap<String, String> = BTreeMap::new();
+        for id in &ids {
+            let root = find(&parent, id);
+            let slot = primary.entry(root).or_insert_with(|| id.clone());
+            if id < slot {
+                *slot = id.clone();
+            }
+        }
+        for id in &ids {
+            self.conn
+                .execute(
+                    "UPDATE memories SET class_id = ?1 WHERE id = ?2",
+                    params![primary[&find(&parent, id)], id],
+                )
+                .map_err(backend)?;
+        }
+        Ok(())
+    }
+}
+
+/// Union-find root of `x`, following parent pointers (no path compression — classes are tiny).
+fn find(parent: &BTreeMap<String, String>, x: &str) -> String {
+    let mut cur = x.to_owned();
+    while let Some(next) = parent.get(&cur) {
+        if *next == cur {
+            break;
+        }
+        cur = next.clone();
+    }
+    cur
 }

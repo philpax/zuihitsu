@@ -159,8 +159,10 @@ impl Graph {
                  description TEXT    NOT NULL DEFAULT '',
                  volatility  TEXT    NOT NULL DEFAULT 'Medium',
                  deleted     INTEGER NOT NULL DEFAULT 0,
-                 created_at  INTEGER NOT NULL
+                 created_at  INTEGER NOT NULL,
+                 class_id    TEXT    NOT NULL DEFAULT ''
              );
+             CREATE INDEX IF NOT EXISTS idx_memories_class ON memories(class_id);
              CREATE TABLE IF NOT EXISTS content_entries (
                  entry_id    TEXT    PRIMARY KEY,
                  memory_id   TEXT    NOT NULL,

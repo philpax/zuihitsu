@@ -270,6 +270,56 @@ fn symmetric_link_is_order_independent() {
 }
 
 #[test]
+fn same_as_merges_stubs_into_one_class() {
+    let a = MemoryId::generate();
+    let b = MemoryId::generate();
+    let c = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::new("same_as"),
+            inverse: RelationName::new("same_as"),
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+        },
+        EventPayload::MemoryCreated {
+            id: a,
+            name: MemoryName::new("person/phil@direct"),
+        },
+        EventPayload::MemoryCreated {
+            id: b,
+            name: MemoryName::new("person/phil@discord"),
+        },
+        EventPayload::MemoryCreated {
+            id: c,
+            name: MemoryName::new("person/dave@direct"),
+        },
+        EventPayload::LinkCreated {
+            from: a,
+            to: b,
+            relation: RelationName::new("same_as"),
+            source: LinkSource::Debugger,
+        },
+    ]);
+
+    // The two Phil stubs share one class whose id is the earliest member by ULID (the primary);
+    // Dave is his own class.
+    let class = graph.class_id(a).unwrap().unwrap();
+    assert_eq!(graph.class_id(b).unwrap().unwrap(), class);
+    assert_eq!(class, a.min(b));
+    assert_eq!(graph.class_id(c).unwrap().unwrap(), c);
+    assert_ne!(graph.class_id(c).unwrap().unwrap(), class);
+
+    // Class membership is the whole class, deduplicated and ordered; a lone stub is just itself.
+    let mut phil = vec![a, b];
+    phil.sort();
+    assert_eq!(graph.class_members(a).unwrap(), phil);
+    assert_eq!(graph.class_members(b).unwrap(), phil);
+    assert_eq!(graph.class_members(c).unwrap(), vec![c]);
+}
+
+#[test]
 fn link_removed_and_deleted_endpoint_drop_from_traversal() {
     let dave = MemoryId::generate();
     let erin = MemoryId::generate();

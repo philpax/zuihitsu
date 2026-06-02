@@ -22,6 +22,44 @@ impl Graph {
         self.fetch_memory("id", &id.0.to_string())
     }
 
+    /// The `same_as`-class id of `id` (its class's primary stub), or `None` if the memory is unknown
+    /// or soft-deleted. A lone memory is its own class. The denormalized identity key for presence
+    /// and membership tests.
+    pub fn class_id(&self, id: MemoryId) -> Result<Option<MemoryId>, GraphError> {
+        let class: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0",
+                params![id.0.to_string()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        class.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
+    }
+
+    /// The live members of `id`'s `same_as` class (including `id`), ordered by id. Empty if the
+    /// memory is unknown or soft-deleted.
+    pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, GraphError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id FROM memories
+                 WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+                   AND deleted = 0
+                 ORDER BY id",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![id.0.to_string()], |r| r.get::<_, String>(0))
+            .map_err(backend)?;
+        let mut members = Vec::new();
+        for row in rows {
+            members.push(MemoryId(parse_ulid(&row.map_err(backend)?)?));
+        }
+        Ok(members)
+    }
+
     /// All live memories whose name begins with `prefix` (e.g. `"person/"`), ordered by name.
     pub fn memories_in_namespace(&self, prefix: &str) -> Result<Vec<MemoryView>, GraphError> {
         let mut stmt = self
