@@ -73,12 +73,14 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
     append_turn(
         store,
         clock,
-        conversation,
-        TurnId::generate(),
-        TurnRole::Participant,
-        inbound.to_owned(),
-        Some(inbound_participant),
-        None,
+        TurnRecord {
+            conversation,
+            turn_id: TurnId::generate(),
+            role: TurnRole::Participant,
+            text: inbound.to_owned(),
+            participant: Some(inbound_participant),
+            produced_by: None,
+        },
     )?;
     // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
     let cycle_start = store.head()?;
@@ -136,12 +138,14 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                     append_turn(
                         store,
                         clock,
-                        conversation,
-                        turn_id,
-                        TurnRole::Agent,
-                        text.clone(),
-                        None,
-                        agent_provenance.clone(),
+                        TurnRecord {
+                            conversation,
+                            turn_id,
+                            role: TurnRole::Agent,
+                            text: text.clone(),
+                            participant: None,
+                            produced_by: agent_provenance.clone(),
+                        },
                     )?;
                     break 'cycle TurnOutcome::Reply(text);
                 }
@@ -149,12 +153,14 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                     append_turn(
                         store,
                         clock,
-                        conversation,
-                        turn_id,
-                        TurnRole::Agent,
-                        String::new(),
-                        None,
-                        agent_provenance.clone(),
+                        TurnRecord {
+                            conversation,
+                            turn_id,
+                            role: TurnRole::Agent,
+                            text: String::new(),
+                            participant: None,
+                            produced_by: agent_provenance.clone(),
+                        },
                     )?;
                     break 'cycle TurnOutcome::Silent;
                 }
@@ -164,12 +170,14 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
         append_turn(
             store,
             clock,
-            conversation,
-            turn_id,
-            TurnRole::Agent,
-            surfaced,
-            None,
-            agent_provenance.clone(),
+            TurnRecord {
+                conversation,
+                turn_id,
+                role: TurnRole::Agent,
+                text: surfaced,
+                participant: None,
+                produced_by: agent_provenance.clone(),
+            },
         )?;
         TurnOutcome::MaxStepsExceeded
     };
@@ -350,27 +358,34 @@ fn run_lua_tool() -> ToolSpec {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn append_turn(
-    store: &mut dyn Store,
-    clock: &dyn Clock,
+/// One `ConversationTurn` to record: the inbound participant message, the agent's response, or a
+/// system message. Holds just the turn's fields; the seams it is written through — the store it is
+/// appended to and the clock that stamps it — are passed to [`append_turn`] alongside it.
+struct TurnRecord {
     conversation: ConversationId,
     turn_id: TurnId,
     role: TurnRole,
     text: String,
+    /// The speaker of an inbound message; `None` for the agent's own and system turns.
     participant: Option<MemoryId>,
     produced_by: Option<ProducedBy>,
+}
+
+fn append_turn(
+    store: &mut dyn Store,
+    clock: &dyn Clock,
+    record: TurnRecord,
 ) -> Result<(), TurnError> {
     store.append(
         clock.now(),
         vec![EventPayload::ConversationTurn {
-            conversation,
-            turn_id,
-            role,
-            text,
-            participant,
+            conversation: record.conversation,
+            turn_id: record.turn_id,
+            role: record.role,
+            text: record.text,
+            participant: record.participant,
             initiation: Initiation::Responding,
-            produced_by,
+            produced_by: record.produced_by,
         }],
     )?;
     Ok(())
