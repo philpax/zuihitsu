@@ -5,8 +5,9 @@
 #![cfg(feature = "sqlite")]
 
 use zuihitsu::{
-    Cardinality, EntryId, Graph, LinkSource, MemoryId, MemoryName, MemoryStore, RelationName, Seq,
-    Store, TagName, Teller, Timestamp, Visibility, Volatility, event::EventPayload,
+    Cardinality, EntryId, EntryView, Graph, LinkSource, MemoryId, MemoryName, MemoryStore,
+    RelationName, Seq, Store, TagName, Teller, Timestamp, Visibility, Volatility,
+    event::EventPayload,
 };
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.
@@ -64,7 +65,7 @@ fn projects_create_rename_and_content() {
     assert_eq!(memory.volatility, Volatility::Medium); // default
     assert_eq!(memory.description, ""); // no regeneration yet
 
-    let entries = graph.entries(id).unwrap();
+    let entries = graph.entries_local(id).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].entry_id, entry);
     assert_eq!(entries[0].text, "Met at the climbing gym");
@@ -86,7 +87,7 @@ fn soft_delete_hides_from_reads() {
     assert!(graph.memories_in_namespace("topic/").unwrap().is_empty());
     // Contents are preserved for replay/audit even though the memory is hidden.
     // (No entries appended here, so just assert the read path doesn't error.)
-    assert!(graph.entries(id).unwrap().is_empty());
+    assert!(graph.entries_local(id).unwrap().is_empty());
 }
 
 #[test]
@@ -233,8 +234,8 @@ fn symmetric_link_is_order_independent() {
     let b = MemoryId::generate();
     let (_store, graph) = materialized(vec![
         EventPayload::LinkTypeRegistered {
-            name: RelationName::new("same_as"),
-            inverse: RelationName::new("same_as"),
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
             from_card: Cardinality::Many,
             to_card: Cardinality::Many,
             symmetric: true,
@@ -251,14 +252,14 @@ fn symmetric_link_is_order_independent() {
         EventPayload::LinkCreated {
             from: a,
             to: b,
-            relation: RelationName::new("same_as"),
+            relation: RelationName::SameAs,
             source: LinkSource::Debugger,
         },
         // Asserting the reverse direction is the same edge, not a second one.
         EventPayload::LinkCreated {
             from: b,
             to: a,
-            relation: RelationName::new("same_as"),
+            relation: RelationName::SameAs,
             source: LinkSource::Debugger,
         },
     ]);
@@ -276,8 +277,8 @@ fn same_as_merges_stubs_into_one_class() {
     let c = MemoryId::generate();
     let (_store, graph) = materialized(vec![
         EventPayload::LinkTypeRegistered {
-            name: RelationName::new("same_as"),
-            inverse: RelationName::new("same_as"),
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
             from_card: Cardinality::Many,
             to_card: Cardinality::Many,
             symmetric: true,
@@ -298,7 +299,7 @@ fn same_as_merges_stubs_into_one_class() {
         EventPayload::LinkCreated {
             from: a,
             to: b,
-            relation: RelationName::new("same_as"),
+            relation: RelationName::SameAs,
             source: LinkSource::Debugger,
         },
     ]);
@@ -317,6 +318,77 @@ fn same_as_merges_stubs_into_one_class() {
     assert_eq!(graph.class_members(a).unwrap(), phil);
     assert_eq!(graph.class_members(b).unwrap(), phil);
     assert_eq!(graph.class_members(c).unwrap(), vec![c]);
+}
+
+#[test]
+fn class_entries_compose_across_a_merged_class_in_commit_order() {
+    let a = MemoryId::generate();
+    let b = MemoryId::generate();
+    let c = MemoryId::generate();
+    let appended = |id, text: &str| EventPayload::MemoryContentAppended {
+        id,
+        entry_id: EntryId::generate(),
+        asserted_at: Timestamp::from_millis(900),
+        text: text.to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+    };
+    let (_store, graph) = materialized(vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+        },
+        EventPayload::MemoryCreated {
+            id: a,
+            name: MemoryName::new("person/phil@direct"),
+        },
+        EventPayload::MemoryCreated {
+            id: b,
+            name: MemoryName::new("person/phil@discord"),
+        },
+        EventPayload::MemoryCreated {
+            id: c,
+            name: MemoryName::new("person/dave@direct"),
+        },
+        // Appended interleaved across the two Phil stubs to prove the union is ordered by global
+        // commit order (seq), not grouped by stub.
+        appended(a, "phil one"),
+        appended(b, "phil two"),
+        appended(a, "phil three"),
+        appended(c, "dave only"),
+        EventPayload::LinkCreated {
+            from: a,
+            to: b,
+            relation: RelationName::SameAs,
+            source: LinkSource::Debugger,
+        },
+    ]);
+
+    let texts = |entries: Vec<EntryView>| entries.into_iter().map(|e| e.text).collect::<Vec<_>>();
+
+    // The class read unions both stubs in commit order, from either member.
+    assert_eq!(
+        texts(graph.class_entries(a).unwrap()),
+        ["phil one", "phil two", "phil three"]
+    );
+    assert_eq!(
+        texts(graph.class_entries(b).unwrap()),
+        ["phil one", "phil two", "phil three"]
+    );
+    // The local read sees only its own stub.
+    assert_eq!(
+        texts(graph.entries_local(a).unwrap()),
+        ["phil one", "phil three"]
+    );
+    assert_eq!(texts(graph.entries_local(b).unwrap()), ["phil two"]);
+    // A singleton class: the class read equals the local read.
+    assert_eq!(texts(graph.class_entries(c).unwrap()), ["dave only"]);
+    assert_eq!(texts(graph.entries_local(c).unwrap()), ["dave only"]);
 }
 
 #[test]

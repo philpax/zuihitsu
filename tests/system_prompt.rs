@@ -30,7 +30,7 @@ fn assembles_scaffold_identity_and_time() {
         .unwrap()
         .body;
     let self_memory = graph.memory_by_name("self").unwrap().unwrap();
-    let identity = graph.entries(self_memory.id).unwrap();
+    let identity = graph.entries_local(self_memory.id).unwrap();
     let prompt = system_prompt::assemble(&scaffold, &identity, Timestamp::from_millis(1_000));
 
     // The durable scaffold framing.

@@ -76,7 +76,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
     let scaffold_version = scaffold.as_ref().map(|template| template.version);
     let scaffold_body = scaffold.map(|template| template.body).unwrap_or_default();
     let identity = match graph.memory_by_name("self")? {
-        Some(self_memory) => graph.entries(self_memory.id)?,
+        Some(self_memory) => graph.entries_local(self_memory.id)?,
         None => Vec::new(),
     };
     let system = system_prompt::assemble(&scaffold_body, &identity, clock.now());
@@ -198,7 +198,9 @@ async fn regenerate_descriptions(
         let Some(memory) = graph.memory_by_id(id)? else {
             continue;
         };
-        let entries = graph.entries(id)?;
+        // Class-wide synthesis: a merged identity has one unified description, composed from the
+        // whole same_as class rather than the single written stub (spec §Visibility).
+        let entries = graph.class_entries(id)?;
         if entries.is_empty() {
             continue;
         }

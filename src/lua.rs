@@ -105,14 +105,23 @@ impl Session {
                 )?,
             )?;
 
-            // mem:entries() — the memory's entry texts, graph plus this block's pending appends.
+            // mem:entries() — the memory's entry texts, the whole same_as class from the graph plus
+            // this block's pending appends. A traversing read, so it locks the full class (touches
+            // every member), not just the queried stub.
             methods.set(
                 "entries",
                 scope.create_function(|lua, this: Table| {
                     let id = handle_id(&this)?;
-                    block_ref.borrow_mut().touched.insert(id);
+                    let members = graph_ref.class_members(id).map_err(to_lua_err)?;
+                    {
+                        let mut block = block_ref.borrow_mut();
+                        block.touched.insert(id);
+                        for member in &members {
+                            block.touched.insert(*member);
+                        }
+                    }
                     let mut texts: Vec<String> = graph_ref
-                        .entries(id)
+                        .class_entries(id)
                         .map_err(to_lua_err)?
                         .into_iter()
                         .map(|entry| entry.text)

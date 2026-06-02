@@ -224,7 +224,7 @@ fn recency_bonus(
     settings: &SearchSettings,
 ) -> Result<f32, GraphError> {
     let latest_assertion = graph
-        .entries(memory.id)?
+        .class_entries(memory.id)?
         .iter()
         .map(|entry| entry.asserted_at.as_millis())
         .max()

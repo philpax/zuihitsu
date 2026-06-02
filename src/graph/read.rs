@@ -80,42 +80,35 @@ impl Graph {
         Ok(memories)
     }
 
-    /// A memory's content entries, in commit order. Low-level: not filtered by soft delete.
-    pub fn entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT entry_id, asserted_at, text, told_by, told_in, visibility
-                 FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![id.0.to_string()], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, String>(5)?,
-                ))
-            })
-            .map_err(backend)?;
+    /// A memory's own content entries, in commit order — the per-stub read primitive that
+    /// class-aware reads compose across a `same_as` class. Low-level: not filtered by soft delete.
+    /// See [`Graph::class_entries`] for the traversing form.
+    pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        self.collect_entries(
+            "SELECT entry_id, asserted_at, text, told_by, told_in, visibility
+             FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
+            id,
+        )
+    }
 
-        let mut entries = Vec::new();
-        for row in rows {
-            let (entry_id, asserted_at, text, told_by, told_in, visibility) =
-                row.map_err(backend)?;
-            entries.push(EntryView::from_db(
-                EntryId(parse_ulid(&entry_id)?),
-                asserted_at,
-                text,
-                &told_by,
-                told_in.as_deref(),
-                &visibility,
-            )?);
-        }
-        Ok(entries)
+    /// The content entries of `id`'s whole live `same_as` class, in global commit order — the
+    /// read-time traversal that surfaces a merged identity as one. For a singleton class this equals
+    /// [`Graph::entries_local`]. Synthesis (description regeneration, belief arbitration) composes
+    /// over this rather than a single stub, so a merged identity has one unified description instead
+    /// of one per stub (spec §Visibility → synthesis traverses the `same_as` class). Entries of a
+    /// soft-deleted member are excluded.
+    pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        self.collect_entries(
+            "SELECT entry_id, asserted_at, text, told_by, told_in, visibility
+             FROM content_entries
+             WHERE memory_id IN (
+                 SELECT id FROM memories
+                 WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+                   AND deleted = 0
+             )
+             ORDER BY seq",
+            id,
+        )
     }
 
     /// A single entry by id, with its live owning memory — or `None` if the entry is unknown or its
@@ -400,6 +393,39 @@ impl Graph {
             tags.push(TagName::new(row.map_err(backend)?));
         }
         Ok(tags)
+    }
+
+    /// Run an entry query whose sole bound parameter is a memory id, mapping each row to an
+    /// [`EntryView`]. Shared by [`Graph::entries_local`] and [`Graph::class_entries`].
+    fn collect_entries(&self, sql: &str, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        let mut stmt = self.conn.prepare(sql).map_err(backend)?;
+        let rows = stmt
+            .query_map(params![id.0.to_string()], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(backend)?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            let (entry_id, asserted_at, text, told_by, told_in, visibility) =
+                row.map_err(backend)?;
+            entries.push(EntryView::from_db(
+                EntryId(parse_ulid(&entry_id)?),
+                asserted_at,
+                text,
+                &told_by,
+                told_in.as_deref(),
+                &visibility,
+            )?);
+        }
+        Ok(entries)
     }
 
     fn query_ids(&self, sql: &str, id: &str, relation: &str) -> Result<Vec<String>, GraphError> {

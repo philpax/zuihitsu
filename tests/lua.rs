@@ -30,7 +30,7 @@ fn block_commits_and_projects_with_read_your_writes() {
 
     // And they committed and projected to the graph.
     let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
-    assert_eq!(h.graph.entries(dave.id).unwrap().len(), 2);
+    assert_eq!(h.graph.entries_local(dave.id).unwrap().len(), 2);
 }
 
 #[test]
