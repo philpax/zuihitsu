@@ -8,7 +8,7 @@ use super::{
     parse_ulid,
 };
 use crate::{
-    event::{Cardinality, Volatility},
+    event::{Cardinality, Teller, Volatility},
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName,
         SessionId, TagName, Timestamp, TurnId,
@@ -342,6 +342,38 @@ impl Graph {
             .optional()
             .map_err(backend)?;
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
+    }
+
+    /// Resolve a teller to the display name a marker shows (a participant's handle, or a fixed label
+    /// for the agent and genesis). Shared by search and brief composition.
+    pub fn teller_display(&self, teller: &Teller) -> Result<String, GraphError> {
+        Ok(match teller {
+            Teller::Participant(id) => self
+                .memory_by_id(*id)?
+                .map(|memory| memory.name.as_str().to_owned())
+                .unwrap_or_else(|| "someone".to_owned()),
+            Teller::Agent => "the agent".to_owned(),
+            Teller::Bootstrap => "genesis".to_owned(),
+        })
+    }
+
+    /// Resolve a `told_in` context to its marker room — display name and `#confidential` flag — for
+    /// the teller-private marker. `None` when the entry carries no room, or its context memory is
+    /// gone. Shared by search and brief composition, both of which bake the marker at build time
+    /// (spec §Visibility → marker).
+    pub fn marker_room(
+        &self,
+        told_in: Option<MemoryId>,
+    ) -> Result<Option<crate::visibility::MarkerRoom>, GraphError> {
+        let Some(context_id) = told_in else {
+            return Ok(None);
+        };
+        Ok(self
+            .memory_by_id(context_id)?
+            .map(|context| crate::visibility::MarkerRoom {
+                name: crate::visibility::room_display(context.name.as_str()),
+                confidential: context.tags.contains(&TagName::Confidential),
+            }))
     }
 
     /// A session by id, with its participants, or `None` if unknown.
