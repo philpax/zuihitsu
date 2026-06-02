@@ -21,6 +21,7 @@ async-openai = { version = "0.40.2", default-features = false, features = [
 async-trait = "0.1.89"
 clap = { version = "4.6.1", features = ["derive"] }
 fs2 = { version = "0.4.3", optional = true }
+jiff = { version = "0.2.28", optional = true }
 mlua = { version = "0.11.6", features = ["lua54", "vendored"], optional = true }
 rusqlite = { version = "0.40.0", features = ["bundled"], optional = true }
 schemars = { version = "1.2.1", optional = true }
@@ -39,7 +40,7 @@ default = ["lua", "openai"]
 # The SQLite-backed event store and materialized graph. With this off, only the in-memory store
 # and seam fakes are built — the pure no-I/O configuration the tests exercise via
 # --no-default-features.
-sqlite = ["dep:rusqlite", "dep:sqlite-vec", "dep:fs2"]
+sqlite = ["dep:rusqlite", "dep:sqlite-vec", "dep:fs2", "dep:jiff"]
 # The Lua VM and agent execution layer. Implies `sqlite`, since a block commits to the graph.
 lua = ["dep:mlua", "sqlite"]
 # The real model client and embedder over an OpenAI-compatible HTTP endpoint.

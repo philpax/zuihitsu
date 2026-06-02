@@ -28,6 +28,8 @@ pub mod search;
 pub mod server;
 pub mod settings;
 pub mod store;
+#[cfg(feature = "sqlite")]
+pub mod system_prompt;
 pub mod templates;
 pub mod vector;
 

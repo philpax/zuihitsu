@@ -19,7 +19,7 @@ use crate::{
     lua::{BlockOutcome, LuaError, Session},
     model::{Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolSpec},
     store::{Store, StoreError},
-    templates,
+    system_prompt, templates,
 };
 
 /// What a completed turn delivers to the platform client.
@@ -55,6 +55,17 @@ pub async fn run_turn(
     // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
     let cycle_start = store.head()?;
 
+    // Assemble the frozen system prompt once for the cycle: the scaffold framing, the agent's
+    // identity from `self`, and the declared time.
+    let scaffold = templates::latest_template(store, PromptTemplateName::Scaffold)?
+        .map(|template| template.body)
+        .unwrap_or_default();
+    let identity = match graph.memory_by_name("self")? {
+        Some(self_memory) => graph.entries(self_memory.id)?,
+        None => Vec::new(),
+    };
+    let system = system_prompt::assemble(&scaffold, &identity, clock.now());
+
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it.
     let turn_id = TurnId::generate();
     let tools = vec![run_lua_tool()];
@@ -63,7 +74,7 @@ pub async fn run_turn(
     let outcome = 'cycle: {
         for _ in 0..max_steps {
             let request = GenerateRequest {
-                system: String::new(),
+                system: system.clone(),
                 messages: messages.clone(),
                 tools: tools.clone(),
             };

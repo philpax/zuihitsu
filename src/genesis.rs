@@ -139,7 +139,11 @@ pub fn rollout(
             id: self_id,
             name: MemoryName::new("self"),
         });
-        for text in &seed.seed_entries {
+        // The persona is the agent's charter: a seed content entry, not a description. Entries are
+        // immutable and append-only, so the authored voice never drifts, while the self can still
+        // evolve as the agent appends further self-observations. The system prompt draws the
+        // agent's identity from these entries verbatim, never from the regenerable description.
+        for text in std::iter::once(&seed.persona).chain(&seed.seed_entries) {
             to_emit.push(EventPayload::MemoryContentAppended {
                 id: self_id,
                 entry_id: EntryId::generate(),
@@ -181,7 +185,18 @@ fn default_templates() -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::Scaffold,
             version: 1,
-            body: "<draft system-prompt scaffold — see docs/spec.md §System prompt>",
+            body: "You act through a persistent memory that you read and write by emitting Lua \
+                   through the run_lua tool. A turn is a loop of steps: at each step you either \
+                   call run_lua or give a reply. What you write to memory persists across sessions; \
+                   your in-block scratchpad does not. You speak with several participants, who do \
+                   not all see the same things.\n\n\
+                   Memories are namespaced by kind: person/ for people, place/ for places, topic/ \
+                   for subjects, context/ for conversations, and self for you. Read a merged \
+                   identity through its canonical handle (person/phil, not a per-platform stub) so \
+                   you do not look in the wrong place and miss what you know.\n\n\
+                   Record your own observations and inferences under the `agent` teller. Keep \
+                   confidences compartmentalized: content told to you in confidence is marked, and \
+                   you do not repeat it to participants who should not see it.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
