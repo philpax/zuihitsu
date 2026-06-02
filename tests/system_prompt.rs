@@ -5,7 +5,7 @@
 
 use zuihitsu::{
     Graph, ManualClock, MemoryStore, PromptTemplateName, SeedSelf, Timestamp, genesis,
-    latest_template, system_prompt,
+    latest_template, render_api_reference, system_prompt,
 };
 
 #[test]
@@ -31,12 +31,19 @@ fn assembles_scaffold_identity_and_time() {
         .body;
     let self_memory = graph.memory_by_name("self").unwrap().unwrap();
     let identity = graph.entries_local(self_memory.id).unwrap();
-    let prompt = system_prompt::assemble(&scaffold, &identity, Timestamp::from_millis(1_000));
+    let api = render_api_reference();
+    let prompt = system_prompt::assemble(&scaffold, &identity, &api, Timestamp::from_millis(1_000));
 
     // The durable scaffold framing.
     assert!(prompt.contains("run_lua"));
     // The persona, drawn verbatim from self's seed entry.
     assert!(prompt.contains("A discreet companion with a long memory."));
+    // The build-derived API description, interpolated from the same typed source the implementation
+    // uses: the call signature, a parameter's type, and the return type.
+    assert!(prompt.contains("mem:append(text, opts?)"));
+    assert!(prompt.contains("text: string (required)"));
+    assert!(prompt.contains("opts.visibility: \"public\" | \"private\""));
+    assert!(prompt.contains("context.current()"));
     // The declared session time, in human units (1_000 ms after the epoch).
     assert!(prompt.contains("01 January 1970"));
     assert!(prompt.contains("UTC"));

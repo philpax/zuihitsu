@@ -7,6 +7,7 @@
 
 #[cfg(feature = "lua")]
 pub mod agent;
+pub mod api_doc;
 pub mod clock;
 pub mod config;
 pub mod embed;
@@ -36,6 +37,7 @@ pub mod vector;
 #[cfg(feature = "sqlite")]
 pub mod visibility;
 
+pub use api_doc::{ApiEntry, ApiParam, ApiType, ObjectBuilder, enum_of, object};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
@@ -69,7 +71,7 @@ pub use vector::{
 mod __lua {
     pub use crate::{
         agent::{Turn, TurnError, TurnOutcome, run_turn},
-        lua::{BlockOutcome, LuaError, Session},
+        lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     };
 }
 #[cfg(feature = "lua")]
@@ -84,7 +86,9 @@ mod __sqlite {
         server::{Control, Server, ServerError},
         store::SqliteStore,
         vector::SqliteVectorIndex,
-        visibility::{default_visibility, teller_private_marker, visible},
+        visibility::{
+            default_visibility, default_visibility_named, teller_private_marker, visible,
+        },
     };
 }
 #[cfg(feature = "sqlite")]

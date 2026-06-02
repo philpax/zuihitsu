@@ -13,10 +13,12 @@ use std::collections::BTreeSet;
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, Initiation, ProducedBy, PromptTemplateName, TerminalCause, TurnRole},
+    event::{
+        EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
+    },
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, MemoryId, Seq, TurnId},
-    lua::{BlockOutcome, LuaError, Session},
+    lua::{self, BlockOutcome, LuaError, Session},
     model::{Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolSpec},
     store::{Store, StoreError},
     system_prompt, templates,
@@ -34,7 +36,8 @@ pub enum TurnOutcome {
 }
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model`, `store`,
-/// `graph`, `clock`), the `inbound` participant message, and the step budget.
+/// `graph`, `clock`), the `inbound` participant message and its `inbound_participant` (the speaker's
+/// `person/*` stub, whose content the turn's writes are attributed to), and the step budget.
 pub struct Turn<'a> {
     pub session: &'a Session,
     pub model: &'a dyn ModelClient,
@@ -42,6 +45,7 @@ pub struct Turn<'a> {
     pub graph: &'a mut Graph,
     pub clock: &'a dyn Clock,
     pub inbound: &'a str,
+    pub inbound_participant: MemoryId,
     pub max_steps: usize,
 }
 
@@ -54,9 +58,13 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
         graph,
         clock,
         inbound,
+        inbound_participant,
         max_steps,
     } = turn;
     let conversation = session.conversation();
+    // Content the agent writes this turn is attributed to the speaker by default (an append opts out
+    // with `by_agent` for the agent's own observations — see `mem:append`).
+    let teller = Teller::Participant(inbound_participant);
     // An inbound participant message is not inference, so it carries no provenance.
     append_turn(
         store,
@@ -65,6 +73,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
         TurnId::generate(),
         TurnRole::Participant,
         inbound.to_owned(),
+        Some(inbound_participant),
         None,
     )?;
     // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
@@ -79,7 +88,10 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
         Some(self_memory) => graph.entries_local(self_memory.id)?,
         None => Vec::new(),
     };
-    let system = system_prompt::assemble(&scaffold_body, &identity, clock.now());
+    // The API description is build-derived: rendered from the running binary so the prompt and the
+    // installed Lua API can't drift (spec §System prompt → API description).
+    let api_reference = lua::render_api_reference();
+    let system = system_prompt::assemble(&scaffold_body, &identity, &api_reference, clock.now());
 
     // Provenance for the agent's turn: the chat model and the scaffold it ran against. If no
     // scaffold is registered (it always is post-genesis), the attribution is simply absent.
@@ -105,7 +117,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                 Completion::ToolCalls(calls) => {
                     messages.push(Message::assistant_tool_calls(calls.clone()));
                     for call in &calls {
-                        let result = run_tool_call(session, store, graph, clock, turn_id, call)?;
+                        let result =
+                            run_tool_call(session, store, graph, clock, &teller, turn_id, call)?;
                         messages.push(Message::tool_result(call.id.clone(), result));
                     }
                 }
@@ -117,6 +130,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                         turn_id,
                         TurnRole::Agent,
                         text.clone(),
+                        None,
                         agent_provenance.clone(),
                     )?;
                     break 'cycle TurnOutcome::Reply(text);
@@ -129,6 +143,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                         turn_id,
                         TurnRole::Agent,
                         String::new(),
+                        None,
                         agent_provenance.clone(),
                     )?;
                     break 'cycle TurnOutcome::Silent;
@@ -143,6 +158,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
             turn_id,
             TurnRole::Agent,
             surfaced,
+            None,
             agent_provenance.clone(),
         )?;
         TurnOutcome::MaxStepsExceeded
@@ -263,6 +279,7 @@ fn run_tool_call(
     store: &mut dyn Store,
     graph: &mut Graph,
     clock: &dyn Clock,
+    teller: &Teller,
     turn_id: TurnId,
     call: &ToolCall,
 ) -> Result<String, TurnError> {
@@ -274,7 +291,7 @@ fn run_tool_call(
         Err(error) => return Ok(ToolError::InvalidArguments(error.to_string()).to_string()),
     };
     Ok(
-        match session.execute(store, graph, clock, turn_id, &script)? {
+        match session.execute(store, graph, clock, teller.clone(), turn_id, &script)? {
             BlockOutcome::Committed { result } => result,
             BlockOutcome::Terminated(TerminalCause::Error(message)) => {
                 ToolError::BlockError(message).to_string()
@@ -323,6 +340,7 @@ fn run_lua_tool() -> ToolSpec {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_turn(
     store: &mut dyn Store,
     clock: &dyn Clock,
@@ -330,6 +348,7 @@ fn append_turn(
     turn_id: TurnId,
     role: TurnRole,
     text: String,
+    participant: Option<MemoryId>,
     produced_by: Option<ProducedBy>,
 ) -> Result<(), TurnError> {
     store.append(
@@ -339,6 +358,7 @@ fn append_turn(
             turn_id,
             role,
             text,
+            participant,
             initiation: Initiation::Responding,
             produced_by,
         }],

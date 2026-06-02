@@ -32,7 +32,7 @@ pub fn visible(
     present_set: &[MemoryId],
     class_of: &ClassOf,
 ) -> Result<bool, GraphError> {
-    let subject = subject_participant(memory);
+    let subject = subject_participant(memory.name.as_str(), memory.id);
     Ok(match &entry.visibility {
         Visibility::Public => true,
         Visibility::PrivateToTeller => {
@@ -53,7 +53,14 @@ pub fn visible(
 /// an absent person — it is not a general default. Identity here is the write-time stub, not the
 /// class: a teller attributing to a specific stub of themselves is still self-disclosure.
 pub fn default_visibility(memory: &MemoryView, teller: &Teller) -> Visibility {
-    match (subject_participant(memory), teller) {
+    default_visibility_named(memory.name.as_str(), memory.id, teller)
+}
+
+/// As [`default_visibility`], computed from a memory's name and id directly. The write path needs
+/// this because an append's target may be a memory created earlier in the same block — present in
+/// the block's buffer, not yet a full [`MemoryView`] from the graph.
+pub fn default_visibility_named(name: &str, id: MemoryId, teller: &Teller) -> Visibility {
+    match (subject_participant(name, id), teller) {
         (Some(subject), Teller::Participant(teller_id)) if *teller_id != subject => {
             Visibility::PrivateToTeller
         }
@@ -71,12 +78,8 @@ pub fn teller_private_marker(teller: &str) -> String {
 /// The participant a memory is *about*: a `person/*` stub, or `None` for every other namespace and
 /// for `self` (which therefore get no subject-guard). The bare stub id; the predicate resolves it to
 /// its class through `class_of`.
-fn subject_participant(memory: &MemoryView) -> Option<MemoryId> {
-    memory
-        .name
-        .as_str()
-        .starts_with("person/")
-        .then_some(memory.id)
+fn subject_participant(name: &str, id: MemoryId) -> Option<MemoryId> {
+    name.starts_with("person/").then_some(id)
 }
 
 /// Whether `entity` is present — some member of its `same_as` class is in `present_set`.
