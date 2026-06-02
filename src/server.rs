@@ -345,6 +345,11 @@ impl Control<'_> {
         Ok(self.server.graph.memory_by_name(name)?)
     }
 
+    /// Inspect the live memories in a namespace (e.g. `"person/"`), ordered by name.
+    pub fn memories(&self, prefix: &str) -> Result<Vec<MemoryView>, ServerError> {
+        Ok(self.server.graph.memories_in_namespace(prefix)?)
+    }
+
     /// The agent's current behavioral settings: the latest `ConfigSet` snapshot.
     pub fn settings(&self) -> Result<Settings, ServerError> {
         Ok(Settings::from_store(self.server.store.as_ref())?)

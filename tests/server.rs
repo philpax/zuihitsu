@@ -5,6 +5,8 @@
 
 #[cfg(feature = "lua")]
 use zuihitsu::{Completion, ConversationLocator, MemoryStore, ScriptedModel, TurnOutcome};
+#[cfg(all(feature = "lua", feature = "openai"))]
+use zuihitsu::{EnvConfig, OpenAiClient};
 use zuihitsu::{
     Graph, ManualClock, MemoryId, SeedSelf, Server, SqliteStore, Timestamp,
     genesis::{GenesisStatus, Rollout},
@@ -198,4 +200,57 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
     let participants = &sessions[0].participants;
     assert!(participants.contains(&dave));
     assert!(participants.contains(&erin));
+}
+
+/// End-to-end smoke against the configured model: route a real message through the whole pipeline —
+/// resolve, open a session and freeze its brief, run the loop, reply — and observe what the agent
+/// did. Ignored by default (needs a reachable endpoint from `config.toml`); the client has no request
+/// timeout, so a slow cold start is tolerated.
+#[cfg(all(feature = "lua", feature = "openai"))]
+#[tokio::test]
+#[ignore = "requires a reachable model endpoint (config.toml)"]
+async fn real_model_routes_a_message_end_to_end() {
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        eprintln!("skipping: no config.toml");
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        eprintln!("skipping: no model endpoint configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    let (mut server, _clock) = born_agent();
+    let leads = ConversationLocator::new("direct", "operator");
+
+    let outcome = server
+        .platform()
+        .route_message(
+            &client,
+            &leads,
+            "operator",
+            "Please remember that Dave climbs at the bouldering gym, then confirm you've noted it.",
+            &["operator"],
+        )
+        .await;
+
+    match outcome {
+        Ok(outcome) => {
+            eprintln!("real-model route outcome: {outcome:?}");
+            // The full pipeline ran: a single session opened, carrying a frozen brief.
+            let sessions = server.control().sessions(&leads).unwrap();
+            assert_eq!(sessions.len(), 1);
+            assert!(!sessions[0].brief.is_empty());
+            // Observe whatever the agent chose to write (a real model names memories variously).
+            for namespace in ["person/", "topic/", "place/"] {
+                for memory in server.control().memories(namespace).unwrap() {
+                    eprintln!(
+                        "  wrote {} — {:?}",
+                        memory.name.as_str(),
+                        memory.description
+                    );
+                }
+            }
+        }
+        Err(error) => eprintln!("skipping: {error}"),
+    }
 }
