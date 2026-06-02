@@ -138,18 +138,44 @@ impl MemoryName {
     }
 }
 
-/// A tag's unique name.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TagName(pub SmolStr);
+/// A tag's name. Like [`RelationName`], the build's meaningful tags are named variants code can
+/// match — `Confidential` drives the room-confidentiality marker (see spec §Visibility → marker) —
+/// and everything else falls to `Other`. It serializes as its bare name, so the wire format is just
+/// the string.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TagName {
+    Confidential,
+    Other(SmolStr),
+}
 
 impl TagName {
+    /// Recognize a tag name, mapping a build-meaningful tag to its variant and anything else (an
+    /// agent- or operator-created tag) to [`TagName::Other`].
     pub fn new(name: impl Into<SmolStr>) -> TagName {
-        TagName(name.into())
+        let name = name.into();
+        match name.as_str() {
+            "confidential" => TagName::Confidential,
+            _ => TagName::Other(name),
+        }
     }
 
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        match self {
+            TagName::Confidential => "confidential",
+            TagName::Other(name) => name.as_str(),
+        }
+    }
+}
+
+impl Serialize for TagName {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for TagName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<TagName, D::Error> {
+        Ok(TagName::new(SmolStr::deserialize(deserializer)?))
     }
 }
 
