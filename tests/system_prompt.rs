@@ -32,7 +32,14 @@ fn assembles_scaffold_identity_and_time() {
     let self_memory = graph.memory_by_name("self").unwrap().unwrap();
     let identity = graph.entries_local(self_memory.id).unwrap();
     let api = render_api_reference();
-    let prompt = system_prompt::assemble(&scaffold, &identity, &api, Timestamp::from_millis(1_000));
+    let brief = "<participant name=\"phil\">a friend</participant>";
+    let prompt = system_prompt::assemble(
+        &scaffold,
+        &identity,
+        &api,
+        brief,
+        Timestamp::from_millis(1_000),
+    );
 
     // The durable scaffold framing.
     assert!(prompt.contains("run_lua"));
@@ -44,6 +51,8 @@ fn assembles_scaffold_identity_and_time() {
     assert!(prompt.contains("text: string (required)"));
     assert!(prompt.contains("opts.visibility: \"public\" | \"private\""));
     assert!(prompt.contains("context.current()"));
+    // The session's frozen contextual brief.
+    assert!(prompt.contains("<participant name=\"phil\">a friend</participant>"));
     // The declared session time, in human units (1_000 ms after the epoch).
     assert!(prompt.contains("01 January 1970"));
     assert!(prompt.contains("UTC"));

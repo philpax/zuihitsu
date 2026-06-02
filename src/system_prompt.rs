@@ -19,14 +19,17 @@ use crate::{graph::EntryView, ids::Timestamp};
 
 /// Compose the system prompt from the `scaffold` body, the agent's `identity` (the `self` memory's
 /// content entries, verbatim), the `api_reference` block (the build's callable Lua API, rendered by
-/// [`crate::lua::render_api_reference`]), and the session's start time `now`.
+/// [`crate::lua::render_api_reference`]), the session's frozen contextual `brief` (composed by
+/// [`crate::brief::compose`] and captured on `SessionStarted`), and the session's start time `now`.
 pub fn assemble(
     scaffold: &str,
     identity: &[EntryView],
     api_reference: &str,
+    brief: &str,
     now: Timestamp,
 ) -> String {
-    let mut prompt = String::with_capacity(scaffold.len() + api_reference.len() + 256);
+    let mut prompt =
+        String::with_capacity(scaffold.len() + api_reference.len() + brief.len() + 256);
     prompt.push_str(scaffold);
 
     if !identity.is_empty() {
@@ -42,6 +45,11 @@ pub fn assemble(
     if !api_reference.is_empty() {
         prompt.push_str("\n\n# What you can do\n\n");
         prompt.push_str(api_reference);
+    }
+
+    if !brief.is_empty() {
+        prompt.push_str("\n\n# What you know right now\n\n");
+        prompt.push_str(brief);
     }
 
     prompt.push_str("\n\n# Current time\n\nThe session begins on ");

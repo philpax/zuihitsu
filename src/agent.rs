@@ -46,6 +46,9 @@ pub struct Turn<'a> {
     pub clock: &'a dyn Clock,
     pub inbound: &'a str,
     pub inbound_participant: MemoryId,
+    /// The session's frozen contextual brief, interpolated into the system prompt (captured on
+    /// `SessionStarted`, so every turn in the session sees the same brief).
+    pub brief: &'a str,
     pub max_steps: usize,
 }
 
@@ -59,6 +62,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
         clock,
         inbound,
         inbound_participant,
+        brief,
         max_steps,
     } = turn;
     let conversation = session.conversation();
@@ -91,7 +95,13 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
     // The API description is build-derived: rendered from the running binary so the prompt and the
     // installed Lua API can't drift (spec §System prompt → API description).
     let api_reference = lua::render_api_reference();
-    let system = system_prompt::assemble(&scaffold_body, &identity, &api_reference, clock.now());
+    let system = system_prompt::assemble(
+        &scaffold_body,
+        &identity,
+        &api_reference,
+        brief,
+        clock.now(),
+    );
 
     // Provenance for the agent's turn: the chat model and the scaffold it ran against. If no
     // scaffold is registered (it always is post-genesis), the attribution is simply absent.

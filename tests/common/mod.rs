@@ -57,6 +57,7 @@ mod harness {
                 clock: &self.clock,
                 inbound,
                 inbound_participant: self.participant,
+                brief: "",
                 max_steps,
             }
         }
