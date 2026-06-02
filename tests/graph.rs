@@ -5,9 +5,9 @@
 #![cfg(feature = "sqlite")]
 
 use zuihitsu::{
-    Cardinality, EntryId, EntryView, Graph, LinkSource, MemoryId, MemoryName, MemoryStore,
-    RelationName, Seq, Store, TagName, Teller, Timestamp, Visibility, Volatility,
-    event::EventPayload,
+    Cardinality, ConversationId, ConversationLocator, EntryId, EntryView, Graph, LinkSource,
+    MemoryId, MemoryName, MemoryStore, RelationName, Seq, SessionId, Store, TagName, Teller,
+    Timestamp, TurnId, Visibility, Volatility, event::EventPayload,
 };
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.
@@ -541,4 +541,78 @@ fn materialize_is_incremental() {
         graph.memory_by_id(id).unwrap().unwrap().description,
         "A function defined in terms of itself."
     );
+}
+
+#[test]
+fn conversations_and_sessions_project() {
+    let conv = ConversationId::generate();
+    let (s1, s2) = (SessionId::generate(), SessionId::generate());
+    let alice = MemoryId::generate();
+    let bob = MemoryId::generate();
+    let carol = MemoryId::generate();
+    let join_turn = TurnId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::ConversationStarted {
+            id: conv,
+            locator: ConversationLocator::new("discord", "guild/42/chan/leads"),
+        },
+        EventPayload::SessionStarted {
+            conversation: conv,
+            id: s1,
+            participants: vec![alice, bob],
+            started_at: Timestamp::from_millis(1_000),
+            seeded_from_turn: None,
+            brief: "first brief".to_owned(),
+        },
+        EventPayload::ParticipantJoined {
+            conversation: conv,
+            session: s1,
+            participant: carol,
+            at_turn: join_turn,
+        },
+        EventPayload::SessionEnded {
+            conversation: conv,
+            id: s1,
+        },
+        // A second session opened via compaction carries the carryover extent.
+        EventPayload::SessionStarted {
+            conversation: conv,
+            id: s2,
+            participants: vec![alice],
+            started_at: Timestamp::from_millis(5_000),
+            seeded_from_turn: Some(join_turn),
+            brief: "second brief".to_owned(),
+        },
+    ]);
+
+    // The locator resolves to the room; an unseen locator does not.
+    assert_eq!(
+        graph
+            .conversation_for_locator(&ConversationLocator::new("discord", "guild/42/chan/leads"))
+            .unwrap(),
+        Some(conv)
+    );
+    assert!(
+        graph
+            .conversation_for_locator(&ConversationLocator::new("discord", "elsewhere"))
+            .unwrap()
+            .is_none()
+    );
+
+    // Sessions project in commit order, carrying the brief and the carryover extent.
+    let sessions = graph.sessions_in(conv).unwrap();
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0].id, s1);
+    assert_eq!(sessions[0].brief, "first brief");
+    assert_eq!(sessions[0].seeded_from_turn, None);
+    assert_eq!(sessions[1].id, s2);
+    assert_eq!(sessions[1].seeded_from_turn, Some(join_turn));
+
+    // The first session's participants are the open set plus the mid-session joiner.
+    let mut expected = vec![alice, bob, carol];
+    expected.sort();
+    assert_eq!(graph.session_participants(s1).unwrap(), expected);
+    assert_eq!(graph.session(s1).unwrap().unwrap().participants, expected);
+    // The second session has only its open participant.
+    assert_eq!(graph.session_participants(s2).unwrap(), vec![alice]);
 }

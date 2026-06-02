@@ -43,7 +43,8 @@ pub use event::{
 };
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
 pub use ids::{
-    ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,
+    ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName, Seq,
+    SessionId, TagName, Timestamp, TurnId,
 };
 pub use index::{IndexError, Indexer};
 pub use model::{
@@ -75,7 +76,7 @@ pub use __lua::*;
 #[cfg(feature = "sqlite")]
 mod __sqlite {
     pub use crate::{
-        graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView},
+        graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
         search::{SearchError, SearchHit, SearchQuery, search},
         server::{Control, Server, ServerError},
         store::SqliteStore,

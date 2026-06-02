@@ -4,11 +4,15 @@
 use rusqlite::{OptionalExtension, params};
 
 use super::{
-    EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, backend, parse_ulid,
+    EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView, backend,
+    parse_ulid,
 };
 use crate::{
     event::{Cardinality, Volatility},
-    ids::{EntryId, MemoryId, MemoryName, RelationName, TagName, Timestamp},
+    ids::{
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName,
+        SessionId, TagName, Timestamp, TurnId,
+    },
 };
 
 impl Graph {
@@ -284,6 +288,78 @@ impl Graph {
         Ok(links)
     }
 
+    /// Resolve a conversation's locator to its id, or `None` if the room has never been seen. A
+    /// retired (ended) conversation still resolves — the room is durable.
+    pub fn conversation_for_locator(
+        &self,
+        locator: &ConversationLocator,
+    ) -> Result<Option<ConversationId>, GraphError> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM conversations WHERE platform = ?1 AND scope_path = ?2",
+                params![locator.platform.as_str(), locator.scope_path.as_str()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        id.map(|id| parse_ulid(&id).map(ConversationId)).transpose()
+    }
+
+    /// A session by id, with its participants, or `None` if unknown.
+    pub fn session(&self, id: SessionId) -> Result<Option<SessionView>, GraphError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, conversation, started_at, seeded_from_turn, brief
+                 FROM sessions WHERE id = ?1",
+                params![id.0.to_string()],
+                session_columns,
+            )
+            .optional()
+            .map_err(backend)?;
+        row.map(|columns| self.assemble_session(columns))
+            .transpose()
+    }
+
+    /// A conversation's sessions, oldest first (commit order).
+    pub fn sessions_in(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Vec<SessionView>, GraphError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, conversation, started_at, seeded_from_turn, brief
+                 FROM sessions WHERE conversation = ?1 ORDER BY seq",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![conversation.0.to_string()], session_columns)
+            .map_err(backend)?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(self.assemble_session(row.map_err(backend)?)?);
+        }
+        Ok(sessions)
+    }
+
+    /// A session's participants — the present set at open plus anyone who joined — ordered by id.
+    pub fn session_participants(&self, session: SessionId) -> Result<Vec<MemoryId>, GraphError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT memory FROM session_participants WHERE session = ?1 ORDER BY memory")
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![session.0.to_string()], |r| r.get::<_, String>(0))
+            .map_err(backend)?;
+        let mut participants = Vec::new();
+        for row in rows {
+            participants.push(MemoryId(parse_ulid(&row.map_err(backend)?)?));
+        }
+        Ok(participants)
+    }
+
     /// Full-text search over name, description, and content, best match first. Over-fetches and
     /// filters soft-deleted memories, mirroring how visibility-aware search will filter hits later.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryView>, GraphError> {
@@ -380,6 +456,21 @@ impl Graph {
         })
     }
 
+    fn assemble_session(&self, columns: SessionColumns) -> Result<SessionView, GraphError> {
+        let (id, conversation, started_at, seeded_from_turn, brief) = columns;
+        let id = SessionId(parse_ulid(&id)?);
+        Ok(SessionView {
+            id,
+            conversation: ConversationId(parse_ulid(&conversation)?),
+            started_at: Timestamp::from_millis(started_at),
+            seeded_from_turn: seeded_from_turn
+                .map(|turn| parse_ulid(&turn).map(TurnId))
+                .transpose()?,
+            brief,
+            participants: self.session_participants(id)?,
+        })
+    }
+
     fn tags_of(&self, memory_id: &str) -> Result<Vec<TagName>, GraphError> {
         let mut stmt = self
             .conn
@@ -445,6 +536,20 @@ impl Graph {
 type MemoryColumns = (String, String, String, String, i64);
 
 fn row_to_memory_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryColumns> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+    ))
+}
+
+/// The raw session columns (id, conversation, started_at, seeded_from_turn, brief), shared by the
+/// single- and multi-row read paths.
+type SessionColumns = (String, String, i64, Option<String>, String);
+
+fn session_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionColumns> {
     Ok((
         row.get(0)?,
         row.get(1)?,

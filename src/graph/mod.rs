@@ -9,7 +9,10 @@ use ulid::Ulid;
 
 use crate::{
     event::{Cardinality, Teller, Visibility, Volatility},
-    ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp},
+    ids::{
+        ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, SessionId, TagName,
+        Timestamp, TurnId,
+    },
     store::{Store, StoreError},
 };
 
@@ -77,6 +80,19 @@ pub struct LinkView {
     pub from: MemoryId,
     pub to: MemoryId,
     pub relation: RelationName,
+}
+
+/// A session as projected: its conversation, when it opened, the carryover extent (if it opened via
+/// compaction), the captured brief, and its participants (the present set at open, plus anyone who
+/// joined mid-session).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionView {
+    pub id: SessionId,
+    pub conversation: ConversationId,
+    pub started_at: Timestamp,
+    pub seeded_from_turn: Option<TurnId>,
+    pub brief: String,
+    pub participants: Vec<MemoryId>,
 }
 
 /// A failure projecting or querying the graph.
@@ -199,6 +215,30 @@ impl Graph {
                  PRIMARY KEY (from_id, to_id, relation)
              );
              CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_id, relation);
+             CREATE TABLE IF NOT EXISTS conversations (
+                 id         TEXT    PRIMARY KEY,
+                 platform   TEXT    NOT NULL,
+                 scope_path TEXT    NOT NULL,
+                 ended      INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_locator
+                 ON conversations(platform, scope_path);
+             CREATE TABLE IF NOT EXISTS sessions (
+                 id               TEXT    PRIMARY KEY,
+                 conversation     TEXT    NOT NULL,
+                 started_at       INTEGER NOT NULL,
+                 seeded_from_turn TEXT,
+                 brief            TEXT    NOT NULL,
+                 ended            INTEGER NOT NULL DEFAULT 0,
+                 seq              INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_sessions_conversation ON sessions(conversation);
+             CREATE TABLE IF NOT EXISTS session_participants (
+                 session TEXT NOT NULL,
+                 memory  TEXT NOT NULL,
+                 at_turn TEXT,
+                 PRIMARY KEY (session, memory)
+             );
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
              CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                  name, description, content, memory_id UNINDEXED

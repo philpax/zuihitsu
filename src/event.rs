@@ -13,8 +13,8 @@ use smol_str::SmolStr;
 
 use crate::{
     ids::{
-        ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp,
-        TurnId,
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName, Seq,
+        SessionId, TagName, Timestamp, TurnId,
     },
     settings::Settings,
 };
@@ -330,6 +330,40 @@ pub enum EventPayload {
         initiation: Initiation,
         produced_by: Option<ProducedBy>,
     },
+    /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
+    /// the room then persists across sessions for the agent's life (spec §Conversations).
+    ConversationStarted {
+        id: ConversationId,
+        locator: ConversationLocator,
+    },
+    /// Retires a conversation permanently — rare, since conversations are durable.
+    ConversationEnded {
+        id: ConversationId,
+    },
+    /// Opens a bounded activity window within a conversation — the brief-freeze unit.
+    /// `participants` is the present set at open; `brief` is the composed brief captured verbatim so
+    /// the frozen prompt is faithfully replayable (spec §System prompt → replay); `seeded_from_turn`
+    /// records the carryover extent when the session opened via compaction (`None` for a fresh or
+    /// idle-opened session).
+    SessionStarted {
+        conversation: ConversationId,
+        id: SessionId,
+        participants: Vec<MemoryId>,
+        started_at: Timestamp,
+        seeded_from_turn: Option<TurnId>,
+        brief: String,
+    },
+    SessionEnded {
+        conversation: ConversationId,
+        id: SessionId,
+    },
+    /// A participant arriving mid-session, at turn `at_turn`.
+    ParticipantJoined {
+        conversation: ConversationId,
+        session: SessionId,
+        participant: MemoryId,
+        at_turn: TurnId,
+    },
 }
 
 impl EventPayload {
@@ -354,6 +388,11 @@ impl EventPayload {
             EventPayload::ConfigSet { .. } => "ConfigSet",
             EventPayload::LuaExecuted { .. } => "LuaExecuted",
             EventPayload::ConversationTurn { .. } => "ConversationTurn",
+            EventPayload::ConversationStarted { .. } => "ConversationStarted",
+            EventPayload::ConversationEnded { .. } => "ConversationEnded",
+            EventPayload::SessionStarted { .. } => "SessionStarted",
+            EventPayload::SessionEnded { .. } => "SessionEnded",
+            EventPayload::ParticipantJoined { .. } => "ParticipantJoined",
         }
     }
 
@@ -383,11 +422,19 @@ impl EventPayload {
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.as_str().to_owned()),
             // A whole-settings snapshot, not about a single entity.
             EventPayload::ConfigSet { .. } => None,
-            // Touches many memories rather than one; recoverable from its `touched` set, not a
-            // single target column.
-            EventPayload::LuaExecuted { .. } => None,
-            // Keyed by conversation, not a memory; filtered on conversation when that lands.
-            EventPayload::ConversationTurn { .. } => None,
+            // Conversation-keyed events target the conversation, so per-conversation history (the
+            // debugger's conversation view, compaction's read of a session's blocks) is a cheap
+            // indexed filter. A `LuaExecuted` touches many memories, but it belongs to one
+            // conversation; its memory set is recovered from `touched`, not this column.
+            EventPayload::ConversationStarted { id, .. }
+            | EventPayload::ConversationEnded { id } => Some(id.0.to_string()),
+            EventPayload::LuaExecuted { conversation, .. }
+            | EventPayload::ConversationTurn { conversation, .. }
+            | EventPayload::SessionStarted { conversation, .. }
+            | EventPayload::SessionEnded { conversation, .. }
+            | EventPayload::ParticipantJoined { conversation, .. } => {
+                Some(conversation.0.to_string())
+            }
         }
     }
 }

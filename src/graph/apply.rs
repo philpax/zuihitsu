@@ -220,6 +220,88 @@ impl Graph {
                     self.recompute_classes()?;
                 }
             }
+            EventPayload::ConversationStarted { id, locator } => {
+                // Idempotent: the room is opened once; a re-seen locator is a no-op, not a duplicate.
+                self.conn
+                    .execute(
+                        "INSERT OR IGNORE INTO conversations (id, platform, scope_path)
+                         VALUES (?1, ?2, ?3)",
+                        params![
+                            id.0.to_string(),
+                            locator.platform.as_str(),
+                            locator.scope_path.as_str(),
+                        ],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::ConversationEnded { id } => {
+                self.conn
+                    .execute(
+                        "UPDATE conversations SET ended = 1 WHERE id = ?1",
+                        params![id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::SessionStarted {
+                conversation,
+                id,
+                participants,
+                started_at,
+                seeded_from_turn,
+                brief,
+            } => {
+                self.conn
+                    .execute(
+                        "INSERT INTO sessions
+                         (id, conversation, started_at, seeded_from_turn, brief, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            id.0.to_string(),
+                            conversation.0.to_string(),
+                            started_at.as_millis(),
+                            seeded_from_turn.map(|turn| turn.0.to_string()),
+                            brief,
+                            event.seq.0 as i64,
+                        ],
+                    )
+                    .map_err(backend)?;
+                // The present set at open carries no joining turn; a join records its `at_turn`.
+                for participant in participants {
+                    self.conn
+                        .execute(
+                            "INSERT OR IGNORE INTO session_participants (session, memory, at_turn)
+                             VALUES (?1, ?2, NULL)",
+                            params![id.0.to_string(), participant.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
+            }
+            EventPayload::SessionEnded { id, .. } => {
+                self.conn
+                    .execute(
+                        "UPDATE sessions SET ended = 1 WHERE id = ?1",
+                        params![id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::ParticipantJoined {
+                session,
+                participant,
+                at_turn,
+                ..
+            } => {
+                self.conn
+                    .execute(
+                        "INSERT OR IGNORE INTO session_participants (session, memory, at_turn)
+                         VALUES (?1, ?2, ?3)",
+                        params![
+                            session.0.to_string(),
+                            participant.0.to_string(),
+                            at_turn.0.to_string(),
+                        ],
+                    )
+                    .map_err(backend)?;
+            }
         }
 
         self.conn

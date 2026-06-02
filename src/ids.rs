@@ -52,8 +52,8 @@ impl MemoryId {
     }
 }
 
-/// A durable conversation (a room the agent meets again and again). The full locator/session
-/// machinery lands at Stage 8; for now this is the identity threaded through the agent loop.
+/// A durable conversation (a room the agent meets again and again), keyed by its
+/// [`ConversationLocator`] and persisting across sessions for the agent's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ConversationId(pub Ulid);
@@ -61,6 +61,41 @@ pub struct ConversationId(pub Ulid);
 impl ConversationId {
     pub fn generate() -> ConversationId {
         ConversationId(Ulid::new())
+    }
+}
+
+/// The stable address of a durable conversation on a platform — what a platform client reports so
+/// the server resolves it to the same [`ConversationId`] every time. `platform` is a short config
+/// key (`direct`, `discord`, `slack`); `scope_path` locates the room within it (a channel id, a DM
+/// thread). Two locators name the same room exactly when both fields match.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ConversationLocator {
+    pub platform: SmolStr,
+    pub scope_path: SmolStr,
+}
+
+impl ConversationLocator {
+    pub fn new(
+        platform: impl Into<SmolStr>,
+        scope_path: impl Into<SmolStr>,
+    ) -> ConversationLocator {
+        ConversationLocator {
+            platform: platform.into(),
+            scope_path: scope_path.into(),
+        }
+    }
+}
+
+/// One bounded activity window within a conversation — the unit that freezes a brief and anchors the
+/// prefix cache. Opens on first activity (or resumption after a quiet gap, or a compaction
+/// re-segment) and closes on idle (spec §Conversations).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SessionId(pub Ulid);
+
+impl SessionId {
+    pub fn generate() -> SessionId {
+        SessionId(Ulid::new())
     }
 }
 
