@@ -239,6 +239,14 @@ impl Graph {
                  at_turn TEXT,
                  PRIMARY KEY (session, memory)
              );
+             CREATE TABLE IF NOT EXISTS participant_identities (
+                 platform         TEXT NOT NULL,
+                 platform_user_id TEXT NOT NULL,
+                 memory           TEXT NOT NULL,
+                 PRIMARY KEY (platform, platform_user_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_participant_identities_memory
+                 ON participant_identities(memory);
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
              CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                  name, description, content, memory_id UNINDEXED

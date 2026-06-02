@@ -14,6 +14,8 @@ pub mod event;
 pub mod genesis;
 #[cfg(feature = "sqlite")]
 pub mod graph;
+#[cfg(feature = "sqlite")]
+pub mod identity;
 pub mod ids;
 pub mod index;
 #[cfg(feature = "lua")]
@@ -77,6 +79,7 @@ pub use __lua::*;
 mod __sqlite {
     pub use crate::{
         graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
+        identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
         search::{SearchError, SearchHit, SearchQuery, search},
         server::{Control, Server, ServerError},
         store::SqliteStore,

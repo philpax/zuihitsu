@@ -364,6 +364,16 @@ pub enum EventPayload {
         participant: MemoryId,
         at_turn: TurnId,
     },
+    /// Binds a `person/*` stub to a platform identity, seeding the `(platform, platform_user_id) ->
+    /// memory_id` operational mapping (spec §Identity). Emitted on first contact (with the
+    /// `MemoryCreated` that mints the stub) and whenever an existing stub gains a further platform
+    /// identity. The mapping is operational, not a memory-graph fact, so it lives in this event
+    /// rather than as a relation.
+    ParticipantIdentified {
+        memory: MemoryId,
+        platform: SmolStr,
+        platform_user_id: SmolStr,
+    },
 }
 
 impl EventPayload {
@@ -393,6 +403,7 @@ impl EventPayload {
             EventPayload::SessionStarted { .. } => "SessionStarted",
             EventPayload::SessionEnded { .. } => "SessionEnded",
             EventPayload::ParticipantJoined { .. } => "ParticipantJoined",
+            EventPayload::ParticipantIdentified { .. } => "ParticipantIdentified",
         }
     }
 
@@ -415,7 +426,8 @@ impl EventPayload {
             | EventPayload::TagAppliedToMemory { memory: id, .. }
             | EventPayload::TagRemovedFromMemory { memory: id, .. }
             | EventPayload::LinkCreated { from: id, .. }
-            | EventPayload::LinkRemoved { from: id, .. } => Some(id.0.to_string()),
+            | EventPayload::LinkRemoved { from: id, .. }
+            | EventPayload::ParticipantIdentified { memory: id, .. } => Some(id.0.to_string()),
             EventPayload::TagCreated { name, .. }
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),

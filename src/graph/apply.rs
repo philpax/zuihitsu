@@ -302,6 +302,23 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::ParticipantIdentified {
+                memory,
+                platform,
+                platform_user_id,
+            } => {
+                self.conn
+                    .execute(
+                        "INSERT OR IGNORE INTO participant_identities
+                         (platform, platform_user_id, memory) VALUES (?1, ?2, ?3)",
+                        params![
+                            platform.as_str(),
+                            platform_user_id.as_str(),
+                            memory.0.to_string(),
+                        ],
+                    )
+                    .map_err(backend)?;
+            }
         }
 
         self.conn

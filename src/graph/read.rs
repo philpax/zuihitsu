@@ -306,6 +306,26 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(ConversationId)).transpose()
     }
 
+    /// Resolve a platform participant `(platform, platform_user_id)` to its `person/*` stub, or
+    /// `None` if that identity has never been seen.
+    pub fn participant_for(
+        &self,
+        platform: &str,
+        platform_user_id: &str,
+    ) -> Result<Option<MemoryId>, GraphError> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT memory FROM participant_identities
+                 WHERE platform = ?1 AND platform_user_id = ?2",
+                params![platform, platform_user_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
+    }
+
     /// A session by id, with its participants, or `None` if unknown.
     pub fn session(&self, id: SessionId) -> Result<Option<SessionView>, GraphError> {
         let row = self
