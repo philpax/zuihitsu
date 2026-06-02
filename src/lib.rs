@@ -82,7 +82,7 @@ pub use __lua::*;
 #[cfg(feature = "sqlite")]
 mod __sqlite {
     pub use crate::{
-        brief::{BriefError, compose},
+        brief::{BriefError, compose, compose_participant},
         graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
         identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
         search::{SearchError, SearchHit, SearchQuery, search},

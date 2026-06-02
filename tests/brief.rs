@@ -108,6 +108,35 @@ fn an_aside_about_a_present_subject_is_suppressed_in_the_brief() {
 }
 
 #[test]
+fn a_subject_joining_suppresses_asides_about_them() {
+    // Scenario 2 (join half): Erin's private aside about Phil. While only Erin is present it is
+    // visible (it would surface to her). Phil's join-brief is built against the now-present set
+    // {Erin, Phil}, where the subject-guard suppresses it — the dangerous direction is closed.
+    let phil = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(phil, "person/phil"),
+        created(erin, "person/erin"),
+        appended(
+            phil,
+            1_000,
+            "is being managed out",
+            Teller::Participant(erin),
+            Visibility::PrivateToTeller,
+        ),
+    ]);
+    let settings = Settings::default().brief;
+
+    // Before Phil joins (only Erin present): the aside is visible.
+    let before = brief::compose_participant(&graph, phil, &[erin], &settings).unwrap();
+    assert!(before.contains("is being managed out"));
+
+    // Phil's join-brief, built against {Erin, Phil}: the subject-guard suppresses it.
+    let join_brief = brief::compose_participant(&graph, phil, &[erin, phil], &settings).unwrap();
+    assert!(!join_brief.contains("is being managed out"));
+}
+
+#[test]
 fn the_present_set_cap_does_not_narrow_the_predicate() {
     // Scenario 21: with the present-set cap set to 1, Dave is present but ranks below the cap (only a
     // name-only entry, no full block). A fact on Phil (in the cap, rendered) excludes Dave; the

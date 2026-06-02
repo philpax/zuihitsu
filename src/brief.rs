@@ -120,6 +120,27 @@ pub fn compose(
     Ok(out)
 }
 
+/// Compose a single participant's brief block, against `present_set`. Used for a mid-session join:
+/// the joiner's brief is built against the now-present set and injected as a system message, rather
+/// than rebuilding the whole frozen prompt (spec §Mid-conversation joins). Because `present_set`
+/// includes the joiner, the subject-guard suppresses asides about them — a subject joining closes
+/// the dangerous direction. Empty if the participant is unknown.
+pub fn compose_participant(
+    graph: &Graph,
+    participant: MemoryId,
+    present_set: &[MemoryId],
+    settings: &BriefSettings,
+) -> Result<String, BriefError> {
+    let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
+    let recent = settings.recent_facts.max(0) as usize;
+    let mut out = String::new();
+    if let Some(memory) = graph.memory_by_id(participant)? {
+        let _ = writeln!(out, "## {}", memory.name.as_str());
+        render_memory_body(&mut out, graph, &memory, present_set, &class_of, recent)?;
+    }
+    Ok(out)
+}
+
 /// Render a memory's body in the per-participant shape: summary, visible recent facts (with the
 /// teller-private marker baked in), and key relationships.
 fn render_memory_body(
