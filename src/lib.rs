@@ -82,7 +82,7 @@ mod __sqlite {
         server::{Control, Server, ServerError},
         store::SqliteStore,
         vector::SqliteVectorIndex,
-        visibility::{default_visibility, visible},
+        visibility::{default_visibility, teller_private_marker, visible},
     };
 }
 #[cfg(feature = "sqlite")]

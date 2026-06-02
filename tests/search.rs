@@ -5,13 +5,12 @@
 #![cfg(feature = "sqlite")]
 
 use zuihitsu::{
-    Embedder, EntryId, FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName,
-    MemoryStore, SeedSelf, Settings, Store, TagName, Teller, Timestamp, VectorId, VectorIndex,
-    VectorRecord, Visibility,
+    Embedder, EntryId, FakeEmbedder, Graph, InMemoryVectorIndex, Indexer, ManualClock, MemoryId,
+    MemoryName, MemoryStore, SeedSelf, Settings, Store, TagName, Teller, Timestamp, Visibility,
     event::EventPayload,
     genesis::{self},
     search,
-    search::SearchQuery,
+    search::{SearchHit, SearchQuery},
 };
 
 const DIMS: usize = 32;
@@ -34,57 +33,65 @@ impl Corpus {
         }
     }
 
-    /// Add a memory with a description (embedded into the index) and one content entry, asserted at
-    /// `asserted_at_ms`, and bring the graph up to date.
-    async fn add(
-        &mut self,
-        name: &str,
-        description: &str,
-        content: &str,
-        asserted_at_ms: i64,
-    ) -> MemoryId {
-        let id = MemoryId::generate();
-        let at = Timestamp::from_millis(asserted_at_ms);
+    /// Commit `events`, bring the graph to head, and catch the vector index up — the real write +
+    /// index path, so descriptions and entries are embedded with their proper keys.
+    async fn commit(&mut self, at_ms: i64, events: Vec<EventPayload>) {
         self.store
-            .append(
-                at,
-                vec![
-                    EventPayload::MemoryCreated {
-                        id,
-                        name: MemoryName::new(name),
-                    },
-                    EventPayload::MemoryContentAppended {
-                        id,
-                        entry_id: EntryId::generate(),
-                        asserted_at: at,
-                        text: content.to_owned(),
-                        told_by: Teller::Agent,
-                        told_in: None,
-                        visibility: Visibility::Public,
-                    },
-                    EventPayload::MemoryDescriptionRegenerated {
-                        id,
-                        new_text: description.to_owned(),
-                        produced_by: None,
-                    },
-                ],
-            )
+            .append(Timestamp::from_millis(at_ms), events)
             .unwrap();
         self.graph.materialize_from(&self.store).unwrap();
-        let embedding = self
-            .embedder
-            .embed(&[description.to_owned()])
+        Indexer::new(&self.embedder, &mut self.index)
+            .catch_up(&self.store)
             .await
-            .unwrap()
-            .remove(0);
-        self.index
-            .upsert(VectorRecord {
-                id: VectorId::new(id.0.to_string()),
-                embedding,
-                model_id: self.embedder.model_id().into(),
-            })
             .unwrap();
+    }
+
+    /// Add a memory with a public description and one public content entry, asserted at `at_ms`.
+    async fn add(&mut self, name: &str, description: &str, content: &str, at_ms: i64) -> MemoryId {
+        let id = MemoryId::generate();
+        let at = Timestamp::from_millis(at_ms);
+        self.commit(
+            at_ms,
+            vec![
+                EventPayload::MemoryCreated {
+                    id,
+                    name: MemoryName::new(name),
+                },
+                EventPayload::MemoryContentAppended {
+                    id,
+                    entry_id: EntryId::generate(),
+                    asserted_at: at,
+                    text: content.to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+                EventPayload::MemoryDescriptionRegenerated {
+                    id,
+                    new_text: description.to_owned(),
+                    produced_by: None,
+                },
+            ],
+        )
+        .await;
         id
+    }
+
+    /// Record a participant's private aside about `memory` — a `PrivateToTeller` content entry.
+    async fn tell_private(&mut self, memory: MemoryId, text: &str, teller: MemoryId, at_ms: i64) {
+        self.commit(
+            at_ms,
+            vec![EventPayload::MemoryContentAppended {
+                id: memory,
+                entry_id: EntryId::generate(),
+                asserted_at: Timestamp::from_millis(at_ms),
+                text: text.to_owned(),
+                told_by: Teller::Participant(teller),
+                told_in: None,
+                visibility: Visibility::PrivateToTeller,
+            }],
+        )
+        .await;
     }
 
     /// Create `tag` and apply it to `id`. Only one memory per tag in these tests, so the create is
@@ -109,7 +116,11 @@ impl Corpus {
     }
 
     async fn query(&self, text: &str, now_ms: i64, limit: usize) -> Vec<MemoryId> {
-        self.query_in(text, None, &[], now_ms, limit).await
+        self.query_in(text, None, &[], &[], now_ms, limit)
+            .await
+            .into_iter()
+            .map(|hit| hit.memory.id)
+            .collect()
     }
 
     async fn query_in(
@@ -117,9 +128,10 @@ impl Corpus {
         text: &str,
         namespace: Option<&str>,
         tags: &[TagName],
+        present_set: &[MemoryId],
         now_ms: i64,
         limit: usize,
-    ) -> Vec<MemoryId> {
+    ) -> Vec<SearchHit> {
         let embedding = self
             .embedder
             .embed(&[text.to_owned()])
@@ -131,6 +143,7 @@ impl Corpus {
             embedding: &embedding,
             namespace,
             tags,
+            present_set,
         };
         search(
             &self.graph,
@@ -141,9 +154,6 @@ impl Corpus {
             limit,
         )
         .unwrap()
-        .into_iter()
-        .map(|hit| hit.memory.id)
-        .collect()
     }
 }
 
@@ -223,15 +233,19 @@ async fn a_query_tag_boosts_a_carrier() {
         .await;
     corpus.tag(tagged, "climbing", 1_000);
 
-    let ranked = corpus
+    let ranked: Vec<MemoryId> = corpus
         .query_in(
             "shared topic text",
             None,
             &[TagName::new("climbing")],
+            &[],
             1_000,
             5,
         )
-        .await;
+        .await
+        .into_iter()
+        .map(|hit| hit.memory.id)
+        .collect();
     assert_eq!(ranked.first(), Some(&tagged));
     assert!(ranked.contains(&plain));
 }
@@ -257,9 +271,12 @@ async fn a_namespace_filters_out_other_kinds() {
         .await;
 
     // The topic matches lexically and semantically, but the person/ prefix excludes it.
-    let ranked = corpus
-        .query_in("shared marker text", Some("person/"), &[], 1_000, 5)
-        .await;
+    let ranked: Vec<MemoryId> = corpus
+        .query_in("shared marker text", Some("person/"), &[], &[], 1_000, 5)
+        .await
+        .into_iter()
+        .map(|hit| hit.memory.id)
+        .collect();
     assert_eq!(ranked, vec![dave]);
 }
 
@@ -269,6 +286,57 @@ async fn an_empty_corpus_returns_nothing() {
     let corpus = Corpus::new();
     let ranked = corpus.query("anything at all", 1_000, 5).await;
     assert!(ranked.is_empty());
+}
+
+#[tokio::test]
+async fn search_applies_the_predicate_to_entry_hits() {
+    // Scenario 17: Erin's private aside about Phil is embedded as an entry vector. The query matches
+    // only that aside (the wording appears nowhere public), so Phil surfaces solely through it.
+    let mut corpus = Corpus::new();
+    let erin = corpus
+        .add("person/erin", "A colleague", "We work together", 1_000)
+        .await;
+    let phil = corpus
+        .add("person/phil", "A teammate", "On the same team", 1_000)
+        .await;
+    corpus
+        .tell_private(phil, "the quarterly review went badly", erin, 1_000)
+        .await;
+
+    // Erin present, Phil absent: the aside surfaces Phil, flagged teller-private.
+    let hits = corpus
+        .query_in(
+            "the quarterly review went badly",
+            None,
+            &[],
+            &[erin],
+            1_000,
+            5,
+        )
+        .await;
+    let phil_hit = hits
+        .iter()
+        .find(|hit| hit.memory.id == phil)
+        .expect("Phil surfaces via the aside");
+    let marker = phil_hit.marker.as_deref().expect("a teller-private marker");
+    assert!(marker.contains("teller-private"));
+    assert!(marker.contains("person/erin"));
+
+    // Phil present too: the subject-guard suppresses the aside. It's the *same* predicate as the
+    // brief, so the private entry survives in no hit — no result carries a teller-private marker.
+    // (The fake embedder gives every text a faint nonzero cosine, so Phil still appears via his
+    // public vectors; the load-bearing fact is that the private aside no longer surfaces.)
+    let hits = corpus
+        .query_in(
+            "the quarterly review went badly",
+            None,
+            &[],
+            &[erin, phil],
+            1_000,
+            5,
+        )
+        .await;
+    assert!(hits.iter().all(|hit| hit.marker.is_none()));
 }
 
 #[test]

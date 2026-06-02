@@ -37,6 +37,28 @@ pub struct EntryView {
     pub visibility: Visibility,
 }
 
+impl EntryView {
+    /// Assemble from projected columns, deserializing the structured `told_by` / `told_in` /
+    /// `visibility` metadata.
+    fn from_db(
+        entry_id: EntryId,
+        asserted_at: i64,
+        text: String,
+        told_by: &str,
+        told_in: Option<&str>,
+        visibility: &str,
+    ) -> Result<EntryView, GraphError> {
+        Ok(EntryView {
+            entry_id,
+            asserted_at: Timestamp::from_millis(asserted_at),
+            text,
+            told_by: serde_json::from_str(told_by)?,
+            told_in: told_in.map(|id| parse_ulid(id).map(MemoryId)).transpose()?,
+            visibility: serde_json::from_str(visibility)?,
+        })
+    }
+}
+
 /// A registered relation as projected.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelationView {
@@ -286,13 +308,19 @@ impl Graph {
                         ],
                     )
                     .map_err(backend)?;
-                self.conn
-                    .execute(
-                        "UPDATE memories_fts SET content = content || ' ' || ?1
-                         WHERE memory_id = ?2",
-                        params![text, id.0.to_string()],
-                    )
-                    .map_err(backend)?;
+                // Only public content enters the lexical index: name and description are already
+                // public-safe, so keeping FTS public-only means a lexical hit needs no visibility
+                // filter. Private content stays retrievable only via its (predicate-filtered) entry
+                // vector.
+                if *visibility == Visibility::Public {
+                    self.conn
+                        .execute(
+                            "UPDATE memories_fts SET content = content || ' ' || ?1
+                             WHERE memory_id = ?2",
+                            params![text, id.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
             }
             EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                 self.conn
@@ -470,18 +498,59 @@ impl Graph {
         for row in rows {
             let (entry_id, asserted_at, text, told_by, told_in, visibility) =
                 row.map_err(backend)?;
-            entries.push(EntryView {
-                entry_id: EntryId(parse_ulid(&entry_id)?),
-                asserted_at: Timestamp::from_millis(asserted_at),
+            entries.push(EntryView::from_db(
+                EntryId(parse_ulid(&entry_id)?),
+                asserted_at,
                 text,
-                told_by: serde_json::from_str(&told_by).map_err(GraphError::Serialize)?,
-                told_in: told_in
-                    .map(|id| parse_ulid(&id).map(MemoryId))
-                    .transpose()?,
-                visibility: serde_json::from_str(&visibility).map_err(GraphError::Serialize)?,
-            });
+                &told_by,
+                told_in.as_deref(),
+                &visibility,
+            )?);
         }
         Ok(entries)
+    }
+
+    /// A single entry by id, with its live owning memory — or `None` if the entry is unknown or its
+    /// memory is soft-deleted. The visibility predicate needs both: the entry's teller/visibility and
+    /// the memory's subject. Used to resolve and filter an entry-vector search hit.
+    pub fn entry_by_id(
+        &self,
+        entry_id: EntryId,
+    ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT memory_id, asserted_at, text, told_by, told_in, visibility
+                 FROM content_entries WHERE entry_id = ?1",
+                params![entry_id.0.to_string()],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, String>(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some((memory_id, asserted_at, text, told_by, told_in, visibility)) = row else {
+            return Ok(None);
+        };
+        let Some(memory) = self.memory_by_id(MemoryId(parse_ulid(&memory_id)?))? else {
+            return Ok(None);
+        };
+        let entry = EntryView::from_db(
+            entry_id,
+            asserted_at,
+            text,
+            &told_by,
+            told_in.as_deref(),
+            &visibility,
+        )?;
+        Ok(Some((memory, entry)))
     }
 
     /// A tag's description, or `None` if the tag was never created.

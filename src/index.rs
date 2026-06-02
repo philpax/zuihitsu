@@ -3,22 +3,68 @@
 //! Like the materialized graph, the vector index is a rebuildable projection of the event log — but
 //! maintaining it costs a model call, so it runs off the turn's hot path as background work (spec
 //! §Storage → vector store, §Concurrency). The indexer consumes committed events and embeds the
-//! content they record: a `MemoryDescriptionRegenerated` (re)embeds the description, a
-//! `MemoryDeleted` drops its vectors. Each vector is stamped with the embedder's `model_id` at
-//! creation so a mixed-embedding-space state stays detectable.
+//! content they record: a `MemoryContentAppended` embeds that entry, a
+//! `MemoryDescriptionRegenerated` (re)embeds the description, and a `MemoryDeleted` drops the
+//! memory's description vector (its entry vectors are left, but become unreachable once the memory
+//! is soft-deleted, since search resolves an entry hit through its now-absent memory). Each vector
+//! is stamped with the embedder's `model_id` at creation so a mixed-embedding-space state stays
+//! detectable.
 //!
-//! This cut indexes the per-memory description vector; the per-entry vectors follow.
+//! Vectors are keyed by [`VectorKey`] so a hit identifies what it is: `mem:<id>` for a description,
+//! `entry:<id>` for an entry. Both granularities are embedded (spec §Storage → vector store); the
+//! visibility predicate filters entry hits at search time.
 
 use std::collections::BTreeMap;
+
+use ulid::Ulid;
 
 use crate::{
     embed::Embedder,
     event::{Event, EventPayload},
-    ids::MemoryId,
+    ids::{EntryId, MemoryId},
     model::ModelError,
     store::{Store, StoreError, Subscription},
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
 };
+
+/// What a vector represents, encoded in its [`VectorId`] prefix so a search hit can be mapped back to
+/// the memory or entry it came from.
+pub enum VectorKey {
+    /// A memory's description vector, `mem:<memory-ulid>`.
+    Description(MemoryId),
+    /// A content entry's vector, `entry:<entry-ulid>`.
+    Entry(EntryId),
+}
+
+/// The `VectorId` prefixes, named once so the write (`to_vector_id`) and read (`parse`) directions
+/// cannot drift.
+const DESCRIPTION_PREFIX: &str = "mem:";
+const ENTRY_PREFIX: &str = "entry:";
+
+impl VectorKey {
+    pub fn to_vector_id(&self) -> VectorId {
+        match self {
+            VectorKey::Description(id) => VectorId::new(format!("{DESCRIPTION_PREFIX}{}", id.0)),
+            VectorKey::Entry(id) => VectorId::new(format!("{ENTRY_PREFIX}{}", id.0)),
+        }
+    }
+
+    /// Recover the key from a stored [`VectorId`], or `None` for an unrecognized prefix.
+    pub fn parse(id: &VectorId) -> Option<VectorKey> {
+        let raw = id.0.as_str();
+        if let Some(ulid) = raw.strip_prefix(DESCRIPTION_PREFIX) {
+            return Ulid::from_string(ulid)
+                .ok()
+                .map(|ulid| VectorKey::Description(MemoryId(ulid)));
+        }
+        if let Some(ulid) = raw.strip_prefix(ENTRY_PREFIX) {
+            return Ulid::from_string(ulid)
+                .ok()
+                .map(|ulid| VectorKey::Entry(EntryId(ulid)));
+        }
+        None
+    }
+}
 
 /// Maintains the vector index from the event log. Borrows the embedder and the index for the span of
 /// a batch; the server owns both and drives the indexer off a [`Subscription`].
@@ -62,27 +108,37 @@ impl<'a> Indexer<'a> {
         Ok(())
     }
 
-    /// Index a batch of committed events. Coalesces to one action per memory (last event wins), so a
-    /// description regenerated several times in the batch embeds once.
+    /// Index a batch of committed events. Coalesces to one operation per vector (last event wins),
+    /// so a description regenerated several times in the batch embeds once; entries are immutable, so
+    /// each embeds once anyway.
     pub async fn apply(&mut self, events: &[Event]) -> Result<(), IndexError> {
-        let mut actions: BTreeMap<MemoryId, Action> = BTreeMap::new();
+        let mut ops: BTreeMap<VectorId, Op> = BTreeMap::new();
         for event in events {
             match &event.payload {
+                EventPayload::MemoryContentAppended { entry_id, text, .. } => {
+                    ops.insert(
+                        VectorKey::Entry(*entry_id).to_vector_id(),
+                        Op::Embed(text.clone()),
+                    );
+                }
                 EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
-                    actions.insert(*id, Action::Embed(new_text.clone()));
+                    ops.insert(
+                        VectorKey::Description(*id).to_vector_id(),
+                        Op::Embed(new_text.clone()),
+                    );
                 }
                 EventPayload::MemoryDeleted { id } => {
-                    actions.insert(*id, Action::Remove);
+                    ops.insert(VectorKey::Description(*id).to_vector_id(), Op::Remove);
                 }
                 _ => {}
             }
         }
 
-        let to_embed: Vec<(MemoryId, String)> = actions
+        let to_embed: Vec<(VectorId, String)> = ops
             .iter()
-            .filter_map(|(id, action)| match action {
-                Action::Embed(text) => Some((*id, text.clone())),
-                Action::Remove => None,
+            .filter_map(|(key, op)| match op {
+                Op::Embed(text) => Some((key.clone(), text.clone())),
+                Op::Remove => None,
             })
             .collect();
 
@@ -92,27 +148,27 @@ impl<'a> Indexer<'a> {
             let model_id = self.embedder.model_id();
             for ((id, _), embedding) in to_embed.into_iter().zip(embeddings) {
                 self.vectors.upsert(VectorRecord {
-                    id: VectorId::new(id.0.to_string()),
+                    id,
                     embedding,
                     model_id: model_id.into(),
                 })?;
             }
         }
 
-        for (id, action) in &actions {
-            if matches!(action, Action::Remove) {
-                self.vectors.remove(&VectorId::new(id.0.to_string()))?;
+        for (key, op) in &ops {
+            if matches!(op, Op::Remove) {
+                self.vectors.remove(key)?;
             }
         }
         Ok(())
     }
 }
 
-/// The pending index change for one memory in a batch.
-enum Action {
-    /// (Re)embed the description to this text.
+/// The pending change for one vector in a batch.
+enum Op {
+    /// (Re)embed to this text.
     Embed(String),
-    /// Drop the memory's vectors.
+    /// Drop the vector.
     Remove,
 }
 

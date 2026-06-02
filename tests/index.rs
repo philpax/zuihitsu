@@ -5,7 +5,7 @@
 
 use zuihitsu::{
     Embedder, FakeEmbedder, InMemoryVectorIndex, Indexer, MemoryId, MemoryName, MemoryStore, Store,
-    Timestamp, VectorId, VectorIndex, event::EventPayload,
+    Timestamp, VectorIndex, event::EventPayload, index::VectorKey,
 };
 
 const DIMS: usize = 16;
@@ -51,7 +51,7 @@ async fn catch_up_embeds_each_memorys_description() {
         .unwrap()
         .remove(0);
     let hits = vectors.search(&query, 1).unwrap();
-    assert_eq!(hits[0].id, VectorId::new(dave.0.to_string()));
+    assert_eq!(hits[0].id, VectorKey::Description(dave).to_vector_id());
 }
 
 #[tokio::test]
@@ -146,7 +146,7 @@ async fn a_later_regeneration_replaces_and_a_delete_removes() {
     let dave = MemoryId::generate();
     let embedder = FakeEmbedder::new(DIMS);
     let mut vectors = InMemoryVectorIndex::new();
-    let key = VectorId::new(dave.0.to_string());
+    let key = VectorKey::Description(dave).to_vector_id();
 
     {
         let mut indexer = Indexer::new(&embedder, &mut vectors);

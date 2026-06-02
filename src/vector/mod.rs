@@ -18,7 +18,7 @@ use crate::{embed::Embedding, ids::Seq};
 /// A stored vector's key. A string, so both entry and description vectors can share one index; the
 /// entry-vs-description distinction and visibility metadata arrive when search becomes
 /// visibility-aware (Stage 5/6).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VectorId(pub SmolStr);
 
 impl VectorId {

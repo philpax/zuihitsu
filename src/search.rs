@@ -7,28 +7,33 @@
 //! embedded by the caller (the embedder is async; the ranker is synchronous), so this stays testable
 //! with the fake embedder and in-memory index.
 //!
-//! This cut indexes a semantic vector per memory (its description) and ranks live memories;
-//! per-entry vectors and the real sqlite-vec backend follow.
+//! Both description and entry vectors are searched: a description hit surfaces its memory (built
+//! from public entries, so it needs no filter), while an entry hit is resolved to its entry and
+//! filtered by the visibility predicate against the present set before it can surface its memory — a
+//! surviving private entry attaches the inline teller-private marker. The real sqlite-vec backend
+//! follows.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ulid::Ulid;
-
 use crate::{
-    event::Volatility,
+    event::{Teller, Visibility, Volatility},
     graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, TagName, Timestamp},
+    index::VectorKey,
     settings::SearchSettings,
     vector::{VectorError, VectorIndex},
+    visibility,
 };
 
 const MILLIS_PER_DAY: f32 = 86_400_000.0;
 
-/// A ranked search result.
+/// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
+/// a private entry, and `None` otherwise.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchHit {
     pub memory: MemoryView,
     pub score: f32,
+    pub marker: Option<String>,
 }
 
 /// A search failure, from either the graph projection or the vector index.
@@ -78,6 +83,8 @@ pub struct SearchQuery<'a> {
     pub namespace: Option<&'a str>,
     /// Tags the caller is looking for; the tag signal is the fraction of these a memory carries.
     pub tags: &'a [TagName],
+    /// The participants present, against which the visibility predicate filters entry hits.
+    pub present_set: &'a [MemoryId],
 }
 
 /// Rank live memories for `query`, blending semantic similarity (the query embedding against the
@@ -93,15 +100,34 @@ pub fn search(
 ) -> Result<Vec<SearchHit>, SearchError> {
     let over_fetch = limit.saturating_mul(4).max(20);
 
-    // Semantic: cosine per memory, clamped to [0, 1] (negative similarity contributes nothing).
+    // Semantic: cosine per memory — the best over its description hit and any visible entry hits
+    // (negative similarity clamped away). A description vector is public-safe; an entry vector must
+    // pass the predicate, and a surviving private one contributes a marker.
     let mut cosine: BTreeMap<MemoryId, f32> = BTreeMap::new();
+    let mut markers: BTreeMap<MemoryId, String> = BTreeMap::new();
     for hit in vectors.search(query.embedding, over_fetch)? {
-        if let Ok(ulid) = Ulid::from_string(hit.id.0.as_str()) {
-            cosine.insert(MemoryId(ulid), hit.score.max(0.0));
+        let score = hit.score.max(0.0);
+        match VectorKey::parse(&hit.id) {
+            Some(VectorKey::Description(id)) => raise(&mut cosine, id, score),
+            Some(VectorKey::Entry(entry_id)) => {
+                let Some((memory, entry)) = graph.entry_by_id(entry_id)? else {
+                    continue;
+                };
+                if !visibility::visible(&entry, &memory, query.present_set) {
+                    continue;
+                }
+                raise(&mut cosine, memory.id, score);
+                if entry.visibility != Visibility::Public && !markers.contains_key(&memory.id) {
+                    let teller = teller_display(graph, &entry.told_by)?;
+                    markers.insert(memory.id, visibility::teller_private_marker(&teller));
+                }
+            }
+            None => {}
         }
     }
 
-    // Lexical: normalized bm25 per memory.
+    // Lexical: normalized bm25 per memory. FTS holds only public content, so a lexical hit needs no
+    // visibility filter.
     let bm25 = normalize_bm25(&graph.search_lexical(query.text, over_fetch)?);
 
     let candidates: BTreeSet<MemoryId> = cosine.keys().chain(bm25.keys()).copied().collect();
@@ -121,11 +147,33 @@ pub fn search(
             + settings.bm25 * bm25.get(&id).copied().unwrap_or(0.0)
             + settings.tag * tag_match(&memory, query.tags)
             + settings.recency.bonus * recency;
-        hits.push(SearchHit { memory, score });
+        hits.push(SearchHit {
+            memory,
+            score,
+            marker: markers.get(&id).cloned(),
+        });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     hits.truncate(limit);
     Ok(hits)
+}
+
+/// Keep the best (highest) cosine seen for a memory.
+fn raise(cosine: &mut BTreeMap<MemoryId, f32>, id: MemoryId, score: f32) {
+    let best = cosine.entry(id).or_insert(0.0);
+    *best = best.max(score);
+}
+
+/// Resolve a teller to the display name the marker shows.
+fn teller_display(graph: &Graph, teller: &Teller) -> Result<String, GraphError> {
+    Ok(match teller {
+        Teller::Participant(id) => graph
+            .memory_by_id(*id)?
+            .map(|memory| memory.name.as_str().to_owned())
+            .unwrap_or_else(|| "someone".to_owned()),
+        Teller::Agent => "the agent".to_owned(),
+        Teller::Bootstrap => "genesis".to_owned(),
+    })
 }
 
 /// The fraction of the query's `tags` a memory carries, in `[0, 1]`; zero when no tags are

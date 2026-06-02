@@ -48,6 +48,13 @@ pub fn default_visibility(memory: &MemoryView, teller: &Teller) -> Visibility {
     }
 }
 
+/// The inline marker a surviving teller-private entry carries when surfaced (spec §Visibility →
+/// marker), so the model sees it as a flagged judgment call rather than neutral fact. The room
+/// (`told_in`) and its confidentiality join the marker at Stage 8, when contexts exist.
+pub fn teller_private_marker(teller: &str) -> String {
+    format!("[teller-private, told by {teller}]")
+}
+
 /// The participant a memory is *about*: the identity of a `person/*` stub, or `None` for every other
 /// namespace and for `self` (which therefore get no subject-guard). Stage 7 makes this the stub's
 /// `same_as` class rather than the bare id.
