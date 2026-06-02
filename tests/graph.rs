@@ -6,7 +6,7 @@
 
 use zuihitsu::{
     Cardinality, EntryId, Graph, LinkSource, MemoryId, MemoryName, MemoryStore, RelationName, Seq,
-    Store, TagName, Timestamp, Volatility, event::EventPayload,
+    Store, TagName, Teller, Timestamp, Visibility, Volatility, event::EventPayload,
 };
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.
@@ -46,6 +46,9 @@ fn projects_create_rename_and_content() {
             entry_id: entry,
             asserted_at: Timestamp::from_millis(900),
             text: "Met at the climbing gym".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
         },
         EventPayload::MemoryRenamed {
             id,
@@ -337,6 +340,9 @@ fn search_matches_name_description_and_content() {
             entry_id: EntryId::generate(),
             asserted_at: Timestamp::from_millis(1),
             text: "Met at the climbing gym".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
         },
         EventPayload::MemoryCreated {
             id: erin,

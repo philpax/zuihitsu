@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     clock::Clock,
-    event::{Cardinality, EventPayload, EventSource, PromptTemplateName},
+    event::{Cardinality, EventPayload, EventSource, PromptTemplateName, Teller, Visibility},
     ids::{EntryId, MemoryId, MemoryName, RelationName, Seq},
     settings::Settings,
     store::{Store, StoreError},
@@ -149,6 +149,9 @@ pub fn rollout(
                 entry_id: EntryId::generate(),
                 asserted_at: clock.now(),
                 text: text.clone(),
+                told_by: Teller::Bootstrap,
+                told_in: None,
+                visibility: Visibility::Public,
             });
         }
     }

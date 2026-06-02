@@ -10,9 +10,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use ulid::Ulid;
 
 use crate::{
-    event::{Cardinality, Event, EventPayload, Volatility},
+    event::{Cardinality, Event, EventPayload, Teller, Visibility, Volatility},
     ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp},
-    store::Store,
+    store::{Store, StoreError},
 };
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
@@ -32,6 +32,9 @@ pub struct EntryView {
     pub entry_id: EntryId,
     pub asserted_at: Timestamp,
     pub text: String,
+    pub told_by: Teller,
+    pub told_in: Option<MemoryId>,
+    pub visibility: Visibility,
 }
 
 /// A registered relation as projected.
@@ -56,18 +59,59 @@ pub struct LinkView {
 /// A failure projecting or querying the graph.
 #[derive(Debug)]
 pub enum GraphError {
-    Backend(String),
+    /// The SQLite backend failed.
+    Backend(rusqlite::Error),
+    /// Reading the log to project from it failed.
+    Store(StoreError),
+    /// An entry's structured metadata (`told_by` / `visibility`) could not be (de)serialized.
+    Serialize(serde_json::Error),
+    /// A projected value could not be interpreted — a malformed id or an unknown enum tag — which
+    /// means the projection is corrupt (a materializer bug or external tampering), not a typed
+    /// failure with a source to delegate to.
+    Malformed(String),
 }
 
 impl std::fmt::Display for GraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphError::Backend(message) => write!(f, "materialized graph: {message}"),
+            GraphError::Backend(error) => write!(f, "materialized graph (backend): {error}"),
+            GraphError::Store(error) => write!(f, "materialized graph (store): {error}"),
+            GraphError::Serialize(error) => write!(f, "materialized graph (serde): {error}"),
+            GraphError::Malformed(message) => {
+                write!(f, "materialized graph (malformed): {message}")
+            }
         }
     }
 }
 
-impl std::error::Error for GraphError {}
+impl std::error::Error for GraphError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            GraphError::Backend(error) => Some(error),
+            GraphError::Store(error) => Some(error),
+            GraphError::Serialize(error) => Some(error),
+            GraphError::Malformed(_) => None,
+        }
+    }
+}
+
+impl From<rusqlite::Error> for GraphError {
+    fn from(error: rusqlite::Error) -> GraphError {
+        GraphError::Backend(error)
+    }
+}
+
+impl From<StoreError> for GraphError {
+    fn from(error: StoreError) -> GraphError {
+        GraphError::Store(error)
+    }
+}
+
+impl From<serde_json::Error> for GraphError {
+    fn from(error: serde_json::Error) -> GraphError {
+        GraphError::Serialize(error)
+    }
+}
 
 pub struct Graph {
     conn: Connection,
@@ -99,6 +143,9 @@ impl Graph {
                  memory_id   TEXT    NOT NULL,
                  asserted_at INTEGER NOT NULL,
                  text        TEXT    NOT NULL,
+                 told_by     TEXT    NOT NULL,
+                 told_in     TEXT,
+                 visibility  TEXT    NOT NULL,
                  seq         INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_entries_memory ON content_entries(memory_id);
@@ -153,9 +200,7 @@ impl Graph {
     /// applied. The same machinery catches up a stale graph and rebuilds a fresh one.
     pub fn materialize_from(&mut self, store: &dyn Store) -> Result<usize, GraphError> {
         let from = self.head()?.next();
-        let events = store
-            .read_from(from)
-            .map_err(|e| GraphError::Backend(e.to_string()))?;
+        let events = store.read_from(from).map_err(GraphError::Store)?;
         for event in &events {
             self.apply(event)?;
         }
@@ -220,16 +265,23 @@ impl Graph {
                 entry_id,
                 asserted_at,
                 text,
+                told_by,
+                told_in,
+                visibility,
             } => {
                 self.conn
                     .execute(
-                        "INSERT INTO content_entries (entry_id, memory_id, asserted_at, text, seq)
-                         VALUES (?1, ?2, ?3, ?4, ?5)",
+                        "INSERT INTO content_entries \
+                         (entry_id, memory_id, asserted_at, text, told_by, told_in, visibility, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                         params![
                             entry_id.0.to_string(),
                             id.0.to_string(),
                             asserted_at.as_millis(),
                             text,
+                            serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
+                            told_in.map(|memory| memory.0.to_string()),
+                            serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
                             event.seq.0 as i64,
                         ],
                     )
@@ -397,8 +449,8 @@ impl Graph {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT entry_id, asserted_at, text FROM content_entries
-                 WHERE memory_id = ?1 ORDER BY seq",
+                "SELECT entry_id, asserted_at, text, told_by, told_in, visibility
+                 FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             )
             .map_err(backend)?;
         let rows = stmt
@@ -407,17 +459,26 @@ impl Graph {
                     r.get::<_, String>(0)?,
                     r.get::<_, i64>(1)?,
                     r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(5)?,
                 ))
             })
             .map_err(backend)?;
 
         let mut entries = Vec::new();
         for row in rows {
-            let (entry_id, asserted_at, text) = row.map_err(backend)?;
+            let (entry_id, asserted_at, text, told_by, told_in, visibility) =
+                row.map_err(backend)?;
             entries.push(EntryView {
                 entry_id: EntryId(parse_ulid(&entry_id)?),
                 asserted_at: Timestamp::from_millis(asserted_at),
                 text,
+                told_by: serde_json::from_str(&told_by).map_err(GraphError::Serialize)?,
+                told_in: told_in
+                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .transpose()?,
+                visibility: serde_json::from_str(&visibility).map_err(GraphError::Serialize)?,
             });
         }
         Ok(entries)
@@ -641,8 +702,9 @@ impl Graph {
             id: MemoryId(parse_ulid(&id)?),
             name: MemoryName::new(name),
             description,
-            volatility: Volatility::parse(&volatility)
-                .ok_or_else(|| GraphError::Backend(format!("unknown volatility {volatility:?}")))?,
+            volatility: Volatility::parse(&volatility).ok_or_else(|| {
+                GraphError::Malformed(format!("unknown volatility {volatility:?}"))
+            })?,
             created_at: Timestamp::from_millis(created_at),
             tags: self.tags_of(&id)?,
         })
@@ -725,12 +787,13 @@ fn row_to_memory_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryColu
 }
 
 fn parse_ulid(text: &str) -> Result<Ulid, GraphError> {
-    Ulid::from_string(text).map_err(|e| GraphError::Backend(format!("invalid ulid {text:?}: {e}")))
+    Ulid::from_string(text)
+        .map_err(|e| GraphError::Malformed(format!("invalid ulid {text:?}: {e}")))
 }
 
 fn parse_cardinality(text: &str) -> Result<Cardinality, GraphError> {
     Cardinality::parse(text)
-        .ok_or_else(|| GraphError::Backend(format!("unknown cardinality {text:?}")))
+        .ok_or_else(|| GraphError::Malformed(format!("unknown cardinality {text:?}")))
 }
 
 /// Build an FTS5 MATCH expression from free text: each whitespace-separated term becomes a quoted
@@ -745,5 +808,5 @@ fn build_match(query: &str) -> String {
 }
 
 fn backend(error: rusqlite::Error) -> GraphError {
-    GraphError::Backend(error.to_string())
+    GraphError::Backend(error)
 }

@@ -6,8 +6,8 @@
 
 use zuihitsu::{
     Embedder, EntryId, FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName,
-    MemoryStore, SeedSelf, Settings, Store, TagName, Timestamp, VectorId, VectorIndex,
-    VectorRecord,
+    MemoryStore, SeedSelf, Settings, Store, TagName, Teller, Timestamp, VectorId, VectorIndex,
+    VectorRecord, Visibility,
     event::EventPayload,
     genesis::{self},
     search,
@@ -58,6 +58,9 @@ impl Corpus {
                         entry_id: EntryId::generate(),
                         asserted_at: at,
                         text: content.to_owned(),
+                        told_by: Teller::Agent,
+                        told_in: None,
+                        visibility: Visibility::Public,
                     },
                     EventPayload::MemoryDescriptionRegenerated {
                         id,

@@ -171,6 +171,32 @@ pub struct ProducedBy {
     pub template_version: u32,
 }
 
+/// Who told the agent a piece of content (spec §Visibility). Distinct from [`EventSource`], which is
+/// authorship *authority*: `told_by` is the *teller* whose confidence the read-time predicate
+/// reasons about.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Teller {
+    /// A conversation participant, identified by their `person/*` memory.
+    Participant(MemoryId),
+    /// The agent's own observations and inferences. Defined as always present to itself.
+    Agent,
+    /// Genesis-seeded content, before any real teller exists.
+    Bootstrap,
+}
+
+/// How widely a content entry may be surfaced (spec §Visibility). The read-time predicate
+/// `visible(...)` interprets these against the present set; `PrivateToTeller` additionally never
+/// surfaces to the subject of a person memory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Visibility {
+    /// Surfaces to any present set, including the subject.
+    Public,
+    /// Surfaces only while the teller is present, and never to the memory's subject.
+    PrivateToTeller,
+    /// As `PrivateToTeller`, additionally suppressed whenever any named party is present.
+    Exclude(Vec<MemoryId>),
+}
+
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
 /// [`Event`] envelope rather than here, because they are assigned by the store at append time.
 ///
@@ -198,13 +224,18 @@ pub enum EventPayload {
     MemoryDeleted {
         id: MemoryId,
     },
-    /// Records a content entry. Provenance and bi-temporality (told_by, visibility, occurred_at)
-    /// are added at higher versions with the stages that introduce them (6, 9).
+    /// Records a content entry. `told_by` is the teller, `told_in` the context it was told in (a
+    /// `context/*` memory, resolved to its confidentiality at Stage 8; `None` until contexts exist),
+    /// and `visibility` governs the read-time predicate. Bi-temporality (`occurred_at`) arrives at
+    /// Stage 9.
     MemoryContentAppended {
         id: MemoryId,
         entry_id: EntryId,
         asserted_at: Timestamp,
         text: String,
+        told_by: Teller,
+        told_in: Option<MemoryId>,
+        visibility: Visibility,
     },
     /// Replaces a memory's synthesized description. The text is produced by the model (Stage 5);
     /// applying it to the projection is purely mechanical. `produced_by` records the inference that

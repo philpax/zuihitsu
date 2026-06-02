@@ -19,7 +19,7 @@ use ulid::Ulid;
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, TerminalCause},
+    event::{EventPayload, Teller, TerminalCause, Visibility},
     graph::{Graph, GraphError},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, TurnId},
     store::{Store, StoreError},
@@ -96,6 +96,9 @@ impl Session {
                             entry_id: EntryId::generate(),
                             asserted_at: clock.now(),
                             text,
+                            told_by: Teller::Agent,
+                            told_in: None,
+                            visibility: Visibility::Public,
                         });
                         Ok(())
                     },
@@ -144,6 +147,9 @@ impl Session {
                             entry_id: EntryId::generate(),
                             asserted_at: clock.now(),
                             text,
+                            told_by: Teller::Agent,
+                            told_in: None,
+                            visibility: Visibility::Public,
                         });
                     }
                     drop(state);

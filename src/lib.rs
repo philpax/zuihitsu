@@ -38,7 +38,7 @@ pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use embed::{Embedder, Embedding, FakeEmbedder};
 pub use event::{
     Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ProducedBy,
-    PromptTemplateName, TerminalCause, TurnRole, Volatility,
+    PromptTemplateName, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
