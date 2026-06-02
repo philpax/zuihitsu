@@ -32,6 +32,8 @@ pub mod store;
 pub mod system_prompt;
 pub mod templates;
 pub mod vector;
+#[cfg(feature = "sqlite")]
+pub mod visibility;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
@@ -80,6 +82,7 @@ mod __sqlite {
         server::{Control, Server, ServerError},
         store::SqliteStore,
         vector::SqliteVectorIndex,
+        visibility::{default_visibility, visible},
     };
 }
 #[cfg(feature = "sqlite")]
