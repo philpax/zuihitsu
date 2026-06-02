@@ -118,18 +118,56 @@ impl TagName {
     }
 }
 
-/// A link relation's canonical name (e.g. `mentor_of`). One relation has two labels — itself and
-/// its inverse — and the materializer canonicalizes to this name (spec §Data model: link relation).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct RelationName(pub SmolStr);
+/// A link relation, by label. The relation registry lives in data (spec §Data model) and the agent
+/// registers relations at runtime, so this is a typed lens over the names: the build's seed
+/// relations are named variants that code can match (`SameAs` drives identity-class merging,
+/// `ActiveIn` the compaction carryover), and everything else — including the inverse labels — falls
+/// to `Other`. It serializes as its bare name, so the wire format is just the string.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RelationName {
+    CreatedBy,
+    OperatorOf,
+    Knows,
+    SameAs,
+    ActiveIn,
+    Other(SmolStr),
+}
 
 impl RelationName {
+    /// Recognize a label, mapping a seed relation's canonical name to its variant and anything else
+    /// (a runtime-registered relation, or an inverse label) to [`RelationName::Other`].
     pub fn new(name: impl Into<SmolStr>) -> RelationName {
-        RelationName(name.into())
+        let name = name.into();
+        match name.as_str() {
+            "created_by" => RelationName::CreatedBy,
+            "operator_of" => RelationName::OperatorOf,
+            "knows" => RelationName::Knows,
+            "same_as" => RelationName::SameAs,
+            "active_in" => RelationName::ActiveIn,
+            _ => RelationName::Other(name),
+        }
     }
 
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        match self {
+            RelationName::CreatedBy => "created_by",
+            RelationName::OperatorOf => "operator_of",
+            RelationName::Knows => "knows",
+            RelationName::SameAs => "same_as",
+            RelationName::ActiveIn => "active_in",
+            RelationName::Other(name) => name.as_str(),
+        }
+    }
+}
+
+impl Serialize for RelationName {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RelationName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<RelationName, D::Error> {
+        Ok(RelationName::new(SmolStr::deserialize(deserializer)?))
     }
 }
