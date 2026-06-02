@@ -82,6 +82,16 @@ fn boot_reconciles_a_fresh_graph_from_a_persisted_log() {
     let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
 
+/// Install a test-scoped tracing subscriber so the model-gated smoke emits structured, timestamped
+/// logs (visible under `--nocapture`) rather than ad-hoc prints. Idempotent across the binary.
+#[cfg(all(feature = "lua", feature = "openai"))]
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
+}
+
 /// A born agent over an in-memory store, returning a clock handle (sharing the boxed clock's atomic)
 /// so a test can advance time.
 #[cfg(feature = "lua")]
@@ -210,12 +220,13 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
 #[tokio::test]
 #[ignore = "requires a reachable model endpoint (config.toml)"]
 async fn real_model_routes_a_message_end_to_end() {
+    init_tracing();
     let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
-        eprintln!("skipping: no config.toml");
+        tracing::warn!("skipping: no config.toml");
         return;
     };
     if config.model.endpoint.is_empty() {
-        eprintln!("skipping: no model endpoint configured");
+        tracing::warn!("skipping: no model endpoint configured");
         return;
     }
     let client = OpenAiClient::new(&config.model);
@@ -235,7 +246,7 @@ async fn real_model_routes_a_message_end_to_end() {
 
     match outcome {
         Ok(outcome) => {
-            eprintln!("real-model route outcome: {outcome:?}");
+            tracing::info!(?outcome, "real-model route outcome");
             // The full pipeline ran: a single session opened, carrying a frozen brief.
             let sessions = server.control().sessions(&leads).unwrap();
             assert_eq!(sessions.len(), 1);
@@ -243,14 +254,10 @@ async fn real_model_routes_a_message_end_to_end() {
             // Observe whatever the agent chose to write (a real model names memories variously).
             for namespace in ["person/", "topic/", "place/"] {
                 for memory in server.control().memories(namespace).unwrap() {
-                    eprintln!(
-                        "  wrote {} — {:?}",
-                        memory.name.as_str(),
-                        memory.description
-                    );
+                    tracing::info!(name = %memory.name.as_str(), description = %memory.description, "agent wrote memory");
                 }
             }
         }
-        Err(error) => eprintln!("skipping: {error}"),
+        Err(error) => tracing::warn!(%error, "skipping"),
     }
 }

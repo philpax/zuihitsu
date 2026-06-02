@@ -15,15 +15,26 @@ use zuihitsu::{
 fn configured_client() -> Option<OpenAiClient> {
     let config = EnvConfig::load(Path::new("config.toml")).ok()?;
     if config.model.endpoint.is_empty() {
-        eprintln!("skipping: no model endpoint configured in config.toml");
+        tracing::warn!("skipping: no model endpoint configured in config.toml");
         return None;
     }
     Some(OpenAiClient::new(&config.model))
 }
 
+/// Install a test-scoped tracing subscriber so these model-gated tests emit structured, timestamped
+/// logs (visible under `--nocapture`) rather than ad-hoc prints. Idempotent across tests in the
+/// binary.
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
+}
+
 #[tokio::test]
 #[ignore = "requires a reachable model endpoint (config.toml)"]
 async fn generates_a_reply() {
+    init_tracing();
     let Some(client) = configured_client() else {
         return;
     };
@@ -37,13 +48,14 @@ async fn generates_a_reply() {
             assert!(!text.trim().is_empty(), "reply should be non-empty")
         }
         Ok(other) => panic!("expected a reply, got {other:?}"),
-        Err(error) => eprintln!("skipping: model unreachable: {error}"),
+        Err(error) => tracing::warn!(%error, "skipping: model unreachable"),
     }
 }
 
 #[tokio::test]
 #[ignore = "requires a reachable model endpoint (config.toml)"]
 async fn emits_a_run_lua_tool_call() {
+    init_tracing();
     let Some(client) = configured_client() else {
         return;
     };
@@ -70,14 +82,14 @@ async fn emits_a_run_lua_tool_call() {
             );
         }
         Ok(other) => panic!("expected a run_lua tool call, got {other:?}"),
-        Err(error) => eprintln!("skipping: model unreachable: {error}"),
+        Err(error) => tracing::warn!(%error, "skipping: model unreachable"),
     }
 }
 
 fn configured_embedder() -> Option<OpenAiEmbedder> {
     let config = EnvConfig::load(Path::new("config.toml")).ok()?;
     if config.embedding.endpoint.is_empty() {
-        eprintln!("skipping: no embedding endpoint configured in config.toml");
+        tracing::warn!("skipping: no embedding endpoint configured in config.toml");
         return None;
     }
     Some(OpenAiEmbedder::new(&config.embedding))
@@ -86,6 +98,7 @@ fn configured_embedder() -> Option<OpenAiEmbedder> {
 #[tokio::test]
 #[ignore = "requires a reachable embedding endpoint (config.toml)"]
 async fn embeds_text_with_expected_dimensionality() {
+    init_tracing();
     let Some(embedder) = configured_embedder() else {
         return;
     };
@@ -94,7 +107,7 @@ async fn embeds_text_with_expected_dimensionality() {
     let vectors = match embedder.embed(&inputs).await {
         Ok(vectors) => vectors,
         Err(error) => {
-            eprintln!("skipping: embedding endpoint unreachable: {error}");
+            tracing::warn!(%error, "skipping: embedding endpoint unreachable");
             return;
         }
     };
