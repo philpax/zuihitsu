@@ -2,7 +2,7 @@
 //!
 //! One instance hosts exactly one agent whose entire life is a single event log read from `seq 0`
 //! (see `docs/spec.md`). Stage 1 establishes that log — the append-only source of truth — and the
-//! abstraction seams (clock, store, and later the model/fetcher/vector seams) that make a complete
+//! abstraction seams (clock, store, and later the model/embedder/vector seams) that make a complete
 //! agent constructible in memory for tests without a database, a network, or a wall clock.
 
 #[cfg(feature = "lua")]
@@ -11,7 +11,6 @@ pub mod clock;
 pub mod config;
 pub mod embed;
 pub mod event;
-pub mod fetch;
 pub mod genesis;
 #[cfg(feature = "sqlite")]
 pub mod graph;
@@ -42,7 +41,6 @@ pub use event::{
     Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ProducedBy,
     PromptTemplateName, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
-pub use fetch::{CannedFetcher, FetchError, Fetcher};
 pub use genesis::{GenesisStatus, Rollout, SeedSelf};
 pub use ids::{
     ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, TagName, Timestamp, TurnId,

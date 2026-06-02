@@ -1,10 +1,9 @@
-//! Seam-fake tests: the model, embedder, fetcher, and vector-index seams behave deterministically,
-//! so agent-level scenarios in later stages can be exercised entirely in memory (spec §Testability).
+//! Seam-fake tests: the model, embedder, and vector-index seams behave deterministically, so
+//! agent-level scenarios in later stages can be exercised entirely in memory (spec §Testability).
 
 use zuihitsu::{
-    CannedFetcher, Completion, Embedder, FakeEmbedder, FetchError, Fetcher, GenerateRequest,
-    InMemoryVectorIndex, ModelClient, ModelError, ScriptedModel, ToolCall, VectorId, VectorIndex,
-    VectorRecord,
+    Completion, Embedder, FakeEmbedder, GenerateRequest, InMemoryVectorIndex, ModelClient,
+    ModelError, ScriptedModel, ToolCall, VectorId, VectorIndex, VectorRecord,
 };
 
 #[tokio::test]
@@ -43,20 +42,6 @@ async fn fake_embedder_is_deterministic_and_sized() {
     assert_eq!(hello_a[0].len(), 16);
     assert_eq!(hello_a, hello_b); // identical text embeds identically
     assert_ne!(hello_a, world); // distinct text embeds distinctly
-}
-
-#[tokio::test]
-async fn canned_fetcher_serves_known_urls() {
-    let fetcher = CannedFetcher::new().with_page("https://example.com", "# Hello");
-
-    assert_eq!(
-        fetcher.fetch_page("https://example.com").await.unwrap(),
-        "# Hello"
-    );
-    assert!(matches!(
-        fetcher.fetch_page("https://absent.example").await,
-        Err(FetchError::NotFound)
-    ));
 }
 
 #[tokio::test]
