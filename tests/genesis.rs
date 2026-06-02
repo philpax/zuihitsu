@@ -55,6 +55,11 @@ fn rollout_creates_a_complete_agent() {
         matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. } if name.as_str() == "same_as")
     });
     assert!(same_as);
+    // The system `confidential` tag is seeded, so a context can be marked confidential.
+    let confidential = events.iter().any(|e| {
+        matches!(&e.payload, EventPayload::TagCreated { name, .. } if name.as_str() == "confidential")
+    });
+    assert!(confidential);
 
     // GenesisCompleted is last, and genesis seeds no created_by link or facts about anyone.
     assert!(matches!(

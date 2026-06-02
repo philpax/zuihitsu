@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     clock::Clock,
     event::{Cardinality, EventPayload, EventSource, PromptTemplateName, Teller, Visibility},
-    ids::{EntryId, MemoryId, MemoryName, RelationName, Seq},
+    ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName},
     settings::Settings,
     store::{Store, StoreError},
 };
@@ -79,6 +79,7 @@ pub fn rollout(
 
     let mut templates_present: BTreeSet<(PromptTemplateName, u32)> = BTreeSet::new();
     let mut relations_present: BTreeSet<String> = BTreeSet::new();
+    let mut tags_present: BTreeSet<String> = BTreeSet::new();
     let mut config_present = false;
     let mut self_present = false;
     for event in &existing {
@@ -88,6 +89,9 @@ pub fn rollout(
             }
             EventPayload::LinkTypeRegistered { name, .. } => {
                 relations_present.insert(name.as_str().to_owned());
+            }
+            EventPayload::TagCreated { name, .. } => {
+                tags_present.insert(name.as_str().to_owned());
             }
             EventPayload::ConfigSet { .. } => {
                 config_present = true;
@@ -122,6 +126,15 @@ pub fn rollout(
                 to_card: relation.to_card,
                 symmetric: relation.symmetric,
                 reflexive: relation.reflexive,
+            });
+        }
+    }
+
+    for tag in seed_tags() {
+        if !tags_present.contains(tag.name) {
+            to_emit.push(EventPayload::TagCreated {
+                name: TagName::new(tag.name),
+                description: tag.description.to_owned(),
             });
         }
     }
@@ -212,6 +225,22 @@ fn default_templates() -> Vec<TemplateDef> {
             body: "<draft temporal-extraction template>",
         },
     ]
+}
+
+/// A build-seeded system tag. Like the seed relations, these are build defaults rather than part of
+/// the genesis manifest hash, so adding one does not perturb an existing agent's hash.
+struct TagDef {
+    name: &'static str,
+    description: &'static str,
+}
+
+fn seed_tags() -> Vec<TagDef> {
+    vec![TagDef {
+        name: "confidential",
+        description: "Marks a context as confidential: asides told in a room carrying this tag are \
+                      surfaced elsewhere flagged as confidential, and the tag is visible regardless \
+                      of who is present.",
+    }]
 }
 
 struct RelationDef {

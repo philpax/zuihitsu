@@ -216,10 +216,11 @@ impl Graph {
              );
              CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_id, relation);
              CREATE TABLE IF NOT EXISTS conversations (
-                 id         TEXT    PRIMARY KEY,
-                 platform   TEXT    NOT NULL,
-                 scope_path TEXT    NOT NULL,
-                 ended      INTEGER NOT NULL DEFAULT 0
+                 id             TEXT    PRIMARY KEY,
+                 platform       TEXT    NOT NULL,
+                 scope_path     TEXT    NOT NULL,
+                 context_memory TEXT    NOT NULL,
+                 ended          INTEGER NOT NULL DEFAULT 0
              );
              CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_locator
                  ON conversations(platform, scope_path);

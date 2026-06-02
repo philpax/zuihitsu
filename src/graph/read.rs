@@ -326,6 +326,24 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
     }
 
+    /// The `context/*` memory minted with a conversation, or `None` if the conversation is unknown.
+    /// The locator resolves to the room and thence to its context (spec §Contexts are first-class).
+    pub fn context_for_conversation(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Option<MemoryId>, GraphError> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT context_memory FROM conversations WHERE id = ?1",
+                params![conversation.0.to_string()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
+    }
+
     /// A session by id, with its participants, or `None` if unknown.
     pub fn session(&self, id: SessionId) -> Result<Option<SessionView>, GraphError> {
         let row = self

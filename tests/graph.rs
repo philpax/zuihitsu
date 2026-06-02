@@ -546,15 +546,21 @@ fn materialize_is_incremental() {
 #[test]
 fn conversations_and_sessions_project() {
     let conv = ConversationId::generate();
+    let context = MemoryId::generate();
     let (s1, s2) = (SessionId::generate(), SessionId::generate());
     let alice = MemoryId::generate();
     let bob = MemoryId::generate();
     let carol = MemoryId::generate();
     let join_turn = TurnId::generate();
     let (_store, graph) = materialized(vec![
+        EventPayload::MemoryCreated {
+            id: context,
+            name: MemoryName::new("context/discord:guild/42/chan/leads"),
+        },
         EventPayload::ConversationStarted {
             id: conv,
             locator: ConversationLocator::new("discord", "guild/42/chan/leads"),
+            context_memory: context,
         },
         EventPayload::SessionStarted {
             conversation: conv,
@@ -598,6 +604,8 @@ fn conversations_and_sessions_project() {
             .unwrap()
             .is_none()
     );
+    // The room resolves to its eagerly-minted context memory.
+    assert_eq!(graph.context_for_conversation(conv).unwrap(), Some(context));
 
     // Sessions project in commit order, carrying the brief and the carryover extent.
     let sessions = graph.sessions_in(conv).unwrap();

@@ -332,9 +332,12 @@ pub enum EventPayload {
     },
     /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
     /// the room then persists across sessions for the agent's life (spec §Conversations).
+    /// `context_memory` is the `context/*` memory minted eagerly alongside the room, so the locator
+    /// resolves to a first-class memory the agent can tag (`#confidential`) and reason about.
     ConversationStarted {
         id: ConversationId,
         locator: ConversationLocator,
+        context_memory: MemoryId,
     },
     /// Retires a conversation permanently — rare, since conversations are durable.
     ConversationEnded {

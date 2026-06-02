@@ -48,20 +48,26 @@ fn conversation_resolves_and_mints_once() {
     let mut graph = Graph::open_in_memory().unwrap();
     let leads = ConversationLocator::new("discord", "guild/42/chan/leads");
 
-    // First contact opens the room.
+    // First contact opens the room and eagerly mints its context memory.
     let id = resolve_or_mint_conversation(&mut store, &clock, &graph, &leads).unwrap();
     graph.materialize_from(&store).unwrap();
-    assert_eq!(store.head().unwrap(), Seq(1));
+    assert_eq!(store.head().unwrap(), Seq(2)); // MemoryCreated(context) + ConversationStarted
     assert_eq!(graph.conversation_for_locator(&leads).unwrap(), Some(id));
+    // The locator resolves to a real, non-person context memory (defaults Public, no subject-guard).
+    let context = graph.context_for_conversation(id).unwrap().unwrap();
+    assert_eq!(
+        graph.memory_by_id(context).unwrap().unwrap().name.as_str(),
+        "context/discord:guild/42/chan/leads"
+    );
 
     // The same locator resolves to the same room and opens nothing new.
     let again = resolve_or_mint_conversation(&mut store, &clock, &graph, &leads).unwrap();
     assert_eq!(again, id);
-    assert_eq!(store.head().unwrap(), Seq(1));
+    assert_eq!(store.head().unwrap(), Seq(2));
 
-    // A different room is a distinct conversation.
+    // A different room is a distinct conversation with its own context.
     let dms = ConversationLocator::new("discord", "dm/dave");
     let other = resolve_or_mint_conversation(&mut store, &clock, &graph, &dms).unwrap();
     assert_ne!(other, id);
-    assert_eq!(store.head().unwrap(), Seq(2));
+    assert_eq!(store.head().unwrap(), Seq(4));
 }

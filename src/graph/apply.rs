@@ -220,16 +220,21 @@ impl Graph {
                     self.recompute_classes()?;
                 }
             }
-            EventPayload::ConversationStarted { id, locator } => {
+            EventPayload::ConversationStarted {
+                id,
+                locator,
+                context_memory,
+            } => {
                 // Idempotent: the room is opened once; a re-seen locator is a no-op, not a duplicate.
                 self.conn
                     .execute(
-                        "INSERT OR IGNORE INTO conversations (id, platform, scope_path)
-                         VALUES (?1, ?2, ?3)",
+                        "INSERT OR IGNORE INTO conversations (id, platform, scope_path, context_memory)
+                         VALUES (?1, ?2, ?3, ?4)",
                         params![
                             id.0.to_string(),
                             locator.platform.as_str(),
                             locator.scope_path.as_str(),
+                            context_memory.0.to_string(),
                         ],
                     )
                     .map_err(backend)?;

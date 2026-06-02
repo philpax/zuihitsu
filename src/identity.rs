@@ -15,6 +15,15 @@ use crate::{
     store::{Store, StoreError},
 };
 
+/// The provisional name of the `context/*` memory minted for a freshly opened room, derived from its
+/// locator. The agent or operator renames it to a friendly handle (`context/acme-leads`) later.
+fn context_name(locator: &ConversationLocator) -> MemoryName {
+    MemoryName::new(format!(
+        "context/{}:{}",
+        locator.platform, locator.scope_path
+    ))
+}
+
 /// A failure resolving or minting an identity, delegating to the store or graph beneath it.
 #[derive(Debug)]
 pub enum IdentityError {
@@ -84,7 +93,10 @@ pub fn resolve_or_mint_participant(
 }
 
 /// Resolve a room locator to its conversation, opening one on first contact. Returns the
-/// conversation's id (the caller materializes the graph to see a freshly opened room).
+/// conversation's id (the caller materializes the graph to see a freshly opened room). Opening a
+/// room eagerly mints its `context/*` memory under a provisional locator-derived name and records
+/// it on the `ConversationStarted`, so the locator resolves to a first-class memory the agent can
+/// tag and reason about (spec §Contexts are first-class memories).
 pub fn resolve_or_mint_conversation(
     store: &mut dyn Store,
     clock: &dyn Clock,
@@ -95,17 +107,26 @@ pub fn resolve_or_mint_conversation(
         return Ok(id);
     }
     let id = ConversationId::generate();
+    let context_memory = MemoryId::generate();
     store.append(
         clock.now(),
-        vec![EventPayload::ConversationStarted {
-            id,
-            locator: locator.clone(),
-        }],
+        vec![
+            EventPayload::MemoryCreated {
+                id: context_memory,
+                name: context_name(locator),
+            },
+            EventPayload::ConversationStarted {
+                id,
+                locator: locator.clone(),
+                context_memory,
+            },
+        ],
     )?;
     tracing::info!(
         platform = %locator.platform,
         scope_path = %locator.scope_path,
         conversation = %id.0,
+        context = %context_memory.0,
         "opened conversation"
     );
     Ok(id)
