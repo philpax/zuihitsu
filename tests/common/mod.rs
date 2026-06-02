@@ -10,7 +10,8 @@ pub use harness::Harness;
 #[cfg(feature = "lua")]
 mod harness {
     use zuihitsu::{
-        BlockOutcome, ConversationId, Graph, ManualClock, MemoryStore, Session, Timestamp, TurnId,
+        BlockOutcome, ConversationId, Graph, ManualClock, MemoryStore, ModelClient, Session,
+        Timestamp, Turn, TurnId,
     };
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
@@ -36,6 +37,24 @@ mod harness {
     impl Harness {
         pub fn new() -> Harness {
             Harness::default()
+        }
+
+        /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
+        pub fn as_turn<'a>(
+            &'a mut self,
+            model: &'a dyn ModelClient,
+            inbound: &'a str,
+            max_steps: usize,
+        ) -> Turn<'a> {
+            Turn {
+                session: &self.session,
+                model,
+                store: &mut self.store,
+                graph: &mut self.graph,
+                clock: &self.clock,
+                inbound,
+                max_steps,
+            }
         }
 
         /// Execute one Lua block against the harness's store and graph, as a fresh turn.

@@ -33,16 +33,29 @@ pub enum TurnOutcome {
     MaxStepsExceeded,
 }
 
+/// Everything one turn needs: the conversation's `session`, the shared seams (`model`, `store`,
+/// `graph`, `clock`), the `inbound` participant message, and the step budget.
+pub struct Turn<'a> {
+    pub session: &'a Session,
+    pub model: &'a dyn ModelClient,
+    pub store: &'a mut dyn Store,
+    pub graph: &'a mut Graph,
+    pub clock: &'a dyn Clock,
+    pub inbound: &'a str,
+    pub max_steps: usize,
+}
+
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
-pub async fn run_turn(
-    session: &Session,
-    model: &dyn ModelClient,
-    store: &mut dyn Store,
-    graph: &mut Graph,
-    clock: &dyn Clock,
-    inbound: &str,
-    max_steps: usize,
-) -> Result<TurnOutcome, TurnError> {
+pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
+    let Turn {
+        session,
+        model,
+        store,
+        graph,
+        clock,
+        inbound,
+        max_steps,
+    } = turn;
     let conversation = session.conversation();
     // An inbound participant message is not inference, so it carries no provenance.
     append_turn(

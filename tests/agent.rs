@@ -54,17 +54,9 @@ async fn tool_call_then_reply_commits_and_replies() {
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
     ]);
 
-    let outcome = run_turn(
-        &h.session,
-        &model,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
-        "Remember Dave",
-        8,
-    )
-    .await
-    .unwrap();
+    let outcome = run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
 
     assert_eq!(
         outcome,
@@ -103,17 +95,9 @@ async fn descriptions_regenerate_after_a_turn() {
         Completion::Reply("Dave, whom I met at the climbing gym.".to_owned()),
     ]);
 
-    run_turn(
-        &h.session,
-        &model,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
-        "Remember Dave",
-        8,
-    )
-    .await
-    .unwrap();
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
 
     // The written memory's description was regenerated from its entries after the cycle.
     let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
@@ -149,17 +133,7 @@ async fn agent_turns_record_their_provenance() {
     h.graph.materialize_from(&h.store).unwrap();
 
     let model = ScriptedModel::new([Completion::Reply("Noted.".to_owned())]);
-    run_turn(
-        &h.session,
-        &model,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
-        "hello",
-        8,
-    )
-    .await
-    .unwrap();
+    run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
 
     let turns: Vec<(TurnRole, Option<_>)> = h
         .store
@@ -199,17 +173,7 @@ async fn stay_silent_terminal_posts_nothing() {
     let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Silent]);
 
-    let outcome = run_turn(
-        &h.session,
-        &model,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
-        "(chatter)",
-        8,
-    )
-    .await
-    .unwrap();
+    let outcome = run_turn(h.as_turn(&model, "(chatter)", 8)).await.unwrap();
 
     assert_eq!(outcome, TurnOutcome::Silent);
     // Auditable silence: an agent turn is still recorded, with empty text.
@@ -232,17 +196,9 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
         run_lua_call("return 3"),
     ]);
 
-    let outcome = run_turn(
-        &h.session,
-        &model,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
-        "loop forever",
-        2,
-    )
-    .await
-    .unwrap();
+    let outcome = run_turn(h.as_turn(&model, "loop forever", 2))
+        .await
+        .unwrap();
 
     assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
     // The cycle still records exactly one agent turn, carrying the surfaced error.
@@ -266,17 +222,7 @@ async fn tool_result_feeds_back_across_steps() {
         Completion::Reply("done".to_owned()),
     ]);
 
-    let outcome = run_turn(
-        &h.session,
-        &model,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
-        "go",
-        8,
-    )
-    .await
-    .unwrap();
+    let outcome = run_turn(h.as_turn(&model, "go", 8)).await.unwrap();
     assert_eq!(outcome, TurnOutcome::Reply("done".to_owned()));
 
     // Two LuaExecuted events (two blocks), both committed.
@@ -306,15 +252,11 @@ async fn real_model_drives_a_turn() {
     let client = OpenAiClient::new(&config.model);
     let mut h = Harness::new();
 
-    let outcome = run_turn(
-        &h.session,
+    let outcome = run_turn(h.as_turn(
         &client,
-        &mut h.store,
-        &mut h.graph,
-        &h.clock,
         "Please remember that Dave climbs at the bouldering gym, then confirm you've noted it.",
         8,
-    )
+    ))
     .await;
 
     match outcome {
