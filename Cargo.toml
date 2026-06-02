@@ -42,9 +42,10 @@ default = ["lua", "openai"]
 # --no-default-features.
 sqlite = ["dep:rusqlite", "dep:sqlite-vec", "dep:fs2", "dep:jiff"]
 # The Lua VM and agent execution layer. Implies `sqlite`, since a block commits to the graph.
-lua = ["dep:mlua", "sqlite"]
+# Pulls `schemars` to derive the agent's tool schemas from their argument structs.
+lua = ["dep:mlua", "dep:schemars", "sqlite"]
 # The real model client and embedder over an OpenAI-compatible HTTP endpoint.
-openai = ["dep:async-openai", "dep:schemars"]
+openai = ["dep:async-openai"]
 
 [dev-dependencies]
 tokio = { version = "1.52.3", features = ["rt", "macros"] }

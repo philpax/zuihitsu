@@ -91,8 +91,13 @@ async fn descriptions_regenerate_after_a_turn() {
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
-        // The post-turn regeneration call, synthesizing the description from Dave's entries.
-        Completion::Reply("Dave, whom I met at the climbing gym.".to_owned()),
+        // The post-turn regeneration call: a forced `describe` tool call carries the synthesized
+        // description as a clean argument (rather than free-form prose).
+        Completion::ToolCalls(vec![ToolCall {
+            id: "regen".to_owned(),
+            name: "describe".to_owned(),
+            arguments: r#"{"description":"Dave, whom I met at the climbing gym."}"#.to_owned(),
+        }]),
     ]);
 
     run_turn(h.as_turn(&model, "Remember Dave", 8))

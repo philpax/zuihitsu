@@ -217,7 +217,11 @@ fn default_templates() -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
             version: 1,
-            body: "<draft description-regeneration template>",
+            body: "You synthesize a memory's description from its content entries. Given the \
+                   memory's name and entries, write a concise third-person description of who or \
+                   what it is and the durable facts that matter. Call the `describe` tool with that \
+                   description as plain prose — no preamble, headings, notes, or first-person \
+                   framing — synthesizing only from the entries given.",
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,

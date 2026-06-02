@@ -9,7 +9,7 @@ use std::path::Path;
 
 use zuihitsu::{
     Completion, Embedder, EnvConfig, GenerateRequest, Message, ModelClient, OpenAiClient,
-    OpenAiEmbedder, ToolSpec,
+    OpenAiEmbedder, ToolChoice, ToolSpec,
 };
 
 fn configured_client() -> Option<OpenAiClient> {
@@ -42,6 +42,8 @@ async fn generates_a_reply() {
         system: "You are concise. Answer in one short sentence.".to_owned(),
         messages: vec![Message::user("Say hello.")],
         tools: Vec::new(),
+        tool_choice: ToolChoice::Auto,
+        thinking: None,
     };
     match client.generate(&request).await {
         Ok(Completion::Reply(text)) => {
@@ -69,7 +71,14 @@ async fn emits_a_run_lua_tool_call() {
         tools: vec![ToolSpec {
             name: "run_lua".to_owned(),
             description: "Execute a Lua block against your memory.".to_owned(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": { "script": { "type": "string" } },
+                "required": ["script"]
+            }),
         }],
+        tool_choice: ToolChoice::Auto,
+        thinking: None,
     };
     match client.generate(&request).await {
         Ok(Completion::ToolCalls(calls)) => {

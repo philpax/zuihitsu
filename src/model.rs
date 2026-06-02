@@ -59,11 +59,13 @@ pub enum Role {
     Tool,
 }
 
-/// A tool the model may call. Stage 4 fills in the real catalogue; for now, a name and description.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A tool the model may call: its name, a description, and a JSON-Schema for its arguments, sent to
+/// the model so it produces well-formed calls.
+#[derive(Clone, Debug, PartialEq)]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
+    pub parameters: serde_json::Value,
 }
 
 /// One structured tool call emitted by the model. `arguments` is JSON, parsed by the caller.
@@ -74,12 +76,27 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+/// How the model may use the available tools. `Auto` lets it choose between a tool call and a reply
+/// (the agent loop); `Required` forces it to call a tool, used to coerce structured output — e.g.
+/// description regeneration forces a single `describe` tool so the answer can't drift into prose.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ToolChoice {
+    #[default]
+    Auto,
+    Required,
+}
+
 /// What the model is asked to produce a step for.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct GenerateRequest {
     pub system: String,
     pub messages: Vec<Message>,
     pub tools: Vec<ToolSpec>,
+    pub tool_choice: ToolChoice,
+    /// Per-request override of the serving layer's reasoning mode: `None` uses the configured
+    /// default; `Some(false)` forces it off — used for structured extractions (e.g. description
+    /// regeneration), where reasoning adds nothing and makes a forced tool call unreliable.
+    pub thinking: Option<bool>,
 }
 
 /// A single step's outcome: the model either calls tools or produces a final reply, never both in

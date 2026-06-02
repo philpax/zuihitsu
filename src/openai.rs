@@ -6,8 +6,8 @@
 //! layer's sampling extensions (`top_k`, `min_p`, `chat_template_kwargs`), so the chat request is
 //! the sole custom type: a thin wrapper that flattens the standard request and adds those fields,
 //! sent via `byot` ("bring your own types"). Everything else — messages, tools, the response, and
-//! embeddings — uses async-openai's standard types. The `run_lua` tool's parameter schema is
-//! derived with `schemars`. Sampling comes from configuration, not from hardcoded defaults.
+//! embeddings — uses async-openai's standard types. A tool's parameter schema travels on its
+//! `ToolSpec`. Sampling comes from configuration, not from hardcoded defaults.
 
 use async_openai::{
     Client,
@@ -18,21 +18,20 @@ use async_openai::{
             ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
             ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
             ChatCompletionRequestUserMessageArgs, ChatCompletionResponseMessage,
-            ChatCompletionTool, ChatCompletionTools, CreateChatCompletionRequest,
-            CreateChatCompletionRequestArgs, CreateChatCompletionResponse, FunctionCall,
-            FunctionObject,
+            ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools,
+            CreateChatCompletionRequest, CreateChatCompletionRequestArgs,
+            CreateChatCompletionResponse, FunctionCall, FunctionObject, ToolChoiceOptions,
         },
         embeddings::{CreateEmbeddingRequestArgs, EmbeddingInput},
     },
 };
 use async_trait::async_trait;
-use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::{
     config::{EmbeddingConfig, ModelConfig},
     embed::{Embedder, Embedding},
-    model::{Completion, GenerateRequest, ModelClient, ModelError, Role, ToolCall},
+    model::{Completion, GenerateRequest, ModelClient, ModelError, Role, ToolCall, ToolChoice},
 };
 
 /// A generation client backed by an OpenAI-compatible `/chat/completions` endpoint. Holds the
@@ -58,6 +57,11 @@ impl OpenAiClient {
         if !tools.is_empty() {
             args.tools(tools);
         }
+        if request.tool_choice == ToolChoice::Required {
+            args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                ToolChoiceOptions::Required,
+            ));
+        }
         if let Some(temperature) = self.config.temperature {
             args.temperature(temperature);
         }
@@ -73,9 +77,11 @@ impl OpenAiClient {
             base,
             top_k: self.config.top_k,
             min_p: self.config.min_p,
-            chat_template_kwargs: self
-                .config
+            // A per-request `thinking` overrides the configured default (e.g. regeneration forces
+            // reasoning off).
+            chat_template_kwargs: request
                 .thinking
+                .or(self.config.thinking)
                 .map(|enable_thinking| ChatTemplateKwargs { enable_thinking }),
         })
     }
@@ -247,7 +253,7 @@ fn to_tools(request: &GenerateRequest) -> Vec<ChatCompletionTools> {
                 function: FunctionObject {
                     name: tool.name.clone(),
                     description: Some(tool.description.clone()),
-                    parameters: Some(tool_parameters()),
+                    parameters: Some(tool.parameters.clone()),
                     strict: None,
                 },
             })
@@ -277,20 +283,6 @@ fn into_completion(message: ChatCompletionResponseMessage) -> Completion {
         // would otherwise be recorded verbatim in the durable turn.
         _ => Completion::Reply(message.content.unwrap_or_default().trim().to_owned()),
     }
-}
-
-/// The JSON-schema parameters advertised for `run_lua`, derived from [`RunLuaParams`]. (The only
-/// tool today; a per-tool schema on `ToolSpec` is the natural extension when more tools exist.)
-fn tool_parameters() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(RunLuaParams)).unwrap_or_default()
-}
-
-/// The shape `run_lua` accepts, used only to derive its parameter schema.
-#[derive(JsonSchema)]
-#[allow(dead_code)]
-struct RunLuaParams {
-    /// Lua source to execute.
-    script: String,
 }
 
 /// Map any backend error (async-openai's `OpenAIError` from the client or the request builders)

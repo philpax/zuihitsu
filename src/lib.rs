@@ -55,7 +55,7 @@ pub use ids::{
 pub use index::{IndexError, Indexer};
 pub use model::{
     Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
-    ToolSpec,
+    ToolChoice, ToolSpec,
 };
 pub use settings::{
     BriefSettings, CompactionSettings, RecencySettings, SearchSettings, Settings, TauDays,

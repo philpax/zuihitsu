@@ -7,6 +7,7 @@
 //! an empty silent terminal, or a surfaced `max_steps` error — so "the agent saw this and chose
 //! its outcome" is always auditable. The inbound message is its own `role = participant` turn.
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use std::collections::BTreeSet;
@@ -19,7 +20,10 @@ use crate::{
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, MemoryId, Seq, TurnId},
     lua::{self, BlockOutcome, LuaError, Session},
-    model::{Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolSpec},
+    model::{
+        Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolChoice,
+        ToolSpec,
+    },
     store::{Store, StoreError},
     system_prompt, templates,
 };
@@ -124,6 +128,9 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                 system: system.clone(),
                 messages: messages.clone(),
                 tools: tools.clone(),
+                // The loop lets the model choose between calling run_lua and replying.
+                tool_choice: ToolChoice::Auto,
+                thinking: None,
             };
             match model.generate(&request).await? {
                 Completion::ToolCalls(calls) => {
@@ -264,8 +271,9 @@ async fn regenerate_descriptions(
     Ok(())
 }
 
-/// Ask the model to synthesize a description from a memory's entries. `None` means the model didn't
-/// answer with text (a tool call or a stay-silent), which a regeneration ignores.
+/// Ask the model to synthesize a description from a memory's entries, forcing a `describe` tool call
+/// so the answer is a clean argument. `None` means no usable call came back, which a regeneration
+/// ignores (keeping the prior description).
 async fn synthesize_description(
     model: &dyn ModelClient,
     template_body: &str,
@@ -279,15 +287,40 @@ async fn synthesize_description(
         prompt.push('\n');
     }
 
+    // Force a single `describe` tool call so the description comes back as a clean argument, not
+    // free-form prose the model wraps in preamble. Reasoning is forced off: it adds nothing to a
+    // structured extraction and makes the forced call intermittently emit an empty message.
     let request = GenerateRequest {
         system: template_body.to_owned(),
         messages: vec![Message::user(prompt)],
-        tools: Vec::new(),
+        tools: vec![describe_tool()],
+        tool_choice: ToolChoice::Required,
+        thinking: Some(false),
     };
-    match model.generate(&request).await? {
-        Completion::Reply(text) => Ok(Some(text)),
-        Completion::Silent | Completion::ToolCalls(_) => Ok(None),
+    // The model still occasionally returns no usable call; retry a few times before giving up
+    // (regeneration is off the hot path, so a couple of extra attempts is cheap).
+    const ATTEMPTS: usize = 3;
+    for attempt in 1..=ATTEMPTS {
+        if let Completion::ToolCalls(calls) = model.generate(&request).await?
+            && let Some(description) = describe_argument(&calls)
+        {
+            if attempt > 1 {
+                tracing::debug!(memory = %memory.name.as_str(), attempt, "description regenerated after a retry");
+            }
+            return Ok(Some(description));
+        }
+        tracing::debug!(
+            memory = %memory.name.as_str(),
+            attempt,
+            "description regeneration returned no usable describe call"
+        );
     }
+    tracing::warn!(
+        memory = %memory.name.as_str(),
+        attempts = ATTEMPTS,
+        "description regeneration gave up after retries; keeping the prior description"
+    );
+    Ok(None)
 }
 
 /// Execute one tool call and render the text the model sees next: the block's result on success,
@@ -343,10 +376,19 @@ impl std::fmt::Display for ToolError {
     }
 }
 
-/// The `run_lua` argument shape: `{ "script": "..." }`.
-#[derive(Deserialize)]
+/// The `run_lua` argument shape; doubles as the tool's parameter schema, so the schema sent to the
+/// model and the parser can't drift.
+#[derive(Deserialize, JsonSchema)]
 struct RunLuaArgs {
+    /// Lua source to execute.
     script: String,
+}
+
+/// The `describe` argument shape (description regeneration); doubles as the tool's parameter schema.
+#[derive(Deserialize, JsonSchema)]
+struct DescribeArgs {
+    /// The memory's description as plain third-person prose — no preamble, headings, or notes.
+    description: String,
 }
 
 fn run_lua_tool() -> ToolSpec {
@@ -355,7 +397,33 @@ fn run_lua_tool() -> ToolSpec {
         description: "Execute a Lua block against your memory; returns the value of its final \
                       expression."
             .to_owned(),
+        parameters: schema_of::<RunLuaArgs>(),
     }
+}
+
+/// The single tool the description-regeneration call is forced to use (`ToolChoice::Required`), so
+/// the synthesized description comes back as a clean argument rather than free-form prose with
+/// preamble — the failure mode the draft template produced against a real model.
+fn describe_tool() -> ToolSpec {
+    ToolSpec {
+        name: "describe".to_owned(),
+        description: "Record the synthesized description for the memory.".to_owned(),
+        parameters: schema_of::<DescribeArgs>(),
+    }
+}
+
+/// The JSON-Schema for a tool's argument struct, the single source of truth shared with the parser.
+fn schema_of<T: JsonSchema>() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(T)).unwrap_or_default()
+}
+
+/// Extract the `description` argument from a forced `describe` tool call, or `None` if the model
+/// produced no usable call.
+fn describe_argument(calls: &[ToolCall]) -> Option<String> {
+    let call = calls.iter().find(|call| call.name == "describe")?;
+    let args: DescribeArgs = serde_json::from_str(&call.arguments).ok()?;
+    let description = args.description.trim();
+    (!description.is_empty()).then(|| description.to_owned())
 }
 
 /// One `ConversationTurn` to record: the inbound participant message, the agent's response, or a
