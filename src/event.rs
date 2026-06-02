@@ -289,13 +289,15 @@ pub enum EventPayload {
     },
     /// A turn in the conversation: an inbound participant message, the agent's response (a reply, a
     /// silent terminal with empty `text`, or a surfaced `max_steps` error), or a system message. The
-    /// participant and session bindings arrive at Stages 6-8.
+    /// participant and session bindings arrive at Stages 6-8. `produced_by` records the inference
+    /// behind an `Agent` turn; participant and system turns are not inference, so it is `None`.
     ConversationTurn {
         conversation: ConversationId,
         turn_id: TurnId,
         role: TurnRole,
         text: String,
         initiation: Initiation,
+        produced_by: Option<ProducedBy>,
     },
 }
 

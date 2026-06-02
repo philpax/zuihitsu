@@ -142,6 +142,59 @@ async fn descriptions_regenerate_after_a_turn() {
 }
 
 #[tokio::test]
+async fn agent_turns_record_their_provenance() {
+    let mut h = Harness::new();
+    // Genesis registers the scaffold the agent turn runs against.
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let model = ScriptedModel::new([Completion::Reply("Noted.".to_owned())]);
+    run_turn(
+        &h.session,
+        &model,
+        &mut h.store,
+        &mut h.graph,
+        &h.clock,
+        "hello",
+        8,
+    )
+    .await
+    .unwrap();
+
+    let turns: Vec<(TurnRole, Option<_>)> = h
+        .store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            EventPayload::ConversationTurn {
+                role, produced_by, ..
+            } => Some((role, produced_by)),
+            _ => None,
+        })
+        .collect();
+
+    // The inbound participant turn is not inference, so it has no provenance.
+    let (_, participant) = turns
+        .iter()
+        .find(|(role, _)| *role == TurnRole::Participant)
+        .expect("a participant turn");
+    assert!(participant.is_none());
+
+    // The agent turn records the chat model and the scaffold it ran against.
+    let (_, agent) = turns
+        .iter()
+        .find(|(role, _)| *role == TurnRole::Agent)
+        .expect("an agent turn");
+    let provenance = agent
+        .as_ref()
+        .expect("the agent turn records its provenance");
+    assert_eq!(provenance.model_id, "scripted-model");
+    assert_eq!(provenance.template_name, PromptTemplateName::Scaffold);
+    assert_eq!(provenance.template_version, 1);
+}
+
+#[tokio::test]
 async fn stay_silent_terminal_posts_nothing() {
     let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Silent]);

@@ -44,6 +44,7 @@ pub async fn run_turn(
     max_steps: usize,
 ) -> Result<TurnOutcome, TurnError> {
     let conversation = session.conversation();
+    // An inbound participant message is not inference, so it carries no provenance.
     append_turn(
         store,
         clock,
@@ -51,20 +52,29 @@ pub async fn run_turn(
         TurnId::generate(),
         TurnRole::Participant,
         inbound.to_owned(),
+        None,
     )?;
     // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
     let cycle_start = store.head()?;
 
     // Assemble the frozen system prompt once for the cycle: the scaffold framing, the agent's
     // identity from `self`, and the declared time.
-    let scaffold = templates::latest_template(store, PromptTemplateName::Scaffold)?
-        .map(|template| template.body)
-        .unwrap_or_default();
+    let scaffold = templates::latest_template(store, PromptTemplateName::Scaffold)?;
+    let scaffold_version = scaffold.as_ref().map(|template| template.version);
+    let scaffold_body = scaffold.map(|template| template.body).unwrap_or_default();
     let identity = match graph.memory_by_name("self")? {
         Some(self_memory) => graph.entries(self_memory.id)?,
         None => Vec::new(),
     };
-    let system = system_prompt::assemble(&scaffold, &identity, clock.now());
+    let system = system_prompt::assemble(&scaffold_body, &identity, clock.now());
+
+    // Provenance for the agent's turn: the chat model and the scaffold it ran against. If no
+    // scaffold is registered (it always is post-genesis), the attribution is simply absent.
+    let agent_provenance = scaffold_version.map(|version| ProducedBy {
+        model_id: model.model_id().into(),
+        template_name: PromptTemplateName::Scaffold,
+        template_version: version,
+    });
 
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it.
     let turn_id = TurnId::generate();
@@ -94,6 +104,7 @@ pub async fn run_turn(
                         turn_id,
                         TurnRole::Agent,
                         text.clone(),
+                        agent_provenance.clone(),
                     )?;
                     break 'cycle TurnOutcome::Reply(text);
                 }
@@ -105,6 +116,7 @@ pub async fn run_turn(
                         turn_id,
                         TurnRole::Agent,
                         String::new(),
+                        agent_provenance.clone(),
                     )?;
                     break 'cycle TurnOutcome::Silent;
                 }
@@ -118,6 +130,7 @@ pub async fn run_turn(
             turn_id,
             TurnRole::Agent,
             surfaced,
+            agent_provenance.clone(),
         )?;
         TurnOutcome::MaxStepsExceeded
     };
@@ -302,6 +315,7 @@ fn append_turn(
     turn_id: TurnId,
     role: TurnRole,
     text: String,
+    produced_by: Option<ProducedBy>,
 ) -> Result<(), TurnError> {
     store.append(
         clock.now(),
@@ -311,6 +325,7 @@ fn append_turn(
             role,
             text,
             initiation: Initiation::Responding,
+            produced_by,
         }],
     )?;
     Ok(())
