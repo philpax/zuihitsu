@@ -99,6 +99,8 @@ pub fn search(
     limit: usize,
 ) -> Result<Vec<SearchHit>, SearchError> {
     let over_fetch = limit.saturating_mul(4).max(20);
+    // Resolve identity over the `same_as` class for the visibility predicate.
+    let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
 
     // Semantic: cosine per memory — the best over its description hit and any visible entry hits
     // (negative similarity clamped away). A description vector is public-safe; an entry vector must
@@ -113,7 +115,7 @@ pub fn search(
                 let Some((memory, entry)) = graph.entry_by_id(entry_id)? else {
                     continue;
                 };
-                if !visibility::visible(&entry, &memory, query.present_set) {
+                if !visibility::visible(&entry, &memory, query.present_set, &class_of)? {
                     continue;
                 }
                 raise(&mut cosine, memory.id, score);
