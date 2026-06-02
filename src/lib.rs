@@ -87,7 +87,8 @@ mod __sqlite {
         store::SqliteStore,
         vector::SqliteVectorIndex,
         visibility::{
-            default_visibility, default_visibility_named, teller_private_marker, visible,
+            MarkerRoom, default_visibility, default_visibility_named, room_display,
+            teller_private_marker, visible,
         },
     };
 }

@@ -121,7 +121,11 @@ pub fn search(
                 raise(&mut cosine, memory.id, score);
                 if entry.visibility != Visibility::Public && !markers.contains_key(&memory.id) {
                     let teller = teller_display(graph, &entry.told_by)?;
-                    markers.insert(memory.id, visibility::teller_private_marker(&teller));
+                    let room = marker_room(graph, entry.told_in)?;
+                    markers.insert(
+                        memory.id,
+                        visibility::teller_private_marker(&teller, room.as_ref()),
+                    );
                 }
             }
             None => {}
@@ -176,6 +180,23 @@ fn teller_display(graph: &Graph, teller: &Teller) -> Result<String, GraphError> 
         Teller::Agent => "the agent".to_owned(),
         Teller::Bootstrap => "genesis".to_owned(),
     })
+}
+
+/// Resolve an entry's `told_in` to its room marker — display name and `#confidential` flag — for
+/// the teller-private marker. `None` when the entry carries no room, or its context memory is gone.
+fn marker_room(
+    graph: &Graph,
+    told_in: Option<MemoryId>,
+) -> Result<Option<visibility::MarkerRoom>, GraphError> {
+    let Some(context_id) = told_in else {
+        return Ok(None);
+    };
+    Ok(graph
+        .memory_by_id(context_id)?
+        .map(|context| visibility::MarkerRoom {
+            name: visibility::room_display(context.name.as_str()),
+            confidential: context.tags.contains(&TagName::Confidential),
+        }))
 }
 
 /// The fraction of the query's `tags` a memory carries, in `[0, 1]`; zero when no tags are

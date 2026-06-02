@@ -8,10 +8,10 @@
 use std::collections::HashMap;
 
 use zuihitsu::{
-    EntryId, GraphError, MemoryId, MemoryName, Teller, Timestamp, Visibility, Volatility,
-    default_visibility,
+    EntryId, GraphError, MarkerRoom, MemoryId, MemoryName, Teller, Timestamp, Visibility,
+    Volatility, default_visibility,
     graph::{EntryView, MemoryView},
-    visible,
+    room_display, teller_private_marker, visible,
 };
 
 fn memory(name: &str) -> MemoryView {
@@ -39,6 +39,33 @@ fn entry(told_by: Teller, visibility: Visibility) -> EntryView {
 /// The unmerged resolver: every memory is its own class.
 fn identity(id: MemoryId) -> Result<MemoryId, GraphError> {
     Ok(id)
+}
+
+#[test]
+fn teller_private_marker_carries_room_and_confidentiality() {
+    // No room known: teller only.
+    assert_eq!(
+        teller_private_marker("Erin", None),
+        "[teller-private, told by Erin]"
+    );
+    // A known but non-confidential room names the room.
+    let general = MarkerRoom {
+        name: room_display("context/general"),
+        confidential: false,
+    };
+    assert_eq!(
+        teller_private_marker("Erin", Some(&general)),
+        "[teller-private, told by Erin in #general]"
+    );
+    // A #confidential room says so — the cross-context signal the agent reasons over (scenario 13).
+    let leads = MarkerRoom {
+        name: room_display("context/leads"),
+        confidential: true,
+    };
+    assert_eq!(
+        teller_private_marker("Erin", Some(&leads)),
+        "[teller-private, told by Erin in #leads (confidential)]"
+    );
 }
 
 #[test]

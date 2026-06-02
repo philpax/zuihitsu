@@ -68,11 +68,44 @@ pub fn default_visibility_named(name: &str, id: MemoryId, teller: &Teller) -> Vi
     }
 }
 
+/// The room a teller-private entry was told in, resolved for the marker: its display name (e.g.
+/// `#leads`) and whether it is `#confidential`. The caller resolves an entry's `told_in` to this at
+/// build time (see [`room_display`]), keeping this module I/O-free, mirroring the `class_of`
+/// injection pattern.
+pub struct MarkerRoom {
+    pub name: String,
+    pub confidential: bool,
+}
+
 /// The inline marker a surviving teller-private entry carries when surfaced (spec §Visibility →
-/// marker), so the model sees it as a flagged judgment call rather than neutral fact. The room
-/// (`told_in`) and its confidentiality join the marker at Stage 8, when contexts exist.
-pub fn teller_private_marker(teller: &str) -> String {
-    format!("[teller-private, told by {teller}]")
+/// marker), so the model sees it as a flagged judgment call rather than neutral fact. It names the
+/// teller, and — when the entry's `told_in` room is known — the room and, if the room is
+/// `#confidential`, that it was said in confidence: `[teller-private, told by Erin in #leads
+/// (confidential)]`. The marker is baked into `recent_facts` at brief-build time, so a later
+/// cross-context surfacing can be recognized as one.
+pub fn teller_private_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
+    match room {
+        Some(MarkerRoom {
+            name,
+            confidential: true,
+        }) => format!("[teller-private, told by {teller} in {name} (confidential)]"),
+        Some(MarkerRoom {
+            name,
+            confidential: false,
+        }) => format!("[teller-private, told by {teller} in {name}]"),
+        None => format!("[teller-private, told by {teller}]"),
+    }
+}
+
+/// The marker display name of a `context/*` memory: its handle with the namespace stripped and a `#`
+/// prefix (`context/leads` → `#leads`), the room reference the agent sees in a teller-private marker.
+pub fn room_display(context_name: &str) -> String {
+    format!(
+        "#{}",
+        context_name
+            .strip_prefix("context/")
+            .unwrap_or(context_name)
+    )
 }
 
 /// The participant a memory is *about*: a `person/*` stub, or `None` for every other namespace and

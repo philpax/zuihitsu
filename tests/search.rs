@@ -94,6 +94,31 @@ impl Corpus {
         .await;
     }
 
+    /// As [`tell_private`], but told in a specific room (`told_in`), so the surfaced marker can name
+    /// it.
+    async fn tell_private_in(
+        &mut self,
+        memory: MemoryId,
+        text: &str,
+        teller: MemoryId,
+        told_in: MemoryId,
+        at_ms: i64,
+    ) {
+        self.commit(
+            at_ms,
+            vec![EventPayload::MemoryContentAppended {
+                id: memory,
+                entry_id: EntryId::generate(),
+                asserted_at: Timestamp::from_millis(at_ms),
+                text: text.to_owned(),
+                told_by: Teller::Participant(teller),
+                told_in: Some(told_in),
+                visibility: Visibility::PrivateToTeller,
+            }],
+        )
+        .await;
+    }
+
     /// Create `tag` and apply it to `id`. Only one memory per tag in these tests, so the create is
     /// unconditional.
     fn tag(&mut self, id: MemoryId, tag: &str, at_ms: i64) {
@@ -337,6 +362,50 @@ async fn search_applies_the_predicate_to_entry_hits() {
         )
         .await;
     assert!(hits.iter().all(|hit| hit.marker.is_none()));
+}
+
+#[tokio::test]
+async fn a_private_asides_marker_names_its_confidential_room() {
+    // Scenario 13's mechanism: an aside told in a #confidential room surfaces flagged with the room
+    // and its confidentiality — the cross-context signal the agent reasons over.
+    let mut corpus = Corpus::new();
+    let erin = corpus
+        .add("person/erin", "A colleague", "We work together", 1_000)
+        .await;
+    let phil = corpus
+        .add("person/phil", "A teammate", "On the same team", 1_000)
+        .await;
+
+    // A #confidential context — the #leads room.
+    let leads = MemoryId::generate();
+    corpus
+        .commit(
+            1_000,
+            vec![EventPayload::MemoryCreated {
+                id: leads,
+                name: MemoryName::new("context/leads"),
+            }],
+        )
+        .await;
+    corpus.tag(leads, "confidential", 1_000);
+
+    // Erin, in #leads, says something private about Phil.
+    corpus
+        .tell_private_in(phil, "is being managed out", erin, leads, 1_000)
+        .await;
+
+    // Erin present, Phil absent: Phil surfaces, the marker naming the room and its confidentiality.
+    let hits = corpus
+        .query_in("is being managed out", None, &[], &[erin], 1_000, 5)
+        .await;
+    let phil_hit = hits
+        .iter()
+        .find(|hit| hit.memory.id == phil)
+        .expect("Phil surfaces via the aside");
+    assert_eq!(
+        phil_hit.marker.as_deref(),
+        Some("[teller-private, told by person/erin in #leads (confidential)]")
+    );
 }
 
 #[test]
