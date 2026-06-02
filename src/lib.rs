@@ -54,8 +54,8 @@ pub use ids::{
 };
 pub use index::{IndexError, Indexer};
 pub use model::{
-    Completion, GenerateRequest, Message, ModelClient, ModelError, Role, ScriptedModel, ToolCall,
-    ToolChoice, ToolSpec,
+    Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, Role,
+    ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
 };
 pub use settings::{
     BriefSettings, CompactionSettings, RecencySettings, SearchSettings, Settings, TauDays,
@@ -72,7 +72,7 @@ pub use vector::{
 #[cfg(feature = "lua")]
 mod __lua {
     pub use crate::{
-        agent::{Turn, TurnError, TurnOutcome, run_turn},
+        agent::{Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, run_turn},
         lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     };
 }

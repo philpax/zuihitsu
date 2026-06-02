@@ -19,11 +19,11 @@ async fn scripted_model_returns_programmed_steps_then_exhausts() {
     let request = GenerateRequest::default();
 
     assert!(matches!(
-        model.generate(&request).await.unwrap(),
+        model.generate(&request).await.unwrap().completion,
         Completion::ToolCalls(_)
     ));
     assert_eq!(
-        model.generate(&request).await.unwrap(),
+        model.generate(&request).await.unwrap().completion,
         Completion::Reply("done".to_owned())
     );
     assert!(matches!(

@@ -58,6 +58,7 @@ mod harness {
                 inbound,
                 inbound_participant: self.participant,
                 brief: "",
+                buffer: &[],
                 max_steps,
             }
         }

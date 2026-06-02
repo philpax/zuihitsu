@@ -30,6 +30,27 @@ impl Message {
         }
     }
 
+    /// A plain assistant message — an agent turn's reply text replayed into the live buffer (distinct
+    /// from [`Message::assistant_tool_calls`], which carries a step's tool calls).
+    pub fn assistant(content: impl Into<String>) -> Message {
+        Message {
+            role: Role::Assistant,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+
+    /// A system message replayed into the live buffer (a join brief, a time update).
+    pub fn system(content: impl Into<String>) -> Message {
+        Message {
+            role: Role::System,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+
     /// The assistant's step that emitted these tool calls.
     pub fn assistant_tool_calls(tool_calls: Vec<ToolCall>) -> Message {
         Message {
@@ -110,13 +131,31 @@ pub enum Completion {
     Silent,
 }
 
+/// The token accounting the serving layer reports for a generation. Fields are `Option` because not
+/// every backend returns usage and the scripted fake may decline to script it; an absent
+/// `prompt_tokens` makes the compaction trigger fall back to a deterministic estimate over the
+/// buffer (spec §Compaction). `prompt_tokens` measures the whole prompt — the frozen prefix plus the
+/// live buffer — which is exactly the surface the buffer budget bounds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Usage {
+    pub prompt_tokens: Option<u32>,
+}
+
+/// One generation step's result: the [`Completion`] the loop acts on, plus the [`Usage`] the
+/// compaction trigger reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GenerateResponse {
+    pub completion: Completion,
+    pub usage: Usage,
+}
+
 /// The inference interface. The agent server holds one of these; tests substitute a fake.
 #[async_trait]
 pub trait ModelClient: Send + Sync {
     /// The id of the model behind this client, recorded as `produced_by` provenance on the events
     /// its inference produces (spec §Storage → provenance on inference).
     fn model_id(&self) -> &str;
-    async fn generate(&self, request: &GenerateRequest) -> Result<Completion, ModelError>;
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError>;
 }
 
 /// A model-inference failure.
@@ -144,17 +183,52 @@ impl std::fmt::Display for ModelError {
 
 impl std::error::Error for ModelError {}
 
-/// A deterministic fake returning programmed completions in order. Drives agent-loop scenarios
-/// without a real model; `generate` ignores the request and pops the next scripted step.
+/// A deterministic fake returning programmed responses in order. Drives agent-loop scenarios
+/// without a real model; `generate` records the request's messages (so a test can assert what the
+/// model saw — e.g. that a later turn replayed the live buffer), then pops the next scripted step.
 pub struct ScriptedModel {
-    steps: Mutex<VecDeque<Completion>>,
+    steps: Mutex<VecDeque<GenerateResponse>>,
+    seen: Mutex<Vec<Vec<Message>>>,
 }
 
 impl ScriptedModel {
+    /// Script the completions a turn will see, each reporting no usage. The common case for scenarios
+    /// that don't exercise the compaction trigger.
     pub fn new(steps: impl IntoIterator<Item = Completion>) -> ScriptedModel {
+        ScriptedModel::with_responses(steps.into_iter().map(|completion| GenerateResponse {
+            completion,
+            usage: Usage::default(),
+        }))
+    }
+
+    /// Script completions paired with the `prompt_tokens` each reports, for tests that drive the
+    /// compaction trigger deterministically (a step reporting more than the budget forces a
+    /// re-segment).
+    pub fn with_usage(steps: impl IntoIterator<Item = (Completion, u32)>) -> ScriptedModel {
+        ScriptedModel::with_responses(steps.into_iter().map(|(completion, prompt_tokens)| {
+            GenerateResponse {
+                completion,
+                usage: Usage {
+                    prompt_tokens: Some(prompt_tokens),
+                },
+            }
+        }))
+    }
+
+    fn with_responses(steps: impl IntoIterator<Item = GenerateResponse>) -> ScriptedModel {
         ScriptedModel {
             steps: Mutex::new(steps.into_iter().collect()),
+            seen: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The `messages` of each `generate` call so far, in order — lets a test assert what the model
+    /// saw (e.g. that a later turn replayed the prior turns as the prompt suffix).
+    pub fn recorded_messages(&self) -> Vec<Vec<Message>> {
+        self.seen
+            .lock()
+            .expect("scripted-model lock poisoned")
+            .clone()
     }
 }
 
@@ -164,7 +238,11 @@ impl ModelClient for ScriptedModel {
         "scripted-model"
     }
 
-    async fn generate(&self, _request: &GenerateRequest) -> Result<Completion, ModelError> {
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        self.seen
+            .lock()
+            .expect("scripted-model lock poisoned")
+            .push(request.messages.clone());
         self.steps
             .lock()
             .expect("scripted-model lock poisoned")

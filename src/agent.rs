@@ -21,8 +21,8 @@ use crate::{
     ids::{ConversationId, MemoryId, Seq, TurnId},
     lua::{self, BlockOutcome, LuaError, Session},
     model::{
-        Completion, GenerateRequest, Message, ModelClient, ModelError, ToolCall, ToolChoice,
-        ToolSpec,
+        Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
+        ToolChoice, ToolSpec,
     },
     store::{Store, StoreError},
     system_prompt, templates,
@@ -39,6 +39,62 @@ pub enum TurnOutcome {
     MaxStepsExceeded,
 }
 
+/// What a completed turn reports to the platform: its conversational `outcome` and the peak
+/// `prompt_tokens` observed across the turn's generation steps — the largest the buffer reached, and
+/// what the next turn would build on. `None` when no step reported usage (the platform then falls
+/// back to a deterministic estimate). The platform compares this against the compaction budget.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnReport {
+    pub outcome: TurnOutcome,
+    pub prompt_tokens: Option<u32>,
+}
+
+/// One turn replayed into the live buffer — the conversational surface the next turn sees as the
+/// prompt suffix. Carries only the durable turn text, never the within-turn `run_lua` exchange (the
+/// agent does not re-see its own scratch reasoning, consistent with the durable record). `seq` and
+/// `turn_id` let a compaction mark the carried tail (`seeded_from_turn` and the next buffer's start).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnView {
+    pub seq: Seq,
+    pub turn_id: TurnId,
+    pub role: TurnRole,
+    pub text: String,
+    pub participant: Option<MemoryId>,
+}
+
+/// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
+/// buffer the next turn replays as the prompt suffix (spec §Conversations → the live buffer).
+/// `from_seq` is the live session's start (so the whole session is read) or a carried tail across a
+/// compaction seam (so only the carryover plus the new session's turns are read).
+pub fn buffer_turns(
+    store: &dyn Store,
+    conversation: ConversationId,
+    from_seq: Seq,
+) -> Result<Vec<TurnView>, StoreError> {
+    let mut turns = Vec::new();
+    for event in store.read_from(from_seq)? {
+        if let EventPayload::ConversationTurn {
+            conversation: turn_conversation,
+            turn_id,
+            role,
+            text,
+            participant,
+            ..
+        } = event.payload
+            && turn_conversation == conversation
+        {
+            turns.push(TurnView {
+                seq: event.seq,
+                turn_id,
+                role,
+                text,
+                participant,
+            });
+        }
+    }
+    Ok(turns)
+}
+
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model`, `store`,
 /// `graph`, `clock`), the `inbound` participant message and its `inbound_participant` (the speaker's
 /// `person/*` stub, whose content the turn's writes are attributed to), and the step budget.
@@ -53,11 +109,15 @@ pub struct Turn<'a> {
     /// The session's frozen contextual brief, interpolated into the system prompt (captured on
     /// `SessionStarted`, so every turn in the session sees the same brief).
     pub brief: &'a str,
+    /// The live buffer recorded before this inbound message — the session's prior turns, replayed as
+    /// the prompt suffix after the frozen prefix ([`buffer_turns`]). Empty for the first turn of a
+    /// session (or whenever the caller wants a single-message prompt).
+    pub buffer: &'a [TurnView],
     pub max_steps: usize,
 }
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
-pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
+pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let Turn {
         session,
         model,
@@ -67,6 +127,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
         inbound,
         inbound_participant,
         brief,
+        buffer,
         max_steps,
     } = turn;
     let conversation = session.conversation();
@@ -120,8 +181,23 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it.
     let turn_id = TurnId::generate();
     let tools = vec![run_lua_tool()];
-    let mut messages = vec![Message::user(inbound)];
+    // Replay the live buffer as the prompt suffix: prior turns mapped to their chat roles, then the
+    // current inbound. Empty (silent) agent turns inject nothing. The frozen brief stays in the
+    // system prefix only — the buffer never perturbs it (prefix-cache stability, spec §System prompt).
+    let mut messages: Vec<Message> = Vec::with_capacity(buffer.len() + 1);
+    for buffered in buffer {
+        match buffered.role {
+            TurnRole::Participant => messages.push(Message::user(buffered.text.clone())),
+            TurnRole::Agent if buffered.text.is_empty() => {}
+            TurnRole::Agent => messages.push(Message::assistant(buffered.text.clone())),
+            TurnRole::System => messages.push(Message::system(buffered.text.clone())),
+        }
+    }
+    messages.push(Message::user(inbound));
 
+    // The peak prompt size the turn reached, folded across steps: the buffer grows as tool results
+    // accumulate mid-loop, so the largest step — not the last — is what the compaction budget bounds.
+    let mut peak_prompt_tokens: Option<u32> = None;
     let outcome = 'cycle: {
         for _ in 0..max_steps {
             let request = GenerateRequest {
@@ -132,7 +208,9 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
                 tool_choice: ToolChoice::Auto,
                 thinking: None,
             };
-            match model.generate(&request).await? {
+            let GenerateResponse { completion, usage } = model.generate(&request).await?;
+            peak_prompt_tokens = peak_prompt_tokens.max(usage.prompt_tokens);
+            match completion {
                 Completion::ToolCalls(calls) => {
                     messages.push(Message::assistant_tool_calls(calls.clone()));
                     for call in &calls {
@@ -195,7 +273,10 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnOutcome, TurnError> {
     let written = collect_written_memories(store, cycle_start)?;
     regenerate_descriptions(model, store, graph, clock, &written).await?;
 
-    Ok(outcome)
+    Ok(TurnReport {
+        outcome,
+        prompt_tokens: peak_prompt_tokens,
+    })
 }
 
 /// The distinct memories that gained content (a create or an append) since `cycle_start`, in first-
@@ -301,7 +382,10 @@ async fn synthesize_description(
     // (regeneration is off the hot path, so a couple of extra attempts is cheap).
     const ATTEMPTS: usize = 3;
     for attempt in 1..=ATTEMPTS {
-        if let Completion::ToolCalls(calls) = model.generate(&request).await?
+        // Regeneration is an off-buffer structured extraction; its usage must not move the
+        // conversational compaction trigger, so it is read and discarded here.
+        let GenerateResponse { completion, .. } = model.generate(&request).await?;
+        if let Completion::ToolCalls(calls) = completion
             && let Some(description) = describe_argument(&calls)
         {
             if attempt > 1 {

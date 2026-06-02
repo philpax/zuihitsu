@@ -8,7 +8,7 @@ mod common;
 use common::Harness;
 use zuihitsu::{
     Completion, PromptTemplateName, ScriptedModel, SeedSelf, Seq, Store, ToolCall, TurnOutcome,
-    TurnRole, event::EventPayload, genesis, run_turn,
+    TurnReport, TurnRole, event::EventPayload, genesis, run_turn,
 };
 #[cfg(feature = "openai")]
 use zuihitsu::{EnvConfig, OpenAiClient};
@@ -54,7 +54,7 @@ async fn tool_call_then_reply_commits_and_replies() {
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
     ]);
 
-    let outcome = run_turn(h.as_turn(&model, "Remember Dave", 8))
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "Remember Dave", 8))
         .await
         .unwrap();
 
@@ -178,7 +178,7 @@ async fn stay_silent_terminal_posts_nothing() {
     let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Silent]);
 
-    let outcome = run_turn(h.as_turn(&model, "(chatter)", 8)).await.unwrap();
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "(chatter)", 8)).await.unwrap();
 
     assert_eq!(outcome, TurnOutcome::Silent);
     // Auditable silence: an agent turn is still recorded, with empty text.
@@ -201,7 +201,7 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
         run_lua_call("return 3"),
     ]);
 
-    let outcome = run_turn(h.as_turn(&model, "loop forever", 2))
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "loop forever", 2))
         .await
         .unwrap();
 
@@ -227,7 +227,7 @@ async fn tool_result_feeds_back_across_steps() {
         Completion::Reply("done".to_owned()),
     ]);
 
-    let outcome = run_turn(h.as_turn(&model, "go", 8)).await.unwrap();
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "go", 8)).await.unwrap();
     assert_eq!(outcome, TurnOutcome::Reply("done".to_owned()));
 
     // Two LuaExecuted events (two blocks), both committed.

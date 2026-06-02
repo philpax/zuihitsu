@@ -10,16 +10,17 @@
 
 #[cfg(feature = "lua")]
 use crate::{
-    agent::{Turn, TurnError, TurnOutcome, run_turn},
+    agent::{Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_turn},
     brief::{self, BriefError},
-    event::{EventPayload, Initiation, TurnRole},
+    event::{Initiation, TurnRole},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
-    ids::{ConversationId, MemoryId, SessionId, TurnId},
+    ids::{ConversationId, MemoryId, Seq, SessionId, TurnId},
     lua::Session,
     model::ModelClient,
 };
 use crate::{
     clock::Clock,
+    event::{EventPayload, EventSource},
     genesis::{self, GenesisStatus, Rollout, SeedSelf},
     graph::{Graph, GraphError, MemoryView, SessionView},
     ids::ConversationLocator,
@@ -39,6 +40,11 @@ pub struct Server {
     /// restart drops it and the next message opens a fresh session.
     #[cfg(feature = "lua")]
     sessions: HashMap<ConversationId, OpenSession>,
+    /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
+    /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
+    /// between the compacting turn and the next message in that room.
+    #[cfg(feature = "lua")]
+    pending_carryover: HashMap<ConversationId, Carryover>,
 }
 
 impl Server {
@@ -49,6 +55,8 @@ impl Server {
             clock,
             #[cfg(feature = "lua")]
             sessions: HashMap::new(),
+            #[cfg(feature = "lua")]
+            pending_carryover: HashMap::new(),
         }
     }
 
@@ -85,6 +93,16 @@ impl Server {
     }
 }
 
+/// The raw-transcript carryover a compaction stages for the next session (spec §Compaction →
+/// raw-transcript carryover). The oldest carried turn is both the `seeded_from_turn` boundary
+/// recorded on the new `SessionStarted` and the `from_seq` the new session's buffer is read from, so
+/// the carried tail plus the new turns reconstruct the post-cut buffer.
+#[cfg(feature = "lua")]
+struct Carryover {
+    seeded_from_turn: TurnId,
+    from_seq: Seq,
+}
+
 /// The live session backing a conversation (runtime state, see [`Server::sessions`]).
 #[cfg(feature = "lua")]
 struct OpenSession {
@@ -92,6 +110,10 @@ struct OpenSession {
     vm: Session,
     brief: String,
     last_activity: crate::ids::Timestamp,
+    /// The log seq the live buffer is read from: the `SessionStarted` seq for a fresh or idle-opened
+    /// session, or a carried tail's seq across a compaction seam (so the carryover plus this
+    /// session's turns reconstruct the buffer — see [`buffer_turns`]).
+    start_seq: Seq,
 }
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
@@ -169,7 +191,10 @@ impl Platform<'_> {
             .sessions
             .get(&conversation)
             .expect("ensure_session left an open session");
-        let outcome = run_turn(Turn {
+        // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
+        // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
+        let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
+        let report = run_turn(Turn {
             session: &open.vm,
             model,
             store: self.server.store.as_mut(),
@@ -178,10 +203,26 @@ impl Platform<'_> {
             inbound: text,
             inbound_participant: sender_id,
             brief: &open.brief,
+            buffer: &buffer,
             max_steps,
         })
         .await?;
-        Ok(outcome)
+
+        // Token-triggered compaction: if the turn's peak prompt crossed the budget, end the session
+        // now so the next message re-segments with a fresh brief and a carried tail (spec
+        // §Compaction). The estimate fallback keeps the trigger meaningful when the backend reports
+        // no usage (the in-memory and no-openai builds).
+        let token_budget = Settings::from_store(self.server.store.as_ref())?
+            .compaction
+            .token_budget;
+        let observed = report
+            .prompt_tokens
+            .map(i64::from)
+            .unwrap_or_else(|| estimate_tokens(&buffer, text));
+        if observed > token_budget {
+            self.end_session_for_compaction(conversation)?;
+        }
+        Ok(report.outcome)
     }
 
     /// Ensure a live session for `conversation`: reuse the open one if activity is within the
@@ -219,20 +260,27 @@ impl Platform<'_> {
             )?;
         }
 
+        // A pending carryover from a just-compacted session seeds the new one: the next buffer read
+        // starts at the carried tail (not this `SessionStarted`), and the boundary is recorded as
+        // `seeded_from_turn` for faithful replay (spec §Compaction → raw-transcript carryover).
+        let carryover = self.server.pending_carryover.remove(&conversation);
+        let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
+
         let context = self.server.graph.context_for_conversation(conversation)?;
         let brief = brief::compose(&self.server.graph, present_set, context, &settings.brief)?;
         let id = SessionId::generate();
-        self.server.store.append(
+        let committed = self.server.store.append(
             now,
             vec![EventPayload::SessionStarted {
                 conversation,
                 id,
                 participants: present_set.to_vec(),
                 started_at: now,
-                seeded_from_turn: None,
+                seeded_from_turn,
                 brief: brief.clone(),
             }],
         )?;
+        let session_start_seq = committed[0].seq;
         self.server
             .graph
             .materialize_from(self.server.store.as_ref())?;
@@ -243,6 +291,9 @@ impl Platform<'_> {
                 vm: Session::new(conversation),
                 brief,
                 last_activity: now,
+                start_seq: carryover
+                    .map(|carry| carry.from_seq)
+                    .unwrap_or(session_start_seq),
             },
         );
         Ok(())
@@ -316,6 +367,78 @@ impl Platform<'_> {
             .materialize_from(self.server.store.as_ref())?;
         Ok(())
     }
+
+    /// End the live session because the buffer crossed the token budget, staging a raw-transcript
+    /// carryover for the next message to re-segment from (spec §Compaction). Stage 1 carries the
+    /// verbatim tail only; the pre-compaction flush and working-set carryover land in later stages.
+    fn end_session_for_compaction(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<(), ServerError> {
+        let now = self.server.clock.now();
+        let Some(open) = self.server.sessions.remove(&conversation) else {
+            return Ok(());
+        };
+        // Read the buffer including the turn that just crossed the budget — the carried tail is the
+        // most recent turns, which are precisely the ones this turn appended.
+        let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
+        self.server.store.append(
+            now,
+            vec![EventPayload::SessionEnded {
+                conversation,
+                id: open.id,
+            }],
+        )?;
+
+        let carryover_char_budget = Settings::from_store(self.server.store.as_ref())?
+            .compaction
+            .carryover_char_budget;
+        if let Some(carry) = carryover_tail(&buffer, carryover_char_budget) {
+            self.server.pending_carryover.insert(conversation, carry);
+        }
+        tracing::info!(
+            ?conversation,
+            session = ?open.id,
+            "token budget crossed; ended session for compaction",
+        );
+        Ok(())
+    }
+}
+
+/// The raw-transcript carryover tail: the most recent turns that fit `char_budget`, filled backward
+/// from the cut (spec §Compaction → raw-transcript carryover). The newest turn is always carried so
+/// the immediate conversational thread survives the seam, then older turns are added while they fit.
+/// Returns the oldest carried turn as the carryover extent, or `None` for an empty buffer.
+#[cfg(feature = "lua")]
+fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<Carryover> {
+    let char_budget = char_budget.max(0) as usize;
+    let mut total = 0usize;
+    let mut oldest: Option<&TurnView> = None;
+    for turn in buffer.iter().rev() {
+        let next = total.saturating_add(turn.text.chars().count());
+        if oldest.is_some() && next > char_budget {
+            break;
+        }
+        total = next;
+        oldest = Some(turn);
+    }
+    oldest.map(|turn| Carryover {
+        seeded_from_turn: turn.turn_id,
+        from_seq: turn.seq,
+    })
+}
+
+/// A deterministic `chars / 4` estimate of the prompt's token count over the buffer plus the inbound
+/// message — the compaction-trigger fallback when the backend reports no usage. Coarse and an
+/// under-count (it omits the frozen prefix); only the real client's `prompt_tokens` is authoritative.
+#[cfg(feature = "lua")]
+fn estimate_tokens(buffer: &[TurnView], inbound: &str) -> i64 {
+    let chars: usize = buffer
+        .iter()
+        .map(|turn| turn.text.chars().count())
+        .sum::<usize>()
+        + inbound.chars().count();
+    (chars / 4) as i64
 }
 
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
@@ -353,6 +476,22 @@ impl Control<'_> {
     /// The agent's current behavioral settings: the latest `ConfigSet` snapshot.
     pub fn settings(&self) -> Result<Settings, ServerError> {
         Ok(Settings::from_store(self.server.store.as_ref())?)
+    }
+
+    /// Replace the agent's behavioral settings, logged as an operator `ConfigSet` (source
+    /// `Debugger`) — the read-modify-write the configuration design calls for (spec §Initialization →
+    /// configuration). The new snapshot is the latest and takes effect on the next read; settings are
+    /// read from the log, so no projection is involved.
+    pub fn set_settings(&mut self, settings: Settings) -> Result<(), ServerError> {
+        let now = self.server.clock.now();
+        self.server.store.append(
+            now,
+            vec![EventPayload::ConfigSet {
+                settings,
+                source: EventSource::Debugger,
+            }],
+        )?;
+        Ok(())
     }
 
     /// The sessions of a conversation, addressed by its locator, oldest first — operator inspection
@@ -434,5 +573,55 @@ impl From<BriefError> for ServerError {
 impl From<TurnError> for ServerError {
     fn from(error: TurnError) -> Self {
         ServerError::Turn(error)
+    }
+}
+
+#[cfg(all(test, feature = "lua"))]
+mod tests {
+    use super::*;
+    use crate::ids::TurnId;
+
+    fn turn(seq: u64, text: &str) -> TurnView {
+        TurnView {
+            seq: Seq(seq),
+            turn_id: TurnId::generate(),
+            role: TurnRole::Participant,
+            text: text.to_owned(),
+            participant: None,
+        }
+    }
+
+    #[test]
+    fn carryover_tail_admits_the_newest_turns_that_fit_the_budget() {
+        // Texts of 4, 4, and 2 chars, newest last.
+        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
+        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, but not the next "aaaa" — extent is seq 2.
+        let carry = carryover_tail(&buffer, 6).expect("a non-empty buffer carries a tail");
+        assert_eq!(carry.from_seq, Seq(2));
+        assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
+    }
+
+    #[test]
+    fn carryover_tail_always_keeps_the_newest_turn_even_over_budget() {
+        let buffer = vec![
+            turn(1, "short"),
+            turn(2, "a long final turn that alone exceeds the budget"),
+        ];
+        // The immediate thread survives the seam: the newest turn is carried regardless.
+        let carry = carryover_tail(&buffer, 1).expect("the newest turn is always carried");
+        assert_eq!(carry.from_seq, Seq(2));
+        assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
+    }
+
+    #[test]
+    fn carryover_tail_of_an_empty_buffer_is_none() {
+        assert!(carryover_tail(&[], 100).is_none());
+    }
+
+    #[test]
+    fn estimate_tokens_counts_buffer_and_inbound() {
+        let buffer = vec![turn(1, "12345678")]; // 8 chars
+        // (8 + 4) / 4 = 3.
+        assert_eq!(estimate_tokens(&buffer, "1234"), 3);
     }
 }

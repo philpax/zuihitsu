@@ -31,7 +31,10 @@ use serde::Serialize;
 use crate::{
     config::{EmbeddingConfig, ModelConfig},
     embed::{Embedder, Embedding},
-    model::{Completion, GenerateRequest, ModelClient, ModelError, Role, ToolCall, ToolChoice},
+    model::{
+        Completion, GenerateRequest, GenerateResponse, ModelClient, ModelError, Role, ToolCall,
+        ToolChoice, Usage,
+    },
 };
 
 /// A generation client backed by an OpenAI-compatible `/chat/completions` endpoint. Holds the
@@ -93,20 +96,28 @@ impl ModelClient for OpenAiClient {
         &self.config.llm
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<Completion, ModelError> {
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
         let response: CreateChatCompletionResponse = self
             .client
             .chat()
             .create_byot(self.build_request(request)?)
             .await
             .map_err(backend)?;
+        // Read usage before `choices` is moved out: `prompt_tokens` covers the whole prompt — the
+        // frozen prefix plus the live buffer — which is what the compaction budget bounds.
+        let usage = Usage {
+            prompt_tokens: response.usage.as_ref().map(|usage| usage.prompt_tokens),
+        };
         let message = response
             .choices
             .into_iter()
             .next()
             .ok_or_else(|| ModelError::Backend("response contained no choices".to_owned()))?
             .message;
-        Ok(into_completion(message))
+        Ok(GenerateResponse {
+            completion: into_completion(message),
+            usage,
+        })
     }
 }
 

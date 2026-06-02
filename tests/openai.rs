@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use zuihitsu::{
-    Completion, Embedder, EnvConfig, GenerateRequest, Message, ModelClient, OpenAiClient,
-    OpenAiEmbedder, ToolChoice, ToolSpec,
+    Completion, Embedder, EnvConfig, GenerateRequest, GenerateResponse, Message, ModelClient,
+    OpenAiClient, OpenAiEmbedder, ToolChoice, ToolSpec,
 };
 
 fn configured_client() -> Option<OpenAiClient> {
@@ -46,7 +46,10 @@ async fn generates_a_reply() {
         thinking: None,
     };
     match client.generate(&request).await {
-        Ok(Completion::Reply(text)) => {
+        Ok(GenerateResponse {
+            completion: Completion::Reply(text),
+            ..
+        }) => {
             assert!(!text.trim().is_empty(), "reply should be non-empty")
         }
         Ok(other) => panic!("expected a reply, got {other:?}"),
@@ -81,7 +84,10 @@ async fn emits_a_run_lua_tool_call() {
         thinking: None,
     };
     match client.generate(&request).await {
-        Ok(Completion::ToolCalls(calls)) => {
+        Ok(GenerateResponse {
+            completion: Completion::ToolCalls(calls),
+            ..
+        }) => {
             assert_eq!(calls[0].name, "run_lua");
             let args: serde_json::Value =
                 serde_json::from_str(&calls[0].arguments).expect("tool arguments are JSON");

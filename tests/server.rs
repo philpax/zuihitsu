@@ -212,6 +212,80 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
     assert!(participants.contains(&erin));
 }
 
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
+    let (mut server, _clock) = born_agent();
+    // A tight token budget, so a single reported usage crosses it.
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    // Turn 1 reports usage over the budget; turn 2 is well under. Both arrive within the idle gap, so
+    // only the token trigger — not idle — can force a second session.
+    let model = ScriptedModel::with_usage([
+        (Completion::Reply("one".to_owned()), 200),
+        (Completion::Reply("two".to_owned()), 10),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .await
+        .unwrap();
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert_eq!(sessions.len(), 2);
+    // The first session opened fresh; the re-segmented one carries a tail and re-freezes a brief.
+    assert!(sessions[0].seeded_from_turn.is_none());
+    assert!(sessions[1].seeded_from_turn.is_some());
+    assert!(!sessions[1].brief.is_empty());
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
+    let (mut server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("first reply".to_owned()),
+        Completion::Reply("second reply".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hello there", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "and again", &["dave"])
+        .await
+        .unwrap();
+
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), 2);
+    // Turn 1's prompt is just the inbound message.
+    let turn1: Vec<&str> = seen[0]
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect();
+    assert_eq!(turn1, vec!["hello there"]);
+    // Turn 2 replays the live buffer — turn 1's participant and agent turns — then the new inbound.
+    let turn2: Vec<&str> = seen[1]
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect();
+    assert_eq!(turn2, vec!["hello there", "first reply", "and again"]);
+}
+
 /// End-to-end smoke against the configured model: route a real message through the whole pipeline —
 /// resolve, open a session and freeze its brief, run the loop, reply — and observe what the agent
 /// did. Ignored by default (needs a reachable endpoint from `config.toml`); the client has no request
