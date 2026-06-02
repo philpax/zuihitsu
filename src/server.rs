@@ -12,9 +12,9 @@
 use crate::{
     agent::{Turn, TurnError, TurnOutcome, run_turn},
     brief::{self, BriefError},
-    event::EventPayload,
+    event::{EventPayload, Initiation, TurnRole},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
-    ids::{ConversationId, MemoryId, SessionId},
+    ids::{ConversationId, MemoryId, SessionId, TurnId},
     lua::Session,
     model::ModelClient,
 };
@@ -245,6 +245,75 @@ impl Platform<'_> {
                 last_activity: now,
             },
         );
+        Ok(())
+    }
+
+    /// Note a participant arriving mid-session. If the room has a live session, this records a
+    /// `ParticipantJoined` and injects the joiner's brief — built against the now-present set, so the
+    /// subject-guard suppresses asides about them — as a `system` turn at the join point, rather than
+    /// rebuilding the frozen prompt (spec §Mid-conversation joins). A no-op if the room has never been
+    /// seen or has no live session; the next message then opens a session with the joiner present.
+    pub fn note_join(
+        &mut self,
+        locator: &ConversationLocator,
+        participant: &str,
+    ) -> Result<(), ServerError> {
+        let Some(conversation) = self.server.graph.conversation_for_locator(locator)? else {
+            return Ok(());
+        };
+        let Some(session) = self.server.sessions.get(&conversation).map(|open| open.id) else {
+            return Ok(());
+        };
+
+        let joiner = resolve_or_mint_participant(
+            self.server.store.as_mut(),
+            self.server.clock.as_ref(),
+            &self.server.graph,
+            locator.platform.as_str(),
+            participant,
+        )?;
+        self.server
+            .graph
+            .materialize_from(self.server.store.as_ref())?;
+
+        // The brief is filtered against the present set including the joiner, so the subject-guard
+        // fires for asides about them.
+        let mut present_set = self.server.graph.session_participants(session)?;
+        if !present_set.contains(&joiner) {
+            present_set.push(joiner);
+        }
+        let join_brief = brief::compose_participant(
+            &self.server.graph,
+            joiner,
+            &present_set,
+            &Settings::from_store(self.server.store.as_ref())?.brief,
+        )?;
+
+        let now = self.server.clock.now();
+        let turn_id = TurnId::generate();
+        self.server.store.append(
+            now,
+            vec![
+                EventPayload::ParticipantJoined {
+                    conversation,
+                    session,
+                    participant: joiner,
+                    at_turn: turn_id,
+                },
+                EventPayload::ConversationTurn {
+                    conversation,
+                    turn_id,
+                    role: TurnRole::System,
+                    text: join_brief,
+                    participant: Some(joiner),
+                    initiation: Initiation::Responding,
+                    produced_by: None,
+                },
+            ],
+        )?;
+        self.server
+            .graph
+            .materialize_from(self.server.store.as_ref())?;
         Ok(())
     }
 }

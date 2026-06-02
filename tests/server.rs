@@ -163,3 +163,39 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 2);
 }
+
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn note_join_records_the_arriving_participant_on_the_session() {
+    let (mut server, _clock) = born_agent();
+    let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // Open a session with Dave present.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    let dave = server
+        .control()
+        .memory("person/dave@discord")
+        .unwrap()
+        .unwrap()
+        .id;
+
+    // Erin joins mid-session: she is recorded on the session, alongside Dave.
+    server.platform().note_join(&leads, "erin").unwrap();
+    let erin = server
+        .control()
+        .memory("person/erin@discord")
+        .unwrap()
+        .unwrap()
+        .id;
+
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert_eq!(sessions.len(), 1);
+    let participants = &sessions[0].participants;
+    assert!(participants.contains(&dave));
+    assert!(participants.contains(&erin));
+}
