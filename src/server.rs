@@ -226,6 +226,15 @@ impl Platform<'_> {
             .prompt_tokens
             .map(i64::from)
             .unwrap_or_else(|| estimate_tokens(&buffer, text));
+        // `reported` distinguishes the authoritative real-usage path from the coarse estimate
+        // fallback: if the backend never reports `prompt_tokens`, the trigger is running on the
+        // (system-prefix-omitting) estimate, which is an operability signal worth seeing.
+        tracing::debug!(
+            observed,
+            token_budget,
+            reported = report.prompt_tokens.is_some(),
+            "compaction trigger check",
+        );
         if observed > token_budget {
             self.end_session_for_compaction(conversation, model).await?;
         }

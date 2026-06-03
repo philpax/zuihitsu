@@ -378,6 +378,33 @@ async fn a_low_activity_session_skips_the_flush() {
 
 #[cfg(feature = "lua")]
 #[tokio::test]
+async fn context_current_resolves_during_a_routed_turn() {
+    let (mut server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    // The agent appends to the current context. If context.current() returned nil in the routed path
+    // (as a real-model run's stray `Context: nil` print suggested), this would error on nil:append
+    // and commit nothing.
+    let model = ScriptedModel::new([
+        run_lua_call(r#"context.current():append("a note in the room", { by_agent = true })"#),
+        Completion::Reply("noted".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    // The context memory received the entry — context.current() resolved through route_message.
+    let entries = server.control().entries("context/discord:leads").unwrap();
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.text == "a note in the room"),
+        "context entries: {entries:?}"
+    );
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
 async fn the_working_set_carries_into_the_next_session_brief() {
     let (mut server, _clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
