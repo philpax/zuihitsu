@@ -23,6 +23,8 @@ pub mod ids;
 pub mod index;
 #[cfg(feature = "lua")]
 pub mod lua;
+#[cfg(feature = "sqlite")]
+pub mod memory_block;
 pub mod model;
 #[cfg(feature = "openai")]
 pub mod openai;
@@ -88,6 +90,7 @@ mod __sqlite {
         brief::{BriefError, compose, compose_participant},
         graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
         identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
+        memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError, VisibilityChoice},
         search::{SearchError, SearchHit, SearchQuery, search},
         server::{Control, Server, ServerError},
         store::SqliteStore,
