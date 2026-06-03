@@ -31,7 +31,7 @@ use crate::{
     store::{MemoryStore, Store, StoreError},
 };
 #[cfg(feature = "lua")]
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub struct Server {
     store: Box<dyn Store>,
@@ -431,11 +431,10 @@ impl Platform<'_> {
             }],
         )?;
 
-        // Re-read the buffer (now including any flush turn) for the carried tail, and the touched set
-        // (likewise including the flush's writes) for the working-set carryover.
+        // Re-read the buffer (now including any flush turn) for the carried tail, and assemble the
+        // working set (likewise after the flush, so its writes and active_in flags are included).
         let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
-        let working_set =
-            session_touched(self.server.store.as_ref(), conversation, open.start_seq)?;
+        let working_set = self.compaction_working_set(conversation, open.start_seq)?;
         if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
         {
             carry.working_set = working_set;
@@ -448,6 +447,33 @@ impl Platform<'_> {
             "token budget crossed; ended session for compaction",
         );
         Ok(())
+    }
+
+    /// The working set carried across a compaction seam (spec §Compaction → working-set carryover):
+    /// the context's `active_in`-flagged threads first — deliberate "keep this live" signals,
+    /// promoted to first-class survivors — then the touch-derived set, deduped. (The third source,
+    /// the brief's recent facts, the brief adds itself.) Read after the flush, which is what sets the
+    /// `active_in` flags and records the touches.
+    fn compaction_working_set(
+        &self,
+        conversation: ConversationId,
+        from_seq: Seq,
+    ) -> Result<Vec<MemoryId>, ServerError> {
+        let mut working_set = Vec::new();
+        let mut seen = BTreeSet::new();
+        if let Some(context) = self.server.graph.context_for_conversation(conversation)? {
+            for memory in self.server.graph.outgoing(context, "has_active")? {
+                if seen.insert(memory.id) {
+                    working_set.push(memory.id);
+                }
+            }
+        }
+        for id in session_touched(self.server.store.as_ref(), conversation, from_seq)? {
+            if seen.insert(id) {
+                working_set.push(id);
+            }
+        }
+        Ok(working_set)
     }
 }
 

@@ -9,9 +9,9 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    BlockOutcome, Clock, ConversationLocator, Graph, ManualClock, MemoryId, MemoryName,
-    MemoryStore, Seq, Session, Store, Teller, TerminalCause, Timestamp, TurnId, Visibility,
-    event::EventPayload, resolve_or_mint_conversation,
+    BlockOutcome, Cardinality, Clock, ConversationLocator, Graph, ManualClock, MemoryId,
+    MemoryName, MemoryStore, RelationName, Seq, Session, Store, Teller, TerminalCause, Timestamp,
+    TurnId, Visibility, event::EventPayload, resolve_or_mint_conversation,
 };
 
 #[test]
@@ -126,6 +126,94 @@ fn append_carries_teller_context_and_default_visibility() {
     let context_entries = graph.entries_local(context).unwrap();
     assert_eq!(context_entries.len(), 1);
     assert_eq!(context_entries[0].text, "kept in confidence");
+}
+
+#[test]
+fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
+    let mut store = MemoryStore::new();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut graph = Graph::open_in_memory().unwrap();
+
+    // A room (with its context memory), the active_in relation, and a thread memory.
+    let conversation = resolve_or_mint_conversation(
+        &mut store,
+        &clock,
+        &graph,
+        &ConversationLocator::new("discord", "leads"),
+    )
+    .unwrap();
+    let roadmap = MemoryId::generate();
+    store
+        .append(
+            clock.now(),
+            vec![
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::new("active_in"),
+                    inverse: RelationName::new("has_active"),
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: false,
+                    reflexive: false,
+                },
+                EventPayload::MemoryCreated {
+                    id: roadmap,
+                    name: MemoryName::new("topic/roadmap"),
+                },
+            ],
+        )
+        .unwrap();
+    graph.materialize_from(&store).unwrap();
+    let context = graph
+        .context_for_conversation(conversation)
+        .unwrap()
+        .unwrap();
+    let session = Session::new(conversation);
+
+    // The agent flags the thread active_in the current context.
+    let outcome = session
+        .execute(
+            &mut store,
+            &mut graph,
+            &clock,
+            Teller::Agent,
+            TurnId::generate(),
+            r#"memory.get("topic/roadmap"):link("active_in", context.current())"#,
+        )
+        .unwrap();
+    assert!(matches!(outcome, BlockOutcome::Committed { .. }));
+    // Read back through the has_active inverse: the context now carries the thread.
+    let active = graph.outgoing(context, "has_active").unwrap();
+    assert!(active.iter().any(|memory| memory.id == roadmap));
+
+    // Unlinking clears it.
+    session
+        .execute(
+            &mut store,
+            &mut graph,
+            &clock,
+            Teller::Agent,
+            TurnId::generate(),
+            r#"memory.get("topic/roadmap"):unlink("active_in", context.current())"#,
+        )
+        .unwrap();
+    assert!(graph.outgoing(context, "has_active").unwrap().is_empty());
+}
+
+#[test]
+fn link_with_an_unregistered_relation_is_a_teachable_error() {
+    let mut h = Harness::new();
+    h.run(r#"memory.create("topic/a")"#);
+    // No such relation is registered: the block fails with a teachable error and commits nothing.
+    let outcome = h.run(r#"memory.get("topic/a"):link("bogus_rel", memory.get("topic/a"))"#);
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("unknown relation"),
+                "message was: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
 }
 
 #[test]

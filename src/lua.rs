@@ -20,9 +20,9 @@ use ulid::Ulid;
 use crate::{
     api_doc::{ApiEntry, ApiType, enum_of, object},
     clock::Clock,
-    event::{EventPayload, Teller, TerminalCause, Visibility},
+    event::{EventPayload, LinkSource, Teller, TerminalCause, Visibility},
     graph::{Graph, GraphError},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, TurnId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TurnId},
     store::{Store, StoreError},
     visibility::default_visibility_named,
 };
@@ -170,6 +170,26 @@ impl Session {
                     }
                     lua.create_sequence_from(texts)
                 })?,
+            )?;
+
+            // mem:link(relation, other) — link this memory to `other` under a registered relation
+            // (e.g. flag a still-open thread `active_in` the current context so the compaction
+            // working-set carries it). mem:unlink(relation, other) removes such a link.
+            methods.set(
+                "link",
+                scope.create_function(
+                    |_, (this, relation, other): (Table, String, Table)| {
+                        buffer_link(block_ref, graph_ref, &this, &relation, &other, true)
+                    },
+                )?,
+            )?;
+            methods.set(
+                "unlink",
+                scope.create_function(
+                    |_, (this, relation, other): (Table, String, Table)| {
+                        buffer_link(block_ref, graph_ref, &this, &relation, &other, false)
+                    },
+                )?,
             )?;
 
             // memory.create(name[, content]) — create a memory and optionally its first entry.
@@ -386,6 +406,26 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description("The memory's content entries as text, across its whole merged identity.")
         .returns(AT::String.list());
 
+    let link = AE::new("mem:link")
+        .description(
+            "Link this memory to another under a registered relation. Use it to flag a still-open \
+             thread active_in the current context, so it carries into the next session across a \
+             compaction.",
+        )
+        .required("relation", AT::String, "the relation, e.g. \"active_in\"")
+        .required(
+            "other",
+            AT::Handle,
+            "the memory to link to, e.g. context.current()",
+        );
+
+    let unlink = AE::new("mem:unlink")
+        .description(
+            "Remove a link made with mem:link, e.g. clear active_in on a thread that has closed.",
+        )
+        .required("relation", AT::String, "the relation")
+        .required("other", AT::Handle, "the memory the link points to");
+
     let context = AE::new("context.current")
         .description(
             "The context/* memory for the current conversation. Check its #confidential tag to \
@@ -397,7 +437,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description("Discard everything this block buffered and end it, recording the reason.")
         .optional("reason", AT::String, "why the block was abandoned");
 
-    vec![create, get, append, entries, context, abort]
+    vec![create, get, append, entries, link, unlink, context, abort]
 }
 
 /// Render [`api_reference`] as the system prompt's API-description block.
@@ -526,6 +566,42 @@ fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
 
 fn to_lua_err(error: GraphError) -> mlua::Error {
     mlua::Error::RuntimeError(error.to_string())
+}
+
+/// Buffer a link create or remove between two memory handles under `relation`. Enforces that the
+/// relation is registered — the graph stores an unregistered relation as given, so the Lua layer is
+/// where that contract is checked (see [`Graph::canonical_edge`]) — and touches both endpoints so a
+/// flagged thread enters the compaction working-set. `create` chooses `LinkCreated` vs `LinkRemoved`.
+fn buffer_link(
+    block: &RefCell<BlockState>,
+    graph: &Graph,
+    this: &Table,
+    relation: &str,
+    other: &Table,
+    create: bool,
+) -> mlua::Result<()> {
+    let from = handle_id(this)?;
+    let to = handle_id(other)?;
+    if graph.relation(relation).map_err(to_lua_err)?.is_none() {
+        return Err(mlua::Error::RuntimeError(format!(
+            "unknown relation {relation:?}; it must be a registered link type"
+        )));
+    }
+    let relation = RelationName::new(relation);
+    let mut state = block.borrow_mut();
+    state.touched.insert(from);
+    state.touched.insert(to);
+    state.buffer.push(if create {
+        EventPayload::LinkCreated {
+            from,
+            to,
+            relation,
+            source: LinkSource::Agent,
+        }
+    } else {
+        EventPayload::LinkRemoved { from, to, relation }
+    });
+    Ok(())
 }
 
 /// Render a script's final value to the text the agent sees back (REPL-style).

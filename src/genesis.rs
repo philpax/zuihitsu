@@ -236,9 +236,11 @@ fn default_templates() -> Vec<TemplateDef> {
                    run_lua tool — anything from it worth keeping that you have not already recorded: \
                    facts you learned, decisions made, and commitments given. Record your own \
                    observations and inferences under the `agent` teller. Keep confidences \
-                   compartmentalized exactly as in an ordinary turn. Nothing you leave only in the \
-                   transcript survives, so be deliberate; when you have flushed what matters, reply \
-                   briefly to confirm.",
+                   compartmentalized exactly as in an ordinary turn. For threads still open, link \
+                   the relevant memories `active_in` the current context, and clear `active_in` on \
+                   threads that have closed, so the next session resurfaces what is still live. \
+                   Nothing you leave only in the transcript survives, so be deliberate; when you \
+                   have flushed what matters, reply briefly to confirm.",
         },
     ]
 }

@@ -417,6 +417,61 @@ async fn the_working_set_carries_into_the_next_session_brief() {
     assert!(brief.contains("topic/roadmap"), "brief was: {brief}");
 }
 
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
+    let (mut server, clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::with_usage([
+        // Session 1: flag a thread active_in the room (an ordinary turn, under budget).
+        (
+            run_lua_call(
+                r#"local t = memory.create("topic/migration", "Plan the DB migration"); t:link("active_in", context.current())"#,
+            ),
+            10,
+        ),
+        (Completion::Reply("flagged".to_owned()), 0),
+        (describe_call("The DB migration plan."), 0),
+        // Session 2 (after an idle reopen) crosses the budget without touching the migration thread.
+        (Completion::Reply("on something else".to_owned()), 200),
+        // Session 3 opens with the carryover; its frozen brief is what we inspect.
+        (Completion::Reply("back".to_owned()), 0),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .await
+        .unwrap();
+    // An idle gap reopens a fresh session 2 (no carryover, and it will not touch the thread).
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "unrelated chatter", &["dave"])
+        .await
+        .unwrap();
+    // Session 3 opens from the compaction.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .await
+        .unwrap();
+
+    // Session 2 never touched the migration thread, yet it carries into session 3's brief — proving
+    // active_in is a distinct, persistent working-set source, not just an alias for touch-derivation.
+    let sessions = server.control().sessions(&leads).unwrap();
+    let latest = sessions.last().unwrap();
+    assert!(
+        latest.brief.contains("topic/migration"),
+        "brief was: {}",
+        latest.brief
+    );
+}
+
 /// End-to-end smoke against the configured model: route a real message through the whole pipeline —
 /// resolve, open a session and freeze its brief, run the loop, reply — and observe what the agent
 /// did. Ignored by default (needs a reachable endpoint from `config.toml`); the client has no request
