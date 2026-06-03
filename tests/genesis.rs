@@ -45,12 +45,12 @@ fn rollout_creates_a_complete_agent() {
         .any(|e| matches!(&e.payload, EventPayload::MemoryContentAppended { .. }));
     assert!(seed_entry);
 
-    // The three templates and the same_as seed relation are registered.
+    // The four templates and the same_as seed relation are registered.
     let templates = events
         .iter()
         .filter(|e| matches!(e.payload, EventPayload::PromptTemplateRegistered { .. }))
         .count();
-    assert_eq!(templates, 3);
+    assert_eq!(templates, 4);
     let same_as = events.iter().any(|e| {
         matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. } if name.as_str() == "same_as")
     });

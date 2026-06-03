@@ -228,6 +228,18 @@ fn default_templates() -> Vec<TemplateDef> {
             version: 1,
             body: "<draft temporal-extraction template>",
         },
+        TemplateDef {
+            name: PromptTemplateName::Flush,
+            version: 1,
+            body: "This conversation session is ending and its live transcript is about to scroll \
+                   out of view. Before it does, write to memory — by emitting Lua through the \
+                   run_lua tool — anything from it worth keeping that you have not already recorded: \
+                   facts you learned, decisions made, and commitments given. Record your own \
+                   observations and inferences under the `agent` teller. Keep confidences \
+                   compartmentalized exactly as in an ordinary turn. Nothing you leave only in the \
+                   transcript survives, so be deliberate; when you have flushed what matters, reply \
+                   briefly to confirm.",
+        },
     ]
 }
 

@@ -148,6 +148,8 @@ pub enum PromptTemplateName {
     DescriptionRegen,
     /// Extracts temporal references from text.
     TemporalExtraction,
+    /// Frames the pre-compaction flush turn: write durable working state to memory before the cut.
+    Flush,
 }
 
 impl PromptTemplateName {
@@ -156,6 +158,7 @@ impl PromptTemplateName {
             PromptTemplateName::Scaffold => "scaffold",
             PromptTemplateName::DescriptionRegen => "description-regen",
             PromptTemplateName::TemporalExtraction => "temporal-extraction",
+            PromptTemplateName::Flush => "flush",
         }
     }
 }

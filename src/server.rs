@@ -10,7 +10,7 @@
 
 #[cfg(feature = "lua")]
 use crate::{
-    agent::{Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_turn},
+    agent::{Flush, Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_flush, run_turn},
     brief::{self, BriefError},
     event::{Initiation, TurnRole},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
@@ -220,7 +220,7 @@ impl Platform<'_> {
             .map(i64::from)
             .unwrap_or_else(|| estimate_tokens(&buffer, text));
         if observed > token_budget {
-            self.end_session_for_compaction(conversation)?;
+            self.end_session_for_compaction(conversation, model).await?;
         }
         Ok(report.outcome)
     }
@@ -368,20 +368,44 @@ impl Platform<'_> {
         Ok(())
     }
 
-    /// End the live session because the buffer crossed the token budget, staging a raw-transcript
-    /// carryover for the next message to re-segment from (spec §Compaction). Stage 1 carries the
-    /// verbatim tail only; the pre-compaction flush and working-set carryover land in later stages.
-    fn end_session_for_compaction(
+    /// End the live session because the buffer crossed the token budget, running the budget-gated
+    /// pre-compaction flush and staging a raw-transcript carryover for the next message to re-segment
+    /// from (spec §Compaction). The working-set carryover lands in a later stage.
+    async fn end_session_for_compaction(
         &mut self,
         conversation: ConversationId,
+        model: &dyn ModelClient,
     ) -> Result<(), ServerError> {
-        let now = self.server.clock.now();
         let Some(open) = self.server.sessions.remove(&conversation) else {
             return Ok(());
         };
-        // Read the buffer including the turn that just crossed the budget — the carried tail is the
-        // most recent turns, which are precisely the ones this turn appended.
+        let settings = Settings::from_store(self.server.store.as_ref())?;
+        // The buffer includes the turn that just crossed the budget; it is both the flush's context
+        // and the source of the carried tail.
         let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
+
+        // Budget-gated pre-compaction flush: a substantive session gets one turn to write durable
+        // working state to memory before the cut; a low-activity one (below the turn threshold) is
+        // skipped, so the hot-path model call is paid only when there is something to flush.
+        let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
+        if flushed {
+            run_flush(Flush {
+                session: &open.vm,
+                model,
+                store: self.server.store.as_mut(),
+                graph: &mut self.server.graph,
+                clock: self.server.clock.as_ref(),
+                brief: &open.brief,
+                buffer: &buffer,
+                max_steps: settings.turn.max_steps as usize,
+            })
+            .await?;
+            self.server
+                .graph
+                .materialize_from(self.server.store.as_ref())?;
+        }
+
+        let now = self.server.clock.now();
         self.server.store.append(
             now,
             vec![EventPayload::SessionEnded {
@@ -390,15 +414,15 @@ impl Platform<'_> {
             }],
         )?;
 
-        let carryover_char_budget = Settings::from_store(self.server.store.as_ref())?
-            .compaction
-            .carryover_char_budget;
-        if let Some(carry) = carryover_tail(&buffer, carryover_char_budget) {
+        // Re-read the buffer (now including any flush turn) for the carried tail.
+        let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
+        if let Some(carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget) {
             self.server.pending_carryover.insert(conversation, carry);
         }
         tracing::info!(
             ?conversation,
             session = ?open.id,
+            flushed,
             "token budget crossed; ended session for compaction",
         );
         Ok(())

@@ -43,6 +43,11 @@ pub struct CompactionSettings {
     pub idle_gap_seconds: i64,
     /// How much raw transcript crosses a compaction boundary.
     pub carryover_char_budget: i64,
+    /// Minimum number of turns in the ending session for the pre-compaction flush to run — the
+    /// flush-gating threshold. A low-activity session (e.g. one that crossed the budget via a single
+    /// large paste) falls below it and skips the flush, so the hot-path model call is paid only when
+    /// there is working state worth flushing (spec §Compaction → pre-compaction flush).
+    pub flush_min_turns: i64,
 }
 
 /// Brief composition: what enters each brief, and how many participants get one.
@@ -98,6 +103,7 @@ impl Default for CompactionSettings {
             token_budget: 24_000,
             idle_gap_seconds: 1_800,
             carryover_char_budget: 4_000,
+            flush_min_turns: 4,
         }
     }
 }

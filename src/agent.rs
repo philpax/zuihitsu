@@ -144,6 +144,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             role: TurnRole::Participant,
             text: inbound.to_owned(),
             participant: Some(inbound_participant),
+            initiation: Initiation::Responding,
             produced_by: None,
         },
     )?;
@@ -178,12 +179,127 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         template_version: version,
     });
 
-    // The agent's whole response cycle shares one turn id; its blocks stamp their events with it.
+    // The agent's whole response cycle shares one turn id; its blocks stamp their events with it. The
+    // live buffer is replayed as the prompt suffix, then the current inbound message.
     let turn_id = TurnId::generate();
-    let tools = vec![run_lua_tool()];
-    // Replay the live buffer as the prompt suffix: prior turns mapped to their chat roles, then the
-    // current inbound. Empty (silent) agent turns inject nothing. The frozen brief stays in the
-    // system prefix only — the buffer never perturbs it (prefix-cache stability, spec §System prompt).
+    let mut messages = buffer_messages(buffer);
+    messages.push(Message::user(inbound));
+
+    let (outcome, peak_prompt_tokens) = run_steps(Steps {
+        session,
+        model,
+        store: &mut *store,
+        graph: &mut *graph,
+        clock,
+        system: &system,
+        teller,
+        turn_id,
+        messages,
+        initiation: Initiation::Responding,
+        provenance: agent_provenance,
+        max_steps,
+    })
+    .await?;
+
+    // Write path: coalesce the memories the turn wrote and regenerate each one's description from
+    // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
+    // conversational outcome.
+    let written = collect_written_memories(store, cycle_start)?;
+    regenerate_descriptions(model, store, graph, clock, &written).await?;
+
+    Ok(TurnReport {
+        outcome,
+        prompt_tokens: peak_prompt_tokens,
+    })
+}
+
+/// Everything the pre-compaction flush turn needs (spec §Compaction → pre-compaction flush). Like
+/// [`Turn`], but there is no inbound participant message — the flush acts on the session `buffer`
+/// alone, framed by the `Flush` template — and its writes are the agent's own (teller `Agent`).
+pub(crate) struct Flush<'a> {
+    pub session: &'a Session,
+    pub model: &'a dyn ModelClient,
+    pub store: &'a mut dyn Store,
+    pub graph: &'a mut Graph,
+    pub clock: &'a dyn Clock,
+    pub brief: &'a str,
+    pub buffer: &'a [TurnView],
+    pub max_steps: usize,
+}
+
+/// Run the budget-gated pre-compaction flush: one agent turn, framed by the `Flush` template, whose
+/// job is to write durable working state to memory before the session is cut (spec §Compaction). It
+/// sees the full session buffer, acts unprompted (`Initiation::Initiated`), and attributes its writes
+/// to the agent. An ordinary `ConversationTurn` + `LuaExecuted`, fully logged and replay-trivial. A
+/// no-op if no `Flush` template is registered (an agent born before the template shipped).
+pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
+    let Flush {
+        session,
+        model,
+        store,
+        graph,
+        clock,
+        brief,
+        buffer,
+        max_steps,
+    } = flush;
+    let Some(template) = templates::latest_template(store, PromptTemplateName::Flush)? else {
+        return Ok(());
+    };
+
+    let identity = match graph.memory_by_name("self")? {
+        Some(self_memory) => graph.entries_local(self_memory.id)?,
+        None => Vec::new(),
+    };
+    let api_reference = lua::render_api_reference();
+    let system = system_prompt::assemble(
+        &template.body,
+        &identity,
+        &api_reference,
+        brief,
+        clock.now(),
+    );
+    let provenance = Some(ProducedBy {
+        model_id: model.model_id().into(),
+        template_name: PromptTemplateName::Flush,
+        template_version: template.version,
+    });
+
+    let turn_id = TurnId::generate();
+    let cycle_start = store.head()?;
+    // The buffer is the flush's whole context; a final user nudge gives the model a turn to respond
+    // to (the transcript may end on an assistant turn) and states the flush's standing instruction.
+    let mut messages = buffer_messages(buffer);
+    messages.push(Message::user(
+        "The session is ending — record anything from it worth keeping that you have not already.",
+    ));
+
+    run_steps(Steps {
+        session,
+        model,
+        store: &mut *store,
+        graph: &mut *graph,
+        clock,
+        system: &system,
+        // The flush's writes are the agent's own synthesis, not attributed to any participant.
+        teller: Teller::Agent,
+        turn_id,
+        messages,
+        initiation: Initiation::Initiated,
+        provenance,
+        max_steps,
+    })
+    .await?;
+
+    let written = collect_written_memories(store, cycle_start)?;
+    regenerate_descriptions(model, store, graph, clock, &written).await?;
+    Ok(())
+}
+
+/// Replay the live buffer as chat messages: prior turns mapped to their roles (participant→user,
+/// agent→assistant, system→system), skipping empty agent turns (silent terminals). The frozen brief
+/// stays in the system prefix only — the buffer never perturbs it (prefix-cache stability).
+fn buffer_messages(buffer: &[TurnView]) -> Vec<Message> {
     let mut messages: Vec<Message> = Vec::with_capacity(buffer.len() + 1);
     for buffered in buffer {
         match buffered.role {
@@ -193,15 +309,69 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             TurnRole::System => messages.push(Message::system(buffered.text.clone())),
         }
     }
-    messages.push(Message::user(inbound));
+    messages
+}
 
-    // The peak prompt size the turn reached, folded across steps: the buffer grows as tool results
-    // accumulate mid-loop, so the largest step — not the last — is what the compaction budget bounds.
+/// The shared step loop a participant turn and a pre-compaction flush both run: generate, execute
+/// `run_lua` blocks, feed their results back, until a terminal or `max_steps`. Records exactly one
+/// agent `ConversationTurn` (however it ends) carrying `initiation` and `provenance`, and returns the
+/// outcome with the peak prompt-token count observed (the largest the buffer reached mid-loop, which
+/// the compaction budget bounds).
+struct Steps<'a> {
+    session: &'a Session,
+    model: &'a dyn ModelClient,
+    store: &'a mut dyn Store,
+    graph: &'a mut Graph,
+    clock: &'a dyn Clock,
+    system: &'a str,
+    teller: Teller,
+    turn_id: TurnId,
+    messages: Vec<Message>,
+    initiation: Initiation,
+    provenance: Option<ProducedBy>,
+    max_steps: usize,
+}
+
+async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnError> {
+    let Steps {
+        session,
+        model,
+        store,
+        graph,
+        clock,
+        system,
+        teller,
+        turn_id,
+        mut messages,
+        initiation,
+        provenance,
+        max_steps,
+    } = steps;
+    let conversation = session.conversation();
+    let tools = vec![run_lua_tool()];
+
+    let record_agent_turn =
+        |store: &mut dyn Store, clock: &dyn Clock, text: String| -> Result<(), TurnError> {
+            append_turn(
+                store,
+                clock,
+                TurnRecord {
+                    conversation,
+                    turn_id,
+                    role: TurnRole::Agent,
+                    text,
+                    participant: None,
+                    initiation,
+                    produced_by: provenance.clone(),
+                },
+            )
+        };
+
     let mut peak_prompt_tokens: Option<u32> = None;
     let outcome = 'cycle: {
         for _ in 0..max_steps {
             let request = GenerateRequest {
-                system: system.clone(),
+                system: system.to_owned(),
                 messages: messages.clone(),
                 tools: tools.clone(),
                 // The loop lets the model choose between calling run_lua and replying.
@@ -220,63 +390,21 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
                     }
                 }
                 Completion::Reply(text) => {
-                    append_turn(
-                        store,
-                        clock,
-                        TurnRecord {
-                            conversation,
-                            turn_id,
-                            role: TurnRole::Agent,
-                            text: text.clone(),
-                            participant: None,
-                            produced_by: agent_provenance.clone(),
-                        },
-                    )?;
+                    record_agent_turn(store, clock, text.clone())?;
                     break 'cycle TurnOutcome::Reply(text);
                 }
                 Completion::Silent => {
-                    append_turn(
-                        store,
-                        clock,
-                        TurnRecord {
-                            conversation,
-                            turn_id,
-                            role: TurnRole::Agent,
-                            text: String::new(),
-                            participant: None,
-                            produced_by: agent_provenance.clone(),
-                        },
-                    )?;
+                    record_agent_turn(store, clock, String::new())?;
                     break 'cycle TurnOutcome::Silent;
                 }
             }
         }
         let surfaced = format!("max steps ({max_steps}) reached without a reply");
-        append_turn(
-            store,
-            clock,
-            TurnRecord {
-                conversation,
-                turn_id,
-                role: TurnRole::Agent,
-                text: surfaced,
-                participant: None,
-                produced_by: agent_provenance.clone(),
-            },
-        )?;
+        record_agent_turn(store, clock, surfaced)?;
         TurnOutcome::MaxStepsExceeded
     };
 
-    // Write path: coalesce the memories the turn wrote and regenerate each one's description from
-    // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
-    // conversational outcome.
-    let written = collect_written_memories(store, cycle_start)?;
-    regenerate_descriptions(model, store, graph, clock, &written).await?;
-
-    Ok(TurnReport {
-        outcome,
-        prompt_tokens: peak_prompt_tokens,
-    })
+    Ok((outcome, peak_prompt_tokens))
 }
 
 /// The distinct memories that gained content (a create or an append) since `cycle_start`, in first-
@@ -520,6 +648,9 @@ struct TurnRecord {
     text: String,
     /// The speaker of an inbound message; `None` for the agent's own and system turns.
     participant: Option<MemoryId>,
+    /// Whether the turn responds to a message or is the agent acting unprompted (the pre-compaction
+    /// flush is `Initiated`; ordinary participant and agent turns are `Responding`).
+    initiation: Initiation,
     produced_by: Option<ProducedBy>,
 }
 
@@ -536,7 +667,7 @@ fn append_turn(
             role: record.role,
             text: record.text,
             participant: record.participant,
-            initiation: Initiation::Responding,
+            initiation: record.initiation,
             produced_by: record.produced_by,
         }],
     )?;

@@ -4,7 +4,9 @@
 #![cfg(feature = "sqlite")]
 
 #[cfg(feature = "lua")]
-use zuihitsu::{Completion, ConversationLocator, MemoryStore, ScriptedModel, TurnOutcome};
+use zuihitsu::{
+    Completion, ConversationLocator, MemoryStore, ScriptedModel, ToolCall, TurnOutcome,
+};
 #[cfg(all(feature = "lua", feature = "openai"))]
 use zuihitsu::{EnvConfig, OpenAiClient};
 use zuihitsu::{
@@ -284,6 +286,94 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
         .map(|message| message.content.as_str())
         .collect();
     assert_eq!(turn2, vec!["hello there", "first reply", "and again"]);
+}
+
+#[cfg(feature = "lua")]
+fn run_lua_call(script: &str) -> Completion {
+    Completion::ToolCalls(vec![ToolCall {
+        id: "lua".to_owned(),
+        name: "run_lua".to_owned(),
+        arguments: serde_json::json!({ "script": script }).to_string(),
+    }])
+}
+
+#[cfg(feature = "lua")]
+fn describe_call(description: &str) -> Completion {
+    Completion::ToolCalls(vec![ToolCall {
+        id: "describe".to_owned(),
+        name: "describe".to_owned(),
+        arguments: serde_json::json!({ "description": description }).to_string(),
+    }])
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn a_substantive_session_flushes_to_memory_before_the_cut() {
+    let (mut server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    // The default flush gate is four turns; the two exchanges below reach it.
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::with_usage([
+        // Two ordinary exchanges build the session to four turns; the second crosses the budget.
+        (Completion::Reply("ok one".to_owned()), 10),
+        (Completion::Reply("ok two".to_owned()), 200),
+        // The pre-compaction flush writes durable state, then confirms.
+        (
+            run_lua_call(r#"memory.create("topic/plan", "Decided to ship on Friday")"#),
+            0,
+        ),
+        (Completion::Reply("flushed".to_owned()), 0),
+        // Genesis registered the description-regen template, so the flushed memory is regenerated.
+        (describe_call("The team's plan to ship on Friday."), 0),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "any updates", &["dave"])
+        .await
+        .unwrap();
+
+    // Only the flush calls run_lua here, so the memory's presence is the flush's signature — it ran
+    // on the hot path and wrote the working state to memory, with its description regenerated.
+    let plan = server.control().memory("topic/plan").unwrap();
+    assert!(plan.is_some());
+    assert_eq!(
+        plan.unwrap().description,
+        "The team's plan to ship on Friday."
+    );
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn a_low_activity_session_skips_the_flush() {
+    let (mut server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    // A single exchange (two turns) crosses the budget — below the four-turn gate. Only the turn's
+    // own response is scripted: were the flush to run, it would call the model again and exhaust the
+    // queue, erroring. The route succeeding is what proves the flush was skipped.
+    let model =
+        ScriptedModel::with_usage([(Completion::Reply("a giant paste, noted".to_owned()), 500)]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "<a huge paste>", &["dave"])
+        .await
+        .unwrap();
+
+    // The session ended (a re-segment is staged) without a flush turn having run.
+    assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 }
 
 /// End-to-end smoke against the configured model: route a real message through the whole pipeline —
