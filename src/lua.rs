@@ -22,7 +22,7 @@ use crate::{
     clock::Clock,
     event::{EventPayload, LinkSource, Teller, TerminalCause, Visibility},
     graph::{Graph, GraphError},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TurnId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName, TurnId},
     store::{Store, StoreError},
     visibility::default_visibility_named,
 };
@@ -72,6 +72,15 @@ impl Session {
         // context memory, unless an append opts out (see `mem:append`). Resolved once per block.
         let teller = &teller;
         let told_in = graph.context_for_conversation(self.conversation)?;
+        // Content told in a `#confidential` room defaults to private regardless of namespace or
+        // teller — the tag protects the write, not just the surfacing (spec §Visibility). An explicit
+        // `visibility = "public"` still wins; this only firms up the default.
+        let confidential_context = match told_in {
+            Some(context_id) => graph
+                .memory_by_id(context_id)?
+                .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
+            None => false,
+        };
 
         // The handle metatable and its methods table are referenced by the scoped functions, so
         // they must outlive the scope — build them here, in the enclosing environment.
@@ -113,6 +122,7 @@ impl Session {
                                     "unknown visibility {other:?}; expected \"public\" or \"private\""
                                 )));
                             }
+                            None if confidential_context => Visibility::PrivateToTeller,
                             None => match resolve_memory_name(block_ref, graph_ref, id)
                                 .map_err(to_lua_err)?
                             {
@@ -206,7 +216,11 @@ impl Session {
                     // A first entry is told like any append: by the turn's teller, in the current
                     // context, at the write-time default visibility for the new memory.
                     if let Some(text) = content {
-                        let visibility = default_visibility_named(&name, id, teller);
+                        let visibility = if confidential_context {
+                            Visibility::PrivateToTeller
+                        } else {
+                            default_visibility_named(&name, id, teller)
+                        };
                         state.buffer.push(EventPayload::MemoryContentAppended {
                             id,
                             entry_id: EntryId::generate(),
@@ -367,15 +381,15 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .required(
             "name",
             AT::String,
-            "the namespaced handle, e.g. \"person/dave\" or \"topic/climbing\"",
+            "the namespaced handle, e.g. \"person/<name>\" or \"topic/<subject>\"",
         )
         .optional("content", AT::String, "an optional first content entry")
         .returns(AT::Handle);
 
     let get = AE::new("memory.get")
         .description(
-            "Fetch a memory by name. Read a merged identity through its canonical handle \
-             (person/phil), not a per-platform stub.",
+            "Fetch a memory by name. Read a merged identity through its canonical person/ handle, \
+             not a per-platform stub.",
         )
         .required("name", AT::String, "the memory's handle")
         .returns(AT::Handle.optional());

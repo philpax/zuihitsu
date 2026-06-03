@@ -574,7 +574,7 @@ async fn real_model_flushes_across_a_compaction() {
     // A budget low enough that a couple of turns re-segment, and a flush gate of two so even a short
     // session flushes. (Starting points — tune against the deployed model when running this.)
     let mut settings = server.control().settings().unwrap();
-    settings.compaction.token_budget = 2_000;
+    settings.compaction.token_budget = 1_500;
     settings.compaction.flush_min_turns = 2;
     server.control().set_settings(settings).unwrap();
 

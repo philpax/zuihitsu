@@ -10,8 +10,8 @@ mod common;
 use common::Harness;
 use zuihitsu::{
     BlockOutcome, Cardinality, Clock, ConversationLocator, Graph, ManualClock, MemoryId,
-    MemoryName, MemoryStore, RelationName, Seq, Session, Store, Teller, TerminalCause, Timestamp,
-    TurnId, Visibility, event::EventPayload, resolve_or_mint_conversation,
+    MemoryName, MemoryStore, RelationName, Seq, Session, Store, TagName, Teller, TerminalCause,
+    Timestamp, TurnId, Visibility, event::EventPayload, resolve_or_mint_conversation,
 };
 
 #[test]
@@ -197,6 +197,63 @@ fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         )
         .unwrap();
     assert!(graph.outgoing(context, "has_active").unwrap().is_empty());
+}
+
+#[test]
+fn a_write_in_a_confidential_room_defaults_private() {
+    let mut store = MemoryStore::new();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut graph = Graph::open_in_memory().unwrap();
+
+    let conversation = resolve_or_mint_conversation(
+        &mut store,
+        &clock,
+        &graph,
+        &ConversationLocator::new("discord", "leads"),
+    )
+    .unwrap();
+    graph.materialize_from(&store).unwrap();
+    let context = graph
+        .context_for_conversation(conversation)
+        .unwrap()
+        .unwrap();
+    // Mark the room #confidential.
+    store
+        .append(
+            clock.now(),
+            vec![
+                EventPayload::TagCreated {
+                    name: TagName::new("confidential"),
+                    description: "a confidential room".to_owned(),
+                },
+                EventPayload::TagAppliedToMemory {
+                    memory: context,
+                    tag: TagName::new("confidential"),
+                },
+            ],
+        )
+        .unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    // The agent records a topic in the confidential room. A topic write would normally default
+    // public, and the agent teller is always present — but the confidential room forces it private,
+    // so it cannot silently surface to whoever is around.
+    let session = Session::new(conversation);
+    session
+        .execute(
+            &mut store,
+            &mut graph,
+            &clock,
+            Teller::Agent,
+            TurnId::generate(),
+            r#"memory.create("topic/sensitive", "something said in confidence")"#,
+        )
+        .unwrap();
+
+    let topic = graph.memory_by_name("topic/sensitive").unwrap().unwrap();
+    let entries = graph.entries_local(topic.id).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].visibility, Visibility::PrivateToTeller);
 }
 
 #[test]

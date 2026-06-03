@@ -208,11 +208,15 @@ fn default_templates() -> Vec<TemplateDef> {
                    not all see the same things.\n\n\
                    Memories are namespaced by kind: person/ for people, place/ for places, topic/ \
                    for subjects, context/ for conversations, and self for you. Read a merged \
-                   identity through its canonical handle (person/phil, not a per-platform stub) so \
+                   identity through its canonical person/ handle (not a per-platform stub) so \
                    you do not look in the wrong place and miss what you know.\n\n\
-                   Record your own observations and inferences under the `agent` teller. Keep \
-                   confidences compartmentalized: content told to you in confidence is marked, and \
-                   you do not repeat it to participants who should not see it.",
+                   Record your own observations and inferences under the `agent` teller, and record \
+                   what you learn about a person on that person's own memory, not on the speaker's \
+                   memory or a topic — recording it on the subject is what keeps an aside \
+                   about them from surfacing while they are present. Keep confidences \
+                   compartmentalized: mark anything told to you in confidence with \
+                   visibility = \"private\" on whatever memory it lands, never copy it into a public \
+                   topic, and do not repeat it to participants who should not see it.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
@@ -235,8 +239,11 @@ fn default_templates() -> Vec<TemplateDef> {
                    out of view. Before it does, write to memory — by emitting Lua through the \
                    run_lua tool — anything from it worth keeping that you have not already recorded: \
                    facts you learned, decisions made, and commitments given. Record your own \
-                   observations and inferences under the `agent` teller. Keep confidences \
-                   compartmentalized exactly as in an ordinary turn. For threads still open, link \
+                   observations and inferences under the `agent` teller, and record what you learned \
+                   about a person on that person's memory (not the speaker's or a topic). Keep \
+                   confidences compartmentalized exactly as in an ordinary turn: mark anything \
+                   confidential with visibility = \"private\", never write it to a public topic. For \
+                   threads still open, link \
                    the relevant memories `active_in` the current context, and clear `active_in` on \
                    threads that have closed, so the next session resurfaces what is still live. \
                    Nothing you leave only in the transcript survives, so be deliberate; when you \
