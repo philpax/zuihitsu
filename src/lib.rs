@@ -75,8 +75,8 @@ pub use vector::{
 mod __lua {
     pub use crate::{
         agent::{
-            Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, run_turn,
-            session_touched,
+            BlockContext, Engine, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
+            run_turn, session_touched,
         },
         lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     };

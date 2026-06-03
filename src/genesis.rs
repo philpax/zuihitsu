@@ -96,7 +96,7 @@ pub fn rollout(
             EventPayload::ConfigSet { .. } => {
                 config_present = true;
             }
-            EventPayload::MemoryCreated { name, .. } if name.as_str() == "self" => {
+            EventPayload::MemoryCreated { name, .. } if name.is_self() => {
                 self_present = true;
             }
             _ => {}
@@ -118,10 +118,10 @@ pub fn rollout(
     }
 
     for relation in seed_relations() {
-        if !relations_present.contains(relation.name) {
+        if !relations_present.contains(relation.name.as_str()) {
             to_emit.push(EventPayload::LinkTypeRegistered {
-                name: RelationName::new(relation.name),
-                inverse: RelationName::new(relation.inverse),
+                name: relation.name,
+                inverse: relation.inverse,
                 from_card: relation.from_card,
                 to_card: relation.to_card,
                 symmetric: relation.symmetric,
@@ -150,7 +150,7 @@ pub fn rollout(
         let self_id = MemoryId::generate();
         to_emit.push(EventPayload::MemoryCreated {
             id: self_id,
-            name: MemoryName::new("self"),
+            name: MemoryName::new(MemoryName::SELF),
         });
         // The persona is the agent's charter: a seed content entry, not a description. Entries are
         // immutable and append-only, so the authored voice never drifts, while the self can still
@@ -269,8 +269,8 @@ fn seed_tags() -> Vec<TagDef> {
 }
 
 struct RelationDef {
-    name: &'static str,
-    inverse: &'static str,
+    name: RelationName,
+    inverse: RelationName,
     from_card: Cardinality,
     to_card: Cardinality,
     symmetric: bool,
@@ -279,27 +279,30 @@ struct RelationDef {
 
 fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
+    use RelationName::{
+        ActiveIn, Created, CreatedBy, HasActive, KnownBy, Knows, Operates, OperatorOf, SameAs,
+    };
     vec![
         // created_by is historical origin (one creator); distinct from current operatorship.
         RelationDef {
-            name: "created_by",
-            inverse: "created",
+            name: CreatedBy,
+            inverse: Created,
             from_card: One,
             to_card: Many,
             symmetric: false,
             reflexive: false,
         },
         RelationDef {
-            name: "operator_of",
-            inverse: "operates",
+            name: OperatorOf,
+            inverse: Operates,
             from_card: Many,
             to_card: Many,
             symmetric: false,
             reflexive: false,
         },
         RelationDef {
-            name: "knows",
-            inverse: "known_by",
+            name: Knows,
+            inverse: KnownBy,
             from_card: Many,
             to_card: Many,
             symmetric: false,
@@ -307,8 +310,8 @@ fn seed_relations() -> Vec<RelationDef> {
         },
         // Cross-platform identity: symmetric, and its own inverse.
         RelationDef {
-            name: "same_as",
-            inverse: "same_as",
+            name: SameAs,
+            inverse: SameAs,
             from_card: Many,
             to_card: Many,
             symmetric: true,
@@ -316,8 +319,8 @@ fn seed_relations() -> Vec<RelationDef> {
         },
         // A memory flagged live in a context; used by compaction carryover.
         RelationDef {
-            name: "active_in",
-            inverse: "has_active",
+            name: ActiveIn,
+            inverse: HasActive,
             from_card: Many,
             to_card: Many,
             symmetric: false,

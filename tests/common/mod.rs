@@ -10,8 +10,8 @@ pub use harness::Harness;
 #[cfg(feature = "lua")]
 mod harness {
     use zuihitsu::{
-        BlockOutcome, ConversationId, Graph, ManualClock, MemoryId, MemoryStore, ModelClient,
-        Session, Teller, Timestamp, Turn, TurnId,
+        BlockContext, BlockOutcome, ConversationId, Engine, Graph, ManualClock, MemoryId,
+        MemoryStore, ModelClient, Session, Teller, Timestamp, Turn, TurnId,
     };
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
@@ -52,9 +52,11 @@ mod harness {
             Turn {
                 session: &self.session,
                 model,
-                store: &mut self.store,
-                graph: &mut self.graph,
-                clock: &self.clock,
+                engine: Engine {
+                    store: &mut self.store,
+                    graph: &mut self.graph,
+                    clock: &self.clock,
+                },
                 inbound,
                 inbound_participant: self.participant,
                 brief: "",
@@ -69,11 +71,15 @@ mod harness {
         pub fn run(&mut self, script: &str) -> BlockOutcome {
             self.session
                 .execute(
-                    &mut self.store,
-                    &mut self.graph,
-                    &self.clock,
-                    Teller::Agent,
-                    TurnId::generate(),
+                    &mut Engine {
+                        store: &mut self.store,
+                        graph: &mut self.graph,
+                        clock: &self.clock,
+                    },
+                    &BlockContext {
+                        teller: Teller::Agent,
+                        turn_id: TurnId::generate(),
+                    },
                     script,
                 )
                 .unwrap()

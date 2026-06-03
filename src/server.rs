@@ -11,7 +11,7 @@
 #[cfg(feature = "lua")]
 use crate::{
     agent::{
-        Flush, Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_flush, run_turn,
+        Engine, Flush, Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_flush, run_turn,
         session_touched,
     },
     brief::{self, BriefError},
@@ -204,9 +204,11 @@ impl Platform<'_> {
         let report = run_turn(Turn {
             session: &open.vm,
             model,
-            store: self.server.store.as_mut(),
-            graph: &mut self.server.graph,
-            clock: self.server.clock.as_ref(),
+            engine: Engine {
+                store: self.server.store.as_mut(),
+                graph: &mut self.server.graph,
+                clock: self.server.clock.as_ref(),
+            },
             inbound: text,
             inbound_participant: sender_id,
             brief: &open.brief,
@@ -418,9 +420,11 @@ impl Platform<'_> {
             run_flush(Flush {
                 session: &open.vm,
                 model,
-                store: self.server.store.as_mut(),
-                graph: &mut self.server.graph,
-                clock: self.server.clock.as_ref(),
+                engine: Engine {
+                    store: self.server.store.as_mut(),
+                    graph: &mut self.server.graph,
+                    clock: self.server.clock.as_ref(),
+                },
                 brief: &open.brief,
                 buffer: &buffer,
                 max_steps: settings.turn.max_steps as usize,

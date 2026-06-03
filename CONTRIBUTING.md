@@ -55,6 +55,12 @@
 - **Type states** encoded in generics when state transitions matter
 - **Lifetimes** used extensively to avoid cloning (e.g., `TestInstance<'a>`)
 - **Restricted visibility**: Use `pub(crate)` and `pub(super)` liberally
+- **Parameter structs over long argument lists**: when a function approaches the
+  `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct (a request
+  struct, or a shared seam like `Engine { store, graph, clock }` that several call shapes pass
+  along) rather than threading more positional arguments. **Never** silence the lint with
+  `#[allow(clippy::too_many_arguments)]`; the lint firing means a struct is wanted. Recognized
+  closed sets of values (relation labels, tags) likewise ride as enums, not bare strings.
 
 ### Error handling
 

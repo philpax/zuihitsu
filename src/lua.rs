@@ -21,13 +21,13 @@ use mlua::{Lua, LuaSerdeExt, Table, Value};
 use ulid::Ulid;
 
 use crate::{
+    agent::{BlockContext, Engine},
     api_doc::{ApiEntry, ApiType, enum_of, object},
-    clock::Clock,
-    event::{EventPayload, Teller, TerminalCause},
-    graph::{Graph, GraphError},
-    ids::{ConversationId, MemoryId, TurnId},
+    event::{EventPayload, TerminalCause},
+    graph::GraphError,
+    ids::{ConversationId, MemoryId, RelationName, TurnId},
     memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError},
-    store::{Store, StoreError},
+    store::StoreError,
 };
 
 /// One conversation's VM. Globals persist across the session's blocks; the memory API is installed
@@ -63,17 +63,19 @@ impl Session {
     /// cause is written. The graph is brought up to log-head afterward either way.
     pub fn execute(
         &self,
-        store: &mut dyn Store,
-        graph: &mut Graph,
-        clock: &dyn Clock,
-        teller: Teller,
-        turn_id: TurnId,
+        engine: &mut Engine,
+        context: &BlockContext,
         script: &str,
     ) -> Result<BlockOutcome, LuaError> {
         // The transaction owns the buffer, the touched set, and the write invariants. It borrows the
         // graph immutably for reads; the mutable commit happens after the scope ends and this borrow
         // is released.
-        let block = RefCell::new(MemoryBlock::new(&*graph, clock, teller, self.conversation)?);
+        let block = RefCell::new(MemoryBlock::new(
+            &*engine.graph,
+            engine.clock,
+            context.teller.clone(),
+            self.conversation,
+        )?);
 
         // The handle metatable and its methods table are referenced by the scoped functions, so
         // they must outlive the scope — build them here, in the enclosing environment.
@@ -127,13 +129,18 @@ impl Session {
             )?;
 
             // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation
-            // such as `active_in` between two memories.
+            // such as `active_in` between two memories. The script names the relation as a string;
+            // it is recognized into its typed [`RelationName`] here, at the wrapper boundary.
             methods.set(
                 "link",
                 scope.create_function(|_, (this, relation, other): (Table, String, Table)| {
                     block_ref
                         .borrow_mut()
-                        .link(handle_id(&this)?, handle_id(&other)?, &relation)
+                        .link(
+                            handle_id(&this)?,
+                            handle_id(&other)?,
+                            RelationName::new(relation),
+                        )
                         .map_err(|error| route_error(error, infra_ref))
                 })?,
             )?;
@@ -142,7 +149,11 @@ impl Session {
                 scope.create_function(|_, (this, relation, other): (Table, String, Table)| {
                     block_ref
                         .borrow_mut()
-                        .unlink(handle_id(&this)?, handle_id(&other)?, &relation)
+                        .unlink(
+                            handle_id(&this)?,
+                            handle_id(&other)?,
+                            RelationName::new(relation),
+                        )
                         .map_err(|error| route_error(error, infra_ref))
                 })?,
             )?;
@@ -229,19 +240,13 @@ impl Session {
                 // Commit the buffered side effects plus the LuaExecuted record, atomically.
                 let mut events = events;
                 events.push(self.lua_executed(
-                    turn_id,
+                    context.turn_id,
                     script,
                     Some(result.clone()),
                     touched,
                     None,
                 ));
-                self.finish(
-                    store,
-                    graph,
-                    clock,
-                    events,
-                    BlockOutcome::Committed { result },
-                )
+                self.finish(engine, events, BlockOutcome::Committed { result })
             }
             Ok(Err(error)) => {
                 // Discard the buffer; record only what the agent saw — the terminal cause.
@@ -249,14 +254,9 @@ impl Session {
                     Some(reason) => TerminalCause::Aborted(reason),
                     None => TerminalCause::Error(error.to_string()),
                 };
-                let event = self.lua_executed(turn_id, script, None, touched, Some(cause.clone()));
-                self.finish(
-                    store,
-                    graph,
-                    clock,
-                    vec![event],
-                    BlockOutcome::Terminated(cause),
-                )
+                let event =
+                    self.lua_executed(context.turn_id, script, None, touched, Some(cause.clone()));
+                self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
             }
         }
     }
@@ -282,14 +282,12 @@ impl Session {
     /// Append the block's events (the durable commit point), bring the graph up to head, and return.
     fn finish(
         &self,
-        store: &mut dyn Store,
-        graph: &mut Graph,
-        clock: &dyn Clock,
+        engine: &mut Engine,
         events: Vec<EventPayload>,
         outcome: BlockOutcome,
     ) -> Result<BlockOutcome, LuaError> {
-        store.append(clock.now(), events)?;
-        graph.materialize_from(store)?;
+        engine.store.append(engine.clock.now(), events)?;
+        engine.graph.materialize_from(&*engine.store)?;
         Ok(outcome)
     }
 }

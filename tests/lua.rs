@@ -9,9 +9,10 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    BlockOutcome, Cardinality, Clock, ConversationLocator, Graph, ManualClock, MemoryId,
-    MemoryName, MemoryStore, RelationName, Seq, Session, Store, TagName, Teller, TerminalCause,
-    Timestamp, TurnId, Visibility, event::EventPayload, resolve_or_mint_conversation,
+    BlockContext, BlockOutcome, Cardinality, Clock, ConversationLocator, Engine, Graph,
+    ManualClock, MemoryId, MemoryName, MemoryStore, RelationName, Seq, Session, Store, TagName,
+    Teller, TerminalCause, Timestamp, TurnId, Visibility, event::EventPayload,
+    resolve_or_mint_conversation,
 };
 
 #[test]
@@ -78,11 +79,15 @@ fn append_carries_teller_context_and_default_visibility() {
     let exec = |store: &mut MemoryStore, graph: &mut Graph, script: &str| {
         session
             .execute(
-                store,
-                graph,
-                &clock,
-                Teller::Participant(erin),
-                TurnId::generate(),
+                &mut Engine {
+                    store,
+                    graph,
+                    clock: &clock,
+                },
+                &BlockContext {
+                    teller: Teller::Participant(erin),
+                    turn_id: TurnId::generate(),
+                },
                 script,
             )
             .unwrap()
@@ -172,11 +177,15 @@ fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
     // The agent flags the thread active_in the current context.
     let outcome = session
         .execute(
-            &mut store,
-            &mut graph,
-            &clock,
-            Teller::Agent,
-            TurnId::generate(),
+            &mut Engine {
+                store: &mut store,
+                graph: &mut graph,
+                clock: &clock,
+            },
+            &BlockContext {
+                teller: Teller::Agent,
+                turn_id: TurnId::generate(),
+            },
             r#"memory.get("topic/roadmap"):link("active_in", context.current())"#,
         )
         .unwrap();
@@ -188,11 +197,15 @@ fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
     // Unlinking clears it.
     session
         .execute(
-            &mut store,
-            &mut graph,
-            &clock,
-            Teller::Agent,
-            TurnId::generate(),
+            &mut Engine {
+                store: &mut store,
+                graph: &mut graph,
+                clock: &clock,
+            },
+            &BlockContext {
+                teller: Teller::Agent,
+                turn_id: TurnId::generate(),
+            },
             r#"memory.get("topic/roadmap"):unlink("active_in", context.current())"#,
         )
         .unwrap();
@@ -241,11 +254,15 @@ fn a_write_in_a_confidential_room_defaults_private() {
     let session = Session::new(conversation);
     session
         .execute(
-            &mut store,
-            &mut graph,
-            &clock,
-            Teller::Agent,
-            TurnId::generate(),
+            &mut Engine {
+                store: &mut store,
+                graph: &mut graph,
+                clock: &clock,
+            },
+            &BlockContext {
+                teller: Teller::Agent,
+                turn_id: TurnId::generate(),
+            },
             r#"memory.create("topic/sensitive", "something said in confidence")"#,
         )
         .unwrap();

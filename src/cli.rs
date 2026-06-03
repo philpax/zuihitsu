@@ -12,8 +12,8 @@ use std::{
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, fmt};
 use zuihitsu::{
-    ConfigError, Graph, GraphError, SeedSelf, Server, ServerError, SqliteStore, StoreError,
-    SystemClock,
+    ConfigError, Graph, GraphError, MemoryName, SeedSelf, Server, ServerError, SqliteStore,
+    StoreError, SystemClock,
     config::EnvConfig,
     genesis::{GenesisStatus, Rollout},
 };
@@ -125,7 +125,10 @@ fn report_status(server: &mut Server, status: GenesisStatus) -> Result<(), CliEr
         }
         GenesisStatus::Complete => {
             tracing::info!("the agent is ready");
-            if let Some(memory) = server.control().memory("self").map_err(CliError::Inspect)?
+            if let Some(memory) = server
+                .control()
+                .memory(MemoryName::SELF)
+                .map_err(CliError::Inspect)?
                 && !memory.description.is_empty()
             {
                 tracing::info!(description = %memory.description, "self");

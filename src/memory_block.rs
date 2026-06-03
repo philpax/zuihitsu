@@ -54,7 +54,7 @@ pub enum MemoryError {
     /// A `create` collided with an existing name (names are unique).
     NameExists(MemoryName),
     /// A `link`/`unlink` named a relation that is not a registered link type.
-    UnknownRelation(String),
+    UnknownRelation(RelationName),
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -69,7 +69,8 @@ impl std::fmt::Display for MemoryError {
             ),
             MemoryError::UnknownRelation(relation) => write!(
                 f,
-                "unknown relation {relation:?}; it must be a registered link type"
+                "unknown relation {:?}; it must be a registered link type",
+                relation.as_str()
             ),
             MemoryError::Graph(error) => write!(f, "{error}"),
         }
@@ -229,7 +230,7 @@ impl<'a> MemoryBlock<'a> {
         &mut self,
         from: MemoryId,
         to: MemoryId,
-        relation: &str,
+        relation: RelationName,
     ) -> Result<(), MemoryError> {
         self.change_link(from, to, relation, true)
     }
@@ -239,7 +240,7 @@ impl<'a> MemoryBlock<'a> {
         &mut self,
         from: MemoryId,
         to: MemoryId,
-        relation: &str,
+        relation: RelationName,
     ) -> Result<(), MemoryError> {
         self.change_link(from, to, relation, false)
     }
@@ -272,13 +273,12 @@ impl<'a> MemoryBlock<'a> {
         &mut self,
         from: MemoryId,
         to: MemoryId,
-        relation: &str,
+        relation: RelationName,
         create: bool,
     ) -> Result<(), MemoryError> {
-        if self.graph.relation(relation)?.is_none() {
-            return Err(MemoryError::UnknownRelation(relation.to_owned()));
+        if self.graph.relation(relation.as_str())?.is_none() {
+            return Err(MemoryError::UnknownRelation(relation));
         }
-        let relation = RelationName::new(relation);
         self.touched.insert(from);
         self.touched.insert(to);
         self.buffer.push(if create {
@@ -365,7 +365,7 @@ mod tests {
         clock::ManualClock,
         event::{EventPayload, Teller, Visibility},
         graph::Graph,
-        ids::{ConversationId, MemoryId, Timestamp},
+        ids::{ConversationId, MemoryId, RelationName, Timestamp},
     };
 
     /// A block over an empty in-memory graph and a conversation with no context — enough to exercise
@@ -392,7 +392,9 @@ mod tests {
         let mut block = block(&graph, &clock, Teller::Agent);
         let a = block.create("topic/a", None).unwrap();
         let b = block.create("topic/b", None).unwrap();
-        let error = block.link(a, b, "bogus_relation").unwrap_err();
+        let error = block
+            .link(a, b, RelationName::Other("bogus_relation".into()))
+            .unwrap_err();
         assert!(matches!(error, MemoryError::UnknownRelation(_)));
     }
 

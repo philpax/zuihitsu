@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use crate::{
     event::Visibility,
     graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, TagName},
+    ids::{MemoryId, MemoryName, TagName},
     settings::BriefSettings,
     visibility::{self, ClassOf},
 };
@@ -71,7 +71,7 @@ pub fn compose(
     let mut out = String::new();
 
     // 1. Self brief — the agent's own memory in the per-participant shape.
-    if let Some(self_memory) = graph.memory_by_name("self")? {
+    if let Some(self_memory) = graph.memory_by_name(MemoryName::SELF)? {
         out.push_str("# You\n");
         render_memory_body(
             &mut out,
@@ -127,7 +127,9 @@ pub fn compose(
     //    present set (an aside about a now-present subject is suppressed). Self, the current room, and
     //    present participants are already shown above, so they are skipped to avoid duplication.
     if !working_set.is_empty() {
-        let self_id = graph.memory_by_name("self")?.map(|memory| memory.id);
+        let self_id = graph
+            .memory_by_name(MemoryName::SELF)?
+            .map(|memory| memory.id);
         let mut threads = String::new();
         for &id in working_set {
             if Some(id) == self_id || Some(id) == current_context || present_set.contains(&id) {

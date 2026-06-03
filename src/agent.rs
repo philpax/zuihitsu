@@ -18,7 +18,7 @@ use crate::{
         EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
     },
     graph::{EntryView, Graph, GraphError, MemoryView},
-    ids::{ConversationId, MemoryId, Seq, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, Seq, TurnId},
     lua::{self, BlockOutcome, LuaError, Session},
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
@@ -124,15 +124,44 @@ pub fn session_touched(
     Ok(ordered)
 }
 
-/// Everything one turn needs: the conversation's `session`, the shared seams (`model`, `store`,
-/// `graph`, `clock`), the `inbound` participant message and its `inbound_participant` (the speaker's
-/// `person/*` stub, whose content the turn's writes are attributed to), and the step budget.
-pub struct Turn<'a> {
-    pub session: &'a Session,
-    pub model: &'a dyn ModelClient,
+/// The mutable backends every layer of a turn threads as a unit: the append-only event log
+/// (`store`), the graph projection it feeds (`graph`), and the clock that stamps writes (`clock`).
+/// They always travel together, so they ride as one value rather than three parallel arguments —
+/// the shared shape behind [`Turn`], [`Flush`], [`Steps`], and [`crate::lua::Session::execute`].
+pub struct Engine<'a> {
     pub store: &'a mut dyn Store,
     pub graph: &'a mut Graph,
     pub clock: &'a dyn Clock,
+}
+
+impl Engine<'_> {
+    /// A shorter-lived view of the same backends, for handing to an inner call without surrendering
+    /// the borrow — so the caller can keep using the engine after the call returns.
+    pub fn reborrow(&mut self) -> Engine<'_> {
+        Engine {
+            store: &mut *self.store,
+            graph: &mut *self.graph,
+            clock: self.clock,
+        }
+    }
+}
+
+/// The write context one block — or a whole step loop — runs under: who its content is attributed
+/// to (`teller`) and the turn id its events are stamped with.
+#[derive(Clone)]
+pub struct BlockContext {
+    pub teller: Teller,
+    pub turn_id: TurnId,
+}
+
+/// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
+/// `engine` backends), the `inbound` participant message and its `inbound_participant` (the
+/// speaker's `person/*` stub, whose content the turn's writes are attributed to), and the step
+/// budget.
+pub struct Turn<'a> {
+    pub session: &'a Session,
+    pub model: &'a dyn ModelClient,
+    pub engine: Engine<'a>,
     pub inbound: &'a str,
     pub inbound_participant: MemoryId,
     /// The session's frozen contextual brief, interpolated into the system prompt (captured on
@@ -150,9 +179,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let Turn {
         session,
         model,
-        store,
-        graph,
-        clock,
+        mut engine,
         inbound,
         inbound_participant,
         brief,
@@ -165,8 +192,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let teller = Teller::Participant(inbound_participant);
     // An inbound participant message is not inference, so it carries no provenance.
     append_turn(
-        store,
-        clock,
+        engine.store,
+        engine.clock,
         TurnRecord {
             conversation,
             turn_id: TurnId::generate(),
@@ -178,15 +205,15 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         },
     )?;
     // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
-    let cycle_start = store.head()?;
+    let cycle_start = engine.store.head()?;
 
     // Assemble the frozen system prompt once for the cycle: the scaffold framing, the agent's
     // identity from `self`, and the declared time.
-    let scaffold = templates::latest_template(store, PromptTemplateName::Scaffold)?;
+    let scaffold = templates::latest_template(engine.store, PromptTemplateName::Scaffold)?;
     let scaffold_version = scaffold.as_ref().map(|template| template.version);
     let scaffold_body = scaffold.map(|template| template.body).unwrap_or_default();
-    let identity = match graph.memory_by_name("self")? {
-        Some(self_memory) => graph.entries_local(self_memory.id)?,
+    let identity = match engine.graph.memory_by_name(MemoryName::SELF)? {
+        Some(self_memory) => engine.graph.entries_local(self_memory.id)?,
         None => Vec::new(),
     };
     // The API description is build-derived: rendered from the running binary so the prompt and the
@@ -197,7 +224,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         &identity,
         &api_reference,
         brief,
-        clock.now(),
+        engine.clock.now(),
     );
 
     // Provenance for the agent's turn: the chat model and the scaffold it ran against. If no
@@ -217,12 +244,9 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let (outcome, peak_prompt_tokens) = run_steps(Steps {
         session,
         model,
-        store: &mut *store,
-        graph: &mut *graph,
-        clock,
+        engine: engine.reborrow(),
         system: &system,
-        teller,
-        turn_id,
+        context: BlockContext { teller, turn_id },
         messages,
         initiation: Initiation::Responding,
         provenance: agent_provenance,
@@ -233,8 +257,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // Write path: coalesce the memories the turn wrote and regenerate each one's description from
     // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
     // conversational outcome.
-    let written = collect_written_memories(store, cycle_start)?;
-    regenerate_descriptions(model, store, graph, clock, &written).await?;
+    let written = collect_written_memories(engine.store, cycle_start)?;
+    regenerate_descriptions(model, engine.store, engine.graph, engine.clock, &written).await?;
 
     Ok(TurnReport {
         outcome,
@@ -248,9 +272,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
 pub(crate) struct Flush<'a> {
     pub session: &'a Session,
     pub model: &'a dyn ModelClient,
-    pub store: &'a mut dyn Store,
-    pub graph: &'a mut Graph,
-    pub clock: &'a dyn Clock,
+    pub engine: Engine<'a>,
     pub brief: &'a str,
     pub buffer: &'a [TurnView],
     pub max_steps: usize,
@@ -265,19 +287,18 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     let Flush {
         session,
         model,
-        store,
-        graph,
-        clock,
+        mut engine,
         brief,
         buffer,
         max_steps,
     } = flush;
-    let Some(template) = templates::latest_template(store, PromptTemplateName::Flush)? else {
+    let Some(template) = templates::latest_template(engine.store, PromptTemplateName::Flush)?
+    else {
         return Ok(());
     };
 
-    let identity = match graph.memory_by_name("self")? {
-        Some(self_memory) => graph.entries_local(self_memory.id)?,
+    let identity = match engine.graph.memory_by_name(MemoryName::SELF)? {
+        Some(self_memory) => engine.graph.entries_local(self_memory.id)?,
         None => Vec::new(),
     };
     let api_reference = lua::render_api_reference();
@@ -286,7 +307,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         &identity,
         &api_reference,
         brief,
-        clock.now(),
+        engine.clock.now(),
     );
     let provenance = Some(ProducedBy {
         model_id: model.model_id().into(),
@@ -295,7 +316,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     });
 
     let turn_id = TurnId::generate();
-    let cycle_start = store.head()?;
+    let cycle_start = engine.store.head()?;
     // The buffer is the flush's whole context; a final user nudge gives the model a turn to respond
     // to (the transcript may end on an assistant turn) and states the flush's standing instruction.
     let mut messages = buffer_messages(buffer);
@@ -306,13 +327,13 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     run_steps(Steps {
         session,
         model,
-        store: &mut *store,
-        graph: &mut *graph,
-        clock,
+        engine: engine.reborrow(),
         system: &system,
         // The flush's writes are the agent's own synthesis, not attributed to any participant.
-        teller: Teller::Agent,
-        turn_id,
+        context: BlockContext {
+            teller: Teller::Agent,
+            turn_id,
+        },
         messages,
         initiation: Initiation::Initiated,
         provenance,
@@ -320,8 +341,8 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     })
     .await?;
 
-    let written = collect_written_memories(store, cycle_start)?;
-    regenerate_descriptions(model, store, graph, clock, &written).await?;
+    let written = collect_written_memories(engine.store, cycle_start)?;
+    regenerate_descriptions(model, engine.store, engine.graph, engine.clock, &written).await?;
     Ok(())
 }
 
@@ -349,12 +370,9 @@ fn buffer_messages(buffer: &[TurnView]) -> Vec<Message> {
 struct Steps<'a> {
     session: &'a Session,
     model: &'a dyn ModelClient,
-    store: &'a mut dyn Store,
-    graph: &'a mut Graph,
-    clock: &'a dyn Clock,
+    engine: Engine<'a>,
     system: &'a str,
-    teller: Teller,
-    turn_id: TurnId,
+    context: BlockContext,
     messages: Vec<Message>,
     initiation: Initiation,
     provenance: Option<ProducedBy>,
@@ -365,12 +383,9 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
     let Steps {
         session,
         model,
-        store,
-        graph,
-        clock,
+        mut engine,
         system,
-        teller,
-        turn_id,
+        context,
         mut messages,
         initiation,
         provenance,
@@ -386,7 +401,7 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
                 clock,
                 TurnRecord {
                     conversation,
-                    turn_id,
+                    turn_id: context.turn_id,
                     role: TurnRole::Agent,
                     text,
                     participant: None,
@@ -413,23 +428,22 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
                 Completion::ToolCalls(calls) => {
                     messages.push(Message::assistant_tool_calls(calls.clone()));
                     for call in &calls {
-                        let result =
-                            run_tool_call(session, store, graph, clock, &teller, turn_id, call)?;
+                        let result = run_tool_call(session, &mut engine, &context, call)?;
                         messages.push(Message::tool_result(call.id.clone(), result));
                     }
                 }
                 Completion::Reply(text) => {
-                    record_agent_turn(store, clock, text.clone())?;
+                    record_agent_turn(engine.store, engine.clock, text.clone())?;
                     break 'cycle TurnOutcome::Reply(text);
                 }
                 Completion::Silent => {
-                    record_agent_turn(store, clock, String::new())?;
+                    record_agent_turn(engine.store, engine.clock, String::new())?;
                     break 'cycle TurnOutcome::Silent;
                 }
             }
         }
         let surfaced = format!("max steps ({max_steps}) reached without a reply");
-        record_agent_turn(store, clock, surfaced)?;
+        record_agent_turn(engine.store, engine.clock, surfaced)?;
         TurnOutcome::MaxStepsExceeded
     };
 
@@ -568,11 +582,8 @@ async fn synthesize_description(
 /// or a teachable failure (errors teach). Only infrastructure failures propagate as `TurnError`.
 fn run_tool_call(
     session: &Session,
-    store: &mut dyn Store,
-    graph: &mut Graph,
-    clock: &dyn Clock,
-    teller: &Teller,
-    turn_id: TurnId,
+    engine: &mut Engine,
+    context: &BlockContext,
     call: &ToolCall,
 ) -> Result<String, TurnError> {
     if call.name != "run_lua" {
@@ -582,17 +593,15 @@ fn run_tool_call(
         Ok(args) => args.script,
         Err(error) => return Ok(ToolError::InvalidArguments(error.to_string()).to_string()),
     };
-    Ok(
-        match session.execute(store, graph, clock, teller.clone(), turn_id, &script)? {
-            BlockOutcome::Committed { result } => result,
-            BlockOutcome::Terminated(TerminalCause::Error(message)) => {
-                ToolError::BlockError(message).to_string()
-            }
-            BlockOutcome::Terminated(TerminalCause::Aborted(reason)) => {
-                ToolError::BlockAborted(reason).to_string()
-            }
-        },
-    )
+    Ok(match session.execute(engine, context, &script)? {
+        BlockOutcome::Committed { result } => result,
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            ToolError::BlockError(message).to_string()
+        }
+        BlockOutcome::Terminated(TerminalCause::Aborted(reason)) => {
+            ToolError::BlockAborted(reason).to_string()
+        }
+    })
 }
 
 /// A teachable failure surfaced back to the model as a tool result. Its `Display` is the single

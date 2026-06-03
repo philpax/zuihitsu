@@ -129,12 +129,22 @@ impl EntryId {
 pub struct MemoryName(pub SmolStr);
 
 impl MemoryName {
+    /// The reserved handle of the agent's self-model memory: seeded at genesis, and writable only
+    /// from the control panel (see [`crate::memory_block::Authority`]). Held here so the one literal
+    /// has a single home, used wherever code looks `self` up or guards a write against it.
+    pub const SELF: &'static str = "self";
+
     pub fn new(name: impl Into<SmolStr>) -> MemoryName {
         MemoryName(name.into())
     }
 
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// Whether this is the reserved [`MemoryName::SELF`] handle.
+    pub fn is_self(&self) -> bool {
+        self.0 == MemoryName::SELF
     }
 }
 
@@ -191,12 +201,21 @@ pub enum RelationName {
     Knows,
     SameAs,
     ActiveIn,
+    /// The inverse label of [`RelationName::CreatedBy`].
+    Created,
+    /// The inverse label of [`RelationName::OperatorOf`].
+    Operates,
+    /// The inverse label of [`RelationName::Knows`].
+    KnownBy,
+    /// The inverse label of [`RelationName::ActiveIn`].
+    HasActive,
     Other(SmolStr),
 }
 
 impl RelationName {
-    /// Recognize a label, mapping a seed relation's canonical name to its variant and anything else
-    /// (a runtime-registered relation, or an inverse label) to [`RelationName::Other`].
+    /// Recognize a label, mapping a seed relation — or its inverse — to its variant and anything
+    /// else (a runtime-registered relation) to [`RelationName::Other`]. [`RelationName::SameAs`] is
+    /// its own inverse, so it has no separate variant.
     pub fn new(name: impl Into<SmolStr>) -> RelationName {
         let name = name.into();
         match name.as_str() {
@@ -205,6 +224,10 @@ impl RelationName {
             "knows" => RelationName::Knows,
             "same_as" => RelationName::SameAs,
             "active_in" => RelationName::ActiveIn,
+            "created" => RelationName::Created,
+            "operates" => RelationName::Operates,
+            "known_by" => RelationName::KnownBy,
+            "has_active" => RelationName::HasActive,
             _ => RelationName::Other(name),
         }
     }
@@ -216,6 +239,10 @@ impl RelationName {
             RelationName::Knows => "knows",
             RelationName::SameAs => "same_as",
             RelationName::ActiveIn => "active_in",
+            RelationName::Created => "created",
+            RelationName::Operates => "operates",
+            RelationName::KnownBy => "known_by",
+            RelationName::HasActive => "has_active",
             RelationName::Other(name) => name.as_str(),
         }
     }
