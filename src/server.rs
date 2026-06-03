@@ -11,14 +11,15 @@
 #[cfg(feature = "lua")]
 use crate::{
     agent::{
-        Engine, Flush, Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_flush, run_turn,
-        session_touched,
+        Engine, Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, run_flush,
+        run_turn, session_touched,
     },
     brief::{self, BriefError},
-    event::{Initiation, TurnRole},
+    event::{Initiation, PromptTemplateName, TurnRole},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
-    ids::{ConversationId, MemoryId, Seq, SessionId, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     lua::Session,
+    memory_block::Authority,
     model::ModelClient,
 };
 use crate::{
@@ -93,6 +94,166 @@ impl Server {
     #[cfg(feature = "lua")]
     pub fn platform(&mut self) -> Platform<'_> {
         Platform { server: self }
+    }
+}
+
+/// One routed turn's inputs: the `conversation` it lands in, who is `present_set` (for the session
+/// brief), the `participant` it is attributed to, the `inbound` text, and the `template`/`authority`
+/// that frame it — `Scaffold`/`Platform` for an ordinary message, `Imprint`/`Operator` for the
+/// control-panel interview. Bundled so [`Server::run_session_turn`] takes the routed turn as a whole.
+#[cfg(feature = "lua")]
+struct RoutedTurn<'a> {
+    conversation: ConversationId,
+    present_set: &'a [MemoryId],
+    participant: MemoryId,
+    inbound: &'a str,
+    template: PromptTemplateName,
+    authority: Authority,
+}
+
+/// The session machinery shared by both facets: opening/continuing a session and running one turn.
+/// On `Server` (not a facet) so the platform `route_message` and the operator `imprint` both reach
+/// it.
+#[cfg(feature = "lua")]
+impl Server {
+    /// Open or continue the session for `conversation`, then run one turn of `inbound` from
+    /// `participant` under `template`/`authority`, returning its report and the live buffer it saw
+    /// (the buffer the caller's compaction trigger measures). The shared core behind
+    /// `Platform::route_message` and `Control::imprint`.
+    async fn run_session_turn(
+        &mut self,
+        model: &dyn ModelClient,
+        routed: &RoutedTurn<'_>,
+    ) -> Result<(TurnReport, Vec<TurnView>), ServerError> {
+        self.ensure_session(routed.conversation, routed.present_set)?;
+        let max_steps = Settings::from_store(self.store.as_ref())?.turn.max_steps as usize;
+        let open = self
+            .sessions
+            .get(&routed.conversation)
+            .expect("ensure_session left an open session");
+        // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
+        // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
+        let buffer = buffer_turns(self.store.as_ref(), routed.conversation, open.start_seq)?;
+        let report = run_turn(Turn {
+            session: &open.vm,
+            model,
+            engine: Engine {
+                store: self.store.as_mut(),
+                graph: &mut self.graph,
+                clock: self.clock.as_ref(),
+            },
+            inbound: routed.inbound,
+            inbound_participant: routed.participant,
+            brief: &open.brief,
+            buffer: &buffer,
+            template: routed.template,
+            authority: routed.authority,
+            max_steps,
+        })
+        .await?;
+        Ok((report, buffer))
+    }
+
+    /// Ensure a live session for `conversation`: reuse the open one if activity is within the
+    /// idle-gap, otherwise end it (if any) and open a new one — composing and freezing its brief and
+    /// minting a fresh VM. The session boundary is recorded (`SessionStarted` / `SessionEnded`) and
+    /// not recomputed at replay.
+    fn ensure_session(
+        &mut self,
+        conversation: ConversationId,
+        present_set: &[MemoryId],
+    ) -> Result<(), ServerError> {
+        let now = self.clock.now();
+        let settings = Settings::from_store(self.store.as_ref())?;
+        let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
+
+        let reuse = self
+            .sessions
+            .get(&conversation)
+            .is_some_and(|open| now.as_millis() - open.last_activity.as_millis() <= idle_gap_ms);
+        if reuse {
+            if let Some(open) = self.sessions.get_mut(&conversation) {
+                open.last_activity = now;
+            }
+            return Ok(());
+        }
+
+        // A lapsed session ends before the new one opens.
+        if let Some(old) = self.sessions.remove(&conversation) {
+            self.store.append(
+                now,
+                vec![EventPayload::SessionEnded {
+                    conversation,
+                    id: old.id,
+                }],
+            )?;
+        }
+
+        // A pending carryover from a just-compacted session seeds the new one: the next buffer read
+        // starts at the carried tail (not this `SessionStarted`), the boundary is recorded as
+        // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
+        // brief as active threads (spec §Compaction → carryover).
+        let carryover = self.pending_carryover.remove(&conversation);
+        let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
+        let working_set: &[MemoryId] = carryover
+            .as_ref()
+            .map_or(&[], |carry| carry.working_set.as_slice());
+
+        let context = self.graph.context_for_conversation(conversation)?;
+        let brief = brief::compose(
+            &self.graph,
+            present_set,
+            context,
+            &settings.brief,
+            working_set,
+        )?;
+        let id = SessionId::generate();
+        let committed = self.store.append(
+            now,
+            vec![EventPayload::SessionStarted {
+                conversation,
+                id,
+                participants: present_set.to_vec(),
+                started_at: now,
+                seeded_from_turn,
+                brief: brief.clone(),
+            }],
+        )?;
+        let session_start_seq = committed[0].seq;
+        self.graph.materialize_from(self.store.as_ref())?;
+        self.sessions.insert(
+            conversation,
+            OpenSession {
+                id,
+                vm: Session::new(conversation),
+                brief,
+                last_activity: now,
+                start_seq: carryover
+                    .map(|carry| carry.from_seq)
+                    .unwrap_or(session_start_seq),
+            },
+        );
+        Ok(())
+    }
+
+    /// Resolve the control-panel operator's stable `person/operator` stub, minting it once on the
+    /// first imprint. Unlike a platform participant it carries no `ParticipantIdentified` binding —
+    /// the operator has no platform identity, must never collide with a real participant, and must
+    /// resolve identically across imprints — so it is keyed only by its canonical name.
+    fn resolve_or_mint_operator(&mut self) -> Result<MemoryId, ServerError> {
+        if let Some(memory) = self.graph.memory_by_name("person/operator")? {
+            return Ok(memory.id);
+        }
+        let id = MemoryId::generate();
+        self.store.append(
+            self.clock.now(),
+            vec![EventPayload::MemoryCreated {
+                id,
+                name: MemoryName::new("person/operator"),
+            }],
+        )?;
+        self.graph.materialize_from(self.store.as_ref())?;
+        Ok(id)
     }
 }
 
@@ -187,35 +348,21 @@ impl Platform<'_> {
             .graph
             .materialize_from(self.server.store.as_ref())?;
 
-        // Open or continue the session, freezing a brief at each open.
-        self.ensure_session(conversation, &present_set)?;
-
-        let max_steps = Settings::from_store(self.server.store.as_ref())?
-            .turn
-            .max_steps as usize;
-        let open = self
+        // Open or continue the session and run the turn under ordinary platform authority.
+        let (report, buffer) = self
             .server
-            .sessions
-            .get(&conversation)
-            .expect("ensure_session left an open session");
-        // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
-        // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
-        let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
-        let report = run_turn(Turn {
-            session: &open.vm,
-            model,
-            engine: Engine {
-                store: self.server.store.as_mut(),
-                graph: &mut self.server.graph,
-                clock: self.server.clock.as_ref(),
-            },
-            inbound: text,
-            inbound_participant: sender_id,
-            brief: &open.brief,
-            buffer: &buffer,
-            max_steps,
-        })
-        .await?;
+            .run_session_turn(
+                model,
+                &RoutedTurn {
+                    conversation,
+                    present_set: &present_set,
+                    participant: sender_id,
+                    inbound: text,
+                    template: PromptTemplateName::Scaffold,
+                    authority: Authority::Platform,
+                },
+            )
+            .await?;
 
         // Token-triggered compaction: if the turn's peak prompt crossed the budget, end the session
         // now so the next message re-segments with a fresh brief and a carried tail (spec
@@ -241,90 +388,6 @@ impl Platform<'_> {
             self.end_session_for_compaction(conversation, model).await?;
         }
         Ok(report.outcome)
-    }
-
-    /// Ensure a live session for `conversation`: reuse the open one if activity is within the
-    /// idle-gap, otherwise end it (if any) and open a new one — composing and freezing its brief and
-    /// minting a fresh VM. The session boundary is recorded (`SessionStarted` / `SessionEnded`) and
-    /// not recomputed at replay.
-    fn ensure_session(
-        &mut self,
-        conversation: ConversationId,
-        present_set: &[MemoryId],
-    ) -> Result<(), ServerError> {
-        let now = self.server.clock.now();
-        let settings = Settings::from_store(self.server.store.as_ref())?;
-        let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
-
-        let reuse =
-            self.server.sessions.get(&conversation).is_some_and(|open| {
-                now.as_millis() - open.last_activity.as_millis() <= idle_gap_ms
-            });
-        if reuse {
-            if let Some(open) = self.server.sessions.get_mut(&conversation) {
-                open.last_activity = now;
-            }
-            return Ok(());
-        }
-
-        // A lapsed session ends before the new one opens.
-        if let Some(old) = self.server.sessions.remove(&conversation) {
-            self.server.store.append(
-                now,
-                vec![EventPayload::SessionEnded {
-                    conversation,
-                    id: old.id,
-                }],
-            )?;
-        }
-
-        // A pending carryover from a just-compacted session seeds the new one: the next buffer read
-        // starts at the carried tail (not this `SessionStarted`), the boundary is recorded as
-        // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
-        // brief as active threads (spec §Compaction → carryover).
-        let carryover = self.server.pending_carryover.remove(&conversation);
-        let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
-        let working_set: &[MemoryId] = carryover
-            .as_ref()
-            .map_or(&[], |carry| carry.working_set.as_slice());
-
-        let context = self.server.graph.context_for_conversation(conversation)?;
-        let brief = brief::compose(
-            &self.server.graph,
-            present_set,
-            context,
-            &settings.brief,
-            working_set,
-        )?;
-        let id = SessionId::generate();
-        let committed = self.server.store.append(
-            now,
-            vec![EventPayload::SessionStarted {
-                conversation,
-                id,
-                participants: present_set.to_vec(),
-                started_at: now,
-                seeded_from_turn,
-                brief: brief.clone(),
-            }],
-        )?;
-        let session_start_seq = committed[0].seq;
-        self.server
-            .graph
-            .materialize_from(self.server.store.as_ref())?;
-        self.server.sessions.insert(
-            conversation,
-            OpenSession {
-                id,
-                vm: Session::new(conversation),
-                brief,
-                last_activity: now,
-                start_seq: carryover
-                    .map(|carry| carry.from_seq)
-                    .unwrap_or(session_start_seq),
-            },
-        );
-        Ok(())
     }
 
     /// Note a participant arriving mid-session. If the room has a live session, this records a
@@ -535,6 +598,47 @@ pub struct Control<'a> {
 }
 
 impl Control<'_> {
+    /// Run one operator message of the imprint interview: the control-panel conversation where the
+    /// operator introduces themselves and the agent learns who they are and what it is for (spec
+    /// §Imprint interview). It runs under operator authority, so the agent may write `self` — the
+    /// only path that may — and authors its links as `Debugger`. The operator is a stable
+    /// `person/operator` stub (minted on first contact, no platform binding); the agent learns their
+    /// real name, creates `person/<name>`, and merges the two with `same_as`. Multi-turn and
+    /// re-runnable: each call delivers one operator message and runs the agent's response. No
+    /// compaction — the interview is short, and its flush would run barred from `self`.
+    #[cfg(feature = "lua")]
+    pub async fn imprint(
+        &mut self,
+        model: &dyn ModelClient,
+        text: &str,
+    ) -> Result<TurnOutcome, ServerError> {
+        let operator = self.server.resolve_or_mint_operator()?;
+        let conversation = resolve_or_mint_conversation(
+            self.server.store.as_mut(),
+            self.server.clock.as_ref(),
+            &self.server.graph,
+            &ConversationLocator::new("operator", "imprint"),
+        )?;
+        self.server
+            .graph
+            .materialize_from(self.server.store.as_ref())?;
+        let (report, _buffer) = self
+            .server
+            .run_session_turn(
+                model,
+                &RoutedTurn {
+                    conversation,
+                    present_set: &[operator],
+                    participant: operator,
+                    inbound: text,
+                    template: PromptTemplateName::Imprint,
+                    authority: Authority::Operator,
+                },
+            )
+            .await?;
+        Ok(report.outcome)
+    }
+
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads
     /// see them. Idempotent: calling it on a born agent is a no-op.
     pub fn create_agent(&mut self, seed: &SeedSelf) -> Result<Rollout, ServerError> {

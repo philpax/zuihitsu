@@ -9,7 +9,7 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    BlockContext, BlockOutcome, Cardinality, Clock, ConversationLocator, Engine, Graph,
+    Authority, BlockContext, BlockOutcome, Cardinality, Clock, ConversationLocator, Engine, Graph,
     ManualClock, MemoryId, MemoryName, MemoryStore, RelationName, Seq, Session, Store, TagName,
     Teller, TerminalCause, Timestamp, TurnId, Visibility, event::EventPayload,
     resolve_or_mint_conversation,
@@ -86,6 +86,7 @@ fn append_carries_teller_context_and_default_visibility() {
                 },
                 &BlockContext {
                     teller: Teller::Participant(erin),
+                    authority: Authority::Platform,
                     turn_id: TurnId::generate(),
                 },
                 script,
@@ -184,6 +185,7 @@ fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
             },
             &BlockContext {
                 teller: Teller::Agent,
+                authority: Authority::Platform,
                 turn_id: TurnId::generate(),
             },
             r#"memory.get("topic/roadmap"):link("active_in", context.current())"#,
@@ -204,6 +206,7 @@ fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
             },
             &BlockContext {
                 teller: Teller::Agent,
+                authority: Authority::Platform,
                 turn_id: TurnId::generate(),
             },
             r#"memory.get("topic/roadmap"):unlink("active_in", context.current())"#,
@@ -261,6 +264,7 @@ fn a_write_in_a_confidential_room_defaults_private() {
             },
             &BlockContext {
                 teller: Teller::Agent,
+                authority: Authority::Platform,
                 turn_id: TurnId::generate(),
             },
             r#"memory.create("topic/sensitive", "something said in confidence")"#,

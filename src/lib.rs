@@ -90,7 +90,9 @@ mod __sqlite {
         brief::{BriefError, compose, compose_participant},
         graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
         identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
-        memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError, VisibilityChoice},
+        memory_block::{
+            AppendOptions, Authority, BlockEffects, MemoryBlock, MemoryError, VisibilityChoice,
+        },
         search::{SearchError, SearchHit, SearchQuery, search},
         server::{Control, Server, ServerError},
         store::SqliteStore,

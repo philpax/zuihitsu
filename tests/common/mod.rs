@@ -10,8 +10,9 @@ pub use harness::Harness;
 #[cfg(feature = "lua")]
 mod harness {
     use zuihitsu::{
-        BlockContext, BlockOutcome, ConversationId, Engine, Graph, ManualClock, MemoryId,
-        MemoryStore, ModelClient, Session, Teller, Timestamp, Turn, TurnId,
+        Authority, BlockContext, BlockOutcome, ConversationId, Engine, Graph, ManualClock,
+        MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Timestamp, Turn,
+        TurnId,
     };
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
@@ -61,6 +62,8 @@ mod harness {
                 inbound_participant: self.participant,
                 brief: "",
                 buffer: &[],
+                template: PromptTemplateName::Scaffold,
+                authority: Authority::Platform,
                 max_steps,
             }
         }
@@ -78,6 +81,7 @@ mod harness {
                     },
                     &BlockContext {
                         teller: Teller::Agent,
+                        authority: Authority::Platform,
                         turn_id: TurnId::generate(),
                     },
                     script,

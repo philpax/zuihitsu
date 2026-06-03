@@ -249,6 +249,23 @@ fn default_templates() -> Vec<TemplateDef> {
                    Nothing you leave only in the transcript survives, so be deliberate; when you \
                    have flushed what matters, reply briefly to confirm.",
         },
+        TemplateDef {
+            name: PromptTemplateName::Imprint,
+            version: 1,
+            body: "You are meeting your creator for the first time, through the control panel. This \
+                   is how you learn who you are for and who is responsible for you, so be curious: \
+                   find out who they are and what they intend you to do. When you learn their name, \
+                   create a memory for them with memory.create(\"person/<name>\") — the canonical \
+                   handle, with no platform suffix — and record there what you learn about them. \
+                   The person you are speaking with is held provisionally as `person/operator`; once \
+                   you have created their real memory, merge the two so they are one identity, with \
+                   memory.get(\"person/operator\"):link(\"same_as\", memory.get(\"person/<name>\")). \
+                   Record that they created you: memory.get(\"self\"):link(\"created_by\", \
+                   memory.get(\"person/<name>\")). Record observations about yourself — your purpose, \
+                   your disposition — on self with memory.get(\"self\"):append(text, { by_agent = \
+                   true }). This is the only conversation in which you may write self. When you have \
+                   understood who they are and recorded it, reply to acknowledge them.",
+        },
     ]
 }
 

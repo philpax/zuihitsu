@@ -74,6 +74,7 @@ impl Session {
             &*engine.graph,
             engine.clock,
             context.teller.clone(),
+            context.authority,
             self.conversation,
         )?);
 

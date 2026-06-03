@@ -150,6 +150,8 @@ pub enum PromptTemplateName {
     TemporalExtraction,
     /// Frames the pre-compaction flush turn: write durable working state to memory before the cut.
     Flush,
+    /// Frames the control-panel imprint interview: meet the creator and form self-knowledge.
+    Imprint,
 }
 
 impl PromptTemplateName {
@@ -159,6 +161,7 @@ impl PromptTemplateName {
             PromptTemplateName::DescriptionRegen => "description-regen",
             PromptTemplateName::TemporalExtraction => "temporal-extraction",
             PromptTemplateName::Flush => "flush",
+            PromptTemplateName::Imprint => "imprint",
         }
     }
 }

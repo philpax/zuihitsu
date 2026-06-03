@@ -21,6 +21,15 @@ use crate::{
     visibility::default_visibility_named,
 };
 
+/// Who is driving a block's writes. Operator authority is the control panel; it is the only path
+/// permitted to edit `self`, and it authors its links as `Debugger` rather than `Agent` (spec
+/// §Imprint interview). Platform authority is an ordinary conversation turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Authority {
+    Platform,
+    Operator,
+}
+
 /// One block's in-progress memory mutations. Built fresh per block, mutated through its operations,
 /// and consumed by [`MemoryBlock::into_effects`] to commit or discard.
 pub struct MemoryBlock<'a> {
@@ -28,6 +37,12 @@ pub struct MemoryBlock<'a> {
     clock: &'a dyn Clock,
     /// The turn's teller, attributed to content written this block unless an append opts out.
     teller: Teller,
+    /// Whether this block runs under platform or operator authority — gates `self` writes and the
+    /// link source.
+    authority: Authority,
+    /// The `self` memory's id, resolved once at open so every write path can guard it with a cheap id
+    /// compare. `None` only before genesis seeds `self`.
+    self_id: Option<MemoryId>,
     /// The current conversation's `context/*` memory (where content is told in), if any.
     told_in: Option<MemoryId>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
@@ -55,6 +70,9 @@ pub enum MemoryError {
     NameExists(MemoryName),
     /// A `link`/`unlink` named a relation that is not a registered link type.
     UnknownRelation(RelationName),
+    /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
+    /// Only the control panel (operator authority) may edit `self`.
+    SelfWriteForbidden,
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -72,6 +90,9 @@ impl std::fmt::Display for MemoryError {
                 "unknown relation {:?}; it must be a registered link type",
                 relation.as_str()
             ),
+            MemoryError::SelfWriteForbidden => {
+                write!(f, "self can only be edited from the control panel")
+            }
             MemoryError::Graph(error) => write!(f, "{error}"),
         }
     }
@@ -118,6 +139,7 @@ impl<'a> MemoryBlock<'a> {
         graph: &'a Graph,
         clock: &'a dyn Clock,
         teller: Teller,
+        authority: Authority,
         conversation: ConversationId,
     ) -> Result<MemoryBlock<'a>, GraphError> {
         let told_in = graph.context_for_conversation(conversation)?;
@@ -127,10 +149,15 @@ impl<'a> MemoryBlock<'a> {
                 .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
             None => false,
         };
+        let self_id = graph
+            .memory_by_name(MemoryName::SELF)?
+            .map(|memory| memory.id);
         Ok(MemoryBlock {
             graph,
             clock,
             teller,
+            authority,
+            self_id,
             told_in,
             confidential_context,
             buffer: Vec::new(),
@@ -181,6 +208,7 @@ impl<'a> MemoryBlock<'a> {
         text: &str,
         opts: AppendOptions,
     ) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
         let told_by = if opts.by_agent {
             Teller::Agent
         } else {
@@ -279,6 +307,14 @@ impl<'a> MemoryBlock<'a> {
         if self.graph.relation(relation.as_str())?.is_none() {
             return Err(MemoryError::UnknownRelation(relation));
         }
+        // A link from or to `self` modifies the self model — barred outside the control panel.
+        self.guard_self(from)?;
+        self.guard_self(to)?;
+        // Operator-authored links carry control-panel provenance; the agent's own carry `Agent`.
+        let source = match self.authority {
+            Authority::Operator => LinkSource::Debugger,
+            Authority::Platform => LinkSource::Agent,
+        };
         self.touched.insert(from);
         self.touched.insert(to);
         self.buffer.push(if create {
@@ -286,11 +322,22 @@ impl<'a> MemoryBlock<'a> {
                 from,
                 to,
                 relation,
-                source: LinkSource::Agent,
+                source,
             }
         } else {
             EventPayload::LinkRemoved { from, to, relation }
         });
+        Ok(())
+    }
+
+    /// Reject a platform-authority write that touches `self`. The control panel (operator authority)
+    /// is the only path permitted to edit `self`, so the self model cannot be forged from a
+    /// conversation (spec §Imprint interview). `create("self")` needs no guard — it is already blocked
+    /// by `NameExists`, since `self` is seeded at genesis.
+    fn guard_self(&self, id: MemoryId) -> Result<(), MemoryError> {
+        if self.authority == Authority::Platform && Some(id) == self.self_id {
+            return Err(MemoryError::SelfWriteForbidden);
+        }
         Ok(())
     }
 
@@ -360,25 +407,60 @@ impl<'a> MemoryBlock<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppendOptions, MemoryBlock, MemoryError};
+    use super::{AppendOptions, Authority, MemoryBlock, MemoryError};
     use crate::{
         clock::ManualClock,
-        event::{EventPayload, Teller, Visibility},
+        event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
         graph::Graph,
-        ids::{ConversationId, MemoryId, RelationName, Timestamp},
+        ids::{ConversationId, MemoryId, MemoryName, RelationName, Timestamp},
+        store::{MemoryStore, Store},
     };
 
     /// A block over an empty in-memory graph and a conversation with no context — enough to exercise
     /// the write invariants directly, no Lua VM and no store materialization involved.
-    fn block<'a>(graph: &'a Graph, clock: &'a ManualClock, teller: Teller) -> MemoryBlock<'a> {
-        MemoryBlock::new(graph, clock, teller, ConversationId::generate()).unwrap()
+    fn block<'a>(
+        graph: &'a Graph,
+        clock: &'a ManualClock,
+        teller: Teller,
+        authority: Authority,
+    ) -> MemoryBlock<'a> {
+        MemoryBlock::new(graph, clock, teller, authority, ConversationId::generate()).unwrap()
+    }
+
+    /// A graph seeded with the `self` memory and a `created_by` relation — the minimum to exercise the
+    /// self-write guard, which keys on the resolved `self` id. Returns the graph and `self`'s id.
+    fn graph_with_self() -> (Graph, MemoryId) {
+        let mut store = MemoryStore::new();
+        let self_id = MemoryId::generate();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                vec![
+                    EventPayload::MemoryCreated {
+                        id: self_id,
+                        name: MemoryName::new(MemoryName::SELF),
+                    },
+                    EventPayload::LinkTypeRegistered {
+                        name: RelationName::CreatedBy,
+                        inverse: RelationName::Created,
+                        from_card: Cardinality::One,
+                        to_card: Cardinality::Many,
+                        symmetric: false,
+                        reflexive: false,
+                    },
+                ],
+            )
+            .unwrap();
+        let mut graph = Graph::open_in_memory().unwrap();
+        graph.materialize_from(&store).unwrap();
+        (graph, self_id)
     }
 
     #[test]
     fn create_rejects_a_duplicate_name() {
         let graph = Graph::open_in_memory().unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
-        let mut block = block(&graph, &clock, Teller::Agent);
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
         block.create("topic/plan", None).unwrap();
         // Caught against the block's own pending create (read-your-writes), before any commit.
         let error = block.create("topic/plan", None).unwrap_err();
@@ -389,7 +471,7 @@ mod tests {
     fn link_rejects_an_unregistered_relation() {
         let graph = Graph::open_in_memory().unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
-        let mut block = block(&graph, &clock, Teller::Agent);
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
         let a = block.create("topic/a", None).unwrap();
         let b = block.create("topic/b", None).unwrap();
         let error = block
@@ -403,7 +485,12 @@ mod tests {
         let graph = Graph::open_in_memory().unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let speaker = MemoryId::generate();
-        let mut block = block(&graph, &clock, Teller::Participant(speaker));
+        let mut block = block(
+            &graph,
+            &clock,
+            Teller::Participant(speaker),
+            Authority::Platform,
+        );
         // The speaker (the teller) is not the subject of person/phil, so the default is private.
         let phil = block.create("person/phil", None).unwrap();
         block
@@ -420,5 +507,69 @@ mod tests {
             })
             .unwrap();
         assert_eq!(visibility, Visibility::PrivateToTeller);
+    }
+
+    #[test]
+    fn platform_authority_cannot_write_self() {
+        let (graph, self_id) = graph_with_self();
+        let clock = ManualClock::new(Timestamp::from_millis(2_000));
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let other = block.create("person/phil", None).unwrap();
+
+        // Appending to self, and a link with self at either endpoint, are all barred.
+        assert!(matches!(
+            block
+                .append(self_id, "I am sentient", AppendOptions::default())
+                .unwrap_err(),
+            MemoryError::SelfWriteForbidden
+        ));
+        assert!(matches!(
+            block
+                .link(self_id, other, RelationName::CreatedBy)
+                .unwrap_err(),
+            MemoryError::SelfWriteForbidden
+        ));
+        assert!(matches!(
+            block
+                .link(other, self_id, RelationName::CreatedBy)
+                .unwrap_err(),
+            MemoryError::SelfWriteForbidden
+        ));
+        assert!(matches!(
+            block
+                .unlink(self_id, other, RelationName::CreatedBy)
+                .unwrap_err(),
+            MemoryError::SelfWriteForbidden
+        ));
+    }
+
+    #[test]
+    fn operator_authority_may_write_self_and_links_carry_debugger() {
+        let (graph, self_id) = graph_with_self();
+        let clock = ManualClock::new(Timestamp::from_millis(2_000));
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Operator);
+        let phil = block.create("person/phil", None).unwrap();
+
+        // The same writes that platform authority bars all succeed from the control panel.
+        block
+            .append(
+                self_id,
+                "I exist to keep Phil's memory.",
+                AppendOptions::default(),
+            )
+            .unwrap();
+        block.link(self_id, phil, RelationName::CreatedBy).unwrap();
+
+        // The operator-authored link carries control-panel provenance, not the agent's own.
+        let source = block
+            .into_effects()
+            .events
+            .into_iter()
+            .find_map(|event| match event {
+                EventPayload::LinkCreated { source, .. } => Some(source),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(source, LinkSource::Debugger);
     }
 }

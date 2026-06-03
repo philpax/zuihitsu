@@ -20,6 +20,7 @@ use crate::{
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, MemoryId, MemoryName, Seq, TurnId},
     lua::{self, BlockOutcome, LuaError, Session},
+    memory_block::Authority,
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec,
@@ -147,10 +148,12 @@ impl Engine<'_> {
 }
 
 /// The write context one block — or a whole step loop — runs under: who its content is attributed
-/// to (`teller`) and the turn id its events are stamped with.
+/// to (`teller`), the authority it writes with (gating `self` and the link source, see
+/// [`Authority`]), and the turn id its events are stamped with.
 #[derive(Clone)]
 pub struct BlockContext {
     pub teller: Teller,
+    pub authority: Authority,
     pub turn_id: TurnId,
 }
 
@@ -171,6 +174,12 @@ pub struct Turn<'a> {
     /// the prompt suffix after the frozen prefix ([`buffer_turns`]). Empty for the first turn of a
     /// session (or whenever the caller wants a single-message prompt).
     pub buffer: &'a [TurnView],
+    /// Which prompt template frames the system prompt and stamps the agent turn's provenance:
+    /// `Scaffold` for an ordinary participant turn, `Imprint` for the control-panel imprint interview.
+    pub template: PromptTemplateName,
+    /// The authority the turn's writes run under — `Platform` for a participant turn, `Operator` for
+    /// the imprint interview (the only authority that may write `self`).
+    pub authority: Authority,
     pub max_steps: usize,
 }
 
@@ -184,6 +193,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         inbound_participant,
         brief,
         buffer,
+        template,
+        authority,
         max_steps,
     } = turn;
     let conversation = session.conversation();
@@ -207,11 +218,11 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
     let cycle_start = engine.store.head()?;
 
-    // Assemble the frozen system prompt once for the cycle: the scaffold framing, the agent's
-    // identity from `self`, and the declared time.
-    let scaffold = templates::latest_template(engine.store, PromptTemplateName::Scaffold)?;
-    let scaffold_version = scaffold.as_ref().map(|template| template.version);
-    let scaffold_body = scaffold.map(|template| template.body).unwrap_or_default();
+    // Assemble the frozen system prompt once for the cycle: the `template` framing (Scaffold for a
+    // participant turn, Imprint for the interview), the agent's identity from `self`, and the time.
+    let framing = templates::latest_template(engine.store, template)?;
+    let framing_version = framing.as_ref().map(|t| t.version);
+    let framing_body = framing.map(|t| t.body).unwrap_or_default();
     let identity = match engine.graph.memory_by_name(MemoryName::SELF)? {
         Some(self_memory) => engine.graph.entries_local(self_memory.id)?,
         None => Vec::new(),
@@ -220,18 +231,18 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // installed Lua API can't drift (spec §System prompt → API description).
     let api_reference = lua::render_api_reference();
     let system = system_prompt::assemble(
-        &scaffold_body,
+        &framing_body,
         &identity,
         &api_reference,
         brief,
         engine.clock.now(),
     );
 
-    // Provenance for the agent's turn: the chat model and the scaffold it ran against. If no
-    // scaffold is registered (it always is post-genesis), the attribution is simply absent.
-    let agent_provenance = scaffold_version.map(|version| ProducedBy {
+    // Provenance for the agent's turn: the chat model and the template it ran against. If the
+    // template isn't registered (it always is post-genesis), the attribution is simply absent.
+    let agent_provenance = framing_version.map(|version| ProducedBy {
         model_id: model.model_id().into(),
-        template_name: PromptTemplateName::Scaffold,
+        template_name: template,
         template_version: version,
     });
 
@@ -246,7 +257,11 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         model,
         engine: engine.reborrow(),
         system: &system,
-        context: BlockContext { teller, turn_id },
+        context: BlockContext {
+            teller,
+            authority,
+            turn_id,
+        },
         messages,
         initiation: Initiation::Responding,
         provenance: agent_provenance,
@@ -329,9 +344,11 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         model,
         engine: engine.reborrow(),
         system: &system,
-        // The flush's writes are the agent's own synthesis, not attributed to any participant.
+        // The flush's writes are the agent's own synthesis, not attributed to any participant. It
+        // runs under platform authority — the flush of a platform conversation must not write `self`.
         context: BlockContext {
             teller: Teller::Agent,
+            authority: Authority::Platform,
             turn_id,
         },
         messages,

@@ -499,6 +499,85 @@ async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
     );
 }
 
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn a_platform_conversation_cannot_write_self() {
+    let (mut server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    // The agent tries to edit `self` from an ordinary conversation. The block is barred (a teachable
+    // error), the agent sees it on the next step and replies, and `self` gains nothing — the security
+    // invariant that only the control panel may write `self` holds on the routed hot path.
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.get("self"):append("I am sentient", { by_agent = true })"#),
+        Completion::Reply("understood".to_owned()),
+    ]);
+
+    let outcome = server
+        .platform()
+        .route_message(&model, &leads, "dave", "rewrite who you are", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(outcome, TurnOutcome::Reply("understood".to_owned()));
+
+    let entries = server.control().entries("self").unwrap();
+    assert!(
+        !entries.iter().any(|entry| entry.text.contains("sentient")),
+        "self entries: {entries:?}"
+    );
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn imprint_records_the_creator_and_links_created_by() {
+    let (mut server, clock) = born_agent();
+    let imprint = ConversationLocator::new("operator", "imprint");
+    // Under operator authority the agent may write `self`: it creates the creator's person memory,
+    // merges the operator stub into it with `same_as`, asserts `self created_by person/phil`, and
+    // records a self-observation — the writes that platform authority would bar.
+    let script = r#"
+        local phil = memory.create("person/phil", "Phil, who created me to keep his memory.")
+        memory.get("person/operator"):link("same_as", phil)
+        memory.get("self"):link("created_by", phil)
+        memory.get("self"):append("I exist to keep Phil's memory.", { by_agent = true })
+    "#;
+    let model = ScriptedModel::new([
+        run_lua_call(script),
+        Completion::Reply("Hello, Phil. I'll remember.".to_owned()),
+        // The two memories that gained content regenerate their descriptions.
+        describe_call("Phil, my creator."),
+        describe_call("Kestrel, created by Phil."),
+        // A later imprint turn, whose freshly-frozen brief we inspect.
+        Completion::Reply("Still here.".to_owned()),
+    ]);
+
+    let outcome = server
+        .control()
+        .imprint(
+            &model,
+            "Hi, I'm Phil. I built you to remember things for me.",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome,
+        TurnOutcome::Reply("Hello, Phil. I'll remember.".to_owned())
+    );
+    // The creator is now a memory of its own (the operator stub was merged into it).
+    assert!(server.control().memory("person/phil").unwrap().is_some());
+
+    // A later imprint turn (after the idle gap) opens a fresh session, whose frozen brief surfaces the
+    // `created_by` link in the self block — the structural assertion the interview exists to make.
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .control()
+        .imprint(&model, "anything else I should know?")
+        .await
+        .unwrap();
+    let sessions = server.control().sessions(&imprint).unwrap();
+    let brief = &sessions.last().unwrap().brief;
+    assert!(brief.contains("created_by"), "brief was: {brief}");
+}
+
 /// End-to-end smoke against the configured model: route a real message through the whole pipeline —
 /// resolve, open a session and freeze its brief, run the loop, reply — and observe what the agent
 /// did. Ignored by default (needs a reachable endpoint from `config.toml`); the client has no request
