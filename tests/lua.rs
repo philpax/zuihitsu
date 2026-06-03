@@ -274,6 +274,24 @@ fn link_with_an_unregistered_relation_is_a_teachable_error() {
 }
 
 #[test]
+fn creating_a_duplicate_name_is_a_teachable_error() {
+    let mut h = Harness::new();
+    h.run(r#"memory.create("topic/plan", "first")"#);
+    // Re-creating the same name is a teachable block error, not a fatal unique-constraint failure
+    // that would poison the log.
+    let outcome = h.run(r#"memory.create("topic/plan", "second")"#);
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(message.contains("already exists"), "message was: {message}");
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+    // The original memory is intact; the rejected create committed nothing.
+    let plan = h.graph.memory_by_name("topic/plan").unwrap().unwrap();
+    assert_eq!(h.graph.entries_local(plan.id).unwrap().len(), 1);
+}
+
+#[test]
 fn committed_memory_is_visible_to_a_later_block() {
     let mut h = Harness::new();
     h.run(r#"memory.create("topic/sourdough", "A naturally leavened bread")"#);

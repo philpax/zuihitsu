@@ -206,6 +206,17 @@ impl Session {
             memory.set(
                 "create",
                 scope.create_function(|lua, (name, content): (String, Option<String>)| {
+                    // A name is unique. Reject a collision at block time as a teachable error, before
+                    // anything is buffered — otherwise the duplicate `MemoryCreated` commits to the
+                    // log and only fails at materialize, poisoning replay.
+                    if resolve_name(&block_ref.borrow(), graph_ref, &name)
+                        .map_err(to_lua_err)?
+                        .is_some()
+                    {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "a memory named {name:?} already exists; fetch it with memory.get"
+                        )));
+                    }
                     let id = MemoryId::generate();
                     let mut state = block_ref.borrow_mut();
                     state.touched.insert(id);
