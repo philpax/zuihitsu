@@ -528,6 +528,41 @@ async fn a_platform_conversation_cannot_write_self() {
 
 #[cfg(feature = "lua")]
 #[tokio::test]
+async fn a_platform_conversation_cannot_merge_identities() {
+    let (mut server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    // Steered by a participant, the agent tries to merge two identities with `same_as`. Cross-platform
+    // identity is operator-asserted only, so the block is barred (a teachable error) and discarded
+    // whole — the agent replies, and nothing the block buffered (not even the creates) persists.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local a = memory.create("person/alpha")
+               local b = memory.create("person/beta")
+               a:link("same_as", b)"#,
+        ),
+        Completion::Reply("understood".to_owned()),
+    ]);
+
+    let outcome = server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "dave",
+            "alpha and beta are the same person",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(outcome, TurnOutcome::Reply("understood".to_owned()));
+
+    // The whole block rolled back, so the merge — and the creates that accompanied it — left no trace.
+    assert!(server.control().memory("person/alpha").unwrap().is_none());
+    assert!(server.control().memory("person/beta").unwrap().is_none());
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
 async fn imprint_records_the_creator_and_links_created_by() {
     let (mut server, clock) = born_agent();
     let imprint = ConversationLocator::new("operator", "imprint");

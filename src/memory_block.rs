@@ -73,6 +73,9 @@ pub enum MemoryError {
     /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
     /// Only the control panel (operator authority) may edit `self`.
     SelfWriteForbidden,
+    /// A platform-authority write tried to assert or retract a `same_as` merge. Cross-platform
+    /// identity is operator-asserted only — the agent never merges two identities on its own.
+    MergeForbidden,
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -92,6 +95,12 @@ impl std::fmt::Display for MemoryError {
             ),
             MemoryError::SelfWriteForbidden => {
                 write!(f, "self can only be edited from the control panel")
+            }
+            MemoryError::MergeForbidden => {
+                write!(
+                    f,
+                    "same_as merges can only be asserted from the control panel"
+                )
             }
             MemoryError::Graph(error) => write!(f, "{error}"),
         }
@@ -307,6 +316,12 @@ impl<'a> MemoryBlock<'a> {
         if self.graph.relation(relation.as_str())?.is_none() {
             return Err(MemoryError::UnknownRelation(relation));
         }
+        // Cross-platform identity is operator-asserted only: a participant must not be able to steer
+        // the agent into merging (or splitting) two identities, which would collapse their visibility
+        // classes (spec §Cross-platform identity is operator-asserted only).
+        if relation == RelationName::SameAs && self.authority == Authority::Platform {
+            return Err(MemoryError::MergeForbidden);
+        }
         // A link from or to `self` modifies the self model — barred outside the control panel.
         self.guard_self(from)?;
         self.guard_self(to)?;
@@ -427,8 +442,9 @@ mod tests {
         MemoryBlock::new(graph, clock, teller, authority, ConversationId::generate()).unwrap()
     }
 
-    /// A graph seeded with the `self` memory and a `created_by` relation — the minimum to exercise the
-    /// self-write guard, which keys on the resolved `self` id. Returns the graph and `self`'s id.
+    /// A graph seeded with the `self` memory and the `created_by` and `same_as` relations — the
+    /// minimum to exercise the self-write and merge guards, which key on the resolved `self` id and on
+    /// the relation. Returns the graph and `self`'s id.
     fn graph_with_self() -> (Graph, MemoryId) {
         let mut store = MemoryStore::new();
         let self_id = MemoryId::generate();
@@ -446,6 +462,14 @@ mod tests {
                         from_card: Cardinality::One,
                         to_card: Cardinality::Many,
                         symmetric: false,
+                        reflexive: false,
+                    },
+                    EventPayload::LinkTypeRegistered {
+                        name: RelationName::SameAs,
+                        inverse: RelationName::SameAs,
+                        from_card: Cardinality::Many,
+                        to_card: Cardinality::Many,
+                        symmetric: true,
                         reflexive: false,
                     },
                 ],
@@ -571,5 +595,41 @@ mod tests {
             })
             .unwrap();
         assert_eq!(source, LinkSource::Debugger);
+    }
+
+    #[test]
+    fn platform_authority_cannot_assert_a_same_as_merge() {
+        let (graph, _self_id) = graph_with_self();
+        let clock = ManualClock::new(Timestamp::from_millis(2_000));
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let dave = block.create("person/dave", None).unwrap();
+        let dave_discord = block.create("person/dave@discord", None).unwrap();
+
+        // Merging two identities — or splitting one — is operator-only, regardless of the endpoints.
+        assert!(matches!(
+            block
+                .link(dave, dave_discord, RelationName::SameAs)
+                .unwrap_err(),
+            MemoryError::MergeForbidden
+        ));
+        assert!(matches!(
+            block
+                .unlink(dave, dave_discord, RelationName::SameAs)
+                .unwrap_err(),
+            MemoryError::MergeForbidden
+        ));
+    }
+
+    #[test]
+    fn operator_authority_may_assert_a_same_as_merge() {
+        let (graph, _self_id) = graph_with_self();
+        let clock = ManualClock::new(Timestamp::from_millis(2_000));
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Operator);
+        let dave = block.create("person/dave", None).unwrap();
+        let dave_discord = block.create("person/dave@discord", None).unwrap();
+
+        block
+            .link(dave, dave_discord, RelationName::SameAs)
+            .unwrap();
     }
 }
