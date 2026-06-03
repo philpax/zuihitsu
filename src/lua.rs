@@ -83,7 +83,13 @@ impl Session {
             .set("__index", methods.clone())
             .map_err(LuaError::Vm)?;
 
+        // A graph read failing inside an operation is infrastructure, not the agent's doing — it is
+        // stashed here and bubbled up as a `LuaError` after the scope, rather than shown to the agent
+        // as a teachable block error.
+        let infra: RefCell<Option<GraphError>> = RefCell::new(None);
+
         let block_ref = &block;
+        let infra_ref = &infra;
         let metatable = &metatable;
         let methods = &methods;
         let evaluated = self.lua.scope(|scope| {
@@ -103,7 +109,7 @@ impl Session {
                     block_ref
                         .borrow_mut()
                         .append(id, &text, opts)
-                        .map_err(into_lua_err)
+                        .map_err(|error| route_error(error, infra_ref))
                 })?,
             )?;
 
@@ -112,7 +118,10 @@ impl Session {
                 "entries",
                 scope.create_function(|lua, this: Table| {
                     let id = handle_id(&this)?;
-                    let texts = block_ref.borrow_mut().entries(id).map_err(into_lua_err)?;
+                    let texts = block_ref
+                        .borrow_mut()
+                        .entries(id)
+                        .map_err(|error| route_error(error, infra_ref))?;
                     lua.create_sequence_from(texts)
                 })?,
             )?;
@@ -125,7 +134,7 @@ impl Session {
                     block_ref
                         .borrow_mut()
                         .link(handle_id(&this)?, handle_id(&other)?, &relation)
-                        .map_err(into_lua_err)
+                        .map_err(|error| route_error(error, infra_ref))
                 })?,
             )?;
             methods.set(
@@ -134,7 +143,7 @@ impl Session {
                     block_ref
                         .borrow_mut()
                         .unlink(handle_id(&this)?, handle_id(&other)?, &relation)
-                        .map_err(into_lua_err)
+                        .map_err(|error| route_error(error, infra_ref))
                 })?,
             )?;
 
@@ -145,7 +154,7 @@ impl Session {
                     let id = block_ref
                         .borrow_mut()
                         .create(&name, content.as_deref())
-                        .map_err(into_lua_err)?;
+                        .map_err(|error| route_error(error, infra_ref))?;
                     make_handle(lua, id, metatable)
                 })?,
             )?;
@@ -154,7 +163,11 @@ impl Session {
             memory.set(
                 "get",
                 scope.create_function(|lua, name: String| {
-                    match block_ref.borrow_mut().get(&name).map_err(into_lua_err)? {
+                    match block_ref
+                        .borrow_mut()
+                        .get(&name)
+                        .map_err(|error| route_error(error, infra_ref))?
+                    {
                         Some(id) => Ok(Value::Table(make_handle(lua, id, metatable)?)),
                         None => Ok(Value::Nil),
                     }
@@ -195,6 +208,13 @@ impl Session {
                 .eval::<Value>()
                 .map(|value| render(&value)))
         });
+
+        // An infrastructure failure during the block (a graph read) takes precedence over the
+        // script's apparent outcome: it bubbles up, discarding the buffer, rather than reaching the
+        // agent.
+        if let Some(graph_error) = infra.into_inner() {
+            return Err(LuaError::Graph(graph_error));
+        }
 
         let BlockEffects {
             events,
@@ -423,9 +443,18 @@ fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
         .map_err(|e| mlua::Error::RuntimeError(format!("invalid memory handle id {id:?}: {e}")))
 }
 
-/// Map a [`MemoryError`] to the teachable Lua runtime error the agent sees as the block's result.
-fn into_lua_err(error: MemoryError) -> mlua::Error {
-    mlua::Error::RuntimeError(error.to_string())
+/// Route a memory operation's error. A teachable violation (a duplicate name, an unknown relation)
+/// becomes the Lua runtime error the agent sees as the block's terminal cause. A graph read failure
+/// is infrastructure, not the agent's doing: it is stashed in `infra` for `execute` to bubble up as a
+/// [`LuaError`], and the returned Lua error only serves to stop the script.
+fn route_error(error: MemoryError, infra: &RefCell<Option<GraphError>>) -> mlua::Error {
+    match error {
+        MemoryError::Graph(graph_error) => {
+            *infra.borrow_mut() = Some(graph_error);
+            mlua::Error::RuntimeError("internal graph error".to_owned())
+        }
+        teachable => mlua::Error::RuntimeError(teachable.to_string()),
+    }
 }
 
 /// Render a script's final value to the text the agent sees back (REPL-style).
