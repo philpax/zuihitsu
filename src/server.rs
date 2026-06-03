@@ -25,7 +25,7 @@ use crate::{
     clock::Clock,
     event::{EventPayload, EventSource},
     genesis::{self, GenesisStatus, Rollout, SeedSelf},
-    graph::{Graph, GraphError, MemoryView, SessionView},
+    graph::{EntryView, Graph, GraphError, MemoryView, SessionView},
     ids::ConversationLocator,
     settings::Settings,
     store::{MemoryStore, Store, StoreError},
@@ -545,6 +545,19 @@ impl Control<'_> {
     /// Inspect the live memories in a namespace (e.g. `"person/"`), ordered by name.
     pub fn memories(&self, prefix: &str) -> Result<Vec<MemoryView>, ServerError> {
         Ok(self.server.graph.memories_in_namespace(prefix)?)
+    }
+
+    /// Inspect a memory's local content entries by name — their text, teller, and visibility — for
+    /// auditing what was written and how it is gated (e.g. that a private aside was not stored
+    /// `Public`). Empty if the memory is unknown.
+    pub fn entries(&self, name: &str) -> Result<Vec<EntryView>, ServerError> {
+        Ok(self
+            .server
+            .graph
+            .memory_by_name(name)?
+            .map(|m| self.server.graph.entries_local(m.id))
+            .transpose()?
+            .unwrap_or_default())
     }
 
     /// The agent's current behavioral settings: the latest `ConfigSet` snapshot.
