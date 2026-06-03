@@ -95,6 +95,35 @@ pub fn buffer_turns(
     Ok(turns)
 }
 
+/// The distinct memory IDs the `conversation`'s blocks touched (read or wrote) from `from_seq`,
+/// unioned across its `LuaExecuted` events in first-touch order — the touch-derived working set
+/// carried across a compaction seam (spec §Compaction → working-set carryover). The read half is as
+/// valuable as the write half: the agent looked something up because it was relevant.
+pub fn session_touched(
+    store: &dyn Store,
+    conversation: ConversationId,
+    from_seq: Seq,
+) -> Result<Vec<MemoryId>, StoreError> {
+    let mut seen = BTreeSet::new();
+    let mut ordered = Vec::new();
+    for event in store.read_from(from_seq)? {
+        if let EventPayload::LuaExecuted {
+            conversation: block_conversation,
+            touched,
+            ..
+        } = event.payload
+            && block_conversation == conversation
+        {
+            for id in touched {
+                if seen.insert(id) {
+                    ordered.push(id);
+                }
+            }
+        }
+    }
+    Ok(ordered)
+}
+
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model`, `store`,
 /// `graph`, `clock`), the `inbound` participant message and its `inbound_participant` (the speaker's
 /// `person/*` stub, whose content the turn's writes are attributed to), and the step budget.

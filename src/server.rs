@@ -10,7 +10,10 @@
 
 #[cfg(feature = "lua")]
 use crate::{
-    agent::{Flush, Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_flush, run_turn},
+    agent::{
+        Flush, Turn, TurnError, TurnOutcome, TurnView, buffer_turns, run_flush, run_turn,
+        session_touched,
+    },
     brief::{self, BriefError},
     event::{Initiation, TurnRole},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
@@ -101,6 +104,10 @@ impl Server {
 struct Carryover {
     seeded_from_turn: TurnId,
     from_seq: Seq,
+    /// The memories the ending session touched (read or wrote), re-surfaced in the new session's
+    /// brief as active threads — the touch-derived working set (spec §Compaction → working-set
+    /// carryover).
+    working_set: Vec<MemoryId>,
 }
 
 /// The live session backing a conversation (runtime state, see [`Server::sessions`]).
@@ -261,13 +268,23 @@ impl Platform<'_> {
         }
 
         // A pending carryover from a just-compacted session seeds the new one: the next buffer read
-        // starts at the carried tail (not this `SessionStarted`), and the boundary is recorded as
-        // `seeded_from_turn` for faithful replay (spec §Compaction → raw-transcript carryover).
+        // starts at the carried tail (not this `SessionStarted`), the boundary is recorded as
+        // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
+        // brief as active threads (spec §Compaction → carryover).
         let carryover = self.server.pending_carryover.remove(&conversation);
         let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
+        let working_set: &[MemoryId] = carryover
+            .as_ref()
+            .map_or(&[], |carry| carry.working_set.as_slice());
 
         let context = self.server.graph.context_for_conversation(conversation)?;
-        let brief = brief::compose(&self.server.graph, present_set, context, &settings.brief)?;
+        let brief = brief::compose(
+            &self.server.graph,
+            present_set,
+            context,
+            &settings.brief,
+            working_set,
+        )?;
         let id = SessionId::generate();
         let committed = self.server.store.append(
             now,
@@ -414,9 +431,14 @@ impl Platform<'_> {
             }],
         )?;
 
-        // Re-read the buffer (now including any flush turn) for the carried tail.
+        // Re-read the buffer (now including any flush turn) for the carried tail, and the touched set
+        // (likewise including the flush's writes) for the working-set carryover.
         let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
-        if let Some(carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget) {
+        let working_set =
+            session_touched(self.server.store.as_ref(), conversation, open.start_seq)?;
+        if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
+        {
+            carry.working_set = working_set;
             self.server.pending_carryover.insert(conversation, carry);
         }
         tracing::info!(
@@ -449,6 +471,8 @@ fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<Carryover> {
     oldest.map(|turn| Carryover {
         seeded_from_turn: turn.turn_id,
         from_seq: turn.seq,
+        // Filled in by the caller, which has the session's touched set.
+        working_set: Vec::new(),
     })
 }
 

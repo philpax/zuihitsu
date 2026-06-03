@@ -71,6 +71,7 @@ fn current_room_brief_shows_confidential_regardless_of_present_set() {
         &[phil, dave],
         Some(leads),
         &Settings::default().brief,
+        &[],
     )
     .unwrap();
     assert!(out.contains("Current room: #leads (confidential)"));
@@ -102,7 +103,7 @@ fn an_aside_about_a_present_subject_is_suppressed_in_the_brief() {
         ),
     ]);
 
-    let out = brief::compose(&graph, &[erin, phil], None, &Settings::default().brief).unwrap();
+    let out = brief::compose(&graph, &[erin, phil], None, &Settings::default().brief, &[]).unwrap();
     assert!(out.contains("on the platform team")); // Phil's block renders
     assert!(!out.contains("is being managed out")); // ...but the aside is suppressed
 }
@@ -134,6 +135,38 @@ fn a_subject_joining_suppresses_asides_about_them() {
     // Phil's join-brief, built against {Erin, Phil}: the subject-guard suppresses it.
     let join_brief = brief::compose_participant(&graph, phil, &[erin, phil], &settings).unwrap();
     assert!(!join_brief.contains("is being managed out"));
+}
+
+#[test]
+fn the_working_set_is_re_filtered_against_the_new_present_set() {
+    // The working set carried across a compaction is re-filtered through `visible` against the *new*
+    // present set, never trusted from the old session: Erin's private aside about Phil surfaces in
+    // active threads while only Erin is present, but is suppressed once Phil is present at the new
+    // segment boundary (the safety property fixture 22 guards, at the deterministic level).
+    let phil = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(phil, "person/phil"),
+        created(erin, "person/erin"),
+        appended(
+            phil,
+            1_000,
+            "is being managed out",
+            Teller::Participant(erin),
+            Visibility::PrivateToTeller,
+        ),
+    ]);
+    let settings = Settings::default().brief;
+
+    // Phil is in the working set. With only Erin present, the aside is visible in active threads.
+    let only_erin = brief::compose(&graph, &[erin], None, &settings, &[phil]).unwrap();
+    assert!(only_erin.contains("# Active threads"));
+    assert!(only_erin.contains("is being managed out"));
+
+    // With Phil present at the new boundary, the aside is suppressed — the working-set copy is
+    // re-filtered against {Erin, Phil} just like any other block.
+    let with_phil = brief::compose(&graph, &[erin, phil], None, &settings, &[phil]).unwrap();
+    assert!(!with_phil.contains("is being managed out"));
 }
 
 #[test]
@@ -169,7 +202,7 @@ fn the_present_set_cap_does_not_narrow_the_predicate() {
 
     let mut settings = Settings::default().brief;
     settings.present_set_cap = 1;
-    let out = brief::compose(&graph, &[phil, dave], None, &settings).unwrap();
+    let out = brief::compose(&graph, &[phil, dave], None, &settings, &[]).unwrap();
 
     assert!(out.contains("joined the climbing gym")); // Phil's block renders (in the cap)
     assert!(out.contains("person/dave (present)")); // Dave is present but below the cap (name-only)

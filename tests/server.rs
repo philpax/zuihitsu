@@ -376,6 +376,47 @@ async fn a_low_activity_session_skips_the_flush() {
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 }
 
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn the_working_set_carries_into_the_next_session_brief() {
+    let (mut server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::with_usage([
+        // Turn 1 touches a memory, then crosses the budget (two turns — below the flush gate).
+        (
+            run_lua_call(r#"memory.create("topic/roadmap", "Plan the Q3 work")"#),
+            10,
+        ),
+        (Completion::Reply("on it".to_owned()), 200),
+        // Regeneration of the touched memory's description.
+        (describe_call("The team's Q3 roadmap."), 0),
+        // Turn 2 opens the re-segmented session; its frozen brief is what we inspect.
+        (Completion::Reply("hello again".to_owned()), 0),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "let's plan", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .await
+        .unwrap();
+
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert_eq!(sessions.len(), 2);
+    // The re-segmented session's brief re-surfaces the touched memory as an active thread.
+    let brief = &sessions[1].brief;
+    assert!(brief.contains("# Active threads"), "brief was: {brief}");
+    assert!(brief.contains("topic/roadmap"), "brief was: {brief}");
+}
+
 /// End-to-end smoke against the configured model: route a real message through the whole pipeline —
 /// resolve, open a session and freeze its brief, run the loop, reply — and observe what the agent
 /// did. Ignored by default (needs a reachable endpoint from `config.toml`); the client has no request

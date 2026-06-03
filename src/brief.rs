@@ -54,12 +54,16 @@ impl From<GraphError> for BriefError {
 
 /// Compose the contextual brief for `present_set` in the room `current_context`. The predicate
 /// always resolves against the full `present_set`; `settings.present_set_cap` bounds only how many
-/// participants get a full block, with the remainder collapsed to name-only.
+/// participants get a full block, with the remainder collapsed to name-only. `working_set` is the
+/// memories carried across a compaction seam (empty otherwise), rendered as an active-threads
+/// section so continuity holds — re-filtered through `visible` against the present set like any other
+/// block (spec §Compaction → working-set carryover).
 pub fn compose(
     graph: &Graph,
     present_set: &[MemoryId],
     current_context: Option<MemoryId>,
     settings: &BriefSettings,
+    working_set: &[MemoryId],
 ) -> Result<String, BriefError> {
     // The visibility predicate resolves identity over the `same_as` class.
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
@@ -114,6 +118,35 @@ pub fn compose(
                 // given a full block (spec §Present-set cap).
                 let _ = writeln!(out, "- {} (present)", memory.name.as_str());
             }
+        }
+    }
+
+    // 6. Active threads — the working set carried across a compaction seam: the memories the ending
+    //    session touched, re-surfaced so the new session does not lose the thread. Each is rendered
+    //    in the per-participant shape, so its facts are re-filtered through `visible` against the new
+    //    present set (an aside about a now-present subject is suppressed). Self, the current room, and
+    //    present participants are already shown above, so they are skipped to avoid duplication.
+    if !working_set.is_empty() {
+        let self_id = graph.memory_by_name("self")?.map(|memory| memory.id);
+        let mut threads = String::new();
+        for &id in working_set {
+            if Some(id) == self_id || Some(id) == current_context || present_set.contains(&id) {
+                continue;
+            }
+            let Some(memory) = graph.memory_by_id(id)? else {
+                continue;
+            };
+            let mut body = String::new();
+            render_memory_body(&mut body, graph, &memory, present_set, &class_of, recent)?;
+            if body.trim().is_empty() {
+                continue;
+            }
+            let _ = writeln!(threads, "## {}", memory.name.as_str());
+            threads.push_str(&body);
+        }
+        if !threads.is_empty() {
+            out.push_str("# Active threads\n");
+            out.push_str(&threads);
         }
     }
 
