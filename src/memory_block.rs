@@ -18,6 +18,7 @@ use crate::{
     event::{EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName},
+    temporal::TemporalRef,
     visibility::{default_visibility_named, subject_participant},
 };
 
@@ -143,13 +144,16 @@ pub enum VisibilityChoice {
 }
 
 /// The overrides an append accepts: `by_agent` records it as the agent's own observation rather than
-/// the speaker's; `visibility` forces the visibility instead of the write-time default. Deserialized
-/// straight from the Lua `opts` table.
+/// the speaker's; `visibility` forces the visibility instead of the write-time default; `occurred_at`
+/// records the real-world time the entry is *about*, distinct from when it is recorded (spec §Time).
+/// Deserialized straight from the Lua `opts` table — `occurred_at` is a tagged table (see
+/// [`TemporalRef`]).
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct AppendOptions {
     pub by_agent: bool,
     pub visibility: Option<VisibilityChoice>,
+    pub occurred_at: Option<TemporalRef>,
 }
 
 impl<'a> MemoryBlock<'a> {
@@ -211,7 +215,9 @@ impl<'a> MemoryBlock<'a> {
             name: MemoryName::new(name),
         });
         if let Some((text, teller, visibility)) = first_entry {
-            self.push_content(id, text, teller, visibility);
+            // A created memory's first entry carries no occurrence; `occurred_at` arrives via
+            // `mem:append`, matching the spec's `dave:append("...", { occurred_at = ... })` form.
+            self.push_content(id, text, teller, visibility, None);
         }
         Ok(id)
     }
@@ -248,7 +254,7 @@ impl<'a> MemoryBlock<'a> {
             &told_by,
             opts.visibility,
         )?;
-        self.push_content(id, text.to_owned(), told_by, visibility);
+        self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at);
         Ok(())
     }
 
@@ -412,12 +418,14 @@ impl<'a> MemoryBlock<'a> {
         text: String,
         told_by: Teller,
         visibility: Visibility,
+        occurred_at: Option<TemporalRef>,
     ) {
         self.touched.insert(id);
         self.buffer.push(EventPayload::MemoryContentAppended {
             id,
             entry_id: EntryId::generate(),
             asserted_at: self.clock.now(),
+            occurred_at,
             text,
             told_by,
             told_in: self.told_in,
@@ -703,6 +711,7 @@ mod tests {
                 AppendOptions {
                     by_agent: false,
                     visibility: Some(VisibilityChoice::Private),
+                    occurred_at: None,
                 },
             )
             .unwrap();

@@ -161,6 +161,7 @@ pub fn rollout(
                 id: self_id,
                 entry_id: EntryId::generate(),
                 asserted_at: clock.now(),
+                occurred_at: None,
                 text: text.clone(),
                 told_by: Teller::Bootstrap,
                 told_in: None,

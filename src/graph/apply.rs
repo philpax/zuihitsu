@@ -8,7 +8,8 @@ use rusqlite::{OptionalExtension, params};
 use super::{Graph, GraphError, backend};
 use crate::{
     event::{Event, EventPayload, Visibility},
-    ids::{MemoryId, RelationName},
+    ids::{MemoryId, MemoryName, RelationName, Timestamp},
+    temporal::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef},
 };
 
 impl Graph {
@@ -70,20 +71,46 @@ impl Graph {
                 id,
                 entry_id,
                 asserted_at,
+                occurred_at,
                 text,
                 told_by,
                 told_in,
                 visibility,
             } => {
+                // Denormalize the typed `occurred_at` into sortable columns at materialization time
+                // (spec §Time). A `BeforeAfter` resolves its anchor against the projection so far;
+                // every other variant is pure.
+                let bounds = match occurred_at {
+                    Some(reference) => {
+                        let anchor = match reference {
+                            TemporalRef::BeforeAfter { anchor, .. } => {
+                                self.anchor_bounds(anchor)?
+                            }
+                            _ => None,
+                        };
+                        reference.bounds(anchor, BEFORE_AFTER_EPSILON_MILLIS)
+                    }
+                    None => OccurrenceBounds::default(),
+                };
+                let occurred_json = occurred_at
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()
+                    .map_err(GraphError::Serialize)?;
                 self.conn
                     .execute(
                         "INSERT INTO content_entries \
-                         (entry_id, memory_id, asserted_at, text, told_by, told_in, visibility, seq)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                         (entry_id, memory_id, asserted_at, occurred_at, occurred_sort, \
+                          occurred_lo, occurred_hi, text, told_by, told_in, visibility, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         params![
                             entry_id.0.to_string(),
                             id.0.to_string(),
                             asserted_at.as_millis(),
+                            occurred_json,
+                            bounds.sort.map(Timestamp::as_millis),
+                            bounds.lo.map(Timestamp::as_millis),
+                            bounds.hi.map(Timestamp::as_millis),
                             text,
                             serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
                             told_in.map(|memory| memory.0.to_string()),
@@ -336,6 +363,37 @@ impl Graph {
         Ok(())
     }
 
+    /// The representative bounds of a `BeforeAfter` anchor, by name, for occurrence denormalization
+    /// (spec §Time). Resolved from the entries already projected, taking the anchor's earliest timed
+    /// entry. Deliberately **not** filtered by soft delete: `MemoryDeleted` preserves contents, so a
+    /// deleted anchor's occurrence stays resolvable (spec §Known limitations → `BeforeAfter`). `None`
+    /// when the anchor name is unknown or has no timed entry — the caller then derives empty bounds.
+    fn anchor_bounds(&self, anchor: &MemoryName) -> Result<Option<OccurrenceBounds>, GraphError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT e.occurred_sort, e.occurred_lo, e.occurred_hi
+                 FROM content_entries e JOIN memories m ON m.id = e.memory_id
+                 WHERE m.name = ?1 AND e.occurred_sort IS NOT NULL
+                 ORDER BY e.occurred_sort LIMIT 1",
+                params![anchor.as_str()],
+                |r| {
+                    Ok((
+                        r.get::<_, Option<i64>>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(backend)?;
+        Ok(row.map(|(sort, lo, hi)| OccurrenceBounds {
+            sort: sort.map(Timestamp::from_millis),
+            lo: lo.map(Timestamp::from_millis),
+            hi: hi.map(Timestamp::from_millis),
+        }))
+    }
+
     /// Resolve a link (asserted under either label) to its stored canonical direction:
     /// `(from_id, to_id, canonical_relation)`. A relation matched by its inverse swaps endpoints;
     /// a symmetric relation orders endpoints so `(a, b)` and `(b, a)` collapse to one edge. An
@@ -436,4 +494,74 @@ fn find(parent: &BTreeMap<String, String>, x: &str) -> String {
         cur = next.clone();
     }
     cur
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::params;
+
+    use super::Graph;
+    use crate::{
+        event::{Event, EventPayload, Teller, Visibility},
+        ids::{EntryId, MemoryId, MemoryName, Seq, Timestamp},
+        temporal::{CivilDate, TemporalRef},
+    };
+
+    fn event(seq: u64, payload: EventPayload) -> Event {
+        Event {
+            seq: Seq(seq),
+            recorded_at: Timestamp::from_millis(1),
+            payload,
+        }
+    }
+
+    /// The materializer must write all three denormalized columns from a single `TemporalRef`, in
+    /// the right slots — `occurred_sort` alone (the only column a read-side view exposes today) can't
+    /// catch a lo/hi column-order slip, so this asserts against the columns directly.
+    #[test]
+    fn occurrence_columns_match_the_derived_bounds() {
+        let mut graph = Graph::open_in_memory().unwrap();
+        let id = MemoryId::generate();
+        let entry = EntryId::generate();
+        let occurred = TemporalRef::Day(CivilDate("2026-06-03".into()));
+        graph
+            .apply(&event(
+                1,
+                EventPayload::MemoryCreated {
+                    id,
+                    name: MemoryName::new("event/cleaning"),
+                },
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                2,
+                EventPayload::MemoryContentAppended {
+                    id,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at: Some(occurred.clone()),
+                    text: "scheduled cleaning".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ))
+            .unwrap();
+
+        let columns: (Option<i64>, Option<i64>, Option<i64>) = graph
+            .conn
+            .query_row(
+                "SELECT occurred_sort, occurred_lo, occurred_hi
+                 FROM content_entries WHERE entry_id = ?1",
+                params![entry.0.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        let bounds = occurred.bounds(None, 0);
+        assert_eq!(columns.0, bounds.sort.map(Timestamp::as_millis));
+        assert_eq!(columns.1, bounds.lo.map(Timestamp::as_millis));
+        assert_eq!(columns.2, bounds.hi.map(Timestamp::as_millis));
+        assert!(columns.1 < columns.0 && columns.0 < columns.2);
+    }
 }

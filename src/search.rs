@@ -207,25 +207,132 @@ fn normalize_bm25(lexical: &[(MemoryId, f32)]) -> BTreeMap<MemoryId, f32> {
         .collect()
 }
 
-/// `exp(-Δt / τ(volatility))` over the memory's most recent assertion time (falling back to its
-/// creation time). Bounded to `[0, 1]`; future-dated times count as no decay.
+/// `exp(-Δt / τ(volatility))` over the memory's most recent *occurrence* time — each entry's
+/// `occurred_sort` when present, else its assertion time — falling back to the memory's creation time
+/// (spec §Time → recency). So an entry written today *about* 2019 retrieves like a 2019 memory.
+/// Bounded to `[0, 1]`; a future-dated occurrence (a calendar item) counts as no decay.
 fn recency_bonus(
     memory: &MemoryView,
     graph: &Graph,
     now: Timestamp,
     settings: &SearchSettings,
 ) -> Result<f32, GraphError> {
-    let latest_assertion = graph
+    let latest_relevant = graph
         .class_entries(memory.id)?
         .iter()
-        .map(|entry| entry.asserted_at.as_millis())
+        .map(|entry| entry.occurred_sort.unwrap_or(entry.asserted_at).as_millis())
         .max()
         .unwrap_or_else(|| memory.created_at.as_millis());
-    let delta_days = (now.as_millis() - latest_assertion).max(0) as f32 / MILLIS_PER_DAY;
+    let delta_days = (now.as_millis() - latest_relevant).max(0) as f32 / MILLIS_PER_DAY;
     let tau = match memory.volatility {
         Volatility::High => settings.recency.tau_days.high,
         Volatility::Medium => settings.recency.tau_days.medium,
         Volatility::Low => settings.recency.tau_days.low,
     };
     Ok((-delta_days / tau).exp())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recency_bonus;
+    use crate::{
+        event::{Event, EventPayload, Teller, Visibility},
+        graph::Graph,
+        ids::{EntryId, MemoryId, MemoryName, Seq, Timestamp},
+        settings::SearchSettings,
+        temporal::TemporalRef,
+    };
+
+    const DAY: i64 = 86_400_000;
+
+    fn event(seq: u64, payload: EventPayload) -> Event {
+        Event {
+            seq: Seq(seq),
+            recorded_at: Timestamp::from_millis(0),
+            payload,
+        }
+    }
+
+    /// A singleton memory with one entry at the given occurrence (or none) and assertion time.
+    fn graph_with_entry(occurred_at: Option<TemporalRef>, asserted_ms: i64) -> (Graph, MemoryId) {
+        let mut graph = Graph::open_in_memory().unwrap();
+        let id = MemoryId::generate();
+        graph
+            .apply(&event(
+                1,
+                EventPayload::MemoryCreated {
+                    id,
+                    name: MemoryName::new("topic/dated"),
+                },
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                2,
+                EventPayload::MemoryContentAppended {
+                    id,
+                    entry_id: EntryId::generate(),
+                    asserted_at: Timestamp::from_millis(asserted_ms),
+                    occurred_at,
+                    text: "fact".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ))
+            .unwrap();
+        (graph, id)
+    }
+
+    fn bonus(graph: &Graph, id: MemoryId, now_ms: i64) -> f32 {
+        let memory = graph.memory_by_id(id).unwrap().unwrap();
+        recency_bonus(
+            &memory,
+            graph,
+            Timestamp::from_millis(now_ms),
+            &SearchSettings::default(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn occurrence_time_drives_decay_not_assertion_time() {
+        let now = 20_000 * DAY;
+        // Written "today" but about a decade ago: it must decay like a decade-old memory.
+        let (about_past, past_id) = graph_with_entry(
+            Some(TemporalRef::Instant(Timestamp::from_millis(
+                now - 3650 * DAY,
+            ))),
+            now,
+        );
+        let (about_now, now_id) =
+            graph_with_entry(Some(TemporalRef::Instant(Timestamp::from_millis(now))), now);
+        assert!(
+            bonus(&about_past, past_id, now) < 0.01,
+            "a decade-old occurrence should decay sharply"
+        );
+        assert!(
+            bonus(&about_now, now_id, now) > 0.99,
+            "a present occurrence should not decay"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_assertion_time_without_an_occurrence() {
+        let now = 20_000 * DAY;
+        let (graph, id) = graph_with_entry(None, now - 3650 * DAY);
+        assert!(bonus(&graph, id, now) < 0.01);
+    }
+
+    #[test]
+    fn a_future_occurrence_does_not_decay() {
+        let now = 20_000 * DAY;
+        let (graph, id) = graph_with_entry(
+            Some(TemporalRef::Instant(Timestamp::from_millis(
+                now + 100 * DAY,
+            ))),
+            now,
+        );
+        assert!(bonus(&graph, id, now) > 0.99);
+    }
 }

@@ -89,7 +89,7 @@ impl Graph {
     /// See [`Graph::class_entries`] for the traversing form.
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, text, told_by, told_in, visibility
+            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
         )
@@ -103,7 +103,7 @@ impl Graph {
     /// soft-deleted member are excluded.
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, text, told_by, told_in, visibility
+            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -125,23 +125,25 @@ impl Graph {
         let row = self
             .conn
             .query_row(
-                "SELECT memory_id, asserted_at, text, told_by, told_in, visibility
+                "SELECT memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
                  FROM content_entries WHERE entry_id = ?1",
                 params![entry_id.0.to_string()],
                 |r| {
                     Ok((
                         r.get::<_, String>(0)?,
                         r.get::<_, i64>(1)?,
-                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<i64>>(2)?,
                         r.get::<_, String>(3)?,
-                        r.get::<_, Option<String>>(4)?,
-                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, Option<String>>(5)?,
+                        r.get::<_, String>(6)?,
                     ))
                 },
             )
             .optional()
             .map_err(backend)?;
-        let Some((memory_id, asserted_at, text, told_by, told_in, visibility)) = row else {
+        let Some((memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility)) = row
+        else {
             return Ok(None);
         };
         let Some(memory) = self.memory_by_id(MemoryId(parse_ulid(&memory_id)?))? else {
@@ -150,6 +152,7 @@ impl Graph {
         let entry = EntryView::from_db(
             entry_id,
             asserted_at,
+            occurred_sort,
             text,
             &told_by,
             told_in.as_deref(),
@@ -565,21 +568,23 @@ impl Graph {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(2)?,
                     r.get::<_, String>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, String>(6)?,
                 ))
             })
             .map_err(backend)?;
 
         let mut entries = Vec::new();
         for row in rows {
-            let (entry_id, asserted_at, text, told_by, told_in, visibility) =
+            let (entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility) =
                 row.map_err(backend)?;
             entries.push(EntryView::from_db(
                 EntryId(parse_ulid(&entry_id)?),
                 asserted_at,
+                occurred_sort,
                 text,
                 &told_by,
                 told_in.as_deref(),

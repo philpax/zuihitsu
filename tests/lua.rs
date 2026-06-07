@@ -9,10 +9,10 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    Authority, BlockContext, BlockOutcome, Cardinality, Clock, ConversationLocator, Engine, Graph,
-    ManualClock, MemoryId, MemoryName, MemoryStore, RelationName, Seq, Session, Store, TagName,
-    Teller, TerminalCause, Timestamp, TurnId, Visibility, event::EventPayload,
-    resolve_or_mint_conversation,
+    Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
+    Clock, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName, MemoryStore,
+    RelationName, Seq, Session, Store, TagName, Teller, TemporalRef, TerminalCause, Timestamp,
+    TurnId, Visibility, event::EventPayload, resolve_or_mint_conversation,
 };
 
 #[test]
@@ -37,6 +37,30 @@ fn block_commits_and_projects_with_read_your_writes() {
     // And they committed and projected to the graph.
     let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
     assert_eq!(h.graph.entries_local(dave.id).unwrap().len(), 2);
+}
+
+#[test]
+fn append_records_a_structured_occurred_at() {
+    let mut h = Harness::new();
+    let outcome = h.run(
+        r#"
+        local ev = memory.create("event/cleaning")
+        ev:append("Scheduled cleaning", { visibility = "public", occurred_at = { day = "2026-06-03" } })
+        return "ok"
+        "#,
+    );
+    assert!(matches!(outcome, BlockOutcome::Committed { .. }));
+
+    // The tagged Lua table deserialized into a TemporalRef end to end, and the materializer
+    // denormalized it to the day's noon in occurred_sort.
+    let ev = h.graph.memory_by_name("event/cleaning").unwrap().unwrap();
+    let entries = h.graph.entries_local(ev.id).unwrap();
+    assert_eq!(entries.len(), 1);
+    let expected = TemporalRef::Day(CivilDate("2026-06-03".into()))
+        .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
+        .sort;
+    assert_eq!(entries[0].occurred_sort, expected);
+    assert!(expected.is_some());
 }
 
 #[test]

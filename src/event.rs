@@ -17,6 +17,7 @@ use crate::{
         SessionId, TagName, Timestamp, TurnId,
     },
     settings::Settings,
+    temporal::TemporalRef,
 };
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
@@ -232,12 +233,16 @@ pub enum EventPayload {
     },
     /// Records a content entry. `told_by` is the teller, `told_in` the context it was told in (a
     /// `context/*` memory, resolved to its confidentiality at Stage 8; `None` until contexts exist),
-    /// and `visibility` governs the read-time predicate. Bi-temporality (`occurred_at`) arrives at
-    /// Stage 9.
+    /// and `visibility` governs the read-time predicate. `asserted_at` is when the agent recorded the
+    /// fact; `occurred_at` is the optional real-world time the fact is *about* (spec §Time →
+    /// bi-temporality). `occurred_at` is `#[serde(default)]` so pre-Stage-9 logs, which lack the
+    /// field, replay as `None`.
     MemoryContentAppended {
         id: MemoryId,
         entry_id: EntryId,
         asserted_at: Timestamp,
+        #[serde(default)]
+        occurred_at: Option<TemporalRef>,
         text: String,
         told_by: Teller,
         told_in: Option<MemoryId>,
@@ -469,4 +474,49 @@ pub struct Event {
     pub seq: Seq,
     pub recorded_at: Timestamp,
     pub payload: EventPayload,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EntryId, EventPayload, MemoryId, Teller, Timestamp, Visibility};
+    use crate::temporal::{CivilDate, TemporalRef};
+
+    fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
+        EventPayload::MemoryContentAppended {
+            id: MemoryId::generate(),
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(1),
+            occurred_at,
+            text: "x".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        }
+    }
+
+    #[test]
+    fn content_append_without_occurred_at_replays_as_none() {
+        // A pre-Stage-9 payload predates the field; dropping the key models an old log. `serde(default)`
+        // must fill `None` so the historical event deserializes unchanged.
+        let mut value = serde_json::to_value(content_with(Some(TemporalRef::Day(CivilDate(
+            "2026-06-03".into(),
+        )))))
+        .unwrap();
+        value.as_object_mut().unwrap().remove("occurred_at");
+        let replayed: EventPayload = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            replayed,
+            EventPayload::MemoryContentAppended {
+                occurred_at: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn content_append_round_trips_occurred_at() {
+        let event = content_with(Some(TemporalRef::Instant(Timestamp::from_millis(42))));
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
 }

@@ -29,6 +29,7 @@ fn entry(told_by: Teller, visibility: Visibility) -> EntryView {
     EntryView {
         entry_id: EntryId::generate(),
         asserted_at: Timestamp::from_millis(0),
+        occurred_sort: None,
         text: "an aside".to_owned(),
         told_by,
         told_in: None,

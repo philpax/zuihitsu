@@ -340,6 +340,15 @@ pub fn api_reference() -> Vec<ApiEntry> {
                     "visibility",
                     enum_of(["public", "private"]),
                     "force the visibility; required for an entry you author about a person",
+                )
+                .optional(
+                    "occurred_at",
+                    object(),
+                    "when the fact is about a real-world time (distinct from now): a tagged table, \
+                     one of { instant = <ms> }, { day = \"YYYY-MM-DD\" }, \
+                     { range = { start = <ms>, end = <ms> } }, \
+                     { approx = { center = <ms>, fuzz_days = <n> } }, { recurring = \"<rrule>\" }, \
+                     or { before_after = { dir = \"before\" | \"after\", anchor = \"event/...\" } }",
                 ),
             "overrides",
         );

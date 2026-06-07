@@ -30,11 +30,14 @@ pub struct MemoryView {
     pub tags: Vec<TagName>,
 }
 
-/// A content entry as projected, ordered within its memory by commit order.
+/// A content entry as projected, ordered within its memory by commit order. `occurred_sort` is the
+/// denormalized representative instant of the entry's `occurred_at` (spec §Time), or `None` when the
+/// entry carries no occurrence (or only a `Recurring` one); recency ranking reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EntryView {
     pub entry_id: EntryId,
     pub asserted_at: Timestamp,
+    pub occurred_sort: Option<Timestamp>,
     pub text: String,
     pub told_by: Teller,
     pub told_in: Option<MemoryId>,
@@ -47,6 +50,7 @@ impl EntryView {
     fn from_db(
         entry_id: EntryId,
         asserted_at: i64,
+        occurred_sort: Option<i64>,
         text: String,
         told_by: &str,
         told_in: Option<&str>,
@@ -55,6 +59,7 @@ impl EntryView {
         Ok(EntryView {
             entry_id,
             asserted_at: Timestamp::from_millis(asserted_at),
+            occurred_sort: occurred_sort.map(Timestamp::from_millis),
             text,
             told_by: serde_json::from_str(told_by)?,
             told_in: told_in.map(|id| parse_ulid(id).map(MemoryId)).transpose()?,
@@ -180,16 +185,24 @@ impl Graph {
              );
              CREATE INDEX IF NOT EXISTS idx_memories_class ON memories(class_id);
              CREATE TABLE IF NOT EXISTS content_entries (
-                 entry_id    TEXT    PRIMARY KEY,
-                 memory_id   TEXT    NOT NULL,
-                 asserted_at INTEGER NOT NULL,
-                 text        TEXT    NOT NULL,
-                 told_by     TEXT    NOT NULL,
-                 told_in     TEXT,
-                 visibility  TEXT    NOT NULL,
-                 seq         INTEGER NOT NULL
+                 entry_id      TEXT    PRIMARY KEY,
+                 memory_id     TEXT    NOT NULL,
+                 asserted_at   INTEGER NOT NULL,
+                 occurred_at   TEXT,
+                 occurred_sort INTEGER,
+                 occurred_lo   INTEGER,
+                 occurred_hi   INTEGER,
+                 text          TEXT    NOT NULL,
+                 told_by       TEXT    NOT NULL,
+                 told_in       TEXT,
+                 visibility    TEXT    NOT NULL,
+                 seq           INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_entries_memory ON content_entries(memory_id);
+             CREATE INDEX IF NOT EXISTS idx_entries_occurred_sort
+                 ON content_entries(occurred_sort);
+             CREATE INDEX IF NOT EXISTS idx_entries_occurred_lo_hi
+                 ON content_entries(occurred_lo, occurred_hi);
              CREATE TABLE IF NOT EXISTS tags (
                  name        TEXT PRIMARY KEY,
                  description TEXT NOT NULL

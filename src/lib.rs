@@ -37,6 +37,7 @@ pub mod store;
 #[cfg(feature = "sqlite")]
 pub mod system_prompt;
 pub mod templates;
+pub mod temporal;
 pub mod vector;
 #[cfg(feature = "sqlite")]
 pub mod visibility;
@@ -65,6 +66,9 @@ pub use settings::{
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use templates::{PromptTemplate, latest_template};
+pub use temporal::{
+    BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
+};
 pub use vector::{
     InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,
 };
