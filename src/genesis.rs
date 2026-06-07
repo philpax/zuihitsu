@@ -211,12 +211,23 @@ fn default_templates() -> Vec<TemplateDef> {
                    identity through its canonical person/ handle (not a per-platform stub) so \
                    you do not look in the wrong place and miss what you know.\n\n\
                    Record your own observations and inferences under the `agent` teller, and record \
-                   what you learn about a person on that person's own memory, not on the speaker's \
-                   memory or a topic — recording it on the subject is what keeps an aside \
-                   about them from surfacing while they are present. Keep confidences \
-                   compartmentalized: mark anything told to you in confidence with \
-                   visibility = \"private\" on whatever memory it lands, never copy it into a public \
-                   topic, and do not repeat it to participants who should not see it.",
+                   what you learn about a person on that person's own memory, under their canonical \
+                   person/ handle — not on the memory of whoever told you, and not on a topic. When \
+                   one participant relays something about another, the fact is about the person it \
+                   concerns, so it belongs on their memory even though someone else is speaking; \
+                   filing it on the subject is also what lets the system hold it back while that \
+                   subject is present.\n\n\
+                   Every entry carries a visibility that governs where it can resurface. A public \
+                   entry may be surfaced to anyone present in any room, including the very person it \
+                   is about; a private one (visibility = \"private\") comes back only to the teller \
+                   who told it and to you, withheld whenever anyone else — the subject included — is \
+                   present. Visibility is the lever that keeps a confidence from reaching the wrong \
+                   person: when something is told to you in confidence, or you are asked not to \
+                   repeat it, set visibility = \"private\" on the entry wherever it lands, and never \
+                   copy it into a public topic. When you record such a note about a person as your \
+                   own observation — synthesizing, or flushing a session before it scrolls away — it \
+                   has no protective default, so you must classify its visibility yourself; a \
+                   confidence is private. Marking it public is what lets it leak.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
@@ -240,10 +251,15 @@ fn default_templates() -> Vec<TemplateDef> {
                    run_lua tool — anything from it worth keeping that you have not already recorded: \
                    facts you learned, decisions made, and commitments given. Record your own \
                    observations and inferences under the `agent` teller, and record what you learned \
-                   about a person on that person's memory (not the speaker's or a topic). Keep \
-                   confidences compartmentalized exactly as in an ordinary turn: mark anything \
-                   confidential with visibility = \"private\", never write it to a public topic. For \
-                   threads still open, link \
+                   about a person on that person's own memory under their canonical person/ handle — \
+                   not on the memory of whoever told you, and not on a topic; when one participant \
+                   relayed something about another, it belongs on the person it concerns. This \
+                   re-recording is your own note, so it has no protective default: you must set its \
+                   visibility yourself. Keep confidences compartmentalized exactly as in an ordinary \
+                   turn — anything told to you in confidence, or that you were asked not to repeat, \
+                   is visibility = \"private\" wherever it lands; never write it to a public topic, \
+                   and never mark it public, which is what would surface it to the person it was \
+                   kept from. For threads still open, link \
                    the relevant memories `active_in` the current context, and clear `active_in` on \
                    threads that have closed, so the next session resurfaces what is still live. \
                    Nothing you leave only in the transcript survives, so be deliberate; when you \
