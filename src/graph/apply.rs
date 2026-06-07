@@ -12,6 +12,15 @@ use crate::{
     temporal::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef},
 };
 
+/// The denormalized occurrence values for one entry's `content_entries` row: the tagged-JSON
+/// `occurred_at` and the `(sort, lo, hi)` millisecond bounds derived from it.
+struct OccurrenceColumns {
+    json: Option<String>,
+    sort: Option<i64>,
+    lo: Option<i64>,
+    hi: Option<i64>,
+}
+
 impl Graph {
     /// Fold a single event into the projection, then advance the head. The match arm is the
     /// `(type, version)` dispatch; a wrong arm is a silent-leak class the eval harness backstops.
@@ -78,25 +87,8 @@ impl Graph {
                 visibility,
             } => {
                 // Denormalize the typed `occurred_at` into sortable columns at materialization time
-                // (spec §Time). A `BeforeAfter` resolves its anchor against the projection so far;
-                // every other variant is pure.
-                let bounds = match occurred_at {
-                    Some(reference) => {
-                        let anchor = match reference {
-                            TemporalRef::BeforeAfter { anchor, .. } => {
-                                self.anchor_bounds(anchor)?
-                            }
-                            _ => None,
-                        };
-                        reference.bounds(anchor, BEFORE_AFTER_EPSILON_MILLIS)
-                    }
-                    None => OccurrenceBounds::default(),
-                };
-                let occurred_json = occurred_at
-                    .as_ref()
-                    .map(serde_json::to_string)
-                    .transpose()
-                    .map_err(GraphError::Serialize)?;
+                // (spec §Time); see `occurrence_columns`.
+                let occurrence = self.occurrence_columns(occurred_at.as_ref())?;
                 self.conn
                     .execute(
                         "INSERT INTO content_entries \
@@ -107,10 +99,10 @@ impl Graph {
                             entry_id.0.to_string(),
                             id.0.to_string(),
                             asserted_at.as_millis(),
-                            occurred_json,
-                            bounds.sort.map(Timestamp::as_millis),
-                            bounds.lo.map(Timestamp::as_millis),
-                            bounds.hi.map(Timestamp::as_millis),
+                            occurrence.json,
+                            occurrence.sort,
+                            occurrence.lo,
+                            occurrence.hi,
                             text,
                             serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
                             told_in.map(|memory| memory.0.to_string()),
@@ -132,6 +124,29 @@ impl Graph {
                         )
                         .map_err(backend)?;
                 }
+            }
+            EventPayload::EntryTemporalResolved {
+                entry_id,
+                occurred_at,
+                ..
+            } => {
+                // The extraction pass resolved this entry's occurrence after it was appended;
+                // recompute its denormalized columns in place (text and FTS are untouched).
+                let occurrence = self.occurrence_columns(Some(occurred_at))?;
+                self.conn
+                    .execute(
+                        "UPDATE content_entries
+                         SET occurred_at = ?1, occurred_sort = ?2, occurred_lo = ?3, occurred_hi = ?4
+                         WHERE entry_id = ?5",
+                        params![
+                            occurrence.json,
+                            occurrence.sort,
+                            occurrence.lo,
+                            occurrence.hi,
+                            entry_id.0.to_string(),
+                        ],
+                    )
+                    .map_err(backend)?;
             }
             EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                 self.conn
@@ -363,6 +378,35 @@ impl Graph {
         Ok(())
     }
 
+    /// Denormalize an `occurred_at` reference into the values the `content_entries` occurrence
+    /// columns store: the tagged JSON plus the `(sort, lo, hi)` millisecond bounds. A `BeforeAfter`
+    /// resolves its anchor against the projection so far (`anchor_bounds`); every other variant is
+    /// pure. Shared by the append and the `EntryTemporalResolved` arms so they denormalize identically.
+    fn occurrence_columns(
+        &self,
+        occurred_at: Option<&TemporalRef>,
+    ) -> Result<OccurrenceColumns, GraphError> {
+        let bounds = match occurred_at {
+            Some(reference) => {
+                let anchor = match reference {
+                    TemporalRef::BeforeAfter { anchor, .. } => self.anchor_bounds(anchor)?,
+                    _ => None,
+                };
+                reference.bounds(anchor, BEFORE_AFTER_EPSILON_MILLIS)
+            }
+            None => OccurrenceBounds::default(),
+        };
+        Ok(OccurrenceColumns {
+            json: occurred_at
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(GraphError::Serialize)?,
+            sort: bounds.sort.map(Timestamp::as_millis),
+            lo: bounds.lo.map(Timestamp::as_millis),
+            hi: bounds.hi.map(Timestamp::as_millis),
+        })
+    }
+
     /// The representative bounds of a `BeforeAfter` anchor, by name, for occurrence denormalization
     /// (spec §Time). Resolved from the entries already projected, taking the anchor's earliest timed
     /// entry. Deliberately **not** filtered by soft delete: `MemoryDeleted` preserves contents, so a
@@ -504,7 +548,7 @@ mod tests {
     use crate::{
         event::{Event, EventPayload, Teller, Visibility},
         ids::{EntryId, MemoryId, MemoryName, Seq, Timestamp},
-        temporal::{CivilDate, TemporalRef},
+        temporal::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, TemporalRef},
     };
 
     fn event(seq: u64, payload: EventPayload) -> Event {
@@ -563,5 +607,84 @@ mod tests {
         assert_eq!(columns.1, bounds.lo.map(Timestamp::as_millis));
         assert_eq!(columns.2, bounds.hi.map(Timestamp::as_millis));
         assert!(columns.1 < columns.0 && columns.0 < columns.2);
+    }
+
+    /// `EntryTemporalResolved` updates an already-appended (untimed) entry's occurrence columns in
+    /// place, resolving a `BeforeAfter` against the projection just like an explicit occurrence.
+    #[test]
+    fn entry_temporal_resolved_updates_columns_in_place() {
+        let mut graph = Graph::open_in_memory().unwrap();
+        let anchor = MemoryId::generate();
+        let dependent = MemoryId::generate();
+        let entry = EntryId::generate();
+        let anchor_at = 1_000_000;
+        let untimed = |id, entry_id| EventPayload::MemoryContentAppended {
+            id,
+            entry_id,
+            asserted_at: Timestamp::from_millis(1),
+            occurred_at: None,
+            text: "fact".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        };
+        let events = [
+            EventPayload::MemoryCreated {
+                id: anchor,
+                name: MemoryName::new("event/wedding"),
+            },
+            EventPayload::MemoryContentAppended {
+                id: anchor,
+                entry_id: EntryId::generate(),
+                asserted_at: Timestamp::from_millis(1),
+                occurred_at: Some(TemporalRef::Instant(Timestamp::from_millis(anchor_at))),
+                text: "the wedding".to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+            EventPayload::MemoryCreated {
+                id: dependent,
+                name: MemoryName::new("event/reception"),
+            },
+            untimed(dependent, entry),
+        ];
+        for (seq, payload) in events.into_iter().enumerate() {
+            graph.apply(&event(seq as u64 + 1, payload)).unwrap();
+        }
+        // The dependent entry starts untimed.
+        let sort_before: Option<i64> = graph
+            .conn
+            .query_row(
+                "SELECT occurred_sort FROM content_entries WHERE entry_id = ?1",
+                rusqlite::params![entry.0.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(sort_before, None);
+
+        graph
+            .apply(&event(
+                5,
+                EventPayload::EntryTemporalResolved {
+                    id: dependent,
+                    entry_id: entry,
+                    occurred_at: TemporalRef::BeforeAfter {
+                        dir: Direction::After,
+                        anchor: MemoryName::new("event/wedding"),
+                    },
+                    produced_by: None,
+                },
+            ))
+            .unwrap();
+        let sort_after: Option<i64> = graph
+            .conn
+            .query_row(
+                "SELECT occurred_sort FROM content_entries WHERE entry_id = ?1",
+                rusqlite::params![entry.0.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(sort_after, Some(anchor_at + BEFORE_AFTER_EPSILON_MILLIS));
     }
 }

@@ -248,6 +248,16 @@ pub enum EventPayload {
         told_in: Option<MemoryId>,
         visibility: Visibility,
     },
+    /// Resolves an entry's `occurred_at` after the fact: the turn-end extraction pass read the
+    /// entry's natural language ("last Tuesday") and produced a structured [`TemporalRef`]. The
+    /// original `MemoryContentAppended` stays immutable; applying this recomputes the entry's
+    /// denormalized occurrence columns. `produced_by` records the extracting inference.
+    EntryTemporalResolved {
+        id: MemoryId,
+        entry_id: EntryId,
+        occurred_at: TemporalRef,
+        produced_by: Option<ProducedBy>,
+    },
     /// Replaces a memory's synthesized description. The text is produced by the model (Stage 5);
     /// applying it to the projection is purely mechanical. `produced_by` records the inference that
     /// wrote it (`None` only for a hand-seeded description).
@@ -401,6 +411,7 @@ impl EventPayload {
             EventPayload::MemoryRenamed { .. } => "MemoryRenamed",
             EventPayload::MemoryDeleted { .. } => "MemoryDeleted",
             EventPayload::MemoryContentAppended { .. } => "MemoryContentAppended",
+            EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
@@ -437,6 +448,7 @@ impl EventPayload {
             | EventPayload::MemoryRenamed { id, .. }
             | EventPayload::MemoryDeleted { id }
             | EventPayload::MemoryContentAppended { id, .. }
+            | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
             | EventPayload::TagAppliedToMemory { memory: id, .. }
@@ -516,6 +528,18 @@ mod tests {
     #[test]
     fn content_append_round_trips_occurred_at() {
         let event = content_with(Some(TemporalRef::Instant(Timestamp::from_millis(42))));
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn entry_temporal_resolved_round_trips() {
+        let event = EventPayload::EntryTemporalResolved {
+            id: MemoryId::generate(),
+            entry_id: EntryId::generate(),
+            occurred_at: TemporalRef::Day(CivilDate("2026-06-03".into())),
+            produced_by: None,
+        };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
     }

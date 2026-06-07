@@ -7,8 +7,8 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    Completion, PromptTemplateName, ScriptedModel, SeedSelf, Seq, Store, ToolCall, TurnOutcome,
-    TurnReport, TurnRole, event::EventPayload, genesis, run_turn,
+    CivilDate, Completion, PromptTemplateName, ScriptedModel, SeedSelf, Seq, Store, Timestamp,
+    ToolCall, TurnOutcome, TurnReport, TurnRole, event::EventPayload, genesis, run_turn,
 };
 #[cfg(feature = "openai")]
 use zuihitsu::{EnvConfig, OpenAiClient};
@@ -91,12 +91,14 @@ async fn descriptions_regenerate_after_a_turn() {
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
-        // The post-turn regeneration call: a forced `describe` tool call carries the synthesized
-        // description as a clean argument (rather than free-form prose).
+        // The post-turn synthesis call: a forced `synthesize` tool call carries the description as a
+        // clean argument (the entry has no temporal phrase, so no occurrences).
         Completion::ToolCalls(vec![ToolCall {
             id: "regen".to_owned(),
-            name: "describe".to_owned(),
-            arguments: r#"{"description":"Dave, whom I met at the climbing gym."}"#.to_owned(),
+            name: "synthesize".to_owned(),
+            arguments:
+                r#"{"description":"Dave, whom I met at the climbing gym.","occurrences":[]}"#
+                    .to_owned(),
         }]),
     ]);
 
@@ -128,6 +130,83 @@ async fn descriptions_regenerate_after_a_turn() {
         PromptTemplateName::DescriptionRegen
     );
     assert_eq!(produced_by.template_version, 1);
+}
+
+/// Day-noon millis for a `YYYY-MM-DD`, the `occurred_sort` a `Day` occurrence denormalizes to.
+fn day_noon(date: &str) -> Timestamp {
+    let midnight = CivilDate(date.into()).midnight_millis().unwrap();
+    Timestamp::from_millis(midnight + 86_400_000 / 2)
+}
+
+fn synthesize_call(arguments: &str) -> Completion {
+    Completion::ToolCalls(vec![ToolCall {
+        id: "regen".to_owned(),
+        name: "synthesize".to_owned(),
+        arguments: arguments.to_owned(),
+    }])
+}
+
+fn temporal_resolutions(store: &impl Store) -> Vec<EventPayload> {
+    store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.payload)
+        .filter(|p| matches!(p, EventPayload::EntryTemporalResolved { .. }))
+        .collect()
+}
+
+#[tokio::test]
+async fn temporal_extraction_resolves_an_untimed_entry() {
+    let mut h = Harness::new();
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("person/dave", "Met Dave last Tuesday")"#),
+        Completion::Reply("Noted.".to_owned()),
+        // The synthesis call resolves statement 1's "last Tuesday" to a concrete day.
+        synthesize_call(
+            r#"{"description":"Dave, met recently.","occurrences":[{"entry":1,"occurred_at":{"day":"2026-06-02"}}]}"#,
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
+
+    // The untimed entry gained an occurrence, and an EntryTemporalResolved records it.
+    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
+    let entries = h.graph.entries_local(dave.id).unwrap();
+    assert_eq!(entries[0].occurred_sort, Some(day_noon("2026-06-02")));
+    assert_eq!(temporal_resolutions(&h.store).len(), 1);
+}
+
+#[tokio::test]
+async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
+    let mut h = Harness::new();
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local d = memory.create("person/dave")
+               d:append("Met Dave", { occurred_at = { day = "2020-01-01" }, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // The model tries to time statement 1, but the agent already set it explicitly.
+        synthesize_call(
+            r#"{"description":"Dave.","occurrences":[{"entry":1,"occurred_at":{"day":"2026-06-02"}}]}"#,
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
+
+    // The explicit occurrence stands; extraction emitted nothing for the already-timed entry.
+    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
+    let entries = h.graph.entries_local(dave.id).unwrap();
+    assert_eq!(entries[0].occurred_sort, Some(day_noon("2020-01-01")));
+    assert!(temporal_resolutions(&h.store).is_empty());
 }
 
 #[tokio::test]
@@ -272,4 +351,56 @@ async fn real_model_drives_a_turn() {
         }
         Err(error) => eprintln!("skipping: {error}"),
     }
+}
+
+/// Temporal extraction against the real model (model-gated, ignored, tracked/non-gating): a turn
+/// whose content carries natural-language times should leave at least one durable entry with a
+/// resolved `occurred_at`. Logs the timed/total rate — load-bearing news about the model floor, the
+/// same epistemic status as the compaction continuity metric (spec §Validation).
+#[cfg(feature = "openai")]
+#[tokio::test]
+#[ignore = "requires a reachable model endpoint (config.toml)"]
+async fn real_model_extracts_temporal_references() {
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        eprintln!("skipping: no model endpoint configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    let mut h = Harness::new();
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let outcome = run_turn(h.as_turn(
+        &client,
+        "Please note: I met Dave at the climbing gym last Tuesday, and the database migration \
+         ships next Friday.",
+        8,
+    ))
+    .await;
+    if let Err(error) = outcome {
+        eprintln!("skipping: {error}");
+        return;
+    }
+
+    // Scan the namespaces a turn like this could write into for entries that gained an occurrence.
+    let (mut total, mut timed) = (0usize, 0usize);
+    for prefix in ["person/", "topic/", "project/", "event/"] {
+        for memory in h.graph.memories_in_namespace(prefix).unwrap() {
+            for entry in h.graph.entries_local(memory.id).unwrap() {
+                total += 1;
+                if entry.occurred_sort.is_some() {
+                    timed += 1;
+                    eprintln!("timed: {} :: {}", memory.name.as_str(), entry.text);
+                }
+            }
+        }
+    }
+    eprintln!("temporal extraction: {timed}/{total} durable entries carry an occurred_at");
+    assert!(
+        timed >= 1,
+        "expected the model to resolve at least one temporal reference"
+    );
 }

@@ -242,7 +242,14 @@ fn default_templates() -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
             version: 1,
-            body: "<draft temporal-extraction template>",
+            body: "Alongside the description, extract when each numbered statement is *about* in the \
+                   real world. For every statement that refers to a real-world time, add an entry to \
+                   `occurrences` keyed by its statement number; omit statements with no temporal \
+                   reference. Resolve relative phrases (\"last Tuesday\", \"next Friday\", \"a couple \
+                   of years ago\") against the stated current time. Use the most specific form you \
+                   can justify: a single `day`; a `range` between two days; an `approx` center with a \
+                   tolerance in `fuzz_days`; a `recurring` rule; or `before_after` relative to another \
+                   memory named as its `anchor` (e.g. event/dave-wedding). All dates are YYYY-MM-DD.",
         },
         TemplateDef {
             name: PromptTemplateName::Flush,

@@ -10,7 +10,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     clock::Clock,
@@ -18,7 +18,7 @@ use crate::{
         EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
     },
     graph::{EntryView, Graph, GraphError, MemoryView},
-    ids::{ConversationId, MemoryId, MemoryName, Seq, TurnId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, Timestamp, TurnId},
     lua::{self, BlockOutcome, LuaError, Session},
     memory_block::Authority,
     model::{
@@ -27,6 +27,7 @@ use crate::{
     },
     store::{Store, StoreError},
     system_prompt, templates,
+    temporal::{CivilDate, Direction, Rrule, TemporalRef},
 };
 
 /// What a completed turn delivers to the platform client.
@@ -273,7 +274,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
     // conversational outcome.
     let written = collect_written_memories(engine.store, cycle_start)?;
-    regenerate_descriptions(model, engine.store, engine.graph, engine.clock, &written).await?;
+    regenerate_descriptions(model, &mut engine, &written, cycle_start).await?;
 
     Ok(TurnReport {
         outcome,
@@ -359,7 +360,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     .await?;
 
     let written = collect_written_memories(engine.store, cycle_start)?;
-    regenerate_descriptions(model, engine.store, engine.graph, engine.clock, &written).await?;
+    regenerate_descriptions(model, &mut engine, &written, cycle_start).await?;
     Ok(())
 }
 
@@ -488,109 +489,203 @@ fn collect_written_memories(
     Ok(ordered)
 }
 
-/// Regenerate the description of each written memory from its entries, committing the new
-/// descriptions in one batch. A memory with no entries is skipped; a model failure on one memory is
-/// logged and that memory keeps its prior description rather than failing the whole turn.
+/// Regenerate each written memory's description from its entries and, in the same model call,
+/// extract the occurrence time of any entry written this turn that the agent left untimed (spec §Time
+/// → "in the same pass"). New descriptions and resolved occurrences commit in one batch. A memory
+/// with no entries is skipped; a model failure on one memory is logged and leaves it unchanged rather
+/// than failing the whole turn.
 async fn regenerate_descriptions(
     model: &dyn ModelClient,
-    store: &mut dyn Store,
-    graph: &mut Graph,
-    clock: &dyn Clock,
+    engine: &mut Engine<'_>,
     written: &[MemoryId],
+    cycle_start: Seq,
 ) -> Result<(), TurnError> {
-    let Some(template) = templates::latest_template(store, PromptTemplateName::DescriptionRegen)?
+    let Some(description_template) =
+        templates::latest_template(engine.store, PromptTemplateName::DescriptionRegen)?
     else {
         return Ok(());
     };
+    // The extraction half is optional: without its template the pass degrades to description-only.
+    let extraction_template =
+        templates::latest_template(engine.store, PromptTemplateName::TemporalExtraction)?;
+    let system = compose_synthesis_system(
+        &description_template.body,
+        extraction_template
+            .as_ref()
+            .map(|template| template.body.as_str()),
+    );
+    // Entries appended this turn that the agent left untimed, mapped to their owning memory — the
+    // only entries extraction may resolve. An explicit `occurred_at` is never overridden, and settled
+    // older entries are never re-touched.
+    let eligible = collect_untimed_entries(engine.store, cycle_start)?;
+    let now = engine.clock.now();
 
     let mut events = Vec::new();
+    let mut resolved = BTreeSet::new();
     for &id in written {
-        let Some(memory) = graph.memory_by_id(id)? else {
+        let Some(memory) = engine.graph.memory_by_id(id)? else {
             continue;
         };
         // Class-wide synthesis: a merged identity has one unified description, composed from the
         // whole same_as class rather than the single written stub (spec §Visibility).
-        let entries = graph.class_entries(id)?;
+        let entries = engine.graph.class_entries(id)?;
         if entries.is_empty() {
             continue;
         }
-        match synthesize_description(model, &template.body, &memory, &entries).await {
-            Ok(Some(description)) => events.push(EventPayload::MemoryDescriptionRegenerated {
+        let synthesis = match synthesize(model, &system, &memory, &entries, now).await {
+            Ok(Some(synthesis)) => synthesis,
+            Ok(None) => continue,
+            Err(error) => {
+                tracing::warn!(
+                    memory = %memory.name.as_str(),
+                    %error,
+                    "turn-end synthesis failed; keeping the prior description"
+                );
+                continue;
+            }
+        };
+        if !synthesis.description.trim().is_empty() {
+            events.push(EventPayload::MemoryDescriptionRegenerated {
                 id,
-                new_text: description,
+                new_text: synthesis.description.trim().to_owned(),
                 produced_by: Some(ProducedBy {
                     model_id: model.model_id().into(),
                     template_name: PromptTemplateName::DescriptionRegen,
-                    template_version: template.version,
+                    template_version: description_template.version,
                 }),
-            }),
-            Ok(None) => {}
-            Err(error) => tracing::warn!(
-                memory = %memory.name.as_str(),
-                %error,
-                "description regeneration failed; keeping the prior description"
-            ),
+            });
+        }
+        let Some(extraction_template) = &extraction_template else {
+            continue;
+        };
+        for occurrence in synthesis.occurrences {
+            // The statement number is 1-based into the entries listed in the prompt.
+            let Some(entry) = occurrence.entry.checked_sub(1).and_then(|i| entries.get(i)) else {
+                continue;
+            };
+            // Only a new, untimed entry; skip anything else the model keyed (an entry already timed,
+            // explicitly set, or a class sibling not written this turn), and resolve each once.
+            let Some(&entry_memory) = eligible.get(&entry.entry_id) else {
+                continue;
+            };
+            if !resolved.insert(entry.entry_id) {
+                continue;
+            }
+            let Some(occurred_at) = occurrence.occurred_at.into_temporal_ref() else {
+                tracing::debug!(
+                    memory = %memory.name.as_str(),
+                    "dropping an unparseable extracted occurrence"
+                );
+                continue;
+            };
+            events.push(EventPayload::EntryTemporalResolved {
+                id: entry_memory,
+                entry_id: entry.entry_id,
+                occurred_at,
+                produced_by: Some(ProducedBy {
+                    model_id: model.model_id().into(),
+                    template_name: PromptTemplateName::TemporalExtraction,
+                    template_version: extraction_template.version,
+                }),
+            });
         }
     }
 
     if !events.is_empty() {
-        store.append(clock.now(), events)?;
-        graph.materialize_from(store)?;
+        engine.store.append(now, events)?;
+        engine.graph.materialize_from(engine.store)?;
     }
     Ok(())
 }
 
-/// Ask the model to synthesize a description from a memory's entries, forcing a `describe` tool call
-/// so the answer is a clean argument. `None` means no usable call came back, which a regeneration
-/// ignores (keeping the prior description).
-async fn synthesize_description(
+/// Entries appended since `cycle_start` that carry no `occurred_at`, mapped to their owning memory —
+/// the entries the extraction pass is allowed to resolve. An entry the agent timed explicitly is
+/// excluded, so extraction never overrides a deliberate occurrence.
+fn collect_untimed_entries(
+    store: &dyn Store,
+    cycle_start: Seq,
+) -> Result<BTreeMap<EntryId, MemoryId>, TurnError> {
+    let mut untimed = BTreeMap::new();
+    for event in store.read_from(cycle_start.next())? {
+        if let EventPayload::MemoryContentAppended {
+            id,
+            entry_id,
+            occurred_at: None,
+            ..
+        } = event.payload
+        {
+            untimed.insert(entry_id, id);
+        }
+    }
+    Ok(untimed)
+}
+
+/// The synthesis call's system prompt: the description-regeneration instructions, plus the
+/// temporal-extraction instructions when that template exists, joined for the single combined call
+/// (spec §Time → same pass). Each half still stamps its own events' provenance.
+fn compose_synthesis_system(description_body: &str, extraction_body: Option<&str>) -> String {
+    match extraction_body {
+        Some(extraction) => format!("{description_body}\n\n{extraction}"),
+        None => description_body.to_owned(),
+    }
+}
+
+/// Ask the model, in one forced `synthesize` call, to describe a memory from its entries and extract
+/// the occurrence time of any time-bearing statement. The entries are numbered (1-based) so the
+/// extracted occurrences key back to them, and the current time is stated so relative phrases ("last
+/// Tuesday") resolve. `None` means no usable call came back, which the caller treats as "leave the
+/// memory unchanged".
+async fn synthesize(
     model: &dyn ModelClient,
-    template_body: &str,
+    system: &str,
     memory: &MemoryView,
     entries: &[EntryView],
-) -> Result<Option<String>, ModelError> {
-    let mut prompt = format!("Memory: {}\n\nEntries:\n", memory.name.as_str());
-    for entry in entries {
-        prompt.push_str("- ");
-        prompt.push_str(&entry.text);
-        prompt.push('\n');
+    now: Timestamp,
+) -> Result<Option<SynthesizeArgs>, ModelError> {
+    let mut prompt = format!(
+        "Memory: {}\nCurrent time: {}\n\nStatements:\n",
+        memory.name.as_str(),
+        system_prompt::format_time(now),
+    );
+    for (index, entry) in entries.iter().enumerate() {
+        prompt.push_str(&format!("{}. {}\n", index + 1, entry.text));
     }
 
-    // Force a single `describe` tool call so the description comes back as a clean argument, not
-    // free-form prose the model wraps in preamble. Reasoning is forced off: it adds nothing to a
-    // structured extraction and makes the forced call intermittently emit an empty message.
+    // Force a single `synthesize` tool call so the description and occurrences come back as clean
+    // arguments. Reasoning is forced off: a live probe showed extraction accuracy holds without it,
+    // and it makes the forced call intermittently emit an empty message.
     let request = GenerateRequest {
-        system: template_body.to_owned(),
+        system: system.to_owned(),
         messages: vec![Message::user(prompt)],
-        tools: vec![describe_tool()],
+        tools: vec![synthesize_tool()],
         tool_choice: ToolChoice::Required,
         thinking: Some(false),
     };
-    // The model still occasionally returns no usable call; retry a few times before giving up
-    // (regeneration is off the hot path, so a couple of extra attempts is cheap).
+    // The model still occasionally returns no usable call; retry a few times before giving up (this
+    // pass is off the hot path, so a couple of extra attempts is cheap).
     const ATTEMPTS: usize = 3;
     for attempt in 1..=ATTEMPTS {
-        // Regeneration is an off-buffer structured extraction; its usage must not move the
-        // conversational compaction trigger, so it is read and discarded here.
+        // An off-buffer structured call; its usage must not move the conversational compaction
+        // trigger, so it is read and discarded here.
         let GenerateResponse { completion, .. } = model.generate(&request).await?;
         if let Completion::ToolCalls(calls) = completion
-            && let Some(description) = describe_argument(&calls)
+            && let Some(args) = synthesize_argument(&calls)
         {
             if attempt > 1 {
-                tracing::debug!(memory = %memory.name.as_str(), attempt, "description regenerated after a retry");
+                tracing::debug!(memory = %memory.name.as_str(), attempt, "synthesis succeeded after a retry");
             }
-            return Ok(Some(description));
+            return Ok(Some(args));
         }
         tracing::debug!(
             memory = %memory.name.as_str(),
             attempt,
-            "description regeneration returned no usable describe call"
+            "synthesis returned no usable call"
         );
     }
     tracing::warn!(
         memory = %memory.name.as_str(),
         attempts = ATTEMPTS,
-        "description regeneration gave up after retries; keeping the prior description"
+        "synthesis gave up after retries; keeping the memory unchanged"
     );
     Ok(None)
 }
@@ -651,11 +746,97 @@ struct RunLuaArgs {
     script: String,
 }
 
-/// The `describe` argument shape (description regeneration); doubles as the tool's parameter schema.
+/// The `synthesize` argument shape (turn-end description + temporal extraction); doubles as the
+/// tool's parameter schema, so the schema sent to the model and the parser can't drift.
 #[derive(Deserialize, JsonSchema)]
-struct DescribeArgs {
+struct SynthesizeArgs {
     /// The memory's description as plain third-person prose — no preamble, headings, or notes.
     description: String,
+    /// One entry per statement that refers to a real-world time; omit statements with no temporal
+    /// reference.
+    #[serde(default)]
+    occurrences: Vec<ExtractedOccurrence>,
+}
+
+/// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt) and
+/// the time it refers to.
+#[derive(Deserialize, JsonSchema)]
+struct ExtractedOccurrence {
+    entry: usize,
+    occurred_at: ExtractedTime,
+}
+
+/// The date-string occurrence shape the model produces — it cannot compute epoch milliseconds, so it
+/// emits ISO dates (and occasionally datetimes), which [`ExtractedTime::into_temporal_ref`] maps to
+/// the stored [`TemporalRef`]. Mirrors `TemporalRef`'s tags but with string dates.
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ExtractedTime {
+    Instant(String),
+    Day(String),
+    Range { start: String, end: String },
+    Approx { center: String, fuzz_days: u32 },
+    Recurring(String),
+    BeforeAfter { dir: String, anchor: String },
+}
+
+impl ExtractedTime {
+    /// Map the model's date strings to the stored [`TemporalRef`], or `None` if a date won't parse.
+    /// A bare calendar day under `instant` becomes a `Day`: a live probe showed the model uses the
+    /// two interchangeably.
+    fn into_temporal_ref(self) -> Option<TemporalRef> {
+        match self {
+            ExtractedTime::Instant(text) => match civil_date(&text) {
+                Some(day) => Some(TemporalRef::Day(day)),
+                None => Some(TemporalRef::Instant(Timestamp::from_millis(
+                    datetime_millis(&text)?,
+                ))),
+            },
+            ExtractedTime::Day(text) => civil_date(&text).map(TemporalRef::Day),
+            ExtractedTime::Range { start, end } => Some(TemporalRef::Range {
+                start: Timestamp::from_millis(point_millis(&start)?),
+                end: Timestamp::from_millis(point_millis(&end)?),
+            }),
+            ExtractedTime::Approx { center, fuzz_days } => Some(TemporalRef::Approx {
+                center: Timestamp::from_millis(point_millis(&center)?),
+                fuzz_days,
+            }),
+            ExtractedTime::Recurring(rule) => Some(TemporalRef::Recurring(Rrule(rule.into()))),
+            ExtractedTime::BeforeAfter { dir, anchor } => {
+                let dir = match dir.trim().to_ascii_lowercase().as_str() {
+                    "before" => Direction::Before,
+                    "after" => Direction::After,
+                    _ => return None,
+                };
+                Some(TemporalRef::BeforeAfter {
+                    dir,
+                    anchor: MemoryName::new(anchor),
+                })
+            }
+        }
+    }
+}
+
+/// A valid `YYYY-MM-DD` civil date, or `None`.
+fn civil_date(text: &str) -> Option<CivilDate> {
+    let date = CivilDate(text.trim().into());
+    date.midnight_millis().map(|_| date)
+}
+
+/// Midnight-UTC millis of a `YYYY-MM-DD` date, falling back to an ISO datetime, else `None`.
+fn point_millis(text: &str) -> Option<i64> {
+    match civil_date(text) {
+        Some(date) => date.midnight_millis(),
+        None => datetime_millis(text),
+    }
+}
+
+/// Epoch millis of an ISO 8601 datetime (e.g. `2026-06-02T00:00:00Z`), else `None`.
+fn datetime_millis(text: &str) -> Option<i64> {
+    text.trim()
+        .parse::<jiff::Timestamp>()
+        .ok()
+        .map(|timestamp| timestamp.as_millisecond())
 }
 
 fn run_lua_tool() -> ToolSpec {
@@ -668,14 +849,15 @@ fn run_lua_tool() -> ToolSpec {
     }
 }
 
-/// The single tool the description-regeneration call is forced to use (`ToolChoice::Required`), so
-/// the synthesized description comes back as a clean argument rather than free-form prose with
-/// preamble — the failure mode the draft template produced against a real model.
-fn describe_tool() -> ToolSpec {
+/// The single tool the turn-end synthesis call is forced to use (`ToolChoice::Required`), so the
+/// description and occurrences come back as clean arguments rather than free-form prose.
+fn synthesize_tool() -> ToolSpec {
     ToolSpec {
-        name: "describe".to_owned(),
-        description: "Record the synthesized description for the memory.".to_owned(),
-        parameters: schema_of::<DescribeArgs>(),
+        name: "synthesize".to_owned(),
+        description: "Record the memory's description and the occurrence time of any time-bearing \
+                      statement."
+            .to_owned(),
+        parameters: schema_of::<SynthesizeArgs>(),
     }
 }
 
@@ -684,13 +866,12 @@ fn schema_of<T: JsonSchema>() -> serde_json::Value {
     serde_json::to_value(schemars::schema_for!(T)).unwrap_or_default()
 }
 
-/// Extract the `description` argument from a forced `describe` tool call, or `None` if the model
-/// produced no usable call.
-fn describe_argument(calls: &[ToolCall]) -> Option<String> {
-    let call = calls.iter().find(|call| call.name == "describe")?;
-    let args: DescribeArgs = serde_json::from_str(&call.arguments).ok()?;
-    let description = args.description.trim();
-    (!description.is_empty()).then(|| description.to_owned())
+/// Parse a forced `synthesize` tool call's arguments, or `None` if the model produced no usable call
+/// (no `synthesize` call, unparseable arguments, or an empty description).
+fn synthesize_argument(calls: &[ToolCall]) -> Option<SynthesizeArgs> {
+    let call = calls.iter().find(|call| call.name == "synthesize")?;
+    let args: SynthesizeArgs = serde_json::from_str(&call.arguments).ok()?;
+    (!args.description.trim().is_empty()).then_some(args)
 }
 
 /// One `ConversationTurn` to record: the inbound participant message, the agent's response, or a
@@ -781,5 +962,115 @@ impl From<StoreError> for TurnError {
 impl From<GraphError> for TurnError {
     fn from(error: GraphError) -> Self {
         TurnError::Graph(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExtractedTime, civil_date, datetime_millis};
+    use crate::{
+        ids::{MemoryName, Timestamp},
+        temporal::{CivilDate, Direction, TemporalRef},
+    };
+
+    fn ms(date: &str) -> i64 {
+        civil_date(date).unwrap().midnight_millis().unwrap()
+    }
+
+    #[test]
+    fn instant_date_only_coerces_to_day() {
+        // The model uses `instant` for bare days; a date-only value becomes a `Day`, not an `Instant`.
+        assert_eq!(
+            ExtractedTime::Instant("2026-06-03".to_owned()).into_temporal_ref(),
+            Some(TemporalRef::Day(CivilDate("2026-06-03".into())))
+        );
+    }
+
+    #[test]
+    fn instant_with_a_time_stays_an_instant() {
+        let at = datetime_millis("2026-06-02T09:30:00Z").unwrap();
+        assert_eq!(
+            ExtractedTime::Instant("2026-06-02T09:30:00Z".to_owned()).into_temporal_ref(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(at)))
+        );
+    }
+
+    #[test]
+    fn day_maps_through() {
+        assert_eq!(
+            ExtractedTime::Day("2026-06-03".to_owned()).into_temporal_ref(),
+            Some(TemporalRef::Day(CivilDate("2026-06-03".into())))
+        );
+    }
+
+    #[test]
+    fn range_and_approx_convert_dates_to_millis() {
+        assert_eq!(
+            ExtractedTime::Range {
+                start: "2019-01-01".to_owned(),
+                end: "2019-12-31".to_owned(),
+            }
+            .into_temporal_ref(),
+            Some(TemporalRef::Range {
+                start: Timestamp::from_millis(ms("2019-01-01")),
+                end: Timestamp::from_millis(ms("2019-12-31")),
+            })
+        );
+        assert_eq!(
+            ExtractedTime::Approx {
+                center: "2024-06-07".to_owned(),
+                fuzz_days: 60,
+            }
+            .into_temporal_ref(),
+            Some(TemporalRef::Approx {
+                center: Timestamp::from_millis(ms("2024-06-07")),
+                fuzz_days: 60,
+            })
+        );
+    }
+
+    #[test]
+    fn before_after_parses_direction_case_insensitively() {
+        assert_eq!(
+            ExtractedTime::BeforeAfter {
+                dir: "After".to_owned(),
+                anchor: "event/wedding".to_owned(),
+            }
+            .into_temporal_ref(),
+            Some(TemporalRef::BeforeAfter {
+                dir: Direction::After,
+                anchor: MemoryName::new("event/wedding"),
+            })
+        );
+        // An unrecognized direction drops the occurrence rather than guessing.
+        assert_eq!(
+            ExtractedTime::BeforeAfter {
+                dir: "sideways".to_owned(),
+                anchor: "x".to_owned(),
+            }
+            .into_temporal_ref(),
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_dates_drop() {
+        // 2026 is not a leap year, so Feb 29 is impossible; a non-date instant has no datetime either.
+        assert_eq!(
+            ExtractedTime::Day("2026-02-29".to_owned()).into_temporal_ref(),
+            None
+        );
+        assert_eq!(
+            ExtractedTime::Instant("whenever".to_owned()).into_temporal_ref(),
+            None
+        );
+        assert_eq!(
+            ExtractedTime::Range {
+                start: "nope".to_owned(),
+                end: "2020-01-01".to_owned(),
+            }
+            .into_temporal_ref(),
+            None
+        );
     }
 }

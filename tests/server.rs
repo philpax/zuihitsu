@@ -299,10 +299,13 @@ fn run_lua_call(script: &str) -> Completion {
 
 #[cfg(feature = "lua")]
 fn describe_call(description: &str) -> Completion {
+    // The turn-end synthesis call: a forced `synthesize` tool carrying the description (these
+    // scenarios plant no temporal phrases, so no occurrences).
     Completion::ToolCalls(vec![ToolCall {
-        id: "describe".to_owned(),
-        name: "describe".to_owned(),
-        arguments: serde_json::json!({ "description": description }).to_string(),
+        id: "synthesize".to_owned(),
+        name: "synthesize".to_owned(),
+        arguments: serde_json::json!({ "description": description, "occurrences": [] })
+            .to_string(),
     }])
 }
 
