@@ -20,8 +20,9 @@ fn block_commits_and_projects_with_read_your_writes() {
     let mut h = Harness::new();
     let outcome = h.run(
         r#"
-        local dave = memory.create("person/dave", "Met at the climbing gym")
-        dave:append("Got a new job at Hooli")
+        local dave = memory.create("person/dave")
+        dave:append("Met at the climbing gym", { visibility = "public" })
+        dave:append("Got a new job at Hooli", { visibility = "public" })
         return dave:entries()
         "#,
     );
@@ -101,11 +102,12 @@ fn append_carries_teller_context_and_default_visibility() {
         &mut graph,
         r#"memory.get("person/phil"):append("is being managed out")"#,
     );
-    // `by_agent` records the agent's own observation; `visibility = "public"` forces public.
+    // `by_agent` records the agent's own observation about a person, which has no protective default
+    // (the aside mechanism keys on a participant teller) — so it must classify the entry explicitly.
     exec(
         &mut store,
         &mut graph,
-        r#"memory.get("person/phil"):append("seems stressed", { by_agent = true })"#,
+        r#"memory.get("person/phil"):append("seems stressed", { by_agent = true, visibility = "public" })"#,
     );
     exec(
         &mut store,
@@ -341,7 +343,7 @@ fn abort_discards_the_buffer() {
     let mut h = Harness::new();
     let outcome = h.run(
         r#"
-        memory.create("person/ghost", "should not survive")
+        memory.create("topic/ghost", "should not survive")
         block.abort("changed my mind")
         "#,
     );
@@ -350,7 +352,7 @@ fn abort_discards_the_buffer() {
         BlockOutcome::Terminated(TerminalCause::Aborted("changed my mind".to_owned()))
     );
     // The buffered create was discarded.
-    assert!(h.graph.memory_by_name("person/ghost").unwrap().is_none());
+    assert!(h.graph.memory_by_name("topic/ghost").unwrap().is_none());
 
     // A LuaExecuted recording the abort is still in the log (the agent saw the outcome).
     let aborted = h.store.read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
@@ -370,7 +372,7 @@ fn runtime_error_discards_the_buffer_and_records_the_cause() {
     let mut h = Harness::new();
     let outcome = h.run(
         r#"
-        memory.create("person/oops", "should not survive")
+        memory.create("topic/oops", "should not survive")
         error("boom")
         "#,
     );
@@ -378,7 +380,7 @@ fn runtime_error_discards_the_buffer_and_records_the_cause() {
         outcome,
         BlockOutcome::Terminated(TerminalCause::Error(_))
     ));
-    assert!(h.graph.memory_by_name("person/oops").unwrap().is_none());
+    assert!(h.graph.memory_by_name("topic/oops").unwrap().is_none());
 }
 
 #[test]

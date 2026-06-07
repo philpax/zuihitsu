@@ -18,7 +18,7 @@ use crate::{
     event::{EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName},
-    visibility::default_visibility_named,
+    visibility::{default_visibility_named, subject_participant},
 };
 
 /// Who is driving a block's writes. Operator authority is the control panel; it is the only path
@@ -76,6 +76,11 @@ pub enum MemoryError {
     /// A platform-authority write tried to assert or retract a `same_as` merge. Cross-platform
     /// identity is operator-asserted only — the agent never merges two identities on its own.
     MergeForbidden,
+    /// An agent-authored entry about a person was written with no explicit visibility. Such a write
+    /// has no protective default — the aside mechanism keys on a participant teller, not the agent —
+    /// so it must classify the entry rather than fall silently to public (which is how a re-recorded
+    /// confidence leaks).
+    VisibilityRequired,
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -102,6 +107,12 @@ impl std::fmt::Display for MemoryError {
                     "same_as merges can only be asserted from the control panel"
                 )
             }
+            MemoryError::VisibilityRequired => write!(
+                f,
+                "set this entry's visibility explicitly — pass {{ visibility = \"public\" }} or \
+                 {{ visibility = \"private\" }}; an agent-authored note about a person has no safe \
+                 default"
+            ),
             MemoryError::Graph(error) => write!(f, "{error}"),
         }
     }
@@ -183,17 +194,24 @@ impl<'a> MemoryBlock<'a> {
             return Err(MemoryError::NameExists(MemoryName::new(name)));
         }
         let id = MemoryId::generate();
+        // A first entry is told like any append: by the turn's teller, classified the same way (an
+        // agent-authored first entry about a person must set its visibility). Resolve it before
+        // buffering anything, so an unclassified write fails without leaving a half-created memory.
+        let first_entry = match content {
+            Some(text) => {
+                let teller = self.teller.clone();
+                let visibility = self.resolve_visibility(Some(name), id, &teller, None)?;
+                Some((text.to_owned(), teller, visibility))
+            }
+            None => None,
+        };
         self.touched.insert(id);
         self.buffer.push(EventPayload::MemoryCreated {
             id,
             name: MemoryName::new(name),
         });
-        if let Some(text) = content {
-            // A first entry is told like any append: by the turn's teller, at the write-time default
-            // visibility for the new memory's name.
-            let teller = self.teller.clone();
-            let visibility = self.default_visibility(name, id, &teller);
-            self.push_content(id, text.to_owned(), teller, visibility);
+        if let Some((text, teller, visibility)) = first_entry {
+            self.push_content(id, text, teller, visibility);
         }
         Ok(id)
     }
@@ -223,15 +241,13 @@ impl<'a> MemoryBlock<'a> {
         } else {
             self.teller.clone()
         };
-        let visibility = match opts.visibility {
-            Some(VisibilityChoice::Public) => Visibility::Public,
-            Some(VisibilityChoice::Private) => Visibility::PrivateToTeller,
-            None => match self.resolve_name(id)? {
-                Some(name) => self.default_visibility(name.as_str(), id, &told_by),
-                None if self.confidential_context => Visibility::PrivateToTeller,
-                None => Visibility::Public,
-            },
-        };
+        let name = self.resolve_name(id)?;
+        let visibility = self.resolve_visibility(
+            name.as_ref().map(MemoryName::as_str),
+            id,
+            &told_by,
+            opts.visibility,
+        )?;
         self.push_content(id, text.to_owned(), told_by, visibility);
         Ok(())
     }
@@ -356,14 +372,37 @@ impl<'a> MemoryBlock<'a> {
         Ok(())
     }
 
-    /// The write-time default visibility for content told by `told_by` on the memory `name`: private
-    /// in a `#confidential` room (regardless of namespace), else the namespace/subject default.
-    fn default_visibility(&self, name: &str, id: MemoryId, told_by: &Teller) -> Visibility {
-        if self.confidential_context {
-            Visibility::PrivateToTeller
-        } else {
-            default_visibility_named(name, id, told_by)
+    /// The visibility a content entry is written at, or a teachable failure. An explicit choice is
+    /// honored verbatim. With none: a `#confidential` room firms everything private; otherwise an
+    /// agent-authored entry about a *person* (a subject-bearing memory) has no protective default —
+    /// the participant-aside mechanism keys on a participant teller, not the agent, so silently
+    /// defaulting to public is how a re-recorded confidence leaks — and must be classified. Any other
+    /// write (a participant teller, or a non-subject memory like `self`/`topic/*`) takes the
+    /// namespace/subject default.
+    fn resolve_visibility(
+        &self,
+        name: Option<&str>,
+        id: MemoryId,
+        told_by: &Teller,
+        explicit: Option<VisibilityChoice>,
+    ) -> Result<Visibility, MemoryError> {
+        if let Some(choice) = explicit {
+            return Ok(match choice {
+                VisibilityChoice::Public => Visibility::Public,
+                VisibilityChoice::Private => Visibility::PrivateToTeller,
+            });
         }
+        if self.confidential_context {
+            return Ok(Visibility::PrivateToTeller);
+        }
+        let about_a_person = name.is_some_and(|name| subject_participant(name, id).is_some());
+        if matches!(told_by, Teller::Agent) && about_a_person {
+            return Err(MemoryError::VisibilityRequired);
+        }
+        Ok(match name {
+            Some(name) => default_visibility_named(name, id, told_by),
+            None => Visibility::Public,
+        })
     }
 
     /// Buffer a content entry and touch its memory.
@@ -422,7 +461,7 @@ impl<'a> MemoryBlock<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppendOptions, Authority, MemoryBlock, MemoryError};
+    use super::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice};
     use crate::{
         clock::ManualClock,
         event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
@@ -630,6 +669,48 @@ mod tests {
 
         block
             .link(dave, dave_discord, RelationName::SameAs)
+            .unwrap();
+    }
+
+    #[test]
+    fn agent_authored_writes_about_a_person_require_explicit_visibility() {
+        let graph = Graph::open_in_memory().unwrap();
+        let clock = ManualClock::new(Timestamp::from_millis(1_000));
+        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+
+        // An agent-authored entry about a person has no protective default, so it must be classified:
+        // both a create-with-content and a bare append fail teachably without an explicit visibility.
+        assert!(matches!(
+            block
+                .create("person/erin", Some("may be leaving the team"))
+                .unwrap_err(),
+            MemoryError::VisibilityRequired
+        ));
+        let erin = block.create("person/erin", None).unwrap();
+        assert!(matches!(
+            block
+                .append(erin, "may be leaving the team", AppendOptions::default())
+                .unwrap_err(),
+            MemoryError::VisibilityRequired
+        ));
+
+        // Once classified it succeeds; and a non-person memory has no subject to guard, so the agent's
+        // write there keeps the public default with no classification required.
+        block
+            .append(
+                erin,
+                "may be leaving the team",
+                AppendOptions {
+                    by_agent: false,
+                    visibility: Some(VisibilityChoice::Private),
+                },
+            )
+            .unwrap();
+        let roadmap = block
+            .create("topic/roadmap", Some("ship on Friday"))
+            .unwrap();
+        block
+            .append(roadmap, "migration first", AppendOptions::default())
             .unwrap();
     }
 }

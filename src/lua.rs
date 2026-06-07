@@ -323,7 +323,9 @@ pub fn api_reference() -> Vec<ApiEntry> {
     let append = AE::new("mem:append")
         .description(
             "Append a content entry. By default it is attributed to the current speaker, and an \
-             aside about someone else defaults private to that speaker.",
+             aside about someone else defaults private to that speaker. When you record an entry \
+             about a person as your own observation (a synthesis or a flush), there is no default — \
+             you must set its visibility yourself, public or private.",
         )
         .required("text", AT::String, "the entry text")
         .optional(
@@ -337,7 +339,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
                 .optional(
                     "visibility",
                     enum_of(["public", "private"]),
-                    "force the visibility instead of the write-time default",
+                    "force the visibility; required for an entry you author about a person",
                 ),
             "overrides",
         );
