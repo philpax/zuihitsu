@@ -57,6 +57,10 @@ pub struct BriefSettings {
     pub token_budget: i64,
     pub recent_facts: i64,
     pub present_set_cap: i64,
+    /// How far ahead the `<upcoming/>` block looks, in days.
+    pub upcoming_window_days: i64,
+    /// The most upcoming items the `<upcoming/>` block lists.
+    pub max_upcoming_items: i64,
 }
 
 /// The agent step loop.
@@ -114,6 +118,8 @@ impl Default for BriefSettings {
             token_budget: 2_000,
             recent_facts: 8,
             present_set_cap: 10,
+            upcoming_window_days: 7,
+            max_upcoming_items: 5,
         }
     }
 }

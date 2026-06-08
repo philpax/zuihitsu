@@ -804,4 +804,100 @@ mod occurrence {
         assert_eq!(original, again);
         assert!(original[0].is_some());
     }
+
+    #[test]
+    fn occurrences_in_window_returns_in_window_pairs_soonest_first() {
+        let a = MemoryId::generate();
+        let b = MemoryId::generate();
+        let c = MemoryId::generate();
+        let (_store, graph) = materialized(vec![
+            created(a, "event/a"),
+            appended(
+                a,
+                EntryId::generate(),
+                Some(TemporalRef::Instant(Timestamp::from_millis(300))),
+            ),
+            // An untimed entry on the same memory must not pull it in twice.
+            appended(a, EntryId::generate(), None),
+            created(b, "event/b"),
+            appended(
+                b,
+                EntryId::generate(),
+                Some(TemporalRef::Instant(Timestamp::from_millis(100))),
+            ),
+            created(c, "event/c"),
+            appended(
+                c,
+                EntryId::generate(),
+                Some(TemporalRef::Instant(Timestamp::from_millis(5_000))),
+            ),
+        ]);
+        let hits = graph
+            .occurrences_in_window(Timestamp::from_millis(0), Timestamp::from_millis(1_000))
+            .unwrap();
+        let names: Vec<_> = hits
+            .iter()
+            .map(|(memory, _)| memory.name.as_str().to_owned())
+            .collect();
+        // Ordered by occurrence (100 then 300); c at 5_000 is out of the window.
+        assert_eq!(names, vec!["event/b", "event/a"]);
+    }
+
+    #[test]
+    fn occurrences_in_window_excludes_soft_deleted() {
+        let a = MemoryId::generate();
+        let (_store, graph) = materialized(vec![
+            created(a, "event/a"),
+            appended(
+                a,
+                EntryId::generate(),
+                Some(TemporalRef::Instant(Timestamp::from_millis(100))),
+            ),
+            EventPayload::MemoryDeleted { id: a },
+        ]);
+        assert!(
+            graph
+                .occurrences_in_window(Timestamp::from_millis(0), Timestamp::from_millis(1_000))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn recurring_memories_lists_only_true_recurrences() {
+        let standup = MemoryId::generate();
+        let concrete = MemoryId::generate();
+        let dangling = MemoryId::generate();
+        let (_store, graph) = materialized(vec![
+            created(standup, "event/standup"),
+            appended(
+                standup,
+                EntryId::generate(),
+                Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into()))),
+            ),
+            created(concrete, "event/concrete"),
+            appended(
+                concrete,
+                EntryId::generate(),
+                Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
+            ),
+            // An unresolved BeforeAfter is also sort-null but is not a recurrence.
+            created(dangling, "event/dangling"),
+            appended(
+                dangling,
+                EntryId::generate(),
+                Some(TemporalRef::BeforeAfter {
+                    dir: Direction::After,
+                    anchor: MemoryName::new("event/never-created"),
+                }),
+            ),
+        ]);
+        let names: Vec<_> = graph
+            .recurring_memories()
+            .unwrap()
+            .iter()
+            .map(|memory| memory.name.as_str().to_owned())
+            .collect();
+        assert_eq!(names, vec!["event/standup"]);
+    }
 }

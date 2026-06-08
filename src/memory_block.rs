@@ -17,8 +17,8 @@ use crate::{
     clock::Clock,
     event::{EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName},
-    temporal::TemporalRef,
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName, Timestamp},
+    time::{self, TemporalRef},
     visibility::{default_visibility_named, subject_participant},
 };
 
@@ -82,6 +82,9 @@ pub enum MemoryError {
     /// so it must classify the entry rather than fall silently to public (which is how a re-recorded
     /// confidence leaks).
     VisibilityRequired,
+    /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
+    /// or a non-`YYYY-MM-DD` date.
+    BadCalendarArg(String),
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -113,6 +116,11 @@ impl std::fmt::Display for MemoryError {
                 "set this entry's visibility explicitly — pass {{ visibility = \"public\" }} or \
                  {{ visibility = \"private\" }}; an agent-authored note about a person has no safe \
                  default"
+            ),
+            MemoryError::BadCalendarArg(arg) => write!(
+                f,
+                "could not read the calendar argument {arg:?}; use a duration like \"7 days\" or a \
+                 date like \"2026-06-03\""
             ),
             MemoryError::Graph(error) => write!(f, "{error}"),
         }
@@ -282,6 +290,61 @@ impl<'a> MemoryBlock<'a> {
             }
         }
         Ok(texts)
+    }
+
+    /// Memories with a concrete occurrence within `within` of now (e.g. `"7 days"`, `"2 weeks"`;
+    /// defaults to 7 days), soonest first (spec §Calendar). A read, so the results are touched.
+    pub fn upcoming(&mut self, within: Option<&str>) -> Result<Vec<MemoryId>, MemoryError> {
+        let within_millis = match within {
+            Some(text) => time::parse_duration_millis(text)
+                .ok_or_else(|| MemoryError::BadCalendarArg(text.to_owned()))?,
+            None => DEFAULT_UPCOMING_DAYS * time::MILLIS_PER_DAY,
+        };
+        let now = self.clock.now().as_millis();
+        self.occurrence_memories(
+            Timestamp::from_millis(now),
+            Timestamp::from_millis(now.saturating_add(within_millis)),
+        )
+    }
+
+    /// Memories with a concrete occurrence on the civil day `date` (`YYYY-MM-DD`).
+    pub fn on(&mut self, date: &str) -> Result<Vec<MemoryId>, MemoryError> {
+        let (from, to) =
+            time::day_window(date).ok_or_else(|| MemoryError::BadCalendarArg(date.to_owned()))?;
+        self.occurrence_memories(Timestamp::from_millis(from), Timestamp::from_millis(to))
+    }
+
+    /// Memories that carry a recurring occurrence — a listing; instances are not expanded yet.
+    pub fn recurring(&mut self) -> Result<Vec<MemoryId>, MemoryError> {
+        let ids: Vec<MemoryId> = self
+            .graph
+            .recurring_memories()?
+            .into_iter()
+            .map(|memory| memory.id)
+            .collect();
+        for id in &ids {
+            self.touched.insert(*id);
+        }
+        Ok(ids)
+    }
+
+    /// The distinct memories with an occurrence in `[from, to]`, soonest first, touched as reads.
+    fn occurrence_memories(
+        &mut self,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<MemoryId>, MemoryError> {
+        let mut seen = BTreeSet::new();
+        let mut ordered = Vec::new();
+        for (memory, _entry) in self.graph.occurrences_in_window(from, to)? {
+            if seen.insert(memory.id) {
+                ordered.push(memory.id);
+            }
+        }
+        for id in &ordered {
+            self.touched.insert(*id);
+        }
+        Ok(ordered)
     }
 
     /// Link `from` to `to` under a registered relation (e.g. flag a thread `active_in` the context).
@@ -466,6 +529,8 @@ impl<'a> MemoryBlock<'a> {
         }
     }
 }
+
+const DEFAULT_UPCOMING_DAYS: i64 = 7;
 
 #[cfg(test)]
 mod tests {

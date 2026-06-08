@@ -15,7 +15,7 @@
 //! Assembly is a pure function of already-fetched inputs, so the caller owns the store/graph/clock
 //! reads (and their error handling) and this stays trivially testable.
 
-use crate::{graph::EntryView, ids::Timestamp};
+use crate::{graph::EntryView, ids::Timestamp, time};
 
 /// Compose the system prompt from the `scaffold` body, the agent's `identity` (the `self` memory's
 /// content entries, verbatim), the `api_reference` block (the build's callable Lua API, rendered by
@@ -53,21 +53,7 @@ pub fn assemble(
     }
 
     prompt.push_str("\n\n# Current time\n\nThe session begins on ");
-    prompt.push_str(&format_time(now));
+    prompt.push_str(&time::format_datetime(now));
     prompt.push('.');
     prompt
-}
-
-/// Render a timestamp as a human-readable UTC datetime (e.g. `Thursday, 01 January 1970, 00:00
-/// UTC`), falling back to raw epoch milliseconds for a time outside the supported range. Shared with
-/// the temporal-extraction pass, which states the current time so the model can resolve relative
-/// phrases ("last Tuesday") — the weekday in the format is load-bearing there.
-pub fn format_time(now: Timestamp) -> String {
-    match jiff::Timestamp::from_millisecond(now.as_millis()) {
-        Ok(timestamp) => timestamp
-            .to_zoned(jiff::tz::TimeZone::UTC)
-            .strftime("%A, %d %B %Y, %H:%M UTC")
-            .to_string(),
-        Err(_) => format!("{} milliseconds since the Unix epoch", now.as_millis()),
-    }
 }

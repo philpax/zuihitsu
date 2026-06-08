@@ -21,11 +21,10 @@ use crate::{
     ids::{MemoryId, TagName, Timestamp},
     index::VectorKey,
     settings::SearchSettings,
+    time,
     vector::{VectorError, VectorIndex},
     visibility,
 };
-
-const MILLIS_PER_DAY: f32 = 86_400_000.0;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
 /// a private entry, and `None` otherwise.
@@ -223,7 +222,8 @@ fn recency_bonus(
         .map(|entry| entry.occurred_sort.unwrap_or(entry.asserted_at).as_millis())
         .max()
         .unwrap_or_else(|| memory.created_at.as_millis());
-    let delta_days = (now.as_millis() - latest_relevant).max(0) as f32 / MILLIS_PER_DAY;
+    let delta_days =
+        (now.as_millis() - latest_relevant).max(0) as f32 / time::MILLIS_PER_DAY as f32;
     let tau = match memory.volatility {
         Volatility::High => settings.recency.tau_days.high,
         Volatility::Medium => settings.recency.tau_days.medium,
@@ -240,7 +240,7 @@ mod tests {
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName, Seq, Timestamp},
         settings::SearchSettings,
-        temporal::TemporalRef,
+        time::TemporalRef,
     };
 
     const DAY: i64 = 86_400_000;

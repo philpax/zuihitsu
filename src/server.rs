@@ -202,10 +202,13 @@ impl Server {
         let context = self.graph.context_for_conversation(conversation)?;
         let brief = brief::compose(
             &self.graph,
-            present_set,
-            context,
             &settings.brief,
-            working_set,
+            &brief::BriefRequest {
+                present_set,
+                current_context: context,
+                working_set,
+                now,
+            },
         )?;
         let id = SessionId::generate();
         let committed = self.store.append(

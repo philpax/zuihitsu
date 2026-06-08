@@ -17,7 +17,7 @@ use crate::{
         SessionId, TagName, Timestamp, TurnId,
     },
     settings::Settings,
-    temporal::TemporalRef,
+    time::TemporalRef,
 };
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
@@ -491,7 +491,7 @@ pub struct Event {
 #[cfg(test)]
 mod tests {
     use super::{EntryId, EventPayload, MemoryId, Teller, Timestamp, Visibility};
-    use crate::temporal::{CivilDate, TemporalRef};
+    use crate::time::{CivilDate, TemporalRef};
 
     fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
         EventPayload::MemoryContentAppended {

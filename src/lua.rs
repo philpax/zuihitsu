@@ -209,9 +209,50 @@ impl Session {
                 })?,
             )?;
 
+            // calendar.* — queries over memory by occurrence time (spec §Calendar). Each returns a
+            // list of memory handles, soonest first; the agent reads each for detail. Unlike the
+            // brief's <upcoming/> block, these are the agent's own queries and are not visibility-
+            // filtered (like mem:entries, the agent sees its whole memory).
+            let calendar = self.lua.create_table()?;
+            calendar.set(
+                "upcoming",
+                scope.create_function(|lua, opts: Option<Table>| {
+                    let within: Option<String> = match opts {
+                        Some(table) => table.get("within")?,
+                        None => None,
+                    };
+                    let ids = block_ref
+                        .borrow_mut()
+                        .upcoming(within.as_deref())
+                        .map_err(|error| route_error(error, infra_ref))?;
+                    make_handle_list(lua, ids, metatable)
+                })?,
+            )?;
+            calendar.set(
+                "on",
+                scope.create_function(|lua, date: String| {
+                    let ids = block_ref
+                        .borrow_mut()
+                        .on(&date)
+                        .map_err(|error| route_error(error, infra_ref))?;
+                    make_handle_list(lua, ids, metatable)
+                })?,
+            )?;
+            calendar.set(
+                "recurring",
+                scope.create_function(|lua, ()| {
+                    let ids = block_ref
+                        .borrow_mut()
+                        .recurring()
+                        .map_err(|error| route_error(error, infra_ref))?;
+                    make_handle_list(lua, ids, metatable)
+                })?,
+            )?;
+
             self.lua.globals().set("memory", memory)?;
             self.lua.globals().set("block", block_tbl)?;
             self.lua.globals().set("context", context)?;
+            self.lua.globals().set("calendar", calendar)?;
 
             // Inner result: the agent-visible outcome (a value, or a runtime error).
             Ok(self
@@ -388,7 +429,33 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description("Discard everything this block buffered and end it, recording the reason.")
         .optional("reason", AT::String, "why the block was abandoned");
 
-    vec![create, get, append, entries, link, unlink, context, abort]
+    let upcoming = AE::new("calendar.upcoming")
+        .description(
+            "Memories with something happening soon, soonest first — read each for detail.",
+        )
+        .optional(
+            "opts",
+            object().optional(
+                "within",
+                AT::String,
+                "how far ahead to look, e.g. \"7 days\" or \"2 weeks\"; defaults to 7 days",
+            ),
+            "options",
+        )
+        .returns(AT::Handle.list());
+
+    let on = AE::new("calendar.on")
+        .description("Memories with something happening on a given day.")
+        .required("date", AT::String, "the day as \"YYYY-MM-DD\"")
+        .returns(AT::Handle.list());
+
+    let recurring = AE::new("calendar.recurring")
+        .description("Memories with a recurring occurrence.")
+        .returns(AT::Handle.list());
+
+    vec![
+        create, get, append, entries, link, unlink, context, abort, upcoming, on, recurring,
+    ]
 }
 
 /// Render [`api_reference`] as the system prompt's API-description block.
@@ -444,6 +511,15 @@ fn make_handle(lua: &Lua, id: MemoryId, metatable: &Table) -> mlua::Result<Table
     handle.set("id", id.0.to_string())?;
     handle.set_metatable(Some(metatable.clone()))?;
     Ok(handle)
+}
+
+/// Wrap a list of memory ids as a Lua sequence of handles, in order — the `calendar.*` return shape.
+fn make_handle_list(lua: &Lua, ids: Vec<MemoryId>, metatable: &Table) -> mlua::Result<Value> {
+    let list = lua.create_table()?;
+    for (index, id) in ids.into_iter().enumerate() {
+        list.set(index + 1, make_handle(lua, id, metatable)?)?;
+    }
+    Ok(Value::Table(list))
 }
 
 fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {

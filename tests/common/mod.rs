@@ -15,6 +15,11 @@ mod harness {
         TurnId,
     };
 
+    /// A realistic, non-epoch test clock (2026-06-08T00:00:00Z). Starting near the Unix epoch made
+    /// model-gated runs resolve relative phrases like "last Tuesday" into 1969/1970 and risked the
+    /// model overfitting to that period; a present-day base keeps the declared "now" lifelike.
+    const TEST_NOW: Timestamp = Timestamp(1_780_876_800_000);
+
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
     /// manual clock, and one Lua session. Each `run` executes a block as its own turn.
     pub struct Harness {
@@ -31,7 +36,7 @@ mod harness {
             Harness {
                 store: MemoryStore::new(),
                 graph: Graph::open_in_memory().unwrap(),
-                clock: ManualClock::new(Timestamp::from_millis(1_000)),
+                clock: ManualClock::new(TEST_NOW),
                 session: Session::new(ConversationId::generate()),
                 participant: MemoryId::generate(),
             }

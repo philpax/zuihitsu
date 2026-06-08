@@ -64,6 +64,42 @@ fn append_records_a_structured_occurred_at() {
 }
 
 #[test]
+fn calendar_queries_return_matching_memories() {
+    let mut h = Harness::new();
+    // Write in one block; calendar queries read the materialized graph (committed state), not the
+    // block's own pending buffer, so they run in a later block.
+    h.run(
+        r#"
+        local d = memory.create("event/cleaning")
+        d:append("dentist", { visibility = "public", occurred_at = { day = "2026-06-03" } })
+        local s = memory.create("event/standup")
+        s:append("standup", { visibility = "public", occurred_at = { recurring = "FREQ=WEEKLY" } })
+        "#,
+    );
+    let outcome = h.run(r#"return #calendar.on("2026-06-03") .. "," .. #calendar.recurring()"#);
+    // calendar.on finds the day's concrete occurrence; calendar.recurring lists the recurring one.
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "1,1");
+}
+
+#[test]
+fn calendar_rejects_a_malformed_argument() {
+    let mut h = Harness::new();
+    let outcome = h.run(r#"return calendar.on("not-a-date")"#);
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("calendar argument"),
+                "message was: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+}
+
+#[test]
 fn append_carries_teller_context_and_default_visibility() {
     let mut store = MemoryStore::new();
     let clock = ManualClock::new(Timestamp::from_millis(1_000));

@@ -276,9 +276,11 @@ fn verdict_tool() -> ToolSpec {
     }
 }
 
-/// A born agent over an in-memory store, matching the deterministic server tests' setup.
+/// A born agent over an in-memory store, matching the deterministic server tests' setup. The clock
+/// starts at a present-day, non-epoch time (2026-06-08T00:00:00Z) so the model-gated runs resolve
+/// relative phrases against a lifelike "now" rather than 1970.
 fn born_agent() -> Server {
-    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let clock = ManualClock::new(Timestamp::from_millis(1_780_876_800_000));
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),

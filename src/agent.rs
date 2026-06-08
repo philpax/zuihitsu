@@ -27,7 +27,7 @@ use crate::{
     },
     store::{Store, StoreError},
     system_prompt, templates,
-    temporal::{CivilDate, Direction, Rrule, TemporalRef},
+    time::{self, CivilDate, Direction, Rrule, TemporalRef},
 };
 
 /// What a completed turn delivers to the platform client.
@@ -645,7 +645,7 @@ async fn synthesize(
     let mut prompt = format!(
         "Memory: {}\nCurrent time: {}\n\nStatements:\n",
         memory.name.as_str(),
-        system_prompt::format_time(now),
+        time::format_datetime(now),
     );
     for (index, entry) in entries.iter().enumerate() {
         prompt.push_str(&format!("{}. {}\n", index + 1, entry.text));
@@ -789,16 +789,16 @@ impl ExtractedTime {
             ExtractedTime::Instant(text) => match civil_date(&text) {
                 Some(day) => Some(TemporalRef::Day(day)),
                 None => Some(TemporalRef::Instant(Timestamp::from_millis(
-                    datetime_millis(&text)?,
+                    time::datetime_to_millis(&text)?,
                 ))),
             },
             ExtractedTime::Day(text) => civil_date(&text).map(TemporalRef::Day),
             ExtractedTime::Range { start, end } => Some(TemporalRef::Range {
-                start: Timestamp::from_millis(point_millis(&start)?),
-                end: Timestamp::from_millis(point_millis(&end)?),
+                start: Timestamp::from_millis(time::date_or_datetime_to_millis(&start)?),
+                end: Timestamp::from_millis(time::date_or_datetime_to_millis(&end)?),
             }),
             ExtractedTime::Approx { center, fuzz_days } => Some(TemporalRef::Approx {
-                center: Timestamp::from_millis(point_millis(&center)?),
+                center: Timestamp::from_millis(time::date_or_datetime_to_millis(&center)?),
                 fuzz_days,
             }),
             ExtractedTime::Recurring(rule) => Some(TemporalRef::Recurring(Rrule(rule.into()))),
@@ -817,26 +817,11 @@ impl ExtractedTime {
     }
 }
 
-/// A valid `YYYY-MM-DD` civil date, or `None`.
+/// The model's date string as a validated `Day` civil date, or `None`. A bare `YYYY-MM-DD` under
+/// `instant` becomes a `Day` (the model uses the two interchangeably).
 fn civil_date(text: &str) -> Option<CivilDate> {
     let date = CivilDate(text.trim().into());
     date.midnight_millis().map(|_| date)
-}
-
-/// Midnight-UTC millis of a `YYYY-MM-DD` date, falling back to an ISO datetime, else `None`.
-fn point_millis(text: &str) -> Option<i64> {
-    match civil_date(text) {
-        Some(date) => date.midnight_millis(),
-        None => datetime_millis(text),
-    }
-}
-
-/// Epoch millis of an ISO 8601 datetime (e.g. `2026-06-02T00:00:00Z`), else `None`.
-fn datetime_millis(text: &str) -> Option<i64> {
-    text.trim()
-        .parse::<jiff::Timestamp>()
-        .ok()
-        .map(|timestamp| timestamp.as_millisecond())
 }
 
 fn run_lua_tool() -> ToolSpec {
@@ -967,14 +952,14 @@ impl From<GraphError> for TurnError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExtractedTime, civil_date, datetime_millis};
+    use super::ExtractedTime;
     use crate::{
         ids::{MemoryName, Timestamp},
-        temporal::{CivilDate, Direction, TemporalRef},
+        time::{self, CivilDate, Direction, TemporalRef},
     };
 
     fn ms(date: &str) -> i64 {
-        civil_date(date).unwrap().midnight_millis().unwrap()
+        time::civil_date_to_millis(date).unwrap()
     }
 
     #[test]
@@ -988,7 +973,7 @@ mod tests {
 
     #[test]
     fn instant_with_a_time_stays_an_instant() {
-        let at = datetime_millis("2026-06-02T09:30:00Z").unwrap();
+        let at = time::datetime_to_millis("2026-06-02T09:30:00Z").unwrap();
         assert_eq!(
             ExtractedTime::Instant("2026-06-02T09:30:00Z".to_owned()).into_temporal_ref(),
             Some(TemporalRef::Instant(Timestamp::from_millis(at)))

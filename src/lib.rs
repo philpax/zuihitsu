@@ -37,7 +37,7 @@ pub mod store;
 #[cfg(feature = "sqlite")]
 pub mod system_prompt;
 pub mod templates;
-pub mod temporal;
+pub mod time;
 pub mod vector;
 #[cfg(feature = "sqlite")]
 pub mod visibility;
@@ -66,7 +66,7 @@ pub use settings::{
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use templates::{PromptTemplate, latest_template};
-pub use temporal::{
+pub use time::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
 };
 pub use vector::{
@@ -91,7 +91,7 @@ pub use __lua::*;
 #[cfg(feature = "sqlite")]
 mod __sqlite {
     pub use crate::{
-        brief::{BriefError, compose, compose_participant},
+        brief::{BriefError, BriefRequest, compose, compose_participant},
         graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
         identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
         memory_block::{

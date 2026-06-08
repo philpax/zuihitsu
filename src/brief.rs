@@ -19,8 +19,9 @@ use std::fmt::Write as _;
 use crate::{
     event::Visibility,
     graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, MemoryName, TagName},
+    ids::{MemoryId, MemoryName, TagName, Timestamp},
     settings::BriefSettings,
+    time,
     visibility::{self, ClassOf},
 };
 
@@ -52,19 +53,35 @@ impl From<GraphError> for BriefError {
     }
 }
 
-/// Compose the contextual brief for `present_set` in the room `current_context`. The predicate
-/// always resolves against the full `present_set`; `settings.present_set_cap` bounds only how many
-/// participants get a full block, with the remainder collapsed to name-only. `working_set` is the
-/// memories carried across a compaction seam (empty otherwise), rendered as an active-threads
-/// section so continuity holds — re-filtered through `visible` against the present set like any other
-/// block (spec §Compaction → working-set carryover).
+/// The session-specific inputs to [`compose`]: who is present, the current room, the working set
+/// carried across a compaction seam, and the session's start time. Bundled into a request so the call
+/// reads clearly (`compose(graph, settings, &request)`) rather than as a row of bare arguments.
+pub struct BriefRequest<'a> {
+    /// The full present set — the visibility predicate always resolves against all of it.
+    pub present_set: &'a [MemoryId],
+    /// The room's `context/*` memory, if any.
+    pub current_context: Option<MemoryId>,
+    /// Memories carried across a compaction seam (empty otherwise), rendered as active threads.
+    pub working_set: &'a [MemoryId],
+    /// The session's start time — the reference for the `<upcoming/>` window.
+    pub now: Timestamp,
+}
+
+/// Compose the contextual brief for the session described by `request`. The predicate always resolves
+/// against the full present set; `settings.present_set_cap` bounds only how many participants get a
+/// full block, with the remainder collapsed to name-only. The working set is re-filtered through
+/// `visible` against the present set like any other block (spec §Compaction → working-set carryover).
 pub fn compose(
     graph: &Graph,
-    present_set: &[MemoryId],
-    current_context: Option<MemoryId>,
     settings: &BriefSettings,
-    working_set: &[MemoryId],
+    request: &BriefRequest,
 ) -> Result<String, BriefError> {
+    let &BriefRequest {
+        present_set,
+        current_context,
+        working_set,
+        now,
+    } = request;
     // The visibility predicate resolves identity over the `same_as` class.
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
     let recent = settings.recent_facts.max(0) as usize;
@@ -149,6 +166,45 @@ pub fn compose(
         if !threads.is_empty() {
             out.push_str("# Active threads\n");
             out.push_str(&threads);
+        }
+    }
+
+    // 7. Upcoming — near-future calendared items, soonest first, so the agent organically raises
+    //    them (spec §Calendar → <upcoming/>). Each occurrence is filtered through `visible` like any
+    //    entry — a private aside about an absent person carries its marker, one about a now-present
+    //    subject is suppressed — and the list is capped.
+    let window_days = settings.upcoming_window_days.max(0);
+    let max_items = settings.max_upcoming_items.max(0) as usize;
+    if window_days > 0 && max_items > 0 {
+        let to = Timestamp::from_millis(
+            now.as_millis()
+                .saturating_add(window_days * time::MILLIS_PER_DAY),
+        );
+        let mut lines = Vec::new();
+        for (memory, entry) in graph.occurrences_in_window(now, to)? {
+            if lines.len() >= max_items {
+                break;
+            }
+            if !visibility::visible(&entry, &memory, present_set, &class_of)? {
+                continue;
+            }
+            let when = entry
+                .occurred_sort
+                .map_or_else(String::new, time::format_day);
+            let mut line = format!("- {when}: {} — {}", memory.name.as_str(), entry.text);
+            if entry.visibility != Visibility::Public {
+                let teller = graph.teller_display(&entry.told_by)?;
+                let room = graph.marker_room(entry.told_in)?;
+                line.push(' ');
+                line.push_str(&visibility::teller_private_marker(&teller, room.as_ref()));
+            }
+            lines.push(line);
+        }
+        if !lines.is_empty() {
+            out.push_str("# Upcoming\n");
+            for line in lines {
+                let _ = writeln!(out, "{line}");
+            }
         }
     }
 

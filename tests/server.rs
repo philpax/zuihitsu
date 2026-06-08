@@ -22,8 +22,12 @@ fn seed() -> SeedSelf {
     }
 }
 
+/// A realistic, non-epoch base (2026-06-08T00:00:00Z): a present-day "now" keeps the declared time
+/// lifelike rather than 1970, which matters once a turn states the time to the model.
+const TEST_NOW: Timestamp = Timestamp(1_780_876_800_000);
+
 fn clock() -> Box<ManualClock> {
-    Box::new(ManualClock::new(Timestamp::from_millis(1_000)))
+    Box::new(ManualClock::new(TEST_NOW))
 }
 
 #[test]
@@ -98,7 +102,7 @@ fn init_tracing() {
 /// so a test can advance time.
 #[cfg(feature = "lua")]
 fn born_agent() -> (Server, ManualClock) {
-    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let clock = ManualClock::new(TEST_NOW);
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
@@ -304,8 +308,7 @@ fn describe_call(description: &str) -> Completion {
     Completion::ToolCalls(vec![ToolCall {
         id: "synthesize".to_owned(),
         name: "synthesize".to_owned(),
-        arguments: serde_json::json!({ "description": description, "occurrences": [] })
-            .to_string(),
+        arguments: serde_json::json!({ "description": description, "occurrences": [] }).to_string(),
     }])
 }
 

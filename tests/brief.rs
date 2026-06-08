@@ -5,9 +5,52 @@
 #![cfg(feature = "sqlite")]
 
 use zuihitsu::{
-    Graph, MemoryId, MemoryName, MemoryStore, Settings, Store, TagName, Teller, Timestamp,
-    Visibility, brief, event::EventPayload, ids::EntryId,
+    BriefRequest, BriefSettings, CivilDate, Graph, MemoryId, MemoryName, MemoryStore, Settings,
+    Store, TagName, Teller, TemporalRef, Timestamp, Visibility, brief, event::EventPayload,
+    ids::EntryId,
 };
+
+/// Compose a brief at the epoch (these deterministic tests don't exercise the time-relative
+/// `<upcoming/>` window unless they plant a future occurrence, so a fixed `now` keeps them stable).
+fn compose_at_epoch(
+    graph: &Graph,
+    settings: &BriefSettings,
+    present_set: &[MemoryId],
+    current_context: Option<MemoryId>,
+    working_set: &[MemoryId],
+) -> String {
+    brief::compose(
+        graph,
+        settings,
+        &BriefRequest {
+            present_set,
+            current_context,
+            working_set,
+            now: Timestamp::from_millis(0),
+        },
+    )
+    .unwrap()
+}
+
+/// A content append carrying an `occurred_at` (the `appended` helper above leaves it `None`).
+fn appended_at(
+    id: MemoryId,
+    occurred_at: TemporalRef,
+    text: &str,
+    told_by: Teller,
+    visibility: Visibility,
+) -> EventPayload {
+    EventPayload::MemoryContentAppended {
+        id,
+        entry_id: EntryId::generate(),
+        asserted_at: Timestamp::from_millis(0),
+        occurred_at: Some(occurred_at),
+        text: text.to_owned(),
+        told_by,
+        told_in: None,
+        visibility,
+    }
+}
 
 /// Build a store, append `payloads`, and materialize a fresh in-memory graph from them.
 fn materialized(payloads: Vec<EventPayload>) -> (MemoryStore, Graph) {
@@ -67,14 +110,13 @@ fn current_room_brief_shows_confidential_regardless_of_present_set() {
         created(dave, "person/dave"),
     ]);
 
-    let out = brief::compose(
+    let out = compose_at_epoch(
         &graph,
+        &Settings::default().brief,
         &[phil, dave],
         Some(leads),
-        &Settings::default().brief,
         &[],
-    )
-    .unwrap();
+    );
     assert!(out.contains("Current room: #leads (confidential)"));
 }
 
@@ -104,7 +146,7 @@ fn an_aside_about_a_present_subject_is_suppressed_in_the_brief() {
         ),
     ]);
 
-    let out = brief::compose(&graph, &[erin, phil], None, &Settings::default().brief, &[]).unwrap();
+    let out = compose_at_epoch(&graph, &Settings::default().brief, &[erin, phil], None, &[]);
     assert!(out.contains("on the platform team")); // Phil's block renders
     assert!(!out.contains("is being managed out")); // ...but the aside is suppressed
 }
@@ -160,13 +202,13 @@ fn the_working_set_is_re_filtered_against_the_new_present_set() {
     let settings = Settings::default().brief;
 
     // Phil is in the working set. With only Erin present, the aside is visible in active threads.
-    let only_erin = brief::compose(&graph, &[erin], None, &settings, &[phil]).unwrap();
+    let only_erin = compose_at_epoch(&graph, &settings, &[erin], None, &[phil]);
     assert!(only_erin.contains("# Active threads"));
     assert!(only_erin.contains("is being managed out"));
 
     // With Phil present at the new boundary, the aside is suppressed — the working-set copy is
     // re-filtered against {Erin, Phil} just like any other block.
-    let with_phil = brief::compose(&graph, &[erin, phil], None, &settings, &[phil]).unwrap();
+    let with_phil = compose_at_epoch(&graph, &settings, &[erin, phil], None, &[phil]);
     assert!(!with_phil.contains("is being managed out"));
 }
 
@@ -204,10 +246,64 @@ fn the_present_set_cap_does_not_narrow_the_predicate() {
 
     let mut settings = Settings::default().brief;
     settings.present_set_cap = 1;
-    let out = brief::compose(&graph, &[phil, dave], None, &settings, &[]).unwrap();
+    let out = compose_at_epoch(&graph, &settings, &[phil, dave], None, &[]);
 
     assert!(out.contains("joined the climbing gym")); // Phil's block renders (in the cap)
     assert!(out.contains("person/dave (present)")); // Dave is present but below the cap (name-only)
     // The exclude fires because Dave is in the full present set, despite ranking below the cap.
     assert!(!out.contains("keep it from Dave"));
+}
+
+#[test]
+fn upcoming_block_lists_near_future_items_within_the_window() {
+    // now = epoch (day 0). The dentist on day 3 falls in the default 7-day window; the far review on
+    // day 30 does not.
+    let dentist = MemoryId::generate();
+    let far = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(dentist, "event/dentist"),
+        appended_at(
+            dentist,
+            TemporalRef::Day(CivilDate("1970-01-04".into())),
+            "cleaning",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        created(far, "event/far"),
+        appended_at(
+            far,
+            TemporalRef::Day(CivilDate("1970-01-31".into())),
+            "annual review",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+    let out = compose_at_epoch(&graph, &Settings::default().brief, &[], None, &[]);
+    assert!(out.contains("# Upcoming"));
+    assert!(out.contains("cleaning"));
+    assert!(!out.contains("annual review")); // beyond the 7-day window
+}
+
+#[test]
+fn upcoming_respects_the_subject_guard() {
+    // A private aside about Phil with a near-future occurrence, told by Erin: visible in <upcoming/>
+    // while only Erin is present, suppressed once Phil (its subject) is present.
+    let phil = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(phil, "person/phil"),
+        created(erin, "person/erin"),
+        appended_at(
+            phil,
+            TemporalRef::Day(CivilDate("1970-01-04".into())),
+            "farewell lunch",
+            Teller::Participant(erin),
+            Visibility::PrivateToTeller,
+        ),
+    ]);
+    let settings = Settings::default().brief;
+    let only_erin = compose_at_epoch(&graph, &settings, &[erin], None, &[]);
+    assert!(only_erin.contains("farewell lunch"));
+    let with_phil = compose_at_epoch(&graph, &settings, &[erin, phil], None, &[]);
+    assert!(!with_phil.contains("farewell lunch"));
 }

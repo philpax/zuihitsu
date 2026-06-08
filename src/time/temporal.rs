@@ -3,21 +3,21 @@
 //! in `occurred_at`; the materializer denormalizes it into three sortable/queryable columns via
 //! [`TemporalRef::bounds`] for recency ranking and (later) calendar windows.
 //!
-//! This module is deliberately pure and dependency-free — no graph, no date crate — because the
-//! event layer that carries `occurred_at` compiles without the `sqlite` feature. `BeforeAfter`
-//! anchor resolution is a graph read, so the materializer performs it and passes the resolved anchor
-//! bounds *into* [`TemporalRef::bounds`] rather than this module reaching into the graph.
+//! Deliberately pure and dependency-free — no graph, no date crate (it borrows the parent [`super`]
+//! module's civil-date math) — because the event layer that carries `occurred_at` compiles without
+//! the `sqlite` feature. `BeforeAfter` anchor resolution is a graph read, so the materializer
+//! performs it and passes the resolved anchor bounds *into* [`TemporalRef::bounds`] rather than this
+//! module reaching into the graph.
 
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
+use super::{MILLIS_PER_DAY, MILLIS_PER_HOUR, civil_date_to_millis};
 use crate::ids::{MemoryName, Timestamp};
 
 /// The nominal shift a [`TemporalRef::BeforeAfter`] applies to its anchor's representative instant —
 /// a tuning knob, like the recency `τ` constants (spec §Time). One hour.
-pub const BEFORE_AFTER_EPSILON_MILLIS: i64 = 3_600_000;
-
-const MILLIS_PER_DAY: i64 = 86_400_000;
+pub const BEFORE_AFTER_EPSILON_MILLIS: i64 = MILLIS_PER_HOUR;
 
 /// A typed, vague-capable reference to when a fact occurred (spec §Time → bi-temporality). Stored as
 /// tagged JSON in the `occurred_at` column; the materializer derives `occurred_sort`/`occurred_lo`/
@@ -163,8 +163,7 @@ impl CivilDate {
     /// Midnight UTC of this civil day as epoch milliseconds, or `None` if the string is not a valid
     /// `YYYY-MM-DD` calendar date.
     pub fn midnight_millis(&self) -> Option<i64> {
-        let (year, month, day) = parse_ymd(self.0.as_str())?;
-        Some(days_from_civil(year, month, day) * MILLIS_PER_DAY)
+        civil_date_to_millis(self.0.as_str())
     }
 }
 
@@ -172,65 +171,22 @@ fn shifted(at: Option<Timestamp>, shift: i64) -> Option<Timestamp> {
     at.map(|at| Timestamp::from_millis(at.as_millis() + shift))
 }
 
-/// Parse `YYYY-MM-DD` into a validated `(year, month, day)`, rejecting impossible dates (bad month,
-/// or a day past the month's length, leap years included) so a malformed date never silently rolls
-/// over into a neighboring month.
-fn parse_ymd(text: &str) -> Option<(i64, u32, u32)> {
-    let mut parts = text.split('-');
-    let year: i64 = parts.next()?.parse().ok()?;
-    let month: u32 = parts.next()?.parse().ok()?;
-    let day: u32 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
-        return None;
-    }
-    Some((year, month, day))
-}
-
-fn days_in_month(year: i64, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => 0,
-    }
-}
-
-fn is_leap_year(year: i64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}
-
-/// Days since the Unix epoch (1970-01-01) for a civil date, via Howard Hinnant's `days_from_civil`
-/// algorithm — exact for the proleptic Gregorian calendar with no date-crate dependency.
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month = i64::from(month);
-    let day = i64::from(day);
-    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
     };
-    use crate::ids::{MemoryName, Timestamp};
-
-    const DAY: i64 = 86_400_000;
+    use crate::{
+        ids::{MemoryName, Timestamp},
+        time::MILLIS_PER_DAY,
+    };
 
     fn ts(millis: i64) -> Timestamp {
         Timestamp::from_millis(millis)
     }
 
     // 2026-06-03 is 20_607 days after the epoch; midnight UTC is that many days of millis.
-    const JUNE_3_2026_MIDNIGHT: i64 = 20_607 * DAY;
+    const JUNE_3_2026_MIDNIGHT: i64 = 20_607 * MILLIS_PER_DAY;
 
     #[test]
     fn instant_is_a_point() {
@@ -249,9 +205,15 @@ mod tests {
     fn day_sorts_at_noon_and_bounds_the_day() {
         let bounds = TemporalRef::Day(CivilDate("2026-06-03".into()))
             .bounds(None, BEFORE_AFTER_EPSILON_MILLIS);
-        assert_eq!(bounds.sort, Some(ts(JUNE_3_2026_MIDNIGHT + DAY / 2)));
+        assert_eq!(
+            bounds.sort,
+            Some(ts(JUNE_3_2026_MIDNIGHT + MILLIS_PER_DAY / 2))
+        );
         assert_eq!(bounds.lo, Some(ts(JUNE_3_2026_MIDNIGHT)));
-        assert_eq!(bounds.hi, Some(ts(JUNE_3_2026_MIDNIGHT + DAY - 1)));
+        assert_eq!(
+            bounds.hi,
+            Some(ts(JUNE_3_2026_MIDNIGHT + MILLIS_PER_DAY - 1))
+        );
     }
 
     #[test]
@@ -285,13 +247,13 @@ mod tests {
     #[test]
     fn approx_fuzzes_symmetrically_in_days() {
         let bounds = TemporalRef::Approx {
-            center: ts(10 * DAY),
+            center: ts(10 * MILLIS_PER_DAY),
             fuzz_days: 2,
         }
         .bounds(None, BEFORE_AFTER_EPSILON_MILLIS);
-        assert_eq!(bounds.sort, Some(ts(10 * DAY)));
-        assert_eq!(bounds.lo, Some(ts(8 * DAY)));
-        assert_eq!(bounds.hi, Some(ts(12 * DAY)));
+        assert_eq!(bounds.sort, Some(ts(10 * MILLIS_PER_DAY)));
+        assert_eq!(bounds.lo, Some(ts(8 * MILLIS_PER_DAY)));
+        assert_eq!(bounds.hi, Some(ts(12 * MILLIS_PER_DAY)));
     }
 
     #[test]

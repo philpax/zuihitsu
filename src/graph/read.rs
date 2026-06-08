@@ -1,6 +1,8 @@
 //! Read queries over the projection: memories, entries, tags, relations, links, and search. Every
 //! agent-facing read filters soft-deleted memories.
 
+use std::collections::BTreeSet;
+
 use rusqlite::{OptionalExtension, params};
 
 use super::{
@@ -13,6 +15,7 @@ use crate::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName,
         SessionId, TagName, Timestamp, TurnId,
     },
+    time::TemporalRef,
 };
 
 impl Graph {
@@ -82,6 +85,118 @@ impl Graph {
             memories.push(self.assemble_memory(row.map_err(backend)?)?);
         }
         Ok(memories)
+    }
+
+    /// Live memories with a concrete occurrence in `[from, to]`, each paired with the matching entry,
+    /// ordered soonest first — the calendar-as-view query (spec §Calendar). Only entries with a
+    /// denormalized `occurred_sort` (instant/day/range/approx) participate; a `Recurring` entry has a
+    /// null sort and is found via [`Graph::recurring_memories`] instead. A memory with several
+    /// occurrences in the window appears once per occurrence.
+    pub fn occurrences_in_window(
+        &self,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<(MemoryView, EntryView)>, GraphError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
+                        e.entry_id, e.asserted_at, e.occurred_sort, e.text, e.told_by, e.told_in,
+                        e.visibility
+                 FROM content_entries e JOIN memories m ON m.id = e.memory_id
+                 WHERE m.deleted = 0 AND e.occurred_sort IS NOT NULL
+                   AND e.occurred_sort BETWEEN ?1 AND ?2
+                 ORDER BY e.occurred_sort, e.seq",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![from.as_millis(), to.as_millis()], |r| {
+                Ok((
+                    (
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, i64>(4)?,
+                    ),
+                    (
+                        r.get::<_, String>(5)?,
+                        r.get::<_, i64>(6)?,
+                        r.get::<_, Option<i64>>(7)?,
+                        r.get::<_, String>(8)?,
+                        r.get::<_, String>(9)?,
+                        r.get::<_, Option<String>>(10)?,
+                        r.get::<_, String>(11)?,
+                    ),
+                ))
+            })
+            .map_err(backend)?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (
+                memory_columns,
+                (entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility),
+            ) = row.map_err(backend)?;
+            let memory = self.assemble_memory(memory_columns)?;
+            let entry = EntryView::from_db(
+                EntryId(parse_ulid(&entry_id)?),
+                asserted_at,
+                occurred_sort,
+                text,
+                &told_by,
+                told_in.as_deref(),
+                &visibility,
+            )?;
+            out.push((memory, entry));
+        }
+        Ok(out)
+    }
+
+    /// Live memories that carry a `Recurring` occurrence — the `calendar.recurring()` listing. These
+    /// have a null `occurred_sort`, so they never appear in [`Graph::occurrences_in_window`]; this
+    /// parses the stored `occurred_at` to keep only true recurrences (an unresolved `BeforeAfter` is
+    /// also sort-null). Instances are not expanded here (spec §Known limitations).
+    pub fn recurring_memories(&self) -> Result<Vec<MemoryView>, GraphError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.occurred_at
+                 FROM content_entries e JOIN memories m ON m.id = e.memory_id
+                 WHERE m.deleted = 0 AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
+                 ORDER BY m.name",
+            )
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    (
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, i64>(4)?,
+                    ),
+                    r.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(backend)?;
+
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for row in rows {
+            let (memory_columns, occurred_json) = row.map_err(backend)?;
+            if !matches!(
+                serde_json::from_str::<TemporalRef>(&occurred_json),
+                Ok(TemporalRef::Recurring(_))
+            ) {
+                continue;
+            }
+            if seen.insert(memory_columns.0.clone()) {
+                out.push(self.assemble_memory(memory_columns)?);
+            }
+        }
+        Ok(out)
     }
 
     /// A memory's own content entries, in commit order — the per-stub read primitive that
