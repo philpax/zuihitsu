@@ -6,7 +6,7 @@
 //! resolves reads against the graph overlaid with its own pending writes (read-your-writes), and is
 //! the one place the write invariants live: name uniqueness, registered relations, and the
 //! write-time visibility default (including the `#confidential`-room firming). The Lua layer
-//! ([`crate::lua`]) is a thin wrapper over this — it translates script calls into method calls and
+//! ([`crate::agent::lua`]) is a thin wrapper over this — it translates script calls into method calls and
 //! never touches the buffer, the events, or the visibility rules directly.
 
 use std::collections::BTreeSet;
@@ -19,8 +19,9 @@ use crate::{
     graph::{Graph, GraphError},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName, Timestamp},
     time::{self, TemporalRef},
-    visibility::{default_visibility_named, subject_participant},
 };
+
+use super::visibility::{default_visibility_named, subject_participant};
 
 /// Who is driving a block's writes. Operator authority is the control panel; it is the only path
 /// permitted to edit `self`, and it authors its links as `Debugger` rather than `Agent` (spec

@@ -13,7 +13,7 @@ pub use sqlite::SqliteVectorIndex;
 
 use smol_str::SmolStr;
 
-use crate::{embed::Embedding, ids::Seq};
+use crate::{ids::Seq, model::embed::Embedding};
 
 /// A stored vector's key. A string, so both entry and description vectors can share one index; the
 /// entry-vs-description distinction and visibility metadata arrive when search becomes

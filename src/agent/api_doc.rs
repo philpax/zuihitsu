@@ -1,5 +1,5 @@
 //! A structured, renderable description of a callable API — its parameters, their types, and its
-//! return — shared by the hand-written Lua API ([`crate::lua::api_reference`]) and, later, by MCP
+//! return — shared by the hand-written Lua API ([`crate::agent::lua::api_reference`]) and, later, by MCP
 //! tools projected from their JSON-Schema inputs (spec §External I/O via MCP). Both produce the same
 //! [`ApiEntry`] shape and render through [`render`], so the system prompt's API description is one
 //! consistent catalogue regardless of where a call originates.

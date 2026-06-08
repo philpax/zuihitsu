@@ -8,28 +8,30 @@
 //! facet that structurally lacks Control's creation and inspection methods, which is what makes
 //! "the operator has no platform identity" enforceable.
 
-#[cfg(feature = "lua")]
 use crate::{
-    agent::{
-        Engine, Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, run_flush,
-        run_turn, session_touched,
-    },
-    brief::{self, BriefError},
-    event::{Initiation, PromptTemplateName, TurnRole},
-    identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
-    ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
-    lua::Session,
-    memory_block::Authority,
-    model::ModelClient,
-};
-use crate::{
+    agent::genesis::{self, GenesisStatus, Rollout, SeedSelf},
     clock::Clock,
     event::{EventPayload, EventSource},
-    genesis::{self, GenesisStatus, Rollout, SeedSelf},
     graph::{EntryView, Graph, GraphError, MemoryView, SessionView},
     ids::ConversationLocator,
     settings::Settings,
     store::{MemoryStore, Store, StoreError},
+};
+#[cfg(feature = "lua")]
+use crate::{
+    agent::lua::Session,
+    agent::{
+        Engine, Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, run_flush,
+        run_turn, session_touched,
+    },
+    event::{Initiation, PromptTemplateName, TurnRole},
+    ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
+    memory::{
+        brief::{self, BriefError},
+        identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
+        memory_block::Authority,
+    },
+    model::ModelClient,
 };
 #[cfg(feature = "lua")]
 use std::collections::{BTreeSet, HashMap};

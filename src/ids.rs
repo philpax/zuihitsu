@@ -130,7 +130,7 @@ pub struct MemoryName(pub SmolStr);
 
 impl MemoryName {
     /// The reserved handle of the agent's self-model memory: seeded at genesis, and writable only
-    /// from the control panel (see [`crate::memory_block::Authority`]). Held here so the one literal
+    /// from the control panel (see [`crate::memory::memory_block::Authority`]). Held here so the one literal
     /// has a single home, used wherever code looks `self` up or guards a write against it.
     pub const SELF: &'static str = "self";
 

@@ -19,15 +19,18 @@ use crate::{
     },
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, Timestamp, TurnId},
-    lua::{self, BlockOutcome, LuaError, Session},
-    memory_block::Authority,
+    memory::memory_block::Authority,
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec,
     },
     store::{Store, StoreError},
-    system_prompt, templates,
     time::{self, CivilDate, Direction, Rrule, TemporalRef},
+};
+
+use super::{
+    lua::{self, BlockOutcome, LuaError, Session},
+    system_prompt, templates,
 };
 
 /// What a completed turn delivers to the platform client.
@@ -129,7 +132,7 @@ pub fn session_touched(
 /// The mutable backends every layer of a turn threads as a unit: the append-only event log
 /// (`store`), the graph projection it feeds (`graph`), and the clock that stamps writes (`clock`).
 /// They always travel together, so they ride as one value rather than three parallel arguments —
-/// the shared shape behind [`Turn`], [`Flush`], [`Steps`], and [`crate::lua::Session::execute`].
+/// the shared shape behind [`Turn`], [`Flush`], [`Steps`], and [`crate::agent::lua::Session::execute`].
 pub struct Engine<'a> {
     pub store: &'a mut dyn Store,
     pub graph: &'a mut Graph,

@@ -22,8 +22,9 @@ use crate::{
     ids::{MemoryId, MemoryName, TagName, Timestamp},
     settings::BriefSettings,
     time,
-    visibility::{self, ClassOf},
 };
+
+use super::visibility::{self, ClassOf};
 
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]

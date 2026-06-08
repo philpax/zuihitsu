@@ -19,13 +19,13 @@ use std::collections::BTreeMap;
 use ulid::Ulid;
 
 use crate::{
-    embed::Embedder,
     event::{Event, EventPayload},
     ids::{EntryId, MemoryId},
-    model::ModelError,
     store::{Store, StoreError, Subscription},
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
 };
+
+use super::{ModelError, embed::Embedder};
 
 /// What a vector represents, encoded in its [`VectorId`] prefix so a search hit can be mapped back to
 /// the memory or entry it came from.

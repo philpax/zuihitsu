@@ -28,13 +28,12 @@ use async_openai::{
 use async_trait::async_trait;
 use serde::Serialize;
 
-use crate::{
-    config::{EmbeddingConfig, ModelConfig},
+use crate::config::{EmbeddingConfig, ModelConfig};
+
+use super::{
+    Completion, GenerateRequest, GenerateResponse, ModelClient, ModelError, Role, ToolCall,
+    ToolChoice, Usage,
     embed::{Embedder, Embedding},
-    model::{
-        Completion, GenerateRequest, GenerateResponse, ModelClient, ModelError, Role, ToolCall,
-        ToolChoice, Usage,
-    },
 };
 
 /// A generation client backed by an OpenAI-compatible `/chat/completions` endpoint. Holds the

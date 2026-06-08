@@ -53,7 +53,7 @@ pub fn visible(
 /// not a general default. Identity here is the write-time stub, not the class: a teller attributing
 /// to a specific stub of themselves is still self-disclosure. Agent-authored content *about a person*
 /// has no default at all — it is required to classify itself before reaching here (see
-/// [`crate::memory_block`]), since a re-recorded confidence silently defaulting public is a leak.
+/// [`crate::memory::memory_block`]), since a re-recorded confidence silently defaulting public is a leak.
 pub fn default_visibility(memory: &MemoryView, teller: &Teller) -> Visibility {
     default_visibility_named(memory.name.as_str(), memory.id, teller)
 }
@@ -113,7 +113,7 @@ pub fn room_display(context_name: &str) -> String {
 /// The participant a memory is *about*: a `person/*` stub, or `None` for every other namespace and
 /// for `self` (which therefore get no subject-guard). The bare stub id; the predicate resolves it to
 /// its class through `class_of`. Public so the write path can ask "does this memory have a subject?"
-/// — the case where an agent-authored entry has no protective default (see [`crate::memory_block`]).
+/// — the case where an agent-authored entry has no protective default (see [`crate::memory::memory_block`]).
 pub fn subject_participant(name: &str, id: MemoryId) -> Option<MemoryId> {
     name.starts_with("person/").then_some(id)
 }

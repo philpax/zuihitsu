@@ -19,12 +19,13 @@ use crate::{
     event::{Visibility, Volatility},
     graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, TagName, Timestamp},
-    index::VectorKey,
+    model::index::VectorKey,
     settings::SearchSettings,
     time,
     vector::{VectorError, VectorIndex},
-    visibility,
 };
+
+use super::visibility;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
 /// a private entry, and `None` otherwise.

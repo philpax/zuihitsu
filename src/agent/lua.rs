@@ -21,13 +21,16 @@ use mlua::{Lua, LuaSerdeExt, Table, Value};
 use ulid::Ulid;
 
 use crate::{
-    agent::{BlockContext, Engine},
-    api_doc::{ApiEntry, ApiType, enum_of, object},
     event::{EventPayload, TerminalCause},
     graph::GraphError,
     ids::{ConversationId, MemoryId, RelationName, TurnId},
-    memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError},
+    memory::memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError},
     store::StoreError,
+};
+
+use super::{
+    BlockContext, Engine,
+    api_doc::{ApiEntry, ApiType, enum_of, object},
 };
 
 /// One conversation's VM. Globals persist across the session's blocks; the memory API is installed
@@ -337,7 +340,7 @@ impl Session {
 /// The agent-facing Lua API, as a typed catalogue. Defined here, beside the functions installed in
 /// [`Session::execute`], so the prompt and the implementation cannot drift: changing a function
 /// means changing its entry right next to it. Rendered into the system prompt's API description
-/// through [`crate::api_doc::render`] — the same renderer MCP tools project through (spec §System
+/// through [`crate::agent::api_doc::render`] — the same renderer MCP tools project through (spec §System
 /// prompt → API description).
 pub fn api_reference() -> Vec<ApiEntry> {
     use ApiEntry as AE;
@@ -460,7 +463,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
 
 /// Render [`api_reference`] as the system prompt's API-description block.
 pub fn render_api_reference() -> String {
-    crate::api_doc::render(&api_reference())
+    super::api_doc::render(&api_reference())
 }
 
 /// An infrastructure failure executing a block (not an agent-visible terminal outcome, which is a

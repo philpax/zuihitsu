@@ -3,6 +3,14 @@
 //! predetermined steps, so an agent-level scenario is deterministic and needs no GPU (spec
 //! §Testability). The request/response shape is deliberately small here and grows with the agent
 //! loop and tool protocol in Stage 4.
+//!
+//! This root holds the model-client seam itself; the embedder seam lives in [`embed`], the
+//! log-to-vector indexer in [`index`], and the OpenAI-compatible backends for both in [`openai`].
+
+pub mod embed;
+pub mod index;
+#[cfg(feature = "openai")]
+pub mod openai;
 
 use std::{collections::VecDeque, sync::Mutex};
 
