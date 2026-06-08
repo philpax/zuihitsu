@@ -12,7 +12,7 @@ mod control;
 #[cfg(feature = "lua")]
 mod platform;
 
-pub use control::Control;
+pub use control::{Arbitration, Control};
 #[cfg(feature = "lua")]
 pub use platform::Platform;
 

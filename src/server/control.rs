@@ -16,7 +16,7 @@ use crate::{
     agent::genesis::{self, GenesisStatus, Rollout, SeedSelf},
     event::{EventPayload, EventSource},
     graph::{EntryView, MemoryView, SessionView},
-    ids::ConversationLocator,
+    ids::{ConversationLocator, MemoryName, Seq},
     settings::Settings,
 };
 
@@ -24,6 +24,13 @@ use crate::{
 /// never obtain one of these.
 pub struct Control<'a> {
     pub(super) server: &'a mut Server,
+}
+
+/// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent
+/// wrote (spec §Write path). The operator/debugger view of "why does it believe X".
+pub struct Arbitration {
+    pub memory: MemoryName,
+    pub statement: String,
 }
 
 impl Control<'_> {
@@ -97,6 +104,31 @@ impl Control<'_> {
     /// agent's recurring calendar, the inspection parallel to the agent-facing `calendar.recurring()`.
     pub fn recurring(&self) -> Result<Vec<MemoryView>, ServerError> {
         Ok(self.server.graph.recurring_memories()?)
+    }
+
+    /// The belief arbitrations the agent has recorded, oldest first — for each, the memory it concerns
+    /// and the reconciling statement. The audit surface for "why does it believe X" (spec §Write path);
+    /// `BeliefArbitrated` is log-only, so this reads it from the log rather than the graph.
+    pub fn arbitrations(&self) -> Result<Vec<Arbitration>, ServerError> {
+        let mut out = Vec::new();
+        for event in self.server.store.read_from(Seq::ZERO)? {
+            if let EventPayload::BeliefArbitrated {
+                memory, resolution, ..
+            } = event.payload
+            {
+                let name = self
+                    .server
+                    .graph
+                    .memory_by_id(memory)?
+                    .map(|memory| memory.name)
+                    .unwrap_or_else(|| MemoryName::new("<unknown>"));
+                out.push(Arbitration {
+                    memory: name,
+                    statement: resolution.statement,
+                });
+            }
+        }
+        Ok(out)
     }
 
     /// Inspect a memory's local content entries by name — their text, teller, and visibility — for

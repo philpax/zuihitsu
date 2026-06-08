@@ -92,7 +92,7 @@ mod __sqlite {
                 teller_private_marker, visible,
             },
         },
-        server::{Control, Server, ServerError},
+        server::{Arbitration, Control, Server, ServerError},
         store::SqliteStore,
         vector::SqliteVectorIndex,
     };
