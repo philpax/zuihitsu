@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, ffi::sqlite3_auto_extension, param
 use sqlite_vec::sqlite3_vec_init;
 
 use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
-use crate::ids::Seq;
+use crate::{db::query_map_into, ids::Seq};
 
 pub struct SqliteVectorIndex {
     conn: Connection,
@@ -95,28 +95,18 @@ impl VectorIndex for SqliteVectorIndex {
             return Ok(Vec::new());
         }
         let embedding = serde_json::to_string(query).map_err(backend)?;
-        let mut statement = self
-            .conn
-            .prepare(
-                "SELECT id, distance FROM vectors \
-                 WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance",
-            )
-            .map_err(backend)?;
-        let rows = statement
-            .query_map(params![embedding, k as i64], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
-            })
-            .map_err(backend)?;
-        let mut hits = Vec::new();
-        for row in rows {
-            let (id, distance) = row.map_err(backend)?;
+        let statement = self.conn.prepare(
+            "SELECT id, distance FROM vectors \
+             WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance",
+        )?;
+        query_map_into(statement, params![embedding, k as i64], |row| {
+            let (id, distance): (String, f64) = row.try_into()?;
             // vec0 returns cosine *distance* in [0, 2]; convert back to similarity in [-1, 1].
-            hits.push(ScoredHit {
+            Ok(ScoredHit {
                 id: VectorId::new(id),
                 score: 1.0 - distance as f32,
-            });
-        }
-        Ok(hits)
+            })
+        })
     }
 
     fn cursor(&self) -> Result<Seq, VectorError> {

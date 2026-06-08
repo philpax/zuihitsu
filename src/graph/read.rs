@@ -10,6 +10,7 @@ use super::{
     parse_ulid,
 };
 use crate::{
+    db::{query_map_into, query_opt_into},
     event::{Cardinality, Teller, Volatility},
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName,
@@ -48,43 +49,27 @@ impl Graph {
     /// The live members of `id`'s `same_as` class (including `id`), ordered by id. Empty if the
     /// memory is unknown or soft-deleted.
     pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT id FROM memories
-                 WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
-                   AND deleted = 0
-                 ORDER BY id",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![id.0.to_string()], |r| r.get::<_, String>(0))
-            .map_err(backend)?;
-        let mut members = Vec::new();
-        for row in rows {
-            members.push(MemoryId(parse_ulid(&row.map_err(backend)?)?));
-        }
-        Ok(members)
+        let stmt = self.conn.prepare(
+            "SELECT id FROM memories
+             WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+               AND deleted = 0
+             ORDER BY id",
+        )?;
+        query_map_into(stmt, params![id.0.to_string()], |row| {
+            let id: String = row.get(0)?;
+            Ok::<_, GraphError>(MemoryId(parse_ulid(&id)?))
+        })
     }
 
     /// All live memories whose name begins with `prefix` (e.g. `"person/"`), ordered by name.
     pub fn memories_in_namespace(&self, prefix: &str) -> Result<Vec<MemoryView>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT id, name, description, volatility, created_at FROM memories
-                 WHERE name LIKE ?1 || '%' AND deleted = 0 ORDER BY name",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![prefix], row_to_memory_columns)
-            .map_err(backend)?;
-
-        let mut memories = Vec::new();
-        for row in rows {
-            memories.push(self.assemble_memory(row.map_err(backend)?)?);
-        }
-        Ok(memories)
+        let stmt = self.conn.prepare(
+            "SELECT id, name, description, volatility, created_at FROM memories
+             WHERE name LIKE ?1 || '%' AND deleted = 0 ORDER BY name",
+        )?;
+        query_map_into(stmt, params![prefix], |row| {
+            self.assemble_memory(row.try_into()?)
+        })
     }
 
     /// Live memories with a concrete occurrence in `[from, to]`, each paired with the matching entry,
@@ -97,60 +82,37 @@ impl Graph {
         from: Timestamp,
         to: Timestamp,
     ) -> Result<Vec<(MemoryView, EntryView)>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
-                        e.entry_id, e.asserted_at, e.occurred_sort, e.text, e.told_by, e.told_in,
-                        e.visibility
-                 FROM content_entries e JOIN memories m ON m.id = e.memory_id
-                 WHERE m.deleted = 0 AND e.occurred_sort IS NOT NULL
-                   AND e.occurred_sort BETWEEN ?1 AND ?2
-                 ORDER BY e.occurred_sort, e.seq",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![from.as_millis(), to.as_millis()], |r| {
-                Ok((
-                    (
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, i64>(4)?,
-                    ),
-                    (
-                        r.get::<_, String>(5)?,
-                        r.get::<_, i64>(6)?,
-                        r.get::<_, Option<i64>>(7)?,
-                        r.get::<_, String>(8)?,
-                        r.get::<_, String>(9)?,
-                        r.get::<_, Option<String>>(10)?,
-                        r.get::<_, String>(11)?,
-                    ),
-                ))
-            })
-            .map_err(backend)?;
-
-        let mut out = Vec::new();
-        for row in rows {
-            let (
-                memory_columns,
-                (entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility),
-            ) = row.map_err(backend)?;
-            let memory = self.assemble_memory(memory_columns)?;
+        let stmt = self.conn.prepare(
+            "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
+                    e.entry_id, e.asserted_at, e.occurred_sort, e.text, e.told_by, e.told_in,
+                    e.visibility
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.occurred_sort IS NOT NULL
+               AND e.occurred_sort BETWEEN ?1 AND ?2
+             ORDER BY e.occurred_sort, e.seq",
+        )?;
+        query_map_into(stmt, params![from.as_millis(), to.as_millis()], |row| {
+            let id: String = row.get("id")?;
+            let name: String = row.get("name")?;
+            let description: String = row.get("description")?;
+            let volatility: String = row.get("volatility")?;
+            let created_at: i64 = row.get("created_at")?;
+            let entry_id: String = row.get("entry_id")?;
+            let told_by: String = row.get("told_by")?;
+            let told_in: Option<String> = row.get("told_in")?;
+            let visibility: String = row.get("visibility")?;
+            let memory = self.assemble_memory((id, name, description, volatility, created_at))?;
             let entry = EntryView::from_db(
                 EntryId(parse_ulid(&entry_id)?),
-                asserted_at,
-                occurred_sort,
-                text,
+                row.get("asserted_at")?,
+                row.get("occurred_sort")?,
+                row.get("text")?,
                 &told_by,
                 told_in.as_deref(),
                 &visibility,
             )?;
-            out.push((memory, entry));
-        }
-        Ok(out)
+            Ok((memory, entry))
+        })
     }
 
     /// Live memories that carry a `Recurring` occurrence — the `calendar.recurring()` listing. These
@@ -158,34 +120,27 @@ impl Graph {
     /// parses the stored `occurred_at` to keep only true recurrences (an unresolved `BeforeAfter` is
     /// also sort-null). Instances are not expanded here (spec §Known limitations).
     pub fn recurring_memories(&self) -> Result<Vec<MemoryView>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.occurred_at
-                 FROM content_entries e JOIN memories m ON m.id = e.memory_id
-                 WHERE m.deleted = 0 AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
-                 ORDER BY m.name",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    (
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, i64>(4)?,
-                    ),
-                    r.get::<_, String>(5)?,
-                ))
-            })
-            .map_err(backend)?;
+        let stmt = self.conn.prepare(
+            "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.occurred_at
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
+             ORDER BY m.name",
+        )?;
+        let rows: Vec<(MemoryColumns, String)> = query_map_into(stmt, [], |row| {
+            let columns = (
+                row.get("id")?,
+                row.get("name")?,
+                row.get("description")?,
+                row.get("volatility")?,
+                row.get("created_at")?,
+            );
+            Ok::<_, GraphError>((columns, row.get("occurred_at")?))
+        })?;
 
+        // Dedup by memory before assembling, so an entry's tags are fetched once per memory.
         let mut seen = BTreeSet::new();
         let mut out = Vec::new();
-        for row in rows {
-            let (memory_columns, occurred_json) = row.map_err(backend)?;
+        for (memory_columns, occurred_json) in rows {
             if !matches!(
                 serde_json::from_str::<TemporalRef>(&occurred_json),
                 Ok(TemporalRef::Recurring(_))
@@ -237,43 +192,37 @@ impl Graph {
         &self,
         entry_id: EntryId,
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
-        let row = self
-            .conn
-            .query_row(
-                "SELECT memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
-                 FROM content_entries WHERE entry_id = ?1",
-                params![entry_id.0.to_string()],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, Option<i64>>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, String>(4)?,
-                        r.get::<_, Option<String>>(5)?,
-                        r.get::<_, String>(6)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(backend)?;
-        let Some((memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility)) = row
-        else {
-            return Ok(None);
-        };
-        let Some(memory) = self.memory_by_id(MemoryId(parse_ulid(&memory_id)?))? else {
-            return Ok(None);
-        };
-        let entry = EntryView::from_db(
-            entry_id,
-            asserted_at,
-            occurred_sort,
-            text,
-            &told_by,
-            told_in.as_deref(),
-            &visibility,
+        let stmt = self.conn.prepare(
+            "SELECT memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
+             FROM content_entries WHERE entry_id = ?1",
         )?;
-        Ok(Some((memory, entry)))
+        let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
+            let (memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility): (
+                String,
+                i64,
+                Option<i64>,
+                String,
+                String,
+                Option<String>,
+                String,
+            ) = row.try_into()?;
+            let entry = EntryView::from_db(
+                entry_id,
+                asserted_at,
+                occurred_sort,
+                text,
+                &told_by,
+                told_in.as_deref(),
+                &visibility,
+            )?;
+            Ok::<_, GraphError>((memory_id, entry))
+        })?;
+        let Some((memory_id, entry)) = mapped else {
+            return Ok(None);
+        };
+        Ok(self
+            .memory_by_id(MemoryId(parse_ulid(&memory_id)?))?
+            .map(|m| (m, entry)))
     }
 
     /// A tag's description, or `None` if the tag was never created.
@@ -290,52 +239,38 @@ impl Graph {
 
     /// A registered relation by its canonical name, or `None`.
     pub fn relation(&self, name: &str) -> Result<Option<RelationView>, GraphError> {
-        self.conn
-            .query_row(
-                "SELECT name, inverse, from_card, to_card, symmetric, reflexive
-                 FROM relations WHERE name = ?1",
-                params![name],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, i64>(4)?,
-                        r.get::<_, i64>(5)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(backend)?
-            .map(
-                |(name, inverse, from_card, to_card, symmetric, reflexive)| {
-                    Ok(RelationView {
-                        name: RelationName::new(name),
-                        inverse: RelationName::new(inverse),
-                        from_card: parse_cardinality(&from_card)?,
-                        to_card: parse_cardinality(&to_card)?,
-                        symmetric: symmetric != 0,
-                        reflexive: reflexive != 0,
-                    })
-                },
-            )
-            .transpose()
+        let stmt = self.conn.prepare(
+            "SELECT name, inverse, from_card, to_card, symmetric, reflexive
+             FROM relations WHERE name = ?1",
+        )?;
+        query_opt_into(stmt, params![name], |row| {
+            let name: String = row.get("name")?;
+            let inverse: String = row.get("inverse")?;
+            let from_card: String = row.get("from_card")?;
+            let to_card: String = row.get("to_card")?;
+            let symmetric: i64 = row.get("symmetric")?;
+            let reflexive: i64 = row.get("reflexive")?;
+            Ok(RelationView {
+                name: RelationName::new(name),
+                inverse: RelationName::new(inverse),
+                from_card: parse_cardinality(&from_card)?,
+                to_card: parse_cardinality(&to_card)?,
+                symmetric: symmetric != 0,
+                reflexive: reflexive != 0,
+            })
+        })
     }
 
     /// Live neighbours reachable from `id` under `relation` (given as either label). Resolves the
     /// label through the registry, follows the canonical edge in the right direction (both
     /// directions for a symmetric relation), and skips soft-deleted neighbours.
     pub fn outgoing(&self, id: MemoryId, relation: &str) -> Result<Vec<MemoryView>, GraphError> {
-        let resolved: Option<(String, i64)> = self
+        let stmt = self
             .conn
-            .query_row(
-                "SELECT name, symmetric FROM relations WHERE name = ?1 OR inverse = ?1",
-                params![relation],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()
-            .map_err(backend)?;
+            .prepare("SELECT name, symmetric FROM relations WHERE name = ?1 OR inverse = ?1")?;
+        let resolved = query_opt_into(stmt, params![relation], |row| {
+            Ok::<(String, i64), GraphError>(row.try_into()?)
+        })?;
         let Some((canonical, symmetric)) = resolved else {
             return Ok(Vec::new());
         };
@@ -374,36 +309,21 @@ impl Graph {
     /// All canonical edges touching `id`, with both endpoints live. For inspection and tests; the
     /// agent-facing oriented view is [`Graph::outgoing`].
     pub fn links(&self, id: MemoryId) -> Result<Vec<LinkView>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT l.from_id, l.to_id, l.relation FROM links l
-                 JOIN memories mf ON mf.id = l.from_id
-                 JOIN memories mt ON mt.id = l.to_id
-                 WHERE (l.from_id = ?1 OR l.to_id = ?1) AND mf.deleted = 0 AND mt.deleted = 0
-                 ORDER BY l.relation, l.to_id",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![id.0.to_string()], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(backend)?;
-
-        let mut links = Vec::new();
-        for row in rows {
-            let (from, to, relation) = row.map_err(backend)?;
-            links.push(LinkView {
+        let stmt = self.conn.prepare(
+            "SELECT l.from_id, l.to_id, l.relation FROM links l
+             JOIN memories mf ON mf.id = l.from_id
+             JOIN memories mt ON mt.id = l.to_id
+             WHERE (l.from_id = ?1 OR l.to_id = ?1) AND mf.deleted = 0 AND mt.deleted = 0
+             ORDER BY l.relation, l.to_id",
+        )?;
+        query_map_into(stmt, params![id.0.to_string()], |row| {
+            let (from, to, relation): (String, String, String) = row.try_into()?;
+            Ok(LinkView {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
                 relation: RelationName::new(relation),
-            });
-        }
-        Ok(links)
+            })
+        })
     }
 
     /// Resolve a conversation's locator to its id, or `None` if the room has never been seen. A
@@ -496,18 +416,10 @@ impl Graph {
 
     /// A session by id, with its participants, or `None` if unknown.
     pub fn session(&self, id: SessionId) -> Result<Option<SessionView>, GraphError> {
-        let row = self
-            .conn
-            .query_row(
-                "SELECT id, conversation, started_at, seeded_from_turn, brief
-                 FROM sessions WHERE id = ?1",
-                params![id.0.to_string()],
-                session_columns,
-            )
-            .optional()
-            .map_err(backend)?;
-        row.map(|columns| self.assemble_session(columns))
-            .transpose()
+        let stmt = self.session_stmt("WHERE id = ?1")?;
+        query_opt_into(stmt, params![id.0.to_string()], |row| {
+            self.assemble_session(row)
+        })
     }
 
     /// A conversation's sessions, oldest first (commit order).
@@ -515,37 +427,31 @@ impl Graph {
         &self,
         conversation: ConversationId,
     ) -> Result<Vec<SessionView>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT id, conversation, started_at, seeded_from_turn, brief
-                 FROM sessions WHERE conversation = ?1 ORDER BY seq",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![conversation.0.to_string()], session_columns)
-            .map_err(backend)?;
-        let mut sessions = Vec::new();
-        for row in rows {
-            sessions.push(self.assemble_session(row.map_err(backend)?)?);
-        }
-        Ok(sessions)
+        let stmt = self.session_stmt("WHERE conversation = ?1 ORDER BY seq")?;
+        query_map_into(stmt, params![conversation.0.to_string()], |row| {
+            self.assemble_session(row)
+        })
+    }
+
+    /// Prepare a `sessions` read over the columns [`Graph::assemble_session`] decodes, with `clause`
+    /// supplying the differing `WHERE` (and any `ORDER BY`). Sharing the column list keeps the by-id
+    /// and by-conversation reads provably returning the same row shape. `clause` is a static fragment,
+    /// never agent input.
+    fn session_stmt(&self, clause: &str) -> Result<rusqlite::Statement<'_>, GraphError> {
+        Ok(self.conn.prepare(&format!(
+            "SELECT id, conversation, started_at, seeded_from_turn, brief FROM sessions {clause}"
+        ))?)
     }
 
     /// A session's participants — the present set at open plus anyone who joined — ordered by id.
     pub fn session_participants(&self, session: SessionId) -> Result<Vec<MemoryId>, GraphError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT memory FROM session_participants WHERE session = ?1 ORDER BY memory")
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![session.0.to_string()], |r| r.get::<_, String>(0))
-            .map_err(backend)?;
-        let mut participants = Vec::new();
-        for row in rows {
-            participants.push(MemoryId(parse_ulid(&row.map_err(backend)?)?));
-        }
-        Ok(participants)
+        let stmt = self.conn.prepare(
+            "SELECT memory FROM session_participants WHERE session = ?1 ORDER BY memory",
+        )?;
+        query_map_into(stmt, params![session.0.to_string()], |row| {
+            let memory: String = row.get(0)?;
+            Ok(MemoryId(parse_ulid(&memory)?))
+        })
     }
 
     /// Full-text search over name, description, and content, best match first. Over-fetches and
@@ -556,20 +462,17 @@ impl Graph {
             return Ok(Vec::new());
         }
         let over_fetch = limit.saturating_mul(4).max(limit + 10) as i64;
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?1
-                 ORDER BY rank LIMIT ?2",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![match_query, over_fetch], |r| r.get::<_, String>(0))
-            .map_err(backend)?;
+        let stmt = self.conn.prepare(
+            "SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?1
+             ORDER BY rank LIMIT ?2",
+        )?;
+        let ids: Vec<MemoryId> = query_map_into(stmt, params![match_query, over_fetch], |row| {
+            let id: String = row.get(0)?;
+            Ok::<_, GraphError>(MemoryId(parse_ulid(&id)?))
+        })?;
 
         let mut hits = Vec::new();
-        for row in rows {
-            let id = MemoryId(parse_ulid(&row.map_err(backend)?)?);
+        for id in ids {
             if let Some(memory) = self.memory_by_id(id)? {
                 hits.push(memory);
                 if hits.len() >= limit {
@@ -591,27 +494,16 @@ impl Graph {
         if match_query.is_empty() {
             return Ok(Vec::new());
         }
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT f.memory_id, bm25(memories_fts) AS score
-                 FROM memories_fts f JOIN memories m ON m.id = f.memory_id
-                 WHERE memories_fts MATCH ?1 AND m.deleted = 0
-                 ORDER BY score LIMIT ?2",
-            )
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![match_query, limit as i64], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
-            })
-            .map_err(backend)?;
-
-        let mut hits = Vec::new();
-        for row in rows {
-            let (id, score) = row.map_err(backend)?;
-            hits.push((MemoryId(parse_ulid(&id)?), score as f32));
-        }
-        Ok(hits)
+        let stmt = self.conn.prepare(
+            "SELECT f.memory_id, bm25(memories_fts) AS score
+             FROM memories_fts f JOIN memories m ON m.id = f.memory_id
+             WHERE memories_fts MATCH ?1 AND m.deleted = 0
+             ORDER BY score LIMIT ?2",
+        )?;
+        query_map_into(stmt, params![match_query, limit as i64], |row| {
+            let (id, score): (String, f64) = row.try_into()?;
+            Ok((MemoryId(parse_ulid(&id)?), score as f32))
+        })
     }
 
     fn fetch_memory(&self, column: &str, value: &str) -> Result<Option<MemoryView>, GraphError> {
@@ -619,15 +511,10 @@ impl Graph {
             "SELECT id, name, description, volatility, created_at FROM memories
              WHERE {column} = ?1 AND deleted = 0"
         );
-        let row = self
-            .conn
-            .query_row(&sql, params![value], row_to_memory_columns)
-            .optional()
-            .map_err(backend)?;
-        match row {
-            Some(columns) => Ok(Some(self.assemble_memory(columns)?)),
-            None => Ok(None),
-        }
+        let stmt = self.conn.prepare(&sql)?;
+        query_opt_into(stmt, params![value], |row| {
+            self.assemble_memory(row.try_into()?)
+        })
     }
 
     fn assemble_memory(&self, columns: MemoryColumns) -> Result<MemoryView, GraphError> {
@@ -644,110 +531,65 @@ impl Graph {
         })
     }
 
-    fn assemble_session(&self, columns: SessionColumns) -> Result<SessionView, GraphError> {
-        let (id, conversation, started_at, seeded_from_turn, brief) = columns;
+    /// Build a [`SessionView`] from a row selecting the columns [`Graph::session_stmt`] lists, then
+    /// load its participants. Decoding from the row here keeps the column list and its reader together.
+    fn assemble_session(&self, row: &rusqlite::Row<'_>) -> Result<SessionView, GraphError> {
+        let id: String = row.get("id")?;
+        let conversation: String = row.get("conversation")?;
+        let seeded_from_turn: Option<String> = row.get("seeded_from_turn")?;
         let id = SessionId(parse_ulid(&id)?);
         Ok(SessionView {
             id,
             conversation: ConversationId(parse_ulid(&conversation)?),
-            started_at: Timestamp::from_millis(started_at),
+            started_at: Timestamp::from_millis(row.get("started_at")?),
             seeded_from_turn: seeded_from_turn
                 .map(|turn| parse_ulid(&turn).map(TurnId))
                 .transpose()?,
-            brief,
+            brief: row.get("brief")?,
             participants: self.session_participants(id)?,
         })
     }
 
     fn tags_of(&self, memory_id: &str) -> Result<Vec<TagName>, GraphError> {
-        let mut stmt = self
+        let stmt = self
             .conn
-            .prepare("SELECT tag FROM memory_tags WHERE memory_id = ?1 ORDER BY tag")
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![memory_id], |r| r.get::<_, String>(0))
-            .map_err(backend)?;
-        let mut tags = Vec::new();
-        for row in rows {
-            tags.push(TagName::new(row.map_err(backend)?));
-        }
-        Ok(tags)
+            .prepare("SELECT tag FROM memory_tags WHERE memory_id = ?1 ORDER BY tag")?;
+        query_map_into(stmt, params![memory_id], |row| {
+            let tag: String = row.get(0)?;
+            Ok(TagName::new(tag))
+        })
     }
 
     /// Run an entry query whose sole bound parameter is a memory id, mapping each row to an
-    /// [`EntryView`]. Shared by [`Graph::entries_local`] and [`Graph::class_entries`].
+    /// [`EntryView`]. Shared by [`Graph::entries_local`] and [`Graph::class_entries`]; the row's seven
+    /// columns are `(entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility)`.
     fn collect_entries(&self, sql: &str, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
-        let mut stmt = self.conn.prepare(sql).map_err(backend)?;
-        let rows = stmt
-            .query_map(params![id.0.to_string()], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, Option<i64>>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, String>(4)?,
-                    r.get::<_, Option<String>>(5)?,
-                    r.get::<_, String>(6)?,
-                ))
-            })
-            .map_err(backend)?;
-
-        let mut entries = Vec::new();
-        for row in rows {
-            let (entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility) =
-                row.map_err(backend)?;
-            entries.push(EntryView::from_db(
+        let stmt = self.conn.prepare(sql)?;
+        query_map_into(stmt, params![id.0.to_string()], |row| {
+            let entry_id: String = row.get("entry_id")?;
+            let told_by: String = row.get("told_by")?;
+            let told_in: Option<String> = row.get("told_in")?;
+            let visibility: String = row.get("visibility")?;
+            EntryView::from_db(
                 EntryId(parse_ulid(&entry_id)?),
-                asserted_at,
-                occurred_sort,
-                text,
+                row.get("asserted_at")?,
+                row.get("occurred_sort")?,
+                row.get("text")?,
                 &told_by,
                 told_in.as_deref(),
                 &visibility,
-            )?);
-        }
-        Ok(entries)
+            )
+        })
     }
 
     fn query_ids(&self, sql: &str, id: &str, relation: &str) -> Result<Vec<String>, GraphError> {
-        let mut stmt = self.conn.prepare(sql).map_err(backend)?;
-        let rows = stmt
-            .query_map(params![id, relation], |r| r.get::<_, String>(0))
-            .map_err(backend)?;
-        let mut ids = Vec::new();
-        for row in rows {
-            ids.push(row.map_err(backend)?);
-        }
-        Ok(ids)
+        let stmt = self.conn.prepare(sql)?;
+        query_map_into(stmt, params![id, relation], |row| Ok(row.get(0)?))
     }
 }
 
-/// The raw memory columns, shared by the single- and multi-row read paths.
+/// The raw memory columns the `memories` SELECT yields; consumed by [`Graph::assemble_memory`].
 type MemoryColumns = (String, String, String, String, i64);
-
-fn row_to_memory_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryColumns> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-    ))
-}
-
-/// The raw session columns (id, conversation, started_at, seeded_from_turn, brief), shared by the
-/// single- and multi-row read paths.
-type SessionColumns = (String, String, i64, Option<String>, String);
-
-fn session_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionColumns> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-    ))
-}
 
 fn parse_cardinality(text: &str) -> Result<Cardinality, GraphError> {
     Cardinality::parse(text)

@@ -104,6 +104,26 @@ Within each module, organize code as follows:
 - Careful attention to cloning referencing. Avoid cloning if code has a natural tree structure.
 - Stream data (e.g. iterators) where possible rather than buffering.
 
+### Database access (SQLite)
+
+- Run every `query_map` and multi-column `query_row` through the shared `db::query_map_into` /
+  `query_opt_into` helpers, passing a mapping closure. They own the prepare-iterate-collect plumbing
+  and are generic over the error type, so a mapper that decodes a row and then does serde/ULID work
+  `?`-chains into the layer's own error rather than hand-rolling a closure that returns a tuple plus a
+  second loop that converts it.
+- Each error type that flows through the helpers implements `From<rusqlite::Error>` (so the helper's
+  and the mapper's `?` convert backend failures). That `From` is the conversion path; reserve a
+  `map_err` shim for the few reads that stay on a bare `query_row`.
+- Decode a row's columns with rusqlite's tuple `TryFrom` — `let (seq, recorded_at, payload): (i64,
+  i64, String) = row.try_into()?;` — **only when the unpack stays a single line** (roughly three or
+  four narrow columns). For wider rows, fall back to explicit per-column `row.get("column")?` **by
+  name**: a multi-line tuple-of-types buys nothing over named gets and reads worse, and naming the
+  columns is order-safe where counting positions is not. Reserve positional `row.get(0)` for a lone
+  scalar, where neither a tuple nor a name pays off.
+- Keep the row-decoding mapper **beside its query**, as a local closure (or a small free fn for a
+  genuinely shared shape). Do not hoist decoding into a per-type `TryFrom<&rusqlite::Row>` impl: a
+  single impl presumes every query reads that type identically, which the schema does not guarantee.
+
 ## Testing 
 
 ### Testing tools

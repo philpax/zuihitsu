@@ -12,6 +12,7 @@ use fs2::FileExt;
 use rusqlite::{Connection, params};
 
 use crate::{
+    db::query_map_into,
     event::{Event, EventPayload},
     ids::{Seq, Timestamp},
 };
@@ -115,29 +116,17 @@ impl Store for SqliteStore {
     }
 
     fn read_from(&self, from: Seq) -> Result<Vec<Event>, StoreError> {
-        let mut stmt = self
+        let stmt = self
             .conn
-            .prepare("SELECT seq, recorded_at, payload FROM events WHERE seq >= ?1 ORDER BY seq")
-            .map_err(backend)?;
-        let rows = stmt
-            .query_map(params![from.0 as i64], |row| {
-                let seq: i64 = row.get(0)?;
-                let recorded_at: i64 = row.get(1)?;
-                let payload: String = row.get(2)?;
-                Ok((seq, recorded_at, payload))
-            })
-            .map_err(backend)?;
-
-        let mut events = Vec::new();
-        for row in rows {
-            let (seq, recorded_at, payload) = row.map_err(backend)?;
-            events.push(Event {
+            .prepare("SELECT seq, recorded_at, payload FROM events WHERE seq >= ?1 ORDER BY seq")?;
+        query_map_into(stmt, params![from.0 as i64], |row| {
+            let (seq, recorded_at, payload): (i64, i64, String) = row.try_into()?;
+            Ok(Event {
                 seq: Seq(seq as u64),
                 recorded_at: Timestamp::from_millis(recorded_at),
                 payload: serde_json::from_str(&payload)?,
-            });
-        }
-        Ok(events)
+            })
+        })
     }
 
     fn head(&self) -> Result<Seq, StoreError> {

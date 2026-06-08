@@ -3,10 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::params;
 
 use super::{Graph, GraphError, backend};
 use crate::{
+    db::{query_map_into, query_opt_into},
     event::{Event, EventPayload, Visibility},
     ids::{MemoryId, MemoryName, RelationName, Timestamp},
     time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef},
@@ -413,29 +414,20 @@ impl Graph {
     /// deleted anchor's occurrence stays resolvable (spec §Known limitations → `BeforeAfter`). `None`
     /// when the anchor name is unknown or has no timed entry — the caller then derives empty bounds.
     fn anchor_bounds(&self, anchor: &MemoryName) -> Result<Option<OccurrenceBounds>, GraphError> {
-        let row = self
-            .conn
-            .query_row(
-                "SELECT e.occurred_sort, e.occurred_lo, e.occurred_hi
-                 FROM content_entries e JOIN memories m ON m.id = e.memory_id
-                 WHERE m.name = ?1 AND e.occurred_sort IS NOT NULL
-                 ORDER BY e.occurred_sort LIMIT 1",
-                params![anchor.as_str()],
-                |r| {
-                    Ok((
-                        r.get::<_, Option<i64>>(0)?,
-                        r.get::<_, Option<i64>>(1)?,
-                        r.get::<_, Option<i64>>(2)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(backend)?;
-        Ok(row.map(|(sort, lo, hi)| OccurrenceBounds {
-            sort: sort.map(Timestamp::from_millis),
-            lo: lo.map(Timestamp::from_millis),
-            hi: hi.map(Timestamp::from_millis),
-        }))
+        let stmt = self.conn.prepare(
+            "SELECT e.occurred_sort, e.occurred_lo, e.occurred_hi
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.name = ?1 AND e.occurred_sort IS NOT NULL
+             ORDER BY e.occurred_sort LIMIT 1",
+        )?;
+        query_opt_into(stmt, params![anchor.as_str()], |row| {
+            let (sort, lo, hi): (Option<i64>, Option<i64>, Option<i64>) = row.try_into()?;
+            Ok::<_, GraphError>(OccurrenceBounds {
+                sort: sort.map(Timestamp::from_millis),
+                lo: lo.map(Timestamp::from_millis),
+                hi: hi.map(Timestamp::from_millis),
+            })
+        })
     }
 
     /// Resolve a link (asserted under either label) to its stored canonical direction:
@@ -452,15 +444,12 @@ impl Graph {
         let to = to.0.to_string();
         let label = relation.as_str();
 
-        let resolved: Option<(String, i64)> = self
+        let stmt = self
             .conn
-            .query_row(
-                "SELECT name, symmetric FROM relations WHERE name = ?1 OR inverse = ?1",
-                params![label],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()
-            .map_err(backend)?;
+            .prepare("SELECT name, symmetric FROM relations WHERE name = ?1 OR inverse = ?1")?;
+        let resolved = query_opt_into(stmt, params![label], |row| {
+            Ok::<(String, i64), GraphError>(row.try_into()?)
+        })?;
 
         Ok(match resolved {
             None => (from, to, label.to_owned()),
@@ -479,24 +468,16 @@ impl Graph {
     /// whole recompute is correct for both without a local patch (trivial at personal-agent class
     /// sizes). Operator-designated primaries are a later refinement.
     fn recompute_classes(&self) -> Result<(), GraphError> {
-        let ids: Vec<String> = self
-            .conn
-            .prepare("SELECT id FROM memories")
-            .map_err(backend)?
-            .query_map([], |r| r.get::<_, String>(0))
-            .map_err(backend)?
-            .collect::<rusqlite::Result<Vec<String>>>()
-            .map_err(backend)?;
-        let edges: Vec<(String, String)> = self
-            .conn
-            .prepare("SELECT from_id, to_id FROM links WHERE relation = ?1")
-            .map_err(backend)?
-            .query_map(params![RelationName::SameAs.as_str()], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })
-            .map_err(backend)?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(backend)?;
+        let ids: Vec<String> =
+            query_map_into(self.conn.prepare("SELECT id FROM memories")?, [], |row| {
+                Ok::<_, GraphError>(row.get(0)?)
+            })?;
+        let edges: Vec<(String, String)> = query_map_into(
+            self.conn
+                .prepare("SELECT from_id, to_id FROM links WHERE relation = ?1")?,
+            params![RelationName::SameAs.as_str()],
+            |row| Ok::<(String, String), GraphError>(row.try_into()?),
+        )?;
 
         let mut parent: BTreeMap<String, String> =
             ids.iter().map(|id| (id.clone(), id.clone())).collect();
@@ -599,7 +580,7 @@ mod tests {
                 "SELECT occurred_sort, occurred_lo, occurred_hi
                  FROM content_entries WHERE entry_id = ?1",
                 params![entry.0.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| r.try_into(),
             )
             .unwrap();
         let bounds = occurred.bounds(None, 0);

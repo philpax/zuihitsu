@@ -12,6 +12,8 @@ pub mod api_doc;
 pub mod brief;
 pub mod clock;
 pub mod config;
+#[cfg(feature = "sqlite")]
+mod db;
 pub mod embed;
 pub mod event;
 pub mod genesis;

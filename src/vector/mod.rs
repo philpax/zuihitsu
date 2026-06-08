@@ -67,6 +67,13 @@ impl std::fmt::Display for VectorError {
 
 impl std::error::Error for VectorError {}
 
+#[cfg(feature = "sqlite")]
+impl From<rusqlite::Error> for VectorError {
+    fn from(error: rusqlite::Error) -> Self {
+        VectorError::Backend(error.to_string())
+    }
+}
+
 /// Approximate (here, exact) nearest-neighbour search over embeddings.
 pub trait VectorIndex {
     /// Insert or replace a vector and its provenance.

@@ -82,6 +82,13 @@ impl From<serde_json::Error> for StoreError {
     }
 }
 
+#[cfg(feature = "sqlite")]
+impl From<rusqlite::Error> for StoreError {
+    fn from(error: rusqlite::Error) -> Self {
+        StoreError::Backend(error.to_string())
+    }
+}
+
 /// Fan committed events out to live subscribers, dropping any whose receiver has hung up. Shared by
 /// both backends, since the subscriber set is an in-process concern independent of durability.
 fn notify(subscribers: &mut Vec<Sender<Event>>, committed: &[Event]) {
