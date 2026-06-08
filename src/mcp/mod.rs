@@ -9,8 +9,10 @@
 //! that exposes these as `mcp.<server>.*` arrives in a later increment; this is the client itself.
 
 mod fake;
+mod stdio;
 
 pub use fake::{FakeMcpHost, FakeServer};
+pub use stdio::StdioHost;
 
 use std::{collections::BTreeMap, path::PathBuf};
 

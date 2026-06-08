@@ -113,7 +113,7 @@ pub use __openai::*;
 mod __mcp {
     pub use crate::mcp::{
         ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
-        McpServerConfig, McpTool,
+        McpServerConfig, McpTool, StdioHost,
     };
 }
 #[cfg(feature = "mcp")]
