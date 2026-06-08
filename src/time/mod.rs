@@ -100,6 +100,14 @@ pub fn format_datetime(at: Timestamp) -> String {
     format_with(at, "%A, %d %B %Y, %H:%M UTC")
 }
 
+/// A compact wall-clock stamp for prefixing a replayed turn (spec §Time → "Now"): `2026-06-08 14:36
+/// UTC`. Briefer than [`format_datetime`], which anchors the session start in prose, because it
+/// rides on every buffered turn.
+#[cfg(feature = "sqlite")]
+pub fn format_stamp(at: Timestamp) -> String {
+    format_with(at, "%Y-%m-%d %H:%M UTC")
+}
+
 /// Render a timestamp as a concise UTC day (e.g. `Wed 03 Jun`) — the `<upcoming/>` brief shape.
 #[cfg(feature = "sqlite")]
 pub fn format_day(at: Timestamp) -> String {

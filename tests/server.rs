@@ -352,18 +352,69 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
 
     let seen = model.recorded_messages();
     assert_eq!(seen.len(), 2);
-    // Turn 1's prompt is just the inbound message.
+    // Turn 1's prompt is just the inbound message, stamped with the time it was recorded (TEST_NOW;
+    // the clock does not advance in this test). The agent reads it, so it carries a time prefix.
     let turn1: Vec<&str> = seen[0]
         .iter()
         .map(|message| message.content.as_str())
         .collect();
-    assert_eq!(turn1, vec!["hello there"]);
+    assert_eq!(turn1, vec!["[2026-06-08 00:00 UTC] hello there"]);
     // Turn 2 replays the live buffer — turn 1's participant and agent turns — then the new inbound.
+    // The participant turns it reads are time-stamped; the agent's own reply is left unstamped.
     let turn2: Vec<&str> = seen[1]
         .iter()
         .map(|message| message.content.as_str())
         .collect();
-    assert_eq!(turn2, vec!["hello there", "first reply", "and again"]);
+    assert_eq!(
+        turn2,
+        vec![
+            "[2026-06-08 00:00 UTC] hello there",
+            "first reply",
+            "[2026-06-08 00:00 UTC] and again",
+        ]
+    );
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
+async fn each_turn_carries_its_own_recorded_time() {
+    let (mut server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("morning".to_owned()),
+        Completion::Reply("still morning".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "first message", &["dave"])
+        .await
+        .unwrap();
+    // Ten minutes later, within the idle gap, so the same session continues and the buffer replays.
+    clock.advance_millis(600 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "second message", &["dave"])
+        .await
+        .unwrap();
+
+    // The second turn's prompt shows the first message frozen at its original time and the new inbound
+    // at the advanced time — "now" tracks the clock without the historical stamp drifting.
+    let seen = model.recorded_messages();
+    let turn2: Vec<&str> = seen
+        .last()
+        .unwrap()
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect();
+    assert_eq!(
+        turn2,
+        vec![
+            "[2026-06-08 00:00 UTC] first message",
+            "morning",
+            "[2026-06-08 00:10 UTC] second message",
+        ]
+    );
 }
 
 #[cfg(feature = "lua")]

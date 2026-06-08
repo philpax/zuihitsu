@@ -65,6 +65,8 @@ pub struct TurnView {
     pub role: TurnRole,
     pub text: String,
     pub participant: Option<MemoryId>,
+    /// When the turn was recorded — the time it is stamped with when replayed (spec §Time → "Now").
+    pub recorded_at: Timestamp,
 }
 
 /// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
@@ -94,6 +96,7 @@ pub fn buffer_turns(
                 role,
                 text,
                 participant,
+                recorded_at: event.recorded_at,
             });
         }
     }
@@ -254,7 +257,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // live buffer is replayed as the prompt suffix, then the current inbound message.
     let turn_id = TurnId::generate();
     let mut messages = buffer_messages(buffer);
-    messages.push(Message::user(inbound));
+    messages.push(Message::user(stamp(inbound, engine.clock.now())));
 
     let (outcome, peak_prompt_tokens) = run_steps(Steps {
         session,
@@ -369,18 +372,30 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
 
 /// Replay the live buffer as chat messages: prior turns mapped to their roles (participant→user,
 /// agent→assistant, system→system), skipping empty agent turns (silent terminals). The frozen brief
-/// stays in the system prefix only — the buffer never perturbs it (prefix-cache stability).
+/// stays in the system prefix only — the buffer never perturbs it (prefix-cache stability). The
+/// messages the agent *reads* — participant and system turns — are prefixed with the time they were
+/// recorded; its own turns are left unstamped so it never learns to emit timestamps (spec §Time).
 fn buffer_messages(buffer: &[TurnView]) -> Vec<Message> {
     let mut messages: Vec<Message> = Vec::with_capacity(buffer.len() + 1);
     for buffered in buffer {
         match buffered.role {
-            TurnRole::Participant => messages.push(Message::user(buffered.text.clone())),
+            TurnRole::Participant => {
+                messages.push(Message::user(stamp(&buffered.text, buffered.recorded_at)))
+            }
             TurnRole::Agent if buffered.text.is_empty() => {}
             TurnRole::Agent => messages.push(Message::assistant(buffered.text.clone())),
-            TurnRole::System => messages.push(Message::system(buffered.text.clone())),
+            TurnRole::System => {
+                messages.push(Message::system(stamp(&buffered.text, buffered.recorded_at)))
+            }
         }
     }
     messages
+}
+
+/// Prefix a message the agent reads with the compact wall-clock time it was recorded (spec §Time →
+/// "Now").
+fn stamp(text: &str, at: Timestamp) -> String {
+    format!("[{}] {}", time::format_stamp(at), text)
 }
 
 /// The shared step loop a participant turn and a pre-compaction flush both run: generate, execute

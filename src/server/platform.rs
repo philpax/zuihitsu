@@ -325,7 +325,7 @@ fn estimate_tokens(buffer: &[TurnView], inbound: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::TurnId;
+    use crate::{ids::TurnId, time::Timestamp};
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {
@@ -334,6 +334,7 @@ mod tests {
             role: TurnRole::Participant,
             text: text.to_owned(),
             participant: None,
+            recorded_at: Timestamp::from_millis(0),
         }
     }
 
