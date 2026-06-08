@@ -16,7 +16,7 @@ use crate::{
     clock::Clock,
     event::{
         ArbitrationResolution, EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller,
-        TerminalCause, TurnRole,
+        TerminalCause, TurnRole, Visibility,
     },
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, TurnId},
@@ -541,6 +541,11 @@ async fn regenerate_descriptions(
 
     let mut events = Vec::new();
     let mut resolved = BTreeSet::new();
+    let extraction_provenance = extraction_template.as_ref().map(|template| ProducedBy {
+        model_id: model.model_id().into(),
+        template_name: PromptTemplateName::TemporalExtraction,
+        template_version: template.version,
+    });
     for &id in written {
         let Some(memory) = engine.graph.memory_by_id(id)? else {
             continue;
@@ -551,101 +556,90 @@ async fn regenerate_descriptions(
         if entries.is_empty() {
             continue;
         }
-        let synthesis = match synthesize(model, &system, &memory, &entries, now).await {
-            Ok(Some(synthesis)) => synthesis,
-            Ok(None) => continue,
-            Err(error) => {
-                tracing::warn!(
+
+        // The description and arbitration are synthesized over the memory's PUBLIC entries only, so a
+        // private aside never reaches the always-visible summary (spec §Write path → from Public
+        // entries only). For an all-public memory this is the whole class, unchanged.
+        let public_entries: Vec<EntryView> = entries
+            .iter()
+            .filter(|entry| entry.visibility == Visibility::Public)
+            .cloned()
+            .collect();
+        if !public_entries.is_empty() {
+            match synthesize(model, &system, &memory, &public_entries, now).await {
+                Ok(Some(synthesis)) => {
+                    if !synthesis.description.trim().is_empty() {
+                        events.push(EventPayload::MemoryDescriptionRegenerated {
+                            id,
+                            new_text: synthesis.description.trim().to_owned(),
+                            produced_by: Some(ProducedBy {
+                                model_id: model.model_id().into(),
+                                template_name: PromptTemplateName::DescriptionRegen,
+                                template_version: description_template.version,
+                            }),
+                        });
+                    }
+                    if let Some(event) = arbitration_event(
+                        id,
+                        &memory,
+                        synthesis.arbitration,
+                        &public_entries,
+                        model.model_id(),
+                        description_template.version,
+                    ) {
+                        events.push(event);
+                    }
+                    if let Some(provenance) = &extraction_provenance {
+                        resolve_occurrences(
+                            synthesis.occurrences,
+                            &public_entries,
+                            &eligible,
+                            &mut resolved,
+                            provenance,
+                            &memory,
+                            &mut events,
+                        );
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(
                     memory = %memory.name.as_str(),
                     %error,
                     "turn-end synthesis failed; keeping the prior description"
-                );
-                continue;
+                ),
             }
-        };
-        if !synthesis.description.trim().is_empty() {
-            events.push(EventPayload::MemoryDescriptionRegenerated {
-                id,
-                new_text: synthesis.description.trim().to_owned(),
-                produced_by: Some(ProducedBy {
-                    model_id: model.model_id().into(),
-                    template_name: PromptTemplateName::DescriptionRegen,
-                    template_version: description_template.version,
-                }),
-            });
         }
 
-        // A conflict the synthesis flagged among the entries: record which collided and which it
-        // credited (spec §Write path → arbitration). Statement numbers are 1-based into the listed
-        // entries, deduped. A real conflict has at least two distinct sides and a reconciling note;
-        // anything less is a spuriously-filled field and is dropped. Part of the DescriptionRegen pass,
-        // so it runs whether or not the extraction half is configured.
-        if let Some(arbitration) = synthesis.arbitration {
-            let to_entry_ids = |numbers: Vec<usize>| {
-                let mut ids: Vec<EntryId> = Vec::new();
-                for number in numbers {
-                    if let Some(entry) = number.checked_sub(1).and_then(|i| entries.get(i))
-                        && !ids.contains(&entry.entry_id)
-                    {
-                        ids.push(entry.entry_id);
-                    }
+        // Private entries the agent left untimed this turn still need temporal extraction — a private
+        // reminder must still become a wake-up — but must never enter the description. A focused
+        // extract-only pass resolves their occurrences; its description and arbitration are discarded.
+        if let Some(provenance) = &extraction_provenance {
+            let private_untimed: Vec<EntryView> = entries
+                .iter()
+                .filter(|entry| {
+                    entry.visibility != Visibility::Public && eligible.contains_key(&entry.entry_id)
+                })
+                .cloned()
+                .collect();
+            if !private_untimed.is_empty() {
+                match synthesize(model, &system, &memory, &private_untimed, now).await {
+                    Ok(Some(synthesis)) => resolve_occurrences(
+                        synthesis.occurrences,
+                        &private_untimed,
+                        &eligible,
+                        &mut resolved,
+                        provenance,
+                        &memory,
+                        &mut events,
+                    ),
+                    Ok(None) => {}
+                    Err(error) => tracing::warn!(
+                        memory = %memory.name.as_str(),
+                        %error,
+                        "private-entry extraction failed; leaving them untimed"
+                    ),
                 }
-                ids
-            };
-            let competing_entries = to_entry_ids(arbitration.competing);
-            let credited = to_entry_ids(arbitration.credited);
-            if competing_entries.len() >= 2 && !arbitration.statement.trim().is_empty() {
-                events.push(EventPayload::BeliefArbitrated {
-                    memory: id,
-                    competing_entries,
-                    resolution: ArbitrationResolution {
-                        credited,
-                        statement: arbitration.statement.trim().to_owned(),
-                    },
-                    produced_by: Some(ProducedBy {
-                        model_id: model.model_id().into(),
-                        template_name: PromptTemplateName::DescriptionRegen,
-                        template_version: description_template.version,
-                    }),
-                });
-            } else {
-                tracing::debug!(memory = %memory.name.as_str(), "dropping a malformed arbitration");
             }
-        }
-
-        let Some(extraction_template) = &extraction_template else {
-            continue;
-        };
-        for occurrence in synthesis.occurrences {
-            // The statement number is 1-based into the entries listed in the prompt.
-            let Some(entry) = occurrence.entry.checked_sub(1).and_then(|i| entries.get(i)) else {
-                continue;
-            };
-            // Only a new, untimed entry; skip anything else the model keyed (an entry already timed,
-            // explicitly set, or a class sibling not written this turn), and resolve each once.
-            let Some(&entry_memory) = eligible.get(&entry.entry_id) else {
-                continue;
-            };
-            if !resolved.insert(entry.entry_id) {
-                continue;
-            }
-            let Some(occurred_at) = occurrence.occurred_at.into_temporal_ref() else {
-                tracing::debug!(
-                    memory = %memory.name.as_str(),
-                    "dropping an unparseable extracted occurrence"
-                );
-                continue;
-            };
-            events.push(EventPayload::EntryTemporalResolved {
-                id: entry_memory,
-                entry_id: entry.entry_id,
-                occurred_at,
-                produced_by: Some(ProducedBy {
-                    model_id: model.model_id().into(),
-                    template_name: PromptTemplateName::TemporalExtraction,
-                    template_version: extraction_template.version,
-                }),
-            });
         }
     }
 
@@ -654,6 +648,89 @@ async fn regenerate_descriptions(
         engine.graph.materialize_from(engine.store)?;
     }
     Ok(())
+}
+
+/// Map a flagged conflict to a `BeliefArbitrated`, or `None` if it is malformed — fewer than two
+/// distinct competing entries, or no reconciling statement (spec §Write path → arbitration). Statement
+/// numbers are 1-based into `entries`, which are the Public entries the description synthesizes over,
+/// so arbitration records a choice between conflicting *public* assertions.
+fn arbitration_event(
+    memory_id: MemoryId,
+    memory: &MemoryView,
+    arbitration: Option<ExtractedArbitration>,
+    entries: &[EntryView],
+    model_id: &str,
+    template_version: u32,
+) -> Option<EventPayload> {
+    let arbitration = arbitration?;
+    let to_entry_ids = |numbers: Vec<usize>| {
+        let mut ids: Vec<EntryId> = Vec::new();
+        for number in numbers {
+            if let Some(entry) = number.checked_sub(1).and_then(|i| entries.get(i))
+                && !ids.contains(&entry.entry_id)
+            {
+                ids.push(entry.entry_id);
+            }
+        }
+        ids
+    };
+    let competing_entries = to_entry_ids(arbitration.competing);
+    let credited = to_entry_ids(arbitration.credited);
+    if competing_entries.len() < 2 || arbitration.statement.trim().is_empty() {
+        tracing::debug!(memory = %memory.name.as_str(), "dropping a malformed arbitration");
+        return None;
+    }
+    Some(EventPayload::BeliefArbitrated {
+        memory: memory_id,
+        competing_entries,
+        resolution: ArbitrationResolution {
+            credited,
+            statement: arbitration.statement.trim().to_owned(),
+        },
+        produced_by: Some(ProducedBy {
+            model_id: model_id.into(),
+            template_name: PromptTemplateName::DescriptionRegen,
+            template_version,
+        }),
+    })
+}
+
+/// Resolve the extracted `occurrences` for the entries `list` (1-based statement numbers), pushing an
+/// `EntryTemporalResolved` for each new, untimed entry, once. Shared by the public synthesis pass and
+/// the focused private-entry extraction pass, so each only resolves the entries it was shown.
+fn resolve_occurrences(
+    occurrences: Vec<ExtractedOccurrence>,
+    list: &[EntryView],
+    eligible: &BTreeMap<EntryId, MemoryId>,
+    resolved: &mut BTreeSet<EntryId>,
+    provenance: &ProducedBy,
+    memory: &MemoryView,
+    events: &mut Vec<EventPayload>,
+) {
+    for occurrence in occurrences {
+        // The statement number is 1-based into the entries listed in the prompt.
+        let Some(entry) = occurrence.entry.checked_sub(1).and_then(|i| list.get(i)) else {
+            continue;
+        };
+        // Only a new, untimed entry; skip anything else the model keyed (an entry already timed,
+        // explicitly set, or a class sibling not written this turn), and resolve each once.
+        let Some(&entry_memory) = eligible.get(&entry.entry_id) else {
+            continue;
+        };
+        if !resolved.insert(entry.entry_id) {
+            continue;
+        }
+        let Some(occurred_at) = occurrence.occurred_at.into_temporal_ref() else {
+            tracing::debug!(memory = %memory.name.as_str(), "dropping an unparseable extracted occurrence");
+            continue;
+        };
+        events.push(EventPayload::EntryTemporalResolved {
+            id: entry_memory,
+            entry_id: entry.entry_id,
+            occurred_at,
+            produced_by: Some(provenance.clone()),
+        });
+    }
 }
 
 /// Entries appended since `cycle_start` that carry no `occurred_at`, mapped to their owning memory —

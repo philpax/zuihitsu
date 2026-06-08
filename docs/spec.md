@@ -610,7 +610,7 @@ Recording a memory triggers model work: description regeneration and temporal ex
 
 ### Coalesce, then regenerate once
 
-Appends within a turn are batched. At turn end, each affected memory is regenerated once over its full post-batch content set — not once per entry — with temporal extraction in the same pass. Regeneration produces the `description` (from `Public` entries only) and emits `BeliefArbitrated` if the entries it synthesizes over conflict.
+Appends within a turn are batched. At turn end, each affected memory is regenerated once over its full post-batch content set — not once per entry. The description and belief arbitration are synthesized over the memory's `Public` entries only, so a private aside can never reach the always-visible summary; this pass also extracts the occurrence times of the public statements. Regeneration produces the `description` and emits `BeliefArbitrated` if the public entries it synthesizes over conflict. Private entries the agent left untimed still need their occurrence resolved — a private reminder must still fire — so they get a focused extraction-only side-pass that never feeds the description. For an all-public memory (the common case) the side-pass is empty and it is the single combined pass; only a memory mixing public and private new content pays the second call.
 
 ### Regenerate after the turn, not during it
 

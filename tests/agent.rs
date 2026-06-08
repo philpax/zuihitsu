@@ -89,7 +89,11 @@ async fn descriptions_regenerate_after_a_turn() {
     h.graph.materialize_from(&h.store).unwrap();
 
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
+        // A public fact about Dave (the description is synthesized from Public entries only).
+        run_lua_call(
+            r#"local d = memory.create("person/dave")
+               d:append("Met at the climbing gym", { by_agent = true, visibility = "public" })"#,
+        ),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
         // The post-turn synthesis call: a forced `synthesize` tool call carries the description as a
         // clean argument (the entry has no temporal phrase, so no occurrences).
@@ -284,6 +288,60 @@ async fn a_single_sided_arbitration_is_dropped() {
         .unwrap();
 
     assert!(belief_arbitrations(&h.store).is_empty());
+}
+
+#[tokio::test]
+async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
+    let mut h = Harness::new();
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    // Dave's memory carries one public fact and one private, future-dated aside.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local d = memory.create("person/dave")
+               d:append("Dave is a climber", { by_agent = true, visibility = "public" })
+               d:append("Dave has a private therapy session next Tuesday", { by_agent = true, visibility = "private" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // The description pass sees only the public entry.
+        synthesize_call(r#"{"description":"Dave is a climber.","occurrences":[]}"#),
+        // The focused extraction pass over the private untimed entry resolves its occurrence.
+        synthesize_call(
+            r#"{"description":"(discarded)","occurrences":[{"entry":1,"occurred_at":{"day":"2026-06-16"}}]}"#,
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
+
+    // The description-synthesis prompt was shown the public fact but never the private aside — the leak
+    // the split closes.
+    let prompts: Vec<String> = model
+        .recorded_messages()
+        .iter()
+        .flatten()
+        .map(|message| message.content.clone())
+        .collect();
+    assert!(
+        prompts
+            .iter()
+            .any(|p| p.contains("Dave is a climber") && !p.contains("therapy")),
+        "the description pass must not see the private entry: {prompts:?}"
+    );
+    assert!(
+        prompts.iter().any(|p| p.contains("therapy")),
+        "the private entry must still reach the focused extraction pass"
+    );
+
+    // Yet the private entry still gained its occurrence (so a private reminder can still fire).
+    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
+    let entries = h.graph.entries_local(dave.id).unwrap();
+    let therapy = entries
+        .iter()
+        .find(|entry| entry.text.contains("therapy"))
+        .unwrap();
+    assert_eq!(therapy.occurred_sort, Some(day_noon("2026-06-16")));
 }
 
 #[tokio::test]
