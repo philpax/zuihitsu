@@ -14,7 +14,8 @@ use rusqlite::{Connection, params};
 use crate::{
     db::query_map_into,
     event::{Event, EventPayload},
-    ids::{Seq, Timestamp},
+    ids::Seq,
+    time::Timestamp,
 };
 
 use super::{Store, StoreError, Subscription, notify};

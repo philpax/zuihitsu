@@ -14,9 +14,9 @@ use crate::{
     event::{Cardinality, Teller, Volatility},
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName,
-        SessionId, TagName, Timestamp, TurnId,
+        SessionId, TagName, TurnId,
     },
-    time::TemporalRef,
+    time::{TemporalRef, Timestamp},
 };
 
 impl Graph {

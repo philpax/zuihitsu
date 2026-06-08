@@ -9,8 +9,8 @@ use super::{Graph, GraphError, backend};
 use crate::{
     db::{query_map_into, query_opt_into},
     event::{Event, EventPayload, Visibility},
-    ids::{MemoryId, MemoryName, RelationName, Timestamp},
-    time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef},
+    ids::{MemoryId, MemoryName, RelationName},
+    time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef, Timestamp},
 };
 
 /// The denormalized occurrence values for one entry's `content_entries` row: the tagged-JSON
@@ -528,8 +528,8 @@ mod tests {
     use super::Graph;
     use crate::{
         event::{Event, EventPayload, Teller, Visibility},
-        ids::{EntryId, MemoryId, MemoryName, Seq, Timestamp},
-        time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, TemporalRef},
+        ids::{EntryId, MemoryId, MemoryName, Seq},
+        time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, TemporalRef, Timestamp},
     };
 
     fn event(seq: u64, payload: EventPayload) -> Event {

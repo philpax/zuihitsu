@@ -17,7 +17,8 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use crate::{
     event::{Event, EventPayload},
-    ids::{Seq, Timestamp},
+    ids::Seq,
+    time::Timestamp,
 };
 
 /// A live feed of events committed after the subscription was taken. The debugger and other

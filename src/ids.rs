@@ -23,22 +23,6 @@ impl Seq {
     }
 }
 
-/// Wall-clock time as milliseconds since the Unix epoch, UTC. A denormalized convenience for
-/// human-readable queries and recency math; `Seq` is the authoritative timeline, and `Seq` breaks
-/// ties (see spec §Time → sequence vs wall-clock).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Timestamp(pub i64);
-
-impl Timestamp {
-    pub fn from_millis(millis: i64) -> Timestamp {
-        Timestamp(millis)
-    }
-
-    pub fn as_millis(self) -> i64 {
-        self.0
-    }
-}
-
 /// The canonical, immutable, internal identity of a memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]

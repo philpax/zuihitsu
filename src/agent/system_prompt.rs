@@ -15,7 +15,10 @@
 //! Assembly is a pure function of already-fetched inputs, so the caller owns the store/graph/clock
 //! reads (and their error handling) and this stays trivially testable.
 
-use crate::{graph::EntryView, ids::Timestamp, time};
+use crate::{
+    graph::EntryView,
+    time::{self, Timestamp},
+};
 
 /// Compose the system prompt from the `scaffold` body, the agent's `identity` (the `self` memory's
 /// content entries, verbatim), the `api_reference` block (the build's callable Lua API, rendered by

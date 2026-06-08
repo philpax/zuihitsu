@@ -19,9 +19,9 @@ use std::fmt::Write as _;
 use crate::{
     event::Visibility,
     graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, MemoryName, TagName, Timestamp},
+    ids::{MemoryId, MemoryName, TagName},
     settings::BriefSettings,
-    time,
+    time::{self, Timestamp},
 };
 
 use super::visibility::{self, ClassOf};

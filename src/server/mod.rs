@@ -285,7 +285,7 @@ struct OpenSession {
     id: SessionId,
     vm: Session,
     brief: String,
-    last_activity: crate::ids::Timestamp,
+    last_activity: crate::time::Timestamp,
     /// The log seq the live buffer is read from: the `SessionStarted` seq for a fresh or idle-opened
     /// session, or a carried tail's seq across a compaction seam (so the carryover plus this
     /// session's turns reconstruct the buffer — see [`buffer_turns`]).

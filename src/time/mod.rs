@@ -14,8 +14,23 @@ pub use temporal::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
 };
 
-#[cfg(feature = "sqlite")]
-use crate::ids::Timestamp;
+use serde::{Deserialize, Serialize};
+
+/// Wall-clock time as milliseconds since the Unix epoch, UTC. A denormalized convenience for
+/// human-readable queries and recency math; `Seq` is the authoritative timeline, and `Seq` breaks
+/// ties (see spec §Time → sequence vs wall-clock).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Timestamp(pub i64);
+
+impl Timestamp {
+    pub fn from_millis(millis: i64) -> Timestamp {
+        Timestamp(millis)
+    }
+
+    pub fn as_millis(self) -> i64 {
+        self.0
+    }
+}
 
 pub const MILLIS_PER_SECOND: i64 = 1_000;
 pub const SECONDS_PER_MINUTE: i64 = 60;

@@ -17,8 +17,8 @@ use crate::{
     clock::Clock,
     event::{EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName, Timestamp},
-    time::{self, TemporalRef},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, RelationName, TagName},
+    time::{self, TemporalRef, Timestamp},
 };
 
 use super::visibility::{default_visibility_named, subject_participant};
@@ -540,8 +540,9 @@ mod tests {
         clock::ManualClock,
         event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
         graph::Graph,
-        ids::{ConversationId, MemoryId, MemoryName, RelationName, Timestamp},
+        ids::{ConversationId, MemoryId, MemoryName, RelationName},
         store::{MemoryStore, Store},
+        time::Timestamp,
     };
 
     /// A block over an empty in-memory graph and a conversation with no context — enough to exercise

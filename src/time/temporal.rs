@@ -12,8 +12,8 @@
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
-use super::{MILLIS_PER_DAY, MILLIS_PER_HOUR, civil_date_to_millis};
-use crate::ids::{MemoryName, Timestamp};
+use super::{MILLIS_PER_DAY, MILLIS_PER_HOUR, Timestamp, civil_date_to_millis};
+use crate::ids::MemoryName;
 
 /// The nominal shift a [`TemporalRef::BeforeAfter`] applies to its anchor's representative instant —
 /// a tuning knob, like the recency `τ` constants (spec §Time). One hour.
@@ -177,8 +177,8 @@ mod tests {
         BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
     };
     use crate::{
-        ids::{MemoryName, Timestamp},
-        time::MILLIS_PER_DAY,
+        ids::MemoryName,
+        time::{MILLIS_PER_DAY, Timestamp},
     };
 
     fn ts(millis: i64) -> Timestamp {

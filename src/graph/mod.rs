@@ -11,9 +11,10 @@ use crate::{
     event::{Cardinality, Teller, Visibility, Volatility},
     ids::{
         ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, SessionId, TagName,
-        Timestamp, TurnId,
+        TurnId,
     },
     store::{Store, StoreError},
+    time::Timestamp,
 };
 
 mod apply;

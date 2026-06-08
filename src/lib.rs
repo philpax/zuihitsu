@@ -47,7 +47,7 @@ pub use event::{
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName, Seq,
-    SessionId, TagName, Timestamp, TurnId,
+    SessionId, TagName, TurnId,
 };
 pub use model::{
     Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, Role,
@@ -62,6 +62,7 @@ pub use settings::{
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
+    Timestamp,
 };
 pub use vector::{
     InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,

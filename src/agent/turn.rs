@@ -18,14 +18,14 @@ use crate::{
         EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
     },
     graph::{EntryView, Graph, GraphError, MemoryView},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, Timestamp, TurnId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, TurnId},
     memory::memory_block::Authority,
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec,
     },
     store::{Store, StoreError},
-    time::{self, CivilDate, Direction, Rrule, TemporalRef},
+    time::{self, CivilDate, Direction, Rrule, TemporalRef, Timestamp},
 };
 
 use super::{
@@ -957,8 +957,8 @@ impl From<GraphError> for TurnError {
 mod tests {
     use super::ExtractedTime;
     use crate::{
-        ids::{MemoryName, Timestamp},
-        time::{self, CivilDate, Direction, TemporalRef},
+        ids::MemoryName,
+        time::{self, CivilDate, Direction, TemporalRef, Timestamp},
     };
 
     fn ms(date: &str) -> i64 {

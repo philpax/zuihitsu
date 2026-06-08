@@ -5,7 +5,8 @@ use std::sync::mpsc::{Sender, channel};
 
 use crate::{
     event::{Event, EventPayload},
-    ids::{Seq, Timestamp},
+    ids::Seq,
+    time::Timestamp,
 };
 
 use super::{Store, StoreError, Subscription, notify};

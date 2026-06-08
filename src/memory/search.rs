@@ -18,10 +18,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     event::{Visibility, Volatility},
     graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, TagName, Timestamp},
+    ids::{MemoryId, TagName},
     model::index::VectorKey,
     settings::SearchSettings,
-    time,
+    time::{self, Timestamp},
     vector::{VectorError, VectorIndex},
 };
 
@@ -239,9 +239,9 @@ mod tests {
     use crate::{
         event::{Event, EventPayload, Teller, Visibility},
         graph::Graph,
-        ids::{EntryId, MemoryId, MemoryName, Seq, Timestamp},
+        ids::{EntryId, MemoryId, MemoryName, Seq},
         settings::SearchSettings,
-        time::TemporalRef,
+        time::{TemporalRef, Timestamp},
     };
 
     const DAY: i64 = 86_400_000;

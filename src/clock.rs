@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::ids::Timestamp;
+use crate::time::Timestamp;
 
 /// A source of "now". Shared immutably across threads, so it is `Send + Sync`.
 pub trait Clock: Send + Sync {
