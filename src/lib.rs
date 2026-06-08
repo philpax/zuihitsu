@@ -10,6 +10,8 @@ pub mod clock;
 pub mod config;
 #[cfg(feature = "sqlite")]
 mod db;
+#[cfg(feature = "sqlite")]
+pub mod engine;
 pub mod event;
 #[cfg(feature = "sqlite")]
 pub mod graph;
@@ -70,7 +72,7 @@ pub use vocabulary::{RelationName, TagName};
 #[cfg(feature = "lua")]
 mod __lua {
     pub use crate::agent::{
-        BlockContext, Engine, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
+        BlockContext, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
         lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
         run_turn, session_touched,
     };
@@ -81,6 +83,7 @@ pub use __lua::*;
 #[cfg(feature = "sqlite")]
 mod __sqlite {
     pub use crate::{
+        engine::Engine,
         graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
         memory::{
             brief::{BriefError, BriefRequest, compose, compose_participant},

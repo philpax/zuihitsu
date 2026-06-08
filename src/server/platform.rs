@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use super::{Carryover, RoutedTurn, Server, ServerError};
 use crate::{
-    agent::{Engine, Flush, TurnOutcome, TurnView, buffer_turns, run_flush, session_touched},
+    agent::{Flush, TurnOutcome, TurnView, buffer_turns, run_flush, session_touched},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
     memory::{
@@ -41,15 +41,21 @@ impl Platform<'_> {
         // Resolve the room (minting its context memory on first contact) and the participants. Each
         // call borrows the store, clock, and graph fields disjointly and releases before the next,
         // so the interleaved `materialize_from` calls are free to take the graph mutably.
-        let conversation = resolve_or_mint_conversation(
-            self.server.store.as_mut(),
-            self.server.clock.as_ref(),
-            &self.server.graph,
-            locator,
-        )?;
+        let conversation = {
+            // Graph before store, per the lock-ordering rule (this resolve holds both at once).
+            let graph = self.server.engine.graph.lock();
+            resolve_or_mint_conversation(
+                self.server.engine.store.lock().as_mut(),
+                self.server.engine.clock.as_ref(),
+                &graph,
+                locator,
+            )?
+        };
         self.server
+            .engine
             .graph
-            .materialize_from(self.server.store.as_ref())?;
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
 
         // The unique platform ids to resolve: everyone present, plus the sender. Deduplicating
         // matters because resolution reads the graph, which is not re-materialized between mints
@@ -64,13 +70,17 @@ impl Platform<'_> {
         let mut present_set = Vec::new();
         let mut sender_id = None;
         for uid in &uids {
-            let id = resolve_or_mint_participant(
-                self.server.store.as_mut(),
-                self.server.clock.as_ref(),
-                &self.server.graph,
-                platform,
-                uid,
-            )?;
+            let id = {
+                // Graph before store, per the lock-ordering rule.
+                let graph = self.server.engine.graph.lock();
+                resolve_or_mint_participant(
+                    self.server.engine.store.lock().as_mut(),
+                    self.server.engine.clock.as_ref(),
+                    &graph,
+                    platform,
+                    uid,
+                )?
+            };
             if *uid == sender {
                 sender_id = Some(id);
             }
@@ -78,8 +88,10 @@ impl Platform<'_> {
         }
         let sender_id = sender_id.expect("the sender is among the resolved ids");
         self.server
+            .engine
             .graph
-            .materialize_from(self.server.store.as_ref())?;
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
 
         // Open or continue the session and run the turn under ordinary platform authority.
         let (report, buffer) = self
@@ -101,7 +113,7 @@ impl Platform<'_> {
         // now so the next message re-segments with a fresh brief and a carried tail (spec
         // §Compaction). The estimate fallback keeps the trigger meaningful when the backend reports
         // no usage (the in-memory and no-openai builds).
-        let token_budget = Settings::from_store(self.server.store.as_ref())?
+        let token_budget = Settings::from_store(self.server.engine.store.lock().as_ref())?
             .compaction
             .token_budget;
         let observed = report
@@ -133,40 +145,57 @@ impl Platform<'_> {
         locator: &ConversationLocator,
         participant: &str,
     ) -> Result<(), ServerError> {
-        let Some(conversation) = self.server.graph.conversation_for_locator(locator)? else {
+        let Some(conversation) = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .conversation_for_locator(locator)?
+        else {
             return Ok(());
         };
         let Some(session) = self.server.sessions.get(&conversation).map(|open| open.id) else {
             return Ok(());
         };
 
-        let joiner = resolve_or_mint_participant(
-            self.server.store.as_mut(),
-            self.server.clock.as_ref(),
-            &self.server.graph,
-            locator.platform.as_str(),
-            participant,
-        )?;
+        let joiner = {
+            // Graph before store, per the lock-ordering rule.
+            let graph = self.server.engine.graph.lock();
+            resolve_or_mint_participant(
+                self.server.engine.store.lock().as_mut(),
+                self.server.engine.clock.as_ref(),
+                &graph,
+                locator.platform.as_str(),
+                participant,
+            )?
+        };
         self.server
+            .engine
             .graph
-            .materialize_from(self.server.store.as_ref())?;
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
 
         // The brief is filtered against the present set including the joiner, so the subject-guard
         // fires for asides about them.
-        let mut present_set = self.server.graph.session_participants(session)?;
+        let mut present_set = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .session_participants(session)?;
         if !present_set.contains(&joiner) {
             present_set.push(joiner);
         }
         let join_brief = brief::compose_participant(
-            &self.server.graph,
+            &self.server.engine.graph.lock(),
             joiner,
             &present_set,
-            &Settings::from_store(self.server.store.as_ref())?.brief,
+            &Settings::from_store(self.server.engine.store.lock().as_ref())?.brief,
         )?;
 
-        let now = self.server.clock.now();
+        let now = self.server.engine.clock.now();
         let turn_id = TurnId::generate();
-        self.server.store.append(
+        self.server.engine.store.lock().append(
             now,
             vec![
                 EventPayload::ParticipantJoined {
@@ -187,8 +216,10 @@ impl Platform<'_> {
             ],
         )?;
         self.server
+            .engine
             .graph
-            .materialize_from(self.server.store.as_ref())?;
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(())
     }
 
@@ -203,10 +234,14 @@ impl Platform<'_> {
         let Some(open) = self.server.sessions.remove(&conversation) else {
             return Ok(());
         };
-        let settings = Settings::from_store(self.server.store.as_ref())?;
+        let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
         // The buffer includes the turn that just crossed the budget; it is both the flush's context
         // and the source of the carried tail.
-        let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
+        let buffer = buffer_turns(
+            self.server.engine.store.lock().as_ref(),
+            conversation,
+            open.start_seq,
+        )?;
 
         // Budget-gated pre-compaction flush: a substantive session gets one turn to write durable
         // working state to memory before the cut; a low-activity one (below the turn threshold) is
@@ -216,23 +251,21 @@ impl Platform<'_> {
             run_flush(Flush {
                 session: &open.vm,
                 model,
-                engine: Engine {
-                    store: self.server.store.as_mut(),
-                    graph: &mut self.server.graph,
-                    clock: self.server.clock.as_ref(),
-                },
+                engine: self.server.engine.clone(),
                 brief: &open.brief,
                 buffer: &buffer,
                 max_steps: settings.turn.max_steps as usize,
             })
             .await?;
             self.server
+                .engine
                 .graph
-                .materialize_from(self.server.store.as_ref())?;
+                .lock()
+                .materialize_from(self.server.engine.store.lock().as_ref())?;
         }
 
-        let now = self.server.clock.now();
-        self.server.store.append(
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
             now,
             vec![EventPayload::SessionEnded {
                 conversation,
@@ -242,7 +275,11 @@ impl Platform<'_> {
 
         // Re-read the buffer (now including any flush turn) for the carried tail, and assemble the
         // working set (likewise after the flush, so its writes and active_in flags are included).
-        let buffer = buffer_turns(self.server.store.as_ref(), conversation, open.start_seq)?;
+        let buffer = buffer_turns(
+            self.server.engine.store.lock().as_ref(),
+            conversation,
+            open.start_seq,
+        )?;
         let working_set = self.compaction_working_set(conversation, open.start_seq)?;
         if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
         {
@@ -270,14 +307,33 @@ impl Platform<'_> {
     ) -> Result<Vec<MemoryId>, ServerError> {
         let mut working_set = Vec::new();
         let mut seen = BTreeSet::new();
-        if let Some(context) = self.server.graph.context_for_conversation(conversation)? {
-            for memory in self.server.graph.outgoing(context, "has_active")? {
+        // Resolve the context and its active threads up front, each releasing the graph guard before
+        // the next read, so the lock (not reentrant) is never held while re-acquired.
+        let context = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .context_for_conversation(conversation)?;
+        if let Some(context) = context {
+            let actives = self
+                .server
+                .engine
+                .graph
+                .lock()
+                .outgoing(context, "has_active")?;
+            for memory in actives {
                 if seen.insert(memory.id) {
                     working_set.push(memory.id);
                 }
             }
         }
-        for id in session_touched(self.server.store.as_ref(), conversation, from_seq)? {
+        let touched = session_touched(
+            self.server.engine.store.lock().as_ref(),
+            conversation,
+            from_seq,
+        )?;
+        for id in touched {
             if seen.insert(id) {
                 working_set.push(id);
             }

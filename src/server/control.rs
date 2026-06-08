@@ -49,15 +49,21 @@ impl Control<'_> {
         text: &str,
     ) -> Result<TurnOutcome, ServerError> {
         let operator = self.server.resolve_or_mint_operator()?;
-        let conversation = resolve_or_mint_conversation(
-            self.server.store.as_mut(),
-            self.server.clock.as_ref(),
-            &self.server.graph,
-            &ConversationLocator::new("operator", "imprint"),
-        )?;
+        let conversation = {
+            // Graph before store, per the lock-ordering rule (this resolve holds both at once).
+            let graph = self.server.engine.graph.lock();
+            resolve_or_mint_conversation(
+                self.server.engine.store.lock().as_mut(),
+                self.server.engine.clock.as_ref(),
+                &graph,
+                &ConversationLocator::new("operator", "imprint"),
+            )?
+        };
         self.server
+            .engine
             .graph
-            .materialize_from(self.server.store.as_ref())?;
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
         let (report, _buffer) = self
             .server
             .run_session_turn(
@@ -78,32 +84,42 @@ impl Control<'_> {
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads
     /// see them. Idempotent: calling it on a born agent is a no-op.
     pub fn create_agent(&mut self, seed: &SeedSelf) -> Result<Rollout, ServerError> {
-        let outcome =
-            genesis::rollout(self.server.store.as_mut(), self.server.clock.as_ref(), seed)?;
+        let outcome = genesis::rollout(
+            self.server.engine.store.lock().as_mut(),
+            self.server.engine.clock.as_ref(),
+            seed,
+        )?;
         self.server
+            .engine
             .graph
-            .materialize_from(self.server.store.as_ref())?;
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(outcome)
     }
 
     pub fn genesis_status(&self) -> Result<GenesisStatus, ServerError> {
-        Ok(genesis::status(self.server.store.as_ref())?)
+        Ok(genesis::status(self.server.engine.store.lock().as_ref())?)
     }
 
     /// Inspect a live memory by name (e.g. `"self"`).
     pub fn memory(&self, name: &str) -> Result<Option<MemoryView>, ServerError> {
-        Ok(self.server.graph.memory_by_name(name)?)
+        Ok(self.server.engine.graph.lock().memory_by_name(name)?)
     }
 
     /// Inspect the live memories in a namespace (e.g. `"person/"`), ordered by name.
     pub fn memories(&self, prefix: &str) -> Result<Vec<MemoryView>, ServerError> {
-        Ok(self.server.graph.memories_in_namespace(prefix)?)
+        Ok(self
+            .server
+            .engine
+            .graph
+            .lock()
+            .memories_in_namespace(prefix)?)
     }
 
     /// Inspect the live memories carrying a `Recurring` occurrence — the operator's view of the
     /// agent's recurring calendar, the inspection parallel to the agent-facing `calendar.recurring()`.
     pub fn recurring(&self) -> Result<Vec<MemoryView>, ServerError> {
-        Ok(self.server.graph.recurring_memories()?)
+        Ok(self.server.engine.graph.lock().recurring_memories()?)
     }
 
     /// The belief arbitrations the agent has recorded, oldest first — for each, the memory it concerns
@@ -111,14 +127,17 @@ impl Control<'_> {
     /// `BeliefArbitrated` is log-only, so this reads it from the log rather than the graph.
     pub fn arbitrations(&self) -> Result<Vec<Arbitration>, ServerError> {
         let mut out = Vec::new();
-        for event in self.server.store.read_from(Seq::ZERO)? {
+        let events = self.server.engine.store.lock().read_from(Seq::ZERO)?;
+        for event in events {
             if let EventPayload::BeliefArbitrated {
                 memory, resolution, ..
             } = event.payload
             {
                 let name = self
                     .server
+                    .engine
                     .graph
+                    .lock()
                     .memory_by_id(memory)?
                     .map(|memory| memory.name)
                     .unwrap_or_else(|| MemoryName::new("<unknown>"));
@@ -135,18 +154,19 @@ impl Control<'_> {
     /// auditing what was written and how it is gated (e.g. that a private aside was not stored
     /// `Public`). Empty if the memory is unknown.
     pub fn entries(&self, name: &str) -> Result<Vec<EntryView>, ServerError> {
-        Ok(self
-            .server
-            .graph
+        let graph = self.server.engine.graph.lock();
+        Ok(graph
             .memory_by_name(name)?
-            .map(|m| self.server.graph.entries_local(m.id))
+            .map(|m| graph.entries_local(m.id))
             .transpose()?
             .unwrap_or_default())
     }
 
     /// The agent's current behavioral settings: the latest `ConfigSet` snapshot.
     pub fn settings(&self) -> Result<Settings, ServerError> {
-        Ok(Settings::from_store(self.server.store.as_ref())?)
+        Ok(Settings::from_store(
+            self.server.engine.store.lock().as_ref(),
+        )?)
     }
 
     /// Replace the agent's behavioral settings, logged as an operator `ConfigSet` (source
@@ -154,8 +174,8 @@ impl Control<'_> {
     /// configuration). The new snapshot is the latest and takes effect on the next read; settings are
     /// read from the log, so no projection is involved.
     pub fn set_settings(&mut self, settings: Settings) -> Result<(), ServerError> {
-        let now = self.server.clock.now();
-        self.server.store.append(
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
             now,
             vec![EventPayload::ConfigSet {
                 settings,
@@ -168,8 +188,9 @@ impl Control<'_> {
     /// The sessions of a conversation, addressed by its locator, oldest first — operator inspection
     /// of how the conversation segmented into sessions. Empty if the room has never been seen.
     pub fn sessions(&self, locator: &ConversationLocator) -> Result<Vec<SessionView>, ServerError> {
-        match self.server.graph.conversation_for_locator(locator)? {
-            Some(conversation) => Ok(self.server.graph.sessions_in(conversation)?),
+        let graph = self.server.engine.graph.lock();
+        match graph.conversation_for_locator(locator)? {
+            Some(conversation) => Ok(graph.sessions_in(conversation)?),
             None => Ok(Vec::new()),
         }
     }

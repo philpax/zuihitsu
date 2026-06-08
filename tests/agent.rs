@@ -29,7 +29,7 @@ fn run_lua_call(script: &str) -> Completion {
     }])
 }
 
-fn count_agent_turns(store: &impl Store) -> usize {
+fn count_agent_turns(store: &dyn Store) -> usize {
     store
         .read_from(Seq::ZERO)
         .unwrap()
@@ -48,7 +48,7 @@ fn count_agent_turns(store: &impl Store) -> usize {
 
 #[tokio::test]
 async fn tool_call_then_reply_commits_and_replies() {
-    let mut h = Harness::new();
+    let h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
@@ -63,10 +63,17 @@ async fn tool_call_then_reply_commits_and_replies() {
         TurnOutcome::Reply("Noted — I'll remember Dave.".to_owned())
     );
     // The tool call's side effect committed and projected.
-    assert!(h.graph.memory_by_name("person/dave").unwrap().is_some());
+    assert!(
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name("person/dave")
+            .unwrap()
+            .is_some()
+    );
     // Exactly one agent turn for the cycle, plus the inbound participant turn and a LuaExecuted.
-    assert_eq!(count_agent_turns(&h.store), 1);
-    let events = h.store.read_from(Seq::ZERO).unwrap();
+    assert_eq!(count_agent_turns(&**h.engine.store.lock()), 1);
+    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
     assert!(events.iter().any(|e| matches!(
         &e.payload,
         EventPayload::ConversationTurn {
@@ -83,10 +90,14 @@ async fn tool_call_then_reply_commits_and_replies() {
 
 #[tokio::test]
 async fn descriptions_regenerate_after_a_turn() {
-    let mut h = Harness::new();
+    let h = Harness::new();
     // Genesis registers the description-regen template the write path reads.
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let model = ScriptedModel::new([
         // A public fact about Dave (the description is synthesized from Public entries only).
@@ -111,12 +122,20 @@ async fn descriptions_regenerate_after_a_turn() {
         .unwrap();
 
     // The written memory's description was regenerated from its entries after the cycle.
-    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
     assert_eq!(dave.description, "Dave, whom I met at the climbing gym.");
     // It carries provenance: which model and template produced it. (Genesis also seeds self's
     // description, with null provenance, so match Dave's specifically.)
     let produced_by = h
+        .engine
         .store
+        .lock()
         .read_from(Seq::ZERO)
         .unwrap()
         .into_iter()
@@ -150,7 +169,7 @@ fn synthesize_call(arguments: &str) -> Completion {
     }])
 }
 
-fn temporal_resolutions(store: &impl Store) -> Vec<EventPayload> {
+fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {
     store
         .read_from(Seq::ZERO)
         .unwrap()
@@ -162,9 +181,13 @@ fn temporal_resolutions(store: &impl Store) -> Vec<EventPayload> {
 
 #[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
-    let mut h = Harness::new();
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("person/dave", "Met Dave last Tuesday")"#),
@@ -179,17 +202,27 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         .unwrap();
 
     // The untimed entry gained an occurrence, and an EntryTemporalResolved records it.
-    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
-    let entries = h.graph.entries_local(dave.id).unwrap();
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     assert_eq!(entries[0].occurred_sort, Some(day_noon("2026-06-02")));
-    assert_eq!(temporal_resolutions(&h.store).len(), 1);
+    assert_eq!(temporal_resolutions(&**h.engine.store.lock()).len(), 1);
 }
 
 #[tokio::test]
 async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
-    let mut h = Harness::new();
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let model = ScriptedModel::new([
         run_lua_call(
@@ -207,13 +240,19 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         .unwrap();
 
     // The explicit occurrence stands; extraction emitted nothing for the already-timed entry.
-    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
-    let entries = h.graph.entries_local(dave.id).unwrap();
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     assert_eq!(entries[0].occurred_sort, Some(day_noon("2020-01-01")));
-    assert!(temporal_resolutions(&h.store).is_empty());
+    assert!(temporal_resolutions(&**h.engine.store.lock()).is_empty());
 }
 
-fn belief_arbitrations(store: &impl Store) -> Vec<EventPayload> {
+fn belief_arbitrations(store: &dyn Store) -> Vec<EventPayload> {
     store
         .read_from(Seq::ZERO)
         .unwrap()
@@ -225,9 +264,13 @@ fn belief_arbitrations(store: &impl Store) -> Vec<EventPayload> {
 
 #[tokio::test]
 async fn a_regen_conflict_emits_belief_arbitrated() {
-    let mut h = Harness::new();
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let model = ScriptedModel::new([
         run_lua_call(
@@ -245,9 +288,15 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         .await
         .unwrap();
 
-    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
-    let entries = h.graph.entries_local(dave.id).unwrap();
-    let arbitrations = belief_arbitrations(&h.store);
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
+    let arbitrations = belief_arbitrations(&**h.engine.store.lock());
     assert_eq!(arbitrations.len(), 1);
     let EventPayload::BeliefArbitrated {
         memory,
@@ -271,9 +320,13 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
 
 #[tokio::test]
 async fn a_single_sided_arbitration_is_dropped() {
-    let mut h = Harness::new();
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("person/dave", "Met Dave")"#),
@@ -287,14 +340,18 @@ async fn a_single_sided_arbitration_is_dropped() {
         .await
         .unwrap();
 
-    assert!(belief_arbitrations(&h.store).is_empty());
+    assert!(belief_arbitrations(&**h.engine.store.lock()).is_empty());
 }
 
 #[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
-    let mut h = Harness::new();
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     // Dave's memory carries one public fact and one private, future-dated aside.
     let model = ScriptedModel::new([
@@ -335,8 +392,14 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     );
 
     // Yet the private entry still gained its occurrence (so a private reminder can still fire).
-    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
-    let entries = h.graph.entries_local(dave.id).unwrap();
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     let therapy = entries
         .iter()
         .find(|entry| entry.text.contains("therapy"))
@@ -346,16 +409,22 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
 
 #[tokio::test]
 async fn agent_turns_record_their_provenance() {
-    let mut h = Harness::new();
+    let h = Harness::new();
     // Genesis registers the scaffold the agent turn runs against.
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let model = ScriptedModel::new([Completion::Reply("Noted.".to_owned())]);
     run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
 
     let turns: Vec<(TurnRole, Option<_>)> = h
+        .engine
         .store
+        .lock()
         .read_from(Seq::ZERO)
         .unwrap()
         .into_iter()
@@ -389,14 +458,14 @@ async fn agent_turns_record_their_provenance() {
 
 #[tokio::test]
 async fn stay_silent_terminal_posts_nothing() {
-    let mut h = Harness::new();
+    let h = Harness::new();
     let model = ScriptedModel::new([Completion::Silent]);
 
     let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "(chatter)", 8)).await.unwrap();
 
     assert_eq!(outcome, TurnOutcome::Silent);
     // Auditable silence: an agent turn is still recorded, with empty text.
-    let silent_recorded = h.store.read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
+    let silent_recorded = h.engine.store.lock().read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
         matches!(
             &e.payload,
             EventPayload::ConversationTurn { role: TurnRole::Agent, text, .. } if text.is_empty()
@@ -407,7 +476,7 @@ async fn stay_silent_terminal_posts_nothing() {
 
 #[tokio::test]
 async fn max_steps_ends_the_turn_with_a_surfaced_error() {
-    let mut h = Harness::new();
+    let h = Harness::new();
     // A model that only ever calls tools, never terminating.
     let model = ScriptedModel::new([
         run_lua_call("return 1"),
@@ -421,8 +490,8 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
 
     assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
     // The cycle still records exactly one agent turn, carrying the surfaced error.
-    assert_eq!(count_agent_turns(&h.store), 1);
-    let surfaced = h.store.read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
+    assert_eq!(count_agent_turns(&**h.engine.store.lock()), 1);
+    let surfaced = h.engine.store.lock().read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
         matches!(
             &e.payload,
             EventPayload::ConversationTurn { role: TurnRole::Agent, text, .. } if text.contains("max steps")
@@ -433,7 +502,7 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
 
 #[tokio::test]
 async fn tool_result_feeds_back_across_steps() {
-    let mut h = Harness::new();
+    let h = Harness::new();
     // First create, then a second block reads it back, then reply — exercising multi-step flow.
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("topic/climbing", "Bouldering and sport climbing")"#),
@@ -446,7 +515,9 @@ async fn tool_result_feeds_back_across_steps() {
 
     // Two LuaExecuted events (two blocks), both committed.
     let lua_events = h
+        .engine
         .store
+        .lock()
         .read_from(Seq::ZERO)
         .unwrap()
         .into_iter()
@@ -469,7 +540,7 @@ async fn real_model_drives_a_turn() {
         return;
     }
     let client = OpenAiClient::new(&config.model);
-    let mut h = Harness::new();
+    let h = Harness::new();
 
     let outcome = run_turn(h.as_turn(
         &client,
@@ -481,7 +552,7 @@ async fn real_model_drives_a_turn() {
     match outcome {
         Ok(outcome) => {
             // The loop completed against the real model. Exactly one agent turn was recorded.
-            assert_eq!(count_agent_turns(&h.store), 1);
+            assert_eq!(count_agent_turns(&**h.engine.store.lock()), 1);
             eprintln!("real-model turn outcome: {outcome:?}");
         }
         Err(error) => eprintln!("skipping: {error}"),
@@ -504,9 +575,13 @@ async fn real_model_extracts_temporal_references() {
         return;
     }
     let client = OpenAiClient::new(&config.model);
-    let mut h = Harness::new();
-    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
-    h.graph.materialize_from(&h.store).unwrap();
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
 
     let outcome = run_turn(h.as_turn(
         &client,
@@ -523,8 +598,8 @@ async fn real_model_extracts_temporal_references() {
     // Scan the namespaces a turn like this could write into for entries that gained an occurrence.
     let (mut total, mut timed) = (0usize, 0usize);
     for prefix in ["person/", "topic/", "project/", "event/"] {
-        for memory in h.graph.memories_in_namespace(prefix).unwrap() {
-            for entry in h.graph.entries_local(memory.id).unwrap() {
+        for memory in h.engine.graph.lock().memories_in_namespace(prefix).unwrap() {
+            for entry in h.engine.graph.lock().entries_local(memory.id).unwrap() {
                 total += 1;
                 if entry.occurred_sort.is_some() {
                     timed += 1;

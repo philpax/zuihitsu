@@ -9,14 +9,14 @@
 //! ([`crate::agent::lua`]) is a thin wrapper over this — it translates script calls into method calls and
 //! never touches the buffer, the events, or the visibility rules directly.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use serde::Deserialize;
 
 use crate::{
-    clock::Clock,
+    engine::Engine,
     event::{EventPayload, LinkSource, Teller, Visibility},
-    graph::{Graph, GraphError},
+    graph::GraphError,
     ids::{ConversationId, EntryId, MemoryId, MemoryName},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -35,9 +35,13 @@ pub enum Authority {
 
 /// One block's in-progress memory mutations. Built fresh per block, mutated through its operations,
 /// and consumed by [`MemoryBlock::into_effects`] to commit or discard.
-pub struct MemoryBlock<'a> {
-    graph: &'a Graph,
-    clock: &'a dyn Clock,
+///
+/// The graph and clock are reached through a shared [`Engine`] handle rather than borrows, so the
+/// block (and the Lua functions that drive it) is `'static` — the Lua API now runs through
+/// `Lua::create_function` and `eval_async` rather than a scope, and a scoped borrow could not survive
+/// that. The graph is locked transiently per read; no guard is ever held across an `.await`.
+pub struct MemoryBlock {
+    engine: Arc<Engine>,
     /// The turn's teller, attributed to content written this block unless an append opts out.
     teller: Teller,
     /// Whether this block runs under platform or operator authority — gates `self` writes and the
@@ -166,29 +170,31 @@ pub struct AppendOptions {
     pub occurred_at: Option<TemporalRef>,
 }
 
-impl<'a> MemoryBlock<'a> {
+impl MemoryBlock {
     /// Open a block for `conversation`: resolve the context it writes in and whether that room is
     /// `#confidential`. Fails only on a graph read error (infrastructure), never on agent input.
     pub fn new(
-        graph: &'a Graph,
-        clock: &'a dyn Clock,
+        engine: Arc<Engine>,
         teller: Teller,
         authority: Authority,
         conversation: ConversationId,
-    ) -> Result<MemoryBlock<'a>, GraphError> {
-        let told_in = graph.context_for_conversation(conversation)?;
-        let confidential_context = match told_in {
-            Some(context_id) => graph
-                .memory_by_id(context_id)?
-                .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
-            None => false,
+    ) -> Result<MemoryBlock, GraphError> {
+        let (told_in, confidential_context, self_id) = {
+            let graph = engine.graph.lock();
+            let told_in = graph.context_for_conversation(conversation)?;
+            let confidential_context = match told_in {
+                Some(context_id) => graph
+                    .memory_by_id(context_id)?
+                    .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
+                None => false,
+            };
+            let self_id = graph
+                .memory_by_name(MemoryName::SELF)?
+                .map(|memory| memory.id);
+            (told_in, confidential_context, self_id)
         };
-        let self_id = graph
-            .memory_by_name(MemoryName::SELF)?
-            .map(|memory| memory.id);
         Ok(MemoryBlock {
-            graph,
-            clock,
+            engine,
             teller,
             authority,
             self_id,
@@ -271,17 +277,20 @@ impl<'a> MemoryBlock<'a> {
     /// The memory's content entry texts: its whole `same_as` class from the graph plus this block's
     /// pending appends. A traversing read, so it touches every class member, not just `id`.
     pub fn entries(&mut self, id: MemoryId) -> Result<Vec<String>, MemoryError> {
-        let members = self.graph.class_members(id)?;
+        let (members, mut texts) = {
+            let graph = self.engine.graph.lock();
+            let members = graph.class_members(id)?;
+            let texts: Vec<String> = graph
+                .class_entries(id)?
+                .into_iter()
+                .map(|entry| entry.text)
+                .collect();
+            (members, texts)
+        };
         self.touched.insert(id);
         for member in &members {
             self.touched.insert(*member);
         }
-        let mut texts: Vec<String> = self
-            .graph
-            .class_entries(id)?
-            .into_iter()
-            .map(|entry| entry.text)
-            .collect();
         for event in &self.buffer {
             if let EventPayload::MemoryContentAppended {
                 id: entry_id, text, ..
@@ -302,7 +311,7 @@ impl<'a> MemoryBlock<'a> {
                 .ok_or_else(|| MemoryError::BadCalendarArg(text.to_owned()))?,
             None => DEFAULT_UPCOMING_DAYS * time::MILLIS_PER_DAY,
         };
-        let now = self.clock.now().as_millis();
+        let now = self.engine.clock.now().as_millis();
         self.occurrence_memories(
             Timestamp::from_millis(now),
             Timestamp::from_millis(now.saturating_add(within_millis)),
@@ -319,7 +328,9 @@ impl<'a> MemoryBlock<'a> {
     /// Memories that carry a recurring occurrence — a listing; instances are not expanded yet.
     pub fn recurring(&mut self) -> Result<Vec<MemoryId>, MemoryError> {
         let ids: Vec<MemoryId> = self
+            .engine
             .graph
+            .lock()
             .recurring_memories()?
             .into_iter()
             .map(|memory| memory.id)
@@ -338,7 +349,8 @@ impl<'a> MemoryBlock<'a> {
     ) -> Result<Vec<MemoryId>, MemoryError> {
         let mut seen = BTreeSet::new();
         let mut ordered = Vec::new();
-        for (memory, _entry) in self.graph.occurrences_in_window(from, to)? {
+        let occurrences = self.engine.graph.lock().occurrences_in_window(from, to)?;
+        for (memory, _entry) in occurrences {
             if seen.insert(memory.id) {
                 ordered.push(memory.id);
             }
@@ -391,6 +403,18 @@ impl<'a> MemoryBlock<'a> {
         }
     }
 
+    /// Drain the block's effects without consuming it. The block now lives behind a shared
+    /// `Arc<Mutex<…>>` (so the Lua functions can hold `'static` handles to it), which cannot be
+    /// `try_unwrap`ped while those function references survive in the VM, so the caller reclaims the
+    /// effects through the lock instead. Leaves the block empty.
+    pub fn take_effects(&mut self) -> BlockEffects {
+        BlockEffects {
+            events: std::mem::take(&mut self.buffer),
+            touched: std::mem::take(&mut self.touched).into_iter().collect(),
+            aborted: self.aborted.take(),
+        }
+    }
+
     /// Enforce that `relation` is registered — the graph stores an unregistered relation as given, so
     /// the contract is checked here — then buffer the create/remove and touch both endpoints.
     fn change_link(
@@ -400,7 +424,13 @@ impl<'a> MemoryBlock<'a> {
         relation: RelationName,
         create: bool,
     ) -> Result<(), MemoryError> {
-        if self.graph.relation(relation.as_str())?.is_none() {
+        if self
+            .engine
+            .graph
+            .lock()
+            .relation(relation.as_str())?
+            .is_none()
+        {
             return Err(MemoryError::UnknownRelation(relation));
         }
         // Cross-platform identity is operator-asserted only: a participant must not be able to steer
@@ -489,7 +519,7 @@ impl<'a> MemoryBlock<'a> {
         self.buffer.push(EventPayload::MemoryContentAppended {
             id,
             entry_id: EntryId::generate(),
-            asserted_at: self.clock.now(),
+            asserted_at: self.engine.clock.now(),
             occurred_at,
             text,
             told_by,
@@ -512,7 +542,12 @@ impl<'a> MemoryBlock<'a> {
                 _ => {}
             }
         }
-        Ok(self.graph.memory_by_name(name)?.map(|memory| memory.id))
+        Ok(self
+            .engine
+            .graph
+            .lock()
+            .memory_by_name(name)?
+            .map(|memory| memory.id))
     }
 
     /// Resolve a memory's name from this block's pending creates first, then the graph — so an
@@ -527,7 +562,12 @@ impl<'a> MemoryBlock<'a> {
         });
         match pending {
             Some(name) => Ok(Some(name)),
-            None => Ok(self.graph.memory_by_id(id)?.map(|memory| memory.name)),
+            None => Ok(self
+                .engine
+                .graph
+                .lock()
+                .memory_by_id(id)?
+                .map(|memory| memory.name)),
         }
     }
 }
@@ -539,6 +579,7 @@ mod tests {
     use super::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice};
     use crate::{
         clock::ManualClock,
+        engine::Engine,
         event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
         graph::Graph,
         ids::{ConversationId, MemoryId, MemoryName},
@@ -548,14 +589,16 @@ mod tests {
     };
 
     /// A block over an empty in-memory graph and a conversation with no context — enough to exercise
-    /// the write invariants directly, no Lua VM and no store materialization involved.
-    fn block<'a>(
-        graph: &'a Graph,
-        clock: &'a ManualClock,
+    /// the write invariants directly, no Lua VM and no store materialization involved. The engine's
+    /// store is a throwaway: these tests read `into_effects` and never commit.
+    fn block(
+        graph: Graph,
+        clock: ManualClock,
         teller: Teller,
         authority: Authority,
-    ) -> MemoryBlock<'a> {
-        MemoryBlock::new(graph, clock, teller, authority, ConversationId::generate()).unwrap()
+    ) -> MemoryBlock {
+        let engine = Engine::new(Box::new(MemoryStore::new()), graph, Box::new(clock));
+        MemoryBlock::new(engine, teller, authority, ConversationId::generate()).unwrap()
     }
 
     /// A graph seeded with the `self` memory and the `created_by` and `same_as` relations — the
@@ -600,7 +643,7 @@ mod tests {
     fn create_rejects_a_duplicate_name() {
         let graph = Graph::open_in_memory().unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
         block.create("topic/plan", None).unwrap();
         // Caught against the block's own pending create (read-your-writes), before any commit.
         let error = block.create("topic/plan", None).unwrap_err();
@@ -611,7 +654,7 @@ mod tests {
     fn link_rejects_an_unregistered_relation() {
         let graph = Graph::open_in_memory().unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
         let a = block.create("topic/a", None).unwrap();
         let b = block.create("topic/b", None).unwrap();
         let error = block
@@ -626,8 +669,8 @@ mod tests {
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let speaker = MemoryId::generate();
         let mut block = block(
-            &graph,
-            &clock,
+            graph,
+            clock,
             Teller::Participant(speaker),
             Authority::Platform,
         );
@@ -653,7 +696,7 @@ mod tests {
     fn platform_authority_cannot_write_self() {
         let (graph, self_id) = graph_with_self();
         let clock = ManualClock::new(Timestamp::from_millis(2_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
         let other = block.create("person/phil", None).unwrap();
 
         // Appending to self, and a link with self at either endpoint, are all barred.
@@ -687,7 +730,7 @@ mod tests {
     fn operator_authority_may_write_self_and_links_carry_debugger() {
         let (graph, self_id) = graph_with_self();
         let clock = ManualClock::new(Timestamp::from_millis(2_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Operator);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
         let phil = block.create("person/phil", None).unwrap();
 
         // The same writes that platform authority bars all succeed from the control panel.
@@ -717,7 +760,7 @@ mod tests {
     fn platform_authority_cannot_assert_a_same_as_merge() {
         let (graph, _self_id) = graph_with_self();
         let clock = ManualClock::new(Timestamp::from_millis(2_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
         let dave = block.create("person/dave", None).unwrap();
         let dave_discord = block.create("person/dave@discord", None).unwrap();
 
@@ -740,7 +783,7 @@ mod tests {
     fn operator_authority_may_assert_a_same_as_merge() {
         let (graph, _self_id) = graph_with_self();
         let clock = ManualClock::new(Timestamp::from_millis(2_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Operator);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
         let dave = block.create("person/dave", None).unwrap();
         let dave_discord = block.create("person/dave@discord", None).unwrap();
 
@@ -753,7 +796,7 @@ mod tests {
     fn agent_authored_writes_about_a_person_require_explicit_visibility() {
         let graph = Graph::open_in_memory().unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
-        let mut block = block(&graph, &clock, Teller::Agent, Authority::Platform);
+        let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
 
         // An agent-authored entry about a person has no protective default, so it must be classified:
         // both a create-with-content and a bare append fail teachably without an explicit visibility.

@@ -16,16 +16,19 @@ pub use control::{Arbitration, Control};
 #[cfg(feature = "lua")]
 pub use platform::Platform;
 
+use std::sync::Arc;
+
 use crate::{
     agent::genesis::{self, GenesisStatus},
     clock::Clock,
+    engine::Engine,
     graph::{Graph, GraphError},
     store::{MemoryStore, Store, StoreError},
 };
 #[cfg(feature = "lua")]
 use crate::{
     agent::lua::Session,
-    agent::{Engine, Turn, TurnError, TurnReport, TurnView, buffer_turns, run_turn},
+    agent::{Turn, TurnError, TurnReport, TurnView, buffer_turns, run_turn},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     memory::{
@@ -41,9 +44,11 @@ use crate::{
 use std::collections::HashMap;
 
 pub struct Server {
-    store: Box<dyn Store>,
-    graph: Graph,
-    clock: Box<dyn Clock>,
+    // The store, graph, and clock bundled behind one shared [`Engine`], so a turn shares them with a
+    // single pointer bump and the Lua block API can hold a `'static` handle across `eval_async`. The
+    // server is still the single writer; the engine's mutexes serialize access rather than admit a
+    // second writer. See [`Engine`] for the graph-before-store lock-ordering rule.
+    engine: Arc<Engine>,
     /// The live session per conversation: its id, the VM whose globals persist across the session's
     /// turns, the frozen brief, and the last-activity time the idle-gap is measured from. Pure
     /// runtime state — never logged (the `SessionStarted` / `SessionEnded` events are); an agent
@@ -60,9 +65,7 @@ pub struct Server {
 impl Server {
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Server {
         Server {
-            store,
-            graph,
-            clock,
+            engine: Engine::new(store, graph, clock),
             #[cfg(feature = "lua")]
             sessions: HashMap::new(),
             #[cfg(feature = "lua")]
@@ -83,8 +86,12 @@ impl Server {
     /// in the commit window — and classify the log for the caller to act on. The single-writer log
     /// lock is acquired when the (file-backed) store is opened, before the server is constructed.
     pub fn boot(&mut self) -> Result<GenesisStatus, ServerError> {
-        let applied = self.graph.materialize_from(self.store.as_ref())?;
-        let status = genesis::status(self.store.as_ref())?;
+        let applied = self
+            .engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
+        let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "server booted");
         Ok(status)
     }
@@ -132,22 +139,24 @@ impl Server {
         routed: &RoutedTurn<'_>,
     ) -> Result<(TurnReport, Vec<TurnView>), ServerError> {
         self.ensure_session(routed.conversation, routed.present_set)?;
-        let max_steps = Settings::from_store(self.store.as_ref())?.turn.max_steps as usize;
+        let max_steps = Settings::from_store(self.engine.store.lock().as_ref())?
+            .turn
+            .max_steps as usize;
         let open = self
             .sessions
             .get(&routed.conversation)
             .expect("ensure_session left an open session");
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
-        let buffer = buffer_turns(self.store.as_ref(), routed.conversation, open.start_seq)?;
+        let buffer = buffer_turns(
+            self.engine.store.lock().as_ref(),
+            routed.conversation,
+            open.start_seq,
+        )?;
         let report = run_turn(Turn {
             session: &open.vm,
             model,
-            engine: Engine {
-                store: self.store.as_mut(),
-                graph: &mut self.graph,
-                clock: self.clock.as_ref(),
-            },
+            engine: self.engine.clone(),
             inbound: routed.inbound,
             inbound_participant: routed.participant,
             brief: &open.brief,
@@ -169,8 +178,8 @@ impl Server {
         conversation: ConversationId,
         present_set: &[MemoryId],
     ) -> Result<(), ServerError> {
-        let now = self.clock.now();
-        let settings = Settings::from_store(self.store.as_ref())?;
+        let now = self.engine.clock.now();
+        let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
         let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
 
         let reuse = self
@@ -189,13 +198,21 @@ impl Server {
         // runs `fire_due` on a timer once the runtime host exists (deferred to Stage 10, spec
         // §Scheduled work). Firing here, before the drain below, is what lets a just-due item surface
         // in this session if it is eligible.
-        if scheduler::fire_due(self.store.as_mut(), &self.graph, now)? > 0 {
-            self.graph.materialize_from(self.store.as_ref())?;
+        let fired = {
+            // Two guards at once: graph before store, per the lock-ordering rule.
+            let graph = self.engine.graph.lock();
+            scheduler::fire_due(self.engine.store.lock().as_mut(), &graph, now)?
+        };
+        if fired > 0 {
+            self.engine
+                .graph
+                .lock()
+                .materialize_from(self.engine.store.lock().as_ref())?;
         }
 
         // A lapsed session ends before the new one opens.
         if let Some(old) = self.sessions.remove(&conversation) {
-            self.store.append(
+            self.engine.store.lock().append(
                 now,
                 vec![EventPayload::SessionEnded {
                     conversation,
@@ -214,9 +231,13 @@ impl Server {
             .as_ref()
             .map_or(&[], |carry| carry.working_set.as_slice());
 
-        let context = self.graph.context_for_conversation(conversation)?;
+        let context = self
+            .engine
+            .graph
+            .lock()
+            .context_for_conversation(conversation)?;
         let brief = brief::compose(
-            &self.graph,
+            &self.engine.graph.lock(),
             &settings.brief,
             &brief::BriefRequest {
                 present_set,
@@ -226,7 +247,7 @@ impl Server {
             },
         )?;
         let id = SessionId::generate();
-        let committed = self.store.append(
+        let committed = self.engine.store.lock().append(
             now,
             vec![EventPayload::SessionStarted {
                 conversation,
@@ -238,7 +259,10 @@ impl Server {
             }],
         )?;
         let session_start_seq = committed[0].seq;
-        self.graph.materialize_from(self.store.as_ref())?;
+        self.engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
         self.sessions.insert(
             conversation,
             OpenSession {
@@ -256,7 +280,11 @@ impl Server {
         // targeted at this present set are raised as one `Initiated` system turn the agent sees in its
         // buffer, and each is marked surfaced so it is never raised again (spec §Agent-initiated
         // speech). Appended after `SessionStarted`, so it falls inside the buffer read from `start_seq`.
-        if let Some(drained) = scheduler::drain(&self.graph, present_set, &settings.scheduler)? {
+        // Bind the drain result so the graph guard from the scrutinee is released before the body
+        // re-locks the graph below (the lock is not reentrant).
+        let drained =
+            scheduler::drain(&self.engine.graph.lock(), present_set, &settings.scheduler)?;
+        if let Some(drained) = drained {
             let turn_id = TurnId::generate();
             let mut payloads = vec![EventPayload::ConversationTurn {
                 conversation,
@@ -275,8 +303,11 @@ impl Server {
                     surfaced_at: now,
                 });
             }
-            self.store.append(now, payloads)?;
-            self.graph.materialize_from(self.store.as_ref())?;
+            self.engine.store.lock().append(now, payloads)?;
+            self.engine
+                .graph
+                .lock()
+                .materialize_from(self.engine.store.lock().as_ref())?;
         }
         Ok(())
     }
@@ -286,18 +317,22 @@ impl Server {
     /// the operator has no platform identity, must never collide with a real participant, and must
     /// resolve identically across imprints — so it is keyed only by its canonical name.
     fn resolve_or_mint_operator(&mut self) -> Result<MemoryId, ServerError> {
-        if let Some(memory) = self.graph.memory_by_name("person/operator")? {
+        if let Some(memory) = self.engine.graph.lock().memory_by_name("person/operator")? {
             return Ok(memory.id);
         }
         let id = MemoryId::generate();
-        self.store.append(
-            self.clock.now(),
+        let now = self.engine.clock.now();
+        self.engine.store.lock().append(
+            now,
             vec![EventPayload::MemoryCreated {
                 id,
                 name: MemoryName::new("person/operator"),
             }],
         )?;
-        self.graph.materialize_from(self.store.as_ref())?;
+        self.engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
         Ok(id)
     }
 }

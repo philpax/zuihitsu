@@ -15,12 +15,14 @@
 //! scratchpad globals persist on the VM across blocks within the session; the API is re-installed
 //! each block.
 
-use std::cell::RefCell;
+use std::sync::Arc;
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
+use parking_lot::Mutex;
 use ulid::Ulid;
 
 use crate::{
+    engine::Engine,
     event::{EventPayload, TerminalCause},
     graph::GraphError,
     ids::{ConversationId, MemoryId, TurnId},
@@ -30,7 +32,7 @@ use crate::{
 };
 
 use super::{
-    BlockContext, Engine,
+    BlockContext,
     api_doc::{ApiEntry, ApiType, enum_of, object},
 };
 
@@ -65,25 +67,25 @@ impl Session {
     /// Execute one block as a transaction. On a clean run, the buffered side effects plus a
     /// `LuaExecuted` commit together; on error or abort, only a `LuaExecuted` recording the terminal
     /// cause is written. The graph is brought up to log-head afterward either way.
-    pub fn execute(
+    pub async fn execute(
         &self,
-        engine: &mut Engine,
+        engine: &Arc<Engine>,
         context: &BlockContext,
         script: &str,
     ) -> Result<BlockOutcome, LuaError> {
-        // The transaction owns the buffer, the touched set, and the write invariants. It borrows the
-        // graph immutably for reads; the mutable commit happens after the scope ends and this borrow
-        // is released.
-        let block = RefCell::new(MemoryBlock::new(
-            &*engine.graph,
-            engine.clock,
+        // The transaction owns the buffer, the touched set, and the write invariants. It holds a
+        // shared handle to the `engine` (locking the graph transiently per read) and lives behind an
+        // `Arc<Mutex<…>>` so the `'static` Lua functions installed below can drive it across the
+        // script's `eval_async`; the commit happens after the script finishes and the effects are
+        // drained back out through the lock.
+        let block = Arc::new(Mutex::new(MemoryBlock::new(
+            engine.clone(),
             context.teller.clone(),
             context.authority,
             self.conversation,
-        )?);
+        )?));
 
-        // The handle metatable and its methods table are referenced by the scoped functions, so
-        // they must outlive the scope — build them here, in the enclosing environment.
+        // The handle metatable and its methods table back every memory handle the API mints.
         let methods = self.lua.create_table().map_err(LuaError::Vm)?;
         let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
         metatable
@@ -91,198 +93,42 @@ impl Session {
             .map_err(LuaError::Vm)?;
 
         // A graph read failing inside an operation is infrastructure, not the agent's doing — it is
-        // stashed here and bubbled up as a `LuaError` after the scope, rather than shown to the agent
+        // stashed here and bubbled up as a `LuaError` after the script, rather than shown to the agent
         // as a teachable block error.
-        let infra: RefCell<Option<GraphError>> = RefCell::new(None);
+        let infra: Arc<Mutex<Option<GraphError>>> = Arc::new(Mutex::new(None));
 
-        let block_ref = &block;
-        let infra_ref = &infra;
-        let metatable = &metatable;
-        let methods = &methods;
-        let evaluated = self.lua.scope(|scope| {
-            let memory = self.lua.create_table()?;
+        // Installing the API is our-side setup: a failure here is a bug, not an agent-visible outcome.
+        self.install_block_api(&block, &infra, &methods, &metatable)
+            .map_err(LuaError::Vm)?;
 
-            // mem:append(text[, opts]) — append a content entry to the handle's memory. `opts` is the
-            // typed override struct, deserialized straight from the Lua table.
-            methods.set(
-                "append",
-                scope.create_function(|lua, (this, text, opts): (Table, String, Value)| {
-                    let id = handle_id(&this)?;
-                    let opts: AppendOptions = if opts.is_nil() {
-                        AppendOptions::default()
-                    } else {
-                        lua.from_value(opts)?
-                    };
-                    block_ref
-                        .borrow_mut()
-                        .append(id, &text, opts)
-                        .map_err(|error| route_error(error, infra_ref))
-                })?,
-            )?;
-
-            // mem:entries() — the memory's entry texts across its merged identity plus pending writes.
-            methods.set(
-                "entries",
-                scope.create_function(|lua, this: Table| {
-                    let id = handle_id(&this)?;
-                    let texts = block_ref
-                        .borrow_mut()
-                        .entries(id)
-                        .map_err(|error| route_error(error, infra_ref))?;
-                    lua.create_sequence_from(texts)
-                })?,
-            )?;
-
-            // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation
-            // such as `active_in` between two memories. The script names the relation as a string;
-            // it is recognized into its typed [`RelationName`] here, at the wrapper boundary.
-            methods.set(
-                "link",
-                scope.create_function(|_, (this, relation, other): (Table, String, Table)| {
-                    block_ref
-                        .borrow_mut()
-                        .link(
-                            handle_id(&this)?,
-                            handle_id(&other)?,
-                            RelationName::new(relation),
-                        )
-                        .map_err(|error| route_error(error, infra_ref))
-                })?,
-            )?;
-            methods.set(
-                "unlink",
-                scope.create_function(|_, (this, relation, other): (Table, String, Table)| {
-                    block_ref
-                        .borrow_mut()
-                        .unlink(
-                            handle_id(&this)?,
-                            handle_id(&other)?,
-                            RelationName::new(relation),
-                        )
-                        .map_err(|error| route_error(error, infra_ref))
-                })?,
-            )?;
-
-            // memory.create(name[, content]) — create a memory and optionally its first entry.
-            memory.set(
-                "create",
-                scope.create_function(|lua, (name, content): (String, Option<String>)| {
-                    let id = block_ref
-                        .borrow_mut()
-                        .create(&name, content.as_deref())
-                        .map_err(|error| route_error(error, infra_ref))?;
-                    make_handle(lua, id, metatable)
-                })?,
-            )?;
-
-            // memory.get(name) — resolve through the block's pending creates, then the graph.
-            memory.set(
-                "get",
-                scope.create_function(|lua, name: String| {
-                    match block_ref
-                        .borrow_mut()
-                        .get(&name)
-                        .map_err(|error| route_error(error, infra_ref))?
-                    {
-                        Some(id) => Ok(Value::Table(make_handle(lua, id, metatable)?)),
-                        None => Ok(Value::Nil),
-                    }
-                })?,
-            )?;
-
-            // block.abort(reason) — discard the buffer and end the block, recorded as an abort.
-            let block_tbl = self.lua.create_table()?;
-            block_tbl.set(
-                "abort",
-                scope.create_function(|_, reason: Option<String>| {
-                    block_ref.borrow_mut().abort(reason);
-                    Err::<(), _>(mlua::Error::RuntimeError("block aborted".to_owned()))
-                })?,
-            )?;
-
-            // context.current() — the current conversation's context/* memory (its #confidential tag
-            // tells the agent whether the room is confidential), or nil if there is none.
-            let context = self.lua.create_table()?;
-            context.set(
-                "current",
-                scope.create_function(|lua, ()| {
-                    match block_ref.borrow_mut().current_context() {
-                        Some(id) => Ok(Value::Table(make_handle(lua, id, metatable)?)),
-                        None => Ok(Value::Nil),
-                    }
-                })?,
-            )?;
-
-            // calendar.* — queries over memory by occurrence time (spec §Calendar). Each returns a
-            // list of memory handles, soonest first; the agent reads each for detail. Unlike the
-            // brief's <upcoming/> block, these are the agent's own queries and are not visibility-
-            // filtered (like mem:entries, the agent sees its whole memory).
-            let calendar = self.lua.create_table()?;
-            calendar.set(
-                "upcoming",
-                scope.create_function(|lua, opts: Option<Table>| {
-                    let within: Option<String> = match opts {
-                        Some(table) => table.get("within")?,
-                        None => None,
-                    };
-                    let ids = block_ref
-                        .borrow_mut()
-                        .upcoming(within.as_deref())
-                        .map_err(|error| route_error(error, infra_ref))?;
-                    make_handle_list(lua, ids, metatable)
-                })?,
-            )?;
-            calendar.set(
-                "on",
-                scope.create_function(|lua, date: String| {
-                    let ids = block_ref
-                        .borrow_mut()
-                        .on(&date)
-                        .map_err(|error| route_error(error, infra_ref))?;
-                    make_handle_list(lua, ids, metatable)
-                })?,
-            )?;
-            calendar.set(
-                "recurring",
-                scope.create_function(|lua, ()| {
-                    let ids = block_ref
-                        .borrow_mut()
-                        .recurring()
-                        .map_err(|error| route_error(error, infra_ref))?;
-                    make_handle_list(lua, ids, metatable)
-                })?,
-            )?;
-
-            self.lua.globals().set("memory", memory)?;
-            self.lua.globals().set("block", block_tbl)?;
-            self.lua.globals().set("context", context)?;
-            self.lua.globals().set("calendar", calendar)?;
-
-            // Inner result: the agent-visible outcome (a value, or a runtime error).
-            Ok(self
-                .lua
-                .load(script)
-                .eval::<Value>()
-                .map(|value| render(&value)))
-        });
+        // The agent-visible outcome: the rendered final value, or the runtime error/abort that ended
+        // the script. The block's memory functions are synchronous, so they never hold the block lock
+        // across this suspension point.
+        let evaluated = self
+            .lua
+            .load(script)
+            .eval_async::<Value>()
+            .await
+            .map(|value| render(&value));
 
         // An infrastructure failure during the block (a graph read) takes precedence over the
         // script's apparent outcome: it bubbles up, discarding the buffer, rather than reaching the
         // agent.
-        if let Some(graph_error) = infra.into_inner() {
+        if let Some(graph_error) = infra.lock().take() {
             return Err(LuaError::Graph(graph_error));
         }
 
+        // Drain the effects through the lock: the Lua functions still hold `Arc` clones of the block,
+        // so it cannot be reclaimed by ownership, but those references are inert now the script has
+        // finished and are overwritten when the next block re-installs the API.
         let BlockEffects {
             events,
             touched,
             aborted,
-        } = block.into_inner().into_effects();
+        } = block.lock().take_effects();
 
         match evaluated {
-            // Setup failed — a bug on our side, not an agent-visible outcome.
-            Err(error) => Err(LuaError::Vm(error)),
-            Ok(Ok(result)) => {
+            Ok(result) => {
                 // Commit the buffered side effects plus the LuaExecuted record, atomically.
                 let mut events = events;
                 events.push(self.lua_executed(
@@ -294,7 +140,7 @@ impl Session {
                 ));
                 self.finish(engine, events, BlockOutcome::Committed { result })
             }
-            Ok(Err(error)) => {
+            Err(error) => {
                 // Discard the buffer; record only what the agent saw — the terminal cause.
                 let cause = match aborted {
                     Some(reason) => TerminalCause::Aborted(reason),
@@ -305,6 +151,257 @@ impl Session {
                 self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
             }
         }
+    }
+
+    /// Install the per-block memory API as `'static` Lua functions over the shared `block`. Each
+    /// function locks the block transiently for its operation; a graph-read failure is routed to
+    /// `infra` (infrastructure, bubbled up) while a teachable violation becomes the Lua runtime error
+    /// the agent sees. The handle `metatable`/`methods` tables back every minted memory handle. The
+    /// registration is split table by table so each group stays legible.
+    fn install_block_api(
+        &self,
+        block: &Arc<Mutex<MemoryBlock>>,
+        infra: &Arc<Mutex<Option<GraphError>>>,
+        methods: &Table,
+        metatable: &Table,
+    ) -> mlua::Result<()> {
+        self.install_handle_methods(block, infra, methods)?;
+        let globals = self.lua.globals();
+        globals.set("memory", self.memory_table(block, infra, metatable)?)?;
+        globals.set("block", self.block_table(block)?)?;
+        globals.set("context", self.context_table(block, metatable)?)?;
+        globals.set("calendar", self.calendar_table(block, infra, metatable)?)?;
+        Ok(())
+    }
+
+    /// The `mem:*` handle methods (`append`, `entries`, `link`, `unlink`) on the metatable's `methods`
+    /// table. Each acts on the handle passed as `this` and mints nothing, so it needs no metatable.
+    fn install_handle_methods(
+        &self,
+        block: &Arc<Mutex<MemoryBlock>>,
+        infra: &Arc<Mutex<Option<GraphError>>>,
+        methods: &Table,
+    ) -> mlua::Result<()> {
+        // mem:append(text[, opts]) — `opts` is the typed override struct, deserialized from the table.
+        methods.set(
+            "append",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                move |lua, (this, text, opts): (Table, String, Value)| {
+                    let id = handle_id(&this)?;
+                    let opts: AppendOptions = if opts.is_nil() {
+                        AppendOptions::default()
+                    } else {
+                        lua.from_value(opts)?
+                    };
+                    block
+                        .lock()
+                        .append(id, &text, opts)
+                        .map_err(|error| route_error(error, &mut infra.lock()))
+                }
+            })?,
+        )?;
+
+        // mem:entries() — the memory's entry texts across its merged identity plus pending writes.
+        methods.set(
+            "entries",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                move |lua, this: Table| {
+                    let id = handle_id(&this)?;
+                    let texts = block
+                        .lock()
+                        .entries(id)
+                        .map_err(|error| route_error(error, &mut infra.lock()))?;
+                    lua.create_sequence_from(texts)
+                }
+            })?,
+        )?;
+
+        // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation such
+        // as `active_in`. The script names the relation as a string; it is recognized into its typed
+        // [`RelationName`] here, at the wrapper boundary.
+        methods.set(
+            "link",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                move |_, (this, relation, other): (Table, String, Table)| {
+                    block
+                        .lock()
+                        .link(
+                            handle_id(&this)?,
+                            handle_id(&other)?,
+                            RelationName::new(relation),
+                        )
+                        .map_err(|error| route_error(error, &mut infra.lock()))
+                }
+            })?,
+        )?;
+        methods.set(
+            "unlink",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                move |_, (this, relation, other): (Table, String, Table)| {
+                    block
+                        .lock()
+                        .unlink(
+                            handle_id(&this)?,
+                            handle_id(&other)?,
+                            RelationName::new(relation),
+                        )
+                        .map_err(|error| route_error(error, &mut infra.lock()))
+                }
+            })?,
+        )?;
+        Ok(())
+    }
+
+    /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
+    fn memory_table(
+        &self,
+        block: &Arc<Mutex<MemoryBlock>>,
+        infra: &Arc<Mutex<Option<GraphError>>>,
+        metatable: &Table,
+    ) -> mlua::Result<Table> {
+        let memory = self.lua.create_table()?;
+        // memory.create(name[, content]) — create a memory and optionally its first entry.
+        memory.set(
+            "create",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                let metatable = metatable.clone();
+                move |lua, (name, content): (String, Option<String>)| {
+                    let id = block
+                        .lock()
+                        .create(&name, content.as_deref())
+                        .map_err(|error| route_error(error, &mut infra.lock()))?;
+                    make_handle(lua, id, &metatable)
+                }
+            })?,
+        )?;
+        // memory.get(name) — resolve through the block's pending creates, then the graph.
+        memory.set(
+            "get",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                let metatable = metatable.clone();
+                move |lua, name: String| match block
+                    .lock()
+                    .get(&name)
+                    .map_err(|error| route_error(error, &mut infra.lock()))?
+                {
+                    Some(id) => Ok(Value::Table(make_handle(lua, id, &metatable)?)),
+                    None => Ok(Value::Nil),
+                }
+            })?,
+        )?;
+        Ok(memory)
+    }
+
+    /// The `block` global: `abort(reason)`, which discards the buffer and ends the block.
+    fn block_table(&self, block: &Arc<Mutex<MemoryBlock>>) -> mlua::Result<Table> {
+        let block_tbl = self.lua.create_table()?;
+        block_tbl.set(
+            "abort",
+            self.lua.create_function({
+                let block = block.clone();
+                move |_, reason: Option<String>| {
+                    block.lock().abort(reason);
+                    Err::<(), _>(mlua::Error::RuntimeError("block aborted".to_owned()))
+                }
+            })?,
+        )?;
+        Ok(block_tbl)
+    }
+
+    /// The `context` global: `current()`, the current conversation's `context/*` memory (its
+    /// `#confidential` tag tells the agent whether the room is confidential), or nil if there is none.
+    fn context_table(
+        &self,
+        block: &Arc<Mutex<MemoryBlock>>,
+        metatable: &Table,
+    ) -> mlua::Result<Table> {
+        let context = self.lua.create_table()?;
+        context.set(
+            "current",
+            self.lua.create_function({
+                let block = block.clone();
+                let metatable = metatable.clone();
+                move |lua, ()| match block.lock().current_context() {
+                    Some(id) => Ok(Value::Table(make_handle(lua, id, &metatable)?)),
+                    None => Ok(Value::Nil),
+                }
+            })?,
+        )?;
+        Ok(context)
+    }
+
+    /// The `calendar` global: `upcoming`, `on`, and `recurring`, each returning a list of memory
+    /// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own
+    /// queries and are not visibility-filtered (like `mem:entries`, the agent sees its whole memory).
+    fn calendar_table(
+        &self,
+        block: &Arc<Mutex<MemoryBlock>>,
+        infra: &Arc<Mutex<Option<GraphError>>>,
+        metatable: &Table,
+    ) -> mlua::Result<Table> {
+        let calendar = self.lua.create_table()?;
+        calendar.set(
+            "upcoming",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                let metatable = metatable.clone();
+                move |lua, opts: Option<Table>| {
+                    let within: Option<String> = match opts {
+                        Some(table) => table.get("within")?,
+                        None => None,
+                    };
+                    let ids = block
+                        .lock()
+                        .upcoming(within.as_deref())
+                        .map_err(|error| route_error(error, &mut infra.lock()))?;
+                    make_handle_list(lua, ids, &metatable)
+                }
+            })?,
+        )?;
+        calendar.set(
+            "on",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                let metatable = metatable.clone();
+                move |lua, date: String| {
+                    let ids = block
+                        .lock()
+                        .on(&date)
+                        .map_err(|error| route_error(error, &mut infra.lock()))?;
+                    make_handle_list(lua, ids, &metatable)
+                }
+            })?,
+        )?;
+        calendar.set(
+            "recurring",
+            self.lua.create_function({
+                let block = block.clone();
+                let infra = infra.clone();
+                let metatable = metatable.clone();
+                move |lua, ()| {
+                    let ids = block
+                        .lock()
+                        .recurring()
+                        .map_err(|error| route_error(error, &mut infra.lock()))?;
+                    make_handle_list(lua, ids, &metatable)
+                }
+            })?,
+        )?;
+        Ok(calendar)
     }
 
     fn lua_executed(
@@ -328,12 +425,15 @@ impl Session {
     /// Append the block's events (the durable commit point), bring the graph up to head, and return.
     fn finish(
         &self,
-        engine: &mut Engine,
+        engine: &Engine,
         events: Vec<EventPayload>,
         outcome: BlockOutcome,
     ) -> Result<BlockOutcome, LuaError> {
-        engine.store.append(engine.clock.now(), events)?;
-        engine.graph.materialize_from(&*engine.store)?;
+        let now = engine.clock.now();
+        engine.store.lock().append(now, events)?;
+        // Two guards at once: graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = engine.graph.lock();
+        graph.materialize_from(engine.store.lock().as_ref())?;
         Ok(outcome)
     }
 }
@@ -535,12 +635,12 @@ fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
 
 /// Route a memory operation's error. A teachable violation (a duplicate name, an unknown relation)
 /// becomes the Lua runtime error the agent sees as the block's terminal cause. A graph read failure
-/// is infrastructure, not the agent's doing: it is stashed in `infra` for `execute` to bubble up as a
-/// [`LuaError`], and the returned Lua error only serves to stop the script.
-fn route_error(error: MemoryError, infra: &RefCell<Option<GraphError>>) -> mlua::Error {
+/// is infrastructure, not the agent's doing: it is stashed in the caller's `infra` slot for `execute`
+/// to bubble up as a [`LuaError`], and the returned Lua error only serves to stop the script.
+fn route_error(error: MemoryError, infra: &mut Option<GraphError>) -> mlua::Error {
     match error {
         MemoryError::Graph(graph_error) => {
-            *infra.borrow_mut() = Some(graph_error);
+            *infra = Some(graph_error);
             mlua::Error::RuntimeError("internal graph error".to_owned())
         }
         teachable => mlua::Error::RuntimeError(teachable.to_string()),
