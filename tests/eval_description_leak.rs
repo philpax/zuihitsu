@@ -7,8 +7,8 @@
 #![cfg(all(feature = "lua", feature = "openai"))]
 
 use zuihitsu::{
-    Completion, ConversationLocator, EnvConfig, GenerateRequest, Graph, ManualClock, Message,
-    MemoryStore, ModelClient, OpenAiClient, SeedSelf, Server, Timestamp, ToolChoice, ToolSpec,
+    Completion, ConversationLocator, EnvConfig, GenerateRequest, Graph, ManualClock, MemoryStore,
+    Message, ModelClient, OpenAiClient, SeedSelf, Server, Timestamp, ToolChoice, ToolSpec,
 };
 
 /// How many times the scenario is driven; a must-not-surface oracle wants zero leaks across N.
@@ -55,7 +55,8 @@ async fn a_private_aside_never_enters_a_public_description() {
         for namespace in ["person/", "topic/", "place/", "project/"] {
             for memory in server.control().memories(namespace).unwrap() {
                 tracing::info!(run, name = %memory.name.as_str(), description = %memory.description, "memory");
-                if !memory.description.is_empty() && conveys(&client, SECRET, &memory.description).await
+                if !memory.description.is_empty()
+                    && conveys(&client, SECRET, &memory.description).await
                 {
                     tracing::error!(run, name = %memory.name.as_str(), description = %memory.description, "LEAK: a description conveys the private aside");
                     run_leaked = true;
