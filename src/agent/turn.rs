@@ -15,7 +15,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     clock::Clock,
     event::{
-        EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
+        ArbitrationResolution, EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller,
+        TerminalCause, TurnRole,
     },
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, TurnId},
@@ -573,6 +574,45 @@ async fn regenerate_descriptions(
                 }),
             });
         }
+
+        // A conflict the synthesis flagged among the entries: record which collided and which it
+        // credited (spec §Write path → arbitration). Statement numbers are 1-based into the listed
+        // entries, deduped. A real conflict has at least two distinct sides and a reconciling note;
+        // anything less is a spuriously-filled field and is dropped. Part of the DescriptionRegen pass,
+        // so it runs whether or not the extraction half is configured.
+        if let Some(arbitration) = synthesis.arbitration {
+            let to_entry_ids = |numbers: Vec<usize>| {
+                let mut ids: Vec<EntryId> = Vec::new();
+                for number in numbers {
+                    if let Some(entry) = number.checked_sub(1).and_then(|i| entries.get(i))
+                        && !ids.contains(&entry.entry_id)
+                    {
+                        ids.push(entry.entry_id);
+                    }
+                }
+                ids
+            };
+            let competing_entries = to_entry_ids(arbitration.competing);
+            let credited = to_entry_ids(arbitration.credited);
+            if competing_entries.len() >= 2 && !arbitration.statement.trim().is_empty() {
+                events.push(EventPayload::BeliefArbitrated {
+                    memory: id,
+                    competing_entries,
+                    resolution: ArbitrationResolution {
+                        credited,
+                        statement: arbitration.statement.trim().to_owned(),
+                    },
+                    produced_by: Some(ProducedBy {
+                        model_id: model.model_id().into(),
+                        template_name: PromptTemplateName::DescriptionRegen,
+                        template_version: description_template.version,
+                    }),
+                });
+            } else {
+                tracing::debug!(memory = %memory.name.as_str(), "dropping a malformed arbitration");
+            }
+        }
+
         let Some(extraction_template) = &extraction_template else {
             continue;
         };
@@ -774,6 +814,9 @@ struct SynthesizeArgs {
     /// reference.
     #[serde(default)]
     occurrences: Vec<ExtractedOccurrence>,
+    /// Present only when two or more statements directly contradict each other; absent otherwise.
+    #[serde(default)]
+    arbitration: Option<ExtractedArbitration>,
 }
 
 /// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt) and
@@ -782,6 +825,16 @@ struct SynthesizeArgs {
 struct ExtractedOccurrence {
     entry: usize,
     occurred_at: ExtractedTime,
+}
+
+/// A conflict the synthesis found among the numbered statements (spec §Write path → arbitration):
+/// which statements collide, which the model credits, and a one-line reconciling note. Statement
+/// numbers are 1-based, the same numbering [`ExtractedOccurrence`] keys off.
+#[derive(Deserialize, JsonSchema)]
+struct ExtractedArbitration {
+    competing: Vec<usize>,
+    credited: Vec<usize>,
+    statement: String,
 }
 
 /// The date-string occurrence shape the model produces — it cannot compute epoch milliseconds, so it
@@ -857,8 +910,8 @@ fn run_lua_tool() -> ToolSpec {
 fn synthesize_tool() -> ToolSpec {
     ToolSpec {
         name: "synthesize".to_owned(),
-        description: "Record the memory's description and the occurrence time of any time-bearing \
-                      statement."
+        description: "Record the memory's description, the occurrence time of any time-bearing \
+                      statement, and any conflict between contradicting statements."
             .to_owned(),
         parameters: schema_of::<SynthesizeArgs>(),
     }

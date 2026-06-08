@@ -209,6 +209,83 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
     assert!(temporal_resolutions(&h.store).is_empty());
 }
 
+fn belief_arbitrations(store: &impl Store) -> Vec<EventPayload> {
+    store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.payload)
+        .filter(|p| matches!(p, EventPayload::BeliefArbitrated { .. }))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_regen_conflict_emits_belief_arbitrated() {
+    let mut h = Harness::new();
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local d = memory.create("person/dave")
+               d:append("Dave works at Acme", { by_agent = true, visibility = "public" })
+               d:append("Dave works at Hooli", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // Statements 1 and 2 conflict; the synthesis credits the second.
+        synthesize_call(
+            r#"{"description":"Dave works at Hooli.","arbitration":{"competing":[1,2],"credited":[2],"statement":"Credited the more recent: Dave works at Hooli."}}"#,
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Where does Dave work?", 8))
+        .await
+        .unwrap();
+
+    let dave = h.graph.memory_by_name("person/dave").unwrap().unwrap();
+    let entries = h.graph.entries_local(dave.id).unwrap();
+    let arbitrations = belief_arbitrations(&h.store);
+    assert_eq!(arbitrations.len(), 1);
+    let EventPayload::BeliefArbitrated {
+        memory,
+        competing_entries,
+        resolution,
+        produced_by,
+    } = &arbitrations[0]
+    else {
+        unreachable!();
+    };
+    assert_eq!(*memory, dave.id);
+    // The 1-based statement numbers resolved to the two entries' ids, in order.
+    assert_eq!(
+        *competing_entries,
+        vec![entries[0].entry_id, entries[1].entry_id]
+    );
+    assert_eq!(resolution.credited, vec![entries[1].entry_id]);
+    assert!(resolution.statement.contains("Hooli"));
+    assert!(produced_by.is_some());
+}
+
+#[tokio::test]
+async fn a_single_sided_arbitration_is_dropped() {
+    let mut h = Harness::new();
+    genesis::rollout(&mut h.store, &h.clock, &seed()).unwrap();
+    h.graph.materialize_from(&h.store).unwrap();
+
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("person/dave", "Met Dave")"#),
+        Completion::Reply("Noted.".to_owned()),
+        // Only one "competing" statement — not a real conflict, so nothing is recorded.
+        synthesize_call(
+            r#"{"description":"Dave.","arbitration":{"competing":[1],"credited":[1],"statement":"only one side"}}"#,
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
+
+    assert!(belief_arbitrations(&h.store).is_empty());
+}
+
 #[tokio::test]
 async fn agent_turns_record_their_provenance() {
     let mut h = Harness::new();

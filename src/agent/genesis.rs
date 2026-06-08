@@ -238,7 +238,11 @@ fn default_templates() -> Vec<TemplateDef> {
                    memory's name and entries, write a concise third-person description of who or \
                    what it is and the durable facts that matter. Call the `describe` tool with that \
                    description as plain prose — no preamble, headings, notes, or first-person \
-                   framing — synthesizing only from the entries given.",
+                   framing — synthesizing only from the entries given. If two or more statements \
+                   directly contradict each other about the same thing, record it in `arbitration`: \
+                   the conflicting statement numbers in `competing`, the number(s) you judge correct \
+                   in `credited`, and a one-line reconciling note in `statement`. Only for genuine \
+                   contradictions — not a fact being added, refined, or updated over time.",
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,

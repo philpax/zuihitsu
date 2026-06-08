@@ -1024,7 +1024,7 @@ This is not just for predicate bugs. Replay cures a corrupt graph but reproduces
 **Open questions:**
 
 - *Embeddings and vector backend.* Target embedder is `jina-embeddings-v5-text-small`, served via a **vLLM embedding endpoint** (same serving layer as generation; run it as a separate vLLM instance if generation/embedding contention bites). Verify current vLLM actually supports v5 — it is recent and may need a build accounting for its architecture / Matryoshka specifics; until then a `jina` v3/v4-small or `bge`-class model is a drop-in stopgap, since the embedder is swappable. Vector store starts as `sqlite-vec` (one process, plausibly enough for a personal agent); swap to an external store if it doesn't hold. Re-embedding from the log is the most expensive operation in the system — price it before relying on "rebuildable."
-- *Description-regen prompt.* Should it explicitly call out conflicts between a new entry and prior contents, so the description doubles as a flag? Probably yes.
+- *Description-regen prompt.* Resolved (Stage 9): the regen prompt flags direct contradictions between statements, recorded as `BeliefArbitrated` (§Write path) rather than only surfaced in the description prose.
 - *Snapshot cadence.* Storage cost vs replay cost; measure under realistic volume.
 - *Brief composition cost.* Deterministic ranking is fast; cache by participant-set hash if it becomes a bottleneck at conversation start.
 - *Migration on `LinkTypeChanged`.* Auto-resolve existing edges to most recent, or flag for manual review? Default to flagging.

@@ -35,6 +35,9 @@ impl Graph {
             | EventPayload::ConfigSet { .. }
             | EventPayload::LuaExecuted { .. }
             | EventPayload::ConversationTurn { .. } => {}
+            // A log-only audit record of the agent's belief arbitration, read per memory from the log;
+            // no graph projection (spec §Write path → arbitration).
+            EventPayload::BeliefArbitrated { .. } => {}
             EventPayload::MemoryCreated { id, name } => {
                 // A lone memory is its own class; a later same_as merge recomputes class_id.
                 self.conn

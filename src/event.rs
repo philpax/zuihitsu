@@ -178,6 +178,14 @@ pub struct ProducedBy {
     pub template_version: u32,
 }
 
+/// How a [`EventPayload::BeliefArbitrated`] was resolved: which competing entries the agent credited
+/// (by `EntryId`) and the one-line reconciling statement it wrote (spec §Write path → arbitration).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArbitrationResolution {
+    pub credited: Vec<EntryId>,
+    pub statement: String,
+}
+
 /// Who told the agent a piece of content (spec §Visibility). Distinct from [`EventSource`], which is
 /// authorship *authority*: `told_by` is the *teller* whose confidence the read-time predicate
 /// reasons about.
@@ -283,6 +291,17 @@ pub enum EventPayload {
     MemoryDescriptionRegenerated {
         id: MemoryId,
         new_text: String,
+        produced_by: Option<ProducedBy>,
+    },
+    /// Records that the turn-end regeneration found conflicting statements among a memory's entries and
+    /// arbitrated between them (spec §Write path → coalesce, then regenerate once). `competing_entries`
+    /// is the set of conflicting entries the pass saw; `resolution` is which it credited and the
+    /// reconciling note it wrote. A log-only audit record — it makes "why does the agent believe X"
+    /// replayable rather than buried in a description string, and is not projected into the graph.
+    BeliefArbitrated {
+        memory: MemoryId,
+        competing_entries: Vec<EntryId>,
+        resolution: ArbitrationResolution,
         produced_by: Option<ProducedBy>,
     },
     MemoryVolatilitySet {
@@ -434,6 +453,7 @@ impl EventPayload {
             EventPayload::ScheduledJobFired { .. } => "ScheduledJobFired",
             EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
+            EventPayload::BeliefArbitrated { .. } => "BeliefArbitrated",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
@@ -471,6 +491,7 @@ impl EventPayload {
             | EventPayload::MemoryContentAppended { id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
+            | EventPayload::BeliefArbitrated { memory: id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
             | EventPayload::ScheduledJobFired { memory: id, .. }
             | EventPayload::ScheduledItemSurfaced { memory: id, .. }
@@ -573,6 +594,21 @@ mod tests {
             entry_id: EntryId::generate(),
             memory: MemoryId::generate(),
             fired_at: Timestamp::from_millis(1_000),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn belief_arbitrated_round_trips() {
+        let event = EventPayload::BeliefArbitrated {
+            memory: MemoryId::generate(),
+            competing_entries: vec![EntryId::generate(), EntryId::generate()],
+            resolution: super::ArbitrationResolution {
+                credited: vec![EntryId::generate()],
+                statement: "credited the more recent assertion".to_owned(),
+            },
+            produced_by: None,
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
