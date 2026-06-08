@@ -25,15 +25,9 @@ pub mod time;
 pub mod vector;
 pub mod vocabulary;
 
-// Transitional module re-exports: the integration tests reference these by module *path* (e.g.
-// `zuihitsu::genesis::…`). Keep the old paths alive until the test-colocation commit moves those
-// tests in-module and these can be dropped.
+// The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
+// as `zuihitsu::genesis::{rollout, status}` without reaching through the `agent` subsystem.
 pub use agent::genesis;
-#[cfg(feature = "sqlite")]
-pub use agent::system_prompt;
-#[cfg(feature = "sqlite")]
-pub use memory::{brief, search};
-pub use model::index;
 
 pub use agent::{
     api_doc::{ApiEntry, ApiParam, ApiType, ObjectBuilder, enum_of, object},

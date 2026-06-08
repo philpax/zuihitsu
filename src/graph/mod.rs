@@ -17,6 +17,8 @@ use crate::{
 
 mod apply;
 mod read;
+#[cfg(test)]
+mod tests;
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
 #[derive(Clone, Debug, PartialEq)]

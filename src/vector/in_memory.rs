@@ -73,3 +73,43 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
         0.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The in-memory index ranks nearest-first and honours upsert-replace and remove. Driven by the
+    //! deterministic fake embedder, so no model is needed.
+    use crate::{
+        model::embed::{Embedder, FakeEmbedder},
+        vector::{InMemoryVectorIndex, VectorId, VectorIndex, VectorRecord},
+    };
+
+    #[tokio::test]
+    async fn ranks_nearest_first() {
+        let embedder = FakeEmbedder::new(32);
+        let mut index = InMemoryVectorIndex::new();
+        for text in ["climbing gym", "sourdough bread", "tax return"] {
+            let embedding = embedder.embed(&[text.to_owned()]).await.unwrap().remove(0);
+            index
+                .upsert(VectorRecord {
+                    id: VectorId::new(text),
+                    embedding,
+                    model_id: embedder.model_id().into(),
+                })
+                .unwrap();
+        }
+        assert_eq!(index.len().unwrap(), 3);
+
+        let query = embedder
+            .embed(&["climbing gym".to_owned()])
+            .await
+            .unwrap()
+            .remove(0);
+        let hits = index.search(&query, 2).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].id, VectorId::new("climbing gym")); // exact match ranks first
+
+        index.remove(&VectorId::new("climbing gym")).unwrap();
+        assert_eq!(index.len().unwrap(), 2);
+        assert!(!index.is_empty().unwrap());
+    }
+}

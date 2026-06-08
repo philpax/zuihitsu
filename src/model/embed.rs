@@ -86,3 +86,22 @@ fn normalize(vector: &mut [f32]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The fake embedder is deterministic and fixed-size: identical text embeds identically and
+    //! distinct text distinctly, so the vector index can be exercised without a model.
+    use super::{Embedder, FakeEmbedder};
+
+    #[tokio::test]
+    async fn fake_embedder_is_deterministic_and_sized() {
+        let embedder = FakeEmbedder::new(16);
+        let hello_a = embedder.embed(&["hello".to_owned()]).await.unwrap();
+        let hello_b = embedder.embed(&["hello".to_owned()]).await.unwrap();
+        let world = embedder.embed(&["world".to_owned()]).await.unwrap();
+
+        assert_eq!(hello_a[0].len(), 16);
+        assert_eq!(hello_a, hello_b); // identical text embeds identically
+        assert_ne!(hello_a, world); // distinct text embeds distinctly
+    }
+}

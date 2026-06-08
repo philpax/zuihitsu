@@ -258,3 +258,36 @@ impl ModelClient for ScriptedModel {
             .ok_or(ModelError::Exhausted)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The scripted model returns its programmed steps in order, then reports exhaustion — the
+    //! determinism agent-level scenarios rely on (spec §Testability).
+    use super::{Completion, GenerateRequest, ModelClient, ModelError, ScriptedModel, ToolCall};
+
+    #[tokio::test]
+    async fn scripted_model_returns_programmed_steps_then_exhausts() {
+        let model = ScriptedModel::new([
+            Completion::ToolCalls(vec![ToolCall {
+                id: "1".to_owned(),
+                name: "run_lua".to_owned(),
+                arguments: r#"{"script":"return 1"}"#.to_owned(),
+            }]),
+            Completion::Reply("done".to_owned()),
+        ]);
+        let request = GenerateRequest::default();
+
+        assert!(matches!(
+            model.generate(&request).await.unwrap().completion,
+            Completion::ToolCalls(_)
+        ));
+        assert_eq!(
+            model.generate(&request).await.unwrap().completion,
+            Completion::Reply("done".to_owned())
+        );
+        assert!(matches!(
+            model.generate(&request).await,
+            Err(ModelError::Exhausted)
+        ));
+    }
+}

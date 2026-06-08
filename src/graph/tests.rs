@@ -2,12 +2,15 @@
 //! expected queryable state. The materializer is the one subsystem replay can't self-heal (a buggy
 //! handler reproduces faithfully), so it is exercised against materialized state (spec §Storage).
 
-#![cfg(feature = "sqlite")]
-
-use zuihitsu::{
-    Cardinality, ConversationId, ConversationLocator, EntryId, EntryView, Graph, LinkSource,
-    MemoryId, MemoryName, MemoryStore, RelationName, Seq, SessionId, Store, TagName, Teller,
-    Timestamp, TurnId, Visibility, Volatility, event::EventPayload,
+use super::{EntryView, Graph};
+use crate::{
+    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
+    ids::{
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
+    },
+    store::{MemoryStore, Store},
+    time::Timestamp,
+    vocabulary::{RelationName, TagName},
 };
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.
@@ -632,7 +635,7 @@ fn conversations_and_sessions_project() {
 /// into the sortable `occurred_sort` column read-side views expose.
 mod occurrence {
     use super::*;
-    use zuihitsu::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, Rrule, TemporalRef};
+    use crate::time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, Rrule, TemporalRef};
 
     const DAY: i64 = 86_400_000;
 
