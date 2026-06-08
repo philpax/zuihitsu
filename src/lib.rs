@@ -14,6 +14,8 @@ pub mod event;
 #[cfg(feature = "sqlite")]
 pub mod graph;
 pub mod ids;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 #[cfg(feature = "sqlite")]
 pub mod memory;
 pub mod model;
@@ -106,3 +108,13 @@ mod __openai {
 }
 #[cfg(feature = "openai")]
 pub use __openai::*;
+
+#[cfg(feature = "mcp")]
+mod __mcp {
+    pub use crate::mcp::{
+        ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
+        McpServerConfig, McpTool,
+    };
+}
+#[cfg(feature = "mcp")]
+pub use __mcp::*;
