@@ -13,11 +13,11 @@ use smol_str::SmolStr;
 
 use crate::{
     ids::{
-        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName, Seq,
-        SessionId, TagName, TurnId,
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
     },
     settings::Settings,
     time::{TemporalRef, Timestamp},
+    vocabulary::{RelationName, TagName},
 };
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.

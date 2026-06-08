@@ -9,12 +9,10 @@ use ulid::Ulid;
 
 use crate::{
     event::{Cardinality, Teller, Visibility, Volatility},
-    ids::{
-        ConversationId, EntryId, MemoryId, MemoryName, RelationName, Seq, SessionId, TagName,
-        TurnId,
-    },
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     store::{Store, StoreError},
     time::Timestamp,
+    vocabulary::{RelationName, TagName},
 };
 
 mod apply;

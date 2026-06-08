@@ -9,8 +9,9 @@ use super::{Graph, GraphError, backend};
 use crate::{
     db::{query_map_into, query_opt_into},
     event::{Event, EventPayload, Visibility},
-    ids::{MemoryId, MemoryName, RelationName},
+    ids::{MemoryId, MemoryName},
     time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef, Timestamp},
+    vocabulary::RelationName,
 };
 
 /// The denormalized occurrence values for one entry's `content_entries` row: the tagged-JSON

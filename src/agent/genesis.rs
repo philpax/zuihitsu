@@ -15,9 +15,10 @@ use sha2::{Digest, Sha256};
 use crate::{
     clock::Clock,
     event::{Cardinality, EventPayload, EventSource, PromptTemplateName, Teller, Visibility},
-    ids::{EntryId, MemoryId, MemoryName, RelationName, Seq, TagName},
+    ids::{EntryId, MemoryId, MemoryName, Seq},
     settings::Settings,
     store::{Store, StoreError},
+    vocabulary::{RelationName, TagName},
 };
 
 /// The seed identity an operator provides at creation: a name for the agent, a one-line persona,

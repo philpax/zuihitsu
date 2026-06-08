@@ -18,11 +18,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     event::{Visibility, Volatility},
     graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, TagName},
+    ids::MemoryId,
     model::index::VectorKey,
     settings::SearchSettings,
     time::{self, Timestamp},
     vector::{VectorError, VectorIndex},
+    vocabulary::TagName,
 };
 
 use super::visibility;

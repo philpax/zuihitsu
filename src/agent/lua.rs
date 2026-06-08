@@ -23,9 +23,10 @@ use ulid::Ulid;
 use crate::{
     event::{EventPayload, TerminalCause},
     graph::GraphError,
-    ids::{ConversationId, MemoryId, RelationName, TurnId},
+    ids::{ConversationId, MemoryId, TurnId},
     memory::memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError},
     store::StoreError,
+    vocabulary::RelationName,
 };
 
 use super::{

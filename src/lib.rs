@@ -23,6 +23,7 @@ pub mod settings;
 pub mod store;
 pub mod time;
 pub mod vector;
+pub mod vocabulary;
 
 // Transitional module re-exports: the integration tests reference these by module *path* (e.g.
 // `zuihitsu::genesis::…`). Keep the old paths alive until the test-colocation commit moves those
@@ -46,8 +47,7 @@ pub use event::{
     PromptTemplateName, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
-    ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName, Seq,
-    SessionId, TagName, TurnId,
+    ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
 };
 pub use model::{
     Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, Role,
@@ -67,6 +67,7 @@ pub use time::{
 pub use vector::{
     InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,
 };
+pub use vocabulary::{RelationName, TagName};
 
 // The feature-gated re-exports are grouped per feature so the `#[cfg]` lives in one place rather
 // than on every line; each private module is glob-re-exported into the crate root.

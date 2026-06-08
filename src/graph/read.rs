@@ -12,11 +12,9 @@ use super::{
 use crate::{
     db::{query_map_into, query_opt_into},
     event::{Cardinality, Teller, Volatility},
-    ids::{
-        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, RelationName,
-        SessionId, TagName, TurnId,
-    },
+    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
     time::{TemporalRef, Timestamp},
+    vocabulary::{RelationName, TagName},
 };
 
 impl Graph {
