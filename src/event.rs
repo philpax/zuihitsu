@@ -258,6 +258,25 @@ pub enum EventPayload {
         occurred_at: TemporalRef,
         produced_by: Option<ProducedBy>,
     },
+    /// Fires a calendared entry's wake-up: its occurrence has come due — its `occurred_sort` passed
+    /// `now`, having been later than its `asserted_at`, so it was scheduled for the future rather than
+    /// recorded after the fact (spec §Scheduled work). Recorded in the log so the wake-up surface is a
+    /// function of the log, not a live clock; applying it stamps the entry's `fired_at`. The fired
+    /// entry waits in the surface until an eligible session drains it.
+    ScheduledJobFired {
+        entry_id: EntryId,
+        memory: MemoryId,
+        fired_at: Timestamp,
+    },
+    /// Marks a fired wake-up delivered: the drain raised it as an `Initiated` system turn in
+    /// `session`, so it is never raised again (spec §Agent-initiated speech). Applying it stamps the
+    /// entry's `surfaced_at`.
+    ScheduledItemSurfaced {
+        entry_id: EntryId,
+        memory: MemoryId,
+        session: SessionId,
+        surfaced_at: Timestamp,
+    },
     /// Replaces a memory's synthesized description. The text is produced by the model (Stage 5);
     /// applying it to the projection is purely mechanical. `produced_by` records the inference that
     /// wrote it (`None` only for a hand-seeded description).
@@ -412,6 +431,8 @@ impl EventPayload {
             EventPayload::MemoryDeleted { .. } => "MemoryDeleted",
             EventPayload::MemoryContentAppended { .. } => "MemoryContentAppended",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
+            EventPayload::ScheduledJobFired { .. } => "ScheduledJobFired",
+            EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
@@ -451,6 +472,8 @@ impl EventPayload {
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
+            | EventPayload::ScheduledJobFired { memory: id, .. }
+            | EventPayload::ScheduledItemSurfaced { memory: id, .. }
             | EventPayload::TagAppliedToMemory { memory: id, .. }
             | EventPayload::TagRemovedFromMemory { memory: id, .. }
             | EventPayload::LinkCreated { from: id, .. }
@@ -490,7 +513,7 @@ pub struct Event {
 
 #[cfg(test)]
 mod tests {
-    use super::{EntryId, EventPayload, MemoryId, Teller, Timestamp, Visibility};
+    use super::{EntryId, EventPayload, MemoryId, SessionId, Teller, Timestamp, Visibility};
     use crate::time::{CivilDate, TemporalRef};
 
     fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
@@ -539,6 +562,29 @@ mod tests {
             entry_id: EntryId::generate(),
             occurred_at: TemporalRef::Day(CivilDate("2026-06-03".into())),
             produced_by: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn scheduled_job_fired_round_trips() {
+        let event = EventPayload::ScheduledJobFired {
+            entry_id: EntryId::generate(),
+            memory: MemoryId::generate(),
+            fired_at: Timestamp::from_millis(1_000),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn scheduled_item_surfaced_round_trips() {
+        let event = EventPayload::ScheduledItemSurfaced {
+            entry_id: EntryId::generate(),
+            memory: MemoryId::generate(),
+            session: SessionId::generate(),
+            surfaced_at: Timestamp::from_millis(2_000),
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);

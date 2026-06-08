@@ -193,6 +193,8 @@ impl Graph {
                  occurred_sort INTEGER,
                  occurred_lo   INTEGER,
                  occurred_hi   INTEGER,
+                 fired_at      INTEGER,
+                 surfaced_at   INTEGER,
                  text          TEXT    NOT NULL,
                  told_by       TEXT    NOT NULL,
                  told_in       TEXT,
@@ -204,6 +206,9 @@ impl Graph {
                  ON content_entries(occurred_sort);
              CREATE INDEX IF NOT EXISTS idx_entries_occurred_lo_hi
                  ON content_entries(occurred_lo, occurred_hi);
+             CREATE INDEX IF NOT EXISTS idx_entries_pending_wakeup
+                 ON content_entries(occurred_sort)
+                 WHERE fired_at IS NOT NULL AND surfaced_at IS NULL;
              CREATE TABLE IF NOT EXISTS tags (
                  name        TEXT PRIMARY KEY,
                  description TEXT NOT NULL

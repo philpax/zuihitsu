@@ -220,6 +220,80 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
 
 #[cfg(feature = "lua")]
 #[tokio::test]
+async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
+    let (mut server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // Turn 1: the agent records a note on Dave's memory and the turn-end synthesis dates it to
+    // 2026-07-01 — a calendared item scheduled weeks after the present TEST_NOW.
+    let plant = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.get("person/dave@discord"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        Completion::ToolCalls(vec![ToolCall {
+            id: "synthesize".to_owned(),
+            name: "synthesize".to_owned(),
+            arguments: serde_json::json!({
+                "description": "Dave.",
+                "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
+            })
+            .to_string(),
+        }]),
+    ]);
+    server
+        .platform()
+        .route_message(
+            &plant,
+            &leads,
+            "dave",
+            "remind me about the dentist",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+
+    // Advance past the occurrence and the idle gap, so the next message opens a fresh session.
+    clock.advance_millis(30 * 86_400_000_i64);
+
+    // Turn 2: opening this session fires the now-due wake-up and drains it as a system turn the agent
+    // sees in its buffer.
+    let drained = ScriptedModel::new([Completion::Reply("sure".to_owned())]);
+    server
+        .platform()
+        .route_message(&drained, &leads, "dave", "what's up", &["dave"])
+        .await
+        .unwrap();
+    assert!(
+        drained
+            .recorded_messages()
+            .iter()
+            .flatten()
+            .any(|message| message.content.contains("# Due now")),
+        "the drain should reach the model: {:?}",
+        drained.recorded_messages()
+    );
+
+    // A later session: the item is surfaced, so it is never raised a second time.
+    clock.advance_millis(2 * 86_400_000_i64);
+    let quiet = ScriptedModel::new([Completion::Reply("ok".to_owned())]);
+    server
+        .platform()
+        .route_message(&quiet, &leads, "dave", "still here", &["dave"])
+        .await
+        .unwrap();
+    assert!(
+        quiet
+            .recorded_messages()
+            .iter()
+            .flatten()
+            .all(|message| !message.content.contains("# Due now")),
+        "a surfaced item must not be raised again",
+    );
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test]
 async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
     let (mut server, _clock) = born_agent();
     // A tight token budget, so a single reported usage crosses it.

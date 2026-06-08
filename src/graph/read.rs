@@ -90,27 +90,43 @@ impl Graph {
              ORDER BY e.occurred_sort, e.seq",
         )?;
         query_map_into(stmt, params![from.as_millis(), to.as_millis()], |row| {
-            let id: String = row.get("id")?;
-            let name: String = row.get("name")?;
-            let description: String = row.get("description")?;
-            let volatility: String = row.get("volatility")?;
-            let created_at: i64 = row.get("created_at")?;
-            let entry_id: String = row.get("entry_id")?;
-            let told_by: String = row.get("told_by")?;
-            let told_in: Option<String> = row.get("told_in")?;
-            let visibility: String = row.get("visibility")?;
-            let memory = self.assemble_memory((id, name, description, volatility, created_at))?;
-            let entry = EntryView::from_db(
-                EntryId(parse_ulid(&entry_id)?),
-                row.get("asserted_at")?,
-                row.get("occurred_sort")?,
-                row.get("text")?,
-                &told_by,
-                told_in.as_deref(),
-                &visibility,
-            )?;
-            Ok((memory, entry))
+            self.occurrence_row(row)
         })
+    }
+
+    /// Live entries whose scheduled occurrence has come due but not yet fired — the scheduler's input
+    /// (spec §Scheduled work). The comes-due rule: a concrete `occurred_sort` that has passed `now` and
+    /// was later than the entry's own `asserted_at`, so an event scheduled for the future fires while a
+    /// past event recorded after the fact never does. Recurring entries (null sort) are excluded.
+    pub fn due_occurrences(&self, now: Timestamp) -> Result<Vec<(MemoryId, EntryId)>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT e.memory_id, e.entry_id
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.fired_at IS NULL
+               AND e.occurred_sort IS NOT NULL
+               AND e.occurred_sort > e.asserted_at
+               AND e.occurred_sort <= ?1
+             ORDER BY e.occurred_sort, e.seq",
+        )?;
+        query_map_into(stmt, params![now.as_millis()], |row| {
+            let memory: String = row.get("memory_id")?;
+            let entry: String = row.get("entry_id")?;
+            Ok::<_, GraphError>((MemoryId(parse_ulid(&memory)?), EntryId(parse_ulid(&entry)?)))
+        })
+    }
+
+    /// Live entries that have fired but are not yet surfaced — the wake-up surface the drain consumes
+    /// (spec §Agent-initiated speech), each paired with its memory, soonest occurrence first.
+    pub fn pending_wakeups(&self) -> Result<Vec<(MemoryView, EntryView)>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
+                    e.entry_id, e.asserted_at, e.occurred_sort, e.text, e.told_by, e.told_in,
+                    e.visibility
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.fired_at IS NOT NULL AND e.surfaced_at IS NULL
+             ORDER BY e.occurred_sort, e.seq",
+        )?;
+        query_map_into(stmt, [], |row| self.occurrence_row(row))
     }
 
     /// Live memories that carry a `Recurring` occurrence — the `calendar.recurring()` listing. These
@@ -527,6 +543,34 @@ impl Graph {
             created_at: Timestamp::from_millis(created_at),
             tags: self.tags_of(&id)?,
         })
+    }
+
+    /// Decode the `(memory, entry)` row shared by the calendar and wake-up queries — the same twelve
+    /// columns in the same order ([`Graph::occurrences_in_window`], [`Graph::pending_wakeups`]).
+    fn occurrence_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<(MemoryView, EntryView), GraphError> {
+        let id: String = row.get("id")?;
+        let name: String = row.get("name")?;
+        let description: String = row.get("description")?;
+        let volatility: String = row.get("volatility")?;
+        let created_at: i64 = row.get("created_at")?;
+        let entry_id: String = row.get("entry_id")?;
+        let told_by: String = row.get("told_by")?;
+        let told_in: Option<String> = row.get("told_in")?;
+        let visibility: String = row.get("visibility")?;
+        let memory = self.assemble_memory((id, name, description, volatility, created_at))?;
+        let entry = EntryView::from_db(
+            EntryId(parse_ulid(&entry_id)?),
+            row.get("asserted_at")?,
+            row.get("occurred_sort")?,
+            row.get("text")?,
+            &told_by,
+            told_in.as_deref(),
+            &visibility,
+        )?;
+        Ok((memory, entry))
     }
 
     /// Build a [`SessionView`] from a row selecting the columns [`Graph::session_stmt`] lists, then

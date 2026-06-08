@@ -50,8 +50,8 @@ pub use model::{
     index::{IndexError, Indexer},
 };
 pub use settings::{
-    BriefSettings, CompactionSettings, RecencySettings, SearchSettings, Settings, TauDays,
-    TurnSettings,
+    BriefSettings, CompactionSettings, RecencySettings, SchedulerSettings, SearchSettings,
+    Settings, TauDays, TurnSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{

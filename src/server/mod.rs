@@ -26,12 +26,13 @@ use crate::{
 use crate::{
     agent::lua::Session,
     agent::{Engine, Turn, TurnError, TurnReport, TurnView, buffer_turns, run_turn},
-    event::{EventPayload, PromptTemplateName},
+    event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     memory::{
         brief::{self, BriefError},
         identity::IdentityError,
         memory_block::Authority,
+        scheduler::{self, SchedulerError},
     },
     model::ModelClient,
     settings::Settings,
@@ -183,6 +184,15 @@ impl Server {
             return Ok(());
         }
 
+        // Catch the wake-up scheduler up to now before the session opens. This is global (it fires
+        // every due trigger, not just this conversation's) and stands in for the background driver that
+        // runs `fire_due` on a timer once the runtime host exists (deferred to Stage 10, spec
+        // §Scheduled work). Firing here, before the drain below, is what lets a just-due item surface
+        // in this session if it is eligible.
+        if scheduler::fire_due(self.store.as_mut(), &self.graph, now)? > 0 {
+            self.graph.materialize_from(self.store.as_ref())?;
+        }
+
         // A lapsed session ends before the new one opens.
         if let Some(old) = self.sessions.remove(&conversation) {
             self.store.append(
@@ -241,6 +251,33 @@ impl Server {
                     .unwrap_or(session_start_seq),
             },
         );
+
+        // Drain the wake-up surface into the opening session: fired items that are both visible to and
+        // targeted at this present set are raised as one `Initiated` system turn the agent sees in its
+        // buffer, and each is marked surfaced so it is never raised again (spec §Agent-initiated
+        // speech). Appended after `SessionStarted`, so it falls inside the buffer read from `start_seq`.
+        if let Some(drained) = scheduler::drain(&self.graph, present_set, &settings.scheduler)? {
+            let turn_id = TurnId::generate();
+            let mut payloads = vec![EventPayload::ConversationTurn {
+                conversation,
+                turn_id,
+                role: TurnRole::System,
+                text: drained.text,
+                participant: None,
+                initiation: Initiation::Initiated,
+                produced_by: None,
+            }];
+            for (entry_id, memory) in drained.entries {
+                payloads.push(EventPayload::ScheduledItemSurfaced {
+                    entry_id,
+                    memory,
+                    session: id,
+                    surfaced_at: now,
+                });
+            }
+            self.store.append(now, payloads)?;
+            self.graph.materialize_from(self.store.as_ref())?;
+        }
         Ok(())
     }
 
@@ -353,6 +390,16 @@ impl From<BriefError> for ServerError {
     fn from(error: BriefError) -> Self {
         match error {
             BriefError::Graph(error) => ServerError::Graph(error),
+        }
+    }
+}
+
+#[cfg(feature = "lua")]
+impl From<SchedulerError> for ServerError {
+    fn from(error: SchedulerError) -> Self {
+        match error {
+            SchedulerError::Store(error) => ServerError::Store(error),
+            SchedulerError::Graph(error) => ServerError::Graph(error),
         }
     }
 }

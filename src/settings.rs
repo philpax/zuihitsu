@@ -31,6 +31,7 @@ pub struct Settings {
     pub brief: BriefSettings,
     pub turn: TurnSettings,
     pub search: SearchSettings,
+    pub scheduler: SchedulerSettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -61,6 +62,14 @@ pub struct BriefSettings {
     pub upcoming_window_days: i64,
     /// The most upcoming items the `<upcoming/>` block lists.
     pub max_upcoming_items: i64,
+}
+
+/// Scheduled-work delivery: the drained wake-up surface (spec §Agent-initiated speech).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SchedulerSettings {
+    /// The most fired wake-ups a single session-open drain raises.
+    pub max_wakeups_per_session: i64,
 }
 
 /// The agent step loop.
@@ -120,6 +129,14 @@ impl Default for BriefSettings {
             present_set_cap: 10,
             upcoming_window_days: 7,
             max_upcoming_items: 5,
+        }
+    }
+}
+
+impl Default for SchedulerSettings {
+    fn default() -> Self {
+        SchedulerSettings {
+            max_wakeups_per_session: 5,
         }
     }
 }

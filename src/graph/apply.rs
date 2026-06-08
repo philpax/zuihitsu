@@ -150,6 +150,28 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::ScheduledJobFired {
+                entry_id, fired_at, ..
+            } => {
+                self.conn
+                    .execute(
+                        "UPDATE content_entries SET fired_at = ?1 WHERE entry_id = ?2",
+                        params![fired_at.as_millis(), entry_id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::ScheduledItemSurfaced {
+                entry_id,
+                surfaced_at,
+                ..
+            } => {
+                self.conn
+                    .execute(
+                        "UPDATE content_entries SET surfaced_at = ?1 WHERE entry_id = ?2",
+                        params![surfaced_at.as_millis(), entry_id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
             EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                 self.conn
                     .execute(

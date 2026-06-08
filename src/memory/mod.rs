@@ -9,5 +9,6 @@
 pub mod brief;
 pub mod identity;
 pub mod memory_block;
+pub mod scheduler;
 pub mod search;
 pub mod visibility;

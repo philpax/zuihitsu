@@ -133,6 +133,29 @@ fn is_present(
     Ok(false)
 }
 
+/// Whether a wake-up on `entry`/`memory` is *for* someone present (spec §Agent-initiated speech). Its
+/// target is the memory's subject (a `person/*` stub) together with the entry's teller when a
+/// participant; an item with no such target — agent-authored on a non-person memory — targets no one
+/// and is never delivered. Class-aware, like the predicate.
+pub(crate) fn targets_present(
+    entry: &EntryView,
+    memory: &MemoryView,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+) -> Result<bool, GraphError> {
+    if let Some(subject) = subject_participant(memory.name.as_str(), memory.id)
+        && is_present(subject, present_set, class_of)?
+    {
+        return Ok(true);
+    }
+    if let Teller::Participant(teller) = &entry.told_by
+        && is_present(*teller, present_set, class_of)?
+    {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 /// Whether the teller is present. The `agent` teller is defined as always present to itself;
 /// `bootstrap` is never a present participant (its content is public, so this never gates it).
 fn teller_present(
