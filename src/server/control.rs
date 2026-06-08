@@ -93,6 +93,12 @@ impl Control<'_> {
         Ok(self.server.graph.memories_in_namespace(prefix)?)
     }
 
+    /// Inspect the live memories carrying a `Recurring` occurrence — the operator's view of the
+    /// agent's recurring calendar, the inspection parallel to the agent-facing `calendar.recurring()`.
+    pub fn recurring(&self) -> Result<Vec<MemoryView>, ServerError> {
+        Ok(self.server.graph.recurring_memories()?)
+    }
+
     /// Inspect a memory's local content entries by name — their text, teller, and visibility — for
     /// auditing what was written and how it is gated (e.g. that a private aside was not stored
     /// `Public`). Empty if the memory is unknown.
