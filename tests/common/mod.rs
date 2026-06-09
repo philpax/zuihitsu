@@ -12,7 +12,7 @@ pub use harness::Harness;
 
 #[cfg(feature = "lua")]
 mod harness {
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, ConversationId, Engine, Graph, ManualClock,
@@ -20,6 +20,10 @@ mod harness {
     };
 
     use super::time::TEST_NOW;
+
+    /// A block-duration budget generous enough that no in-memory test block ever trips it; the
+    /// timeout's firing path is exercised directly in the MCP tests with a deliberately slow server.
+    const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
     /// manual clock, and one Lua session. The `engine` is the same shared handle the turn writes
@@ -73,6 +77,7 @@ mod harness {
                 template: PromptTemplateName::Scaffold,
                 authority: Authority::Platform,
                 max_steps,
+                block_timeout: TEST_BLOCK_TIMEOUT,
             }
         }
 
@@ -86,6 +91,7 @@ mod harness {
                         teller: Teller::Agent,
                         authority: Authority::Platform,
                         turn_id: TurnId::generate(),
+                        block_timeout: TEST_BLOCK_TIMEOUT,
                     },
                     script,
                 )

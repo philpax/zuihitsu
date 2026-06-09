@@ -108,6 +108,11 @@ pub(crate) struct McpSession {
     host: Arc<dyn McpHost>,
     catalogue: McpCatalogue,
     instances: Mutex<HashMap<String, Arc<dyn McpInstance>>>,
+    /// The server whose tool call is mid-`await`, set for the duration of [`McpSession::call`]'s
+    /// network round-trip. If that `await` is cancelled by a block timeout the field is left set, so
+    /// [`McpSession::drop_in_flight`] knows which instance the abandoned call left in an undefined
+    /// state and must discard.
+    in_flight: Mutex<Option<String>>,
 }
 
 impl McpSession {
@@ -116,6 +121,7 @@ impl McpSession {
             host,
             catalogue,
             instances: Mutex::new(HashMap::new()),
+            in_flight: Mutex::new(None),
         }
     }
 
@@ -157,8 +163,25 @@ impl McpSession {
         })?;
         let arguments = lua_args_to_json(lua, args)?;
         let instance = self.ensure_spawned(server).await.map_err(mcp_to_lua)?;
-        let output = instance.call(raw, arguments).await.map_err(mcp_to_lua)?;
+        // Mark this server in-flight across the network round-trip. On a clean return the marker is
+        // cleared below; if a block timeout cancels this `await`, the marker is left set so the
+        // timeout handler can drop the now-undefined instance (see [`drop_in_flight`]).
+        *self.in_flight.lock() = Some(server.to_owned());
+        let result = instance.call(raw, arguments).await;
+        self.in_flight.lock().take();
+        let output = result.map_err(mcp_to_lua)?;
         project_output(lua, output)
+    }
+
+    /// Discard the instance whose call was cut off by a block timeout, if any. The abandoned call
+    /// left the server's session-side state — a browser page, an open cursor — undefined, so the
+    /// instance must not be reused: removing it from the map drops the last `Arc`, closing the
+    /// subprocess, and the next call to that server spawns a fresh one. A no-op when nothing is in
+    /// flight (a clean call clears the marker itself).
+    pub(crate) fn drop_in_flight(&self) {
+        if let Some(server) = self.in_flight.lock().take() {
+            self.instances.lock().remove(&server);
+        }
     }
 
     /// The live instance for `server`, spawning it on first use. The lock that checks the map is dropped

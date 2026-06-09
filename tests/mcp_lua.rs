@@ -8,7 +8,7 @@
 
 mod common;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
@@ -36,9 +36,24 @@ fn text(body: &str) -> McpOutput {
     }
 }
 
+/// A block-duration budget generous enough that an ordinary fake-backed block never trips it; the
+/// firing path has its own test with a deliberately slow server and a short budget.
+const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Run `script` through a session VM whose `mcp` projection is backed by `host`, projecting each named
 /// server. The block runs against a throwaway in-memory engine (the scripts touch MCP, not memory).
 async fn run(host: FakeMcpHost, servers: &[&str], script: &str) -> BlockOutcome {
+    run_bounded(host, servers, script, TEST_BLOCK_TIMEOUT).await
+}
+
+/// [`run`] with an explicit per-block duration budget, so the timeout-firing path can drive a short
+/// budget against a slow server.
+async fn run_bounded(
+    host: FakeMcpHost,
+    servers: &[&str],
+    script: &str,
+    block_timeout: Duration,
+) -> BlockOutcome {
     let engine = Engine::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
@@ -58,6 +73,7 @@ async fn run(host: FakeMcpHost, servers: &[&str], script: &str) -> BlockOutcome 
                 teller: Teller::Agent,
                 authority: Authority::Platform,
                 turn_id: TurnId::generate(),
+                block_timeout,
             },
             script,
         )
@@ -187,6 +203,30 @@ async fn an_uncaught_tool_error_terminates_the_block() {
         panic!("expected a terminal error, got {outcome:?}");
     };
     assert!(message.contains("kaboom"), "message was {message:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_block_that_outruns_its_time_budget_is_aborted() {
+    // A server whose call hangs far past the block's budget. With the clock paused, the runtime
+    // advances to the earliest pending timer — the 1s block timeout fires long before the 120s call
+    // would return, so the block aborts and emits nothing but the terminal cause (spec §Concurrency).
+    let host = FakeMcpHost::new().with(
+        "slow",
+        FakeServer::new(vec![tool("crawl")])
+            .returns("crawl", text("too late"))
+            .with_latency(Duration::from_secs(120)),
+    );
+    let outcome = run_bounded(
+        host,
+        &["slow"],
+        r#"return mcp.slow.crawl{}"#,
+        Duration::from_secs(1),
+    )
+    .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a terminal timeout error, got {outcome:?}");
+    };
+    assert!(message.contains("time budget"), "message was {message:?}");
 }
 
 #[tokio::test]

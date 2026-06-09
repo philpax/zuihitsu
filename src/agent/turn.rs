@@ -13,6 +13,7 @@ use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
+    time::Duration,
 };
 
 use crate::{
@@ -145,6 +146,9 @@ pub struct BlockContext {
     pub teller: Teller,
     pub authority: Authority,
     pub turn_id: TurnId,
+    /// How long a single block may run before it is aborted, emitting nothing (spec §Concurrency →
+    /// lock acquisition). Threaded from `TurnSettings::block_timeout_seconds`.
+    pub block_timeout: Duration,
 }
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
@@ -171,6 +175,9 @@ pub struct Turn<'a> {
     /// the imprint interview (the only authority that may write `self`).
     pub authority: Authority,
     pub max_steps: usize,
+    /// Per-block duration budget (spec §Concurrency); each block this turn runs is aborted if it
+    /// exceeds it.
+    pub block_timeout: Duration,
 }
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
@@ -186,6 +193,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         template,
         authority,
         max_steps,
+        block_timeout,
     } = turn;
     let conversation = session.conversation();
     // Content the agent writes this turn is attributed to the speaker by default (an append opts out
@@ -255,6 +263,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             teller,
             authority,
             turn_id,
+            block_timeout,
         },
         messages,
         initiation: Initiation::Responding,
@@ -285,6 +294,9 @@ pub(crate) struct Flush<'a> {
     pub brief: &'a str,
     pub buffer: &'a [TurnView],
     pub max_steps: usize,
+    /// Per-block duration budget (spec §Concurrency); each block the flush runs is aborted if it
+    /// exceeds it.
+    pub block_timeout: Duration,
 }
 
 /// Run the budget-gated pre-compaction flush: one agent turn, framed by the `Flush` template, whose
@@ -300,6 +312,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         brief,
         buffer,
         max_steps,
+        block_timeout,
     } = flush;
     let Some(template) =
         templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Flush)?
@@ -348,6 +361,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             teller: Teller::Agent,
             authority: Authority::Platform,
             turn_id,
+            block_timeout,
         },
         messages,
         initiation: Initiation::Initiated,

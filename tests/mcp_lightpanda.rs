@@ -7,7 +7,7 @@
 
 mod common;
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, Graph,
@@ -113,6 +113,9 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
                 teller: Teller::Agent,
                 authority: Authority::Platform,
                 turn_id: TurnId::generate(),
+                // A live browser fetch is slow; give the block a generous budget so the real network
+                // round-trip is never mistaken for a hang.
+                block_timeout: Duration::from_secs(60),
             },
             r#"
             mcp.lightpanda.navigate{ url = "https://philpax.me" }

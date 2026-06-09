@@ -44,6 +44,8 @@ use crate::{
 use std::collections::BTreeMap;
 #[cfg(feature = "lua")]
 use std::collections::HashMap;
+#[cfg(feature = "lua")]
+use std::time::Duration;
 
 #[cfg(feature = "mcp")]
 use crate::{
@@ -177,9 +179,9 @@ impl Server {
     ) -> Result<(TurnReport, Vec<TurnView>), ServerError> {
         self.ensure_session(routed.conversation, routed.present_set)
             .await?;
-        let max_steps = Settings::from_store(self.engine.store.lock().as_ref())?
-            .turn
-            .max_steps as usize;
+        let turn_settings = Settings::from_store(self.engine.store.lock().as_ref())?.turn;
+        let max_steps = turn_settings.max_steps as usize;
+        let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);
         let open = self
             .sessions
             .get(&routed.conversation)
@@ -202,6 +204,7 @@ impl Server {
             template: routed.template,
             authority: routed.authority,
             max_steps,
+            block_timeout,
         })
         .await?;
         Ok((report, buffer))

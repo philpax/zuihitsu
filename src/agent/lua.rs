@@ -107,6 +107,15 @@ impl Session {
         }
     }
 
+    /// Drop the MCP instance whose call a block timeout just cut off, if any (the abandoned call left
+    /// its server-side state undefined). A no-op when no host is configured or nothing was in flight.
+    #[cfg(feature = "mcp")]
+    fn drop_in_flight_mcp(&self) {
+        if let Some(mcp) = &self.mcp {
+            mcp.drop_in_flight();
+        }
+    }
+
     pub fn conversation(&self) -> ConversationId {
         self.conversation
     }
@@ -149,14 +158,18 @@ impl Session {
             .map_err(LuaError::Vm)?;
 
         // The agent-visible outcome: the rendered final value, or the runtime error/abort that ended
-        // the script. The block's memory functions are synchronous, so they never hold the block lock
-        // across this suspension point.
-        let evaluated = self
-            .lua
-            .load(script)
-            .eval_async::<Value>()
-            .await
-            .map(|value| render(&value));
+        // the script, bounded by the block's time budget (spec §Concurrency → lock acquisition). A
+        // block stuck on slow external I/O is cut here, emitting nothing. The block's memory functions
+        // are synchronous, so they never hold the block lock across this suspension point.
+        let evaluated = match tokio::time::timeout(
+            context.block_timeout,
+            self.lua.load(script).eval_async::<Value>(),
+        )
+        .await
+        {
+            Ok(evaluated) => evaluated.map(|value| render(&value)),
+            Err(_elapsed) => return self.abort_timed_out(engine, context, script, &block),
+        };
 
         // An infrastructure failure during the block (a graph read) takes precedence over the
         // script's apparent outcome: it bubbles up, discarding the buffer, rather than reaching the
@@ -198,6 +211,29 @@ impl Session {
                 self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
             }
         }
+    }
+
+    /// End a block that exceeded its time budget (spec §Concurrency → lock acquisition). The buffer is
+    /// discarded — the block emits nothing — and only a `LuaExecuted` recording the terminal cause is
+    /// committed, so the timeout is auditable and the agent sees what happened. The in-flight MCP
+    /// instance, if any, is dropped: its session-side state is now undefined after the abandoned call.
+    fn abort_timed_out(
+        &self,
+        engine: &Engine,
+        context: &BlockContext,
+        script: &str,
+        block: &Arc<Mutex<MemoryBlock>>,
+    ) -> Result<BlockOutcome, LuaError> {
+        #[cfg(feature = "mcp")]
+        self.drop_in_flight_mcp();
+        // Drain the touched set for the audit record; the buffered events are discarded.
+        let BlockEffects { touched, .. } = block.lock().take_effects();
+        let cause = TerminalCause::Error(format!(
+            "the block exceeded its time budget of {}s and was aborted",
+            context.block_timeout.as_secs()
+        ));
+        let event = self.lua_executed(context.turn_id, script, None, touched, Some(cause.clone()));
+        self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
     }
 
     /// Install the per-block memory API as `'static` Lua functions over the shared `block`. Each

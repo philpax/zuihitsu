@@ -3,7 +3,7 @@
 //! operator surface — the structural absence of those methods is what makes "the operator has no
 //! platform identity" enforceable (spec §Clients and the server boundary).
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, time::Duration};
 
 use super::{Carryover, RoutedTurn, Server, ServerError};
 use crate::{
@@ -255,6 +255,9 @@ impl Platform<'_> {
                 brief: &open.brief,
                 buffer: &buffer,
                 max_steps: settings.turn.max_steps as usize,
+                block_timeout: Duration::from_secs(
+                    settings.turn.block_timeout_seconds.max(0) as u64
+                ),
             })
             .await?;
             self.server

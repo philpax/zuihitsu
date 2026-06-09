@@ -7,7 +7,7 @@
 
 mod common;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use common::Harness;
 use zuihitsu::{
@@ -16,6 +16,9 @@ use zuihitsu::{
     RelationName, Seq, Session, Store, TagName, Teller, TemporalRef, TerminalCause, TurnId,
     Visibility, event::EventPayload, resolve_or_mint_conversation,
 };
+
+/// A block-duration budget generous enough that these in-memory blocks never trip it.
+const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[tokio::test]
 async fn block_commits_and_projects_with_read_your_writes() {
@@ -171,6 +174,7 @@ async fn append_carries_teller_context_and_default_visibility() {
                     teller: Teller::Participant(teller),
                     authority: Authority::Platform,
                     turn_id: TurnId::generate(),
+                    block_timeout: TEST_BLOCK_TIMEOUT,
                 },
                 script,
             )
@@ -273,6 +277,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         teller: Teller::Agent,
         authority: Authority::Platform,
         turn_id: TurnId::generate(),
+        block_timeout: TEST_BLOCK_TIMEOUT,
     };
 
     // The agent flags the thread active_in the current context.
@@ -356,6 +361,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
                 teller: Teller::Agent,
                 authority: Authority::Platform,
                 turn_id: TurnId::generate(),
+                block_timeout: TEST_BLOCK_TIMEOUT,
             },
             r#"memory.create("topic/sensitive", "something said in confidence")"#,
         )

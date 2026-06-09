@@ -78,6 +78,10 @@ pub struct SchedulerSettings {
 pub struct TurnSettings {
     /// Per-turn step bound; hitting it ends the turn with a surfaced error.
     pub max_steps: i64,
+    /// Per-block duration budget (spec §Concurrency → lock acquisition): a block held longer than this —
+    /// stuck on slow external I/O or, once locking lands, a lock-wait — aborts, emitting nothing. Set
+    /// generously, above a single MCP call's own timeout, so an ordinary multi-call block is never cut.
+    pub block_timeout_seconds: i64,
 }
 
 /// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
@@ -143,7 +147,10 @@ impl Default for SchedulerSettings {
 
 impl Default for TurnSettings {
     fn default() -> Self {
-        TurnSettings { max_steps: 12 }
+        TurnSettings {
+            max_steps: 12,
+            block_timeout_seconds: 180,
+        }
     }
 }
 
@@ -191,5 +198,30 @@ impl Settings {
             }
         }
         Ok(settings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Settings, TurnSettings};
+
+    #[test]
+    fn turn_defaults_match_the_spec_starting_values() {
+        let turn = TurnSettings::default();
+        assert_eq!(turn.max_steps, 12);
+        assert_eq!(turn.block_timeout_seconds, 180);
+    }
+
+    #[test]
+    fn a_snapshot_predating_a_field_adopts_its_build_default() {
+        // The schema is append-only: an older `ConfigSet` snapshot, written before `block_timeout_seconds`
+        // existed, omits the key — and must deserialize to the build default rather than failing.
+        let legacy = serde_json::json!({ "turn": { "max_steps": 7 } });
+        let settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.turn.max_steps, 7);
+        assert_eq!(
+            settings.turn.block_timeout_seconds,
+            TurnSettings::default().block_timeout_seconds
+        );
     }
 }
