@@ -23,15 +23,18 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use zuihitsu::{
     Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
-    MemoryView, Rollout, SeedSelf, Server, ServerError, SessionView, Settings, SqliteStore,
-    StdioHost, StoreError, SystemClock, genesis::GenesisStatus,
+    MemoryView, ModelClient, OpenAiClient, Rollout, SeedSelf, Server, ServerError, SessionView,
+    Settings, SqliteStore, StdioHost, StoreError, SystemClock, TurnOutcome, genesis::GenesisStatus,
 };
 
-/// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share, so
-/// each handler grabs a fresh `control()`/`platform()` per request.
+/// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share (so
+/// each handler grabs a fresh `control()`/`platform()` per request), and the model client the
+/// conversing endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is
+/// configured, in which case those endpoints return `503`.
 #[derive(Clone)]
 struct AppState {
     server: Arc<Server>,
+    model: Option<Arc<dyn ModelClient>>,
 }
 
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
@@ -71,6 +74,15 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 
     let tick =
         Duration::from_secs(server.control().settings()?.scheduler.tick_seconds.max(1) as u64);
+
+    // The model client the conversing endpoints use, built from config. Absent endpoint → no model →
+    // those endpoints answer 503 rather than failing at call time.
+    let model: Option<Arc<dyn ModelClient>> = if config.model.endpoint.is_empty() {
+        tracing::warn!("no model endpoint configured; conversing endpoints will return 503");
+        None
+    } else {
+        Some(Arc::new(OpenAiClient::new(&config.model)))
+    };
     let server = Arc::new(server);
 
     // The background scheduler driver fires due wake-ups on its own timer (spec §Scheduled work),
@@ -82,6 +94,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 
     let app = router(AppState {
         server: server.clone(),
+        model,
     });
     let listener = TcpListener::bind(bind).await.map_err(ServeError::Bind)?;
     tracing::info!(?status, %bind, "zuihitsu serving");
@@ -113,6 +126,11 @@ fn router(state: AppState) -> Router {
         .route("/control/recurring", get(recurring))
         .route("/control/arbitrations", get(arbitrations))
         .route("/control/settings", get(settings).put(set_settings))
+        .route("/control/imprint", post(imprint))
+        // The participant surface: delivering turns and mid-session joins (spec §Clients → platform
+        // clients). It carries platform identity in the payload, never operator authority.
+        .route("/platform/message", post(message))
+        .route("/platform/join", post(join))
         .with_state(state)
 }
 
@@ -232,6 +250,75 @@ async fn set_settings(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `POST /control/imprint` — one operator message of the imprint interview. Operator authority (the
+/// only path that may write `self`); needs the model, so `503` if none is configured.
+#[derive(Deserialize)]
+struct ImprintRequest {
+    text: String,
+}
+
+async fn imprint(
+    State(state): State<AppState>,
+    Json(request): Json<ImprintRequest>,
+) -> Result<Json<TurnOutcome>, ApiError> {
+    let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
+    let outcome = state
+        .server
+        .control()
+        .imprint(&**model, &request.text)
+        .await?;
+    Ok(Json(outcome))
+}
+
+/// `POST /platform/message` — deliver a participant turn and run the agent's response cycle. Carries
+/// the platform identity in the payload (the locator's platform, the sender, the present set); needs
+/// the model, so `503` if none is configured.
+#[derive(Deserialize)]
+struct MessageRequest {
+    locator: ConversationLocator,
+    sender: String,
+    text: String,
+    present: Vec<String>,
+}
+
+async fn message(
+    State(state): State<AppState>,
+    Json(request): Json<MessageRequest>,
+) -> Result<Json<TurnOutcome>, ApiError> {
+    let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
+    let present: Vec<&str> = request.present.iter().map(String::as_str).collect();
+    let outcome = state
+        .server
+        .platform()
+        .route_message(
+            &**model,
+            &request.locator,
+            &request.sender,
+            &request.text,
+            &present,
+        )
+        .await?;
+    Ok(Json(outcome))
+}
+
+/// `POST /platform/join` — note a participant arriving mid-session (no model needed).
+#[derive(Deserialize)]
+struct JoinRequest {
+    locator: ConversationLocator,
+    participant: String,
+}
+
+async fn join(
+    State(state): State<AppState>,
+    Json(request): Json<JoinRequest>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .server
+        .platform()
+        .note_join(&request.locator, &request.participant)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Resolve on the next Ctrl-C. Driving both the HTTP server and the scheduler driver off independent
 /// instances of this means a single interrupt stops both.
 async fn shutdown_signal() {
@@ -256,6 +343,8 @@ fn ensure_parent_dir(path: &Path) -> Result<(), ServeError> {
 enum ApiError {
     Server(ServerError),
     NotFound(String),
+    /// A conversing endpoint was called but no model is configured.
+    NoModel,
 }
 
 impl From<ServerError> for ApiError {
@@ -272,6 +361,10 @@ impl IntoResponse for ApiError {
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
             }
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
+            ApiError::NoModel => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "no model endpoint is configured".to_owned(),
+            ),
         };
         (status, Json(ErrorBody { error: message })).into_response()
     }
@@ -365,7 +458,7 @@ mod tests {
     };
     use std::sync::Arc;
     use tower::ServiceExt;
-    use zuihitsu::{ManualClock, Server, time::Timestamp};
+    use zuihitsu::{Completion, ManualClock, ScriptedModel, Server, time::Timestamp};
 
     /// The router serves `/control/health` over an in-memory server, with no real socket — `oneshot`
     /// drives one request through the tower service.
@@ -374,7 +467,10 @@ mod tests {
         let server = Arc::new(
             Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap(),
         );
-        let app = router(AppState { server });
+        let app = router(AppState {
+            server,
+            model: None,
+        });
         let response = app
             .oneshot(
                 Request::builder()
@@ -397,7 +493,10 @@ mod tests {
         let server = Arc::new(
             Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap(),
         );
-        let app = router(AppState { server });
+        let app = router(AppState {
+            server,
+            model: None,
+        });
 
         // Create the agent through the API.
         let seed = serde_json::json!({
@@ -458,5 +557,52 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_platform_message_runs_a_turn() {
+        // A born agent with a scripted model in app state: a /platform/message delivers a participant
+        // turn and returns the agent's reply.
+        let server =
+            Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+        server
+            .control()
+            .create_agent(&zuihitsu::SeedSelf {
+                agent_name: "Kestrel".to_owned(),
+                persona: "An assistant.".to_owned(),
+                seed_entries: vec![],
+            })
+            .unwrap();
+        let model: Arc<dyn zuihitsu::ModelClient> =
+            Arc::new(ScriptedModel::new([Completion::Reply(
+                "Hi there.".to_owned(),
+            )]));
+        let app = router(AppState {
+            server: Arc::new(server),
+            model: Some(model),
+        });
+
+        let body = serde_json::json!({
+            "locator": { "platform": "discord", "scope_path": "general" },
+            "sender": "dave",
+            "text": "hello",
+            "present": ["dave"],
+        });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/platform/message")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&bytes[..], br#"{"Reply":"Hi there."}"#);
     }
 }

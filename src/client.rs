@@ -8,9 +8,10 @@ use reqwest::{
     StatusCode,
     blocking::{Client as Http, RequestBuilder, Response},
 };
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
-    Arbitration, EntryView, GenesisStatus, MemoryView, Rollout, SeedSelf, SessionView, Settings,
+    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, Rollout, SeedSelf,
+    SessionView, Settings, TurnOutcome,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -80,6 +81,42 @@ impl Client {
         self.no_content(self.http.put(self.url("/control/settings")).json(settings))
     }
 
+    /// `POST /control/imprint` — one operator message of the imprint interview.
+    pub fn imprint(&self, text: &str) -> Result<TurnOutcome, ClientError> {
+        self.json(
+            self.http
+                .post(self.url("/control/imprint"))
+                .json(&ImprintBody { text }),
+        )
+    }
+
+    /// `POST /platform/message` — deliver a participant turn and run the agent's response.
+    pub fn send(
+        &self,
+        platform: &str,
+        scope: &str,
+        sender: &str,
+        text: &str,
+        present: &[String],
+    ) -> Result<TurnOutcome, ClientError> {
+        let body = MessageBody {
+            locator: ConversationLocator::new(platform, scope),
+            sender,
+            text,
+            present,
+        };
+        self.json(self.http.post(self.url("/platform/message")).json(&body))
+    }
+
+    /// `POST /platform/join` — note a participant arriving mid-session.
+    pub fn join(&self, platform: &str, scope: &str, participant: &str) -> Result<(), ClientError> {
+        let body = JoinBody {
+            locator: ConversationLocator::new(platform, scope),
+            participant,
+        };
+        self.no_content(self.http.post(self.url("/platform/join")).json(&body))
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base)
     }
@@ -139,6 +176,25 @@ fn check_status(response: Response) -> Result<Response, ClientError> {
 #[derive(Deserialize)]
 struct ErrorBody {
     error: String,
+}
+
+#[derive(Serialize)]
+struct ImprintBody<'a> {
+    text: &'a str,
+}
+
+#[derive(Serialize)]
+struct MessageBody<'a> {
+    locator: ConversationLocator,
+    sender: &'a str,
+    text: &'a str,
+    present: &'a [String],
+}
+
+#[derive(Serialize)]
+struct JoinBody<'a> {
+    locator: ConversationLocator,
+    participant: &'a str,
 }
 
 /// A failure talking to the server.

@@ -84,6 +84,34 @@ enum Command {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Send one operator message of the imprint interview (prints the agent's reply).
+    Imprint {
+        #[arg(long)]
+        text: String,
+    },
+    /// Deliver a participant message and print the agent's reply.
+    Send {
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        scope: String,
+        #[arg(long)]
+        sender: String,
+        #[arg(long)]
+        text: String,
+        /// A present participant; repeatable. The sender is always treated as present.
+        #[arg(long = "present")]
+        present: Vec<String>,
+    },
+    /// Note a participant arriving mid-session.
+    Join {
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        scope: String,
+        #[arg(long)]
+        participant: String,
+    },
 }
 
 pub fn run() -> ExitCode {
@@ -132,6 +160,23 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Command::Arbitrations => print_json(&client.arbitrations()?),
         Command::Settings => print_json(&client.settings()?),
         Command::SetSettings { file } => set_settings(&client, file),
+        Command::Imprint { text } => print_json(&client.imprint(text)?),
+        Command::Send {
+            platform,
+            scope,
+            sender,
+            text,
+            present,
+        } => print_json(&client.send(platform, scope, sender, text, present)?),
+        Command::Join {
+            platform,
+            scope,
+            participant,
+        } => {
+            client.join(platform, scope, participant)?;
+            tracing::info!(%platform, %scope, %participant, "noted join");
+            Ok(())
+        }
     }
 }
 
