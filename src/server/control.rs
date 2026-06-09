@@ -2,6 +2,8 @@
 //! never obtain one of these, which is what keeps the operator surface off the platform boundary
 //! (spec §Clients and the server boundary).
 
+use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "lua")]
 use super::RoutedTurn;
 use super::{Server, ServerError};
@@ -28,6 +30,7 @@ pub struct Control<'a> {
 
 /// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent
 /// wrote (spec §Write path). The operator/debugger view of "why does it believe X".
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Arbitration {
     pub memory: MemoryName,
     pub statement: String,

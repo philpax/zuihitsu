@@ -8,7 +8,7 @@
 //! its outcome" is always auditable. The inbound message is its own `role = participant` turn.
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -40,7 +40,7 @@ use super::{
 };
 
 /// What a completed turn delivers to the platform client.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TurnOutcome {
     /// A reply to post back.
     Reply(String),

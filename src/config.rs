@@ -6,7 +6,10 @@
 //! different paths are two independent agents. Relative paths resolve against the config file's own
 //! directory, so an instance is relocatable by moving its directory.
 
-use std::path::{Path, PathBuf};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 use serde::Deserialize;
 
@@ -24,6 +27,7 @@ pub struct EnvConfig {
     pub storage: StorageConfig,
     pub model: ModelConfig,
     pub embedding: EmbeddingConfig,
+    pub serving: ServingConfig,
     /// The MCP servers to connect (one `[mcp.<name>]` block each, spec §MCP server blocks). The table
     /// key is the `mcp.<name>.*` projection prefix, so it must be a valid Lua identifier — validated
     /// at load.
@@ -47,6 +51,23 @@ pub struct ModelConfig {
     pub presence_penalty: Option<f32>,
     /// Override the serving layer's thinking default (`chat_template_kwargs.enable_thinking`).
     pub thinking: Option<bool>,
+}
+
+/// How this instance serves its HTTP API (spec §Clients and the server boundary): the local address
+/// the long-running server binds, and that the CLI client connects to. Defaults to a loopback port, so
+/// the surface is reachable only from the same host until real auth and a non-loopback bind are added.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct ServingConfig {
+    pub bind: SocketAddr,
+}
+
+impl Default for ServingConfig {
+    fn default() -> Self {
+        ServingConfig {
+            bind: SocketAddr::from(([127, 0, 0, 1], 7777)),
+        }
+    }
 }
 
 /// Where to reach the embedding model, and the dimensionality it produces.
@@ -189,6 +210,21 @@ mod tests {
         assert_eq!(config.storage.event_log, dir.join("db/events.sqlite"));
         assert_eq!(config.storage.graph, dir.join("db/graph.sqlite"));
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn serving_bind_defaults_to_loopback_and_parses_an_override() {
+        // Absent, the server binds a loopback port; a `[serving]` block overrides it.
+        assert_eq!(
+            EnvConfig::default().serving.bind,
+            "127.0.0.1:7777".parse().unwrap()
+        );
+        let dir = temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[serving]\nbind = \"127.0.0.1:9090\"\n").unwrap();
+        let config = EnvConfig::load(&path).unwrap();
+        assert_eq!(config.serving.bind, "127.0.0.1:9090".parse().unwrap());
         std::fs::remove_dir_all(&dir).ok();
     }
 

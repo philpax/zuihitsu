@@ -5,6 +5,7 @@
 //! [`Graph::apply`] materializer lives in [`apply`], and the agent-facing query methods in [`read`].
 
 use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
 use crate::{
@@ -21,7 +22,7 @@ mod read;
 mod tests;
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryView {
     pub id: MemoryId,
     pub name: MemoryName,
@@ -34,7 +35,7 @@ pub struct MemoryView {
 /// A content entry as projected, ordered within its memory by commit order. `occurred_sort` is the
 /// denormalized representative instant of the entry's `occurred_at` (spec §Time), or `None` when the
 /// entry carries no occurrence (or only a `Recurring` one); recency ranking reads it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntryView {
     pub entry_id: EntryId,
     pub asserted_at: Timestamp,
@@ -91,7 +92,7 @@ pub struct LinkView {
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via
 /// compaction), the captured brief, and its participants (the present set at open, plus anyone who
 /// joined mid-session).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SessionView {
     pub id: SessionId,
     pub conversation: ConversationId,

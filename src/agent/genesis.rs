@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -24,7 +25,7 @@ use crate::{
 /// The seed identity an operator provides at creation: a name for the agent, a one-line persona,
 /// and optional seed disposition entries. A freshly-born agent knows nothing else — genesis seeds
 /// no `created_by` link and no facts about anyone (spec §Initialization).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SeedSelf {
     pub agent_name: String,
     pub persona: String,
@@ -32,7 +33,7 @@ pub struct SeedSelf {
 }
 
 /// What boot finds in the log. Boot branches on this, not on emptiness.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GenesisStatus {
     /// No events — direct the operator to create the agent.
     Empty,
@@ -43,7 +44,7 @@ pub enum GenesisStatus {
 }
 
 /// The outcome of a rollout.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Rollout {
     /// Genesis was already complete; nothing was emitted.
     AlreadyComplete,
@@ -429,6 +430,32 @@ mod tests {
     fn empty_log_is_empty_status() {
         let store = MemoryStore::new();
         assert_eq!(genesis::status(&store).unwrap(), GenesisStatus::Empty);
+    }
+
+    #[test]
+    fn genesis_boundary_types_round_trip_as_json() {
+        // These cross the HTTP API: `SeedSelf` as the create request, `GenesisStatus`/`Rollout` as
+        // responses — so they must survive a JSON round-trip.
+        let seed = seed();
+        let back: SeedSelf = serde_json::from_str(&serde_json::to_string(&seed).unwrap()).unwrap();
+        assert_eq!(back.agent_name, seed.agent_name);
+        assert_eq!(back.seed_entries, seed.seed_entries);
+        for status in [
+            GenesisStatus::Empty,
+            GenesisStatus::Incomplete,
+            GenesisStatus::Complete,
+        ] {
+            assert_eq!(
+                serde_json::from_str::<GenesisStatus>(&serde_json::to_string(&status).unwrap())
+                    .unwrap(),
+                status
+            );
+        }
+        let rollout = Rollout::Created { events_emitted: 7 };
+        assert_eq!(
+            serde_json::from_str::<Rollout>(&serde_json::to_string(&rollout).unwrap()).unwrap(),
+            rollout
+        );
     }
 
     #[test]
