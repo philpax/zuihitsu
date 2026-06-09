@@ -12,15 +12,20 @@ use std::{
     time::Duration,
 };
 
-use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
-use serde::Serialize;
+use axum::{
+    Json, Router,
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use zuihitsu::{
-    ConfigError, EnvConfig, Graph, GraphError, Server, ServerError, SqliteStore, StoreError,
-    SystemClock, genesis::GenesisStatus,
+    Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
+    MemoryView, Rollout, SeedSelf, Server, ServerError, SessionView, Settings, SqliteStore,
+    StdioHost, StoreError, SystemClock, genesis::GenesisStatus,
 };
-
-use zuihitsu::StdioHost;
 
 /// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share, so
 /// each handler grabs a fresh `control()`/`platform()` per request.
@@ -97,6 +102,17 @@ fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(root))
         .route("/control/health", get(health))
+        // The operator surface: agent creation and read-only inspection (spec §Clients → control
+        // clients). The CLI and the future web debugger drive these.
+        .route("/control/agent", post(create_agent))
+        .route("/control/genesis", get(genesis))
+        .route("/control/memory", get(memory))
+        .route("/control/memories", get(memories))
+        .route("/control/entries", get(entries))
+        .route("/control/sessions", get(sessions))
+        .route("/control/recurring", get(recurring))
+        .route("/control/arbitrations", get(arbitrations))
+        .route("/control/settings", get(settings).put(set_settings))
         .with_state(state)
 }
 
@@ -120,6 +136,102 @@ async fn health(State(state): State<AppState>) -> Result<Json<Health>, ApiError>
     Ok(Json(Health { genesis }))
 }
 
+/// `POST /control/agent` — create the agent (or resume an interrupted genesis); idempotent.
+async fn create_agent(
+    State(state): State<AppState>,
+    Json(seed): Json<SeedSelf>,
+) -> Result<Json<Rollout>, ApiError> {
+    Ok(Json(state.server.control().create_agent(&seed)?))
+}
+
+/// `GET /control/genesis` — whether an agent exists and is ready.
+async fn genesis(State(state): State<AppState>) -> Result<Json<GenesisStatus>, ApiError> {
+    Ok(Json(state.server.control().genesis_status()?))
+}
+
+/// A `?name=` query — a memory or entry name (which may contain `/` and `@`, so it rides as a query
+/// parameter rather than a path segment).
+#[derive(Deserialize)]
+struct NameQuery {
+    name: String,
+}
+
+/// `GET /control/memory?name=` — inspect a memory by name; `404` if it does not exist.
+async fn memory(
+    State(state): State<AppState>,
+    Query(query): Query<NameQuery>,
+) -> Result<Json<MemoryView>, ApiError> {
+    match state.server.control().memory(&query.name)? {
+        Some(view) => Ok(Json(view)),
+        None => Err(ApiError::NotFound(format!(
+            "no memory named {:?}",
+            query.name
+        ))),
+    }
+}
+
+/// A `?prefix=` query — a namespace prefix (e.g. `person/`).
+#[derive(Deserialize)]
+struct PrefixQuery {
+    prefix: String,
+}
+
+/// `GET /control/memories?prefix=` — the live memories in a namespace, ordered by name.
+async fn memories(
+    State(state): State<AppState>,
+    Query(query): Query<PrefixQuery>,
+) -> Result<Json<Vec<MemoryView>>, ApiError> {
+    Ok(Json(state.server.control().memories(&query.prefix)?))
+}
+
+/// `GET /control/entries?name=` — a memory's local content entries (empty if the memory is unknown).
+async fn entries(
+    State(state): State<AppState>,
+    Query(query): Query<NameQuery>,
+) -> Result<Json<Vec<EntryView>>, ApiError> {
+    Ok(Json(state.server.control().entries(&query.name)?))
+}
+
+/// A `?platform=&scope=` query addressing a conversation by its locator.
+#[derive(Deserialize)]
+struct LocatorQuery {
+    platform: String,
+    scope: String,
+}
+
+/// `GET /control/sessions?platform=&scope=` — the sessions of a conversation, oldest first.
+async fn sessions(
+    State(state): State<AppState>,
+    Query(query): Query<LocatorQuery>,
+) -> Result<Json<Vec<SessionView>>, ApiError> {
+    let locator = ConversationLocator::new(query.platform, query.scope);
+    Ok(Json(state.server.control().sessions(&locator)?))
+}
+
+/// `GET /control/recurring` — the memories carrying a recurring occurrence.
+async fn recurring(State(state): State<AppState>) -> Result<Json<Vec<MemoryView>>, ApiError> {
+    Ok(Json(state.server.control().recurring()?))
+}
+
+/// `GET /control/arbitrations` — the recorded belief arbitrations, oldest first.
+async fn arbitrations(State(state): State<AppState>) -> Result<Json<Vec<Arbitration>>, ApiError> {
+    Ok(Json(state.server.control().arbitrations()?))
+}
+
+/// `GET /control/settings` — the agent's current behavioral settings.
+async fn settings(State(state): State<AppState>) -> Result<Json<Settings>, ApiError> {
+    Ok(Json(state.server.control().settings()?))
+}
+
+/// `PUT /control/settings` — replace the behavioral settings (logged as an operator `ConfigSet`).
+async fn set_settings(
+    State(state): State<AppState>,
+    Json(settings): Json<Settings>,
+) -> Result<StatusCode, ApiError> {
+    state.server.control().set_settings(settings)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Resolve on the next Ctrl-C. Driving both the HTTP server and the scheduler driver off independent
 /// instances of this means a single interrupt stops both.
 async fn shutdown_signal() {
@@ -138,28 +250,30 @@ fn ensure_parent_dir(path: &Path) -> Result<(), ServeError> {
     Ok(())
 }
 
-/// A server-side error rendered as an HTTP response. Every [`ServerError`] is an
-/// infrastructure/processing failure, so it maps to `500` with a JSON body; bad input is rejected at
-/// the extractor (400) and missing resources are an empty/`404` shape in the handler, so neither
-/// reaches here.
-struct ApiError(ServerError);
+/// An error rendered as an HTTP response. A [`ServerError`] is an infrastructure/processing failure →
+/// `500`; a `NotFound` is a named resource that does not exist → `404`. Malformed request bodies are
+/// rejected at the axum extractor (`400`) before a handler runs, so that case never reaches here.
+enum ApiError {
+    Server(ServerError),
+    NotFound(String),
+}
 
 impl From<ServerError> for ApiError {
     fn from(error: ServerError) -> Self {
-        ApiError(error)
+        ApiError::Server(error)
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        tracing::error!(error = %self.0, "request failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorBody {
-                error: self.0.to_string(),
-            }),
-        )
-            .into_response()
+        let (status, message) = match self {
+            ApiError::Server(error) => {
+                tracing::error!(%error, "request failed");
+                (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            }
+            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
+        };
+        (status, Json(ErrorBody { error: message })).into_response()
     }
 }
 
@@ -276,5 +390,73 @@ mod tests {
             .unwrap();
         // No agent created, so genesis is Empty.
         assert_eq!(&bytes[..], br#"{"genesis":"Empty"}"#);
+    }
+
+    #[tokio::test]
+    async fn create_then_inspect_over_the_control_api() {
+        let server = Arc::new(
+            Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap(),
+        );
+        let app = router(AppState { server });
+
+        // Create the agent through the API.
+        let seed = serde_json::json!({
+            "agent_name": "Kestrel",
+            "persona": "An assistant.",
+            "seed_entries": [],
+        });
+        let created = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/control/agent")
+                    .header("content-type", "application/json")
+                    .body(Body::from(seed.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::OK);
+
+        // Genesis now reports Complete.
+        let genesis = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/control/genesis")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(genesis.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&bytes[..], br#""Complete""#);
+
+        // `self` exists; an unknown memory is a 404.
+        let self_memory = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/control/memory?name=self")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(self_memory.status(), StatusCode::OK);
+
+        let missing = app
+            .oneshot(
+                Request::builder()
+                    .uri("/control/memory?name=person/nobody")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 }

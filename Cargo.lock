@@ -1534,6 +1534,7 @@ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -2865,6 +2866,7 @@ dependencies = [
  "jiff",
  "mlua",
  "parking_lot",
+ "reqwest",
  "rusqlite",
  "schemars",
  "serde",

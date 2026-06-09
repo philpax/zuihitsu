@@ -1,31 +1,29 @@
-//! The CLI control client: an operator-authority client over the agent server. Run with no
-//! subcommand, `zuihitsu` boots the long-running HTTP server; with a subcommand it acts on the
-//! instance the environmental config selects. Non-interactive and scriptable; the guided creation
-//! wizard will live in the web frontend. Diagnostics go through `tracing` to stderr — the CLI is an
-//! operator/diagnostic tool.
+//! The zuihitsu binary. Run with no subcommand it boots the long-running HTTP server that hosts the
+//! agent (see [`serve`]); with a subcommand it is the operator CLI — a client of that running server
+//! (see [`client`]), reaching the agent through its `/control` API rather than opening the store
+//! directly (only the server holds the single-writer log lock). A "CLI debugger": inspection
+//! subcommands print their JSON response to stdout; diagnostics go through `tracing` to stderr.
 
 use std::{
-    io,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
 use clap::{Parser, Subcommand};
+use serde::Serialize;
 use tracing_subscriber::{EnvFilter, fmt};
-use zuihitsu::{
-    ConfigError, Graph, GraphError, MemoryName, SeedSelf, Server, ServerError, SqliteStore,
-    StoreError, SystemClock,
-    config::EnvConfig,
-    genesis::{GenesisStatus, Rollout},
-};
+use zuihitsu::{ConfigError, GenesisStatus, Rollout, SeedSelf, config::EnvConfig};
 
+use crate::client::{Client, ClientError};
+
+mod client;
 mod serve;
 
 fn main() -> ExitCode {
     run()
 }
 
-/// Operator control client for a Zuihitsu agent.
+/// Operator client for a Zuihitsu agent (and, with no subcommand, the server itself).
 #[derive(Parser)]
 #[command(name = "zuihitsu", version, about)]
 struct Cli {
@@ -53,6 +51,39 @@ enum Command {
     },
     /// Report whether an agent exists and is ready.
     Status,
+    /// Inspect a memory by name (e.g. `self`, `person/dave@discord`).
+    Memory {
+        #[arg(long)]
+        name: String,
+    },
+    /// List the memories in a namespace (e.g. `person/`).
+    Memories {
+        #[arg(long)]
+        prefix: String,
+    },
+    /// Show a memory's content entries by name.
+    Entries {
+        #[arg(long)]
+        name: String,
+    },
+    /// List a conversation's sessions, oldest first.
+    Sessions {
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        scope: String,
+    },
+    /// List the memories with a recurring occurrence.
+    Recurring,
+    /// List the recorded belief arbitrations.
+    Arbitrations,
+    /// Print the agent's current behavioral settings.
+    Settings,
+    /// Replace the behavioral settings from a JSON file.
+    SetSettings {
+        #[arg(long)]
+        file: PathBuf,
+    },
 }
 
 pub fn run() -> ExitCode {
@@ -68,7 +99,7 @@ pub fn run() -> ExitCode {
 }
 
 /// Diagnostic and operational output goes through `tracing` to stderr, level controlled by
-/// `RUST_LOG` (default `info`). The CLI is an operator tool; the web frontend is the user UI.
+/// `RUST_LOG` (default `info`). Inspection subcommands print machine-readable JSON to stdout.
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     fmt()
@@ -81,15 +112,26 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
     let Some(command) = &cli.command else {
         return serve(&cli.config);
     };
-    let mut server = open_server(&cli.config)?;
-    let status = server.boot().map_err(CliError::Boot)?;
+    let config = EnvConfig::load(&cli.config).map_err(|source| CliError::LoadConfig {
+        path: cli.config.clone(),
+        source,
+    })?;
+    let client = Client::new(config.serving.bind);
     match command {
         Command::Create {
             name,
             persona,
             seed,
-        } => create(&mut server, status, name, persona, seed),
-        Command::Status => report_status(&mut server, status),
+        } => create(&client, name, persona, seed),
+        Command::Status => status(&client),
+        Command::Memory { name } => memory(&client, name),
+        Command::Memories { prefix } => print_json(&client.memories(prefix)?),
+        Command::Entries { name } => print_json(&client.entries(name)?),
+        Command::Sessions { platform, scope } => print_json(&client.sessions(platform, scope)?),
+        Command::Recurring => print_json(&client.recurring()?),
+        Command::Arbitrations => print_json(&client.arbitrations()?),
+        Command::Settings => print_json(&client.settings()?),
+        Command::SetSettings { file } => set_settings(&client, file),
     }
 }
 
@@ -98,27 +140,13 @@ fn serve(config_path: &Path) -> Result<(), CliError> {
     crate::serve::run_blocking(config_path).map_err(CliError::Serve)
 }
 
-fn create(
-    server: &mut Server,
-    status: GenesisStatus,
-    name: &str,
-    persona: &str,
-    seed: &[String],
-) -> Result<(), CliError> {
-    if status == GenesisStatus::Complete {
-        tracing::info!("an agent already exists here; nothing to do");
-        return Ok(());
-    }
+fn create(client: &Client, name: &str, persona: &str, seed: &[String]) -> Result<(), CliError> {
     let seed = SeedSelf {
         agent_name: name.to_owned(),
         persona: persona.to_owned(),
         seed_entries: seed.to_vec(),
     };
-    match server
-        .control()
-        .create_agent(&seed)
-        .map_err(CliError::CreateAgent)?
-    {
+    match client.create_agent(&seed)? {
         Rollout::Created { events_emitted } => {
             tracing::info!(agent = %seed.agent_name, events = events_emitted, "created agent");
         }
@@ -129,8 +157,8 @@ fn create(
     Ok(())
 }
 
-fn report_status(server: &mut Server, status: GenesisStatus) -> Result<(), CliError> {
-    match status {
+fn status(client: &Client) -> Result<(), CliError> {
+    match client.genesis()? {
         GenesisStatus::Empty => {
             tracing::info!(
                 "no agent here yet; run `zuihitsu create --name <name> --persona <persona>`"
@@ -141,10 +169,7 @@ fn report_status(server: &mut Server, status: GenesisStatus) -> Result<(), CliEr
         }
         GenesisStatus::Complete => {
             tracing::info!("the agent is ready");
-            if let Some(memory) = server
-                .control()
-                .memory(MemoryName::SELF)
-                .map_err(CliError::Inspect)?
+            if let Some(memory) = client.memory("self")?
                 && !memory.description.is_empty()
             {
                 tracing::info!(description = %memory.description, "self");
@@ -154,35 +179,34 @@ fn report_status(server: &mut Server, status: GenesisStatus) -> Result<(), CliEr
     Ok(())
 }
 
-/// Open the instance the config selects, creating the database directories if absent.
-fn open_server(config_path: &Path) -> Result<Server, CliError> {
-    let config = EnvConfig::load(config_path).map_err(|source| CliError::LoadConfig {
-        path: config_path.to_owned(),
-        source,
-    })?;
-    ensure_parent_dir(&config.storage.event_log)?;
-    ensure_parent_dir(&config.storage.graph)?;
-    let store =
-        SqliteStore::open(&config.storage.event_log).map_err(|source| CliError::OpenEventLog {
-            path: config.storage.event_log.clone(),
-            source,
-        })?;
-    let graph = Graph::open(&config.storage.graph).map_err(|source| CliError::OpenGraph {
-        path: config.storage.graph.clone(),
-        source,
-    })?;
-    Ok(Server::new(Box::new(store), graph, Box::new(SystemClock)))
+fn memory(client: &Client, name: &str) -> Result<(), CliError> {
+    match client.memory(name)? {
+        Some(view) => print_json(&view),
+        None => {
+            tracing::info!(%name, "no such memory");
+            Ok(())
+        }
+    }
 }
 
-fn ensure_parent_dir(path: &Path) -> Result<(), CliError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent).map_err(|source| CliError::CreateDir {
-            path: parent.to_owned(),
-            source,
-        })?;
-    }
+fn set_settings(client: &Client, file: &Path) -> Result<(), CliError> {
+    let text = std::fs::read_to_string(file).map_err(|source| CliError::ReadFile {
+        path: file.to_owned(),
+        source,
+    })?;
+    let settings = serde_json::from_str(&text).map_err(|source| CliError::ParseSettings {
+        path: file.to_owned(),
+        source,
+    })?;
+    client.set_settings(&settings)?;
+    tracing::info!(file = %file.display(), "settings updated");
+    Ok(())
+}
+
+/// Print a response as pretty JSON to stdout — the machine-readable command output a debugger consumes.
+fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
+    let json = serde_json::to_string_pretty(value).map_err(CliError::Render)?;
+    println!("{json}");
     Ok(())
 }
 
@@ -193,23 +217,23 @@ enum CliError {
         path: PathBuf,
         source: ConfigError,
     },
-    CreateDir {
+    Serve(serve::ServeError),
+    Client(ClientError),
+    ReadFile {
         path: PathBuf,
-        source: io::Error,
+        source: std::io::Error,
     },
-    OpenEventLog {
+    ParseSettings {
         path: PathBuf,
-        source: StoreError,
+        source: serde_json::Error,
     },
-    OpenGraph {
-        path: PathBuf,
-        source: GraphError,
-    },
-    Boot(ServerError),
-    CreateAgent(ServerError),
-    Inspect(ServerError),
-    /// The long-running server exited with an error.
-    Serve(crate::serve::ServeError),
+    Render(serde_json::Error),
+}
+
+impl From<ClientError> for CliError {
+    fn from(error: ClientError) -> Self {
+        CliError::Client(error)
+    }
 }
 
 impl std::fmt::Display for CliError {
@@ -218,27 +242,19 @@ impl std::fmt::Display for CliError {
             CliError::LoadConfig { path, source } => {
                 write!(f, "could not load config from {}: {source}", path.display())
             }
-            CliError::CreateDir { path, source } => {
-                write!(f, "could not create directory {}: {source}", path.display())
-            }
-            CliError::OpenEventLog { path, source } => {
-                write!(
-                    f,
-                    "could not open the event log at {}: {source}",
-                    path.display()
-                )
-            }
-            CliError::OpenGraph { path, source } => {
-                write!(
-                    f,
-                    "could not open the graph at {}: {source}",
-                    path.display()
-                )
-            }
-            CliError::Boot(source) => write!(f, "could not boot the agent: {source}"),
-            CliError::CreateAgent(source) => write!(f, "could not create the agent: {source}"),
-            CliError::Inspect(source) => write!(f, "could not inspect the agent: {source}"),
             CliError::Serve(source) => write!(f, "the server exited with an error: {source}"),
+            CliError::Client(source) => write!(f, "{source}"),
+            CliError::ReadFile { path, source } => {
+                write!(f, "could not read {}: {source}", path.display())
+            }
+            CliError::ParseSettings { path, source } => {
+                write!(
+                    f,
+                    "could not parse settings from {}: {source}",
+                    path.display()
+                )
+            }
+            CliError::Render(source) => write!(f, "could not render the response: {source}"),
         }
     }
 }
@@ -247,13 +263,11 @@ impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             CliError::LoadConfig { source, .. } => Some(source),
-            CliError::CreateDir { source, .. } => Some(source),
-            CliError::OpenEventLog { source, .. } => Some(source),
-            CliError::OpenGraph { source, .. } => Some(source),
-            CliError::Boot(source) | CliError::CreateAgent(source) | CliError::Inspect(source) => {
-                Some(source)
-            }
             CliError::Serve(source) => Some(source),
+            CliError::Client(source) => Some(source),
+            CliError::ReadFile { source, .. } => Some(source),
+            CliError::ParseSettings { source, .. } => Some(source),
+            CliError::Render(source) => Some(source),
         }
     }
 }
