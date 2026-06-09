@@ -273,7 +273,7 @@ async fn imprint(
     let outcome = state
         .server
         .control()
-        .imprint(&**model, &request.text)
+        .imprint(model.as_ref(), &request.text)
         .await?;
     Ok(Json(outcome))
 }
@@ -299,7 +299,7 @@ async fn message(
         .server
         .platform()
         .route_message(
-            &**model,
+            model.as_ref(),
             &request.locator,
             &request.sender,
             &request.text,

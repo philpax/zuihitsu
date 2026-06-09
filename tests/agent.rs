@@ -69,7 +69,7 @@ async fn tool_call_then_reply_commits_and_replies() {
             .is_some()
     );
     // Exactly one agent turn for the cycle, plus the inbound participant turn and a LuaExecuted.
-    assert_eq!(count_agent_turns(&**h.engine.store.lock()), 1);
+    assert_eq!(count_agent_turns(h.engine.store.lock().as_ref()), 1);
     let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
     assert!(events.iter().any(|e| matches!(
         &e.payload,
@@ -89,11 +89,11 @@ async fn tool_call_then_reply_commits_and_replies() {
 async fn descriptions_regenerate_after_a_turn() {
     let h = Harness::new();
     // Genesis registers the description-regen template the write path reads.
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let model = ScriptedModel::new([
@@ -179,11 +179,11 @@ fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {
 #[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let model = ScriptedModel::new([
@@ -208,17 +208,20 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     assert_eq!(entries[0].occurred_sort, Some(day_noon("2026-06-02")));
-    assert_eq!(temporal_resolutions(&**h.engine.store.lock()).len(), 1);
+    assert_eq!(
+        temporal_resolutions(h.engine.store.lock().as_ref()).len(),
+        1
+    );
 }
 
 #[tokio::test]
 async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let model = ScriptedModel::new([
@@ -246,7 +249,7 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     assert_eq!(entries[0].occurred_sort, Some(day_noon("2020-01-01")));
-    assert!(temporal_resolutions(&**h.engine.store.lock()).is_empty());
+    assert!(temporal_resolutions(h.engine.store.lock().as_ref()).is_empty());
 }
 
 fn belief_arbitrations(store: &dyn Store) -> Vec<EventPayload> {
@@ -262,11 +265,11 @@ fn belief_arbitrations(store: &dyn Store) -> Vec<EventPayload> {
 #[tokio::test]
 async fn a_regen_conflict_emits_belief_arbitrated() {
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let model = ScriptedModel::new([
@@ -293,7 +296,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
-    let arbitrations = belief_arbitrations(&**h.engine.store.lock());
+    let arbitrations = belief_arbitrations(h.engine.store.lock().as_ref());
     assert_eq!(arbitrations.len(), 1);
     let EventPayload::BeliefArbitrated {
         memory,
@@ -318,11 +321,11 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
 #[tokio::test]
 async fn a_single_sided_arbitration_is_dropped() {
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let model = ScriptedModel::new([
@@ -337,17 +340,17 @@ async fn a_single_sided_arbitration_is_dropped() {
         .await
         .unwrap();
 
-    assert!(belief_arbitrations(&**h.engine.store.lock()).is_empty());
+    assert!(belief_arbitrations(h.engine.store.lock().as_ref()).is_empty());
 }
 
 #[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     // Dave's memory carries one public fact and one private, future-dated aside.
@@ -408,11 +411,11 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
 async fn agent_turns_record_their_provenance() {
     let h = Harness::new();
     // Genesis registers the scaffold the agent turn runs against.
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let model = ScriptedModel::new([Completion::Reply("Noted.".to_owned())]);
@@ -487,7 +490,7 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
 
     assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
     // The cycle still records exactly one agent turn, carrying the surfaced error.
-    assert_eq!(count_agent_turns(&**h.engine.store.lock()), 1);
+    assert_eq!(count_agent_turns(h.engine.store.lock().as_ref()), 1);
     let surfaced = h.engine.store.lock().read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
         matches!(
             &e.payload,
@@ -548,7 +551,7 @@ async fn real_model_drives_a_turn() {
     match outcome {
         Ok(outcome) => {
             // The loop completed against the real model. Exactly one agent turn was recorded.
-            assert_eq!(count_agent_turns(&**h.engine.store.lock()), 1);
+            assert_eq!(count_agent_turns(h.engine.store.lock().as_ref()), 1);
             eprintln!("real-model turn outcome: {outcome:?}");
         }
         Err(error) => eprintln!("skipping: {error}"),
@@ -571,11 +574,11 @@ async fn real_model_extracts_temporal_references() {
     }
     let client = OpenAiClient::new(&config.model);
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
     let outcome = run_turn(h.as_turn(
@@ -657,7 +660,7 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
         .await
         .unwrap();
 
-    let calls = model_calls(&**h.engine.store.lock());
+    let calls = model_calls(h.engine.store.lock().as_ref());
     // No description-regen template is registered (no genesis), so synthesis never runs: exactly the
     // two step calls are recorded.
     assert_eq!(calls.len(), 2, "one ModelCalled per step");
@@ -709,7 +712,7 @@ async fn digest_capture_keeps_the_digest_but_drops_the_request() {
         .await
         .unwrap();
 
-    let calls = model_calls(&**h.engine.store.lock());
+    let calls = model_calls(h.engine.store.lock().as_ref());
     assert_eq!(calls.len(), 1);
     // The request is dropped, but the digest survives for an integrity check.
     assert!(calls[0].1.is_none(), "Digest drops the request payload");
@@ -726,7 +729,7 @@ async fn off_capture_records_no_model_interaction() {
         .unwrap();
 
     assert!(
-        model_calls(&**h.engine.store.lock()).is_empty(),
+        model_calls(h.engine.store.lock().as_ref()).is_empty(),
         "Off emits no ModelCalled events"
     );
 }
@@ -750,11 +753,11 @@ async fn real_model_supersedes_a_corrected_fact() {
     }
     let client = OpenAiClient::new(&config.model);
     let h = Harness::new();
-    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
     h.engine
         .graph
         .lock()
-        .materialize_from(&**h.engine.store.lock())
+        .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
     let conversation = h.session.conversation();
 

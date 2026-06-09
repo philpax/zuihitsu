@@ -122,6 +122,15 @@ Within each module, organize code as follows:
   genuinely shared shape). Do not hoist decoding into a per-type `TryFrom<&rusqlite::Row>` impl: a
   single impl presumes every query reads that type identically, which the schema does not guarantee.
 
+### Reaching through smart pointers
+
+- To borrow the value inside a lock guard, a `Box`, or an `Arc`, prefer `.as_ref()` / `.as_mut()`
+  over a manual double-deref: write `engine.store.lock().as_ref()` and
+  `engine.store.lock().as_mut()`, not `&**engine.store.lock()` and `&mut **engine.store.lock()`. The
+  named form reads as "borrow the store" rather than as deref bookkeeping, and it is the form already
+  used throughout (`Settings::from_store(store.lock().as_ref())`, `genesis::rollout(store.lock()
+  .as_mut(), …)`). The same applies to an `Arc<dyn Trait>`: `model.as_ref()`, not `&**model`.
+
 ## Testing 
 
 ### Testing tools
