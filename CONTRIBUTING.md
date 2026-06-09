@@ -44,10 +44,8 @@
 - Use Rust 2024 edition.
 - Ensure the following checks pass at the end of each complete task (you do not need to do this for intermediate steps):
   - `cargo +nightly fmt --all -- --check`
-  - `cargo clippy --all-targets --all-features -- -D warnings`
-  - `cargo clippy --all-targets --no-default-features -- -D warnings`
+  - `cargo clippy --all-targets -- -D warnings`
   - `cargo test --workspace`
-  - `cargo test --workspace --no-default-features`
 
 ### Type system patterns
 

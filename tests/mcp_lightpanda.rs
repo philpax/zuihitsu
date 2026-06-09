@@ -3,8 +3,6 @@
 //! a live site. Model-free but network- and binary-dependent, so it is `#[ignore]` and skips with a
 //! clear log line when the binary is absent — the fast lane never spawns a subprocess.
 
-#![cfg(feature = "mcp")]
-
 mod common;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};

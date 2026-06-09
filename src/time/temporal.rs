@@ -4,8 +4,8 @@
 //! [`TemporalRef::bounds`] for recency ranking and (later) calendar windows.
 //!
 //! Deliberately pure and dependency-free — no graph, no date crate (it borrows the parent [`super`]
-//! module's civil-date math) — because the event layer that carries `occurred_at` compiles without
-//! the `sqlite` feature. `BeforeAfter` anchor resolution is a graph read, so the materializer
+//! module's civil-date math) — because the event layer that carries `occurred_at` stays free of
+//! storage and graph dependencies. `BeforeAfter` anchor resolution is a graph read, so the materializer
 //! performs it and passes the resolved anchor bounds *into* [`TemporalRef::bounds`] rather than this
 //! module reaching into the graph.
 

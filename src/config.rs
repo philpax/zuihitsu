@@ -7,16 +7,13 @@
 //! directory, so an instance is relocatable by moving its directory.
 
 use std::{
+    collections::BTreeMap,
     net::SocketAddr,
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
 
-#[cfg(feature = "mcp")]
-use std::collections::BTreeMap;
-
-#[cfg(feature = "mcp")]
 use crate::mcp::McpServerConfig;
 
 /// The parsed environmental config. Unknown sections (e.g. `[model]`, wired in Stage 5) are
@@ -31,7 +28,6 @@ pub struct EnvConfig {
     /// The MCP servers to connect (one `[mcp.<name>]` block each, spec §MCP server blocks). The table
     /// key is the `mcp.<name>.*` projection prefix, so it must be a valid Lua identifier — validated
     /// at load.
-    #[cfg(feature = "mcp")]
     #[serde(default)]
     pub mcp: BTreeMap<String, McpServerConfig>,
 }
@@ -112,7 +108,6 @@ impl EnvConfig {
         config.storage.graph = base.join(&config.storage.graph);
         // Each MCP server name is the `mcp.<name>.*` projection prefix, so it must be a valid Lua
         // identifier — rejected here rather than producing an uncallable projection.
-        #[cfg(feature = "mcp")]
         for name in config.mcp.keys() {
             if !is_lua_identifier(name) {
                 return Err(ConfigError::InvalidMcpServerName(name.clone()));
@@ -124,7 +119,6 @@ impl EnvConfig {
 
 /// Whether `name` is a valid Lua identifier (`[A-Za-z_][A-Za-z0-9_]*`) — the constraint on an MCP
 /// server's config-table key (spec §MCP server blocks).
-#[cfg(feature = "mcp")]
 fn is_lua_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     chars
@@ -139,7 +133,6 @@ pub enum ConfigError {
     Io(std::io::Error),
     Parse(toml::de::Error),
     /// An `[mcp.<name>]` key that is not a valid Lua identifier (it is the projection prefix).
-    #[cfg(feature = "mcp")]
     InvalidMcpServerName(String),
 }
 
@@ -148,7 +141,6 @@ impl std::fmt::Display for ConfigError {
         match self {
             ConfigError::Io(error) => write!(f, "config: could not read the file: {error}"),
             ConfigError::Parse(error) => write!(f, "config: invalid TOML: {error}"),
-            #[cfg(feature = "mcp")]
             ConfigError::InvalidMcpServerName(name) => write!(
                 f,
                 "config: MCP server name {name:?} is not a valid Lua identifier \
@@ -163,7 +155,6 @@ impl std::error::Error for ConfigError {
         match self {
             ConfigError::Io(error) => Some(error),
             ConfigError::Parse(error) => Some(error),
-            #[cfg(feature = "mcp")]
             ConfigError::InvalidMcpServerName(_) => None,
         }
     }
@@ -254,7 +245,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    #[cfg(feature = "mcp")]
     #[test]
     fn parses_mcp_server_blocks() {
         let dir = temp_dir();
@@ -280,7 +270,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    #[cfg(feature = "mcp")]
     #[test]
     fn an_mcp_server_name_that_is_not_a_lua_identifier_is_rejected() {
         let dir = temp_dir();

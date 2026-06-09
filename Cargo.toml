@@ -17,53 +17,35 @@ async-openai = { version = "0.40.2", default-features = false, features = [
     "rustls",
     "chat-completion",
     "embedding",
-], optional = true }
+] }
 async-trait = "0.1.89"
-axum = { version = "0.8", optional = true }
+axum = { version = "0.8" }
 clap = { version = "4.6.1", features = ["derive"] }
-fs2 = { version = "0.4.3", optional = true }
-jiff = { version = "0.2.28", optional = true }
-mlua = { version = "0.11.6", features = ["lua54", "vendored", "serde", "async", "send"], optional = true }
-parking_lot = { version = "0.12.5", optional = true }
-rusqlite = { version = "0.40.0", features = ["bundled"], optional = true }
-schemars = { version = "1.2.1", optional = true }
+fs2 = "0.4.3"
+jiff = "0.2.28"
+mlua = { version = "0.11.6", features = ["lua54", "vendored", "serde", "async", "send"] }
+parking_lot = "0.12.5"
+rusqlite = { version = "0.40.0", features = ["bundled"] }
+schemars = "1.2.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.11.0"
 smol_str = { version = "0.3.6", features = ["serde"] }
-sqlite-vec = { version = "=0.1.6", optional = true }
+sqlite-vec = "=0.1.6"
 tokio = { version = "1.52.3", features = [
     "process",
     "io-util",
     "time",
     "sync",
     "macros",
-], optional = true }
+    "rt-multi-thread",
+    "net",
+    "signal",
+] }
 toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 ulid = { version = "1.2.1", features = ["serde"] }
-
-[features]
-default = ["lua", "openai", "mcp", "serve"]
-# The SQLite-backed event store and materialized graph. With this off, only the in-memory store
-# and seam fakes are built — the pure no-I/O configuration the tests exercise via
-# --no-default-features.
-sqlite = ["dep:rusqlite", "dep:sqlite-vec", "dep:fs2", "dep:jiff", "dep:parking_lot"]
-# The Lua VM and agent execution layer. Implies `sqlite`, since a block commits to the graph.
-# Pulls `schemars` to derive the agent's tool schemas from their argument structs, and `tokio` for
-# the per-block `tokio::time::timeout` that bounds a block's duration.
-lua = ["dep:mlua", "dep:schemars", "dep:tokio", "sqlite"]
-# The real model client and embedder over an OpenAI-compatible HTTP endpoint.
-openai = ["dep:async-openai"]
-# The MCP (Model Context Protocol) client — the agent's outward I/O, projected into the Lua VM.
-# Implies `lua` (tools project into the VM); pulls `tokio` for the stdio subprocess host.
-mcp = ["lua", "dep:tokio"]
-# The long-running HTTP server: `zuihitsu` with no subcommand boots it, hosting the agent and the
-# operator/platform API the CLI (and a future web debugger) drive (spec §Clients and the server
-# boundary). Implies `lua` (the agent loop and the scheduler driver it runs); pulls `axum` and the
-# tokio runtime/net/signal features the host needs.
-serve = ["lua", "dep:axum", "tokio/rt-multi-thread", "tokio/net", "tokio/signal"]
 
 [dev-dependencies]
 async-trait = "0.1.89"

@@ -3,8 +3,6 @@
 //! blocks; and an abort or runtime error discards the buffer while recording the terminal cause
 //! (spec §Lua API → block transactionality).
 
-#![cfg(feature = "lua")]
-
 mod common;
 
 use std::{sync::Arc, time::Duration};

@@ -1,17 +1,14 @@
 //! Agent-loop tests: a scripted model drives the step loop through tool calls and terminals, and
 //! the resulting turns and side effects land in the log (spec §Agent loop).
 
-#![cfg(feature = "lua")]
-
 mod common;
 
 use common::Harness;
 use zuihitsu::{
-    CivilDate, Completion, PromptTemplateName, ScriptedModel, SeedSelf, Seq, Store, Timestamp,
-    ToolCall, TurnOutcome, TurnReport, TurnRole, event::EventPayload, genesis, run_turn,
+    CivilDate, Completion, EnvConfig, OpenAiClient, PromptTemplateName, ScriptedModel, SeedSelf,
+    Seq, Store, Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, event::EventPayload,
+    genesis, run_turn,
 };
-#[cfg(feature = "openai")]
-use zuihitsu::{EnvConfig, OpenAiClient};
 
 fn seed() -> SeedSelf {
     SeedSelf {
@@ -528,7 +525,6 @@ async fn tool_result_feeds_back_across_steps() {
 
 /// End-to-end against the real model (model-gated, ignored): the live model drives the whole loop
 /// — chat protocol, tool-call threading, block execution — to a terminal without an infra error.
-#[cfg(feature = "openai")]
 #[tokio::test]
 #[ignore = "requires a reachable model endpoint (config.toml)"]
 async fn real_model_drives_a_turn() {
@@ -563,7 +559,6 @@ async fn real_model_drives_a_turn() {
 /// whose content carries natural-language times should leave at least one durable entry with a
 /// resolved `occurred_at`. Logs the timed/total rate — load-bearing news about the model floor, the
 /// same epistemic status as the compaction continuity metric (spec §Validation).
-#[cfg(feature = "openai")]
 #[tokio::test]
 #[ignore = "requires a reachable model endpoint (config.toml)"]
 async fn real_model_extracts_temporal_references() {

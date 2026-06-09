@@ -4,8 +4,6 @@
 //! endpoint is reachable from `config.toml`. The description-side analogue of fixture 22 (which guards
 //! the *flush*); a must-not-surface oracle, zero leaks across N.
 
-#![cfg(all(feature = "lua", feature = "openai"))]
-
 mod common;
 
 use zuihitsu::{

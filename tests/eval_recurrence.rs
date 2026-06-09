@@ -8,8 +8,6 @@
 //! it to a single `Day`? A tracked quality rate, not a safety gate: a low rate is a tuning signal for
 //! the extraction prompt, so it asserts only a minimal floor.
 
-#![cfg(all(feature = "lua", feature = "openai"))]
-
 mod common;
 
 use zuihitsu::{

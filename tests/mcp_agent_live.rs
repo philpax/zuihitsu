@@ -4,8 +4,6 @@
 //! `with_mcp` → the live call. Model- and binary-gated (`#[ignore]`), skips with a clear log line when
 //! the endpoint or the lightpanda binary is absent, so the fast lane never hits the network.
 
-#![cfg(all(feature = "lua", feature = "mcp", feature = "openai"))]
-
 mod common;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};

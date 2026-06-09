@@ -3,8 +3,6 @@
 //! `cargo test --features openai -- --ignored`. Skips cleanly (passes) if the endpoint is absent
 //! or unreachable, so it is safe to run anywhere (spec §Validation: the model-gated lane).
 
-#![cfg(feature = "openai")]
-
 use std::path::Path;
 
 use zuihitsu::{

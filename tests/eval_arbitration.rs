@@ -8,8 +8,6 @@
 //! a description? A tracked quality rate, not a safety gate (conflict detection is a model judgment), so
 //! it asserts only a minimal floor.
 
-#![cfg(all(feature = "lua", feature = "openai"))]
-
 mod common;
 
 use zuihitsu::{

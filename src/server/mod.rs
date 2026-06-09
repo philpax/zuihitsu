@@ -9,28 +9,37 @@
 //! "the operator has no platform identity" enforceable.
 
 mod control;
-#[cfg(feature = "lua")]
 mod platform;
 
 pub use control::{Arbitration, Control};
-#[cfg(feature = "lua")]
 pub use platform::Platform;
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashMap},
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::Duration,
+};
+
+use parking_lot::Mutex;
+use tokio::sync::Semaphore;
 
 use crate::{
-    agent::genesis::{self, GenesisStatus},
+    agent::{
+        McpCatalogue, Turn, TurnError, TurnReport, TurnView, buffer_turns,
+        genesis::{self, GenesisStatus},
+        lua::Session,
+        run_turn,
+    },
     clock::Clock,
     engine::Engine,
-    graph::{Graph, GraphError},
-    store::{MemoryStore, Store, StoreError},
-};
-#[cfg(feature = "lua")]
-use crate::{
-    agent::lua::Session,
-    agent::{Turn, TurnError, TurnReport, TurnView, buffer_turns, run_turn},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
+    graph::{Graph, GraphError},
     ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
+    mcp::{McpHost, McpServerConfig},
     memory::{
         brief::{self, BriefError},
         identity::IdentityError,
@@ -39,28 +48,8 @@ use crate::{
     },
     model::ModelClient,
     settings::{ConcurrencySettings, Settings},
+    store::{MemoryStore, Store, StoreError},
     time::Timestamp,
-};
-#[cfg(feature = "mcp")]
-use std::collections::BTreeMap;
-#[cfg(feature = "lua")]
-use std::collections::HashMap;
-#[cfg(feature = "lua")]
-use std::future::Future;
-#[cfg(feature = "lua")]
-use std::sync::atomic::{AtomicI64, Ordering};
-#[cfg(feature = "lua")]
-use std::time::Duration;
-
-#[cfg(feature = "lua")]
-use parking_lot::Mutex;
-#[cfg(feature = "lua")]
-use tokio::sync::Semaphore;
-
-#[cfg(feature = "mcp")]
-use crate::{
-    agent::McpCatalogue,
-    mcp::{McpHost, McpServerConfig},
 };
 
 pub struct Server {
@@ -75,29 +64,24 @@ pub struct Server {
     /// restart drops it and the next message opens a fresh session. Behind a `Mutex` (and each value
     /// an `Arc`) so concurrent conversations reach the map through a shared `&Server`; a turn holds
     /// its session's `Arc` across the turn `.await` without keeping the map guard.
-    #[cfg(feature = "lua")]
     sessions: Mutex<HashMap<ConversationId, Arc<OpenSession>>>,
     /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
     /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
     /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
     /// shared-`&Server` reason as `sessions`.
-    #[cfg(feature = "lua")]
     pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
     /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
     /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
     /// model at once; further streams queue. Sized from settings at construction (a change takes
     /// effect on restart).
-    #[cfg(feature = "lua")]
     streams: Semaphore,
     /// The MCP host and the catalogue probed from it at [`Server::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
-    #[cfg(feature = "mcp")]
     mcp: Option<McpRuntime>,
 }
 
 /// The connected MCP runtime: the host that spawns server instances and the catalogue probed from it
 /// once at startup (shared into every session opened thereafter).
-#[cfg(feature = "mcp")]
 struct McpRuntime {
     host: Arc<dyn McpHost>,
     catalogue: McpCatalogue,
@@ -106,17 +90,12 @@ struct McpRuntime {
 impl Server {
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Server {
         let engine = Engine::new(store, graph, clock);
-        #[cfg(feature = "lua")]
         let streams = Semaphore::new(initial_stream_permits(&engine));
         Server {
             engine,
-            #[cfg(feature = "lua")]
             sessions: Mutex::new(HashMap::new()),
-            #[cfg(feature = "lua")]
             pending_carryover: Mutex::new(HashMap::new()),
-            #[cfg(feature = "lua")]
             streams,
-            #[cfg(feature = "mcp")]
             mcp: None,
         }
     }
@@ -125,7 +104,6 @@ impl Server {
     /// §startup probe), then project that catalogue into every session opened from now on. Called once
     /// after construction by whoever drives serving. A probe-level hard error (a stale `allow`/`deny`,
     /// a duplicate escaped tool name) is surfaced; a server that simply fails to spawn is dropped.
-    #[cfg(feature = "mcp")]
     pub async fn connect_mcp(
         &mut self,
         host: Arc<dyn McpHost>,
@@ -169,7 +147,6 @@ impl Server {
     /// Control's creation and inspection methods, which is what makes "the operator has no platform
     /// identity" enforceable. Takes `&self` so concurrent conversations each obtain one from a shared
     /// `Arc<Server>`.
-    #[cfg(feature = "lua")]
     pub fn platform(&self) -> Platform<'_> {
         Platform { server: self }
     }
@@ -179,7 +156,6 @@ impl Server {
 /// brief), the `participant` it is attributed to, the `inbound` text, and the `template`/`authority`
 /// that frame it — `Scaffold`/`Platform` for an ordinary message, `Imprint`/`Operator` for the
 /// control-panel interview. Bundled so [`Server::run_session_turn`] takes the routed turn as a whole.
-#[cfg(feature = "lua")]
 struct RoutedTurn<'a> {
     conversation: ConversationId,
     present_set: &'a [MemoryId],
@@ -192,7 +168,6 @@ struct RoutedTurn<'a> {
 /// The session machinery shared by both facets: opening/continuing a session and running one turn.
 /// On `Server` (not a facet) so the platform `route_message` and the operator `imprint` both reach
 /// it.
-#[cfg(feature = "lua")]
 impl Server {
     /// Open or continue the session for `conversation`, then run one turn of `inbound` from
     /// `participant` under `template`/`authority`, returning its report and the live buffer it saw
@@ -273,7 +248,6 @@ impl Server {
         // across the `shutdown_mcp().await`.
         let old = self.sessions.lock().remove(&conversation);
         if let Some(old) = old {
-            #[cfg(feature = "mcp")]
             old.vm.shutdown_mcp().await;
             self.engine.store.lock().append(
                 now,
@@ -327,7 +301,6 @@ impl Server {
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
         // The VM carries the MCP projection when servers are connected; otherwise a plain VM.
-        #[cfg(feature = "mcp")]
         let vm = match &self.mcp {
             Some(runtime) => Session::with_mcp(
                 conversation,
@@ -336,8 +309,6 @@ impl Server {
             ),
             None => Session::new(conversation),
         };
-        #[cfg(not(feature = "mcp"))]
-        let vm = Session::new(conversation);
         let open = Arc::new(OpenSession {
             id,
             vm,
@@ -473,7 +444,6 @@ impl Server {
             .drain()
             .map(|(_, session)| session)
             .collect();
-        #[cfg(feature = "mcp")]
         for session in &sessions {
             session.vm.shutdown_mcp().await;
         }
@@ -484,7 +454,6 @@ impl Server {
 /// The initial stream-limit permit count read from settings at construction. Floors at 1 so a
 /// missing, zero, or negative configuration never produces a deadlocking zero-permit semaphore; a
 /// store read failure falls back to the build default with a warning.
-#[cfg(feature = "lua")]
 fn initial_stream_permits(engine: &Engine) -> usize {
     let configured = Settings::from_store(engine.store.lock().as_ref())
         .map(|settings| settings.concurrency.max_concurrent_streams)
@@ -499,7 +468,6 @@ fn initial_stream_permits(engine: &Engine) -> usize {
 /// raw-transcript carryover). The oldest carried turn is both the `seeded_from_turn` boundary
 /// recorded on the new `SessionStarted` and the `from_seq` the new session's buffer is read from, so
 /// the carried tail plus the new turns reconstruct the post-cut buffer.
-#[cfg(feature = "lua")]
 struct Carryover {
     seeded_from_turn: TurnId,
     from_seq: Seq,
@@ -512,7 +480,6 @@ struct Carryover {
 /// The live session backing a conversation (runtime state, see [`Server::sessions`]). Held behind an
 /// `Arc` in the `sessions` map, so a running turn keeps its session alive without the map guard; only
 /// `last_activity` is mutated after open, so it is an atomic the reuse path bumps through `&self`.
-#[cfg(feature = "lua")]
 struct OpenSession {
     id: SessionId,
     vm: Session,
@@ -526,7 +493,6 @@ struct OpenSession {
     start_seq: Seq,
 }
 
-#[cfg(feature = "lua")]
 impl OpenSession {
     /// The last-activity time in epoch millis.
     fn last_activity_millis(&self) -> i64 {
@@ -545,10 +511,8 @@ pub enum ServerError {
     Store(StoreError),
     Graph(GraphError),
     /// A turn (the agent loop) failed while routing a message.
-    #[cfg(feature = "lua")]
     Turn(TurnError),
     /// Connecting the MCP servers failed (a probe-level hard error, e.g. a stale `allow`/`deny`).
-    #[cfg(feature = "mcp")]
     Mcp(crate::mcp::McpError),
 }
 
@@ -557,9 +521,7 @@ impl std::fmt::Display for ServerError {
         match self {
             ServerError::Store(error) => write!(f, "server (store): {error}"),
             ServerError::Graph(error) => write!(f, "server (graph): {error}"),
-            #[cfg(feature = "lua")]
             ServerError::Turn(error) => write!(f, "server (turn): {error}"),
-            #[cfg(feature = "mcp")]
             ServerError::Mcp(error) => write!(f, "server (mcp): {error}"),
         }
     }
@@ -570,15 +532,12 @@ impl std::error::Error for ServerError {
         match self {
             ServerError::Store(error) => Some(error),
             ServerError::Graph(error) => Some(error),
-            #[cfg(feature = "lua")]
             ServerError::Turn(error) => Some(error),
-            #[cfg(feature = "mcp")]
             ServerError::Mcp(error) => Some(error),
         }
     }
 }
 
-#[cfg(feature = "mcp")]
 impl From<crate::mcp::McpError> for ServerError {
     fn from(error: crate::mcp::McpError) -> Self {
         ServerError::Mcp(error)
@@ -599,7 +558,6 @@ impl From<GraphError> for ServerError {
 
 // Identity and brief resolution fail only into store/graph errors, so they map onto the existing
 // variants rather than widening the enum; the agent loop's richer `TurnError` keeps its own.
-#[cfg(feature = "lua")]
 impl From<IdentityError> for ServerError {
     fn from(error: IdentityError) -> Self {
         match error {
@@ -609,7 +567,6 @@ impl From<IdentityError> for ServerError {
     }
 }
 
-#[cfg(feature = "lua")]
 impl From<BriefError> for ServerError {
     fn from(error: BriefError) -> Self {
         match error {
@@ -618,7 +575,6 @@ impl From<BriefError> for ServerError {
     }
 }
 
-#[cfg(feature = "lua")]
 impl From<SchedulerError> for ServerError {
     fn from(error: SchedulerError) -> Self {
         match error {
@@ -628,7 +584,6 @@ impl From<SchedulerError> for ServerError {
     }
 }
 
-#[cfg(feature = "lua")]
 impl From<TurnError> for ServerError {
     fn from(error: TurnError) -> Self {
         ServerError::Turn(error)

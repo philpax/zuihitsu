@@ -1,5 +1,5 @@
 //! The real model client and embedder, talking to an OpenAI-compatible HTTP endpoint (spec
-//! §Initialization: the endpoint is environmental config). Behind the `openai` feature; tests that
+//! §Initialization: the endpoint is environmental config). Tests that
 //! use it run in a model-gated lane that skips when the endpoint is unreachable.
 //!
 //! Built on `async-openai`'s types and client. The one thing it can't express is the serving

@@ -8,8 +8,6 @@
 //! compaction over the same scripted session and judge text with a paraphrase-aware matcher: a cheap
 //! lexical backstop OR a conservative LLM-judge over the deterministically-filtered `Public` entries.
 
-#![cfg(all(feature = "lua", feature = "openai"))]
-
 mod common;
 
 use zuihitsu::{

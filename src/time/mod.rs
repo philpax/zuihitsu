@@ -78,7 +78,6 @@ pub fn parse_duration_millis(text: &str) -> Option<i64> {
 
 /// Epoch milliseconds of an ISO 8601 datetime (e.g. `2026-06-02T00:00:00Z`), or `None` if it does not
 /// parse.
-#[cfg(feature = "sqlite")]
 pub fn datetime_to_millis(text: &str) -> Option<i64> {
     text.trim()
         .parse::<jiff::Timestamp>()
@@ -87,7 +86,6 @@ pub fn datetime_to_millis(text: &str) -> Option<i64> {
 }
 
 /// Epoch milliseconds of either a `YYYY-MM-DD` day (taken at midnight) or an ISO datetime, or `None`.
-#[cfg(feature = "sqlite")]
 pub fn date_or_datetime_to_millis(text: &str) -> Option<i64> {
     civil_date_to_millis(text.trim()).or_else(|| datetime_to_millis(text))
 }
@@ -95,7 +93,6 @@ pub fn date_or_datetime_to_millis(text: &str) -> Option<i64> {
 /// Render a timestamp as a human-readable UTC datetime (e.g. `Thursday, 01 January 1970, 00:00 UTC`),
 /// falling back to raw epoch milliseconds for a time outside the supported range. Declared at
 /// conversation start and used as the reference for resolving relative phrases in extraction.
-#[cfg(feature = "sqlite")]
 pub fn format_datetime(at: Timestamp) -> String {
     format_with(at, "%A, %d %B %Y, %H:%M UTC")
 }
@@ -103,18 +100,15 @@ pub fn format_datetime(at: Timestamp) -> String {
 /// A compact wall-clock stamp for prefixing a replayed turn (spec §Time → "Now"): `2026-06-08 14:36
 /// UTC`. Briefer than [`format_datetime`], which anchors the session start in prose, because it
 /// rides on every buffered turn.
-#[cfg(feature = "sqlite")]
 pub fn format_stamp(at: Timestamp) -> String {
     format_with(at, "%Y-%m-%d %H:%M UTC")
 }
 
 /// Render a timestamp as a concise UTC day (e.g. `Wed 03 Jun`) — the `<upcoming/>` brief shape.
-#[cfg(feature = "sqlite")]
 pub fn format_day(at: Timestamp) -> String {
     format_with(at, "%a %d %b")
 }
 
-#[cfg(feature = "sqlite")]
 fn format_with(at: Timestamp, format: &str) -> String {
     match jiff::Timestamp::from_millisecond(at.as_millis()) {
         Ok(timestamp) => timestamp

@@ -4,11 +4,9 @@
 //! synchronous. The seam is fallible because the real backend can fail; the in-memory one never does.
 
 mod in_memory;
-#[cfg(feature = "sqlite")]
 mod sqlite;
 
 pub use in_memory::InMemoryVectorIndex;
-#[cfg(feature = "sqlite")]
 pub use sqlite::SqliteVectorIndex;
 
 use smol_str::SmolStr;
@@ -67,7 +65,6 @@ impl std::fmt::Display for VectorError {
 
 impl std::error::Error for VectorError {}
 
-#[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for VectorError {
     fn from(error: rusqlite::Error) -> Self {
         VectorError::Backend(error.to_string())

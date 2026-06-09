@@ -20,7 +20,6 @@ use zuihitsu::{
     SystemClock, genesis::GenesisStatus,
 };
 
-#[cfg(feature = "mcp")]
 use zuihitsu::StdioHost;
 
 /// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share, so
@@ -61,7 +60,6 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let status = server.boot()?;
 
     // Connect the configured MCP servers once, before the server is shared (`connect_mcp` is `&mut`).
-    #[cfg(feature = "mcp")]
     if !config.mcp.is_empty() {
         server.connect_mcp(Arc::new(StdioHost), config.mcp).await?;
     }

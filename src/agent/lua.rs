@@ -45,7 +45,6 @@ pub struct Session {
     conversation: ConversationId,
     /// The session's MCP state — the host, configured servers, and lazily-spawned instances backing the
     /// `mcp.<server>.*` projection — or `None` when no host is configured.
-    #[cfg(feature = "mcp")]
     mcp: Option<std::sync::Arc<super::mcp_api::McpSession>>,
 }
 
@@ -63,7 +62,6 @@ impl Session {
         Session {
             lua: Lua::new(),
             conversation,
-            #[cfg(feature = "mcp")]
             mcp: None,
         }
     }
@@ -73,7 +71,6 @@ impl Session {
     /// once here and persists across the session's blocks (the server instances are session-scoped).
     /// Lua-table creation cannot realistically fail at construction, so installation is treated as
     /// infallible, like [`Session::new`].
-    #[cfg(feature = "mcp")]
     pub fn with_mcp(
         conversation: ConversationId,
         host: std::sync::Arc<dyn crate::mcp::McpHost>,
@@ -91,7 +88,6 @@ impl Session {
 
     /// The configured MCP tools as system-prompt API entries — empty when no host is configured. The
     /// turn assembles these alongside the build-derived Lua API into the prompt's API description.
-    #[cfg(feature = "mcp")]
     pub fn mcp_api_entries(&self) -> Vec<super::api_doc::ApiEntry> {
         self.mcp
             .as_ref()
@@ -101,7 +97,6 @@ impl Session {
 
     /// Tear down the session's MCP instances (close stdin, wait, kill on a grace timeout), best-effort.
     /// A no-op when no MCP host is configured. Called when the session ends.
-    #[cfg(feature = "mcp")]
     pub async fn shutdown_mcp(&self) {
         if let Some(mcp) = &self.mcp {
             mcp.shutdown().await;
@@ -110,7 +105,6 @@ impl Session {
 
     /// Drop the MCP instance whose call a block timeout just cut off, if any (the abandoned call left
     /// its server-side state undefined). A no-op when no host is configured or nothing was in flight.
-    #[cfg(feature = "mcp")]
     fn drop_in_flight_mcp(&self) {
         if let Some(mcp) = &self.mcp {
             mcp.drop_in_flight();
@@ -118,7 +112,6 @@ impl Session {
     }
 
     /// Reset the per-attempt "this block made an MCP call" latch before an execution attempt.
-    #[cfg(feature = "mcp")]
     fn begin_mcp_block(&self) {
         if let Some(mcp) = &self.mcp {
             mcp.begin_block();
@@ -127,16 +120,8 @@ impl Session {
 
     /// Whether this block has made an MCP call this attempt — an external effect that cannot be rolled
     /// back, so its timeout is surfaced rather than retried (spec §645). Always `false` without a host.
-    #[cfg(feature = "mcp")]
     fn block_made_mcp_call(&self) -> bool {
         self.mcp.as_ref().is_some_and(|mcp| mcp.block_made_a_call())
-    }
-
-    /// Without the MCP feature a block can have no un-rollback-able external effect, so a timeout is
-    /// always safe to retry.
-    #[cfg(not(feature = "mcp"))]
-    fn block_made_mcp_call(&self) -> bool {
-        false
     }
 
     pub fn conversation(&self) -> ConversationId {
@@ -191,7 +176,6 @@ impl Session {
 
             // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects
             // this attempt only.
-            #[cfg(feature = "mcp")]
             self.begin_mcp_block();
 
             // Installing the API is our-side setup: a failure here is a bug, not an agent-visible
@@ -212,7 +196,6 @@ impl Session {
                 // Timed out. Release the locks (so a retry, or another conversation, can take them) and
                 // drop the in-flight MCP instance — its session-side state is now undefined.
                 release_locks(&api.lock_set);
-                #[cfg(feature = "mcp")]
                 self.drop_in_flight_mcp();
                 if self.block_made_mcp_call() {
                     // An external effect happened this attempt; surface the timeout, do not retry.

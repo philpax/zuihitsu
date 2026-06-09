@@ -867,12 +867,8 @@ async fn synthesize(
 /// MCP servers' projected tools (runtime-derived from the session's probed catalogue). Both render
 /// through the same [`super::api_doc::render`] so the description is one consistent catalogue.
 fn full_api_reference(session: &Session) -> String {
-    #[cfg_attr(not(feature = "mcp"), allow(unused_mut))]
     let mut entries = lua::api_reference();
-    #[cfg(feature = "mcp")]
     entries.extend(session.mcp_api_entries());
-    #[cfg(not(feature = "mcp"))]
-    let _ = session;
     super::api_doc::render(&entries)
 }
 

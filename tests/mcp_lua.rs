@@ -4,8 +4,6 @@
 //! result string-vs-table projection, keyword escaping, and that failures are catchable Lua errors
 //! (spec §External I/O via MCP).
 
-#![cfg(all(feature = "lua", feature = "mcp"))]
-
 mod common;
 
 use std::{collections::BTreeMap, sync::Arc, time::Duration};

@@ -4,21 +4,17 @@
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "lua")]
-use super::RoutedTurn;
-use super::{Server, ServerError};
-#[cfg(feature = "lua")]
+use super::{RoutedTurn, Server, ServerError};
 use crate::{
-    agent::TurnOutcome,
-    event::PromptTemplateName,
-    memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
-    model::ModelClient,
-};
-use crate::{
-    agent::genesis::{self, GenesisStatus, Rollout, SeedSelf},
-    event::{EventPayload, EventSource},
+    agent::{
+        TurnOutcome,
+        genesis::{self, GenesisStatus, Rollout, SeedSelf},
+    },
+    event::{EventPayload, EventSource, PromptTemplateName},
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationLocator, MemoryName, Seq},
+    memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
+    model::ModelClient,
     settings::Settings,
 };
 
@@ -45,7 +41,6 @@ impl Control<'_> {
     /// real name, creates `person/<name>`, and merges the two with `same_as`. Multi-turn and
     /// re-runnable: each call delivers one operator message and runs the agent's response. No
     /// compaction — the interview is short, and its flush would run barred from `self`.
-    #[cfg(feature = "lua")]
     pub async fn imprint(
         &self,
         model: &dyn ModelClient,

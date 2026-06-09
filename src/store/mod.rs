@@ -1,16 +1,14 @@
 //! The event-log seam: the durable, append-only source of truth.
 //!
 //! The backend is swappable as long as it preserves a single total order over `Seq` (spec
-//! §Storage). The in-memory backend is always available, for tests and the no-I/O build; the
-//! SQLite backend ships behind the `sqlite` feature. Faithful replay falls out of this seam: read
+//! §Storage). The in-memory backend serves tests and the no-I/O path; the
+//! SQLite backend is the durable one. Faithful replay falls out of this seam: read
 //! from `Seq::ZERO` and the events come back in the exact order they were committed.
 
 mod memory;
-#[cfg(feature = "sqlite")]
 mod sqlite;
 
 pub use memory::MemoryStore;
-#[cfg(feature = "sqlite")]
 pub use sqlite::SqliteStore;
 
 use std::sync::mpsc::{Receiver, Sender};
@@ -86,7 +84,6 @@ impl From<serde_json::Error> for StoreError {
     }
 }
 
-#[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for StoreError {
     fn from(error: rusqlite::Error) -> Self {
         StoreError::Backend(error.to_string())
@@ -218,7 +215,6 @@ mod tests {
         subscriber_sees_appends(&mut MemoryStore::new());
     }
 
-    #[cfg(feature = "sqlite")]
     mod sqlite {
         use super::*;
         use crate::store::SqliteStore;

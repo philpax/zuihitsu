@@ -8,20 +8,14 @@
 pub mod agent;
 pub mod clock;
 pub mod config;
-#[cfg(feature = "sqlite")]
 mod db;
-#[cfg(feature = "sqlite")]
 pub mod engine;
 pub mod event;
-#[cfg(feature = "sqlite")]
 pub mod graph;
 pub mod ids;
-#[cfg(feature = "mcp")]
 pub mod mcp;
-#[cfg(feature = "sqlite")]
 pub mod memory;
 pub mod model;
-#[cfg(feature = "sqlite")]
 pub mod server;
 pub mod settings;
 pub mod store;
@@ -67,60 +61,30 @@ pub use vector::{
 };
 pub use vocabulary::{RelationName, TagName};
 
-// The feature-gated re-exports are grouped per feature so the `#[cfg]` lives in one place rather
-// than on every line; each private module is glob-re-exported into the crate root.
-#[cfg(feature = "lua")]
-mod __lua {
-    pub use crate::agent::{
-        BlockContext, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
-        lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
-        run_turn, session_touched,
-    };
-}
-#[cfg(feature = "lua")]
-pub use __lua::*;
-
-#[cfg(feature = "sqlite")]
-mod __sqlite {
-    pub use crate::{
-        engine::Engine,
-        graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView},
-        memory::{
-            brief::{BriefError, BriefRequest, compose, compose_participant},
-            identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
-            memory_block::{
-                AppendOptions, Authority, BlockEffects, MemoryBlock, MemoryError, VisibilityChoice,
-            },
-            search::{SearchError, SearchHit, SearchQuery, search},
-            visibility::{
-                MarkerRoom, default_visibility, default_visibility_named, room_display,
-                teller_private_marker, visible,
-            },
-        },
-        server::{Arbitration, Control, Server, ServerError},
-        store::SqliteStore,
-        vector::SqliteVectorIndex,
-    };
-}
-#[cfg(feature = "sqlite")]
-pub use __sqlite::*;
-
-#[cfg(feature = "openai")]
-mod __openai {
-    pub use crate::model::openai::{OpenAiClient, OpenAiEmbedder};
-}
-#[cfg(feature = "openai")]
-pub use __openai::*;
-
-#[cfg(feature = "mcp")]
-mod __mcp {
-    pub use crate::{
-        agent::McpCatalogue,
-        mcp::{
-            ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
-            McpServerConfig, McpTool, StdioHost,
-        },
-    };
-}
-#[cfg(feature = "mcp")]
-pub use __mcp::*;
+pub use agent::{
+    BlockContext, McpCatalogue, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
+    lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
+    run_turn, session_touched,
+};
+pub use engine::Engine;
+pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};
+pub use mcp::{
+    ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
+    McpServerConfig, McpTool, StdioHost,
+};
+pub use memory::{
+    brief::{BriefError, BriefRequest, compose, compose_participant},
+    identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
+    memory_block::{
+        AppendOptions, Authority, BlockEffects, MemoryBlock, MemoryError, VisibilityChoice,
+    },
+    search::{SearchError, SearchHit, SearchQuery, search},
+    visibility::{
+        MarkerRoom, default_visibility, default_visibility_named, room_display,
+        teller_private_marker, visible,
+    },
+};
+pub use model::openai::{OpenAiClient, OpenAiEmbedder};
+pub use server::{Arbitration, Control, Server, ServerError};
+pub use store::SqliteStore;
+pub use vector::SqliteVectorIndex;

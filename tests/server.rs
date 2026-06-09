@@ -1,28 +1,21 @@
 //! Server tests via the in-process control client: creating an agent, inspecting it, idempotent
 //! re-creation, and boot reconciling a fresh graph from a persisted log (spec §Clients, §Storage).
 
-#![cfg(feature = "sqlite")]
-
 mod common;
 
-#[cfg(feature = "lua")]
 use std::time::Duration;
-#[cfg(feature = "lua")]
 use zuihitsu::{
-    Completion, ConcurrencySettings, ConversationLocator, GenerateRequest, GenerateResponse,
-    MemoryStore, ModelClient, ModelError, ScriptedModel, Store, ToolCall, TurnOutcome, Usage,
-    event::EventPayload, time::MILLIS_PER_DAY,
-};
-#[cfg(all(feature = "lua", feature = "openai"))]
-use zuihitsu::{EnvConfig, OpenAiClient};
-use zuihitsu::{
-    Graph, ManualClock, MemoryId, SeedSelf, Server, SqliteStore,
+    Completion, ConcurrencySettings, ConversationLocator, EnvConfig, GenerateRequest,
+    GenerateResponse, Graph, ManualClock, MemoryId, MemoryStore, ModelClient, ModelError,
+    OpenAiClient, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall, TurnOutcome,
+    Usage,
+    event::EventPayload,
     genesis::{GenesisStatus, Rollout},
+    time::MILLIS_PER_DAY,
 };
 
 use common::time::TEST_NOW;
 
-#[cfg(feature = "lua")]
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -100,7 +93,6 @@ fn boot_reconciles_a_fresh_graph_from_a_persisted_log() {
 
 /// Install a test-scoped tracing subscriber so the model-gated smoke emits structured, timestamped
 /// logs (visible under `--nocapture`) rather than ad-hoc prints. Idempotent across the binary.
-#[cfg(all(feature = "lua", feature = "openai"))]
 fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_test_writer()
@@ -110,7 +102,6 @@ fn init_tracing() {
 
 /// A born agent over an in-memory store, returning a clock handle (sharing the boxed clock's atomic)
 /// so a test can advance time.
-#[cfg(feature = "lua")]
 fn born_agent() -> (Server, ManualClock) {
     let clock = ManualClock::new(TEST_NOW);
     let server = Server::new(
@@ -122,7 +113,6 @@ fn born_agent() -> (Server, ManualClock) {
     (server, clock)
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn route_message_opens_a_session_and_runs_a_turn() {
     let (server, _clock) = born_agent();
@@ -162,14 +152,12 @@ async fn route_message_opens_a_session_and_runs_a_turn() {
 /// count's peak, then rendezvouses on a barrier sized to the stream limit, so exactly the limit's
 /// worth of turns meet here before any proceeds — making the observed peak the limit, deterministically
 /// (when driven with a whole number of barrier-sized waves).
-#[cfg(feature = "lua")]
 struct ConcurrencyProbe {
     active: AtomicUsize,
     peak: AtomicUsize,
     barrier: tokio::sync::Barrier,
 }
 
-#[cfg(feature = "lua")]
 #[async_trait::async_trait]
 impl ModelClient for ConcurrencyProbe {
     fn model_id(&self) -> &str {
@@ -192,7 +180,6 @@ impl ModelClient for ConcurrencyProbe {
     }
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_stream_limit_caps_concurrent_turns() {
     // The server sizes its stream semaphore from `ConcurrencySettings::default()` at construction.
@@ -232,7 +219,6 @@ async fn the_stream_limit_caps_concurrent_turns() {
     assert_eq!(probe.peak.load(Ordering::SeqCst), limit);
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test(start_paused = true)]
 async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     // The background driver fires globally-due wake-ups on a timer, with no session open — the piece
@@ -315,7 +301,6 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     driver.await.expect("the driver task joins");
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
     let (server, clock) = born_agent();
@@ -349,7 +334,6 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 2);
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn note_join_records_the_arriving_participant_on_the_session() {
     let (server, _clock) = born_agent();
@@ -385,7 +369,6 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
     assert!(participants.contains(&erin));
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     let (server, clock) = born_agent();
@@ -459,7 +442,6 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     );
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
     let (server, _clock) = born_agent();
@@ -496,7 +478,6 @@ async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
     assert!(!sessions[1].brief.is_empty());
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     let (server, _clock) = born_agent();
@@ -542,7 +523,6 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     );
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn each_turn_carries_its_own_recorded_time() {
     let (server, clock) = born_agent();
@@ -584,7 +564,6 @@ async fn each_turn_carries_its_own_recorded_time() {
     );
 }
 
-#[cfg(feature = "lua")]
 fn run_lua_call(script: &str) -> Completion {
     Completion::ToolCalls(vec![ToolCall {
         id: "lua".to_owned(),
@@ -593,7 +572,6 @@ fn run_lua_call(script: &str) -> Completion {
     }])
 }
 
-#[cfg(feature = "lua")]
 fn describe_call(description: &str) -> Completion {
     // The turn-end synthesis call: a forced `synthesize` tool carrying the description (these
     // scenarios plant no temporal phrases, so no occurrences).
@@ -604,7 +582,6 @@ fn describe_call(description: &str) -> Completion {
     }])
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_substantive_session_flushes_to_memory_before_the_cut() {
     let (server, _clock) = born_agent();
@@ -649,7 +626,6 @@ async fn a_substantive_session_flushes_to_memory_before_the_cut() {
     );
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_low_activity_session_skips_the_flush() {
     let (server, _clock) = born_agent();
@@ -674,7 +650,6 @@ async fn a_low_activity_session_skips_the_flush() {
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn context_current_resolves_during_a_routed_turn() {
     let (server, _clock) = born_agent();
@@ -701,7 +676,6 @@ async fn context_current_resolves_during_a_routed_turn() {
     );
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn the_working_set_carries_into_the_next_session_brief() {
     let (server, _clock) = born_agent();
@@ -742,7 +716,6 @@ async fn the_working_set_carries_into_the_next_session_brief() {
     assert!(brief.contains("topic/roadmap"), "brief was: {brief}");
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
     let (server, clock) = born_agent();
@@ -797,7 +770,6 @@ async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
     );
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_platform_conversation_cannot_write_self() {
     let (server, _clock) = born_agent();
@@ -824,7 +796,6 @@ async fn a_platform_conversation_cannot_write_self() {
     );
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_platform_conversation_cannot_merge_identities() {
     let (server, _clock) = born_agent();
@@ -859,7 +830,6 @@ async fn a_platform_conversation_cannot_merge_identities() {
     assert!(server.control().memory("person/beta").unwrap().is_none());
 }
 
-#[cfg(feature = "lua")]
 #[tokio::test]
 async fn imprint_records_the_creator_and_links_created_by() {
     let (server, clock) = born_agent();
@@ -915,7 +885,6 @@ async fn imprint_records_the_creator_and_links_created_by() {
 /// resolve, open a session and freeze its brief, run the loop, reply — and observe what the agent
 /// did. Ignored by default (needs a reachable endpoint from `config.toml`); the client has no request
 /// timeout, so a slow cold start is tolerated.
-#[cfg(all(feature = "lua", feature = "openai"))]
 #[tokio::test]
 #[ignore = "requires a reachable model endpoint (config.toml)"]
 async fn real_model_routes_a_message_end_to_end() {

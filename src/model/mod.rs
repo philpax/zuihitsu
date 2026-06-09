@@ -9,7 +9,6 @@
 
 pub mod embed;
 pub mod index;
-#[cfg(feature = "openai")]
 pub mod openai;
 
 use std::{collections::VecDeque, sync::Mutex};

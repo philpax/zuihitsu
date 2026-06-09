@@ -63,7 +63,7 @@ pub fn assemble(
 
 // Gated on `lua` (not just `sqlite`) because the assertion exercises `render_api_reference`, which
 // is part of the Lua API surface.
-#[cfg(all(test, feature = "lua"))]
+#[cfg(test)]
 mod tests {
     //! The scaffold framing, the agent's identity drawn from `self` (seeded as its description at
     //! genesis), and the declared current time are composed into one prompt.

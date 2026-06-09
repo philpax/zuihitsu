@@ -7,10 +7,8 @@
 
 pub mod time;
 
-#[cfg(feature = "lua")]
 pub use harness::Harness;
 
-#[cfg(feature = "lua")]
 mod harness {
     use std::{sync::Arc, time::Duration};
 

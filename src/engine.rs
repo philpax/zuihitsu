@@ -12,15 +12,11 @@
 //! writing the graph, and the scheduler's `fire_due` — the **graph is locked before the store**, the
 //! one ordering rule that keeps the (non-reentrant) locks deadlock-free once sessions run concurrently.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::Mutex;
 
-#[cfg(feature = "lua")]
-use crate::ids::MemoryId;
-use crate::{clock::Clock, graph::Graph, store::Store};
-#[cfg(feature = "lua")]
-use std::collections::HashMap;
+use crate::{clock::Clock, graph::Graph, ids::MemoryId, store::Store};
 
 /// The store, graph, and clock a turn operates over, bundled behind one [`Arc`] (see the module docs
 /// for the locking discipline). Built once per agent and cloned cheaply for each turn.
@@ -31,7 +27,6 @@ pub struct Engine {
     /// The per-memory lock registry the Lua block API acquires from: a block holds the lock on each
     /// memory it touches until block end, so a concurrent block in another conversation serializes on
     /// the same memory (spec §Concurrency). Shared by every session through the one `Arc<Engine>`.
-    #[cfg(feature = "lua")]
     pub memory_locks: Arc<MemoryLocks>,
 }
 
@@ -42,7 +37,6 @@ impl Engine {
             store: Mutex::new(store),
             graph: Mutex::new(graph),
             clock,
-            #[cfg(feature = "lua")]
             memory_locks: Arc::new(MemoryLocks::new()),
         })
     }
@@ -56,12 +50,10 @@ impl Engine {
 /// Entries persist for the registry's lifetime — one small `Arc<Mutex<()>>` per memory ever touched,
 /// which is negligible at this deployment's scale. This is deliberate, not a leak: a periodic sweep of
 /// uncontended entries is the standard fix if it ever matters, and is deferred.
-#[cfg(feature = "lua")]
 pub struct MemoryLocks {
     map: Mutex<HashMap<MemoryId, Arc<tokio::sync::Mutex<()>>>>,
 }
 
-#[cfg(feature = "lua")]
 impl MemoryLocks {
     fn new() -> MemoryLocks {
         MemoryLocks {
@@ -78,7 +70,7 @@ impl MemoryLocks {
     }
 }
 
-#[cfg(all(test, feature = "lua"))]
+#[cfg(test)]
 mod tests {
     use super::{MemoryId, MemoryLocks};
     use std::time::Duration;
