@@ -42,6 +42,14 @@ use crate::{
 };
 #[cfg(feature = "lua")]
 use std::collections::HashMap;
+#[cfg(feature = "mcp")]
+use std::{collections::BTreeMap, rc::Rc};
+
+#[cfg(feature = "mcp")]
+use crate::{
+    agent::McpCatalogue,
+    mcp::{McpHost, McpServerConfig},
+};
 
 pub struct Server {
     // The store, graph, and clock bundled behind one shared [`Engine`], so a turn shares them with a
@@ -60,6 +68,18 @@ pub struct Server {
     /// between the compacting turn and the next message in that room.
     #[cfg(feature = "lua")]
     pending_carryover: HashMap<ConversationId, Carryover>,
+    /// The MCP host and the catalogue probed from it at [`Server::connect_mcp`] — `None` until then.
+    /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
+    #[cfg(feature = "mcp")]
+    mcp: Option<McpRuntime>,
+}
+
+/// The connected MCP runtime: the host that spawns server instances and the catalogue probed from it
+/// once at startup (shared into every session opened thereafter).
+#[cfg(feature = "mcp")]
+struct McpRuntime {
+    host: Rc<dyn McpHost>,
+    catalogue: McpCatalogue,
 }
 
 impl Server {
@@ -70,7 +90,24 @@ impl Server {
             sessions: HashMap::new(),
             #[cfg(feature = "lua")]
             pending_carryover: HashMap::new(),
+            #[cfg(feature = "mcp")]
+            mcp: None,
         }
+    }
+
+    /// Connect the configured MCP servers: probe each one's tool catalogue once through `host` (spec
+    /// §startup probe), then project that catalogue into every session opened from now on. Called once
+    /// after construction by whoever drives serving. A probe-level hard error (a stale `allow`/`deny`,
+    /// a duplicate escaped tool name) is surfaced; a server that simply fails to spawn is dropped.
+    #[cfg(feature = "mcp")]
+    pub async fn connect_mcp(
+        &mut self,
+        host: Rc<dyn McpHost>,
+        configs: BTreeMap<String, McpServerConfig>,
+    ) -> Result<(), ServerError> {
+        let catalogue = McpCatalogue::probe(host.as_ref(), &configs).await?;
+        self.mcp = Some(McpRuntime { host, catalogue });
+        Ok(())
     }
 
     /// A server backed entirely in memory (in-memory store and graph), for tests.
@@ -138,7 +175,8 @@ impl Server {
         model: &dyn ModelClient,
         routed: &RoutedTurn<'_>,
     ) -> Result<(TurnReport, Vec<TurnView>), ServerError> {
-        self.ensure_session(routed.conversation, routed.present_set)?;
+        self.ensure_session(routed.conversation, routed.present_set)
+            .await?;
         let max_steps = Settings::from_store(self.engine.store.lock().as_ref())?
             .turn
             .max_steps as usize;
@@ -173,7 +211,7 @@ impl Server {
     /// idle-gap, otherwise end it (if any) and open a new one — composing and freezing its brief and
     /// minting a fresh VM. The session boundary is recorded (`SessionStarted` / `SessionEnded`) and
     /// not recomputed at replay.
-    fn ensure_session(
+    async fn ensure_session(
         &mut self,
         conversation: ConversationId,
         present_set: &[MemoryId],
@@ -210,8 +248,11 @@ impl Server {
                 .materialize_from(self.engine.store.lock().as_ref())?;
         }
 
-        // A lapsed session ends before the new one opens.
+        // A lapsed session ends before the new one opens: tear down its MCP instances, then record
+        // the boundary.
         if let Some(old) = self.sessions.remove(&conversation) {
+            #[cfg(feature = "mcp")]
+            old.vm.shutdown_mcp().await;
             self.engine.store.lock().append(
                 now,
                 vec![EventPayload::SessionEnded {
@@ -263,11 +304,23 @@ impl Server {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
+        // The VM carries the MCP projection when servers are connected; otherwise a plain VM.
+        #[cfg(feature = "mcp")]
+        let vm = match &self.mcp {
+            Some(runtime) => Session::with_mcp(
+                conversation,
+                runtime.host.clone(),
+                runtime.catalogue.clone(),
+            ),
+            None => Session::new(conversation),
+        };
+        #[cfg(not(feature = "mcp"))]
+        let vm = Session::new(conversation);
         self.sessions.insert(
             conversation,
             OpenSession {
                 id,
-                vm: Session::new(conversation),
+                vm,
                 brief,
                 last_activity: now,
                 start_seq: carryover
@@ -372,6 +425,9 @@ pub enum ServerError {
     /// A turn (the agent loop) failed while routing a message.
     #[cfg(feature = "lua")]
     Turn(TurnError),
+    /// Connecting the MCP servers failed (a probe-level hard error, e.g. a stale `allow`/`deny`).
+    #[cfg(feature = "mcp")]
+    Mcp(crate::mcp::McpError),
 }
 
 impl std::fmt::Display for ServerError {
@@ -381,6 +437,8 @@ impl std::fmt::Display for ServerError {
             ServerError::Graph(error) => write!(f, "server (graph): {error}"),
             #[cfg(feature = "lua")]
             ServerError::Turn(error) => write!(f, "server (turn): {error}"),
+            #[cfg(feature = "mcp")]
+            ServerError::Mcp(error) => write!(f, "server (mcp): {error}"),
         }
     }
 }
@@ -392,7 +450,16 @@ impl std::error::Error for ServerError {
             ServerError::Graph(error) => Some(error),
             #[cfg(feature = "lua")]
             ServerError::Turn(error) => Some(error),
+            #[cfg(feature = "mcp")]
+            ServerError::Mcp(error) => Some(error),
         }
+    }
+}
+
+#[cfg(feature = "mcp")]
+impl From<crate::mcp::McpError> for ServerError {
+    fn from(error: crate::mcp::McpError) -> Self {
+        ServerError::Mcp(error)
     }
 }
 

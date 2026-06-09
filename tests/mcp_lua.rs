@@ -9,9 +9,10 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use zuihitsu::{
-    Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, FakeMcpHost,
-    FakeServer, Graph, ManualClock, McpCatalogue, McpError, McpOutput, McpServerConfig, McpTool,
-    MemoryStore, Session, Teller, TerminalCause, Timestamp, TurnId,
+    Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
+    ConversationLocator, Engine, FakeMcpHost, FakeServer, Graph, ManualClock, McpCatalogue,
+    McpError, McpOutput, McpServerConfig, McpTool, MemoryStore, ScriptedModel, SeedSelf, Server,
+    Session, Teller, TerminalCause, Timestamp, ToolCall, TurnId, TurnOutcome,
 };
 
 /// A tool advertised under `name` (the catalogue entry the escape map is built from).
@@ -212,5 +213,97 @@ async fn an_unconfigured_server_is_nil() {
     assert!(
         matches!(outcome, BlockOutcome::Terminated(TerminalCause::Error(_))),
         "expected a terminal error, got {outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_catalogue_renders_callable_entries_for_the_prompt() {
+    // `goto` is a Lua keyword, so it renders (and is callable) as the escaped `goto_`.
+    let host = FakeMcpHost::new().with(
+        "browser",
+        FakeServer::new(vec![tool("markdown"), tool("goto")]),
+    );
+    let configs = BTreeMap::from([("browser".to_owned(), McpServerConfig::default())]);
+    let host = Rc::new(host);
+    let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
+    let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
+    let calls: Vec<String> = session
+        .mcp_api_entries()
+        .into_iter()
+        .map(|entry| entry.call)
+        .collect();
+    assert!(
+        calls.contains(&"mcp.browser.markdown".to_owned()),
+        "{calls:?}"
+    );
+    assert!(calls.contains(&"mcp.browser.goto_".to_owned()), "{calls:?}");
+}
+
+/// A `run_lua` tool call carrying `script`, as the model emits it.
+fn run_lua_call(script: &str) -> Completion {
+    Completion::ToolCalls(vec![ToolCall {
+        id: "1".to_owned(),
+        name: "run_lua".to_owned(),
+        arguments: serde_json::json!({ "script": script }).to_string(),
+    }])
+}
+
+#[tokio::test]
+async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
+    // A born agent over an in-memory store, with a browser server connected.
+    let mut server = Server::new(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(ManualClock::new(Timestamp::from_millis(1_780_876_800_000))),
+    );
+    server
+        .control()
+        .create_agent(&SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let host = FakeMcpHost::new().with(
+        "browser",
+        FakeServer::new(vec![tool("markdown")]).returns("markdown", text("# Hello from MCP")),
+    );
+    server
+        .connect_mcp(
+            Rc::new(host),
+            BTreeMap::from([("browser".to_owned(), McpServerConfig::default())]),
+        )
+        .await
+        .unwrap();
+
+    // The scripted model fetches the page through `mcp.browser.markdown` and records it, then replies.
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("topic/page", mcp.browser.markdown{})"#),
+        Completion::Reply("Saved the page.".to_owned()),
+    ]);
+    let outcome = server
+        .platform()
+        .route_message(
+            &model,
+            &ConversationLocator::new("discord", "general"),
+            "phil",
+            "save the page",
+            &["phil"],
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, TurnOutcome::Reply(_)),
+        "outcome was {outcome:?}"
+    );
+
+    // The MCP result reached the block and was written to memory through connect_mcp → ensure_session
+    // → with_mcp → the projection → the live call.
+    let entries = server.control().entries("topic/page").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        entries[0].text.contains("Hello from MCP"),
+        "entry was {:?}",
+        entries[0].text
     );
 }

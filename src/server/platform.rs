@@ -264,6 +264,10 @@ impl Platform<'_> {
                 .materialize_from(self.server.engine.store.lock().as_ref())?;
         }
 
+        // The session is ending — tear down its MCP instances (the flush above was its last use).
+        #[cfg(feature = "mcp")]
+        open.vm.shutdown_mcp().await;
+
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,

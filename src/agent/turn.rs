@@ -221,8 +221,9 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         }
     };
     // The API description is build-derived: rendered from the running binary so the prompt and the
-    // installed Lua API can't drift (spec §System prompt → API description).
-    let api_reference = lua::render_api_reference();
+    // installed Lua API can't drift (spec §System prompt → API description), plus the connected MCP
+    // servers' projected tools (runtime-derived from the session's catalogue).
+    let api_reference = full_api_reference(session);
     let system = system_prompt::assemble(
         &framing_body,
         &identity,
@@ -313,7 +314,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             None => Vec::new(),
         }
     };
-    let api_reference = lua::render_api_reference();
+    let api_reference = full_api_reference(session);
     let system = system_prompt::assemble(
         &template.body,
         &identity,
@@ -835,6 +836,19 @@ async fn synthesize(
         "synthesis gave up after retries; keeping the memory unchanged"
     );
     Ok(None)
+}
+
+/// The system prompt's API-description block: the build-derived Lua API catalogue, plus the connected
+/// MCP servers' projected tools (runtime-derived from the session's probed catalogue). Both render
+/// through the same [`super::api_doc::render`] so the description is one consistent catalogue.
+fn full_api_reference(session: &Session) -> String {
+    #[cfg_attr(not(feature = "mcp"), allow(unused_mut))]
+    let mut entries = lua::api_reference();
+    #[cfg(feature = "mcp")]
+    entries.extend(session.mcp_api_entries());
+    #[cfg(not(feature = "mcp"))]
+    let _ = session;
+    super::api_doc::render(&entries)
 }
 
 /// Execute one tool call and render the text the model sees next: the block's result on success,
