@@ -381,6 +381,7 @@ mod tests {
 
         let settings = SchedulerSettings {
             max_wakeups_per_session: 2,
+            ..SchedulerSettings::default()
         };
         let drained = drain(&graph, &[phil], &settings)
             .unwrap()

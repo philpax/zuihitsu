@@ -6,9 +6,12 @@
 mod common;
 
 #[cfg(feature = "lua")]
+use std::time::Duration;
+#[cfg(feature = "lua")]
 use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, GenerateRequest, GenerateResponse,
-    MemoryStore, ModelClient, ModelError, ScriptedModel, ToolCall, TurnOutcome, Usage,
+    MemoryStore, ModelClient, ModelError, ScriptedModel, Store, ToolCall, TurnOutcome, Usage,
+    event::EventPayload, time::MILLIS_PER_DAY,
 };
 #[cfg(all(feature = "lua", feature = "openai"))]
 use zuihitsu::{EnvConfig, OpenAiClient};
@@ -227,6 +230,89 @@ async fn the_stream_limit_caps_concurrent_turns() {
 
     // The semaphore admitted the limit's worth at once, and never more.
     assert_eq!(probe.peak.load(Ordering::SeqCst), limit);
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test(start_paused = true)]
+async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
+    // The background driver fires globally-due wake-ups on a timer, with no session open — the piece
+    // deferred from Stage 9 (spec §Scheduled work). Two clocks are in play: `tokio::time::advance`
+    // drives the tick (virtual time), while firing reads the `ManualClock`, so we move the manual clock
+    // past the occurrence and then advance tokio time to trip a tick.
+    let clock = ManualClock::new(TEST_NOW);
+    let mut store = MemoryStore::new();
+    // Watch the log directly, so we observe the driver's firing without opening a session (which would
+    // fire via the open-time catch-up and blur which path fired it).
+    let events = store.subscribe();
+    let server = Server::new(
+        Box::new(store),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.control().create_agent(&seed()).unwrap();
+
+    // Plant a calendared item dated weeks ahead (the turn-end synthesis dates the entry), so it is not
+    // yet due when written.
+    let plant = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.get("person/dave@discord"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        Completion::ToolCalls(vec![ToolCall {
+            id: "synthesize".to_owned(),
+            name: "synthesize".to_owned(),
+            arguments: serde_json::json!({
+                "description": "Dave.",
+                "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
+            })
+            .to_string(),
+        }]),
+    ]);
+    server
+        .platform()
+        .route_message(
+            &plant,
+            &ConversationLocator::new("discord", "leads"),
+            "dave",
+            "remind me about the dentist",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+
+    // Move the manual clock past the occurrence; the item is now due, but no session opens.
+    clock.advance_millis(30 * MILLIS_PER_DAY);
+
+    // Spawn the driver on the shared server with a short tick and a one-shot shutdown.
+    let server = Arc::new(server);
+    let (stop, shutdown) = tokio::sync::oneshot::channel::<()>();
+    let driver = tokio::spawn(
+        server
+            .clone()
+            .run_scheduler(Duration::from_secs(60), async move {
+                let _ = shutdown.await;
+            }),
+    );
+
+    // Trip one tick on the paused tokio clock and let the driver run it, then look for the firing.
+    tokio::time::advance(Duration::from_secs(61)).await;
+    let mut fired = false;
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event.payload, EventPayload::ScheduledJobFired { .. }) {
+                fired = true;
+            }
+        }
+        if fired {
+            break;
+        }
+    }
+    assert!(fired, "the driver should fire the due wake-up on a tick");
+
+    // It shuts down cleanly on the signal.
+    let _ = stop.send(());
+    driver.await.expect("the driver task joins");
 }
 
 #[cfg(feature = "lua")]

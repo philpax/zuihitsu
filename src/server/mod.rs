@@ -39,11 +39,14 @@ use crate::{
     },
     model::ModelClient,
     settings::{ConcurrencySettings, Settings},
+    time::Timestamp,
 };
 #[cfg(feature = "mcp")]
 use std::collections::BTreeMap;
 #[cfg(feature = "lua")]
 use std::collections::HashMap;
+#[cfg(feature = "lua")]
+use std::future::Future;
 #[cfg(feature = "lua")]
 use std::sync::atomic::{AtomicI64, Ordering};
 #[cfg(feature = "lua")]
@@ -259,22 +262,11 @@ impl Server {
             }
         }
 
-        // Catch the wake-up scheduler up to now before the session opens. This is global (it fires
-        // every due trigger, not just this conversation's) and stands in for the background driver that
-        // runs `fire_due` on a timer once the runtime host exists (deferred to Stage 10, spec
-        // §Scheduled work). Firing here, before the drain below, is what lets a just-due item surface
-        // in this session if it is eligible.
-        let fired = {
-            // Two guards at once: graph before store, per the lock-ordering rule.
-            let graph = self.engine.graph.lock();
-            scheduler::fire_due(self.engine.store.lock().as_mut(), &graph, now)?
-        };
-        if fired > 0 {
-            self.engine
-                .graph
-                .lock()
-                .materialize_from(self.engine.store.lock().as_ref())?;
-        }
+        // Catch the wake-up scheduler up to now before the session opens, so a just-due item can
+        // surface in this session if it is eligible (the drain below reads the fired surface). The
+        // background driver ([`Server::run_scheduler`]) fires continuously on a timer; this catch-up
+        // stays for immediacy at session open and is idempotent with it.
+        self.fire_due_now(now)?;
 
         // A lapsed session ends before the new one opens: take it out under the map guard, release
         // the guard, then tear down its MCP instances and record the boundary — no map guard is held
@@ -415,6 +407,60 @@ impl Server {
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
         Ok(id)
+    }
+
+    /// Fire every globally-due wake-up as of `now` and reconcile the graph if any fired (spec §Scheduled
+    /// work). Shared by the session-open catch-up and the background driver, so both fire with identical
+    /// semantics — it is global (every due trigger, not one conversation's) and idempotent (a fired
+    /// trigger is no longer due). Holds the graph guard before the store, per the lock-ordering rule.
+    fn fire_due_now(&self, now: Timestamp) -> Result<usize, ServerError> {
+        let fired = {
+            let graph = self.engine.graph.lock();
+            scheduler::fire_due(self.engine.store.lock().as_mut(), &graph, now)?
+        };
+        if fired > 0 {
+            self.engine
+                .graph
+                .lock()
+                .materialize_from(self.engine.store.lock().as_ref())?;
+        }
+        Ok(fired)
+    }
+
+    /// The background scheduler driver (spec §Scheduled work → the timer that runs `fire_due`
+    /// continuously, deferred from Stage 9 until the shared-server model existed). Every `tick` it fires
+    /// all globally-due wake-ups, so a long-idle agent's reminders fire on time instead of waiting for a
+    /// session to open; the eligible subset is still *surfaced* per session by the open-time drain. Runs
+    /// on the shared `Arc<Server>` until `shutdown` resolves.
+    ///
+    /// A fire failure is logged, never propagated — the driver is long-lived and must outlast a
+    /// transient store/graph error. It holds no lock across an `.await` and never touches the per-block
+    /// memory locks, so it cannot deadlock with concurrent conversation turns.
+    pub async fn run_scheduler(
+        self: Arc<Self>,
+        tick: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut interval = tokio::time::interval(tick);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let now = self.engine.clock.now();
+                    match self.fire_due_now(now) {
+                        Ok(fired) if fired > 0 => {
+                            tracing::debug!(fired, "scheduler driver fired wake-ups")
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::error!(%error, "scheduler driver: firing due wake-ups failed")
+                        }
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("scheduler driver stopped");
     }
 }
 

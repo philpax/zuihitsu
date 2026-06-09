@@ -71,6 +71,9 @@ pub struct BriefSettings {
 pub struct SchedulerSettings {
     /// The most fired wake-ups a single session-open drain raises.
     pub max_wakeups_per_session: i64,
+    /// How often the background scheduler driver fires due wake-ups, in seconds (spec §Scheduled work).
+    /// Read by the serving host at startup, so a change takes effect on restart.
+    pub tick_seconds: i64,
 }
 
 /// The agent step loop.
@@ -156,6 +159,7 @@ impl Default for SchedulerSettings {
     fn default() -> Self {
         SchedulerSettings {
             max_wakeups_per_session: 5,
+            tick_seconds: 60,
         }
     }
 }
@@ -227,7 +231,7 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConcurrencySettings, Settings, TurnSettings};
+    use super::{ConcurrencySettings, SchedulerSettings, Settings, TurnSettings};
 
     #[test]
     fn turn_defaults_match_the_spec_starting_values() {
@@ -240,6 +244,13 @@ mod tests {
     #[test]
     fn concurrency_defaults_match_the_spec_starting_values() {
         assert_eq!(ConcurrencySettings::default().max_concurrent_streams, 4);
+    }
+
+    #[test]
+    fn scheduler_defaults_match_the_spec_starting_values() {
+        let scheduler = SchedulerSettings::default();
+        assert_eq!(scheduler.max_wakeups_per_session, 5);
+        assert_eq!(scheduler.tick_seconds, 60);
     }
 
     #[test]
@@ -257,6 +268,11 @@ mod tests {
         assert_eq!(
             settings.concurrency.max_concurrent_streams,
             ConcurrencySettings::default().max_concurrent_streams
+        );
+        // A field added to an existing group (scheduler's `tick_seconds`) likewise adopts its default.
+        assert_eq!(
+            settings.scheduler.tick_seconds,
+            SchedulerSettings::default().tick_seconds
         );
     }
 }
