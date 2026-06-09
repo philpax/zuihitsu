@@ -276,6 +276,7 @@ impl Platform<'_> {
                 block_timeout: Duration::from_secs(
                     settings.turn.block_timeout_seconds.max(0) as u64
                 ),
+                max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
             })
             .await?;
             self.server

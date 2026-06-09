@@ -19,6 +19,8 @@ use zuihitsu::{
 
 /// A block-duration budget generous enough that these in-memory blocks never trip it.
 const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
+/// The per-block lock-wait retry bound for these tests.
+const TEST_MAX_BLOCK_ATTEMPTS: u32 = 3;
 
 #[tokio::test]
 async fn block_commits_and_projects_with_read_your_writes() {
@@ -175,6 +177,7 @@ async fn append_carries_teller_context_and_default_visibility() {
                     authority: Authority::Platform,
                     turn_id: TurnId::generate(),
                     block_timeout: TEST_BLOCK_TIMEOUT,
+                    max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 },
                 script,
             )
@@ -278,6 +281,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         authority: Authority::Platform,
         turn_id: TurnId::generate(),
         block_timeout: TEST_BLOCK_TIMEOUT,
+        max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
     };
 
     // The agent flags the thread active_in the current context.
@@ -362,6 +366,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
                 authority: Authority::Platform,
                 turn_id: TurnId::generate(),
                 block_timeout: TEST_BLOCK_TIMEOUT,
+                max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
             },
             r#"memory.create("topic/sensitive", "something said in confidence")"#,
         )
@@ -544,4 +549,165 @@ async fn lua_executed_records_the_script_result_and_touched_set() {
         .expect("a LuaExecuted event");
     assert_eq!(recorded.0.as_deref(), Some("done"));
     assert_eq!(recorded.1.len(), 1); // touched the one created memory
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_block_waits_on_a_held_memory_lock_then_proceeds() {
+    // Per-memory mutual exclusion (spec §Concurrency): a block touching a memory whose lock another
+    // block holds waits until it is released. The lock is held externally here, standing in for a
+    // concurrent block in another conversation.
+    let h = Harness::new();
+    h.run(r#"memory.create("topic/shared", "one")"#).await;
+    let id = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("topic/shared")
+        .unwrap()
+        .unwrap()
+        .id;
+
+    let guard = h.engine.memory_locks.acquire(id).await;
+
+    // While the lock is held, a block touching that memory cannot finish (its own budget is far longer
+    // than this window, so it is genuinely waiting on the lock, not self-aborting).
+    let blocked = tokio::time::timeout(
+        Duration::from_millis(200),
+        h.run(r#"memory.get("topic/shared"):append("two")"#),
+    )
+    .await;
+    assert!(blocked.is_err(), "the block should wait on the held lock");
+
+    // Once the lock frees, a fresh attempt at the same block commits.
+    drop(guard);
+    let outcome = h.run(r#"memory.get("topic/shared"):append("two")"#).await;
+    assert!(matches!(outcome, BlockOutcome::Committed { .. }));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_traversing_read_locks_the_whole_class() {
+    // Class-wide locking (spec §Concurrency): a traversing read (mem:entries) locks the full same_as
+    // class, so it waits on a sibling stub's lock even though it queried a different member.
+    let h = Harness::new();
+    // The Harness skips genesis, so register the same_as relation the merge needs.
+    h.engine
+        .store
+        .lock()
+        .append(
+            h.clock.now(),
+            vec![EventPayload::LinkTypeRegistered {
+                name: RelationName::new("same_as"),
+                inverse: RelationName::new("same_as"),
+                from_card: Cardinality::Many,
+                to_card: Cardinality::Many,
+                symmetric: true,
+                reflexive: false,
+            }],
+        )
+        .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    // Create the two stubs (no content — an agent-authored note about a person would need explicit
+    // visibility, and the class lock does not depend on content).
+    h.run(r#"memory.create("person/a")"#).await;
+    h.run(r#"memory.create("person/b@discord")"#).await;
+    // A same_as merge needs operator authority (a platform turn may not merge).
+    let operator = BlockContext {
+        teller: Teller::Agent,
+        authority: Authority::Operator,
+        turn_id: TurnId::generate(),
+        block_timeout: TEST_BLOCK_TIMEOUT,
+        max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+    };
+    h.session
+        .execute(
+            &h.engine,
+            &operator,
+            r#"memory.get("person/a"):link("same_as", memory.get("person/b@discord"))"#,
+        )
+        .await
+        .unwrap();
+    let sibling = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/b@discord")
+        .unwrap()
+        .unwrap()
+        .id;
+
+    // Hold the sibling's lock. A traversing read of the *other* member locks the whole class, so it
+    // waits on the sibling and — with a short budget and a single attempt — gives up. Driving it
+    // through `execute`'s own timeout (not an outer cancellation) means the block releases its locks on
+    // the way out.
+    let guard = h.engine.memory_locks.acquire(sibling).await;
+    let starved = BlockContext {
+        teller: Teller::Agent,
+        authority: Authority::Platform,
+        turn_id: TurnId::generate(),
+        block_timeout: Duration::from_millis(60),
+        max_block_attempts: 1,
+    };
+    let blocked = h
+        .session
+        .execute(
+            &h.engine,
+            &starved,
+            r#"return memory.get("person/a"):entries()"#,
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(blocked, BlockOutcome::Terminated(TerminalCause::Error(_))),
+        "the traversing read should have waited on the sibling's class lock and timed out, got {blocked:?}"
+    );
+
+    // With the sibling free, the same traversing read commits — confirming the sibling's lock was what
+    // it waited on.
+    drop(guard);
+    let outcome = h.run(r#"return memory.get("person/a"):entries()"#).await;
+    assert!(matches!(outcome, BlockOutcome::Committed { .. }));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lock_starved_block_gives_up_after_its_attempts() {
+    // Abort-and-retry (spec §Concurrency): a block that keeps timing out on a lock-wait, having made no
+    // MCP call, is retried up to its bound and then gives up with a terminal error naming the count.
+    let h = Harness::new();
+    h.run(r#"memory.create("topic/locked", "x")"#).await;
+    let id = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("topic/locked")
+        .unwrap()
+        .unwrap()
+        .id;
+    // Held for the whole test, so every attempt times out.
+    let _guard = h.engine.memory_locks.acquire(id).await;
+
+    let outcome = h
+        .session
+        .execute(
+            &h.engine,
+            &BlockContext {
+                teller: Teller::Agent,
+                authority: Authority::Platform,
+                turn_id: TurnId::generate(),
+                block_timeout: Duration::from_millis(40),
+                max_block_attempts: 2,
+            },
+            r#"memory.get("topic/locked"):append("y")"#,
+        )
+        .await
+        .unwrap();
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(message.contains("2 attempts"), "message was {message:?}");
+        }
+        other => panic!("expected a give-up terminal, got {other:?}"),
+    }
 }

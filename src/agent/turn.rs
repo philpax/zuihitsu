@@ -149,6 +149,9 @@ pub struct BlockContext {
     /// How long a single block may run before it is aborted, emitting nothing (spec §Concurrency →
     /// lock acquisition). Threaded from `TurnSettings::block_timeout_seconds`.
     pub block_timeout: Duration,
+    /// How many times a lock-wait-timed-out block (with no MCP call) is retried before giving up.
+    /// Threaded from `TurnSettings::max_block_attempts`.
+    pub max_block_attempts: u32,
 }
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
@@ -178,6 +181,8 @@ pub struct Turn<'a> {
     /// Per-block duration budget (spec §Concurrency); each block this turn runs is aborted if it
     /// exceeds it.
     pub block_timeout: Duration,
+    /// Per-block retry bound for a lock-wait timeout (spec §Concurrency).
+    pub max_block_attempts: u32,
 }
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
@@ -194,6 +199,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         authority,
         max_steps,
         block_timeout,
+        max_block_attempts,
     } = turn;
     let conversation = session.conversation();
     // Content the agent writes this turn is attributed to the speaker by default (an append opts out
@@ -264,6 +270,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             authority,
             turn_id,
             block_timeout,
+            max_block_attempts,
         },
         messages,
         initiation: Initiation::Responding,
@@ -297,6 +304,8 @@ pub(crate) struct Flush<'a> {
     /// Per-block duration budget (spec §Concurrency); each block the flush runs is aborted if it
     /// exceeds it.
     pub block_timeout: Duration,
+    /// Per-block retry bound for a lock-wait timeout (spec §Concurrency).
+    pub max_block_attempts: u32,
 }
 
 /// Run the budget-gated pre-compaction flush: one agent turn, framed by the `Flush` template, whose
@@ -313,6 +322,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         buffer,
         max_steps,
         block_timeout,
+        max_block_attempts,
     } = flush;
     let Some(template) =
         templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Flush)?
@@ -362,6 +372,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             authority: Authority::Platform,
             turn_id,
             block_timeout,
+            max_block_attempts,
         },
         messages,
         initiation: Initiation::Initiated,

@@ -74,6 +74,7 @@ async fn run_bounded(
                 authority: Authority::Platform,
                 turn_id: TurnId::generate(),
                 block_timeout,
+                max_block_attempts: 3,
             },
             script,
         )
@@ -227,6 +228,9 @@ async fn a_block_that_outruns_its_time_budget_is_aborted() {
         panic!("expected a terminal timeout error, got {outcome:?}");
     };
     assert!(message.contains("time budget"), "message was {message:?}");
+    // The block made an MCP call (an un-rollback-able effect), so it is surfaced immediately, NOT
+    // retried — the message names no attempt count (spec §645).
+    assert!(!message.contains("attempts"), "message was {message:?}");
 }
 
 #[tokio::test]

@@ -16,7 +16,10 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
@@ -113,6 +116,11 @@ pub(crate) struct McpSession {
     /// [`McpSession::drop_in_flight`] knows which instance the abandoned call left in an undefined
     /// state and must discard.
     in_flight: Mutex<Option<String>>,
+    /// Whether the current block attempt has made an MCP call — an un-rollback-able external effect.
+    /// Set when [`McpSession::call`] invokes the tool and reset by [`McpSession::begin_block`] at the
+    /// start of each attempt, so a timed-out block that touched MCP is surfaced rather than retried
+    /// (spec §645).
+    block_made_a_call: AtomicBool,
 }
 
 impl McpSession {
@@ -122,7 +130,18 @@ impl McpSession {
             catalogue,
             instances: Mutex::new(HashMap::new()),
             in_flight: Mutex::new(None),
+            block_made_a_call: AtomicBool::new(false),
         }
+    }
+
+    /// Reset the per-attempt "made a call" latch at the start of a block execution attempt.
+    pub(crate) fn begin_block(&self) {
+        self.block_made_a_call.store(false, Ordering::SeqCst);
+    }
+
+    /// Whether this block attempt has invoked an MCP tool.
+    pub(crate) fn block_made_a_call(&self) -> bool {
+        self.block_made_a_call.load(Ordering::SeqCst)
     }
 
     /// The projected tools as system-prompt API entries (forwards to the catalogue).
@@ -163,9 +182,11 @@ impl McpSession {
         })?;
         let arguments = lua_args_to_json(lua, args)?;
         let instance = self.ensure_spawned(server).await.map_err(mcp_to_lua)?;
-        // Mark this server in-flight across the network round-trip. On a clean return the marker is
-        // cleared below; if a block timeout cancels this `await`, the marker is left set so the
+        // Latch that this block engaged MCP — an external effect that bars a silent retry on timeout —
+        // and mark this server in-flight across the network round-trip. On a clean return the in-flight
+        // marker is cleared below; if a block timeout cancels this `await`, it is left set so the
         // timeout handler can drop the now-undefined instance (see [`drop_in_flight`]).
+        self.block_made_a_call.store(true, Ordering::SeqCst);
         *self.in_flight.lock() = Some(server.to_owned());
         let result = instance.call(raw, arguments).await;
         self.in_flight.lock().take();

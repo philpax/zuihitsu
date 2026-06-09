@@ -303,6 +303,14 @@ impl MemoryBlock {
         Ok(texts)
     }
 
+    /// The live members of `id`'s `same_as` class (including `id`), for the Lua lock layer to acquire
+    /// the whole class before a traversing read (spec §Concurrency → class-wide locking). A lock-free
+    /// read returning an owned list: it touches nothing itself — the traversing read it precedes records
+    /// the class into the touched set — and the graph guard is released before it returns.
+    pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, MemoryError> {
+        Ok(self.engine.graph.lock().class_members(id)?)
+    }
+
     /// Memories with a concrete occurrence within `within` of now (e.g. `"7 days"`, `"2 weeks"`;
     /// defaults to 7 days), soonest first (spec §Calendar). A read, so the results are touched.
     pub fn upcoming(&mut self, within: Option<&str>) -> Result<Vec<MemoryId>, MemoryError> {

@@ -80,9 +80,13 @@ pub struct TurnSettings {
     /// Per-turn step bound; hitting it ends the turn with a surfaced error.
     pub max_steps: i64,
     /// Per-block duration budget (spec §Concurrency → lock acquisition): a block held longer than this —
-    /// stuck on slow external I/O or, once locking lands, a lock-wait — aborts, emitting nothing. Set
-    /// generously, above a single MCP call's own timeout, so an ordinary multi-call block is never cut.
+    /// stuck on slow external I/O or a lock-wait — aborts, emitting nothing. Set generously, above a
+    /// single MCP call's own timeout, so an ordinary multi-call block is never cut.
     pub block_timeout_seconds: i64,
+    /// How many times a block that times out on a lock-wait (with no MCP call) is re-run before giving
+    /// up with a terminal error (spec §Concurrency → timeout-and-retry). A block that has made an MCP
+    /// call is never retried, regardless of this bound.
+    pub max_block_attempts: i64,
 }
 
 /// Concurrency limits (spec §Concurrency): how many conversation streams may run at once. The shared
@@ -161,6 +165,7 @@ impl Default for TurnSettings {
         TurnSettings {
             max_steps: 12,
             block_timeout_seconds: 180,
+            max_block_attempts: 3,
         }
     }
 }
@@ -229,6 +234,7 @@ mod tests {
         let turn = TurnSettings::default();
         assert_eq!(turn.max_steps, 12);
         assert_eq!(turn.block_timeout_seconds, 180);
+        assert_eq!(turn.max_block_attempts, 3);
     }
 
     #[test]

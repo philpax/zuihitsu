@@ -15,14 +15,15 @@
 //! scratchpad globals persist on the VM across blocks within the session; the API is re-installed
 //! each block.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 use parking_lot::Mutex;
+use tokio::sync::OwnedMutexGuard;
 use ulid::Ulid;
 
 use crate::{
-    engine::Engine,
+    engine::{Engine, MemoryLocks},
     event::{EventPayload, TerminalCause},
     graph::GraphError,
     ids::{ConversationId, MemoryId, TurnId},
@@ -116,6 +117,28 @@ impl Session {
         }
     }
 
+    /// Reset the per-attempt "this block made an MCP call" latch before an execution attempt.
+    #[cfg(feature = "mcp")]
+    fn begin_mcp_block(&self) {
+        if let Some(mcp) = &self.mcp {
+            mcp.begin_block();
+        }
+    }
+
+    /// Whether this block has made an MCP call this attempt — an external effect that cannot be rolled
+    /// back, so its timeout is surfaced rather than retried (spec §645). Always `false` without a host.
+    #[cfg(feature = "mcp")]
+    fn block_made_mcp_call(&self) -> bool {
+        self.mcp.as_ref().is_some_and(|mcp| mcp.block_made_a_call())
+    }
+
+    /// Without the MCP feature a block can have no un-rollback-able external effect, so a timeout is
+    /// always safe to retry.
+    #[cfg(not(feature = "mcp"))]
+    fn block_made_mcp_call(&self) -> bool {
+        false
+    }
+
     pub fn conversation(&self) -> ConversationId {
         self.conversation
     }
@@ -123,277 +146,328 @@ impl Session {
     /// Execute one block as a transaction. On a clean run, the buffered side effects plus a
     /// `LuaExecuted` commit together; on error or abort, only a `LuaExecuted` recording the terminal
     /// cause is written. The graph is brought up to log-head afterward either way.
+    ///
+    /// The block acquires the lock on each memory it touches and holds it to block end (spec
+    /// §Concurrency → per-memory mutual exclusion), so a concurrent block in another conversation
+    /// serializes on a shared memory. If the block outruns its time budget — stuck on slow external
+    /// I/O or on a lock-wait — it aborts, releases its locks, and **retries from scratch**, bounded by
+    /// `max_block_attempts`; the exception is a block that has already made an MCP call, whose external
+    /// effect cannot be rolled back, so its timeout surfaces as a terminal error with no retry (spec
+    /// §645). A retried block re-runs the Lua from scratch; the VM globals (the scratchpad) persist and
+    /// are not transactional, so a non-idempotent scratchpad write is observable across attempts.
     pub async fn execute(
         &self,
         engine: &Arc<Engine>,
         context: &BlockContext,
         script: &str,
     ) -> Result<BlockOutcome, LuaError> {
-        // The transaction owns the buffer, the touched set, and the write invariants. It holds a
-        // shared handle to the `engine` (locking the graph transiently per read) and lives behind an
-        // `Arc<Mutex<…>>` so the `'static` Lua functions installed below can drive it across the
-        // script's `eval_async`; the commit happens after the script finishes and the effects are
-        // drained back out through the lock.
-        let block = Arc::new(Mutex::new(MemoryBlock::new(
-            engine.clone(),
-            context.teller.clone(),
-            context.authority,
-            self.conversation,
-        )?));
+        let manager = engine.memory_locks.clone();
+        let max_attempts = context.max_block_attempts.max(1);
+        let mut attempt: u32 = 0;
+        loop {
+            attempt += 1;
+            // Each attempt is a fresh transaction over a fresh lock set, bundled with the infra-error
+            // slot and the lock registry as the one [`BlockApi`] seam the install helpers and their
+            // `'static` async closures share. The block owns the buffer and the write invariants;
+            // `lock_set` holds the owned per-memory guards until block end.
+            let api = BlockApi {
+                block: Arc::new(Mutex::new(MemoryBlock::new(
+                    engine.clone(),
+                    context.teller.clone(),
+                    context.authority,
+                    self.conversation,
+                )?)),
+                infra: Arc::new(Mutex::new(None)),
+                lock_set: Arc::new(Mutex::new(LockSet::default())),
+                manager: manager.clone(),
+            };
 
-        // The handle metatable and its methods table back every memory handle the API mints.
-        let methods = self.lua.create_table().map_err(LuaError::Vm)?;
-        let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
-        metatable
-            .set("__index", methods.clone())
-            .map_err(LuaError::Vm)?;
+            // The handle metatable and its methods table back every memory handle the API mints.
+            let methods = self.lua.create_table().map_err(LuaError::Vm)?;
+            let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
+            metatable
+                .set("__index", methods.clone())
+                .map_err(LuaError::Vm)?;
 
-        // A graph read failing inside an operation is infrastructure, not the agent's doing — it is
-        // stashed here and bubbled up as a `LuaError` after the script, rather than shown to the agent
-        // as a teachable block error.
-        let infra: Arc<Mutex<Option<GraphError>>> = Arc::new(Mutex::new(None));
+            // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects
+            // this attempt only.
+            #[cfg(feature = "mcp")]
+            self.begin_mcp_block();
 
-        // Installing the API is our-side setup: a failure here is a bug, not an agent-visible outcome.
-        self.install_block_api(&block, &infra, &methods, &metatable)
-            .map_err(LuaError::Vm)?;
+            // Installing the API is our-side setup: a failure here is a bug, not an agent-visible
+            // outcome.
+            self.install_block_api(&api, &methods, &metatable)
+                .map_err(LuaError::Vm)?;
 
-        // The agent-visible outcome: the rendered final value, or the runtime error/abort that ended
-        // the script, bounded by the block's time budget (spec §Concurrency → lock acquisition). A
-        // block stuck on slow external I/O is cut here, emitting nothing. The block's memory functions
-        // are synchronous, so they never hold the block lock across this suspension point.
-        let evaluated = match tokio::time::timeout(
-            context.block_timeout,
-            self.lua.load(script).eval_async::<Value>(),
-        )
-        .await
-        {
-            Ok(evaluated) => evaluated.map(|value| render(&value)),
-            Err(_elapsed) => return self.abort_timed_out(engine, context, script, &block),
-        };
+            // The agent-visible outcome: the rendered final value, or the runtime error/abort that
+            // ended the script, bounded by the block's time budget. The block's memory functions only
+            // hold their parking_lot guards transiently, never across this suspension point.
+            let timed = tokio::time::timeout(
+                context.block_timeout,
+                self.lua.load(script).eval_async::<Value>(),
+            )
+            .await;
 
-        // An infrastructure failure during the block (a graph read) takes precedence over the
-        // script's apparent outcome: it bubbles up, discarding the buffer, rather than reaching the
-        // agent.
-        if let Some(graph_error) = infra.lock().take() {
-            return Err(LuaError::Graph(graph_error));
-        }
+            let Ok(evaluated) = timed else {
+                // Timed out. Release the locks (so a retry, or another conversation, can take them) and
+                // drop the in-flight MCP instance — its session-side state is now undefined.
+                release_locks(&api.lock_set);
+                #[cfg(feature = "mcp")]
+                self.drop_in_flight_mcp();
+                if self.block_made_mcp_call() {
+                    // An external effect happened this attempt; surface the timeout, do not retry.
+                    let cause = timed_out_cause(context.block_timeout, None);
+                    return self.commit_terminal(engine, context, script, &api.block, cause);
+                }
+                if attempt >= max_attempts {
+                    let cause = timed_out_cause(context.block_timeout, Some(attempt));
+                    return self.commit_terminal(engine, context, script, &api.block, cause);
+                }
+                // Abort-and-retry: the buffer emitted nothing, so a fresh attempt is the only trace.
+                continue;
+            };
+            let evaluated = evaluated.map(|value| render(&value));
 
-        // Drain the effects through the lock: the Lua functions still hold `Arc` clones of the block,
-        // so it cannot be reclaimed by ownership, but those references are inert now the script has
-        // finished and are overwritten when the next block re-installs the API.
-        let BlockEffects {
-            events,
-            touched,
-            aborted,
-        } = block.lock().take_effects();
-
-        match evaluated {
-            Ok(result) => {
-                // Commit the buffered side effects plus the LuaExecuted record, atomically.
-                let mut events = events;
-                events.push(self.lua_executed(
-                    context.turn_id,
-                    script,
-                    Some(result.clone()),
-                    touched,
-                    None,
-                ));
-                self.finish(engine, events, BlockOutcome::Committed { result })
+            // An infrastructure failure during the block (a graph read) takes precedence over the
+            // script's apparent outcome: it bubbles up, discarding the buffer and releasing the locks,
+            // rather than reaching the agent.
+            if let Some(graph_error) = api.infra.lock().take() {
+                release_locks(&api.lock_set);
+                return Err(LuaError::Graph(graph_error));
             }
-            Err(error) => {
-                // Discard the buffer; record only what the agent saw — the terminal cause.
-                let cause = match aborted {
-                    Some(reason) => TerminalCause::Aborted(reason),
-                    None => TerminalCause::Error(error.to_string()),
-                };
-                let event =
-                    self.lua_executed(context.turn_id, script, None, touched, Some(cause.clone()));
-                self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
-            }
+
+            // Drain the effects through the lock and commit. Locks are held through the commit so a
+            // concurrent block sees consistent state, then released once the block is done.
+            let BlockEffects {
+                events,
+                touched,
+                aborted,
+            } = api.block.lock().take_effects();
+            let outcome = match evaluated {
+                Ok(result) => {
+                    let mut events = events;
+                    events.push(self.lua_executed(
+                        context.turn_id,
+                        script,
+                        Some(result.clone()),
+                        touched,
+                        None,
+                    ));
+                    self.finish(engine, events, BlockOutcome::Committed { result })
+                }
+                Err(error) => {
+                    // Discard the buffer; record only what the agent saw — the terminal cause.
+                    let cause = match aborted {
+                        Some(reason) => TerminalCause::Aborted(reason),
+                        None => TerminalCause::Error(error.to_string()),
+                    };
+                    let event = self.lua_executed(
+                        context.turn_id,
+                        script,
+                        None,
+                        touched,
+                        Some(cause.clone()),
+                    );
+                    self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
+                }
+            };
+            release_locks(&api.lock_set);
+            return outcome;
         }
     }
 
-    /// End a block that exceeded its time budget (spec §Concurrency → lock acquisition). The buffer is
-    /// discarded — the block emits nothing — and only a `LuaExecuted` recording the terminal cause is
-    /// committed, so the timeout is auditable and the agent sees what happened. The in-flight MCP
-    /// instance, if any, is dropped: its session-side state is now undefined after the abandoned call.
-    fn abort_timed_out(
+    /// Commit a block's terminal record (a discarded buffer, the touched set kept for the audit) and
+    /// bring the graph to head — the shared tail of the timeout-give-up and no-retry-after-MCP paths.
+    fn commit_terminal(
         &self,
         engine: &Engine,
         context: &BlockContext,
         script: &str,
         block: &Arc<Mutex<MemoryBlock>>,
+        cause: TerminalCause,
     ) -> Result<BlockOutcome, LuaError> {
-        #[cfg(feature = "mcp")]
-        self.drop_in_flight_mcp();
-        // Drain the touched set for the audit record; the buffered events are discarded.
         let BlockEffects { touched, .. } = block.lock().take_effects();
-        let cause = TerminalCause::Error(format!(
-            "the block exceeded its time budget of {}s and was aborted",
-            context.block_timeout.as_secs()
-        ));
         let event = self.lua_executed(context.turn_id, script, None, touched, Some(cause.clone()));
         self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
     }
 
-    /// Install the per-block memory API as `'static` Lua functions over the shared `block`. Each
-    /// function locks the block transiently for its operation; a graph-read failure is routed to
-    /// `infra` (infrastructure, bubbled up) while a teachable violation becomes the Lua runtime error
-    /// the agent sees. The handle `metatable`/`methods` tables back every minted memory handle. The
-    /// registration is split table by table so each group stays legible.
+    /// Install the per-block memory API as `'static` async Lua functions over the shared [`BlockApi`]
+    /// seam. Before its operation, each function acquires the lock on every memory it touches and holds
+    /// the owned guard (in `api.lock_set`) to block end, so a concurrent block in another conversation
+    /// serializes on a shared memory (spec §Concurrency). A graph-read failure is routed to `api.infra`
+    /// (infrastructure, bubbled up); a teachable violation becomes the Lua runtime error the agent sees.
+    /// The handle `metatable`/`methods` tables back every minted memory handle. The registration is
+    /// split table by table so each group stays legible.
     fn install_block_api(
         &self,
-        block: &Arc<Mutex<MemoryBlock>>,
-        infra: &Arc<Mutex<Option<GraphError>>>,
+        api: &BlockApi,
         methods: &Table,
         metatable: &Table,
     ) -> mlua::Result<()> {
-        self.install_handle_methods(block, infra, methods)?;
+        self.install_handle_methods(api, methods)?;
         let globals = self.lua.globals();
-        globals.set("memory", self.memory_table(block, infra, metatable)?)?;
-        globals.set("block", self.block_table(block)?)?;
-        globals.set("context", self.context_table(block, metatable)?)?;
-        globals.set("calendar", self.calendar_table(block, infra, metatable)?)?;
+        globals.set("memory", self.memory_table(api, metatable)?)?;
+        globals.set("block", self.block_table(api)?)?;
+        globals.set("context", self.context_table(api, metatable)?)?;
+        globals.set("calendar", self.calendar_table(api, metatable)?)?;
         Ok(())
     }
 
     /// The `mem:*` handle methods (`append`, `entries`, `link`, `unlink`) on the metatable's `methods`
-    /// table. Each acts on the handle passed as `this` and mints nothing, so it needs no metatable.
-    fn install_handle_methods(
-        &self,
-        block: &Arc<Mutex<MemoryBlock>>,
-        infra: &Arc<Mutex<Option<GraphError>>>,
-        methods: &Table,
-    ) -> mlua::Result<()> {
+    /// table. Each acts on the handle passed as `this`.
+    fn install_handle_methods(&self, api: &BlockApi, methods: &Table) -> mlua::Result<()> {
         // mem:append(text[, opts]) — `opts` is the typed override struct, deserialized from the table.
+        // Locks the target memory before writing it.
         methods.set(
             "append",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 move |lua, (this, text, opts): (Table, String, Value)| {
-                    let id = handle_id(&this)?;
-                    let opts: AppendOptions = if opts.is_nil() {
-                        AppendOptions::default()
-                    } else {
-                        lua.from_value(opts)?
-                    };
-                    block
-                        .lock()
-                        .append(id, &text, opts)
-                        .map_err(|error| route_error(error, &mut infra.lock()))
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock(id).await;
+                        let opts: AppendOptions = if opts.is_nil() {
+                            AppendOptions::default()
+                        } else {
+                            lua.from_value(opts)?
+                        };
+                        api.block
+                            .lock()
+                            .append(id, &text, opts)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
                 }
             })?,
         )?;
 
-        // mem:entries() — the memory's entry texts across its merged identity plus pending writes.
+        // mem:entries() — the memory's entry texts across its merged identity plus pending writes. A
+        // traversing read, so it locks the whole `same_as` class before reading (spec §Concurrency →
+        // class-wide locking).
         methods.set(
             "entries",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 move |lua, this: Table| {
-                    let id = handle_id(&this)?;
-                    let texts = block
-                        .lock()
-                        .entries(id)
-                        .map_err(|error| route_error(error, &mut infra.lock()))?;
-                    lua.create_sequence_from(texts)
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock_class(id).await?;
+                        let texts = api
+                            .block
+                            .lock()
+                            .entries(id)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        lua.create_sequence_from(texts)
+                    }
                 }
             })?,
         )?;
 
         // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation such
-        // as `active_in`. The script names the relation as a string; it is recognized into its typed
-        // [`RelationName`] here, at the wrapper boundary.
+        // as `active_in`, locking both endpoints. The script names the relation as a string; it is
+        // recognized into its typed [`RelationName`] here, at the wrapper boundary.
         methods.set(
             "link",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 move |_, (this, relation, other): (Table, String, Table)| {
-                    block
-                        .lock()
-                        .link(
-                            handle_id(&this)?,
-                            handle_id(&other)?,
-                            RelationName::new(relation),
-                        )
-                        .map_err(|error| route_error(error, &mut infra.lock()))
+                    let api = api.clone();
+                    async move {
+                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                        api.lock_all([from, to]).await;
+                        api.block
+                            .lock()
+                            .link(from, to, RelationName::new(relation))
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
                 }
             })?,
         )?;
         methods.set(
             "unlink",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 move |_, (this, relation, other): (Table, String, Table)| {
-                    block
-                        .lock()
-                        .unlink(
-                            handle_id(&this)?,
-                            handle_id(&other)?,
-                            RelationName::new(relation),
-                        )
-                        .map_err(|error| route_error(error, &mut infra.lock()))
+                    let api = api.clone();
+                    async move {
+                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                        api.lock_all([from, to]).await;
+                        api.block
+                            .lock()
+                            .unlink(from, to, RelationName::new(relation))
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
                 }
             })?,
         )?;
+
         Ok(())
     }
 
     /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
-    fn memory_table(
-        &self,
-        block: &Arc<Mutex<MemoryBlock>>,
-        infra: &Arc<Mutex<Option<GraphError>>>,
-        metatable: &Table,
-    ) -> mlua::Result<Table> {
+    fn memory_table(&self, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
         let memory = self.lua.create_table()?;
-        // memory.create(name[, content]) — create a memory and optionally its first entry.
+        // memory.create(name[, content]) — create a memory and optionally its first entry, then lock
+        // the freshly-minted id (uncontended — no other block knows it yet).
         memory.set(
             "create",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 let metatable = metatable.clone();
                 move |lua, (name, content): (String, Option<String>)| {
-                    let id = block
-                        .lock()
-                        .create(&name, content.as_deref())
-                        .map_err(|error| route_error(error, &mut infra.lock()))?;
-                    make_handle(lua, id, &metatable)
+                    let api = api.clone();
+                    let metatable = metatable.clone();
+                    async move {
+                        let id = api
+                            .block
+                            .lock()
+                            .create(&name, content.as_deref())
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        api.lock(id).await;
+                        make_handle(&lua, id, &metatable)
+                    }
                 }
             })?,
         )?;
-        // memory.get(name) — resolve through the block's pending creates, then the graph.
+        // memory.get(name) — resolve through the block's pending creates, then the graph, locking the
+        // resolved stub.
         memory.set(
             "get",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 let metatable = metatable.clone();
-                move |lua, name: String| match block
-                    .lock()
-                    .get(&name)
-                    .map_err(|error| route_error(error, &mut infra.lock()))?
-                {
-                    Some(id) => Ok(Value::Table(make_handle(lua, id, &metatable)?)),
-                    None => Ok(Value::Nil),
+                move |lua, name: String| {
+                    let api = api.clone();
+                    let metatable = metatable.clone();
+                    async move {
+                        let resolved = api
+                            .block
+                            .lock()
+                            .get(&name)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        match resolved {
+                            Some(id) => {
+                                api.lock(id).await;
+                                Ok(Value::Table(make_handle(&lua, id, &metatable)?))
+                            }
+                            None => Ok(Value::Nil),
+                        }
+                    }
                 }
             })?,
         )?;
         Ok(memory)
     }
 
-    /// The `block` global: `abort(reason)`, which discards the buffer and ends the block.
-    fn block_table(&self, block: &Arc<Mutex<MemoryBlock>>) -> mlua::Result<Table> {
+    /// The `block` global: `abort(reason)`, which discards the buffer and ends the block. It touches no
+    /// memory, so it stays a synchronous function and takes no lock.
+    fn block_table(&self, api: &BlockApi) -> mlua::Result<Table> {
         let block_tbl = self.lua.create_table()?;
         block_tbl.set(
             "abort",
             self.lua.create_function({
-                let block = block.clone();
+                let block = api.block.clone();
                 move |_, reason: Option<String>| {
                     block.lock().abort(reason);
                     Err::<(), _>(mlua::Error::RuntimeError("block aborted".to_owned()))
@@ -405,20 +479,27 @@ impl Session {
 
     /// The `context` global: `current()`, the current conversation's `context/*` memory (its
     /// `#confidential` tag tells the agent whether the room is confidential), or nil if there is none.
-    fn context_table(
-        &self,
-        block: &Arc<Mutex<MemoryBlock>>,
-        metatable: &Table,
-    ) -> mlua::Result<Table> {
+    /// The resolved context memory is locked like any other touched memory.
+    fn context_table(&self, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
         let context = self.lua.create_table()?;
         context.set(
             "current",
-            self.lua.create_function({
-                let block = block.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 let metatable = metatable.clone();
-                move |lua, ()| match block.lock().current_context() {
-                    Some(id) => Ok(Value::Table(make_handle(lua, id, &metatable)?)),
-                    None => Ok(Value::Nil),
+                move |lua, ()| {
+                    let api = api.clone();
+                    let metatable = metatable.clone();
+                    async move {
+                        let current = api.block.lock().current_context();
+                        match current {
+                            Some(id) => {
+                                api.lock(id).await;
+                                Ok(Value::Table(make_handle(&lua, id, &metatable)?))
+                            }
+                            None => Ok(Value::Nil),
+                        }
+                    }
                 }
             })?,
         )?;
@@ -428,59 +509,70 @@ impl Session {
     /// The `calendar` global: `upcoming`, `on`, and `recurring`, each returning a list of memory
     /// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own
     /// queries and are not visibility-filtered (like `mem:entries`, the agent sees its whole memory).
-    fn calendar_table(
-        &self,
-        block: &Arc<Mutex<MemoryBlock>>,
-        infra: &Arc<Mutex<Option<GraphError>>>,
-        metatable: &Table,
-    ) -> mlua::Result<Table> {
+    /// Strict locking: each returned memory is locked, since the query read (and touched) it.
+    fn calendar_table(&self, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
         let calendar = self.lua.create_table()?;
         calendar.set(
             "upcoming",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 let metatable = metatable.clone();
                 move |lua, opts: Option<Table>| {
-                    let within: Option<String> = match opts {
-                        Some(table) => table.get("within")?,
-                        None => None,
-                    };
-                    let ids = block
-                        .lock()
-                        .upcoming(within.as_deref())
-                        .map_err(|error| route_error(error, &mut infra.lock()))?;
-                    make_handle_list(lua, ids, &metatable)
+                    let api = api.clone();
+                    let metatable = metatable.clone();
+                    async move {
+                        let within: Option<String> = match opts {
+                            Some(table) => table.get("within")?,
+                            None => None,
+                        };
+                        let ids = api
+                            .block
+                            .lock()
+                            .upcoming(within.as_deref())
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        api.lock_all(ids.iter().copied()).await;
+                        make_handle_list(&lua, ids, &metatable)
+                    }
                 }
             })?,
         )?;
         calendar.set(
             "on",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 let metatable = metatable.clone();
                 move |lua, date: String| {
-                    let ids = block
-                        .lock()
-                        .on(&date)
-                        .map_err(|error| route_error(error, &mut infra.lock()))?;
-                    make_handle_list(lua, ids, &metatable)
+                    let api = api.clone();
+                    let metatable = metatable.clone();
+                    async move {
+                        let ids = api
+                            .block
+                            .lock()
+                            .on(&date)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        api.lock_all(ids.iter().copied()).await;
+                        make_handle_list(&lua, ids, &metatable)
+                    }
                 }
             })?,
         )?;
         calendar.set(
             "recurring",
-            self.lua.create_function({
-                let block = block.clone();
-                let infra = infra.clone();
+            self.lua.create_async_function({
+                let api = api.clone();
                 let metatable = metatable.clone();
                 move |lua, ()| {
-                    let ids = block
-                        .lock()
-                        .recurring()
-                        .map_err(|error| route_error(error, &mut infra.lock()))?;
-                    make_handle_list(lua, ids, &metatable)
+                    let api = api.clone();
+                    let metatable = metatable.clone();
+                    async move {
+                        let ids = api
+                            .block
+                            .lock()
+                            .recurring()
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        api.lock_all(ids.iter().copied()).await;
+                        make_handle_list(&lua, ids, &metatable)
+                    }
                 }
             })?,
         )?;
@@ -690,6 +782,115 @@ impl From<GraphError> for LuaError {
     fn from(error: GraphError) -> Self {
         LuaError::Graph(error)
     }
+}
+
+/// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
+/// infrastructure-error slot (`infra`), the per-block lock set (`lock_set`), and the server-wide lock
+/// registry (`manager`). Bundled so the install helpers pass one seam rather than four parallel
+/// arguments, and the `'static` async closures clone one value. `Clone` clones the inner `Arc`s.
+#[derive(Clone)]
+struct BlockApi {
+    block: Arc<Mutex<MemoryBlock>>,
+    infra: Arc<Mutex<Option<GraphError>>>,
+    lock_set: Arc<Mutex<LockSet>>,
+    manager: Arc<MemoryLocks>,
+}
+
+impl BlockApi {
+    /// Acquire `id`'s lock (unless already held), holding the owned guard in the lock set to block end.
+    async fn lock(&self, id: MemoryId) {
+        ensure_locked(&self.lock_set, &self.manager, [id]).await;
+    }
+
+    /// Acquire the locks for `ids` (skipping any already held) — the multi-memory operations (a link's
+    /// two endpoints, a calendar query's whole result set).
+    async fn lock_all(&self, ids: impl IntoIterator<Item = MemoryId>) {
+        ensure_locked(&self.lock_set, &self.manager, ids).await;
+    }
+
+    /// Lock the whole `same_as` class of `id` (plus `id` itself) before a traversing read, so a
+    /// concurrent write to a sibling stub cannot tear the merged view (spec §Concurrency → class-wide
+    /// locking). The class membership is read lock-free through the block; a graph failure routes to
+    /// `infra`. The class boundary is read-then-locked, so a concurrent operator merge can shift it —
+    /// an accepted edge the timeout backstops (a platform turn cannot merge).
+    async fn lock_class(&self, id: MemoryId) -> mlua::Result<()> {
+        let members = self
+            .block
+            .lock()
+            .class_members(id)
+            .map_err(|error| route_error(error, &mut self.infra.lock()))?;
+        ensure_locked(
+            &self.lock_set,
+            &self.manager,
+            std::iter::once(id).chain(members),
+        )
+        .await;
+        Ok(())
+    }
+}
+
+/// The per-memory locks a block holds, keyed by memory and released together at block end (spec
+/// §Concurrency → lifetime is the code block). The owned guards live here, not in the closures, so
+/// [`release_locks`] can drop them deterministically at the end of `execute`.
+#[derive(Default)]
+struct LockSet {
+    held: HashMap<MemoryId, OwnedMutexGuard<()>>,
+}
+
+impl LockSet {
+    fn holds(&self, id: MemoryId) -> bool {
+        self.held.contains_key(&id)
+    }
+
+    fn insert(&mut self, id: MemoryId, guard: OwnedMutexGuard<()>) {
+        self.held.insert(id, guard);
+    }
+
+    fn take(&mut self) -> Vec<OwnedMutexGuard<()>> {
+        std::mem::take(&mut self.held).into_values().collect()
+    }
+}
+
+/// Acquire the registry lock for each id not already held by `lock_set`, recording each owned guard.
+/// The `lock_set` `parking_lot` guard is taken only to test membership and to insert, never held across
+/// the acquire `.await`; the only long-held locks are the per-memory ones, so two blocks acquiring in
+/// opposite orders deadlock only until the per-block timeout breaks and retries them (spec §Concurrency
+/// → timeout-and-retry, not an ordering protocol). Within one block the calls are sequential (Lua runs
+/// one operation at a time), so the membership test is race-free and never double-acquires an id.
+async fn ensure_locked(
+    lock_set: &Arc<Mutex<LockSet>>,
+    manager: &Arc<MemoryLocks>,
+    ids: impl IntoIterator<Item = MemoryId>,
+) {
+    for id in ids {
+        if lock_set.lock().holds(id) {
+            continue;
+        }
+        let guard = manager.acquire(id).await;
+        lock_set.lock().insert(id, guard);
+    }
+}
+
+/// Drain and drop the block's lock guards, releasing the per-memory locks so the next block (here or in
+/// another conversation) can take them. The `'static` Lua closures still hold `Arc` clones of the
+/// now-empty lock set, but no longer any guard — a leaked guard would deadlock the next block touching
+/// that memory, so this is called on every exit path of `execute`.
+fn release_locks(lock_set: &Arc<Mutex<LockSet>>) {
+    let guards = lock_set.lock().take();
+    drop(guards);
+}
+
+/// The terminal cause for a block that blew its time budget: the budget in seconds, plus — when the
+/// block exhausted its retries without an MCP call — the attempt count, so the give-up is auditable.
+fn timed_out_cause(budget: std::time::Duration, attempts: Option<u32>) -> TerminalCause {
+    let secs = budget.as_secs();
+    let message = match attempts {
+        Some(attempts) => format!(
+            "the block exceeded its time budget of {secs}s on each of {attempts} attempts and was aborted"
+        ),
+        None => format!("the block exceeded its time budget of {secs}s and was aborted"),
+    };
+    TerminalCause::Error(message)
 }
 
 /// Build a Lua handle table `{ id = "<ulid>" }` with the memory methods as its metatable index.
