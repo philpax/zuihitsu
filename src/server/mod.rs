@@ -462,6 +462,23 @@ impl Server {
         }
         tracing::info!("scheduler driver stopped");
     }
+
+    /// Tear down the live sessions at server shutdown: drain the session map and shut each session's
+    /// MCP instances down (best-effort). Called by the serving host once the HTTP server has stopped
+    /// accepting. Dropping the drained sessions also releases their VMs.
+    pub async fn shutdown(&self) {
+        let sessions: Vec<Arc<OpenSession>> = self
+            .sessions
+            .lock()
+            .drain()
+            .map(|(_, session)| session)
+            .collect();
+        #[cfg(feature = "mcp")]
+        for session in &sessions {
+            session.vm.shutdown_mcp().await;
+        }
+        drop(sessions);
+    }
 }
 
 /// The initial stream-limit permit count read from settings at construction. Floors at 1 so a

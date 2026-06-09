@@ -1,7 +1,8 @@
-//! The CLI control client: an operator-authority client over the agent server. It opens the
-//! instance the environmental config selects and talks to the server through the `Control` facet.
-//! Non-interactive and scriptable; the guided creation wizard will live in the web frontend. All
-//! output goes through `tracing` to stderr — the CLI is an operator/diagnostic tool.
+//! The CLI control client: an operator-authority client over the agent server. Run with no
+//! subcommand, `zuihitsu` boots the long-running HTTP server (the `serve` feature); with a subcommand
+//! it acts on the instance the environmental config selects. Non-interactive and scriptable; the
+//! guided creation wizard will live in the web frontend. Diagnostics go through `tracing` to stderr —
+//! the CLI is an operator/diagnostic tool.
 
 use std::{
     io,
@@ -25,8 +26,9 @@ struct Cli {
     /// Path to the environmental config file (selects the instance).
     #[arg(long, default_value = "config.toml", global = true)]
     config: PathBuf,
+    /// The operation to perform. With none, `zuihitsu` boots the long-running server.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -70,9 +72,12 @@ fn init_tracing() {
 }
 
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
+    let Some(command) = &cli.command else {
+        return serve(&cli.config);
+    };
     let mut server = open_server(&cli.config)?;
     let status = server.boot().map_err(CliError::Boot)?;
-    match &cli.command {
+    match command {
         Command::Create {
             name,
             persona,
@@ -80,6 +85,18 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         } => create(&mut server, status, name, persona, seed),
         Command::Status => report_status(&mut server, status),
     }
+}
+
+/// Boot the long-running HTTP server (the primary operation). Available only with the `serve` feature;
+/// otherwise the binary was built without serving support.
+#[cfg(feature = "serve")]
+fn serve(config_path: &Path) -> Result<(), CliError> {
+    crate::serve::run_blocking(config_path).map_err(CliError::Serve)
+}
+
+#[cfg(not(feature = "serve"))]
+fn serve(_config_path: &Path) -> Result<(), CliError> {
+    Err(CliError::ServeUnavailable)
 }
 
 fn create(
@@ -173,13 +190,31 @@ fn ensure_parent_dir(path: &Path) -> Result<(), CliError> {
 /// A CLI-level failure, naming the operation and the resource it was acting on.
 #[derive(Debug)]
 enum CliError {
-    LoadConfig { path: PathBuf, source: ConfigError },
-    CreateDir { path: PathBuf, source: io::Error },
-    OpenEventLog { path: PathBuf, source: StoreError },
-    OpenGraph { path: PathBuf, source: GraphError },
+    LoadConfig {
+        path: PathBuf,
+        source: ConfigError,
+    },
+    CreateDir {
+        path: PathBuf,
+        source: io::Error,
+    },
+    OpenEventLog {
+        path: PathBuf,
+        source: StoreError,
+    },
+    OpenGraph {
+        path: PathBuf,
+        source: GraphError,
+    },
     Boot(ServerError),
     CreateAgent(ServerError),
     Inspect(ServerError),
+    /// The long-running server exited with an error.
+    #[cfg(feature = "serve")]
+    Serve(crate::serve::ServeError),
+    /// `zuihitsu` was invoked with no subcommand, but built without the `serve` feature.
+    #[cfg(not(feature = "serve"))]
+    ServeUnavailable,
 }
 
 impl std::fmt::Display for CliError {
@@ -208,6 +243,13 @@ impl std::fmt::Display for CliError {
             CliError::Boot(source) => write!(f, "could not boot the agent: {source}"),
             CliError::CreateAgent(source) => write!(f, "could not create the agent: {source}"),
             CliError::Inspect(source) => write!(f, "could not inspect the agent: {source}"),
+            #[cfg(feature = "serve")]
+            CliError::Serve(source) => write!(f, "the server exited with an error: {source}"),
+            #[cfg(not(feature = "serve"))]
+            CliError::ServeUnavailable => write!(
+                f,
+                "this build has no `serve` feature; rebuild with it to run the server"
+            ),
         }
     }
 }
@@ -222,6 +264,10 @@ impl std::error::Error for CliError {
             CliError::Boot(source) | CliError::CreateAgent(source) | CliError::Inspect(source) => {
                 Some(source)
             }
+            #[cfg(feature = "serve")]
+            CliError::Serve(source) => Some(source),
+            #[cfg(not(feature = "serve"))]
+            CliError::ServeUnavailable => None,
         }
     }
 }

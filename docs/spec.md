@@ -54,6 +54,8 @@ Adversarial operators, prompt injection through externally-fetched content (real
 
 The **agent server** is the only process that touches the event log, the materialized graph, and the model. It exposes a single API — the structured surface the debugger already shares (see **Observability**) — and every other actor reaches it as a client. Authority is a property of the client's role, enforced server-side, never a property of where the client runs or what a participant types.
 
+The binary's default invocation *is* that server: running `zuihitsu` with no subcommand boots the long-running instance, which serves the API (over loopback HTTP) and runs the background scheduler. The operator CLI subcommands and the web dashboard are clients of the running instance, not separate openers of the store — only one process holds the single-writer log lock (see **Boot**), so the CLI reaches the agent *through* the server rather than around it. The served surface is split into an operator route group and a participant route group, mirroring the two authority roles below; the web debugger, when it lands, is served at the root of the same surface.
+
 Two authority roles:
 
 - **Platform clients** — Discord, future Slack, the direct interface. They deliver participant turns and receive replies, and carry no operator authority: they can act only as the participants they represent. Each authenticates as itself and stamps every turn with its `(platform, platform_user_id)` so the server resolves it to a stub. They cannot reach the operator-only endpoints, which is what makes "the operator has no platform identity" (see **Trust model**) actually enforceable.
