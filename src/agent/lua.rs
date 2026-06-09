@@ -714,7 +714,9 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .required(
             "name",
             AT::String,
-            "the namespaced handle, e.g. \"person/<name>\" or \"topic/<subject>\"",
+            "the namespaced handle, e.g. \"person/<name>\" or \"topic/<subject>\". Names match \
+             exactly (case-sensitive), so prefer lowercase — \"person/dave\", not \"person/Dave\" — \
+             to avoid splitting one subject across casings",
         )
         .optional("content", AT::String, "an optional first content entry")
         .returns(AT::Handle);
@@ -722,7 +724,8 @@ pub fn api_reference() -> Vec<ApiEntry> {
     let get = AE::new("memory.get")
         .description(
             "Fetch a memory by name. Read a merged identity through its canonical person/ handle, \
-             not a per-platform stub.",
+             not a per-platform stub. The name must match exactly (case-sensitive); if a lookup \
+             returns nil, suspect the casing before creating a new memory.",
         )
         .required("name", AT::String, "the memory's handle")
         .returns(AT::Handle.optional());
@@ -763,26 +766,38 @@ pub fn api_reference() -> Vec<ApiEntry> {
 
     let entries = AE::new("mem:entries")
         .description(
-            "The memory's live content entries, across its whole merged identity. Each reads as its \
-             text and can be passed to mem:supersede.",
+            "The memory's live content entries, across its whole merged identity. Each is an entry \
+             object — read its text with entry.text (it also prints as its text), and pass the \
+             object itself to mem:supersede to replace it. Hold onto the object if you intend to \
+             supersede it.",
         )
         .returns(AT::Entry.list());
 
     let history = AE::new("mem:history")
         .description(
             "The memory's entries including superseded ones, oldest first — the full record, where \
-             mem:entries shows only the live ones.",
+             mem:entries shows only the live ones. Each is an entry object (entry.text for its \
+             text).",
         )
         .returns(AT::Entry.list());
 
     let supersede = AE::new("mem:supersede")
         .description(
-            "Correct or retract a fact: mark an old entry superseded by a new one (append the \
-             correction first, then supersede). The old entry drops from live reads but stays in \
-             mem:history.",
+            "Correct or retract a fact: mark an old entry superseded by a new one. Append the \
+             correction first to get the new entry object, then call supersede with the old entry \
+             object (from mem:entries) and the new one. The old entry drops from live reads but \
+             stays in mem:history.",
         )
-        .required("old", AT::Entry, "the entry being replaced")
-        .required("new", AT::Entry, "the entry that replaces it");
+        .required(
+            "old",
+            AT::Entry,
+            "the entry object being replaced (from mem:entries)",
+        )
+        .required(
+            "new",
+            AT::Entry,
+            "the entry object that replaces it (from mem:append)",
+        );
 
     let link = AE::new("mem:link")
         .description(
