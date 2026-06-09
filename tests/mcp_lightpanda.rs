@@ -5,12 +5,14 @@
 
 #![cfg(feature = "mcp")]
 
+mod common;
+
 use std::{collections::BTreeMap, path::Path, rc::Rc};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, Graph,
     ManualClock, McpCatalogue, McpHost, McpServerConfig, MemoryStore, Session, StdioHost, Teller,
-    Timestamp, TurnId,
+    TurnId,
 };
 
 /// The lightpanda MCP server config: the repo binary run as `lightpanda mcp` over stdio.
@@ -94,7 +96,7 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
     let engine = Engine::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
+        Box::new(ManualClock::new(common::time::EARLY)),
     );
     let configs = BTreeMap::from([("lightpanda".to_owned(), config)]);
     let host = Rc::new(StdioHost);

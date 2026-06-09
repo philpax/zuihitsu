@@ -1,8 +1,11 @@
 //! Shared integration-test helpers. Included via `mod common;` from a test file; the directory
 //! form keeps it from being compiled as its own test binary.
 
-// Helpers are used by some test binaries and not others; that's expected for a shared module.
-#![allow(dead_code)]
+// Helpers (and the `Harness` re-export) are used by some test binaries and not others; that's
+// expected for a shared module.
+#![allow(dead_code, unused_imports)]
+
+pub mod time;
 
 #[cfg(feature = "lua")]
 pub use harness::Harness;
@@ -13,14 +16,10 @@ mod harness {
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, ConversationId, Engine, Graph, ManualClock,
-        MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Timestamp, Turn,
-        TurnId,
+        MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Turn, TurnId,
     };
 
-    /// A realistic, non-epoch test clock (2026-06-08T00:00:00Z). Starting near the Unix epoch made
-    /// model-gated runs resolve relative phrases like "last Tuesday" into 1969/1970 and risked the
-    /// model overfitting to that period; a present-day base keeps the declared "now" lifelike.
-    const TEST_NOW: Timestamp = Timestamp(1_780_876_800_000);
+    use super::time::TEST_NOW;
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
     /// manual clock, and one Lua session. The `engine` is the same shared handle the turn writes

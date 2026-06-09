@@ -6,13 +6,15 @@
 
 #![cfg(all(feature = "lua", feature = "mcp"))]
 
+mod common;
+
 use std::{collections::BTreeMap, rc::Rc};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
     ConversationLocator, Engine, FakeMcpHost, FakeServer, Graph, ManualClock, McpCatalogue,
     McpError, McpOutput, McpServerConfig, McpTool, MemoryStore, ScriptedModel, SeedSelf, Server,
-    Session, Teller, TerminalCause, Timestamp, ToolCall, TurnId, TurnOutcome,
+    Session, Teller, TerminalCause, ToolCall, TurnId, TurnOutcome,
 };
 
 /// A tool advertised under `name` (the catalogue entry the escape map is built from).
@@ -40,7 +42,7 @@ async fn run(host: FakeMcpHost, servers: &[&str], script: &str) -> BlockOutcome 
     let engine = Engine::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
+        Box::new(ManualClock::new(common::time::EARLY)),
     );
     let configs: BTreeMap<String, McpServerConfig> = servers
         .iter()
@@ -254,7 +256,7 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(Timestamp::from_millis(1_780_876_800_000))),
+        Box::new(ManualClock::new(common::time::TEST_NOW)),
     );
     server
         .control()

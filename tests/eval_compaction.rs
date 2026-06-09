@@ -10,10 +10,12 @@
 
 #![cfg(all(feature = "lua", feature = "openai"))]
 
+mod common;
+
 use zuihitsu::{
     Completion, ConversationLocator, EnvConfig, GenerateRequest, Graph, ManualClock, MemoryStore,
-    Message, ModelClient, OpenAiClient, SeedSelf, Server, Timestamp, ToolChoice, ToolSpec,
-    TurnOutcome, Visibility,
+    Message, ModelClient, OpenAiClient, SeedSelf, Server, ToolChoice, ToolSpec, TurnOutcome,
+    Visibility,
 };
 
 /// How many times the scenario is driven. A *must-not-surface* oracle wants zero leaks across N; the
@@ -280,7 +282,7 @@ fn verdict_tool() -> ToolSpec {
 /// starts at a present-day, non-epoch time (2026-06-08T00:00:00Z) so the model-gated runs resolve
 /// relative phrases against a lifelike "now" rather than 1970.
 fn born_agent() -> Server {
-    let clock = ManualClock::new(Timestamp::from_millis(1_780_876_800_000));
+    let clock = ManualClock::new(common::time::TEST_NOW);
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),

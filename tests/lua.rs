@@ -13,8 +13,8 @@ use common::Harness;
 use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
     Clock, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName, MemoryStore,
-    RelationName, Seq, Session, Store, TagName, Teller, TemporalRef, TerminalCause, Timestamp,
-    TurnId, Visibility, event::EventPayload, resolve_or_mint_conversation,
+    RelationName, Seq, Session, Store, TagName, Teller, TemporalRef, TerminalCause, TurnId,
+    Visibility, event::EventPayload, resolve_or_mint_conversation,
 };
 
 #[tokio::test]
@@ -126,7 +126,7 @@ async fn calendar_rejects_a_malformed_argument() {
 #[tokio::test]
 async fn append_carries_teller_context_and_default_visibility() {
     let mut store = MemoryStore::new();
-    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let clock = ManualClock::new(common::time::EARLY);
     let mut graph = Graph::open_in_memory().unwrap();
 
     // A room (with its eagerly-minted context memory), the subject, and the speaker.
@@ -230,7 +230,7 @@ async fn append_carries_teller_context_and_default_visibility() {
 #[tokio::test]
 async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
     let mut store = MemoryStore::new();
-    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let clock = ManualClock::new(common::time::EARLY);
     let mut graph = Graph::open_in_memory().unwrap();
 
     // A room (with its context memory), the active_in relation, and a thread memory.
@@ -311,7 +311,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
 #[tokio::test]
 async fn a_write_in_a_confidential_room_defaults_private() {
     let mut store = MemoryStore::new();
-    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let clock = ManualClock::new(common::time::EARLY);
     let mut graph = Graph::open_in_memory().unwrap();
 
     let conversation = resolve_or_mint_conversation(

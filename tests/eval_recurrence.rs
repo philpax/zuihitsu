@@ -10,9 +10,10 @@
 
 #![cfg(all(feature = "lua", feature = "openai"))]
 
+mod common;
+
 use zuihitsu::{
-    ConversationLocator, EnvConfig, Graph, ManualClock, MemoryStore, OpenAiClient, SeedSelf,
-    Server, Timestamp,
+    ConversationLocator, EnvConfig, Graph, ManualClock, MemoryStore, OpenAiClient, SeedSelf, Server,
 };
 
 /// How many times the single-turn scenario is driven; the emission rate is reported over this.
@@ -75,7 +76,7 @@ async fn the_model_emits_a_recurring_occurrence() {
 /// A born agent over an in-memory store, the clock at a present-day, non-epoch time
 /// (2026-06-08T00:00:00Z) so the model resolves "every Tuesday" against a lifelike "now".
 fn born_agent() -> Server {
-    let clock = ManualClock::new(Timestamp::from_millis(1_780_876_800_000));
+    let clock = ManualClock::new(common::time::TEST_NOW);
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),

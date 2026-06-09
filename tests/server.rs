@@ -3,6 +3,8 @@
 
 #![cfg(feature = "sqlite")]
 
+mod common;
+
 #[cfg(feature = "lua")]
 use zuihitsu::{
     Completion, ConversationLocator, MemoryStore, ScriptedModel, ToolCall, TurnOutcome,
@@ -10,9 +12,11 @@ use zuihitsu::{
 #[cfg(all(feature = "lua", feature = "openai"))]
 use zuihitsu::{EnvConfig, OpenAiClient};
 use zuihitsu::{
-    Graph, ManualClock, MemoryId, SeedSelf, Server, SqliteStore, Timestamp,
+    Graph, ManualClock, MemoryId, SeedSelf, Server, SqliteStore,
     genesis::{GenesisStatus, Rollout},
 };
+
+use common::time::TEST_NOW;
 
 fn seed() -> SeedSelf {
     SeedSelf {
@@ -21,10 +25,6 @@ fn seed() -> SeedSelf {
         seed_entries: vec!["I keep what people tell me in confidence.".to_owned()],
     }
 }
-
-/// A realistic, non-epoch base (2026-06-08T00:00:00Z): a present-day "now" keeps the declared time
-/// lifelike rather than 1970, which matters once a turn states the time to the model.
-const TEST_NOW: Timestamp = Timestamp(1_780_876_800_000);
 
 fn clock() -> Box<ManualClock> {
     Box::new(ManualClock::new(TEST_NOW))

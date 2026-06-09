@@ -6,11 +6,13 @@
 
 #![cfg(all(feature = "lua", feature = "mcp", feature = "openai"))]
 
+mod common;
+
 use std::{collections::BTreeMap, path::Path, rc::Rc};
 
 use zuihitsu::{
     ConversationLocator, EnvConfig, Graph, ManualClock, McpServerConfig, MemoryStore, OpenAiClient,
-    SeedSelf, Server, StdioHost, Timestamp, TurnOutcome,
+    SeedSelf, Server, StdioHost, TurnOutcome,
 };
 
 #[tokio::test]
@@ -67,7 +69,7 @@ async fn the_agent_chooses_to_browse_with_lightpanda() {
 
 /// A born agent over an in-memory store, the clock at a present-day, non-epoch time.
 fn born_agent() -> Server {
-    let clock = ManualClock::new(Timestamp::from_millis(1_780_876_800_000));
+    let clock = ManualClock::new(common::time::TEST_NOW);
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
