@@ -15,7 +15,7 @@ mod harness {
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Engine, Graph,
         ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Turn,
-        TurnId,
+        TurnId, TurnView,
     };
 
     use super::time::TEST_NOW;
@@ -94,6 +94,33 @@ mod harness {
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 capture,
+            }
+        }
+
+        /// As [`Harness::as_turn`], but replaying `buffer` as the prior conversation — for multi-turn
+        /// scenarios where a later turn must see what the agent said and did earlier (build it with
+        /// `buffer_turns` over the recorded turns).
+        pub fn as_turn_buffered<'a>(
+            &'a self,
+            model: &'a dyn ModelClient,
+            inbound: &'a str,
+            max_steps: usize,
+            buffer: &'a [TurnView],
+        ) -> Turn<'a> {
+            Turn {
+                session: &self.session,
+                model,
+                engine: self.engine.clone(),
+                inbound,
+                inbound_participant: self.participant,
+                brief: "",
+                buffer,
+                template: PromptTemplateName::Scaffold,
+                authority: Authority::Platform,
+                max_steps,
+                block_timeout: TEST_BLOCK_TIMEOUT,
+                max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                capture: CaptureLevel::Full,
             }
         }
 

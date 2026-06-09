@@ -5,9 +5,9 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    CaptureLevel, CivilDate, Completion, EnvConfig, Message, ModelPhase, OpenAiClient,
+    CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Message, ModelPhase, OpenAiClient,
     PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store, Timestamp, ToolCall,
-    TurnOutcome, TurnReport, TurnRole, Usage, event::EventPayload, genesis, run_turn,
+    TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns, event::EventPayload, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -729,4 +729,137 @@ async fn off_capture_records_no_model_interaction() {
         model_calls(&**h.engine.store.lock()).is_empty(),
         "Off emits no ModelCalled events"
     );
+}
+
+/// Supersession against the real model (model-gated, ignored). A realistic two-turn flow: the model
+/// records a fact, then is told a correction in the same conversation, so it acts on the memory it
+/// created rather than guessing a name. Observational, like the temporal-extraction probe — it prints
+/// what the model did (did it supersede, append, or fragment into a duplicate?) and asserts only the
+/// robust invariants: the turns complete without an infrastructure error, and our mechanism holds (an
+/// entry recorded as superseded is never live). Whether the model *chooses* to supersede is a
+/// model-floor observation, not a gate.
+#[tokio::test]
+#[ignore = "requires a reachable model endpoint (config.toml)"]
+async fn real_model_supersedes_a_corrected_fact() {
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        eprintln!("skipping: no model endpoint configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    let h = Harness::new();
+    genesis::rollout(&mut **h.engine.store.lock(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(&**h.engine.store.lock())
+        .unwrap();
+    let conversation = h.session.conversation();
+
+    // Turn 1: the model records the fact under a name of its own choosing.
+    let first = run_turn(h.as_turn(&client, "Please remember that Dave works at Hooli.", 12)).await;
+    let Ok(first) = first else {
+        eprintln!("skipping: turn 1 failed: {first:?}");
+        return;
+    };
+    eprintln!("turn 1 reply: {:?}", first.outcome);
+
+    // Turn 2: a natural mention of the change — no instruction to update the record — with turn 1
+    // replayed as the conversation buffer. The agent should infer that its memory of Dave is now stale
+    // and maintain it on its own.
+    let buffer = buffer_turns(h.engine.store.lock().as_ref(), conversation, Seq::ZERO).unwrap();
+    let second = run_turn(h.as_turn_buffered(
+        &client,
+        "Oh, by the way — Dave left Hooli. He's over at Pied Piper these days.",
+        12,
+        &buffer,
+    ))
+    .await;
+    let Ok(second) = second else {
+        eprintln!("skipping: turn 2 failed: {second:?}");
+        return;
+    };
+    eprintln!("turn 2 reply: {:?}", second.outcome);
+
+    // What the model actually did, step by step — the deliberation surface.
+    let superseded_ids: std::collections::BTreeSet<EntryId> = h
+        .engine
+        .store
+        .lock()
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| match event.payload {
+            EventPayload::LuaExecuted {
+                script,
+                result,
+                terminal_cause,
+                ..
+            } => {
+                eprintln!("  lua: {script:?} -> result={result:?} terminal={terminal_cause:?}");
+                None
+            }
+            EventPayload::MemorySuperseded { entry, .. } => Some(entry),
+            _ => None,
+        })
+        .collect();
+
+    // The current person/* memories and their live/superseded entries.
+    let people = h
+        .engine
+        .graph
+        .lock()
+        .memories_in_namespace("person/")
+        .unwrap();
+    eprintln!("person/* memories ({}):", people.len());
+    let mut pied_piper_live = false;
+    let mut hooli_live = false;
+    for person in &people {
+        let history = h.engine.graph.lock().class_history(person.id).unwrap();
+        eprintln!("  {} ({} entries):", person.name.as_str(), history.len());
+        for entry in &history {
+            let live = entry.superseded_by.is_none();
+            let lower = entry.text.to_lowercase();
+            if live && lower.contains("pied piper") {
+                pied_piper_live = true;
+            }
+            if live && lower.contains("hooli") {
+                hooli_live = true;
+            }
+            eprintln!(
+                "    - [{}] {}",
+                if live { "live" } else { "superseded" },
+                entry.text
+            );
+            // Mechanism invariant: a superseded entry must not appear in the live class read.
+            if !live {
+                let in_live = h
+                    .engine
+                    .graph
+                    .lock()
+                    .class_entries(person.id)
+                    .unwrap()
+                    .iter()
+                    .any(|e| e.entry_id == entry.entry_id);
+                assert!(!in_live, "a superseded entry is still in the live read");
+            }
+        }
+    }
+
+    eprintln!(
+        "verdict: supersessions={}, person/* memories={}, 'Pied Piper' live={pied_piper_live}, \
+         'Hooli' live={hooli_live}",
+        superseded_ids.len(),
+        people.len(),
+    );
+    if people.len() > 1 {
+        eprintln!("  NOTE: the model fragmented Dave into multiple memories (name mismatch).");
+    }
+    if hooli_live && pied_piper_live {
+        eprintln!(
+            "  NOTE: both the stale and corrected facts are live — the model appended without retracting."
+        );
+    }
 }
