@@ -10,8 +10,8 @@ use std::{collections::BTreeMap, rc::Rc};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, FakeMcpHost,
-    FakeServer, Graph, ManualClock, McpError, McpOutput, McpServerConfig, McpTool, MemoryStore,
-    Session, Teller, TerminalCause, Timestamp, TurnId,
+    FakeServer, Graph, ManualClock, McpCatalogue, McpError, McpOutput, McpServerConfig, McpTool,
+    MemoryStore, Session, Teller, TerminalCause, Timestamp, TurnId,
 };
 
 /// A tool advertised under `name` (the catalogue entry the escape map is built from).
@@ -41,11 +41,13 @@ async fn run(host: FakeMcpHost, servers: &[&str], script: &str) -> BlockOutcome 
         Graph::open_in_memory().unwrap(),
         Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
     );
-    let servers: BTreeMap<String, McpServerConfig> = servers
+    let configs: BTreeMap<String, McpServerConfig> = servers
         .iter()
         .map(|name| ((*name).to_owned(), McpServerConfig::default()))
         .collect();
-    let session = Session::with_mcp(ConversationId::generate(), Rc::new(host), servers);
+    let host = Rc::new(host);
+    let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
+    let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
     session
         .execute(
             &engine,
@@ -185,17 +187,18 @@ async fn an_uncaught_tool_error_terminates_the_block() {
 }
 
 #[tokio::test]
-async fn an_unknown_tool_errors() {
+async fn an_uncatalogued_tool_is_nil() {
     let host = FakeMcpHost::new().with(
         "browser",
         FakeServer::new(vec![tool("markdown")]).returns("markdown", text("ok")),
     );
-    // The server spawns and lists `markdown`; `nonexistent` resolves to no raw tool.
+    // The catalogue advertises only `markdown`, so the projection installs only that function — an
+    // uncatalogued (or filtered-out) tool simply has no `mcp.browser.*` function and is nil.
     let outcome = run(host, &["browser"], r#"return mcp.browser.nonexistent{}"#).await;
     let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
         panic!("expected a terminal error, got {outcome:?}");
     };
-    assert!(message.contains("no tool"), "message was {message:?}");
+    assert!(message.contains("nil"), "message was {message:?}");
 }
 
 #[tokio::test]

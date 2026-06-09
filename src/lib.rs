@@ -114,9 +114,12 @@ pub use __openai::*;
 
 #[cfg(feature = "mcp")]
 mod __mcp {
-    pub use crate::mcp::{
-        ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
-        McpServerConfig, McpTool, StdioHost,
+    pub use crate::{
+        agent::McpCatalogue,
+        mcp::{
+            ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
+            McpServerConfig, McpTool, StdioHost,
+        },
     };
 }
 #[cfg(feature = "mcp")]

@@ -67,24 +67,35 @@ impl Session {
         }
     }
 
-    /// A VM with the `mcp.<server>.*` projection installed for `servers`, spawned on demand through
-    /// `host`. The projection global is installed once here and persists across the session's blocks
-    /// (the server instances are session-scoped). Lua-table creation cannot realistically fail at
-    /// construction, so installation is treated as infallible, like [`Session::new`].
+    /// A VM with the `mcp.<server>.*` projection installed from `catalogue` (the probed, filtered tool
+    /// set), with live instances spawned on demand through `host`. The projection global is installed
+    /// once here and persists across the session's blocks (the server instances are session-scoped).
+    /// Lua-table creation cannot realistically fail at construction, so installation is treated as
+    /// infallible, like [`Session::new`].
     #[cfg(feature = "mcp")]
     pub fn with_mcp(
         conversation: ConversationId,
         host: std::rc::Rc<dyn crate::mcp::McpHost>,
-        servers: std::collections::BTreeMap<String, crate::mcp::McpServerConfig>,
+        catalogue: super::mcp_api::McpCatalogue,
     ) -> Session {
         let lua = Lua::new();
-        let mcp = std::rc::Rc::new(super::mcp_api::McpSession::new(host, servers));
+        let mcp = std::rc::Rc::new(super::mcp_api::McpSession::new(host, catalogue));
         super::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
         Session {
             lua,
             conversation,
             mcp: Some(mcp),
         }
+    }
+
+    /// The configured MCP tools as system-prompt API entries — empty when no host is configured. The
+    /// turn assembles these alongside the build-derived Lua API into the prompt's API description.
+    #[cfg(feature = "mcp")]
+    pub fn mcp_api_entries(&self) -> Vec<super::api_doc::ApiEntry> {
+        self.mcp
+            .as_ref()
+            .map(|mcp| mcp.api_entries())
+            .unwrap_or_default()
     }
 
     /// Tear down the session's MCP instances (close stdin, wait, kill on a grace timeout), best-effort.
