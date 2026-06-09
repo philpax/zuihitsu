@@ -33,6 +33,7 @@ pub struct Settings {
     pub search: SearchSettings,
     pub scheduler: SchedulerSettings,
     pub concurrency: ConcurrencySettings,
+    pub observability: ObservabilitySettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -100,6 +101,30 @@ pub struct TurnSettings {
 pub struct ConcurrencySettings {
     /// The most conversation turns that may be in flight at once; further streams queue for a slot.
     pub max_concurrent_streams: i64,
+}
+
+/// Observability (spec §Observability): how much of each model call the model-interaction record
+/// captures. The full request repeats the agent loop's growing buffer (delta-encoded, but still
+/// material at the `Base` of each turn), so the verbosity is operator-tunable at runtime.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ObservabilitySettings {
+    /// How much of each model call to record (the deliberation is always captured; this governs the
+    /// request side).
+    pub capture_model_calls: CaptureLevel,
+}
+
+/// How much of a model call's request the model-interaction record stores (spec §Observability). The
+/// deliberation — reasoning, finish reason, usage, latency — is captured at every level above `Off`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CaptureLevel {
+    /// The delta-encoded request plus a digest — full reconstruction of every prompt.
+    #[default]
+    Full,
+    /// Only the request digest (no message content), plus the full response.
+    Digest,
+    /// No model-interaction record at all.
+    Off,
 }
 
 /// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
@@ -182,6 +207,14 @@ impl Default for ConcurrencySettings {
     }
 }
 
+impl Default for ObservabilitySettings {
+    fn default() -> Self {
+        ObservabilitySettings {
+            capture_model_calls: CaptureLevel::Full,
+        }
+    }
+}
+
 impl Default for SearchSettings {
     fn default() -> Self {
         SearchSettings {
@@ -231,7 +264,10 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConcurrencySettings, SchedulerSettings, Settings, TurnSettings};
+    use super::{
+        CaptureLevel, ConcurrencySettings, ObservabilitySettings, SchedulerSettings, Settings,
+        TurnSettings,
+    };
 
     #[test]
     fn turn_defaults_match_the_spec_starting_values() {
@@ -254,6 +290,14 @@ mod tests {
     }
 
     #[test]
+    fn observability_defaults_to_full_capture() {
+        assert_eq!(
+            ObservabilitySettings::default().capture_model_calls,
+            CaptureLevel::Full
+        );
+    }
+
+    #[test]
     fn a_snapshot_predating_a_field_adopts_its_build_default() {
         // The schema is append-only: an older `ConfigSet` snapshot, written before `block_timeout_seconds`
         // (or the whole `concurrency` group) existed, omits the key — and must deserialize to the build
@@ -273,6 +317,11 @@ mod tests {
         assert_eq!(
             settings.scheduler.tick_seconds,
             SchedulerSettings::default().tick_seconds
+        );
+        // A whole group added later (observability) adopts its default too.
+        assert_eq!(
+            settings.observability.capture_model_calls,
+            CaptureLevel::Full
         );
     }
 }

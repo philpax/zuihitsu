@@ -277,6 +277,7 @@ impl Platform<'_> {
                     settings.turn.block_timeout_seconds.max(0) as u64
                 ),
                 max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
+                capture: settings.observability.capture_model_calls,
             })
             .await?;
             self.server

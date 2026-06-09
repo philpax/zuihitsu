@@ -35,8 +35,8 @@ pub use agent::{
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
 pub use event::{
-    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ProducedBy,
-    PromptTemplateName, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ModelPhase, ProducedBy,
+    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
@@ -48,8 +48,8 @@ pub use model::{
     index::{IndexError, Indexer},
 };
 pub use settings::{
-    BriefSettings, CompactionSettings, ConcurrencySettings, RecencySettings, SchedulerSettings,
-    SearchSettings, Settings, TauDays, TurnSettings,
+    BriefSettings, CaptureLevel, CompactionSettings, ConcurrencySettings, ObservabilitySettings,
+    RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{

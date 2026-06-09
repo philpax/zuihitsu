@@ -15,7 +15,7 @@
 //! scratchpad globals persist on the VM across blocks within the session; the API is re-installed
 //! each block.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 use parking_lot::Mutex;
@@ -185,7 +185,10 @@ impl Session {
 
             // The agent-visible outcome: the rendered final value, or the runtime error/abort that
             // ended the script, bounded by the block's time budget. The block's memory functions only
-            // hold their parking_lot guards transiently, never across this suspension point.
+            // hold their parking_lot guards transiently, never across this suspension point. `started`
+            // times this attempt's eval for the debugger's turn timeline (the final attempt's, since a
+            // retry restarts it).
+            let started = Instant::now();
             let timed = tokio::time::timeout(
                 context.block_timeout,
                 self.lua.load(script).eval_async::<Value>(),
@@ -200,11 +203,13 @@ impl Session {
                 if self.block_made_mcp_call() {
                     // An external effect happened this attempt; surface the timeout, do not retry.
                     let cause = timed_out_cause(context.block_timeout, None);
-                    return self.commit_terminal(engine, context, script, &api.block, cause);
+                    return self
+                        .commit_terminal(engine, context, script, &api.block, cause, started);
                 }
                 if attempt >= max_attempts {
                     let cause = timed_out_cause(context.block_timeout, Some(attempt));
-                    return self.commit_terminal(engine, context, script, &api.block, cause);
+                    return self
+                        .commit_terminal(engine, context, script, &api.block, cause, started);
                 }
                 // Abort-and-retry: the buffer emitted nothing, so a fresh attempt is the only trace.
                 continue;
@@ -235,6 +240,7 @@ impl Session {
                         Some(result.clone()),
                         touched,
                         None,
+                        started.elapsed().as_millis() as u64,
                     ));
                     self.finish(engine, events, BlockOutcome::Committed { result })
                 }
@@ -250,6 +256,7 @@ impl Session {
                         None,
                         touched,
                         Some(cause.clone()),
+                        started.elapsed().as_millis() as u64,
                     );
                     self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
                 }
@@ -268,9 +275,17 @@ impl Session {
         script: &str,
         block: &Arc<Mutex<MemoryBlock>>,
         cause: TerminalCause,
+        started: Instant,
     ) -> Result<BlockOutcome, LuaError> {
         let BlockEffects { touched, .. } = block.lock().take_effects();
-        let event = self.lua_executed(context.turn_id, script, None, touched, Some(cause.clone()));
+        let event = self.lua_executed(
+            context.turn_id,
+            script,
+            None,
+            touched,
+            Some(cause.clone()),
+            started.elapsed().as_millis() as u64,
+        );
         self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
     }
 
@@ -569,6 +584,7 @@ impl Session {
         result: Option<String>,
         touched: Vec<MemoryId>,
         terminal_cause: Option<TerminalCause>,
+        duration_ms: u64,
     ) -> EventPayload {
         EventPayload::LuaExecuted {
             conversation: self.conversation,
@@ -577,6 +593,7 @@ impl Session {
             result,
             touched,
             terminal_cause,
+            duration_ms,
         }
     }
 

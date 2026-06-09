@@ -35,9 +35,10 @@ impl Graph {
             | EventPayload::ConfigSet { .. }
             | EventPayload::LuaExecuted { .. }
             | EventPayload::ConversationTurn { .. } => {}
-            // A log-only audit record of the agent's belief arbitration, read per memory from the log;
-            // no graph projection (spec §Write path → arbitration).
-            EventPayload::BeliefArbitrated { .. } => {}
+            // Log-only telemetry, read from the log rather than projected: the agent's belief
+            // arbitration (spec §Write path → arbitration), and the model-interaction record (spec
+            // §Observability), which is replay-inert by construction.
+            EventPayload::BeliefArbitrated { .. } | EventPayload::ModelCalled { .. } => {}
             EventPayload::MemoryCreated { id, name } => {
                 // A lone memory is its own class; a later same_as merge recomputes class_id.
                 self.conn

@@ -15,6 +15,7 @@ use crate::{
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
     },
+    model::{Completion, Message, ToolChoice, ToolSpec, Usage},
     settings::Settings,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -184,6 +185,39 @@ pub struct ProducedBy {
 pub struct ArbitrationResolution {
     pub credited: Vec<EntryId>,
     pub statement: String,
+}
+
+/// Which model call within a turn a [`EventPayload::ModelCalled`] records: a step of the agent loop,
+/// or the post-turn description synthesis (spec §Observability). Paired with `turn_id`, it groups a
+/// phase's calls so the prompt can be reconstructed from the [`RequestRecord`] deltas.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelPhase {
+    /// A step of the agent loop (the model chooses a tool call or a reply).
+    Step,
+    /// The post-turn description synthesis (a forced, off-buffer extraction).
+    Synthesis,
+}
+
+/// The request side of a model-interaction record, stored as a delta so the agent loop's growing
+/// message buffer is not repeated in full on every step (spec §Observability). A turn's phase sends
+/// a frozen request shape (`system`, `tools`, `tool_choice`, `thinking`) over an append-only message
+/// buffer, so the first call records a [`RequestRecord::Base`] and each later call records only the
+/// messages appended since the previous one. The full prompt for any call is reconstructed by taking
+/// the `Base` of its `(turn_id, phase)` group, then concatenating the `Continuation` deltas in `seq`
+/// order; the frozen fields come from the `Base`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum RequestRecord {
+    /// The first call of a `(turn_id, phase)` group: the frozen request shape plus the initial
+    /// message buffer the call was sent.
+    Base {
+        system: String,
+        messages: Vec<Message>,
+        tools: Vec<ToolSpec>,
+        tool_choice: ToolChoice,
+        thinking: Option<bool>,
+    },
+    /// A later call in the same group: only the messages appended since the previous call.
+    Continuation { appended_messages: Vec<Message> },
 }
 
 /// Who told the agent a piece of content (spec §Visibility). Distinct from [`EventSource`], which is
@@ -368,7 +402,9 @@ pub enum EventPayload {
     /// Records one executed Lua block — what the agent saw. The stored `result` is the value
     /// rendered back into the next inference step (text, not a live handle), so faithful replay
     /// feeds the model exactly the string it saw. `touched` is the set of memories the block read
-    /// or wrote; `terminal_cause` is set only for agent-visible error/abort outcomes.
+    /// or wrote; `terminal_cause` is set only for agent-visible error/abort outcomes. `duration_ms`
+    /// is the block's wall-clock execution time (the final attempt's, on the retry path), recorded
+    /// for the debugger's turn timeline; `#[serde(default)]` so pre-timing logs replay as `0`.
     LuaExecuted {
         conversation: ConversationId,
         turn_id: TurnId,
@@ -376,6 +412,27 @@ pub enum EventPayload {
         result: Option<String>,
         touched: Vec<MemoryId>,
         terminal_cause: Option<TerminalCause>,
+        #[serde(default)]
+        duration_ms: u64,
+    },
+    /// Records one model call's interaction — the deliberation surface the debugger reconstructs
+    /// (spec §Observability). Log-only telemetry: the materializer ignores it, so faithful replay's
+    /// rebuilt state is identical with or without it, and the recorded (non-deterministic) reasoning,
+    /// usage, and latency are reproduced verbatim because replay reads them rather than recomputing.
+    /// `request` is `Some` at the `Full` capture level (the delta-encoded [`RequestRecord`]) and
+    /// `None` at `Digest`; `request_digest` is a `sha2::Sha256` over the full request actually sent,
+    /// always present, so a reconstructed prompt can be checked against it.
+    ModelCalled {
+        conversation: ConversationId,
+        turn_id: TurnId,
+        phase: ModelPhase,
+        request_digest: String,
+        request: Option<RequestRecord>,
+        completion: Completion,
+        reasoning: Option<String>,
+        finish_reason: Option<String>,
+        usage: Usage,
+        duration_ms: u64,
     },
     /// A turn in the conversation: an inbound participant message, the agent's response (a reply, a
     /// silent terminal with empty `text`, or a surfaced `max_steps` error), or a system message.
@@ -465,6 +522,7 @@ impl EventPayload {
             EventPayload::PromptTemplateRegistered { .. } => "PromptTemplateRegistered",
             EventPayload::ConfigSet { .. } => "ConfigSet",
             EventPayload::LuaExecuted { .. } => "LuaExecuted",
+            EventPayload::ModelCalled { .. } => "ModelCalled",
             EventPayload::ConversationTurn { .. } => "ConversationTurn",
             EventPayload::ConversationStarted { .. } => "ConversationStarted",
             EventPayload::ConversationEnded { .. } => "ConversationEnded",
@@ -513,6 +571,7 @@ impl EventPayload {
             EventPayload::ConversationStarted { id, .. }
             | EventPayload::ConversationEnded { id } => Some(id.0.to_string()),
             EventPayload::LuaExecuted { conversation, .. }
+            | EventPayload::ModelCalled { conversation, .. }
             | EventPayload::ConversationTurn { conversation, .. }
             | EventPayload::SessionStarted { conversation, .. }
             | EventPayload::SessionEnded { conversation, .. }
@@ -534,8 +593,14 @@ pub struct Event {
 
 #[cfg(test)]
 mod tests {
-    use super::{EntryId, EventPayload, MemoryId, SessionId, Teller, Timestamp, Visibility};
-    use crate::time::{CivilDate, TemporalRef};
+    use super::{
+        ConversationId, EntryId, EventPayload, MemoryId, ModelPhase, RequestRecord, SessionId,
+        Teller, Timestamp, TurnId, Visibility,
+    };
+    use crate::{
+        model::{Completion, Message, ToolChoice, Usage},
+        time::{CivilDate, TemporalRef},
+    };
 
     fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
         EventPayload::MemoryContentAppended {
@@ -612,6 +677,55 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn model_called_round_trips() {
+        let event = EventPayload::ModelCalled {
+            conversation: ConversationId::generate(),
+            turn_id: TurnId::generate(),
+            phase: ModelPhase::Step,
+            request_digest: "abc123".to_owned(),
+            request: Some(RequestRecord::Base {
+                system: "be concise".to_owned(),
+                messages: vec![Message::user("hi")],
+                tools: Vec::new(),
+                tool_choice: ToolChoice::Auto,
+                thinking: None,
+            }),
+            completion: Completion::Reply("hello".to_owned()),
+            reasoning: Some("they greeted me".to_owned()),
+            finish_reason: Some("stop".to_owned()),
+            usage: Usage {
+                prompt_tokens: Some(10),
+                completion_tokens: Some(2),
+                total_tokens: Some(12),
+            },
+            duration_ms: 1_234,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn lua_executed_without_duration_replays_as_zero() {
+        // A pre-timing `LuaExecuted` predates `duration_ms`; dropping the key models an old log, and
+        // `serde(default)` must fill `0` so the historical event still deserializes.
+        let event = EventPayload::LuaExecuted {
+            conversation: ConversationId::generate(),
+            turn_id: TurnId::generate(),
+            script: "return 1".to_owned(),
+            result: Some("1".to_owned()),
+            touched: Vec::new(),
+            terminal_cause: None,
+            duration_ms: 99,
+        };
+        let mut value = serde_json::to_value(&event).unwrap();
+        value.as_object_mut().unwrap().remove("duration_ms");
+        assert!(matches!(
+            serde_json::from_value::<EventPayload>(value).unwrap(),
+            EventPayload::LuaExecuted { duration_ms: 0, .. }
+        ));
     }
 
     #[test]

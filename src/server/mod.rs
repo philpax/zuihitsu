@@ -183,10 +183,12 @@ impl Server {
         let open = self
             .ensure_session(routed.conversation, routed.present_set)
             .await?;
-        let turn_settings = Settings::from_store(self.engine.store.lock().as_ref())?.turn;
+        let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
+        let turn_settings = settings.turn;
         let max_steps = turn_settings.max_steps as usize;
         let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);
         let max_block_attempts = turn_settings.max_block_attempts.max(1) as u32;
+        let capture = settings.observability.capture_model_calls;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
         let buffer = buffer_turns(
@@ -207,6 +209,7 @@ impl Server {
             max_steps,
             block_timeout,
             max_block_attempts,
+            capture,
         })
         .await?;
         Ok((report, buffer))

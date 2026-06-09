@@ -9,19 +9,20 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
     clock::Clock,
     engine::Engine,
     event::{
-        ArbitrationResolution, EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller,
-        TerminalCause, TurnRole, Visibility,
+        ArbitrationResolution, EventPayload, Initiation, ModelPhase, ProducedBy,
+        PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility,
     },
     graph::{EntryView, GraphError, MemoryView},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, TurnId},
@@ -30,6 +31,7 @@ use crate::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec,
     },
+    settings::CaptureLevel,
     store::{Store, StoreError},
     time::{self, CivilDate, Direction, Rrule, TemporalRef, Timestamp},
 };
@@ -183,6 +185,8 @@ pub struct Turn<'a> {
     pub block_timeout: Duration,
     /// Per-block retry bound for a lock-wait timeout (spec §Concurrency).
     pub max_block_attempts: u32,
+    /// How much of each model call to capture in the model-interaction record (spec §Observability).
+    pub capture: CaptureLevel,
 }
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
@@ -200,6 +204,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_steps,
         block_timeout,
         max_block_attempts,
+        capture,
     } = turn;
     let conversation = session.conversation();
     // Content the agent writes this turn is attributed to the speaker by default (an append opts out
@@ -276,6 +281,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         initiation: Initiation::Responding,
         provenance: agent_provenance,
         max_steps,
+        capture,
     })
     .await?;
 
@@ -283,7 +289,18 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
     // conversational outcome.
     let written = collect_written_memories(engine.store.lock().as_ref(), cycle_start)?;
-    regenerate_descriptions(model, &engine, &written, cycle_start).await?;
+    regenerate_descriptions(
+        model,
+        &engine,
+        &written,
+        cycle_start,
+        Recording {
+            conversation,
+            turn_id,
+            capture,
+        },
+    )
+    .await?;
 
     Ok(TurnReport {
         outcome,
@@ -306,6 +323,8 @@ pub(crate) struct Flush<'a> {
     pub block_timeout: Duration,
     /// Per-block retry bound for a lock-wait timeout (spec §Concurrency).
     pub max_block_attempts: u32,
+    /// How much of each model call to capture in the model-interaction record (spec §Observability).
+    pub capture: CaptureLevel,
 }
 
 /// Run the budget-gated pre-compaction flush: one agent turn, framed by the `Flush` template, whose
@@ -323,6 +342,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         max_steps,
         block_timeout,
         max_block_attempts,
+        capture,
     } = flush;
     let Some(template) =
         templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Flush)?
@@ -378,11 +398,23 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         initiation: Initiation::Initiated,
         provenance,
         max_steps,
+        capture,
     })
     .await?;
 
     let written = collect_written_memories(engine.store.lock().as_ref(), cycle_start)?;
-    regenerate_descriptions(model, &engine, &written, cycle_start).await?;
+    regenerate_descriptions(
+        model,
+        &engine,
+        &written,
+        cycle_start,
+        Recording {
+            conversation: session.conversation(),
+            turn_id,
+            capture,
+        },
+    )
+    .await?;
     Ok(())
 }
 
@@ -414,6 +446,93 @@ fn stamp(text: &str, at: Timestamp) -> String {
     format!("[{}] {}", time::format_stamp(at), text)
 }
 
+/// The cohesive context every model call needs to write its model-interaction record (spec
+/// §Observability): which `conversation` and `turn_id` the call belongs to, and how much to
+/// `capture`. Threaded into the step loop and the synthesis pass so each `generate` is recorded
+/// uniformly. [`Recording::generate`] is the single chokepoint that times a call and best-effort
+/// appends a `ModelCalled`; telemetry never breaks a turn, so an append failure is logged, not
+/// propagated.
+#[derive(Clone, Copy)]
+struct Recording {
+    conversation: ConversationId,
+    turn_id: TurnId,
+    capture: CaptureLevel,
+}
+
+impl Recording {
+    /// Run one model call, timing it and recording its interaction. The caller passes the
+    /// delta-encoded `record` (the request side), since only it owns the per-phase buffer state.
+    async fn generate(
+        &self,
+        engine: &Engine,
+        model: &dyn ModelClient,
+        request: &GenerateRequest,
+        phase: ModelPhase,
+        record: Option<RequestRecord>,
+    ) -> Result<GenerateResponse, ModelError> {
+        let started = Instant::now();
+        let response = model.generate(request).await?;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        if self.capture != CaptureLevel::Off {
+            let event = EventPayload::ModelCalled {
+                conversation: self.conversation,
+                turn_id: self.turn_id,
+                phase,
+                request_digest: request_digest(request),
+                request: record,
+                completion: response.completion.clone(),
+                reasoning: response.reasoning.clone(),
+                finish_reason: response.finish_reason.clone(),
+                usage: response.usage,
+                duration_ms,
+            };
+            let now = engine.clock.now();
+            if let Err(error) = engine.store.lock().append(now, vec![event]) {
+                tracing::warn!(%error, "could not record the model-interaction event; the turn continues");
+            }
+        }
+        Ok(response)
+    }
+
+    /// The delta record for a call: a [`RequestRecord::Base`] for the first call of a phase
+    /// (`prev_sent_len` is `None`), otherwise a [`RequestRecord::Continuation`] of the messages
+    /// appended since the previous call. `None` unless capturing at [`CaptureLevel::Full`], so the
+    /// growing buffer is cloned only when it will be stored.
+    fn request_record(
+        &self,
+        request: &GenerateRequest,
+        prev_sent_len: Option<usize>,
+    ) -> Option<RequestRecord> {
+        if self.capture != CaptureLevel::Full {
+            return None;
+        }
+        Some(match prev_sent_len {
+            None => RequestRecord::Base {
+                system: request.system.clone(),
+                messages: request.messages.clone(),
+                tools: request.tools.clone(),
+                tool_choice: request.tool_choice,
+                thinking: request.thinking,
+            },
+            Some(sent) => RequestRecord::Continuation {
+                appended_messages: request.messages[sent..].to_vec(),
+            },
+        })
+    }
+}
+
+/// A `sha2::Sha256` digest (hex) over the full serialized request, recorded on every `ModelCalled`
+/// so a prompt reconstructed from the deltas can be checked against the call actually sent.
+fn request_digest(request: &GenerateRequest) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(serde_json::to_vec(request).unwrap_or_default());
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// The shared step loop a participant turn and a pre-compaction flush both run: generate, execute
 /// `run_lua` blocks, feed their results back, until a terminal or `max_steps`. Records exactly one
 /// agent `ConversationTurn` (however it ends) carrying `initiation` and `provenance`, and returns the
@@ -429,6 +548,7 @@ struct Steps<'a> {
     initiation: Initiation,
     provenance: Option<ProducedBy>,
     max_steps: usize,
+    capture: CaptureLevel,
 }
 
 async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnError> {
@@ -442,8 +562,14 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
         initiation,
         provenance,
         max_steps,
+        capture,
     } = steps;
     let conversation = session.conversation();
+    let recording = Recording {
+        conversation,
+        turn_id: context.turn_id,
+        capture,
+    };
     let tools = vec![run_lua_tool()];
 
     let record_agent_turn =
@@ -464,6 +590,9 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
         };
 
     let mut peak_prompt_tokens: Option<u32> = None;
+    // The message count sent in the prior step, so each step records only the messages appended
+    // since (the buffer is append-only within the loop); `None` until the first call.
+    let mut prev_sent_len: Option<usize> = None;
     let outcome = 'cycle: {
         for _ in 0..max_steps {
             let request = GenerateRequest {
@@ -474,9 +603,13 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
                 tool_choice: ToolChoice::Auto,
                 thinking: None,
             };
+            let record = recording.request_record(&request, prev_sent_len);
+            prev_sent_len = Some(messages.len());
             let GenerateResponse {
                 completion, usage, ..
-            } = model.generate(&request).await?;
+            } = recording
+                .generate(&engine, model, &request, ModelPhase::Step, record)
+                .await?;
             peak_prompt_tokens = peak_prompt_tokens.max(usage.prompt_tokens);
             match completion {
                 Completion::ToolCalls(calls) => {
@@ -547,6 +680,7 @@ async fn regenerate_descriptions(
     engine: &Engine,
     written: &[MemoryId],
     cycle_start: Seq,
+    recording: Recording,
 ) -> Result<(), TurnError> {
     let Some(description_template) = templates::latest_template(
         engine.store.lock().as_ref(),
@@ -604,7 +738,17 @@ async fn regenerate_descriptions(
             .cloned()
             .collect();
         if !public_entries.is_empty() {
-            match synthesize(model, &system, &memory, &public_entries, now).await {
+            match synthesize(
+                model,
+                engine,
+                recording,
+                &system,
+                &memory,
+                &public_entries,
+                now,
+            )
+            .await
+            {
                 Ok(Some(synthesis)) => {
                     if !synthesis.description.trim().is_empty() {
                         events.push(EventPayload::MemoryDescriptionRegenerated {
@@ -660,7 +804,17 @@ async fn regenerate_descriptions(
                 .cloned()
                 .collect();
             if !private_untimed.is_empty() {
-                match synthesize(model, &system, &memory, &private_untimed, now).await {
+                match synthesize(
+                    model,
+                    engine,
+                    recording,
+                    &system,
+                    &memory,
+                    &private_untimed,
+                    now,
+                )
+                .await
+                {
                     Ok(Some(synthesis)) => resolve_occurrences(
                         synthesis.occurrences,
                         &private_untimed,
@@ -812,6 +966,8 @@ fn compose_synthesis_system(description_body: &str, extraction_body: Option<&str
 /// memory unchanged".
 async fn synthesize(
     model: &dyn ModelClient,
+    engine: &Engine,
+    recording: Recording,
     system: &str,
     memory: &MemoryView,
     entries: &[EntryView],
@@ -841,8 +997,12 @@ async fn synthesize(
     const ATTEMPTS: usize = 3;
     for attempt in 1..=ATTEMPTS {
         // An off-buffer structured call; its usage must not move the conversational compaction
-        // trigger, so it is read and discarded here.
-        let GenerateResponse { completion, .. } = model.generate(&request).await?;
+        // trigger, so it is read and discarded here. Each attempt is its own `Base` (a fresh
+        // single-message buffer), recorded under the synthesis phase.
+        let record = recording.request_record(&request, None);
+        let GenerateResponse { completion, .. } = recording
+            .generate(engine, model, &request, ModelPhase::Synthesis, record)
+            .await?;
         if let Completion::ToolCalls(calls) = completion
             && let Some(args) = synthesize_argument(&calls)
         {

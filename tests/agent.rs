@@ -5,9 +5,9 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    CivilDate, Completion, EnvConfig, OpenAiClient, PromptTemplateName, ScriptedModel, SeedSelf,
-    Seq, Store, Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, event::EventPayload,
-    genesis, run_turn,
+    CaptureLevel, CivilDate, Completion, EnvConfig, Message, ModelPhase, OpenAiClient,
+    PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store, Timestamp, ToolCall,
+    TurnOutcome, TurnReport, TurnRole, Usage, event::EventPayload, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -607,5 +607,126 @@ async fn real_model_extracts_temporal_references() {
     assert!(
         timed >= 1,
         "expected the model to resolve at least one temporal reference"
+    );
+}
+
+/// The `ModelCalled` events of a run, in `seq` order, projected to the fields the tests assert over.
+fn model_calls(
+    store: &dyn Store,
+) -> Vec<(ModelPhase, Option<RequestRecord>, Option<String>, String)> {
+    store
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            EventPayload::ModelCalled {
+                phase,
+                request,
+                reasoning,
+                request_digest,
+                ..
+            } => Some((phase, request, reasoning, request_digest)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_turn_records_the_model_interaction_with_deliberation() {
+    let h = Harness::new();
+    let usage = Usage {
+        prompt_tokens: Some(100),
+        completion_tokens: Some(20),
+        total_tokens: Some(120),
+    };
+    // Two steps so the delta path runs: a tool call, then a reply, each carrying reasoning.
+    let model = ScriptedModel::with_deliberation([
+        (
+            run_lua_call(r#"memory.create("person/dave", "Met at the gym")"#),
+            "I should record Dave.".to_owned(),
+            usage,
+        ),
+        (
+            Completion::Reply("Noted.".to_owned()),
+            "The fact is stored, so I reply.".to_owned(),
+            usage,
+        ),
+    ]);
+
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
+
+    let calls = model_calls(&**h.engine.store.lock());
+    // No description-regen template is registered (no genesis), so synthesis never runs: exactly the
+    // two step calls are recorded.
+    assert_eq!(calls.len(), 2, "one ModelCalled per step");
+    assert!(calls.iter().all(|(phase, ..)| *phase == ModelPhase::Step));
+
+    // The deliberation is captured verbatim.
+    assert_eq!(calls[0].2.as_deref(), Some("I should record Dave."));
+    assert_eq!(
+        calls[1].2.as_deref(),
+        Some("The fact is stored, so I reply.")
+    );
+    // Digests are present and differ — the second call's prompt grew.
+    assert!(!calls[0].3.is_empty() && !calls[1].3.is_empty());
+    assert_ne!(calls[0].3, calls[1].3);
+
+    // The first call is a Base; the second a Continuation of the messages appended since.
+    let RequestRecord::Base { messages: base, .. } =
+        calls[0].1.clone().expect("Full captures request")
+    else {
+        panic!("the first step records a Base, got {:?}", calls[0].1);
+    };
+    let RequestRecord::Continuation { appended_messages } =
+        calls[1].1.clone().expect("Full captures request")
+    else {
+        panic!("a later step records a Continuation, got {:?}", calls[1].1);
+    };
+
+    // Reconstructing the second call's prompt (Base ++ Continuation) reproduces exactly what the
+    // model was sent on its second call.
+    let reconstructed: Vec<Message> = base.iter().chain(&appended_messages).cloned().collect();
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(reconstructed, seen[1]);
+
+    // Block timing rides on the LuaExecuted (the field is recorded; it cannot be negative).
+    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    assert!(events.iter().any(|e| matches!(
+        &e.payload,
+        EventPayload::LuaExecuted { duration_ms, .. } if *duration_ms < u64::MAX
+    )));
+}
+
+#[tokio::test]
+async fn digest_capture_keeps_the_digest_but_drops_the_request() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);
+
+    run_turn(h.as_turn_capturing(&model, "Hello", 8, CaptureLevel::Digest))
+        .await
+        .unwrap();
+
+    let calls = model_calls(&**h.engine.store.lock());
+    assert_eq!(calls.len(), 1);
+    // The request is dropped, but the digest survives for an integrity check.
+    assert!(calls[0].1.is_none(), "Digest drops the request payload");
+    assert!(!calls[0].3.is_empty(), "Digest keeps the request digest");
+}
+
+#[tokio::test]
+async fn off_capture_records_no_model_interaction() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);
+
+    run_turn(h.as_turn_capturing(&model, "Hello", 8, CaptureLevel::Off))
+        .await
+        .unwrap();
+
+    assert!(
+        model_calls(&**h.engine.store.lock()).is_empty(),
+        "Off emits no ModelCalled events"
     );
 }

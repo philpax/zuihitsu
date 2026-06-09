@@ -13,8 +13,9 @@ mod harness {
     use std::{sync::Arc, time::Duration};
 
     use zuihitsu::{
-        Authority, BlockContext, BlockOutcome, ConversationId, Engine, Graph, ManualClock,
-        MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Turn, TurnId,
+        Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Engine, Graph,
+        ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Turn,
+        TurnId,
     };
 
     use super::time::TEST_NOW;
@@ -60,11 +61,24 @@ mod harness {
         }
 
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
+        /// Captures the full model-interaction record, the production default.
         pub fn as_turn<'a>(
             &'a self,
             model: &'a dyn ModelClient,
             inbound: &'a str,
             max_steps: usize,
+        ) -> Turn<'a> {
+            self.as_turn_capturing(model, inbound, max_steps, CaptureLevel::Full)
+        }
+
+        /// As [`Harness::as_turn`], but with an explicit model-interaction capture level — for tests
+        /// that exercise the `Digest`/`Off` paths.
+        pub fn as_turn_capturing<'a>(
+            &'a self,
+            model: &'a dyn ModelClient,
+            inbound: &'a str,
+            max_steps: usize,
+            capture: CaptureLevel,
         ) -> Turn<'a> {
             Turn {
                 session: &self.session,
@@ -79,6 +93,7 @@ mod harness {
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                capture,
             }
         }
 
