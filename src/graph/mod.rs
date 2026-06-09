@@ -44,30 +44,10 @@ pub struct EntryView {
     pub told_by: Teller,
     pub told_in: Option<MemoryId>,
     pub visibility: Visibility,
-}
-
-impl EntryView {
-    /// Assemble from projected columns, deserializing the structured `told_by` / `told_in` /
-    /// `visibility` metadata.
-    fn from_db(
-        entry_id: EntryId,
-        asserted_at: i64,
-        occurred_sort: Option<i64>,
-        text: String,
-        told_by: &str,
-        told_in: Option<&str>,
-        visibility: &str,
-    ) -> Result<EntryView, GraphError> {
-        Ok(EntryView {
-            entry_id,
-            asserted_at: Timestamp::from_millis(asserted_at),
-            occurred_sort: occurred_sort.map(Timestamp::from_millis),
-            text,
-            told_by: serde_json::from_str(told_by)?,
-            told_in: told_in.map(|id| parse_ulid(id).map(MemoryId)).transpose()?,
-            visibility: serde_json::from_str(visibility)?,
-        })
-    }
+    /// The entry that replaced this one, when it has been superseded (spec §Visibility → superseded
+    /// entries are not live). `None` for a live entry. Live reads exclude superseded entries in SQL;
+    /// this field surfaces on the history reads that deliberately include them.
+    pub superseded_by: Option<EntryId>,
 }
 
 /// A registered relation as projected.
@@ -200,6 +180,7 @@ impl Graph {
                  told_by       TEXT    NOT NULL,
                  told_in       TEXT,
                  visibility    TEXT    NOT NULL,
+                 superseded_by TEXT,
                  seq           INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_entries_memory ON content_entries(memory_id);

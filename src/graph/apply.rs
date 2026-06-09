@@ -131,6 +131,23 @@ impl Graph {
                         .map_err(backend)?;
                 }
             }
+            EventPayload::MemorySuperseded {
+                entry,
+                superseded_by,
+                ..
+            } => {
+                // Stamp the superseded entry's pointer in place; the original append row is otherwise
+                // immutable. Live reads exclude it (spec §Visibility → superseded entries are not
+                // live); history reads keep it. The lexical FTS blob is left as-is — a superseded
+                // fact's words lingering there is a ranking artifact, not a leak, since a lexical hit
+                // returns the memory (with its regenerated description), never the superseded entry.
+                self.conn
+                    .execute(
+                        "UPDATE content_entries SET superseded_by = ?1 WHERE entry_id = ?2",
+                        params![superseded_by.0.to_string(), entry.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
             EventPayload::EntryTemporalResolved {
                 entry_id,
                 occurred_at,

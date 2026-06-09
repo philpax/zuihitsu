@@ -290,6 +290,17 @@ pub enum EventPayload {
         told_in: Option<MemoryId>,
         visibility: Visibility,
     },
+    /// Marks an entry superseded by a newer one: the agent corrected or retracted a fact, recording
+    /// which entry replaces it (spec §Visibility → superseded entries are not live, §Data model →
+    /// `superseded_by`). The original `MemoryContentAppended` stays immutable; applying this stamps
+    /// the superseded entry's `superseded_by`. Live surfaces then exclude it, while history surfaces
+    /// (`mem:history()`, the debugger) still show it. `entry` and `superseded_by` belong to the same
+    /// `same_as` class as `id`.
+    MemorySuperseded {
+        id: MemoryId,
+        entry: EntryId,
+        superseded_by: EntryId,
+    },
     /// Resolves an entry's `occurred_at` after the fact: the turn-end extraction pass read the
     /// entry's natural language ("last Tuesday") and produced a structured [`TemporalRef`]. The
     /// original `MemoryContentAppended` stays immutable; applying this recomputes the entry's
@@ -506,6 +517,7 @@ impl EventPayload {
             EventPayload::MemoryRenamed { .. } => "MemoryRenamed",
             EventPayload::MemoryDeleted { .. } => "MemoryDeleted",
             EventPayload::MemoryContentAppended { .. } => "MemoryContentAppended",
+            EventPayload::MemorySuperseded { .. } => "MemorySuperseded",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
             EventPayload::ScheduledJobFired { .. } => "ScheduledJobFired",
             EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
@@ -547,6 +559,7 @@ impl EventPayload {
             | EventPayload::MemoryRenamed { id, .. }
             | EventPayload::MemoryDeleted { id }
             | EventPayload::MemoryContentAppended { id, .. }
+            | EventPayload::MemorySuperseded { id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::BeliefArbitrated { memory: id, .. }
@@ -648,6 +661,17 @@ mod tests {
             entry_id: EntryId::generate(),
             occurred_at: TemporalRef::Day(CivilDate("2026-06-03".into())),
             produced_by: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn memory_superseded_round_trips() {
+        let event = EventPayload::MemorySuperseded {
+            id: MemoryId::generate(),
+            entry: EntryId::generate(),
+            superseded_by: EntryId::generate(),
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);

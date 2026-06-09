@@ -32,6 +32,12 @@ pub fn visible(
     present_set: &[MemoryId],
     class_of: &ClassOf,
 ) -> Result<bool, GraphError> {
+    // A superseded entry is never live, on any surface (spec §Visibility → superseded entries are
+    // not live). The live entry reads already exclude these in SQL; this guards the search path,
+    // which resolves a vector hit through `entry_by_id` (which does not filter) before this predicate.
+    if entry.superseded_by.is_some() {
+        return Ok(false);
+    }
     let subject = subject_participant(memory.name.as_str(), memory.id);
     Ok(match &entry.visibility {
         Visibility::Public => true,
@@ -245,6 +251,7 @@ mod tests {
             told_by,
             told_in: None,
             visibility,
+            superseded_by: None,
         }
     }
 
@@ -278,6 +285,18 @@ mod tests {
             teller_private_marker("Erin", Some(&leads)),
             "[teller-private, told by Erin in #leads (confidential)]"
         );
+    }
+
+    #[test]
+    fn a_superseded_entry_is_never_visible() {
+        // A public fact that would otherwise surface to anyone present is suppressed once superseded
+        // (spec §Visibility → superseded entries are not live). This guards the search path, which
+        // resolves a vector hit through `entry_by_id` before the predicate.
+        let dave = memory("person/dave");
+        let mut fact = entry(Teller::Agent, Visibility::Public);
+        assert!(visible(&fact, &dave, &[], &identity).unwrap());
+        fact.superseded_by = Some(EntryId::generate());
+        assert!(!visible(&fact, &dave, &[], &identity).unwrap());
     }
 
     #[test]

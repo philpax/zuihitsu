@@ -83,9 +83,9 @@ impl Graph {
         let stmt = self.conn.prepare(
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
                     e.entry_id, e.asserted_at, e.occurred_sort, e.text, e.told_by, e.told_in,
-                    e.visibility
+                    e.visibility, e.superseded_by
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
-             WHERE m.deleted = 0 AND e.occurred_sort IS NOT NULL
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL AND e.occurred_sort IS NOT NULL
                AND e.occurred_sort BETWEEN ?1 AND ?2
              ORDER BY e.occurred_sort, e.seq",
         )?;
@@ -102,7 +102,7 @@ impl Graph {
         let stmt = self.conn.prepare(
             "SELECT e.memory_id, e.entry_id
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
-             WHERE m.deleted = 0 AND e.fired_at IS NULL
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL AND e.fired_at IS NULL
                AND e.occurred_sort IS NOT NULL
                AND e.occurred_sort > e.asserted_at
                AND e.occurred_sort <= ?1
@@ -121,9 +121,10 @@ impl Graph {
         let stmt = self.conn.prepare(
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
                     e.entry_id, e.asserted_at, e.occurred_sort, e.text, e.told_by, e.told_in,
-                    e.visibility
+                    e.visibility, e.superseded_by
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
-             WHERE m.deleted = 0 AND e.fired_at IS NOT NULL AND e.surfaced_at IS NULL
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL
+               AND e.fired_at IS NOT NULL AND e.surfaced_at IS NULL
              ORDER BY e.occurred_sort, e.seq",
         )?;
         query_map_into(stmt, [], |row| self.occurrence_row(row))
@@ -137,7 +138,8 @@ impl Graph {
         let stmt = self.conn.prepare(
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.occurred_at
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
-             WHERE m.deleted = 0 AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL
+               AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
              ORDER BY m.name",
         )?;
         let rows: Vec<(MemoryColumns, String)> = query_map_into(stmt, [], |row| {
@@ -168,26 +170,60 @@ impl Graph {
         Ok(out)
     }
 
-    /// A memory's own content entries, in commit order — the per-stub read primitive that
-    /// class-aware reads compose across a `same_as` class. Low-level: not filtered by soft delete.
-    /// See [`Graph::class_entries`] for the traversing form.
+    /// A memory's own live content entries, in commit order — the per-stub read primitive that
+    /// class-aware reads compose across a `same_as` class. Excludes superseded entries (a live
+    /// surface, spec §Visibility); see [`Graph::entries_local_history`] for the unfiltered form, and
+    /// [`Graph::class_entries`] for the traversing form. Not filtered by soft delete (a single-memory
+    /// read; the class read carries the deleted filter).
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
+            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility,
+                    superseded_by
+             FROM content_entries WHERE memory_id = ?1 AND superseded_by IS NULL ORDER BY seq",
+            id,
+        )
+    }
+
+    /// As [`Graph::entries_local`], but including superseded entries — the per-stub history primitive
+    /// for the surfaces where history is the point (`mem:history()`, the debugger), which deliberately
+    /// bypass the live filter (spec §Visibility → superseded entries are not live).
+    pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        self.collect_entries(
+            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility,
+                    superseded_by
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
         )
     }
 
-    /// The content entries of `id`'s whole live `same_as` class, in global commit order — the
+    /// The live content entries of `id`'s whole `same_as` class, in global commit order — the
     /// read-time traversal that surfaces a merged identity as one. For a singleton class this equals
     /// [`Graph::entries_local`]. Synthesis (description regeneration, belief arbitration) composes
     /// over this rather than a single stub, so a merged identity has one unified description instead
     /// of one per stub (spec §Visibility → synthesis traverses the `same_as` class). Entries of a
-    /// soft-deleted member are excluded.
+    /// soft-deleted member, and superseded entries, are excluded.
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
+            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility,
+                    superseded_by
+             FROM content_entries
+             WHERE memory_id IN (
+                 SELECT id FROM memories
+                 WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+                   AND deleted = 0
+             )
+               AND superseded_by IS NULL
+             ORDER BY seq",
+            id,
+        )
+    }
+
+    /// As [`Graph::class_entries`], but including superseded entries — the class-wide history read
+    /// for `mem:history()` and the debugger (spec §Visibility → superseded entries are not live).
+    pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        self.collect_entries(
+            "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility,
+                    superseded_by
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -207,28 +243,13 @@ impl Graph {
         entry_id: EntryId,
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility
+            "SELECT entry_id, memory_id, asserted_at, occurred_sort, text, told_by, told_in,
+                    visibility, superseded_by
              FROM content_entries WHERE entry_id = ?1",
         )?;
         let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
-            let (memory_id, asserted_at, occurred_sort, text, told_by, told_in, visibility): (
-                String,
-                i64,
-                Option<i64>,
-                String,
-                String,
-                Option<String>,
-                String,
-            ) = row.try_into()?;
-            let entry = EntryView::from_db(
-                entry_id,
-                asserted_at,
-                occurred_sort,
-                text,
-                &told_by,
-                told_in.as_deref(),
-                &visibility,
-            )?;
+            let memory_id: String = row.get("memory_id")?;
+            let entry = entry_from_row(row)?;
             Ok::<_, GraphError>((memory_id, entry))
         })?;
         let Some((memory_id, entry)) = mapped else {
@@ -545,8 +566,9 @@ impl Graph {
         })
     }
 
-    /// Decode the `(memory, entry)` row shared by the calendar and wake-up queries — the same twelve
-    /// columns in the same order ([`Graph::occurrences_in_window`], [`Graph::pending_wakeups`]).
+    /// Decode the `(memory, entry)` row shared by the calendar and wake-up queries: the memory columns
+    /// (`assemble_memory`) and the entry columns ([`entry_from_row`]) selected together
+    /// ([`Graph::occurrences_in_window`], [`Graph::pending_wakeups`]).
     fn occurrence_row(
         &self,
         row: &rusqlite::Row<'_>,
@@ -556,20 +578,8 @@ impl Graph {
         let description: String = row.get("description")?;
         let volatility: String = row.get("volatility")?;
         let created_at: i64 = row.get("created_at")?;
-        let entry_id: String = row.get("entry_id")?;
-        let told_by: String = row.get("told_by")?;
-        let told_in: Option<String> = row.get("told_in")?;
-        let visibility: String = row.get("visibility")?;
         let memory = self.assemble_memory((id, name, description, volatility, created_at))?;
-        let entry = EntryView::from_db(
-            EntryId(parse_ulid(&entry_id)?),
-            row.get("asserted_at")?,
-            row.get("occurred_sort")?,
-            row.get("text")?,
-            &told_by,
-            told_in.as_deref(),
-            &visibility,
-        )?;
+        let entry = entry_from_row(row)?;
         Ok((memory, entry))
     }
 
@@ -603,25 +613,11 @@ impl Graph {
     }
 
     /// Run an entry query whose sole bound parameter is a memory id, mapping each row to an
-    /// [`EntryView`]. Shared by [`Graph::entries_local`] and [`Graph::class_entries`]; the row's seven
-    /// columns are `(entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility)`.
+    /// [`EntryView`] through [`entry_from_row`]. Shared by the live and history entry reads; each must
+    /// select the columns [`entry_from_row`] reads.
     fn collect_entries(&self, sql: &str, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         let stmt = self.conn.prepare(sql)?;
-        query_map_into(stmt, params![id.0.to_string()], |row| {
-            let entry_id: String = row.get("entry_id")?;
-            let told_by: String = row.get("told_by")?;
-            let told_in: Option<String> = row.get("told_in")?;
-            let visibility: String = row.get("visibility")?;
-            EntryView::from_db(
-                EntryId(parse_ulid(&entry_id)?),
-                row.get("asserted_at")?,
-                row.get("occurred_sort")?,
-                row.get("text")?,
-                &told_by,
-                told_in.as_deref(),
-                &visibility,
-            )
-        })
+        query_map_into(stmt, params![id.0.to_string()], entry_from_row)
     }
 
     fn query_ids(&self, sql: &str, id: &str, relation: &str) -> Result<Vec<String>, GraphError> {
@@ -632,6 +628,34 @@ impl Graph {
 
 /// The raw memory columns the `memories` SELECT yields; consumed by [`Graph::assemble_memory`].
 type MemoryColumns = (String, String, String, String, i64);
+
+/// Decode one content-entry row into an [`EntryView`], deserializing the structured `told_by` /
+/// `visibility` and parsing the `told_in` / `superseded_by` ids. A free helper rather than a
+/// `TryFrom` impl because the entry shape is genuinely shared across the entry, calendar, and
+/// wake-up queries, all of which select these columns by these names.
+fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, GraphError> {
+    let entry_id: String = row.get("entry_id")?;
+    let told_by: String = row.get("told_by")?;
+    let told_in: Option<String> = row.get("told_in")?;
+    let visibility: String = row.get("visibility")?;
+    let superseded_by: Option<String> = row.get("superseded_by")?;
+    Ok(EntryView {
+        entry_id: EntryId(parse_ulid(&entry_id)?),
+        asserted_at: Timestamp::from_millis(row.get("asserted_at")?),
+        occurred_sort: row
+            .get::<_, Option<i64>>("occurred_sort")?
+            .map(Timestamp::from_millis),
+        text: row.get("text")?,
+        told_by: serde_json::from_str(&told_by)?,
+        told_in: told_in
+            .map(|id| parse_ulid(&id).map(MemoryId))
+            .transpose()?,
+        visibility: serde_json::from_str(&visibility)?,
+        superseded_by: superseded_by
+            .map(|id| parse_ulid(&id).map(EntryId))
+            .transpose()?,
+    })
+}
 
 fn parse_cardinality(text: &str) -> Result<Cardinality, GraphError> {
     Cardinality::parse(text)
