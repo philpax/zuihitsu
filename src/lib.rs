@@ -85,6 +85,6 @@ pub use memory::{
     },
 };
 pub use model::openai::{OpenAiClient, OpenAiEmbedder};
-pub use server::{Arbitration, Control, Server, ServerError};
+pub use server::{Arbitration, Control, ModelCall, Server, ServerError};
 pub use store::SqliteStore;
 pub use vector::SqliteVectorIndex;

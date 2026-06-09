@@ -10,8 +10,8 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
-    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, Rollout, SeedSelf,
-    SessionView, Settings, TurnOutcome,
+    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, ModelCall, Rollout,
+    SeedSelf, SessionView, Settings, TurnOutcome,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -69,6 +69,11 @@ impl Client {
     /// `GET /control/arbitrations` — the recorded belief arbitrations, oldest first.
     pub fn arbitrations(&self) -> Result<Vec<Arbitration>, ClientError> {
         self.json(self.http.get(self.url("/control/arbitrations")))
+    }
+
+    /// `GET /control/interactions` — the recorded model interactions, oldest first.
+    pub fn interactions(&self) -> Result<Vec<ModelCall>, ClientError> {
+        self.json(self.http.get(self.url("/control/interactions")))
     }
 
     /// `GET /control/settings` — the agent's current behavioral settings.

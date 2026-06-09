@@ -11,7 +11,7 @@
 mod control;
 mod platform;
 
-pub use control::{Arbitration, Control};
+pub use control::{Arbitration, Control, ModelCall};
 pub use platform::Platform;
 
 use std::{

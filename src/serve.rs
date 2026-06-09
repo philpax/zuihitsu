@@ -23,8 +23,9 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use zuihitsu::{
     Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
-    MemoryView, ModelClient, OpenAiClient, Rollout, SeedSelf, Server, ServerError, SessionView,
-    Settings, SqliteStore, StdioHost, StoreError, SystemClock, TurnOutcome, genesis::GenesisStatus,
+    MemoryView, ModelCall, ModelClient, OpenAiClient, Rollout, SeedSelf, Server, ServerError,
+    SessionView, Settings, SqliteStore, StdioHost, StoreError, SystemClock, TurnOutcome,
+    genesis::GenesisStatus,
 };
 
 /// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share (so
@@ -125,6 +126,7 @@ fn router(state: AppState) -> Router {
         .route("/control/sessions", get(sessions))
         .route("/control/recurring", get(recurring))
         .route("/control/arbitrations", get(arbitrations))
+        .route("/control/interactions", get(interactions))
         .route("/control/settings", get(settings).put(set_settings))
         .route("/control/imprint", post(imprint))
         // The participant surface: delivering turns and mid-session joins (spec §Clients → platform
@@ -234,6 +236,12 @@ async fn recurring(State(state): State<AppState>) -> Result<Json<Vec<MemoryView>
 /// `GET /control/arbitrations` — the recorded belief arbitrations, oldest first.
 async fn arbitrations(State(state): State<AppState>) -> Result<Json<Vec<Arbitration>>, ApiError> {
     Ok(Json(state.server.control().arbitrations()?))
+}
+
+/// `GET /control/interactions` — the recorded model interactions, oldest first (the deliberation
+/// surface: per-call request, reasoning, token usage, and latency).
+async fn interactions(State(state): State<AppState>) -> Result<Json<Vec<ModelCall>>, ApiError> {
+    Ok(Json(state.server.control().model_calls()?))
 }
 
 /// `GET /control/settings` — the agent's current behavioral settings.
@@ -458,7 +466,7 @@ mod tests {
     };
     use std::sync::Arc;
     use tower::ServiceExt;
-    use zuihitsu::{Completion, ManualClock, ScriptedModel, Server, time::Timestamp};
+    use zuihitsu::{Completion, ManualClock, ModelCall, ScriptedModel, Server, time::Timestamp};
 
     /// The router serves `/control/health` over an in-memory server, with no real socket — `oneshot`
     /// drives one request through the tower service.
@@ -604,5 +612,68 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(&bytes[..], br#"{"Reply":"Hi there."}"#);
+    }
+
+    #[tokio::test]
+    async fn interactions_surface_the_recorded_model_calls() {
+        // After a scripted turn, `/control/interactions` returns the model-interaction record.
+        let server =
+            Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+        server
+            .control()
+            .create_agent(&zuihitsu::SeedSelf {
+                agent_name: "Kestrel".to_owned(),
+                persona: "An assistant.".to_owned(),
+                seed_entries: vec![],
+            })
+            .unwrap();
+        let model: Arc<dyn zuihitsu::ModelClient> =
+            Arc::new(ScriptedModel::new([Completion::Reply(
+                "Hi there.".to_owned(),
+            )]));
+        let app = router(AppState {
+            server: Arc::new(server),
+            model: Some(model),
+        });
+
+        let body = serde_json::json!({
+            "locator": { "platform": "discord", "scope_path": "general" },
+            "sender": "dave",
+            "text": "hello",
+            "present": ["dave"],
+        });
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/platform/message")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/control/interactions")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let calls: Vec<ModelCall> = serde_json::from_slice(&bytes).unwrap();
+        // The single reply step was recorded, with its completion and a non-empty digest.
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].completion,
+            Completion::Reply("Hi there.".to_owned())
+        );
+        assert!(!calls[0].request_digest.is_empty());
     }
 }

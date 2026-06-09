@@ -77,6 +77,8 @@ enum Command {
     Recurring,
     /// List the recorded belief arbitrations.
     Arbitrations,
+    /// List the recorded model interactions (per-call request, deliberation, tokens, and latency).
+    Interactions,
     /// Print the agent's current behavioral settings.
     Settings,
     /// Replace the behavioral settings from a JSON file.
@@ -158,6 +160,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Command::Sessions { platform, scope } => print_json(&client.sessions(platform, scope)?),
         Command::Recurring => print_json(&client.recurring()?),
         Command::Arbitrations => print_json(&client.arbitrations()?),
+        Command::Interactions => print_json(&client.interactions()?),
         Command::Settings => print_json(&client.settings()?),
         Command::SetSettings { file } => set_settings(&client, file),
         Command::Imprint { text } => print_json(&client.imprint(text)?),

@@ -10,12 +10,13 @@ use crate::{
         TurnOutcome,
         genesis::{self, GenesisStatus, Rollout, SeedSelf},
     },
-    event::{EventPayload, EventSource, PromptTemplateName},
+    event::{EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord},
     graph::{EntryView, MemoryView, SessionView},
-    ids::{ConversationLocator, MemoryName, Seq},
+    ids::{ConversationId, ConversationLocator, MemoryName, Seq, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
-    model::ModelClient,
+    model::{Completion, ModelClient, Usage},
     settings::Settings,
+    time::Timestamp,
 };
 
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
@@ -30,6 +31,27 @@ pub struct Control<'a> {
 pub struct Arbitration {
     pub memory: MemoryName,
     pub statement: String,
+}
+
+/// One recorded model interaction — the debugger's view of a single model call (spec
+/// §Observability). The `seq` and `recorded_at` of the `ModelCalled` event place the call on the
+/// timeline; the rest mirrors the event. The `request` is delta-encoded (`Base`/`Continuation`); the
+/// debugger reconstructs a full prompt by walking a `(turn_id, phase)` group, and `request_digest`
+/// checks the reconstruction against the call actually sent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelCall {
+    pub seq: Seq,
+    pub recorded_at: Timestamp,
+    pub conversation: ConversationId,
+    pub turn_id: TurnId,
+    pub phase: ModelPhase,
+    pub request_digest: String,
+    pub request: Option<RequestRecord>,
+    pub completion: Completion,
+    pub reasoning: Option<String>,
+    pub finish_reason: Option<String>,
+    pub usage: Usage,
+    pub duration_ms: u64,
 }
 
 impl Control<'_> {
@@ -150,6 +172,47 @@ impl Control<'_> {
                 out.push(Arbitration {
                     memory: name,
                     statement: resolution.statement,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The model interactions recorded on the log, oldest first — each call's request (delta-encoded),
+    /// deliberation, token usage, and latency. The debugger's deliberation surface and the answer to
+    /// "where did the turn's time go" (spec §Observability); `ModelCalled` is log-only, so this reads
+    /// it from the log. Returns nothing under the `Off` capture level, since no events were written.
+    pub fn model_calls(&self) -> Result<Vec<ModelCall>, ServerError> {
+        let mut out = Vec::new();
+        for event in self.server.engine.store.lock().read_from(Seq::ZERO)? {
+            let seq = event.seq;
+            let recorded_at = event.recorded_at;
+            if let EventPayload::ModelCalled {
+                conversation,
+                turn_id,
+                phase,
+                request_digest,
+                request,
+                completion,
+                reasoning,
+                finish_reason,
+                usage,
+                duration_ms,
+            } = event.payload
+            {
+                out.push(ModelCall {
+                    seq,
+                    recorded_at,
+                    conversation,
+                    turn_id,
+                    phase,
+                    request_digest,
+                    request,
+                    completion,
+                    reasoning,
+                    finish_reason,
+                    usage,
+                    duration_ms,
                 });
             }
         }
