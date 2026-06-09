@@ -173,9 +173,9 @@ impl ModelClient for ConcurrencyProbe {
         self.active.fetch_sub(1, Ordering::SeqCst);
         Ok(GenerateResponse {
             completion: Completion::Reply("done".to_owned()),
-            usage: Usage {
-                prompt_tokens: None,
-            },
+            usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
         })
     }
 }

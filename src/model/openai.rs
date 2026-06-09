@@ -17,16 +17,15 @@ use async_openai::{
             ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls,
             ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
             ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
-            ChatCompletionRequestUserMessageArgs, ChatCompletionResponseMessage,
-            ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools,
-            CreateChatCompletionRequest, CreateChatCompletionRequestArgs,
-            CreateChatCompletionResponse, FunctionCall, FunctionObject, ToolChoiceOptions,
+            ChatCompletionRequestUserMessageArgs, ChatCompletionTool,
+            ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest,
+            CreateChatCompletionRequestArgs, FunctionCall, FunctionObject, ToolChoiceOptions,
         },
         embeddings::{CreateEmbeddingRequestArgs, EmbeddingInput},
     },
 };
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{EmbeddingConfig, ModelConfig};
 
@@ -96,27 +95,13 @@ impl ModelClient for OpenAiClient {
     }
 
     async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        let response: CreateChatCompletionResponse = self
+        let response: ChatResponse = self
             .client
             .chat()
             .create_byot(self.build_request(request)?)
             .await
             .map_err(backend)?;
-        // Read usage before `choices` is moved out: `prompt_tokens` covers the whole prompt — the
-        // frozen prefix plus the live buffer — which is what the compaction budget bounds.
-        let usage = Usage {
-            prompt_tokens: response.usage.as_ref().map(|usage| usage.prompt_tokens),
-        };
-        let message = response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| ModelError::Backend("response contained no choices".to_owned()))?
-            .message;
-        Ok(GenerateResponse {
-            completion: into_completion(message),
-            usage,
-        })
+        into_response(response)
     }
 }
 
@@ -186,6 +171,57 @@ struct ChatRequest {
 #[derive(Serialize)]
 struct ChatTemplateKwargs {
     enable_thinking: bool,
+}
+
+/// The custom response type. `async-openai`'s `CreateChatCompletionResponse` drops the serving
+/// layer's `reasoning_content` (it has no such field), so the deliberation the model-interaction
+/// record needs would be lost. This minimal mirror keeps the choice/message/usage shape and adds
+/// `reasoning_content`, surfaced through `create_byot`. The dependence on the serving layer's
+/// `reasoning_content` convention (vLLM/qwen) is an accepted, contained coupling: an endpoint that
+/// names the field differently simply yields `reasoning: None`, never an error.
+#[derive(Deserialize)]
+struct ChatResponse {
+    choices: Vec<ChatChoice>,
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+}
+
+#[derive(Deserialize)]
+struct ChatChoice {
+    message: ChatMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ChatMessage {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<ChatToolCall>,
+}
+
+#[derive(Deserialize)]
+struct ChatToolCall {
+    id: String,
+    function: ChatFunctionCall,
+}
+
+#[derive(Deserialize)]
+struct ChatFunctionCall {
+    name: String,
+    arguments: String,
+}
+
+#[derive(Deserialize)]
+struct ChatUsage {
+    prompt_tokens: u32,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    total_tokens: Option<u32>,
 }
 
 fn client(endpoint: &str) -> Client<OpenAIConfig> {
@@ -271,32 +307,138 @@ fn to_tools(request: &GenerateRequest) -> Vec<ChatCompletionTools> {
         .collect()
 }
 
-fn into_completion(message: ChatCompletionResponseMessage) -> Completion {
-    fn response_tool_call(call: ChatCompletionMessageToolCalls) -> Option<ToolCall> {
-        match call {
-            ChatCompletionMessageToolCalls::Function(call) => Some(ToolCall {
-                id: call.id,
-                name: call.function.name,
-                arguments: call.function.arguments,
-            }),
-            // Custom (free-form) tool calls aren't part of our protocol.
-            ChatCompletionMessageToolCalls::Custom(_) => None,
-        }
-    }
+/// Map the custom byot response into a [`GenerateResponse`], surfacing the deliberation the standard
+/// type drops. Kept separate from `generate` so it can be tested over a fixture body without a live
+/// endpoint.
+fn into_response(response: ChatResponse) -> Result<GenerateResponse, ModelError> {
+    // Read usage before the choice is moved out: `prompt_tokens` covers the whole prompt — the
+    // frozen prefix plus the live buffer — which is what the compaction budget bounds;
+    // `completion_tokens`/`total_tokens` ride along only for the model-interaction record.
+    let usage = Usage {
+        prompt_tokens: response.usage.as_ref().map(|usage| usage.prompt_tokens),
+        completion_tokens: response
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.completion_tokens),
+        total_tokens: response.usage.as_ref().and_then(|usage| usage.total_tokens),
+    };
+    let ChatChoice {
+        message,
+        finish_reason,
+    } = response
+        .choices
+        .into_iter()
+        .next()
+        .ok_or_else(|| ModelError::Backend("response contained no choices".to_owned()))?;
+    let reasoning = message
+        .reasoning_content
+        .clone()
+        .filter(|reasoning| !reasoning.is_empty());
+    Ok(GenerateResponse {
+        completion: into_completion(message),
+        usage,
+        reasoning,
+        finish_reason,
+    })
+}
 
-    match message.tool_calls {
-        Some(calls) if !calls.is_empty() => {
-            Completion::ToolCalls(calls.into_iter().filter_map(response_tool_call).collect())
-        }
-        // Trim surrounding whitespace: with thinking on, the content after the reasoning block
-        // arrives with leading newlines from the template's reasoning/content boundary, and that
-        // would otherwise be recorded verbatim in the durable turn.
-        _ => Completion::Reply(message.content.unwrap_or_default().trim().to_owned()),
+fn into_completion(message: ChatMessage) -> Completion {
+    if !message.tool_calls.is_empty() {
+        return Completion::ToolCalls(
+            message
+                .tool_calls
+                .into_iter()
+                .map(|call| ToolCall {
+                    id: call.id,
+                    name: call.function.name,
+                    arguments: call.function.arguments,
+                })
+                .collect(),
+        );
     }
+    // Trim surrounding whitespace: with thinking on, the content after the reasoning block arrives
+    // with leading newlines from the template's reasoning/content boundary, and that would
+    // otherwise be recorded verbatim in the durable turn.
+    Completion::Reply(message.content.unwrap_or_default().trim().to_owned())
 }
 
 /// Map any backend error (async-openai's `OpenAIError` from the client or the request builders)
 /// into our model error.
 fn backend(error: impl std::fmt::Display) -> ModelError {
     ModelError::Backend(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    //! The custom byot response type must deserialize the serving layer's `reasoning_content` and
+    //! the full token usage that the standard `async-openai` type drops — the deliberation the
+    //! model-interaction record captures (spec §Observability).
+    use super::{ChatResponse, into_response};
+    use crate::model::{Completion, Usage};
+
+    #[test]
+    fn deserializes_reasoning_and_full_usage_from_a_reply() {
+        let body = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "  Hello there.\n",
+                    "reasoning_content": "The user greeted me, so I greet back."
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17 }
+        });
+        let response: ChatResponse = serde_json::from_value(body).expect("body deserializes");
+        let generated = into_response(response).expect("maps to a response");
+
+        assert_eq!(
+            generated.completion,
+            Completion::Reply("Hello there.".to_owned())
+        );
+        assert_eq!(
+            generated.reasoning.as_deref(),
+            Some("The user greeted me, so I greet back.")
+        );
+        assert_eq!(generated.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(
+            generated.usage,
+            Usage {
+                prompt_tokens: Some(12),
+                completion_tokens: Some(5),
+                total_tokens: Some(17),
+            }
+        );
+    }
+
+    #[test]
+    fn deserializes_a_tool_call_and_tolerates_absent_reasoning() {
+        let body = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "run_lua", "arguments": "{\"script\":\"return 1\"}" }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let response: ChatResponse = serde_json::from_value(body).expect("body deserializes");
+        let generated = into_response(response).expect("maps to a response");
+
+        match generated.completion {
+            Completion::ToolCalls(calls) => {
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].name, "run_lua");
+            }
+            other => panic!("expected a tool call, got {other:?}"),
+        }
+        // No `reasoning_content` and no `usage` block — both degrade to `None`, never an error.
+        assert_eq!(generated.reasoning, None);
+        assert_eq!(generated.usage, Usage::default());
+        assert_eq!(generated.finish_reason.as_deref(), Some("tool_calls"));
+    }
 }

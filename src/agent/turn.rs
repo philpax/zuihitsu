@@ -474,7 +474,9 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
                 tool_choice: ToolChoice::Auto,
                 thinking: None,
             };
-            let GenerateResponse { completion, usage } = model.generate(&request).await?;
+            let GenerateResponse {
+                completion, usage, ..
+            } = model.generate(&request).await?;
             peak_prompt_tokens = peak_prompt_tokens.max(usage.prompt_tokens);
             match completion {
                 Completion::ToolCalls(calls) => {

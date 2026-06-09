@@ -14,11 +14,12 @@ pub mod openai;
 use std::{collections::VecDeque, sync::Mutex};
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 /// A message in the conversation handed to the model. `tool_calls` is populated on an assistant
 /// message that called tools; `tool_call_id` ties a tool-result message to the call it answers —
 /// the threading the OpenAI protocol needs across multi-step tool use.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: String,
@@ -79,7 +80,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
     System,
     User,
@@ -89,7 +90,7 @@ pub enum Role {
 
 /// A tool the model may call: its name, a description, and a JSON-Schema for its arguments, sent to
 /// the model so it produces well-formed calls.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
@@ -97,7 +98,7 @@ pub struct ToolSpec {
 }
 
 /// One structured tool call emitted by the model. `arguments` is JSON, parsed by the caller.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
@@ -107,7 +108,7 @@ pub struct ToolCall {
 /// How the model may use the available tools. `Auto` lets it choose between a tool call and a reply
 /// (the agent loop); `Required` forces it to call a tool, used to coerce structured output — e.g.
 /// description regeneration forces a single `describe` tool so the answer can't drift into prose.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolChoice {
     #[default]
     Auto,
@@ -115,7 +116,7 @@ pub enum ToolChoice {
 }
 
 /// What the model is asked to produce a step for.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub system: String,
     pub messages: Vec<Message>,
@@ -130,7 +131,7 @@ pub struct GenerateRequest {
 /// A single step's outcome: the model either calls tools or produces a final reply, never both in
 /// one step (spec §Agent loop), or it ends the turn silently — a first-class outcome, distinct
 /// from an empty reply, for messages not addressed to the agent.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Completion {
     ToolCalls(Vec<ToolCall>),
     Reply(String),
@@ -142,18 +143,25 @@ pub enum Completion {
 /// every backend returns usage and the scripted fake may decline to script it; an absent
 /// `prompt_tokens` makes the compaction trigger fall back to a deterministic estimate over the
 /// buffer (spec §Compaction). `prompt_tokens` measures the whole prompt — the frozen prefix plus the
-/// live buffer — which is exactly the surface the buffer budget bounds.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// live buffer — which is exactly the surface the buffer budget bounds. `completion_tokens` and
+/// `total_tokens` are recorded for observability (the model-interaction record) but do not drive the
+/// compaction trigger.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
 }
 
 /// One generation step's result: the [`Completion`] the loop acts on, plus the [`Usage`] the
-/// compaction trigger reads.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// compaction trigger reads, and the deliberation surface the model-interaction record captures —
+/// `reasoning` (the serving layer's `reasoning_content`, when present) and the `finish_reason`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenerateResponse {
     pub completion: Completion,
     pub usage: Usage,
+    pub reasoning: Option<String>,
+    pub finish_reason: Option<String>,
 }
 
 /// The inference interface. The agent server holds one of these; tests substitute a fake.
@@ -205,6 +213,8 @@ impl ScriptedModel {
         ScriptedModel::with_responses(steps.into_iter().map(|completion| GenerateResponse {
             completion,
             usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
         }))
     }
 
@@ -217,7 +227,25 @@ impl ScriptedModel {
                 completion,
                 usage: Usage {
                     prompt_tokens: Some(prompt_tokens),
+                    ..Usage::default()
                 },
+                reasoning: None,
+                finish_reason: None,
+            }
+        }))
+    }
+
+    /// Script completions paired with the reasoning text and token usage each reports, for tests that
+    /// exercise the model-interaction record (the deliberation surface the debugger captures).
+    pub fn with_deliberation(
+        steps: impl IntoIterator<Item = (Completion, String, Usage)>,
+    ) -> ScriptedModel {
+        ScriptedModel::with_responses(steps.into_iter().map(|(completion, reasoning, usage)| {
+            GenerateResponse {
+                completion,
+                usage,
+                reasoning: Some(reasoning),
+                finish_reason: Some("stop".to_owned()),
             }
         }))
     }
@@ -262,7 +290,10 @@ impl ModelClient for ScriptedModel {
 mod tests {
     //! The scripted model returns its programmed steps in order, then reports exhaustion — the
     //! determinism agent-level scenarios rely on (spec §Testability).
-    use super::{Completion, GenerateRequest, ModelClient, ModelError, ScriptedModel, ToolCall};
+    use super::{
+        Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
+        ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
+    };
 
     #[tokio::test]
     async fn scripted_model_returns_programmed_steps_then_exhausts() {
@@ -288,5 +319,52 @@ mod tests {
             model.generate(&request).await,
             Err(ModelError::Exhausted)
         ));
+    }
+
+    #[test]
+    fn request_and_response_round_trip_through_serde() {
+        // The model-interaction record carries these types in the log, so they must survive a JSON
+        // round-trip unchanged (spec §Observability).
+        let request = GenerateRequest {
+            system: "be concise".to_owned(),
+            messages: vec![
+                Message::user("remember dave climbs"),
+                Message::assistant_tool_calls(vec![ToolCall {
+                    id: "call_1".to_owned(),
+                    name: "run_lua".to_owned(),
+                    arguments: r#"{"script":"return 1"}"#.to_owned(),
+                }]),
+                Message::tool_result("call_1", "ok"),
+            ],
+            tools: vec![ToolSpec {
+                name: "run_lua".to_owned(),
+                description: "run a block".to_owned(),
+                parameters: serde_json::json!({"type": "object"}),
+            }],
+            tool_choice: ToolChoice::Required,
+            thinking: Some(false),
+        };
+        let request_json = serde_json::to_string(&request).expect("request serializes");
+        assert_eq!(
+            serde_json::from_str::<GenerateRequest>(&request_json).expect("request deserializes"),
+            request
+        );
+
+        let response = GenerateResponse {
+            completion: Completion::Reply("done".to_owned()),
+            usage: Usage {
+                prompt_tokens: Some(12),
+                completion_tokens: Some(5),
+                total_tokens: Some(17),
+            },
+            reasoning: Some("thought about it".to_owned()),
+            finish_reason: Some("stop".to_owned()),
+        };
+        let response_json = serde_json::to_string(&response).expect("response serializes");
+        assert_eq!(
+            serde_json::from_str::<GenerateResponse>(&response_json)
+                .expect("response deserializes"),
+            response
+        );
     }
 }
