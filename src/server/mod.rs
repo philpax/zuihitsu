@@ -38,7 +38,7 @@ use crate::{
         scheduler::{self, SchedulerError},
     },
     model::ModelClient,
-    settings::Settings,
+    settings::{ConcurrencySettings, Settings},
 };
 #[cfg(feature = "mcp")]
 use std::collections::BTreeMap;
@@ -51,6 +51,8 @@ use std::time::Duration;
 
 #[cfg(feature = "lua")]
 use parking_lot::Mutex;
+#[cfg(feature = "lua")]
+use tokio::sync::Semaphore;
 
 #[cfg(feature = "mcp")]
 use crate::{
@@ -78,6 +80,12 @@ pub struct Server {
     /// shared-`&Server` reason as `sessions`.
     #[cfg(feature = "lua")]
     pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
+    /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
+    /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
+    /// model at once; further streams queue. Sized from settings at construction (a change takes
+    /// effect on restart).
+    #[cfg(feature = "lua")]
+    streams: Semaphore,
     /// The MCP host and the catalogue probed from it at [`Server::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
     #[cfg(feature = "mcp")]
@@ -94,12 +102,17 @@ struct McpRuntime {
 
 impl Server {
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Server {
+        let engine = Engine::new(store, graph, clock);
+        #[cfg(feature = "lua")]
+        let streams = Semaphore::new(initial_stream_permits(&engine));
         Server {
-            engine: Engine::new(store, graph, clock),
+            engine,
             #[cfg(feature = "lua")]
             sessions: Mutex::new(HashMap::new()),
             #[cfg(feature = "lua")]
             pending_carryover: Mutex::new(HashMap::new()),
+            #[cfg(feature = "lua")]
+            streams,
             #[cfg(feature = "mcp")]
             mcp: None,
         }
@@ -401,6 +414,20 @@ impl Server {
             .materialize_from(self.engine.store.lock().as_ref())?;
         Ok(id)
     }
+}
+
+/// The initial stream-limit permit count read from settings at construction. Floors at 1 so a
+/// missing, zero, or negative configuration never produces a deadlocking zero-permit semaphore; a
+/// store read failure falls back to the build default with a warning.
+#[cfg(feature = "lua")]
+fn initial_stream_permits(engine: &Engine) -> usize {
+    let configured = Settings::from_store(engine.store.lock().as_ref())
+        .map(|settings| settings.concurrency.max_concurrent_streams)
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "could not read the stream limit; using the build default");
+            ConcurrencySettings::default().max_concurrent_streams
+        });
+    configured.max(1) as usize
 }
 
 /// The raw-transcript carryover a compaction stages for the next session (spec §Compaction →

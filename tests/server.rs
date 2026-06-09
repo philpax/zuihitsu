@@ -7,7 +7,8 @@ mod common;
 
 #[cfg(feature = "lua")]
 use zuihitsu::{
-    Completion, ConversationLocator, MemoryStore, ScriptedModel, ToolCall, TurnOutcome,
+    Completion, ConcurrencySettings, ConversationLocator, GenerateRequest, GenerateResponse,
+    MemoryStore, ModelClient, ModelError, ScriptedModel, ToolCall, TurnOutcome, Usage,
 };
 #[cfg(all(feature = "lua", feature = "openai"))]
 use zuihitsu::{EnvConfig, OpenAiClient};
@@ -17,6 +18,12 @@ use zuihitsu::{
 };
 
 use common::time::TEST_NOW;
+
+#[cfg(feature = "lua")]
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn seed() -> SeedSelf {
     SeedSelf {
@@ -146,6 +153,80 @@ async fn route_message_opens_a_session_and_runs_a_turn() {
     let sessions = server.control().sessions(&leads).unwrap();
     assert_eq!(sessions.len(), 1);
     assert!(!sessions[0].brief.is_empty());
+}
+
+/// A model that observes how many turns reach inference at once. Each `generate` records the live
+/// count's peak, then rendezvouses on a barrier sized to the stream limit, so exactly the limit's
+/// worth of turns meet here before any proceeds — making the observed peak the limit, deterministically
+/// (when driven with a whole number of barrier-sized waves).
+#[cfg(feature = "lua")]
+struct ConcurrencyProbe {
+    active: AtomicUsize,
+    peak: AtomicUsize,
+    barrier: tokio::sync::Barrier,
+}
+
+#[cfg(feature = "lua")]
+#[async_trait::async_trait]
+impl ModelClient for ConcurrencyProbe {
+    fn model_id(&self) -> &str {
+        "concurrency-probe"
+    }
+
+    async fn generate(&self, _request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(active, Ordering::SeqCst);
+        // The permitted streams (== the limit) rendezvous here before any returns, so they are all
+        // simultaneously "in flight" and the peak reflects the full limit.
+        self.barrier.wait().await;
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        Ok(GenerateResponse {
+            completion: Completion::Reply("done".to_owned()),
+            usage: Usage {
+                prompt_tokens: None,
+            },
+        })
+    }
+}
+
+#[cfg(feature = "lua")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_stream_limit_caps_concurrent_turns() {
+    // The server sizes its stream semaphore from `ConcurrencySettings::default()` at construction.
+    // Drive twice the limit's worth of concurrent messages — a whole number of barrier waves — through
+    // one shared server; the semaphore must hold the peak concurrency at exactly the limit.
+    let limit = ConcurrencySettings::default().max_concurrent_streams as usize;
+    let waves = 2;
+    let (server, _clock) = born_agent();
+    let server = Arc::new(server);
+    let probe = Arc::new(ConcurrencyProbe {
+        active: AtomicUsize::new(0),
+        peak: AtomicUsize::new(0),
+        barrier: tokio::sync::Barrier::new(limit),
+    });
+
+    let mut tasks = Vec::new();
+    for i in 0..(limit * waves) {
+        let server = server.clone();
+        let probe = probe.clone();
+        tasks.push(tokio::spawn(async move {
+            // A distinct room and sender per turn, so the turns mint disjoint stubs — this test
+            // isolates the stream limit, not the same-memory contention the locks (2b) handle.
+            let room = ConversationLocator::new("discord", format!("room-{i}"));
+            let sender = format!("user-{i}");
+            server
+                .platform()
+                .route_message(probe.as_ref(), &room, &sender, "ping", &[sender.as_str()])
+                .await
+        }));
+    }
+    for task in tasks {
+        let outcome = task.await.expect("the turn task joins").expect("turn runs");
+        assert!(matches!(outcome, TurnOutcome::Reply(_)));
+    }
+
+    // The semaphore admitted the limit's worth at once, and never more.
+    assert_eq!(probe.peak.load(Ordering::SeqCst), limit);
 }
 
 #[cfg(feature = "lua")]

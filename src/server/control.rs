@@ -48,6 +48,14 @@ impl Control<'_> {
         model: &dyn ModelClient,
         text: &str,
     ) -> Result<TurnOutcome, ServerError> {
+        // The imprint runs the model too, so it takes a stream permit like any other turn (spec
+        // §Concurrency), held across the interview turn below.
+        let _stream = self
+            .server
+            .streams
+            .acquire()
+            .await
+            .expect("the stream semaphore is never closed");
         let operator = self.server.resolve_or_mint_operator()?;
         let conversation = {
             // Graph before store, per the lock-ordering rule (this resolve holds both at once).

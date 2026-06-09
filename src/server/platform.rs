@@ -38,6 +38,16 @@ impl Platform<'_> {
         text: &str,
         present: &[&str],
     ) -> Result<TurnOutcome, ServerError> {
+        // Hold a stream permit for this message's whole handling — the turn and any compaction flush
+        // it triggers — so no more than `max_concurrent_streams` messages crowd the shared model at
+        // once (spec §Concurrency). Released when this scope returns.
+        let _stream = self
+            .server
+            .streams
+            .acquire()
+            .await
+            .expect("the stream semaphore is never closed");
+
         // Resolve the room (minting its context memory on first contact) and the participants. Each
         // call borrows the store, clock, and graph fields disjointly and releases before the next,
         // so the interleaved `materialize_from` calls are free to take the graph mutably.

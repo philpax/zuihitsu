@@ -432,7 +432,7 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
         .unwrap();
     let server = Arc::new(server);
 
-    let turn = |room: &'static str, topic: &'static str| {
+    let turn = |room: &'static str, topic: &'static str, sender: &'static str| {
         let server = server.clone();
         async move {
             let model = ScriptedModel::new([
@@ -444,17 +444,17 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
                 .route_message(
                     &model,
                     &ConversationLocator::new("discord", room),
-                    "phil",
+                    sender,
                     "note it",
-                    &["phil"],
+                    &[sender],
                 )
                 .await
         }
     };
 
     let (a, b) = tokio::join!(
-        tokio::spawn(turn("general", "alpha")),
-        tokio::spawn(turn("random", "beta")),
+        tokio::spawn(turn("general", "alpha", "phil")),
+        tokio::spawn(turn("random", "beta", "sam")),
     );
     assert!(matches!(
         a.expect("task a joins").expect("turn a runs"),

@@ -32,6 +32,7 @@ pub struct Settings {
     pub turn: TurnSettings,
     pub search: SearchSettings,
     pub scheduler: SchedulerSettings,
+    pub concurrency: ConcurrencySettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -82,6 +83,16 @@ pub struct TurnSettings {
     /// stuck on slow external I/O or, once locking lands, a lock-wait — aborts, emitting nothing. Set
     /// generously, above a single MCP call's own timeout, so an ordinary multi-call block is never cut.
     pub block_timeout_seconds: i64,
+}
+
+/// Concurrency limits (spec §Concurrency): how many conversation streams may run at once. The shared
+/// local model is the binding constraint, so this caps concurrent turns rather than letting unbounded
+/// streams crowd the model. Read when the server is constructed, so a change takes effect on restart.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConcurrencySettings {
+    /// The most conversation turns that may be in flight at once; further streams queue for a slot.
+    pub max_concurrent_streams: i64,
 }
 
 /// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
@@ -154,6 +165,14 @@ impl Default for TurnSettings {
     }
 }
 
+impl Default for ConcurrencySettings {
+    fn default() -> Self {
+        ConcurrencySettings {
+            max_concurrent_streams: 4,
+        }
+    }
+}
+
 impl Default for SearchSettings {
     fn default() -> Self {
         SearchSettings {
@@ -203,7 +222,7 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::{Settings, TurnSettings};
+    use super::{ConcurrencySettings, Settings, TurnSettings};
 
     #[test]
     fn turn_defaults_match_the_spec_starting_values() {
@@ -213,15 +232,25 @@ mod tests {
     }
 
     #[test]
+    fn concurrency_defaults_match_the_spec_starting_values() {
+        assert_eq!(ConcurrencySettings::default().max_concurrent_streams, 4);
+    }
+
+    #[test]
     fn a_snapshot_predating_a_field_adopts_its_build_default() {
         // The schema is append-only: an older `ConfigSet` snapshot, written before `block_timeout_seconds`
-        // existed, omits the key — and must deserialize to the build default rather than failing.
+        // (or the whole `concurrency` group) existed, omits the key — and must deserialize to the build
+        // default rather than failing.
         let legacy = serde_json::json!({ "turn": { "max_steps": 7 } });
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.turn.max_steps, 7);
         assert_eq!(
             settings.turn.block_timeout_seconds,
             TurnSettings::default().block_timeout_seconds
+        );
+        assert_eq!(
+            settings.concurrency.max_concurrent_streams,
+            ConcurrencySettings::default().max_concurrent_streams
         );
     }
 }
