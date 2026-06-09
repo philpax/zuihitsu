@@ -45,7 +45,7 @@ pub struct Session {
     /// The session's MCP state — the host, configured servers, and lazily-spawned instances backing the
     /// `mcp.<server>.*` projection — or `None` when no host is configured.
     #[cfg(feature = "mcp")]
-    mcp: Option<std::rc::Rc<super::mcp_api::McpSession>>,
+    mcp: Option<std::sync::Arc<super::mcp_api::McpSession>>,
 }
 
 /// The result of executing one block.
@@ -75,11 +75,11 @@ impl Session {
     #[cfg(feature = "mcp")]
     pub fn with_mcp(
         conversation: ConversationId,
-        host: std::rc::Rc<dyn crate::mcp::McpHost>,
+        host: std::sync::Arc<dyn crate::mcp::McpHost>,
         catalogue: super::mcp_api::McpCatalogue,
     ) -> Session {
         let lua = Lua::new();
-        let mcp = std::rc::Rc::new(super::mcp_api::McpSession::new(host, catalogue));
+        let mcp = std::sync::Arc::new(super::mcp_api::McpSession::new(host, catalogue));
         super::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
         Session {
             lua,

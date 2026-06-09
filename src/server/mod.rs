@@ -40,10 +40,10 @@ use crate::{
     model::ModelClient,
     settings::Settings,
 };
+#[cfg(feature = "mcp")]
+use std::collections::BTreeMap;
 #[cfg(feature = "lua")]
 use std::collections::HashMap;
-#[cfg(feature = "mcp")]
-use std::{collections::BTreeMap, rc::Rc};
 
 #[cfg(feature = "mcp")]
 use crate::{
@@ -78,7 +78,7 @@ pub struct Server {
 /// once at startup (shared into every session opened thereafter).
 #[cfg(feature = "mcp")]
 struct McpRuntime {
-    host: Rc<dyn McpHost>,
+    host: Arc<dyn McpHost>,
     catalogue: McpCatalogue,
 }
 
@@ -102,7 +102,7 @@ impl Server {
     #[cfg(feature = "mcp")]
     pub async fn connect_mcp(
         &mut self,
-        host: Rc<dyn McpHost>,
+        host: Arc<dyn McpHost>,
         configs: BTreeMap<String, McpServerConfig>,
     ) -> Result<(), ServerError> {
         let catalogue = McpCatalogue::probe(host.as_ref(), &configs).await?;

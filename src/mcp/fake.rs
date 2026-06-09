@@ -27,7 +27,7 @@ impl FakeMcpHost {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl McpHost for FakeMcpHost {
     async fn spawn(
         &self,
@@ -109,7 +109,7 @@ struct FakeMcpInstance {
     dead: bool,
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl McpInstance for FakeMcpInstance {
     fn tools(&self) -> &[McpTool] {
         &self.tools

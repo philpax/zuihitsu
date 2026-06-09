@@ -22,7 +22,7 @@ async-trait = "0.1.89"
 clap = { version = "4.6.1", features = ["derive"] }
 fs2 = { version = "0.4.3", optional = true }
 jiff = { version = "0.2.28", optional = true }
-mlua = { version = "0.11.6", features = ["lua54", "vendored", "serde", "async"], optional = true }
+mlua = { version = "0.11.6", features = ["lua54", "vendored", "serde", "async", "send"], optional = true }
 parking_lot = { version = "0.12.5", optional = true }
 rusqlite = { version = "0.40.0", features = ["bundled"], optional = true }
 schemars = { version = "1.2.1", optional = true }
@@ -58,4 +58,4 @@ openai = ["dep:async-openai"]
 mcp = ["lua", "dep:tokio"]
 
 [dev-dependencies]
-tokio = { version = "1.52.3", features = ["rt", "macros", "test-util"] }
+tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "macros", "test-util"] }

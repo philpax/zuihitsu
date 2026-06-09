@@ -8,7 +8,7 @@
 
 mod common;
 
-use std::{collections::BTreeMap, rc::Rc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
@@ -48,7 +48,7 @@ async fn run(host: FakeMcpHost, servers: &[&str], script: &str) -> BlockOutcome 
         .iter()
         .map(|name| ((*name).to_owned(), McpServerConfig::default()))
         .collect();
-    let host = Rc::new(host);
+    let host = Arc::new(host);
     let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
     let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
     session
@@ -226,7 +226,7 @@ async fn the_catalogue_renders_callable_entries_for_the_prompt() {
         FakeServer::new(vec![tool("markdown"), tool("goto")]),
     );
     let configs = BTreeMap::from([("browser".to_owned(), McpServerConfig::default())]);
-    let host = Rc::new(host);
+    let host = Arc::new(host);
     let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
     let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
     let calls: Vec<String> = session
@@ -272,7 +272,7 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
     );
     server
         .connect_mcp(
-            Rc::new(host),
+            Arc::new(host),
             BTreeMap::from([("browser".to_owned(), McpServerConfig::default())]),
         )
         .await
@@ -307,5 +307,60 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
         entries[0].text.contains("Hello from MCP"),
         "entry was {:?}",
         entries[0].text
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_runs_on_a_worker_thread() {
+    // On a multi-thread runtime, `tokio::spawn` requires the spawned future to be `Send`. Driving a
+    // whole turn — VM, engine, and MCP projection — inside a spawned task is a compile-time-plus-runtime
+    // proof that the turn future is `Send` (it fails to build if a `!Send` capture creeps back in).
+    let mut server = Server::new(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(ManualClock::new(common::time::TEST_NOW)),
+    );
+    server
+        .control()
+        .create_agent(&SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let host = FakeMcpHost::new().with(
+        "browser",
+        FakeServer::new(vec![tool("markdown")]).returns("markdown", text("# Hello from MCP")),
+    );
+    server
+        .connect_mcp(
+            Arc::new(host),
+            BTreeMap::from([("browser".to_owned(), McpServerConfig::default())]),
+        )
+        .await
+        .unwrap();
+
+    let outcome = tokio::spawn(async move {
+        let model = ScriptedModel::new([
+            run_lua_call(r#"memory.create("topic/page", mcp.browser.markdown{})"#),
+            Completion::Reply("done".to_owned()),
+        ]);
+        server
+            .platform()
+            .route_message(
+                &model,
+                &ConversationLocator::new("discord", "general"),
+                "phil",
+                "save the page",
+                &["phil"],
+            )
+            .await
+    })
+    .await
+    .expect("the spawned turn task joins")
+    .expect("the turn runs");
+    assert!(
+        matches!(outcome, TurnOutcome::Reply(_)),
+        "outcome was {outcome:?}"
     );
 }

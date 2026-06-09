@@ -37,7 +37,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 /// The real [`McpHost`]: spawns each configured server as its own stdio subprocess.
 pub struct StdioHost;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl McpHost for StdioHost {
     async fn spawn(
         &self,
@@ -97,7 +97,7 @@ struct StdioInstance {
     io: Mutex<StdioIo>,
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl McpInstance for StdioInstance {
     fn tools(&self) -> &[McpTool] {
         &self.tools

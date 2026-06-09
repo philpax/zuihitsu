@@ -20,9 +20,10 @@ use async_trait::async_trait;
 use serde::Deserialize;
 
 /// Spawns server instances from config — the swappable factory behind the seam (the real stdio host,
-/// or a scriptable fake). Not `Send`-bound: the single-threaded, `!Send` runtime owns instances.
-#[async_trait(?Send)]
-pub trait McpHost {
+/// or a scriptable fake). `Send + Sync` so the host (and the instances it yields) ride behind the
+/// `Arc` handles a multi-thread turn shares across worker threads.
+#[async_trait]
+pub trait McpHost: Send + Sync {
     /// Spawn the server named `name` per `config`, returning a live instance whose catalogue is
     /// already snapshotted, or a [`McpError`] if it could not be brought up.
     async fn spawn(
@@ -33,8 +34,9 @@ pub trait McpHost {
 }
 
 /// A spawned MCP server instance: its tool catalogue, snapshotted at spawn, and on-demand calls.
-#[async_trait(?Send)]
-pub trait McpInstance {
+/// `Send + Sync` so a per-session instance can be held behind a shared `Arc` on a multi-thread runtime.
+#[async_trait]
+pub trait McpInstance: Send + Sync {
     /// The advertised tools, as snapshotted at spawn (`tools/list` for the real host).
     fn tools(&self) -> &[McpTool];
 

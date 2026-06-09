@@ -6,22 +6,21 @@
 //! table of functions** and the same filtered set renders into the system prompt (spec §Allowlisting).
 //! The live server *instance* is still spawned lazily on first actual use — most sessions never browse,
 //! so most never spawn anything — and the `server → instance` map lives on the [`McpSession`] the VM
-//! holds for its whole lifetime. Because the VM runs its blocks one at a time and a block's `mcp.*`
-//! calls are sequential `await`s, the map is accessed serially — no intra-session race — so plain
-//! [`RefCell`] interior mutability suffices. The `mcp` global is installed once and persists across
-//! blocks, like the agent scratchpad.
+//! holds for its whole lifetime. The VM runs its blocks one at a time, but the session is shared across
+//! the multi-thread runtime's worker threads, so the map is guarded by a `Mutex`. The `mcp` global is
+//! installed once and persists across blocks, like the agent scratchpad.
 //!
 //! Following the block-API discipline ([`crate::agent::lua`]): the async functions and their futures
-//! are `'static` (`create_async_function` requires it), capturing [`Rc`] clones of the session state,
-//! and **no `RefCell` borrow is ever held across an `.await`**.
+//! are `'static` and `Send` (mlua's `send`-feature `create_async_function` requires it), capturing
+//! [`Arc`] clones of the session state, and **no `Mutex` guard is ever held across an `.await`**.
 
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, HashMap},
-    rc::Rc,
+    sync::Arc,
 };
 
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
+use parking_lot::Mutex;
 use serde::Deserialize;
 
 use crate::{
@@ -31,11 +30,11 @@ use crate::{
 
 /// The probed, filtered tool catalogues for the configured MCP servers — the single source both the
 /// Lua projection and the system-prompt rendering derive from (spec §Allowlisting). Built once by
-/// [`McpCatalogue::probe`]; cloned cheaply into each session (the `Rc` entries share the snapshotted
+/// [`McpCatalogue::probe`]; cloned cheaply into each session (the `Arc` entries share the snapshotted
 /// tool lists, while the live instances stay per-session).
 #[derive(Clone, Debug, Default)]
 pub struct McpCatalogue {
-    servers: BTreeMap<String, Rc<ServerCatalogue>>,
+    servers: BTreeMap<String, Arc<ServerCatalogue>>,
 }
 
 /// One server's filtered catalogue: the launch config, the projected tools (post `allow`/`deny`), and
@@ -77,7 +76,7 @@ impl McpCatalogue {
             instance.shutdown().await;
             servers.insert(
                 name.clone(),
-                Rc::new(ServerCatalogue {
+                Arc::new(ServerCatalogue {
                     config: config.clone(),
                     tools,
                     escaped_to_raw,
@@ -104,19 +103,19 @@ impl McpCatalogue {
 }
 
 /// The VM's MCP state: the host that spawns servers, the probed catalogue, and the lazily-spawned live
-/// instances. Held behind an [`Rc`] so the projected Lua functions can share it.
+/// instances. Held behind an [`Arc`] so the projected Lua functions can share it across threads.
 pub(crate) struct McpSession {
-    host: Rc<dyn McpHost>,
+    host: Arc<dyn McpHost>,
     catalogue: McpCatalogue,
-    instances: RefCell<HashMap<String, Rc<dyn McpInstance>>>,
+    instances: Mutex<HashMap<String, Arc<dyn McpInstance>>>,
 }
 
 impl McpSession {
-    pub(crate) fn new(host: Rc<dyn McpHost>, catalogue: McpCatalogue) -> McpSession {
+    pub(crate) fn new(host: Arc<dyn McpHost>, catalogue: McpCatalogue) -> McpSession {
         McpSession {
             host,
             catalogue,
-            instances: RefCell::new(HashMap::new()),
+            instances: Mutex::new(HashMap::new()),
         }
     }
 
@@ -125,12 +124,12 @@ impl McpSession {
         self.catalogue.api_entries()
     }
 
-    /// Shut every spawned instance down (best-effort), draining the map first so no borrow is held
+    /// Shut every spawned instance down (best-effort), draining the map first so no lock guard is held
     /// across the awaits. Called at session end.
     pub(crate) async fn shutdown(&self) {
-        let instances: Vec<Rc<dyn McpInstance>> = self
+        let instances: Vec<Arc<dyn McpInstance>> = self
             .instances
-            .borrow_mut()
+            .lock()
             .drain()
             .map(|(_, instance)| instance)
             .collect();
@@ -162,20 +161,20 @@ impl McpSession {
         project_output(lua, output)
     }
 
-    /// The live instance for `server`, spawning it on first use. The borrow that checks the map is
-    /// dropped before the spawn `await` (the lock is not reentrant and a borrow may not cross an await).
-    async fn ensure_spawned(&self, server: &str) -> Result<Rc<dyn McpInstance>, McpError> {
-        let existing = self.instances.borrow().get(server).cloned();
+    /// The live instance for `server`, spawning it on first use. The lock that checks the map is dropped
+    /// before the spawn `await` (a `parking_lot` guard is not held across a suspension point).
+    async fn ensure_spawned(&self, server: &str) -> Result<Arc<dyn McpInstance>, McpError> {
+        let existing = self.instances.lock().get(server).cloned();
         if let Some(instance) = existing {
             return Ok(instance);
         }
-        let instance: Rc<dyn McpInstance> = Rc::from(
+        let instance: Arc<dyn McpInstance> = Arc::from(
             self.host
                 .spawn(server, &self.catalogue.servers[server].config)
                 .await?,
         );
         self.instances
-            .borrow_mut()
+            .lock()
             .insert(server.to_owned(), instance.clone());
         Ok(instance)
     }
@@ -184,7 +183,7 @@ impl McpSession {
 /// Install the `mcp` global: a table per configured server, each holding one async function per filtered
 /// tool keyed by its escaped name. An unconfigured `mcp.<x>` is `nil`, so calling it is a plain "attempt
 /// to call a nil value"; an unfiltered tool simply has no function.
-pub(crate) fn install(lua: &Lua, mcp: &Rc<McpSession>) -> mlua::Result<()> {
+pub(crate) fn install(lua: &Lua, mcp: &Arc<McpSession>) -> mlua::Result<()> {
     let mcp_table = lua.create_table()?;
     for (server, catalogue) in &mcp.catalogue.servers {
         let server_table = lua.create_table()?;
@@ -204,7 +203,7 @@ pub(crate) fn install(lua: &Lua, mcp: &Rc<McpSession>) -> mlua::Result<()> {
 /// the tool, and projects the result (see [`McpSession::call`]).
 fn tool_function(
     lua: &Lua,
-    mcp: &Rc<McpSession>,
+    mcp: &Arc<McpSession>,
     server: &str,
     tool: String,
 ) -> mlua::Result<Function> {

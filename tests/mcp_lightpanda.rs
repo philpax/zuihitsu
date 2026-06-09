@@ -7,7 +7,7 @@
 
 mod common;
 
-use std::{collections::BTreeMap, path::Path, rc::Rc};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, Graph,
@@ -99,7 +99,7 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
         Box::new(ManualClock::new(common::time::EARLY)),
     );
     let configs = BTreeMap::from([("lightpanda".to_owned(), config)]);
-    let host = Rc::new(StdioHost);
+    let host = Arc::new(StdioHost);
     let catalogue = McpCatalogue::probe(&*host, &configs)
         .await
         .expect("probe lightpanda");

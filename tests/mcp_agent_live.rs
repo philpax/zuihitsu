@@ -8,7 +8,7 @@
 
 mod common;
 
-use std::{collections::BTreeMap, path::Path, rc::Rc};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use zuihitsu::{
     ConversationLocator, EnvConfig, Graph, ManualClock, McpServerConfig, MemoryStore, OpenAiClient,
@@ -31,7 +31,7 @@ async fn the_agent_chooses_to_browse_with_lightpanda() {
     let mut server = born_agent();
     server
         .connect_mcp(
-            Rc::new(StdioHost),
+            Arc::new(StdioHost),
             BTreeMap::from([(
                 "lightpanda".to_owned(),
                 McpServerConfig {
