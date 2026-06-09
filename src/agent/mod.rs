@@ -13,6 +13,8 @@ pub mod api_doc;
 pub mod genesis;
 #[cfg(feature = "lua")]
 pub mod lua;
+#[cfg(feature = "mcp")]
+mod mcp_api;
 #[cfg(feature = "sqlite")]
 pub mod system_prompt;
 pub mod templates;

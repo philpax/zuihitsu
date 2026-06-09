@@ -37,10 +37,15 @@ use super::{
 };
 
 /// One conversation's VM. Globals persist across the session's blocks; the memory API is installed
-/// fresh per block.
+/// fresh per block, while the MCP projection (when configured) is installed once and persists like the
+/// agent scratchpad.
 pub struct Session {
     lua: Lua,
     conversation: ConversationId,
+    /// The session's MCP state — the host, configured servers, and lazily-spawned instances backing the
+    /// `mcp.<server>.*` projection — or `None` when no host is configured.
+    #[cfg(feature = "mcp")]
+    mcp: Option<std::rc::Rc<super::mcp_api::McpSession>>,
 }
 
 /// The result of executing one block.
@@ -57,6 +62,37 @@ impl Session {
         Session {
             lua: Lua::new(),
             conversation,
+            #[cfg(feature = "mcp")]
+            mcp: None,
+        }
+    }
+
+    /// A VM with the `mcp.<server>.*` projection installed for `servers`, spawned on demand through
+    /// `host`. The projection global is installed once here and persists across the session's blocks
+    /// (the server instances are session-scoped). Lua-table creation cannot realistically fail at
+    /// construction, so installation is treated as infallible, like [`Session::new`].
+    #[cfg(feature = "mcp")]
+    pub fn with_mcp(
+        conversation: ConversationId,
+        host: std::rc::Rc<dyn crate::mcp::McpHost>,
+        servers: std::collections::BTreeMap<String, crate::mcp::McpServerConfig>,
+    ) -> Session {
+        let lua = Lua::new();
+        let mcp = std::rc::Rc::new(super::mcp_api::McpSession::new(host, servers));
+        super::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
+        Session {
+            lua,
+            conversation,
+            mcp: Some(mcp),
+        }
+    }
+
+    /// Tear down the session's MCP instances (close stdin, wait, kill on a grace timeout), best-effort.
+    /// A no-op when no MCP host is configured. Called when the session ends.
+    #[cfg(feature = "mcp")]
+    pub async fn shutdown_mcp(&self) {
+        if let Some(mcp) = &self.mcp {
+            mcp.shutdown().await;
         }
     }
 

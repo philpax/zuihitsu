@@ -5,9 +5,13 @@
 
 #![cfg(feature = "mcp")]
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path, rc::Rc};
 
-use zuihitsu::{ContentBlock, McpHost, McpServerConfig, StdioHost};
+use zuihitsu::{
+    Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, Graph,
+    ManualClock, McpHost, McpServerConfig, MemoryStore, Session, StdioHost, Teller, Timestamp,
+    TurnId,
+};
 
 /// The lightpanda MCP server config: the repo binary run as `lightpanda mcp` over stdio.
 fn lightpanda() -> Option<McpServerConfig> {
@@ -76,4 +80,53 @@ async fn lightpanda_spawns_lists_tools_and_extracts_markdown() {
     );
 
     instance.shutdown().await;
+}
+
+#[tokio::test]
+#[ignore = "requires the lightpanda binary at mcp/lightpanda and network access"]
+async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
+    let Some(config) = lightpanda() else {
+        return;
+    };
+
+    // A session VM with lightpanda projected as `mcp.lightpanda.*`, over a throwaway in-memory engine
+    // (the script touches MCP, not memory).
+    let engine = Engine::new(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
+    );
+    let servers = BTreeMap::from([("lightpanda".to_owned(), config)]);
+    let session = Session::with_mcp(ConversationId::generate(), Rc::new(StdioHost), servers);
+
+    // Navigate, then extract the loaded page's markdown — both through the Lua projection.
+    let outcome = session
+        .execute(
+            &engine,
+            &BlockContext {
+                teller: Teller::Agent,
+                authority: Authority::Platform,
+                turn_id: TurnId::generate(),
+            },
+            r#"
+            mcp.lightpanda.navigate{ url = "https://philpax.me" }
+            return mcp.lightpanda.markdown{}
+            "#,
+        )
+        .await
+        .expect("the block runs");
+    session.shutdown_mcp().await;
+
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected the block to commit, got {outcome:?}");
+    };
+    eprintln!(
+        "markdown via VM ({} chars):\n{}",
+        result.len(),
+        &result[..result.len().min(400)]
+    );
+    assert!(
+        result.to_lowercase().contains("philpax"),
+        "the projected markdown should mention philpax: {result:?}"
+    );
 }
