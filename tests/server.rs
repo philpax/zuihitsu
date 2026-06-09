@@ -103,7 +103,7 @@ fn init_tracing() {
 #[cfg(feature = "lua")]
 fn born_agent() -> (Server, ManualClock) {
     let clock = ManualClock::new(TEST_NOW);
-    let mut server = Server::new(
+    let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
         Box::new(clock.clone()),
@@ -115,7 +115,7 @@ fn born_agent() -> (Server, ManualClock) {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn route_message_opens_a_session_and_runs_a_turn() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("Hi, Dave.".to_owned())]);
     let leads = ConversationLocator::new("discord", "leads");
 
@@ -151,7 +151,7 @@ async fn route_message_opens_a_session_and_runs_a_turn() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
-    let (mut server, clock) = born_agent();
+    let (server, clock) = born_agent();
     let model = ScriptedModel::new([
         Completion::Reply("one".to_owned()),
         Completion::Reply("two".to_owned()),
@@ -185,7 +185,7 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn note_join_records_the_arriving_participant_on_the_session() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
     let leads = ConversationLocator::new("discord", "leads");
 
@@ -221,7 +221,7 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
-    let (mut server, clock) = born_agent();
+    let (server, clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
 
     // Turn 1: the agent records a note on Dave's memory and the turn-end synthesis dates it to
@@ -295,7 +295,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     // A tight token budget, so a single reported usage crosses it.
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
@@ -332,7 +332,7 @@ async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
     let model = ScriptedModel::new([
         Completion::Reply("first reply".to_owned()),
@@ -378,7 +378,7 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn each_turn_carries_its_own_recorded_time() {
-    let (mut server, clock) = born_agent();
+    let (server, clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
     let model = ScriptedModel::new([
         Completion::Reply("morning".to_owned()),
@@ -440,7 +440,7 @@ fn describe_call(description: &str) -> Completion {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_substantive_session_flushes_to_memory_before_the_cut() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
     // The default flush gate is four turns; the two exchanges below reach it.
@@ -485,7 +485,7 @@ async fn a_substantive_session_flushes_to_memory_before_the_cut() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_low_activity_session_skips_the_flush() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
     server.control().set_settings(settings).unwrap();
@@ -510,7 +510,7 @@ async fn a_low_activity_session_skips_the_flush() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn context_current_resolves_during_a_routed_turn() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
     // The agent appends to the current context. If context.current() returned nil in the routed path
     // (as a real-model run's stray `Context: nil` print suggested), this would error on nil:append
@@ -537,7 +537,7 @@ async fn context_current_resolves_during_a_routed_turn() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn the_working_set_carries_into_the_next_session_brief() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
     server.control().set_settings(settings).unwrap();
@@ -578,7 +578,7 @@ async fn the_working_set_carries_into_the_next_session_brief() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
-    let (mut server, clock) = born_agent();
+    let (server, clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
     server.control().set_settings(settings).unwrap();
@@ -633,7 +633,7 @@ async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_platform_conversation_cannot_write_self() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
     // The agent tries to edit `self` from an ordinary conversation. The block is barred (a teachable
     // error), the agent sees it on the next step and replies, and `self` gains nothing — the security
@@ -660,7 +660,7 @@ async fn a_platform_conversation_cannot_write_self() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn a_platform_conversation_cannot_merge_identities() {
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
     // Steered by a participant, the agent tries to merge two identities with `same_as`. Cross-platform
     // identity is operator-asserted only, so the block is barred (a teachable error) and discarded
@@ -695,7 +695,7 @@ async fn a_platform_conversation_cannot_merge_identities() {
 #[cfg(feature = "lua")]
 #[tokio::test]
 async fn imprint_records_the_creator_and_links_created_by() {
-    let (mut server, clock) = born_agent();
+    let (server, clock) = born_agent();
     let imprint = ConversationLocator::new("operator", "imprint");
     // Under operator authority the agent may write `self`: it creates the creator's person memory,
     // merges the operator stub into it with `same_as`, asserts `self created_by person/phil`, and
@@ -762,7 +762,7 @@ async fn real_model_routes_a_message_end_to_end() {
         return;
     }
     let client = OpenAiClient::new(&config.model);
-    let (mut server, _clock) = born_agent();
+    let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("direct", "operator");
 
     let outcome = server

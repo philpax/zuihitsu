@@ -89,7 +89,7 @@ async fn compaction_preserves_working_state() {
 
     let mut recovered = 0usize;
     for run in 0..N {
-        let Some(mut server) = run_scenario(&client).await else {
+        let Some(server) = run_scenario(&client).await else {
             tracing::warn!("skipping: model became unreachable mid-run");
             return;
         };
@@ -144,7 +144,7 @@ async fn compaction_preserves_working_state() {
 /// real model under a tight token budget, forcing a token-triggered compaction and its pre-compaction
 /// flush. `None` if the model becomes unreachable mid-run (the caller then skips).
 async fn run_scenario(client: &OpenAiClient) -> Option<Server> {
-    let mut server = born_agent();
+    let server = born_agent();
     // A budget low enough that a couple of turns re-segment, and a flush gate of two so even this
     // short session flushes before the cut.
     let mut settings = server.control().settings().unwrap();
@@ -283,7 +283,7 @@ fn verdict_tool() -> ToolSpec {
 /// relative phrases against a lifelike "now" rather than 1970.
 fn born_agent() -> Server {
     let clock = ManualClock::new(common::time::TEST_NOW);
-    let mut server = Server::new(
+    let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
         Box::new(clock),

@@ -30,7 +30,7 @@ async fn the_model_flags_a_direct_contradiction() {
 
     let mut arbitrated = 0usize;
     for run in 0..N {
-        let mut server = born_agent();
+        let server = born_agent();
         if let Err(error) = server
             .platform()
             .route_message(
@@ -81,7 +81,7 @@ async fn the_model_flags_a_direct_contradiction() {
 /// (2026-06-08T00:00:00Z).
 fn born_agent() -> Server {
     let clock = ManualClock::new(common::time::TEST_NOW);
-    let mut server = Server::new(
+    let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
         Box::new(clock),

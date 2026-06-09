@@ -30,7 +30,7 @@ async fn the_model_emits_a_recurring_occurrence() {
 
     let mut emitted = 0usize;
     for run in 0..N {
-        let mut server = born_agent();
+        let server = born_agent();
         if let Err(error) = server
             .platform()
             .route_message(
@@ -77,7 +77,7 @@ async fn the_model_emits_a_recurring_occurrence() {
 /// (2026-06-08T00:00:00Z) so the model resolves "every Tuesday" against a lifelike "now".
 fn born_agent() -> Server {
     let clock = ManualClock::new(common::time::TEST_NOW);
-    let mut server = Server::new(
+    let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
         Box::new(clock),

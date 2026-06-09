@@ -22,7 +22,7 @@ use crate::{
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
 /// participants it represents, and cannot reach Control's operator surface.
 pub struct Platform<'a> {
-    pub(super) server: &'a mut Server,
+    pub(super) server: &'a Server,
 }
 
 impl Platform<'_> {
@@ -31,7 +31,7 @@ impl Platform<'_> {
     /// resolves them to stubs (minting on first contact), opens or continues a session — freezing a
     /// fresh brief at each open — appends the inbound turn, runs the loop, and returns the outcome.
     pub async fn route_message(
-        &mut self,
+        &self,
         model: &dyn ModelClient,
         locator: &ConversationLocator,
         sender: &str,
@@ -141,7 +141,7 @@ impl Platform<'_> {
     /// rebuilding the frozen prompt (spec §Mid-conversation joins). A no-op if the room has never been
     /// seen or has no live session; the next message then opens a session with the joiner present.
     pub fn note_join(
-        &mut self,
+        &self,
         locator: &ConversationLocator,
         participant: &str,
     ) -> Result<(), ServerError> {
@@ -154,7 +154,13 @@ impl Platform<'_> {
         else {
             return Ok(());
         };
-        let Some(session) = self.server.sessions.get(&conversation).map(|open| open.id) else {
+        let Some(session) = self
+            .server
+            .sessions
+            .lock()
+            .get(&conversation)
+            .map(|open| open.id)
+        else {
             return Ok(());
         };
 
@@ -227,11 +233,13 @@ impl Platform<'_> {
     /// pre-compaction flush and staging a raw-transcript carryover for the next message to re-segment
     /// from (spec §Compaction). The working-set carryover lands in a later stage.
     async fn end_session_for_compaction(
-        &mut self,
+        &self,
         conversation: ConversationId,
         model: &dyn ModelClient,
     ) -> Result<(), ServerError> {
-        let Some(open) = self.server.sessions.remove(&conversation) else {
+        // Take the session out under the map guard; the `Arc` then carries it across the flush and
+        // `shutdown_mcp().await` below without holding the guard.
+        let Some(open) = self.server.sessions.lock().remove(&conversation) else {
             return Ok(());
         };
         let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
@@ -291,7 +299,10 @@ impl Platform<'_> {
         if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
         {
             carry.working_set = working_set;
-            self.server.pending_carryover.insert(conversation, carry);
+            self.server
+                .pending_carryover
+                .lock()
+                .insert(conversation, carry);
         }
         tracing::info!(
             ?conversation,

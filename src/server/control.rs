@@ -23,7 +23,7 @@ use crate::{
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
 /// never obtain one of these.
 pub struct Control<'a> {
-    pub(super) server: &'a mut Server,
+    pub(super) server: &'a Server,
 }
 
 /// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent
@@ -44,7 +44,7 @@ impl Control<'_> {
     /// compaction — the interview is short, and its flush would run barred from `self`.
     #[cfg(feature = "lua")]
     pub async fn imprint(
-        &mut self,
+        &self,
         model: &dyn ModelClient,
         text: &str,
     ) -> Result<TurnOutcome, ServerError> {
@@ -83,7 +83,7 @@ impl Control<'_> {
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads
     /// see them. Idempotent: calling it on a born agent is a no-op.
-    pub fn create_agent(&mut self, seed: &SeedSelf) -> Result<Rollout, ServerError> {
+    pub fn create_agent(&self, seed: &SeedSelf) -> Result<Rollout, ServerError> {
         let outcome = genesis::rollout(
             self.server.engine.store.lock().as_mut(),
             self.server.engine.clock.as_ref(),
@@ -173,7 +173,7 @@ impl Control<'_> {
     /// `Debugger`) — the read-modify-write the configuration design calls for (spec §Initialization →
     /// configuration). The new snapshot is the latest and takes effect on the next read; settings are
     /// read from the log, so no projection is involved.
-    pub fn set_settings(&mut self, settings: Settings) -> Result<(), ServerError> {
+    pub fn set_settings(&self, settings: Settings) -> Result<(), ServerError> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,

@@ -34,7 +34,7 @@ async fn a_private_aside_never_enters_a_public_description() {
 
     let mut leaking_runs = 0usize;
     for run in 0..N {
-        let mut server = born_agent();
+        let server = born_agent();
         if let Err(error) = server
             .platform()
             .route_message(
@@ -134,7 +134,7 @@ fn verdict_tool() -> ToolSpec {
 
 fn born_agent() -> Server {
     let clock = ManualClock::new(common::time::TEST_NOW);
-    let mut server = Server::new(
+    let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
         Box::new(clock),

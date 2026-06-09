@@ -45,7 +45,12 @@ use std::collections::BTreeMap;
 #[cfg(feature = "lua")]
 use std::collections::HashMap;
 #[cfg(feature = "lua")]
+use std::sync::atomic::{AtomicI64, Ordering};
+#[cfg(feature = "lua")]
 use std::time::Duration;
+
+#[cfg(feature = "lua")]
+use parking_lot::Mutex;
 
 #[cfg(feature = "mcp")]
 use crate::{
@@ -62,14 +67,17 @@ pub struct Server {
     /// The live session per conversation: its id, the VM whose globals persist across the session's
     /// turns, the frozen brief, and the last-activity time the idle-gap is measured from. Pure
     /// runtime state — never logged (the `SessionStarted` / `SessionEnded` events are); an agent
-    /// restart drops it and the next message opens a fresh session.
+    /// restart drops it and the next message opens a fresh session. Behind a `Mutex` (and each value
+    /// an `Arc`) so concurrent conversations reach the map through a shared `&Server`; a turn holds
+    /// its session's `Arc` across the turn `.await` without keeping the map guard.
     #[cfg(feature = "lua")]
-    sessions: HashMap<ConversationId, OpenSession>,
+    sessions: Mutex<HashMap<ConversationId, Arc<OpenSession>>>,
     /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
     /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
-    /// between the compacting turn and the next message in that room.
+    /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
+    /// shared-`&Server` reason as `sessions`.
     #[cfg(feature = "lua")]
-    pending_carryover: HashMap<ConversationId, Carryover>,
+    pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
     /// The MCP host and the catalogue probed from it at [`Server::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
     #[cfg(feature = "mcp")]
@@ -89,9 +97,9 @@ impl Server {
         Server {
             engine: Engine::new(store, graph, clock),
             #[cfg(feature = "lua")]
-            sessions: HashMap::new(),
+            sessions: Mutex::new(HashMap::new()),
             #[cfg(feature = "lua")]
-            pending_carryover: HashMap::new(),
+            pending_carryover: Mutex::new(HashMap::new()),
             #[cfg(feature = "mcp")]
             mcp: None,
         }
@@ -135,16 +143,18 @@ impl Server {
         Ok(status)
     }
 
-    /// The operator-authority API facet.
-    pub fn control(&mut self) -> Control<'_> {
+    /// The operator-authority API facet. Takes `&self` so a shared `Arc<Server>` can hand out a facet
+    /// per caller; the server's mutable runtime state lives behind its own locks.
+    pub fn control(&self) -> Control<'_> {
         Control { server: self }
     }
 
     /// The platform-authority API facet — delivering participant turns. It structurally lacks
     /// Control's creation and inspection methods, which is what makes "the operator has no platform
-    /// identity" enforceable.
+    /// identity" enforceable. Takes `&self` so concurrent conversations each obtain one from a shared
+    /// `Arc<Server>`.
     #[cfg(feature = "lua")]
-    pub fn platform(&mut self) -> Platform<'_> {
+    pub fn platform(&self) -> Platform<'_> {
         Platform { server: self }
     }
 }
@@ -173,19 +183,18 @@ impl Server {
     /// (the buffer the caller's compaction trigger measures). The shared core behind
     /// `Platform::route_message` and `Control::imprint`.
     async fn run_session_turn(
-        &mut self,
+        &self,
         model: &dyn ModelClient,
         routed: &RoutedTurn<'_>,
     ) -> Result<(TurnReport, Vec<TurnView>), ServerError> {
-        self.ensure_session(routed.conversation, routed.present_set)
+        // `ensure_session` returns the open session as an `Arc`, so the turn holds it across
+        // `run_turn().await` without keeping the `sessions` map guard.
+        let open = self
+            .ensure_session(routed.conversation, routed.present_set)
             .await?;
         let turn_settings = Settings::from_store(self.engine.store.lock().as_ref())?.turn;
         let max_steps = turn_settings.max_steps as usize;
         let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);
-        let open = self
-            .sessions
-            .get(&routed.conversation)
-            .expect("ensure_session left an open session");
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
         let buffer = buffer_turns(
@@ -215,23 +224,24 @@ impl Server {
     /// minting a fresh VM. The session boundary is recorded (`SessionStarted` / `SessionEnded`) and
     /// not recomputed at replay.
     async fn ensure_session(
-        &mut self,
+        &self,
         conversation: ConversationId,
         present_set: &[MemoryId],
-    ) -> Result<(), ServerError> {
+    ) -> Result<Arc<OpenSession>, ServerError> {
         let now = self.engine.clock.now();
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
         let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
 
-        let reuse = self
-            .sessions
-            .get(&conversation)
-            .is_some_and(|open| now.as_millis() - open.last_activity.as_millis() <= idle_gap_ms);
-        if reuse {
-            if let Some(open) = self.sessions.get_mut(&conversation) {
-                open.last_activity = now;
+        // Reuse the open session if its last activity is within the idle gap, bumping it. The map
+        // guard is released before returning; the returned `Arc` keeps the session alive for the turn.
+        {
+            let sessions = self.sessions.lock();
+            if let Some(open) = sessions.get(&conversation)
+                && now.as_millis() - open.last_activity_millis() <= idle_gap_ms
+            {
+                open.touch(now);
+                return Ok(open.clone());
             }
-            return Ok(());
         }
 
         // Catch the wake-up scheduler up to now before the session opens. This is global (it fires
@@ -251,9 +261,11 @@ impl Server {
                 .materialize_from(self.engine.store.lock().as_ref())?;
         }
 
-        // A lapsed session ends before the new one opens: tear down its MCP instances, then record
-        // the boundary.
-        if let Some(old) = self.sessions.remove(&conversation) {
+        // A lapsed session ends before the new one opens: take it out under the map guard, release
+        // the guard, then tear down its MCP instances and record the boundary — no map guard is held
+        // across the `shutdown_mcp().await`.
+        let old = self.sessions.lock().remove(&conversation);
+        if let Some(old) = old {
             #[cfg(feature = "mcp")]
             old.vm.shutdown_mcp().await;
             self.engine.store.lock().append(
@@ -269,7 +281,7 @@ impl Server {
         // starts at the carried tail (not this `SessionStarted`), the boundary is recorded as
         // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
         // brief as active threads (spec §Compaction → carryover).
-        let carryover = self.pending_carryover.remove(&conversation);
+        let carryover = self.pending_carryover.lock().remove(&conversation);
         let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
         let working_set: &[MemoryId] = carryover
             .as_ref()
@@ -319,18 +331,16 @@ impl Server {
         };
         #[cfg(not(feature = "mcp"))]
         let vm = Session::new(conversation);
-        self.sessions.insert(
-            conversation,
-            OpenSession {
-                id,
-                vm,
-                brief,
-                last_activity: now,
-                start_seq: carryover
-                    .map(|carry| carry.from_seq)
-                    .unwrap_or(session_start_seq),
-            },
-        );
+        let open = Arc::new(OpenSession {
+            id,
+            vm,
+            brief,
+            last_activity: AtomicI64::new(now.as_millis()),
+            start_seq: carryover
+                .map(|carry| carry.from_seq)
+                .unwrap_or(session_start_seq),
+        });
+        self.sessions.lock().insert(conversation, open.clone());
 
         // Drain the wake-up surface into the opening session: fired items that are both visible to and
         // targeted at this present set are raised as one `Initiated` system turn the agent sees in its
@@ -365,14 +375,14 @@ impl Server {
                 .lock()
                 .materialize_from(self.engine.store.lock().as_ref())?;
         }
-        Ok(())
+        Ok(open)
     }
 
     /// Resolve the control-panel operator's stable `person/operator` stub, minting it once on the
     /// first imprint. Unlike a platform participant it carries no `ParticipantIdentified` binding —
     /// the operator has no platform identity, must never collide with a real participant, and must
     /// resolve identically across imprints — so it is keyed only by its canonical name.
-    fn resolve_or_mint_operator(&mut self) -> Result<MemoryId, ServerError> {
+    fn resolve_or_mint_operator(&self) -> Result<MemoryId, ServerError> {
         if let Some(memory) = self.engine.graph.lock().memory_by_name("person/operator")? {
             return Ok(memory.id);
         }
@@ -407,17 +417,34 @@ struct Carryover {
     working_set: Vec<MemoryId>,
 }
 
-/// The live session backing a conversation (runtime state, see [`Server::sessions`]).
+/// The live session backing a conversation (runtime state, see [`Server::sessions`]). Held behind an
+/// `Arc` in the `sessions` map, so a running turn keeps its session alive without the map guard; only
+/// `last_activity` is mutated after open, so it is an atomic the reuse path bumps through `&self`.
 #[cfg(feature = "lua")]
 struct OpenSession {
     id: SessionId,
     vm: Session,
     brief: String,
-    last_activity: crate::time::Timestamp,
+    /// The last-activity wall-clock in epoch millis, the idle-gap is measured from. Atomic so the
+    /// idle-reuse path can bump it through the shared `&OpenSession` without a map-wide write lock.
+    last_activity: AtomicI64,
     /// The log seq the live buffer is read from: the `SessionStarted` seq for a fresh or idle-opened
     /// session, or a carried tail's seq across a compaction seam (so the carryover plus this
     /// session's turns reconstruct the buffer — see [`buffer_turns`]).
     start_seq: Seq,
+}
+
+#[cfg(feature = "lua")]
+impl OpenSession {
+    /// The last-activity time in epoch millis.
+    fn last_activity_millis(&self) -> i64 {
+        self.last_activity.load(Ordering::Relaxed)
+    }
+
+    /// Record `now` as the last activity (the idle-reuse bump).
+    fn touch(&self, now: crate::time::Timestamp) {
+        self.last_activity.store(now.as_millis(), Ordering::Relaxed);
+    }
 }
 
 /// A server-side failure, delegating its message to the underlying error.

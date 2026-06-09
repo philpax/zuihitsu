@@ -380,21 +380,28 @@ async fn a_turn_runs_on_a_worker_thread() {
         .await
         .unwrap();
 
-    let outcome = tokio::spawn(async move {
-        let model = ScriptedModel::new([
-            run_lua_call(r#"memory.create("topic/page", mcp.browser.markdown{})"#),
-            Completion::Reply("done".to_owned()),
-        ]);
-        server
-            .platform()
-            .route_message(
-                &model,
-                &ConversationLocator::new("discord", "general"),
-                "phil",
-                "save the page",
-                &["phil"],
-            )
-            .await
+    // Share the server behind an `Arc` and drive the turn from a spawned task holding a clone:
+    // `route_message` now takes `&self`, so this exercises the shared-server path (not an owned move),
+    // and the spawned future must still be `Send`.
+    let server = Arc::new(server);
+    let outcome = tokio::spawn({
+        let server = server.clone();
+        async move {
+            let model = ScriptedModel::new([
+                run_lua_call(r#"memory.create("topic/page", mcp.browser.markdown{})"#),
+                Completion::Reply("done".to_owned()),
+            ]);
+            server
+                .platform()
+                .route_message(
+                    &model,
+                    &ConversationLocator::new("discord", "general"),
+                    "phil",
+                    "save the page",
+                    &["phil"],
+                )
+                .await
+        }
     })
     .await
     .expect("the spawned turn task joins")
@@ -403,4 +410,61 @@ async fn a_turn_runs_on_a_worker_thread() {
         matches!(outcome, TurnOutcome::Reply(_)),
         "outcome was {outcome:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_turns_on_distinct_conversations_share_one_server() {
+    // Two conversations run at once against a single shared `Arc<Server>`, each writing its own
+    // memory. A smoke test that the `&self` facets admit concurrent turns from a shared server (the
+    // per-memory locking that makes *same*-memory contention safe lands in the next commit).
+    let server = Server::new(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(ManualClock::new(common::time::TEST_NOW)),
+    );
+    server
+        .control()
+        .create_agent(&SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let server = Arc::new(server);
+
+    let turn = |room: &'static str, topic: &'static str| {
+        let server = server.clone();
+        async move {
+            let model = ScriptedModel::new([
+                run_lua_call(&format!(r#"memory.create("topic/{topic}", "from {room}")"#)),
+                Completion::Reply("done".to_owned()),
+            ]);
+            server
+                .platform()
+                .route_message(
+                    &model,
+                    &ConversationLocator::new("discord", room),
+                    "phil",
+                    "note it",
+                    &["phil"],
+                )
+                .await
+        }
+    };
+
+    let (a, b) = tokio::join!(
+        tokio::spawn(turn("general", "alpha")),
+        tokio::spawn(turn("random", "beta")),
+    );
+    assert!(matches!(
+        a.expect("task a joins").expect("turn a runs"),
+        TurnOutcome::Reply(_)
+    ));
+    assert!(matches!(
+        b.expect("task b joins").expect("turn b runs"),
+        TurnOutcome::Reply(_)
+    ));
+    // Both turns' writes landed through the shared engine.
+    assert!(server.control().memory("topic/alpha").unwrap().is_some());
+    assert!(server.control().memory("topic/beta").unwrap().is_some());
 }
