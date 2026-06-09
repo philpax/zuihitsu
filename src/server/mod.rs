@@ -17,6 +17,7 @@ pub use platform::Platform;
 use std::{
     collections::{BTreeMap, HashMap},
     future::Future,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicI64, Ordering},
@@ -48,6 +49,7 @@ use crate::{
     },
     model::ModelClient,
     settings::{ConcurrencySettings, Settings},
+    snapshot,
     store::{MemoryStore, Store, StoreError},
     time::Timestamp,
 };
@@ -135,6 +137,28 @@ impl Server {
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "server booted");
         Ok(status)
+    }
+
+    /// Write a graph snapshot into `dir` and return its path, or `None` when the graph is already
+    /// snapshotted at its current head (no events since the last one — nothing to checkpoint). Holds
+    /// the graph lock across the `VACUUM INTO`, so the capture is at a clean `seq` boundary: a commit,
+    /// which takes the same lock, can neither be in flight nor interleave (spec §Snapshots). Creates
+    /// `dir` if absent.
+    pub fn snapshot(&self, dir: &Path) -> Result<Option<PathBuf>, ServerError> {
+        let graph = self.engine.graph.lock();
+        let head = graph.head()?;
+        std::fs::create_dir_all(dir).map_err(|source| {
+            ServerError::Snapshot(format!(
+                "could not create the snapshot directory {dir:?}: {source}"
+            ))
+        })?;
+        let path = dir.join(snapshot::snapshot_filename(head));
+        if path.exists() {
+            return Ok(None);
+        }
+        graph.snapshot_into(&path)?;
+        tracing::info!(head = head.0, ?path, "wrote graph snapshot");
+        Ok(Some(path))
     }
 
     /// The operator-authority API facet. Takes `&self` so a shared `Arc<Server>` can hand out a facet
@@ -517,6 +541,8 @@ pub enum ServerError {
     Turn(TurnError),
     /// Connecting the MCP servers failed (a probe-level hard error, e.g. a stale `allow`/`deny`).
     Mcp(crate::mcp::McpError),
+    /// Writing a graph snapshot failed (creating the directory, or the `VACUUM INTO` itself).
+    Snapshot(String),
 }
 
 impl std::fmt::Display for ServerError {
@@ -526,6 +552,7 @@ impl std::fmt::Display for ServerError {
             ServerError::Graph(error) => write!(f, "server (graph): {error}"),
             ServerError::Turn(error) => write!(f, "server (turn): {error}"),
             ServerError::Mcp(error) => write!(f, "server (mcp): {error}"),
+            ServerError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
         }
     }
 }
@@ -537,6 +564,7 @@ impl std::error::Error for ServerError {
             ServerError::Graph(error) => Some(error),
             ServerError::Turn(error) => Some(error),
             ServerError::Mcp(error) => Some(error),
+            ServerError::Snapshot(_) => None,
         }
     }
 }

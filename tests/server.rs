@@ -91,6 +91,29 @@ fn boot_reconciles_a_fresh_graph_from_a_persisted_log() {
     let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
 
+#[test]
+fn a_server_snapshot_captures_the_graph_at_its_head() {
+    let mut server = Server::in_memory(clock()).unwrap();
+    server.boot().unwrap();
+    server.control().create_agent(&seed()).unwrap();
+
+    let dir = std::env::temp_dir().join(format!("zuihitsu-snap-{}", MemoryId::generate().0));
+    let path = server
+        .snapshot(&dir)
+        .unwrap()
+        .expect("a first snapshot is written");
+
+    // The snapshot is a self-describing graph at a real (non-zero) head, with the born agent's state.
+    assert!(zuihitsu::snapshot::read_graph_head(&path).unwrap().0 > 0);
+    let restored = Graph::open(&path).unwrap();
+    assert!(restored.memory_by_name("self").unwrap().is_some());
+
+    // A second snapshot with no events since is a no-op (already checkpointed at this head).
+    assert!(server.snapshot(&dir).unwrap().is_none());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Install a test-scoped tracing subscriber so the model-gated smoke emits structured, timestamped
 /// logs (visible under `--nocapture`) rather than ad-hoc prints. Idempotent across the binary.
 fn init_tracing() {

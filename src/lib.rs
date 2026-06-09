@@ -18,6 +18,7 @@ pub mod memory;
 pub mod model;
 pub mod server;
 pub mod settings;
+pub mod snapshot;
 pub mod store;
 pub mod time;
 pub mod vector;

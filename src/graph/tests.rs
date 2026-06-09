@@ -397,6 +397,84 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
 }
 
 #[test]
+fn a_snapshot_round_trips_the_graph_and_its_head() {
+    let id = MemoryId::generate();
+    let (store, graph) = materialized(vec![
+        EventPayload::MemoryCreated {
+            id,
+            name: MemoryName::new("person/dave"),
+        },
+        EventPayload::MemoryContentAppended {
+            id,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(900),
+            occurred_at: None,
+            text: "Met at the climbing gym".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+    ]);
+    let head = graph.head().unwrap();
+    assert!(head > Seq::ZERO);
+
+    // VACUUM INTO a fresh file, then open it as a graph: its whole logical state round-trips.
+    let path = std::env::temp_dir().join(format!(
+        "zuihitsu-graphsnap-{}.sqlite",
+        MemoryId::generate().0
+    ));
+    graph.snapshot_into(&path).unwrap();
+    let mut restored = Graph::open(&path).unwrap();
+    assert_eq!(restored.head().unwrap(), head);
+    // The content fingerprint matches exactly — the entire logical state round-tripped, not just the
+    // few fields a spot check would cover.
+    assert_eq!(
+        restored.fingerprint().unwrap(),
+        graph.fingerprint().unwrap()
+    );
+    // Materializing the restored graph against the same log is a no-op — it is already at head, so a
+    // boot from this snapshot replays only the (empty here) tail rather than the whole log.
+    assert_eq!(restored.materialize_from(&store).unwrap(), 0);
+
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn fingerprint_equals_for_identical_state_and_differs_on_change() {
+    let id = MemoryId::generate();
+    let base = vec![
+        EventPayload::MemoryCreated {
+            id,
+            name: MemoryName::new("person/dave"),
+        },
+        EventPayload::MemoryContentAppended {
+            id,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(900),
+            occurred_at: None,
+            text: "Met at the gym".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+    ];
+
+    // Two graphs materialized from the same events (same ids) fingerprint identically.
+    let (_store_a, a) = materialized(base.clone());
+    let (_store_b, b) = materialized(base.clone());
+    assert_eq!(a.fingerprint().unwrap(), b.fingerprint().unwrap());
+
+    // One more event — and the head it advances — diverges the fingerprint.
+    let mut more = base;
+    more.push(EventPayload::MemoryVolatilitySet {
+        id,
+        volatility: Volatility::High,
+    });
+    let (_store_c, c) = materialized(more);
+    assert_ne!(a.fingerprint().unwrap(), c.fingerprint().unwrap());
+}
+
+#[test]
 fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
     let dave = MemoryId::generate();
     let old = EntryId::generate();

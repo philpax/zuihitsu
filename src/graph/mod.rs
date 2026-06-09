@@ -4,8 +4,9 @@
 //! §Storage). This root holds the schema, the open/boot path, and the shared types and helpers; the
 //! [`Graph::apply`] materializer lives in [`apply`], and the agent-facing query methods in [`read`].
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params, types::ValueRef};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
 use crate::{
@@ -281,6 +282,106 @@ impl Graph {
         }
         tracing::debug!(applied = events.len(), from = from.0, "materialized graph");
         Ok(events.len())
+    }
+
+    /// Write an atomic checkpoint of the graph to `path` via `VACUUM INTO` (spec §Snapshots). The
+    /// `meta.graph_head` rides along in the copy, so the file is a self-describing graph at the head it
+    /// was captured at. `path` must not already exist (SQLite refuses to overwrite). The caller is
+    /// responsible for capturing at a clean `seq` boundary — no in-flight commit — which holding the
+    /// graph lock across this call guarantees (commits take the same lock).
+    pub fn snapshot_into(&self, path: &std::path::Path) -> Result<(), GraphError> {
+        self.conn
+            .execute("VACUUM INTO ?1", params![path.to_string_lossy()])
+            .map_err(backend)?;
+        Ok(())
+    }
+
+    /// A content fingerprint over the graph's logical state — every row of every projected table, in a
+    /// canonical order independent of physical layout — so two graphs can be compared for equality: a
+    /// snapshot against its source, or a graph rebuilt by replay against the original. Stable across
+    /// `VACUUM` (which rebuilds the physical layout but preserves logical content) because it reads only
+    /// declared columns in a content order, never implicit rowids. Excludes the derived FTS index,
+    /// which is a function of the base tables. `meta` is included, so two graphs match only if they are
+    /// at the same `graph_head`.
+    pub fn fingerprint(&self) -> Result<String, GraphError> {
+        // Every projected table, in a fixed order. The FTS index (`memories_fts`) is derived from
+        // these, so it is left out rather than hashing its virtual-table internals.
+        const TABLES: &[&str] = &[
+            "memories",
+            "content_entries",
+            "tags",
+            "memory_tags",
+            "relations",
+            "links",
+            "conversations",
+            "sessions",
+            "session_participants",
+            "participant_identities",
+            "meta",
+        ];
+        let mut hasher = Sha256::new();
+        for table in TABLES {
+            hasher.update(table.as_bytes());
+            hasher.update([SEP_TABLE]);
+            // Order by every column (by position), so the row sequence is a function of content, not of
+            // physical layout — the property that makes the digest VACUUM-stable.
+            let column_count = self
+                .conn
+                .prepare(&format!("SELECT * FROM {table}"))
+                .map_err(backend)?
+                .column_count();
+            let order = (1..=column_count)
+                .map(|index| index.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut stmt = self
+                .conn
+                .prepare(&format!("SELECT * FROM {table} ORDER BY {order}"))
+                .map_err(backend)?;
+            let mut rows = stmt.query([]).map_err(backend)?;
+            while let Some(row) = rows.next().map_err(backend)? {
+                for index in 0..column_count {
+                    hash_value(&mut hasher, row.get_ref(index).map_err(backend)?);
+                }
+                hasher.update([SEP_ROW]);
+            }
+        }
+        Ok(hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect())
+    }
+}
+
+/// Row and table separators in the fingerprint stream, so distinct row/table boundaries cannot be
+/// forged by content (e.g. two short fields colliding with one longer field).
+const SEP_ROW: u8 = 0xFF;
+const SEP_TABLE: u8 = 0xFE;
+
+/// Feed one SQLite value into the fingerprint hasher, tagged by type and length-prefixed, so values of
+/// different types or lengths can never produce the same byte stream.
+fn hash_value(hasher: &mut Sha256, value: ValueRef<'_>) {
+    match value {
+        ValueRef::Null => hasher.update([0]),
+        ValueRef::Integer(int) => {
+            hasher.update([1]);
+            hasher.update(int.to_le_bytes());
+        }
+        ValueRef::Real(real) => {
+            hasher.update([2]);
+            hasher.update(real.to_le_bytes());
+        }
+        ValueRef::Text(text) => {
+            hasher.update([3]);
+            hasher.update((text.len() as u64).to_le_bytes());
+            hasher.update(text);
+        }
+        ValueRef::Blob(blob) => {
+            hasher.update([4]);
+            hasher.update((blob.len() as u64).to_le_bytes());
+            hasher.update(blob);
+        }
     }
 }
 
