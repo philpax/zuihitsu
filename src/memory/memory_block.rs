@@ -16,7 +16,7 @@ use serde::Deserialize;
 use crate::{
     engine::Engine,
     event::{EventPayload, LinkSource, Teller, Visibility},
-    graph::GraphError,
+    graph::{EntryView, GraphError},
     ids::{ConversationId, EntryId, MemoryId, MemoryName},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -59,6 +59,23 @@ pub struct MemoryBlock {
     aborted: Option<String>,
 }
 
+/// An addressable content entry handed back to the agent: its stable [`EntryId`] and its text. The
+/// id lets the agent pass an entry to [`MemoryBlock::supersede`]; the Lua layer renders it as its
+/// text so reading stays ergonomic.
+pub struct EntryRef {
+    pub entry_id: EntryId,
+    pub text: String,
+}
+
+impl EntryRef {
+    fn from_view(entry: EntryView) -> EntryRef {
+        EntryRef {
+            entry_id: entry.entry_id,
+            text: entry.text,
+        }
+    }
+}
+
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
 /// buffered side effects, the memories touched (the lock set, for compaction's working-set), and the
 /// abort reason if [`MemoryBlock::abort`] was called.
@@ -91,6 +108,10 @@ pub enum MemoryError {
     /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
     /// or a non-`YYYY-MM-DD` date.
     BadCalendarArg(String),
+    /// A `supersede` named an entry that is not a live entry of the memory's `same_as` class — an
+    /// unknown id, or one already superseded. The agent supersedes entries it read from the same
+    /// memory, so this is a teachable misuse.
+    UnknownEntry(EntryId),
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -127,6 +148,11 @@ impl std::fmt::Display for MemoryError {
                 f,
                 "could not read the calendar argument {arg:?}; use a duration like \"7 days\" or a \
                  date like \"2026-06-03\""
+            ),
+            MemoryError::UnknownEntry(entry) => write!(
+                f,
+                "no live entry {} on this memory; supersede an entry you read from it",
+                entry.0
             ),
             MemoryError::Graph(error) => write!(f, "{error}"),
         }
@@ -256,7 +282,7 @@ impl MemoryBlock {
         id: MemoryId,
         text: &str,
         opts: AppendOptions,
-    ) -> Result<(), MemoryError> {
+    ) -> Result<EntryId, MemoryError> {
         self.guard_self(id)?;
         let told_by = if opts.by_agent {
             Teller::Agent
@@ -270,37 +296,73 @@ impl MemoryBlock {
             &told_by,
             opts.visibility,
         )?;
-        self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at);
+        Ok(self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at))
+    }
+
+    /// Supersede `old` with `new` on `id` — the agent corrected or retracted a fact, recording which
+    /// entry replaces it (spec §Visibility → superseded entries are not live). Both must be live
+    /// entries of `id`'s `same_as` class (a live read, so the lock layer holds the class). Buffers a
+    /// `MemorySuperseded`; the superseded entry then drops from every live surface while remaining in
+    /// history. Like an append, it is a write to `id`, so platform authority may not supersede a
+    /// `self` entry.
+    pub fn supersede(
+        &mut self,
+        id: MemoryId,
+        old: EntryId,
+        new: EntryId,
+    ) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        let live = self.live_class_entry_ids(id)?;
+        if !live.contains(&old) {
+            return Err(MemoryError::UnknownEntry(old));
+        }
+        if !live.contains(&new) {
+            return Err(MemoryError::UnknownEntry(new));
+        }
+        self.touched.insert(id);
+        self.buffer.push(EventPayload::MemorySuperseded {
+            id,
+            entry: old,
+            superseded_by: new,
+        });
         Ok(())
     }
 
-    /// The memory's content entry texts: its whole `same_as` class from the graph plus this block's
-    /// pending appends. A traversing read, so it touches every class member, not just `id`.
-    pub fn entries(&mut self, id: MemoryId) -> Result<Vec<String>, MemoryError> {
-        let (members, mut texts) = {
+    /// The memory's live content entries: its whole `same_as` class from the graph plus this block's
+    /// pending appends, minus any superseded this block (read-your-writes). A traversing read, so it
+    /// touches every class member, not just `id`. Each entry is addressable (by id) so the agent can
+    /// hand one to [`MemoryBlock::supersede`].
+    pub fn entries(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
+        let (members, graph_entries) = {
             let graph = self.engine.graph.lock();
-            let members = graph.class_members(id)?;
-            let texts: Vec<String> = graph
-                .class_entries(id)?
-                .into_iter()
-                .map(|entry| entry.text)
-                .collect();
-            (members, texts)
+            (graph.class_members(id)?, graph.class_entries(id)?)
         };
-        self.touched.insert(id);
-        for member in &members {
-            self.touched.insert(*member);
-        }
-        for event in &self.buffer {
-            if let EventPayload::MemoryContentAppended {
-                id: entry_id, text, ..
-            } = event
-                && *entry_id == id
-            {
-                texts.push(text.clone());
-            }
-        }
-        Ok(texts)
+        let members = self.touch_class(id, members);
+        // A supersession buffered this block (not yet committed) must hide its target from this live
+        // read too, so the agent sees the effect of a correction it just made.
+        let pending_superseded = self.pending_superseded();
+        let mut refs: Vec<EntryRef> = graph_entries
+            .into_iter()
+            .filter(|entry| !pending_superseded.contains(&entry.entry_id))
+            .map(EntryRef::from_view)
+            .collect();
+        refs.extend(self.pending_entries(&members, &pending_superseded));
+        Ok(refs)
+    }
+
+    /// The memory's entries including superseded ones, oldest first — the agent's `mem:history()` view
+    /// (spec §Per-memory history), the read where history is the point and the live filter is bypassed.
+    /// Like [`MemoryBlock::entries`], a class-traversing read over the graph plus this block's pending
+    /// appends; pending supersessions are *not* applied, since history keeps the superseded entries.
+    pub fn history(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
+        let (members, graph_entries) = {
+            let graph = self.engine.graph.lock();
+            (graph.class_members(id)?, graph.class_history(id)?)
+        };
+        let members = self.touch_class(id, members);
+        let mut refs: Vec<EntryRef> = graph_entries.into_iter().map(EntryRef::from_view).collect();
+        refs.extend(self.pending_entries(&members, &BTreeSet::new()));
+        Ok(refs)
     }
 
     /// The live members of `id`'s `same_as` class (including `id`), for the Lua lock layer to acquire
@@ -514,7 +576,75 @@ impl MemoryBlock {
         })
     }
 
-    /// Buffer a content entry and touch its memory.
+    /// Record `id` and its `same_as` class as touched (a traversing read locks the whole class), and
+    /// return the class as a set for membership tests against the pending buffer.
+    fn touch_class(&mut self, id: MemoryId, members: Vec<MemoryId>) -> BTreeSet<MemoryId> {
+        self.touched.insert(id);
+        let mut set = BTreeSet::new();
+        for member in members {
+            self.touched.insert(member);
+            set.insert(member);
+        }
+        set.insert(id);
+        set
+    }
+
+    /// The entries this block has superseded but not yet committed — applied to the live reads so a
+    /// correction's effect is visible within the block (read-your-writes).
+    fn pending_superseded(&self) -> BTreeSet<EntryId> {
+        self.buffer
+            .iter()
+            .filter_map(|event| match event {
+                EventPayload::MemorySuperseded { entry, .. } => Some(*entry),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// This block's pending content appends to any member of `members`, as entry refs, skipping any in
+    /// `exclude` — the read-your-writes tail of a live or history entry read.
+    fn pending_entries(
+        &self,
+        members: &BTreeSet<MemoryId>,
+        exclude: &BTreeSet<EntryId>,
+    ) -> Vec<EntryRef> {
+        self.buffer
+            .iter()
+            .filter_map(|event| match event {
+                EventPayload::MemoryContentAppended {
+                    id, entry_id, text, ..
+                } if members.contains(id) && !exclude.contains(entry_id) => Some(EntryRef {
+                    entry_id: *entry_id,
+                    text: text.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The live entry ids of `id`'s `same_as` class: committed-live (the graph already excludes
+    /// committed supersessions) plus this block's pending appends, minus what it has superseded —
+    /// the set [`MemoryBlock::supersede`] validates its arguments against.
+    fn live_class_entry_ids(&self, id: MemoryId) -> Result<BTreeSet<EntryId>, MemoryError> {
+        let (members, committed) = {
+            let graph = self.engine.graph.lock();
+            (graph.class_members(id)?, graph.class_entries(id)?)
+        };
+        let members: BTreeSet<MemoryId> = members.into_iter().chain([id]).collect();
+        let pending_superseded = self.pending_superseded();
+        let mut ids: BTreeSet<EntryId> = committed
+            .into_iter()
+            .map(|entry| entry.entry_id)
+            .filter(|entry_id| !pending_superseded.contains(entry_id))
+            .collect();
+        for entry in self.pending_entries(&members, &pending_superseded) {
+            ids.insert(entry.entry_id);
+        }
+        Ok(ids)
+    }
+
+    /// Buffer a content entry and touch its memory, returning the minted entry id (so a write can be
+    /// handed back to the agent as an addressable entry — see [`MemoryBlock::append`]).
     fn push_content(
         &mut self,
         id: MemoryId,
@@ -522,11 +652,12 @@ impl MemoryBlock {
         told_by: Teller,
         visibility: Visibility,
         occurred_at: Option<TemporalRef>,
-    ) {
+    ) -> EntryId {
+        let entry_id = EntryId::generate();
         self.touched.insert(id);
         self.buffer.push(EventPayload::MemoryContentAppended {
             id,
-            entry_id: EntryId::generate(),
+            entry_id,
             asserted_at: self.engine.clock.now(),
             occurred_at,
             text,
@@ -534,6 +665,7 @@ impl MemoryBlock {
             told_in: self.told_in,
             visibility,
         });
+        entry_id
     }
 
     /// Resolve a name to a memory id, consulting this block's pending creates/renames before the

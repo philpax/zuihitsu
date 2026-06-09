@@ -19,6 +19,9 @@ pub enum ApiType {
     Boolean,
     /// A memory handle — the object the memory API returns.
     Handle,
+    /// An entry handle — an addressable content entry that reads as its text (returned by
+    /// `mem:append` / `mem:entries` / `mem:history`, passed to `mem:supersede`).
+    Entry,
     /// A table / object with named fields (an opts table, or a JSON-Schema `object`).
     Object(Vec<ApiParam>),
     /// A list of elements of the given type.
@@ -53,6 +56,7 @@ impl ApiType {
             ApiType::Number => "number".to_owned(),
             ApiType::Boolean => "boolean".to_owned(),
             ApiType::Handle => "memory handle".to_owned(),
+            ApiType::Entry => "entry".to_owned(),
             ApiType::Object(_) => "table".to_owned(),
             ApiType::List(inner) => format!("list of {}", inner.label()),
             ApiType::Enum(values) => values

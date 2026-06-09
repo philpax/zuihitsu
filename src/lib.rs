@@ -76,7 +76,8 @@ pub use memory::{
     brief::{BriefError, BriefRequest, compose, compose_participant},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
     memory_block::{
-        AppendOptions, Authority, BlockEffects, MemoryBlock, MemoryError, VisibilityChoice,
+        AppendOptions, Authority, BlockEffects, EntryRef, MemoryBlock, MemoryError,
+        VisibilityChoice,
     },
     search::{SearchError, SearchHit, SearchQuery, search},
     visibility::{

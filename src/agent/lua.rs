@@ -26,8 +26,8 @@ use crate::{
     engine::{Engine, MemoryLocks},
     event::{EventPayload, TerminalCause},
     graph::GraphError,
-    ids::{ConversationId, MemoryId, TurnId},
-    memory::memory_block::{AppendOptions, BlockEffects, MemoryBlock, MemoryError},
+    ids::{ConversationId, EntryId, MemoryId, TurnId},
+    memory::memory_block::{AppendOptions, BlockEffects, EntryRef, MemoryBlock, MemoryError},
     store::StoreError,
     vocabulary::RelationName,
 };
@@ -167,12 +167,15 @@ impl Session {
                 manager: manager.clone(),
             };
 
-            // The handle metatable and its methods table back every memory handle the API mints.
+            // The handle metatable and its methods table back every memory handle the API mints; the
+            // entry metatable backs the addressable content-entry handles that `mem:append` /
+            // `mem:entries` / `mem:history` return (text-rendering, so reading stays ergonomic).
             let methods = self.lua.create_table().map_err(LuaError::Vm)?;
             let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
             metatable
                 .set("__index", methods.clone())
                 .map_err(LuaError::Vm)?;
+            let entry_metatable = self.entry_metatable().map_err(LuaError::Vm)?;
 
             // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects
             // this attempt only.
@@ -180,7 +183,7 @@ impl Session {
 
             // Installing the API is our-side setup: a failure here is a bug, not an agent-visible
             // outcome.
-            self.install_block_api(&api, &methods, &metatable)
+            self.install_block_api(&api, &methods, &metatable, &entry_metatable)
                 .map_err(LuaError::Vm)?;
 
             // The agent-visible outcome: the rendered final value, or the runtime error/abort that
@@ -214,7 +217,7 @@ impl Session {
                 // Abort-and-retry: the buffer emitted nothing, so a fresh attempt is the only trace.
                 continue;
             };
-            let evaluated = evaluated.map(|value| render(&value));
+            let evaluated = evaluated.map(|value| render(&self.lua, &value));
 
             // An infrastructure failure during the block (a graph read) takes precedence over the
             // script's apparent outcome: it bubbles up, discarding the buffer and releasing the locks,
@@ -301,8 +304,9 @@ impl Session {
         api: &BlockApi,
         methods: &Table,
         metatable: &Table,
+        entry_metatable: &Table,
     ) -> mlua::Result<()> {
-        self.install_handle_methods(api, methods)?;
+        self.install_handle_methods(api, methods, entry_metatable)?;
         let globals = self.lua.globals();
         globals.set("memory", self.memory_table(api, metatable)?)?;
         globals.set("block", self.block_table(api)?)?;
@@ -311,17 +315,25 @@ impl Session {
         Ok(())
     }
 
-    /// The `mem:*` handle methods (`append`, `entries`, `link`, `unlink`) on the metatable's `methods`
-    /// table. Each acts on the handle passed as `this`.
-    fn install_handle_methods(&self, api: &BlockApi, methods: &Table) -> mlua::Result<()> {
+    /// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `link`, `unlink`) on
+    /// the metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
+    /// backs the entry handles the content reads and `append` return.
+    fn install_handle_methods(
+        &self,
+        api: &BlockApi,
+        methods: &Table,
+        entry_metatable: &Table,
+    ) -> mlua::Result<()> {
         // mem:append(text[, opts]) — `opts` is the typed override struct, deserialized from the table.
-        // Locks the target memory before writing it.
+        // Locks the target memory before writing it. Returns the new entry as an addressable handle.
         methods.set(
             "append",
             self.lua.create_async_function({
                 let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
                 move |lua, (this, text, opts): (Table, String, Value)| {
                     let api = api.clone();
+                    let entry_metatable = entry_metatable.clone();
                     async move {
                         let id = handle_id(&this)?;
                         api.lock(id).await;
@@ -330,33 +342,84 @@ impl Session {
                         } else {
                             lua.from_value(opts)?
                         };
-                        api.block
+                        let entry_id = api
+                            .block
                             .lock()
                             .append(id, &text, opts)
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        make_entry_handle(&lua, entry_id, &text, &entry_metatable)
                     }
                 }
             })?,
         )?;
 
-        // mem:entries() — the memory's entry texts across its merged identity plus pending writes. A
-        // traversing read, so it locks the whole `same_as` class before reading (spec §Concurrency →
-        // class-wide locking).
+        // mem:entries() — the memory's live entries across its merged identity plus pending writes,
+        // each an addressable entry handle that renders as its text. A traversing read, so it locks the
+        // whole `same_as` class before reading (spec §Concurrency → class-wide locking).
         methods.set(
             "entries",
             self.lua.create_async_function({
                 let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
                 move |lua, this: Table| {
                     let api = api.clone();
+                    let entry_metatable = entry_metatable.clone();
                     async move {
                         let id = handle_id(&this)?;
                         api.lock_class(id).await?;
-                        let texts = api
+                        let entries = api
                             .block
                             .lock()
                             .entries(id)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                        lua.create_sequence_from(texts)
+                        make_entry_handle_list(&lua, entries, &entry_metatable)
+                    }
+                }
+            })?,
+        )?;
+
+        // mem:history() — the memory's entries including superseded ones (spec §Per-memory history),
+        // the read where history is the point and the live filter is bypassed. Like `entries`, a
+        // class-traversing read.
+        methods.set(
+            "history",
+            self.lua.create_async_function({
+                let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
+                move |lua, this: Table| {
+                    let api = api.clone();
+                    let entry_metatable = entry_metatable.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock_class(id).await?;
+                        let entries = api
+                            .block
+                            .lock()
+                            .history(id)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        make_entry_handle_list(&lua, entries, &entry_metatable)
+                    }
+                }
+            })?,
+        )?;
+
+        // mem:supersede(old, new) — correct or retract a fact: mark `old` superseded by `new` (both
+        // entry handles read from this memory). Locks the whole class, since it validates against and
+        // mutates the merged identity's entries.
+        methods.set(
+            "supersede",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (this, old, new): (Table, Table, Table)| {
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        let (old, new) = (entry_handle_id(&old)?, entry_handle_id(&new)?);
+                        api.lock_class(id).await?;
+                        api.block
+                            .lock()
+                            .supersede(id, old, new)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
                     }
                 }
             })?,
@@ -401,6 +464,30 @@ impl Session {
         )?;
 
         Ok(())
+    }
+
+    /// The metatable backing entry handles: `__tostring` and `__concat` render the handle as its
+    /// `text`, so a content read stays ergonomic (printable, concatenable) while the handle remains an
+    /// addressable entry for `mem:supersede`.
+    fn entry_metatable(&self) -> mlua::Result<Table> {
+        let metatable = self.lua.create_table()?;
+        metatable.set(
+            "__tostring",
+            self.lua
+                .create_function(|_, this: Table| this.get::<String>("text"))?,
+        )?;
+        metatable.set(
+            "__concat",
+            self.lua
+                .create_function(|lua, (left, right): (Value, Value)| {
+                    Ok(format!(
+                        "{}{}",
+                        value_text(lua, &left)?,
+                        value_text(lua, &right)?
+                    ))
+                })?,
+        )?;
+        Ok(metatable)
     }
 
     /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
@@ -671,11 +758,31 @@ pub fn api_reference() -> Vec<ApiEntry> {
                      or { before_after = { dir = \"before\" | \"after\", anchor = \"event/...\" } }",
                 ),
             "overrides",
-        );
+        )
+        .returns(AT::Entry);
 
     let entries = AE::new("mem:entries")
-        .description("The memory's content entries as text, across its whole merged identity.")
-        .returns(AT::String.list());
+        .description(
+            "The memory's live content entries, across its whole merged identity. Each reads as its \
+             text and can be passed to mem:supersede.",
+        )
+        .returns(AT::Entry.list());
+
+    let history = AE::new("mem:history")
+        .description(
+            "The memory's entries including superseded ones, oldest first — the full record, where \
+             mem:entries shows only the live ones.",
+        )
+        .returns(AT::Entry.list());
+
+    let supersede = AE::new("mem:supersede")
+        .description(
+            "Correct or retract a fact: mark an old entry superseded by a new one (append the \
+             correction first, then supersede). The old entry drops from live reads but stays in \
+             mem:history.",
+        )
+        .required("old", AT::Entry, "the entry being replaced")
+        .required("new", AT::Entry, "the entry that replaces it");
 
     let link = AE::new("mem:link")
         .description(
@@ -733,7 +840,8 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .returns(AT::Handle.list());
 
     vec![
-        create, get, append, entries, link, unlink, context, abort, upcoming, on, recurring,
+        create, get, append, entries, history, supersede, link, unlink, context, abort, upcoming,
+        on, recurring,
     ]
 }
 
@@ -917,6 +1025,45 @@ fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
         .map_err(|e| mlua::Error::RuntimeError(format!("invalid memory handle id {id:?}: {e}")))
 }
 
+/// Build an entry handle `{ id = "<ulid>", text = "..." }` backed by the entry metatable, so it
+/// renders as its text (`__tostring` / `__concat`) yet stays addressable for `mem:supersede`.
+fn make_entry_handle(
+    lua: &Lua,
+    entry_id: EntryId,
+    text: &str,
+    entry_metatable: &Table,
+) -> mlua::Result<Table> {
+    let handle = lua.create_table()?;
+    handle.set("id", entry_id.0.to_string())?;
+    handle.set("text", text)?;
+    handle.set_metatable(Some(entry_metatable.clone()))?;
+    Ok(handle)
+}
+
+/// Wrap a list of entry refs as a Lua sequence of entry handles, in order — the `mem:entries()` /
+/// `mem:history()` return shape.
+fn make_entry_handle_list(
+    lua: &Lua,
+    entries: Vec<EntryRef>,
+    entry_metatable: &Table,
+) -> mlua::Result<Value> {
+    let list = lua.create_table()?;
+    for (index, entry) in entries.into_iter().enumerate() {
+        list.set(
+            index + 1,
+            make_entry_handle(lua, entry.entry_id, &entry.text, entry_metatable)?,
+        )?;
+    }
+    Ok(Value::Table(list))
+}
+
+fn entry_handle_id(handle: &Table) -> mlua::Result<EntryId> {
+    let id: String = handle.get("id")?;
+    Ulid::from_string(&id)
+        .map(EntryId)
+        .map_err(|e| mlua::Error::RuntimeError(format!("invalid entry handle id {id:?}: {e}")))
+}
+
 /// Route a memory operation's error. A teachable violation (a duplicate name, an unknown relation)
 /// becomes the Lua runtime error the agent sees as the block's terminal cause. A graph read failure
 /// is infrastructure, not the agent's doing: it is stashed in the caller's `infra` slot for `execute`
@@ -932,29 +1079,64 @@ fn route_error(error: MemoryError, infra: &mut Option<GraphError>) -> mlua::Erro
 }
 
 /// Render a script's final value to the text the agent sees back (REPL-style).
-fn render(value: &Value) -> String {
+fn render(lua: &Lua, value: &Value) -> String {
     match value {
         Value::Nil => "nil".to_owned(),
         Value::Boolean(b) => b.to_string(),
         Value::Integer(i) => i.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.to_string_lossy(),
-        Value::Table(t) => render_table(t),
+        // A table with a `__tostring` metamethod (an entry handle) renders through it, so a returned
+        // entry — or a list of them — reads as its text rather than `<table>`. `coerce_string` would
+        // not do this (it ignores `__tostring`), so call the `tostring` builtin, which honors it.
+        Value::Table(t) => match tostring_via_metamethod(lua, value, t) {
+            Some(text) => text,
+            None => render_table(lua, t),
+        },
         other => format!("<{}>", other.type_name()),
     }
 }
 
-/// Render a table as its array part joined by newlines (e.g. a list of entry texts), else generic.
-fn render_table(table: &Table) -> String {
+/// Render a table through its `__tostring` metamethod, if it has one — the entry-handle case. `None`
+/// for a plain table (no metamethod), so the caller falls back to the array rendering.
+fn tostring_via_metamethod(lua: &Lua, value: &Value, table: &Table) -> Option<String> {
+    let has_tostring = table
+        .metatable()
+        .is_some_and(|mt| mt.contains_key("__tostring").unwrap_or(false));
+    if !has_tostring {
+        return None;
+    }
+    lua.globals()
+        .get::<mlua::Function>("tostring")
+        .and_then(|tostring| tostring.call::<String>(value.clone()))
+        .ok()
+}
+
+/// Render a table as its array part joined by newlines (e.g. a list of entry handles), else generic.
+fn render_table(lua: &Lua, table: &Table) -> String {
     let items: Vec<String> = table
         .clone()
         .sequence_values::<Value>()
         .filter_map(Result::ok)
-        .map(|value| render(&value))
+        .map(|value| render(lua, &value))
         .collect();
     if items.is_empty() {
         "<table>".to_owned()
     } else {
         items.join("\n")
     }
+}
+
+/// Render a value to its text for entry-handle `__concat`: an entry handle yields its `text`; any
+/// other value coerces as Lua's `tostring` would (strings and numbers directly, otherwise empty).
+fn value_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
+    if let Value::Table(table) = value
+        && let Ok(text) = table.get::<String>("text")
+    {
+        return Ok(text);
+    }
+    Ok(lua
+        .coerce_string(value.clone())?
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default())
 }

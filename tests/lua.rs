@@ -709,3 +709,100 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
         other => panic!("expected a give-up terminal, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
+    let h = Harness::new();
+    // In one block: record a fact, append the correction, supersede the old with the new. The block's
+    // own live read reflects the correction (read-your-writes); history keeps both.
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create("person/dave")
+        local old = dave:append("Dave works at Hooli", { visibility = "public" })
+        local new = dave:append("Dave works at Pied Piper", { visibility = "public" })
+        dave:supersede(old, new)
+        return "live=" .. #dave:entries() .. " history=" .. #dave:history()
+        "#,
+        )
+        .await;
+
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "live=1 history=2");
+
+    // Committed and projected: the live read shows only the correction; history shows both, with the
+    // superseded entry's pointer stamped.
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
+    let live: Vec<String> = h
+        .engine
+        .graph
+        .lock()
+        .entries_local(dave.id)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.text)
+        .collect();
+    assert_eq!(live, ["Dave works at Pied Piper"]);
+    let history = h.engine.graph.lock().class_history(dave.id).unwrap();
+    assert_eq!(history.len(), 2);
+    let superseded = history
+        .iter()
+        .find(|e| e.text == "Dave works at Hooli")
+        .unwrap();
+    assert!(superseded.superseded_by.is_some());
+}
+
+#[tokio::test]
+async fn entries_render_as_their_text_and_concatenate() {
+    let h = Harness::new();
+    // An entry handle reads as its text: returned in a list (rendered for the model) and via `..`.
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create("person/dave")
+        dave:append("climbs on Tuesdays", { visibility = "public" })
+        local entries = dave:entries()
+        return "first: " .. entries[1]
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "first: climbs on Tuesdays");
+}
+
+#[tokio::test]
+async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
+    let h = Harness::new();
+    // An entry from another memory is not a live entry of dave's class — a teachable misuse, not a
+    // fatal error, and nothing commits.
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create("person/dave")
+        local mine = dave:append("a real fact", { visibility = "public" })
+        local erin = memory.create("person/erin")
+        local theirs = erin:append("erin's fact", { visibility = "public" })
+        dave:supersede(theirs, mine)
+        "#,
+        )
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(message.contains("no live entry"), "message was: {message}");
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+    // The rejected supersede committed nothing: both facts are still live.
+    let dave = h.engine.graph.lock().memory_by_name("person/dave").unwrap();
+    assert!(dave.is_none(), "the whole block was discarded");
+}
