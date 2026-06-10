@@ -73,6 +73,7 @@ async fn run_bounded(
                 turn_id: TurnId::generate(),
                 block_timeout,
                 max_block_attempts: 3,
+                present_set: Vec::new(),
             },
             script,
         )

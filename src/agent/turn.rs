@@ -154,6 +154,10 @@ pub struct BlockContext {
     /// How many times a lock-wait-timed-out block (with no MCP call) is retried before giving up.
     /// Threaded from `TurnSettings::max_block_attempts`.
     pub max_block_attempts: u32,
+    /// Who is present in the conversation this block runs in — the set `memory.search` filters its
+    /// entry hits against, so the agent never recalls a teller-private aside into a room where the
+    /// teller is absent (spec §Visibility). The agent is always present to itself.
+    pub present_set: Vec<MemoryId>,
 }
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
@@ -179,6 +183,9 @@ pub struct Turn<'a> {
     /// The authority the turn's writes run under — `Platform` for a participant turn, `Operator` for
     /// the imprint interview (the only authority that may write `self`).
     pub authority: Authority,
+    /// Who is present in the conversation — the visibility set `memory.search` filters against (see
+    /// [`BlockContext::present_set`]).
+    pub present_set: &'a [MemoryId],
     pub max_steps: usize,
     /// Per-block duration budget (spec §Concurrency); each block this turn runs is aborted if it
     /// exceeds it.
@@ -201,6 +208,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         buffer,
         template,
         authority,
+        present_set,
         max_steps,
         block_timeout,
         max_block_attempts,
@@ -276,6 +284,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             turn_id,
             block_timeout,
             max_block_attempts,
+            present_set: present_set.to_vec(),
         },
         messages,
         initiation: Initiation::Responding,
@@ -317,6 +326,9 @@ pub(crate) struct Flush<'a> {
     pub engine: Arc<Engine>,
     pub brief: &'a str,
     pub buffer: &'a [TurnView],
+    /// The session's participants — the visibility set the flush's `memory.search` filters against
+    /// (see [`BlockContext::present_set`]).
+    pub present_set: &'a [MemoryId],
     pub max_steps: usize,
     /// Per-block duration budget (spec §Concurrency); each block the flush runs is aborted if it
     /// exceeds it.
@@ -339,6 +351,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         engine,
         brief,
         buffer,
+        present_set,
         max_steps,
         block_timeout,
         max_block_attempts,
@@ -393,6 +406,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             turn_id,
             block_timeout,
             max_block_attempts,
+            present_set: present_set.to_vec(),
         },
         messages,
         initiation: Initiation::Initiated,

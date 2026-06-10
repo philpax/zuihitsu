@@ -266,12 +266,20 @@ impl Platform<'_> {
         // skipped, so the hot-path model call is paid only when there is something to flush.
         let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
         if flushed {
+            // The flush's `memory.search` filters against the session's participants — who it was with.
+            let present_set = self
+                .server
+                .engine
+                .graph
+                .lock()
+                .session_participants(open.id)?;
             run_flush(Flush {
                 session: &open.vm,
                 model,
                 engine: self.server.engine.clone(),
                 brief: &open.brief,
                 buffer: &buffer,
+                present_set: &present_set,
                 max_steps: settings.turn.max_steps as usize,
                 block_timeout: Duration::from_secs(
                     settings.turn.block_timeout_seconds.max(0) as u64

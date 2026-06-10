@@ -19,6 +19,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 use parking_lot::Mutex;
+use serde::Deserialize;
 use tokio::sync::OwnedMutexGuard;
 use ulid::Ulid;
 
@@ -27,9 +28,13 @@ use crate::{
     event::{EventPayload, TerminalCause},
     graph::GraphError,
     ids::{ConversationId, EntryId, MemoryId, TurnId},
-    memory::memory_block::{AppendOptions, BlockEffects, EntryRef, MemoryBlock, MemoryError},
+    memory::{
+        memory_block::{AppendOptions, BlockEffects, EntryRef, MemoryBlock, MemoryError},
+        search::{SearchQuery, search},
+    },
+    settings::Settings,
     store::StoreError,
-    vocabulary::RelationName,
+    vocabulary::{RelationName, TagName},
 };
 
 use super::{
@@ -161,6 +166,7 @@ impl Session {
                     context.teller.clone(),
                     context.authority,
                     self.conversation,
+                    context.present_set.clone(),
                 )?)),
                 infra: Arc::new(Mutex::new(None)),
                 lock_set: Arc::new(Mutex::new(LockSet::default())),
@@ -542,6 +548,42 @@ impl Session {
                 }
             })?,
         )?;
+        // memory.search(query[, opts]) — semantic + lexical recall over the agent's whole memory,
+        // visibility-filtered against who is present (a teller-private hit only surfaces while its
+        // teller is here, with a marker). Embeds the query off any lock, then ranks under a brief read
+        // lock. Returns a list of `{ name, description, score, marker? }`, best first.
+        memory.set(
+            "search",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |lua, (query, opts): (String, Value)| {
+                    let api = api.clone();
+                    async move {
+                        let (engine, present_set) = api.block.lock().retrieval_handle();
+                        let opts: SearchOpts = if opts.is_nil() {
+                            SearchOpts::default()
+                        } else {
+                            lua.from_value(opts)?
+                        };
+                        let rows = run_memory_search(&engine, &present_set, &query, &opts)
+                            .await
+                            .map_err(mlua::Error::RuntimeError)?;
+                        let list = lua.create_table()?;
+                        for (index, row) in rows.into_iter().enumerate() {
+                            let table = lua.create_table()?;
+                            table.set("name", row.name)?;
+                            table.set("description", row.description)?;
+                            table.set("score", row.score)?;
+                            if let Some(marker) = row.marker {
+                                table.set("marker", marker)?;
+                            }
+                            list.set(index + 1, table)?;
+                        }
+                        Ok(Value::Table(list))
+                    }
+                }
+            })?,
+        )?;
         Ok(memory)
     }
 
@@ -730,6 +772,32 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .required("name", AT::String, "the memory's handle")
         .returns(AT::Handle.optional());
 
+    let search = AE::new("memory.search")
+        .description(
+            "Recall memories by meaning and wording, across your whole memory, ranked best-first. \
+             Results are filtered to what may surface to who is present, so a teller-private aside \
+             appears only while its teller is here (with a marker noting it). Each result is a table \
+             { name, description, score, marker? } — fetch a name with memory.get to read more.",
+        )
+        .required("query", AT::String, "what to look for, in natural language")
+        .optional(
+            "opts",
+            object()
+                .optional(
+                    "namespace",
+                    AT::String,
+                    "restrict to a name prefix, e.g. \"person/\"",
+                )
+                .optional(
+                    "tags",
+                    AT::String.list(),
+                    "tags to prefer; a result carrying more of them ranks higher",
+                )
+                .optional("limit", AT::Integer, "how many results to return (default 8)"),
+            "options",
+        )
+        .returns(AT::Object(Vec::new()).list());
+
     let append = AE::new("mem:append")
         .description(
             "Append a content entry. By default it is attributed to the current speaker, and an \
@@ -855,8 +923,8 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .returns(AT::Handle.list());
 
     vec![
-        create, get, append, entries, history, supersede, link, unlink, context, abort, upcoming,
-        on, recurring,
+        create, get, search, append, entries, history, supersede, link, unlink, context, abort,
+        upcoming, on, recurring,
     ]
 }
 
@@ -1091,6 +1159,82 @@ fn route_error(error: MemoryError, infra: &mut Option<GraphError>) -> mlua::Erro
         }
         teachable => mlua::Error::RuntimeError(teachable.to_string()),
     }
+}
+
+/// The default number of `memory.search` results when the caller gives no `limit`.
+const DEFAULT_SEARCH_LIMIT: usize = 8;
+
+/// The `opts` table `memory.search` accepts, deserialized from Lua.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct SearchOpts {
+    namespace: Option<String>,
+    tags: Vec<String>,
+    limit: Option<usize>,
+}
+
+/// One ranked search result handed back to Lua as `{ name, description, score, marker? }`.
+struct SearchRow {
+    name: String,
+    description: String,
+    score: f32,
+    marker: Option<String>,
+}
+
+/// Run a `memory.search`: embed the query off every lock, read the search settings, then rank under a
+/// brief graph + vector-index read lock (spec §Time → search scoring, §Visibility). The `Err` is the
+/// agent-facing failure message — search is read-only, so a failure (no embedder, a transient embed or
+/// backend error) terminates the block without corrupting anything.
+async fn run_memory_search(
+    engine: &Engine,
+    present_set: &[MemoryId],
+    query: &str,
+    opts: &SearchOpts,
+) -> Result<Vec<SearchRow>, String> {
+    let Some(retrieval) = &engine.retrieval else {
+        return Err(
+            "memory.search is unavailable on this instance (no embedding endpoint configured)"
+                .to_owned(),
+        );
+    };
+    let embedding = retrieval
+        .embedder
+        .embed(&[query.to_owned()])
+        .await
+        .map_err(|error| format!("memory.search: embedding the query failed: {error}"))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "memory.search: the embedder returned no vector".to_owned())?;
+    let settings = Settings::from_store(engine.store.lock().as_ref())
+        .map_err(|error| format!("memory.search: {error}"))?
+        .search;
+    let now = engine.clock.now();
+    let tags: Vec<TagName> = opts.tags.iter().map(TagName::new).collect();
+    let request = SearchQuery {
+        text: query,
+        embedding: &embedding,
+        namespace: opts.namespace.as_deref(),
+        tags: &tags,
+        present_set,
+    };
+    let limit = opts.limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
+    let hits = {
+        // Graph before the vector index — the lock order `memory.search` and the indexer share. Both
+        // are held only across the synchronous ranking, never an `.await`.
+        let graph = engine.graph.lock();
+        let vectors = retrieval.vectors.lock();
+        search(&graph, &**vectors, &request, &settings, now, limit)
+            .map_err(|error| format!("memory.search: {error}"))?
+    };
+    Ok(hits
+        .into_iter()
+        .map(|hit| SearchRow {
+            name: hit.memory.name.as_str().to_owned(),
+            description: hit.memory.description,
+            score: hit.score,
+            marker: hit.marker,
+        })
+        .collect())
 }
 
 /// Render a script's final value to the text the agent sees back (REPL-style).

@@ -54,6 +54,9 @@ pub struct MemoryBlock {
     told_in: Option<MemoryId>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
     confidential_context: bool,
+    /// Who is present in the conversation — the set `memory.search` filters its hits against (spec
+    /// §Visibility). Carried so the read path can reach it; writes do not use it.
+    present_set: Vec<MemoryId>,
     buffer: Vec<EventPayload>,
     touched: BTreeSet<MemoryId>,
     aborted: Option<String>,
@@ -204,6 +207,7 @@ impl MemoryBlock {
         teller: Teller,
         authority: Authority,
         conversation: ConversationId,
+        present_set: Vec<MemoryId>,
     ) -> Result<MemoryBlock, GraphError> {
         let (told_in, confidential_context, self_id) = {
             let graph = engine.graph.lock();
@@ -226,10 +230,18 @@ impl MemoryBlock {
             self_id,
             told_in,
             confidential_context,
+            present_set,
             buffer: Vec::new(),
             touched: BTreeSet::new(),
             aborted: None,
         })
+    }
+
+    /// A handle to the shared backends and the present set this block runs under — the inputs the
+    /// async `memory.search` needs (the embedder, vector index, graph, clock, settings, and visibility
+    /// set). Returned together so the Lua layer can embed and search without holding the block lock.
+    pub fn retrieval_handle(&self) -> (Arc<Engine>, Vec<MemoryId>) {
+        (self.engine.clone(), self.present_set.clone())
     }
 
     /// Create a memory, optionally with a first content entry. The name must be free — a collision is
@@ -738,7 +750,14 @@ mod tests {
         authority: Authority,
     ) -> MemoryBlock {
         let engine = Engine::new(Box::new(MemoryStore::new()), graph, Box::new(clock));
-        MemoryBlock::new(engine, teller, authority, ConversationId::generate()).unwrap()
+        MemoryBlock::new(
+            engine,
+            teller,
+            authority,
+            ConversationId::generate(),
+            Vec::new(),
+        )
+        .unwrap()
     }
 
     /// A graph seeded with the `self` memory and the `created_by` and `same_as` relations — the

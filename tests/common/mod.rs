@@ -13,9 +13,10 @@ mod harness {
     use std::{sync::Arc, time::Duration};
 
     use zuihitsu::{
-        Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Engine, Graph,
-        ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Session, Teller, Turn,
-        TurnId, TurnView,
+        Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
+        FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryStore, ModelClient,
+        PromptTemplateName, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
+        model::index::{apply_batch, embed_batch},
     };
 
     use super::time::TEST_NOW;
@@ -55,9 +56,45 @@ mod harness {
         }
     }
 
+    /// The embedding dimensionality the retrieval-backed harness uses (the fake embedder's size).
+    const TEST_EMBED_DIMS: usize = 16;
+
     impl Harness {
         pub fn new() -> Harness {
             Harness::default()
+        }
+
+        /// A harness whose engine has semantic retrieval attached (a fake embedder and in-memory
+        /// vector index), for exercising `memory.search`. Drive [`Harness::index`] after a write to
+        /// embed it before searching.
+        pub fn with_retrieval() -> Harness {
+            let clock = ManualClock::new(TEST_NOW);
+            let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new(TEST_EMBED_DIMS));
+            let vectors: Box<dyn VectorIndex> = Box::new(InMemoryVectorIndex::new());
+            Harness {
+                engine: Engine::with_retrieval(
+                    Box::new(MemoryStore::new()),
+                    Graph::open_in_memory().unwrap(),
+                    Box::new(clock.clone()),
+                    embedder,
+                    vectors,
+                ),
+                clock,
+                session: Session::new(ConversationId::generate()),
+                participant: MemoryId::generate(),
+            }
+        }
+
+        /// Catch the harness's vector index up to its log — embed everything committed since the last
+        /// call, so a subsequent `memory.search` can find it. Panics if the harness has no retrieval.
+        pub async fn index(&self) {
+            let retrieval = self.engine.retrieval.as_ref().expect("retrieval attached");
+            let from = retrieval.vectors.lock().cursor().unwrap().next();
+            let events = self.engine.store.lock().read_from(from).unwrap();
+            let batch = embed_batch(retrieval.embedder.as_ref(), &events)
+                .await
+                .unwrap();
+            apply_batch(&mut **retrieval.vectors.lock(), batch).unwrap();
         }
 
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
@@ -90,6 +127,7 @@ mod harness {
                 buffer: &[],
                 template: PromptTemplateName::Scaffold,
                 authority: Authority::Platform,
+                present_set: &[],
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
@@ -117,6 +155,7 @@ mod harness {
                 buffer,
                 template: PromptTemplateName::Scaffold,
                 authority: Authority::Platform,
+                present_set: &[],
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
@@ -134,6 +173,7 @@ mod harness {
                         teller: Teller::Agent,
                         authority: Authority::Platform,
                         turn_id: TurnId::generate(),
+                        present_set: Vec::new(),
                         block_timeout: TEST_BLOCK_TIMEOUT,
                         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                     },

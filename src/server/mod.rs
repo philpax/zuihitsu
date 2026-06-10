@@ -263,6 +263,7 @@ impl Server {
             buffer: &buffer,
             template: routed.template,
             authority: routed.authority,
+            present_set: routed.present_set,
             max_steps,
             block_timeout,
             max_block_attempts,

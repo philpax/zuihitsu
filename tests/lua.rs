@@ -176,6 +176,7 @@ async fn append_carries_teller_context_and_default_visibility() {
                     turn_id: TurnId::generate(),
                     block_timeout: TEST_BLOCK_TIMEOUT,
                     max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                    present_set: Vec::new(),
                 },
                 script,
             )
@@ -280,6 +281,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         turn_id: TurnId::generate(),
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        present_set: Vec::new(),
     };
 
     // The agent flags the thread active_in the current context.
@@ -365,6 +367,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
                 turn_id: TurnId::generate(),
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                present_set: Vec::new(),
             },
             r#"memory.create("topic/sensitive", "something said in confidence")"#,
         )
@@ -619,6 +622,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         turn_id: TurnId::generate(),
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        present_set: Vec::new(),
     };
     h.session
         .execute(
@@ -648,6 +652,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         turn_id: TurnId::generate(),
         block_timeout: Duration::from_millis(60),
         max_block_attempts: 1,
+        present_set: Vec::new(),
     };
     let blocked = h
         .session
@@ -697,6 +702,7 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
                 turn_id: TurnId::generate(),
                 block_timeout: Duration::from_millis(40),
                 max_block_attempts: 2,
+                present_set: Vec::new(),
             },
             r#"memory.get("topic/locked"):append("y")"#,
         )
@@ -805,4 +811,51 @@ async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
     // The rejected supersede committed nothing: both facts are still live.
     let dave = h.engine.graph.lock().memory_by_name("person/dave").unwrap();
     assert!(dave.is_none(), "the whole block was discarded");
+}
+
+#[tokio::test]
+async fn memory_search_recalls_an_indexed_entry() {
+    let h = Harness::with_retrieval();
+    // Write a public fact, then embed it into the vector index.
+    let seeded = h
+        .run(
+            r#"
+        local dave = memory.create("person/dave")
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(matches!(seeded, BlockOutcome::Committed { .. }));
+    h.index().await;
+
+    // A search for the same text recalls Dave (the deterministic fake embedder matches it exactly);
+    // each result is a { name, description, score, marker? } table.
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.search("An avid rock climber")
+        if #results == 0 then return "none" end
+        return results[1].name
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "person/dave");
+}
+
+#[tokio::test]
+async fn memory_search_without_an_embedder_is_a_teachable_error() {
+    // A graph-only harness has no retrieval, so search reports itself unavailable rather than failing
+    // obscurely — and commits nothing.
+    let h = Harness::new();
+    let outcome = h.run(r#"return memory.search("anything")"#).await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(message.contains("unavailable"), "message was: {message}");
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
 }
