@@ -1184,3 +1184,75 @@ async fn real_model_marks_a_room_confidential_with_a_tag() {
     tracing::info!(tagged_call, context_confidential, "verdict");
     let _ = (tagged_call, context_confidential);
 }
+
+/// A live probe of the relation wiring: told that two people know each other, does the agent reach for
+/// a structured `mem:link` (using the seeded `knows` relation now rendered in its prompt) rather than
+/// only appending prose? Observational like the other reply-lane probes — it logs the agent's scripts
+/// and which relations it touched, asserting only that the turn completes. Whether the model prefers a
+/// structured link to a plain fact is exactly what we want to read off here, to decide whether the
+/// prompt needs to encourage it.
+#[tokio::test]
+#[ignore = "requires a reachable model (config.toml)"]
+async fn real_model_links_two_people_who_know_each_other() {
+    init_tracing();
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        tracing::warn!("skipping: no config.toml");
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        tracing::warn!("skipping: model endpoint not configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    let mut server = Server::in_memory(clock()).unwrap();
+    server.boot().unwrap();
+    server.control().create_agent(&seed()).unwrap();
+
+    // A relational fact about two people. `knows` is genesis-seeded (symmetric), so it is already in
+    // the relation registry the prompt renders; the agent can link without registering anything.
+    let room = ConversationLocator::new("discord", "team-room");
+    let reply = server
+        .platform()
+        .route_message(
+            &client,
+            &room,
+            "phil",
+            "Two people I'd like you to keep track of: Dave and Erin. They've been close friends \
+             since college and know each other really well.",
+            &["phil"],
+        )
+        .await;
+    let Ok(outcome) = reply else {
+        tracing::warn!(?reply, "skipping: turn failed");
+        return;
+    };
+    tracing::info!(?outcome, "turn (relational fact) reply");
+
+    // What the agent did — did any step register a relation or assert a link?
+    let (mut linked, mut registered) = (false, false);
+    for call in server.control().model_calls().unwrap() {
+        if let Completion::ToolCalls(calls) = &call.completion {
+            for tool_call in calls {
+                if tool_call.name != "run_lua" {
+                    continue;
+                }
+                if tool_call.arguments.contains(":link(") {
+                    linked = true;
+                    tracing::info!(script = %tool_call.arguments, "agent's link call");
+                }
+                if tool_call.arguments.contains("links.register") {
+                    registered = true;
+                    tracing::info!(script = %tool_call.arguments, "agent's relation registration");
+                }
+            }
+        }
+    }
+
+    // What it stored about the two people, so a "linked nothing" reading can be told apart from
+    // "recorded them only as prose."
+    for memory in server.control().memories("person/").unwrap() {
+        tracing::info!(name = %memory.name.as_str(), description = %memory.description, "stored person");
+    }
+    tracing::info!(linked, registered, "verdict");
+    let _ = (linked, registered);
+}

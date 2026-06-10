@@ -18,7 +18,7 @@
 use std::fmt::Write as _;
 
 use crate::{
-    graph::{EntryView, TagVocabularyEntry},
+    graph::{EntryView, RelationView, TagVocabularyEntry},
     time::{self, Timestamp},
 };
 
@@ -86,10 +86,24 @@ pub fn assemble(
     prompt
 }
 
+/// The runtime vocabulary block for [`assemble`]: the current tag vocabulary and the registered link
+/// relations, each rendered as its own section and joined, or the empty string when both are empty.
+/// The caller reads both from the graph (they are runtime data, not build-derived) and hands the
+/// result to `assemble` to sit beside the API description.
+pub fn render_vocabulary(tags: &[TagVocabularyEntry], relations: &[RelationView]) -> String {
+    [
+        render_tag_vocabulary(tags),
+        render_relation_registry(relations),
+    ]
+    .into_iter()
+    .filter(|section| !section.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n")
+}
+
 /// Render the current tag vocabulary as a prompt section, or the empty string when no tags exist. Each
 /// line is `name — purpose (N uses)`, so the agent knows which tags it may apply with `mem:tag` (and
-/// can see which are already in use). The caller reads the vocabulary from the graph and concatenates
-/// this with any further vocabulary blocks (e.g. registered relations) for [`assemble`].
+/// can see which are already in use).
 pub fn render_tag_vocabulary(tags: &[TagVocabularyEntry]) -> String {
     if tags.is_empty() {
         return String::new();
@@ -113,13 +127,43 @@ pub fn render_tag_vocabulary(tags: &[TagVocabularyEntry]) -> String {
     out
 }
 
+/// Render the registered link relations as a prompt section, or the empty string when none exist.
+/// Each line is `name / inverse — from-to[, symmetric][, reflexive]`, so the agent knows which
+/// relations `mem:link` accepts (register new ones with `links.register`).
+pub fn render_relation_registry(relations: &[RelationView]) -> String {
+    if relations.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "# Relations\n\nRelations you can link with <memory>:link (register new ones with links.register):",
+    );
+    for relation in relations {
+        let mut traits = String::new();
+        if relation.symmetric {
+            traits.push_str(", symmetric");
+        }
+        if relation.reflexive {
+            traits.push_str(", reflexive");
+        }
+        let _ = write!(
+            out,
+            "\n- {} / {} — {}-to-{}{traits}",
+            relation.name.as_str(),
+            relation.inverse.as_str(),
+            relation.from_card.as_str().to_lowercase(),
+            relation.to_card.as_str().to_lowercase(),
+        );
+    }
+    out
+}
+
 // Gated on `lua` (not just `sqlite`) because the assertion exercises `render_api_reference`, which
 // is part of the Lua API surface.
 #[cfg(test)]
 mod tests {
     //! The scaffold framing, the agent's identity drawn from `self` (seeded as its description at
     //! genesis), and the declared current time are composed into one prompt.
-    use super::{assemble, render_tag_vocabulary};
+    use super::{assemble, render_vocabulary};
     use crate::{
         agent::{
             genesis::{self, SeedSelf},
@@ -157,7 +201,8 @@ mod tests {
         let self_memory = graph.memory_by_name("self").unwrap().unwrap();
         let identity = graph.entries_local(self_memory.id).unwrap();
         let api = render_api_reference();
-        let vocabulary = render_tag_vocabulary(&graph.all_tags().unwrap());
+        let vocabulary =
+            render_vocabulary(&graph.all_tags().unwrap(), &graph.all_relations().unwrap());
         let brief = "<participant name=\"phil\">a friend</participant>";
         let prompt = assemble(
             &scaffold,
@@ -175,14 +220,18 @@ mod tests {
         // The build-derived API description, interpolated from the same typed source the implementation
         // uses: the call signature, a parameter's type, and the return type.
         assert!(prompt.contains("<memory>:append(text, opts?)"));
-        assert!(prompt.contains("text: string (required)"));
         // The notation legend that disambiguates a handle method from the placeholder.
         assert!(prompt.contains("stands for a memory handle you hold"));
+        assert!(prompt.contains("text: string (required)"));
         assert!(prompt.contains("opts.visibility: \"public\" | \"private\""));
         assert!(prompt.contains("context.current()"));
         // The current tag vocabulary, drawn from the graph: the genesis-seeded `confidential` tag.
         assert!(prompt.contains("# Tags"));
         assert!(prompt.contains("confidential — Marks a context as confidential"));
+        // The registered relation registry, drawn from the graph: a genesis-seeded relation and its
+        // inverse label.
+        assert!(prompt.contains("# Relations"));
+        assert!(prompt.contains("same_as"));
         // The session's frozen contextual brief.
         assert!(prompt.contains("<participant name=\"phil\">a friend</participant>"));
         // The declared session time, in human units (1_000 ms after the epoch).

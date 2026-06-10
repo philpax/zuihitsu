@@ -15,8 +15,8 @@ use serde::Deserialize;
 
 use crate::{
     engine::Engine,
-    event::{EventPayload, LinkSource, Teller, Visibility},
-    graph::{EntryView, GraphError, TagVocabularyEntry},
+    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    graph::{EntryView, GraphError, RelationView, TagVocabularyEntry},
     ids::{ConversationId, EntryId, MemoryId, MemoryName},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -103,6 +103,8 @@ pub enum MemoryError {
     /// A `mem:tag`/`tags.describe` named a tag that was never created. Tags are a described, shared
     /// vocabulary, so they must be created (`tags.create`) before they are applied or re-described.
     UnknownTag(TagName),
+    /// A `links.register` gave a cardinality that is neither "one" nor "many".
+    BadCardinality(String),
     /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
     /// Only the control panel (operator authority) may edit `self`.
     SelfWriteForbidden,
@@ -149,6 +151,9 @@ impl std::fmt::Display for MemoryError {
                 "unknown tag {:?}; create it first with tags.create(name, purpose)",
                 name.as_str()
             ),
+            MemoryError::BadCardinality(value) => {
+                write!(f, "cardinality {value:?} must be \"one\" or \"many\"")
+            }
             MemoryError::SelfWriteForbidden => {
                 write!(f, "self can only be edited from the control panel")
             }
@@ -214,6 +219,32 @@ pub struct AppendOptions {
     pub by_agent: bool,
     pub visibility: Option<VisibilityChoice>,
     pub occurred_at: Option<TemporalRef>,
+}
+
+/// A link relation to register, deserialized straight from the `links.register` table. Cardinalities
+/// arrive as the lowercase strings the spec advertises (`"one"` / `"many"`) and are parsed at the
+/// block boundary; `symmetric` and `reflexive` default to `false`.
+#[derive(Debug, Deserialize)]
+pub struct RelationSpec {
+    pub name: String,
+    pub inverse: String,
+    pub from_card: String,
+    pub to_card: String,
+    #[serde(default)]
+    pub symmetric: bool,
+    #[serde(default)]
+    pub reflexive: bool,
+}
+
+/// Parse a cardinality from the lowercase string `links.register` advertises (`"one"` / `"many"`),
+/// case-insensitively. A `Cardinality` serializes as `One`/`Many` on the wire, but the agent-facing
+/// API speaks lowercase, so the two are reconciled here rather than by widening the wire format.
+fn parse_cardinality(value: &str) -> Result<Cardinality, MemoryError> {
+    match value.to_ascii_lowercase().as_str() {
+        "one" => Ok(Cardinality::One),
+        "many" => Ok(Cardinality::Many),
+        _ => Err(MemoryError::BadCardinality(value.to_owned())),
+    }
 }
 
 impl MemoryBlock {
@@ -480,6 +511,56 @@ impl MemoryBlock {
         self.change_link(from, to, relation, false)
     }
 
+    /// Register a link relation, accessible thereafter under either label; re-registering an existing
+    /// name updates it in place (the materializer upserts). The cardinality strings are parsed here, at
+    /// the block boundary, so a bad value is a teachable error rather than a silent mis-store.
+    pub fn register_relation(&mut self, spec: RelationSpec) -> Result<(), MemoryError> {
+        let from_card = parse_cardinality(&spec.from_card)?;
+        let to_card = parse_cardinality(&spec.to_card)?;
+        self.buffer.push(EventPayload::LinkTypeRegistered {
+            name: RelationName::new(spec.name),
+            inverse: RelationName::new(spec.inverse),
+            from_card,
+            to_card,
+            symmetric: spec.symmetric,
+            reflexive: spec.reflexive,
+        });
+        Ok(())
+    }
+
+    /// Every registered relation (committed), for `links.list`. A plain read of the projection; this
+    /// block's pending registrations are not yet reflected, like every other committed read.
+    pub fn all_relations(&self) -> Result<Vec<RelationView>, MemoryError> {
+        Ok(self.engine.graph.lock().all_relations()?)
+    }
+
+    /// A single registered relation by either label (committed), for `links.get`, or `None`.
+    pub fn relation(&self, name: &str) -> Result<Option<RelationView>, MemoryError> {
+        Ok(self.engine.graph.lock().relation(name)?)
+    }
+
+    /// Whether `relation` is registered under either label — checking this block's pending
+    /// `LinkTypeRegistered`s (read-your-writes) before the committed registry, so a relation registered
+    /// and linked within the same block is recognized (spec §Read-your-writes within a block).
+    fn relation_registered(&self, relation: &RelationName) -> Result<bool, MemoryError> {
+        let pending = self.buffer.iter().any(|event| {
+            matches!(
+                event,
+                EventPayload::LinkTypeRegistered { name, inverse, .. }
+                    if name == relation || inverse == relation
+            )
+        });
+        if pending {
+            return Ok(true);
+        }
+        Ok(self
+            .engine
+            .graph
+            .lock()
+            .relation(relation.as_str())?
+            .is_some())
+    }
+
     /// Create a tag with a one-line purpose. A tag's description is set only at creation; applying it
     /// never mutates it (spec §Tag operations). A name already in the vocabulary is a teachable error.
     pub fn create_tag(&mut self, name: TagName, description: &str) -> Result<(), MemoryError> {
@@ -597,13 +678,7 @@ impl MemoryBlock {
         relation: RelationName,
         create: bool,
     ) -> Result<(), MemoryError> {
-        if self
-            .engine
-            .graph
-            .lock()
-            .relation(relation.as_str())?
-            .is_none()
-        {
+        if !self.relation_registered(&relation)? {
             return Err(MemoryError::UnknownRelation(relation));
         }
         // Cross-platform identity is operator-asserted only: a participant must not be able to steer

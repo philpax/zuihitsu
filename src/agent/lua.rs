@@ -26,10 +26,12 @@ use ulid::Ulid;
 use crate::{
     engine::{Engine, MemoryLocks},
     event::{EventPayload, TerminalCause},
-    graph::GraphError,
+    graph::{GraphError, RelationView},
     ids::{ConversationId, EntryId, MemoryId, TurnId},
     memory::{
-        memory_block::{AppendOptions, BlockEffects, EntryRef, MemoryBlock, MemoryError},
+        memory_block::{
+            AppendOptions, BlockEffects, EntryRef, MemoryBlock, MemoryError, RelationSpec,
+        },
         search::{SearchQuery, search},
     },
     settings::Settings,
@@ -322,6 +324,7 @@ impl Session {
         globals.set("context", self.context_table(api, metatable)?)?;
         globals.set("calendar", self.calendar_table(api, metatable)?)?;
         globals.set("tags", self.tags_table(api)?)?;
+        globals.set("links", self.links_table(api)?)?;
         Ok(())
     }
 
@@ -662,6 +665,111 @@ impl Session {
             })?,
         )?;
         Ok(tags)
+    }
+
+    /// The metatable backing `links.list`/`links.get` result objects: `__tostring` renders one as
+    /// `name / inverse — from-to[, symmetric][, reflexive]`, so the registry reads back as text while
+    /// each result keeps its fields.
+    fn relation_result_metatable(&self) -> mlua::Result<Table> {
+        let metatable = self.lua.create_table()?;
+        metatable.set(
+            "__tostring",
+            self.lua.create_function(|_, this: Table| {
+                let name: String = this.get("name")?;
+                let inverse: String = this.get("inverse")?;
+                let from_card: String = this.get("from_card")?;
+                let to_card: String = this.get("to_card")?;
+                let symmetric: bool = this.get("symmetric")?;
+                let reflexive: bool = this.get("reflexive")?;
+                let mut line = format!("{name} / {inverse} — {from_card}-to-{to_card}");
+                if symmetric {
+                    line.push_str(", symmetric");
+                }
+                if reflexive {
+                    line.push_str(", reflexive");
+                }
+                Ok(line)
+            })?,
+        )?;
+        Ok(metatable)
+    }
+
+    /// The `links` global: `register` adds a relation to the schema, `list` and `get` read it. Link
+    /// *edges* are made on memory handles (`mem:link`/`mem:unlink`); this global manages the relation
+    /// *registry* they instantiate (spec §Link relation registry).
+    fn links_table(&self, api: &BlockApi) -> mlua::Result<Table> {
+        let links = self.lua.create_table()?;
+        let result_metatable = self.relation_result_metatable()?;
+        // links.register{ name, inverse, from_card, to_card, symmetric?, reflexive? } — register one
+        // relation, accessible under either label; the inverse view's cardinality is computed.
+        links.set(
+            "register",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |lua, spec: Value| {
+                    let api = api.clone();
+                    async move {
+                        let spec: RelationSpec = lua.from_value(spec)?;
+                        api.block
+                            .lock()
+                            .register_relation(spec)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+        // links.list() — the whole registry, each result printing as a readable line.
+        links.set(
+            "list",
+            self.lua.create_async_function({
+                let api = api.clone();
+                let result_metatable = result_metatable.clone();
+                move |lua, ()| {
+                    let api = api.clone();
+                    let result_metatable = result_metatable.clone();
+                    async move {
+                        let views = api
+                            .block
+                            .lock()
+                            .all_relations()
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        let list = lua.create_table()?;
+                        for (index, view) in views.into_iter().enumerate() {
+                            let table = make_relation_result(&lua, &view, &result_metatable)?;
+                            list.set(index + 1, table)?;
+                        }
+                        Ok(Value::Table(list))
+                    }
+                }
+            })?,
+        )?;
+        // links.get(name) — one relation by either label, or nil.
+        links.set(
+            "get",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |lua, name: String| {
+                    let api = api.clone();
+                    let result_metatable = result_metatable.clone();
+                    async move {
+                        let view = api
+                            .block
+                            .lock()
+                            .relation(&name)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        match view {
+                            Some(view) => Ok(Value::Table(make_relation_result(
+                                &lua,
+                                &view,
+                                &result_metatable,
+                            )?)),
+                            None => Ok(Value::Nil),
+                        }
+                    }
+                }
+            })?,
+        )?;
+        Ok(links)
     }
 
     /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
@@ -1010,8 +1118,8 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description(
             "The memory's live content entries, across its whole merged identity. Each is an entry \
              object — read its text with entry.text (it also prints as its text), and pass the \
-             object itself to <memory>:supersede to replace it. Hold onto the object if you intend to \
-             supersede it.",
+             object itself to <memory>:supersede to replace it. Hold onto the object if you intend \
+             to supersede it.",
         )
         .returns(AT::Entry.list());
 
@@ -1099,6 +1207,53 @@ pub fn api_reference() -> Vec<ApiEntry> {
         )
         .returns(AT::Object(Vec::new()).list());
 
+    let links_register = AE::new("links.register")
+        .description(
+            "Register a link relation, usable thereafter under either label by <memory>:link. Edges \
+             are made with <memory>:link; this declares the relation they instantiate. \
+             Re-registering a name updates it.",
+        )
+        .required(
+            "spec",
+            object()
+                .required("name", AT::String, "the relation, e.g. \"mentor_of\"")
+                .required("inverse", AT::String, "its inverse label, e.g. \"mentored_by\"")
+                .required(
+                    "from_card",
+                    enum_of(["one", "many"]),
+                    "how many of this relation a memory may have outgoing",
+                )
+                .required(
+                    "to_card",
+                    enum_of(["one", "many"]),
+                    "how many it may have incoming (the inverse direction)",
+                )
+                .optional(
+                    "symmetric",
+                    AT::Boolean,
+                    "whether the relation reads the same in both directions (default false)",
+                )
+                .optional(
+                    "reflexive",
+                    AT::Boolean,
+                    "whether a memory may hold this relation to itself (default false)",
+                ),
+            "the relation to register",
+        );
+
+    let links_list = AE::new("links.list")
+        .description(
+            "The whole relation registry, each a table { name, inverse, from_card, to_card, \
+             symmetric, reflexive } that prints as a readable line — the relations <memory>:link \
+             accepts.",
+        )
+        .returns(AT::Object(Vec::new()).list());
+
+    let links_get = AE::new("links.get")
+        .description("One registered relation by either label, or nil if it is not registered.")
+        .required("name", AT::String, "the relation or its inverse label")
+        .returns(AT::Object(Vec::new()).optional());
+
     let context = AE::new("context.current")
         .description(
             "The context/* memory for the current conversation. Check its #confidential tag to \
@@ -1149,6 +1304,9 @@ pub fn api_reference() -> Vec<ApiEntry> {
         tags_create,
         tags_describe,
         tags_list,
+        links_register,
+        links_list,
+        links_get,
         context,
         abort,
         upcoming,
@@ -1319,6 +1477,21 @@ fn make_handle(lua: &Lua, id: MemoryId, metatable: &Table) -> mlua::Result<Table
     handle.set("id", id.0.to_string())?;
     handle.set_metatable(Some(metatable.clone()))?;
     Ok(handle)
+}
+
+/// Build a relation result `{ name, inverse, from_card, to_card, symmetric, reflexive }` backed by the
+/// relation metatable, so it prints readably. Cardinalities render lowercase, matching the casing
+/// `links.register` accepts.
+fn make_relation_result(lua: &Lua, view: &RelationView, metatable: &Table) -> mlua::Result<Table> {
+    let table = lua.create_table()?;
+    table.set("name", view.name.as_str())?;
+    table.set("inverse", view.inverse.as_str())?;
+    table.set("from_card", view.from_card.as_str().to_lowercase())?;
+    table.set("to_card", view.to_card.as_str().to_lowercase())?;
+    table.set("symmetric", view.symmetric)?;
+    table.set("reflexive", view.reflexive)?;
+    table.set_metatable(Some(metatable.clone()))?;
+    Ok(table)
 }
 
 /// Wrap a list of memory ids as a Lua sequence of handles, in order — the `calendar.*` return shape.

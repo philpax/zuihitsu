@@ -324,6 +324,31 @@ impl Graph {
         })
     }
 
+    /// Every registered relation, ordered by canonical name. Backs `links.list` and the system
+    /// prompt's relation-registry block.
+    pub fn all_relations(&self) -> Result<Vec<RelationView>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT name, inverse, from_card, to_card, symmetric, reflexive
+             FROM relations ORDER BY name",
+        )?;
+        query_map_into(stmt, [], |row| {
+            let name: String = row.get("name")?;
+            let inverse: String = row.get("inverse")?;
+            let from_card: String = row.get("from_card")?;
+            let to_card: String = row.get("to_card")?;
+            let symmetric: i64 = row.get("symmetric")?;
+            let reflexive: i64 = row.get("reflexive")?;
+            Ok(RelationView {
+                name: RelationName::new(name),
+                inverse: RelationName::new(inverse),
+                from_card: parse_cardinality(&from_card)?,
+                to_card: parse_cardinality(&to_card)?,
+                symmetric: symmetric != 0,
+                reflexive: reflexive != 0,
+            })
+        })
+    }
+
     /// Live neighbours reachable from `id` under `relation` (given as either label). Resolves the
     /// label through the registry, follows the canonical edge in the right direction (both
     /// directions for a symmetric relation), and skips soft-deleted neighbours.

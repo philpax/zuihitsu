@@ -246,7 +246,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
         };
-        let vocabulary = system_prompt::render_tag_vocabulary(&graph.all_tags()?);
+        let vocabulary =
+            system_prompt::render_vocabulary(&graph.all_tags()?, &graph.all_relations()?);
         (identity, vocabulary)
     };
     // The API description is build-derived: rendered from the running binary so the prompt and the
@@ -373,7 +374,8 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
         };
-        let vocabulary = system_prompt::render_tag_vocabulary(&graph.all_tags()?);
+        let vocabulary =
+            system_prompt::render_vocabulary(&graph.all_tags()?, &graph.all_relations()?);
         (identity, vocabulary)
     };
     let api_reference = full_api_reference(session);
