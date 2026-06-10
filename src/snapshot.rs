@@ -83,6 +83,26 @@ pub fn restore_if_stale(graph_path: &Path, dir: &Path) -> Result<Option<Seq>, Sn
     Ok(Some(snapshot_head))
 }
 
+/// Keep the `keep` newest snapshots in `dir` and delete the rest, returning the paths removed. A
+/// `keep` of 0 is treated as 1: retention never deletes the only checkpoint boot would restore from.
+pub fn prune(dir: &Path, keep: usize) -> Result<Vec<PathBuf>, SnapshotError> {
+    let keep = keep.max(1);
+    let mut all = snapshots(dir)?; // oldest first
+    if all.len() <= keep {
+        return Ok(Vec::new());
+    }
+    let surplus = all.len() - keep;
+    let mut removed = Vec::new();
+    for (path, _head) in all.drain(..surplus) {
+        fs::remove_file(&path).map_err(|source| SnapshotError::Prune {
+            path: path.clone(),
+            source,
+        })?;
+        removed.push(path);
+    }
+    Ok(removed)
+}
+
 /// The `graph_head` recorded in the graph file at `path`, or `Seq::ZERO` when the file is absent or
 /// has no head yet (an empty or never-materialized graph) — the baseline the restore decision
 /// compares a snapshot against.
@@ -125,6 +145,10 @@ pub enum SnapshotError {
         to: PathBuf,
         source: std::io::Error,
     },
+    Prune {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 impl std::fmt::Display for SnapshotError {
@@ -146,6 +170,12 @@ impl std::fmt::Display for SnapshotError {
                 f,
                 "snapshot: could not restore the graph from {from:?} to {to:?}: {source}"
             ),
+            SnapshotError::Prune { path, source } => {
+                write!(
+                    f,
+                    "snapshot: could not prune the old snapshot {path:?}: {source}"
+                )
+            }
         }
     }
 }
@@ -156,6 +186,7 @@ impl std::error::Error for SnapshotError {
             SnapshotError::ReadDir { source, .. } => Some(source),
             SnapshotError::OpenGraph { source, .. } => Some(source),
             SnapshotError::Restore { source, .. } => Some(source),
+            SnapshotError::Prune { source, .. } => Some(source),
         }
     }
 }
@@ -163,7 +194,8 @@ impl std::error::Error for SnapshotError {
 #[cfg(test)]
 mod tests {
     use super::{
-        latest, parse_snapshot_head, read_graph_head, restore_if_stale, snapshot_filename,
+        latest, parse_snapshot_head, prune, read_graph_head, restore_if_stale, snapshot_filename,
+        snapshots,
     };
     use crate::ids::Seq;
     use rusqlite::Connection;
@@ -257,6 +289,24 @@ mod tests {
         let missing = dir.join("missing.sqlite");
         assert_eq!(restore_if_stale(&missing, &snaps).unwrap(), Some(Seq(20)));
         assert_eq!(read_graph_head(&missing).unwrap(), Seq(20));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prune_keeps_the_newest_and_never_the_only_one() {
+        let dir = temp_dir();
+        for head in [5u64, 10, 15, 20, 25] {
+            write_graph_head(&dir.join(snapshot_filename(Seq(head))), head);
+        }
+        // Keep the 2 newest: the 3 oldest are removed.
+        let removed = prune(&dir, 2).unwrap();
+        assert_eq!(removed.len(), 3);
+        let kept: Vec<u64> = snapshots(&dir).unwrap().iter().map(|(_, h)| h.0).collect();
+        assert_eq!(kept, vec![20, 25]);
+
+        // keep = 0 is treated as 1, so the latest checkpoint is never deleted.
+        prune(&dir, 0).unwrap();
+        assert_eq!(latest(&dir).unwrap().unwrap().1, Seq(25));
         fs::remove_dir_all(&dir).unwrap();
     }
 

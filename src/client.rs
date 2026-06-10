@@ -76,6 +76,12 @@ impl Client {
         self.json(self.http.get(self.url("/control/interactions")))
     }
 
+    /// `POST /control/snapshot` — write a graph snapshot now; the response names the file written, or
+    /// is `null` when the graph was already snapshotted at its current head.
+    pub fn snapshot(&self) -> Result<serde_json::Value, ClientError> {
+        self.json(self.http.post(self.url("/control/snapshot")))
+    }
+
     /// `GET /control/settings` — the agent's current behavioral settings.
     pub fn settings(&self) -> Result<Settings, ClientError> {
         self.json(self.http.get(self.url("/control/settings")))

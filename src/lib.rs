@@ -34,7 +34,7 @@ pub use agent::{
     templates::{PromptTemplate, latest_template},
 };
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig};
+pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, SnapshotConfig};
 pub use event::{
     Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ModelPhase, ProducedBy,
     PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
@@ -87,6 +87,6 @@ pub use memory::{
     },
 };
 pub use model::openai::{OpenAiClient, OpenAiEmbedder};
-pub use server::{Arbitration, Control, ModelCall, Server, ServerError};
+pub use server::{Arbitration, Control, ModelCall, Server, ServerError, SnapshotSchedule};
 pub use store::SqliteStore;
 pub use vector::SqliteVectorIndex;

@@ -79,6 +79,8 @@ enum Command {
     Arbitrations,
     /// List the recorded model interactions (per-call request, deliberation, tokens, and latency).
     Interactions,
+    /// Write a graph snapshot now (a checkpoint to speed the next cold boot, or before an experiment).
+    Snapshot,
     /// Print the agent's current behavioral settings.
     Settings,
     /// Replace the behavioral settings from a JSON file.
@@ -161,6 +163,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Command::Recurring => print_json(&client.recurring()?),
         Command::Arbitrations => print_json(&client.arbitrations()?),
         Command::Interactions => print_json(&client.interactions()?),
+        Command::Snapshot => print_json(&client.snapshot()?),
         Command::Settings => print_json(&client.settings()?),
         Command::SetSettings { file } => set_settings(&client, file),
         Command::Imprint { text } => print_json(&client.imprint(text)?),

@@ -25,6 +25,7 @@ pub struct EnvConfig {
     pub model: ModelConfig,
     pub embedding: EmbeddingConfig,
     pub serving: ServingConfig,
+    pub snapshots: SnapshotConfig,
     /// The MCP servers to connect (one `[mcp.<name>]` block each, spec §MCP server blocks). The table
     /// key is the `mcp.<name>.*` projection prefix, so it must be a valid Lua identifier — validated
     /// at load.
@@ -93,6 +94,53 @@ impl Default for StorageConfig {
     }
 }
 
+/// Graph snapshotting (spec §Snapshots): periodic `VACUUM INTO` checkpoints so boot restores the
+/// latest and replays only the log tail instead of the whole log. **On by default** — the graph is
+/// always rebuildable from the log, but a checkpoint turns a slow cold rebuild into a fast one, so the
+/// safe default is to keep them. Set `enabled = false` to turn it off. The cadence is activity-gated:
+/// the background task checks every `check_interval_seconds` and snapshots only when at least
+/// `min_new_events` have been appended since the last one, so idle periods never snapshot.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct SnapshotConfig {
+    pub enabled: bool,
+    /// Where snapshots are written; defaults to a `snapshots/` directory beside the graph database
+    /// (see [`SnapshotConfig::effective_dir`]). Resolved relative to the config file's directory.
+    pub dir: Option<PathBuf>,
+    /// How often the background snapshotter checks whether a snapshot is due.
+    pub check_interval_seconds: u64,
+    /// The minimum events appended since the last snapshot before a new one is taken — the activity
+    /// gate that keeps idle periods from snapshotting.
+    pub min_new_events: u64,
+    /// How many snapshots to retain; older ones are pruned after each new one.
+    pub keep: usize,
+}
+
+impl Default for SnapshotConfig {
+    fn default() -> Self {
+        SnapshotConfig {
+            enabled: true,
+            dir: None,
+            check_interval_seconds: 3_600,
+            min_new_events: 20,
+            keep: 5,
+        }
+    }
+}
+
+impl SnapshotConfig {
+    /// The directory snapshots are written to: the configured `dir`, or a `snapshots/` directory
+    /// beside `graph_path` when unset (so the on-by-default behavior needs no configuration).
+    pub fn effective_dir(&self, graph_path: &Path) -> PathBuf {
+        self.dir.clone().unwrap_or_else(|| {
+            graph_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("snapshots")
+        })
+    }
+}
+
 impl EnvConfig {
     /// Load config from `path`, resolving relative storage paths against the file's directory. A
     /// missing file yields defaults (resolved against the file's intended directory), so a bare
@@ -106,6 +154,9 @@ impl EnvConfig {
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         config.storage.event_log = base.join(&config.storage.event_log);
         config.storage.graph = base.join(&config.storage.graph);
+        if let Some(dir) = &config.snapshots.dir {
+            config.snapshots.dir = Some(base.join(dir));
+        }
         // Each MCP server name is the `mcp.<name>.*` projection prefix, so it must be a valid Lua
         // identifier — rejected here rather than producing an uncallable projection.
         for name in config.mcp.keys() {
@@ -200,6 +251,43 @@ mod tests {
         let config = EnvConfig::load(&path).unwrap();
         assert_eq!(config.storage.event_log, dir.join("db/events.sqlite"));
         assert_eq!(config.storage.graph, dir.join("db/graph.sqlite"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn snapshots_default_on_with_a_dir_beside_the_graph() {
+        // On by default (better safe than sorry), writing to `snapshots/` beside the graph.
+        let config = EnvConfig::default();
+        assert!(config.snapshots.enabled);
+        assert_eq!(
+            config
+                .snapshots
+                .effective_dir(std::path::Path::new("data/graph.sqlite")),
+            PathBuf::from("data/snapshots")
+        );
+    }
+
+    #[test]
+    fn snapshots_parse_an_override_and_resolve_the_dir() {
+        let dir = temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "[snapshots]\nenabled = false\ndir = \"snaps\"\nkeep = 3\nmin_new_events = 100\n",
+        )
+        .unwrap();
+
+        let config = EnvConfig::load(&path).unwrap();
+        assert!(!config.snapshots.enabled);
+        assert_eq!(config.snapshots.keep, 3);
+        assert_eq!(config.snapshots.min_new_events, 100);
+        // An explicit dir is honored and resolved against the config's directory.
+        assert_eq!(config.snapshots.dir, Some(dir.join("snaps")));
+        assert_eq!(
+            config.snapshots.effective_dir(&config.storage.graph),
+            dir.join("snaps")
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

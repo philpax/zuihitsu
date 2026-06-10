@@ -89,6 +89,16 @@ struct McpRuntime {
     catalogue: McpCatalogue,
 }
 
+/// The background snapshotter's policy (spec §Snapshots): where to write, how often to check, the
+/// activity gate, and retention. Assembled by the serving host from the `[snapshots]` config and
+/// handed to [`Server::run_snapshotter`].
+pub struct SnapshotSchedule {
+    pub dir: PathBuf,
+    pub check_interval: Duration,
+    pub min_new_events: u64,
+    pub keep: usize,
+}
+
 impl Server {
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Server {
         let engine = Engine::new(store, graph, clock);
@@ -459,6 +469,50 @@ impl Server {
             }
         }
         tracing::info!("scheduler driver stopped");
+    }
+
+    /// Take a snapshot if enough events have accrued since the last one — the activity gate that keeps
+    /// idle periods from snapshotting (spec §Snapshots). Compares the graph head to the newest existing
+    /// snapshot's head; when the gap meets `min_new_events`, writes a snapshot and prunes to `keep`.
+    /// Returns whether one was written.
+    fn snapshot_if_due(&self, schedule: &SnapshotSchedule) -> Result<bool, ServerError> {
+        let head = self.engine.graph.lock().head()?;
+        let last = snapshot::latest(&schedule.dir)
+            .map_err(|error| ServerError::Snapshot(error.to_string()))?
+            .map_or(0, |(_, head)| head.0);
+        if head.0.saturating_sub(last) < schedule.min_new_events {
+            return Ok(false);
+        }
+        let wrote = self.snapshot(&schedule.dir)?.is_some();
+        if wrote {
+            snapshot::prune(&schedule.dir, schedule.keep)
+                .map_err(|error| ServerError::Snapshot(error.to_string()))?;
+        }
+        Ok(wrote)
+    }
+
+    /// The background snapshotter: on each `check_interval` tick, snapshot the graph if activity has
+    /// accrued ([`Server::snapshot_if_due`]), stopping on the same shutdown signal as the scheduler.
+    /// A failure is logged, not fatal — the log is always the source of truth, so a missed snapshot
+    /// only slows the next cold boot.
+    pub async fn run_snapshotter(
+        self: Arc<Self>,
+        schedule: SnapshotSchedule,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut interval = tokio::time::interval(schedule.check_interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(error) = self.snapshot_if_due(&schedule) {
+                        tracing::error!(%error, "snapshotter: writing a snapshot failed");
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("snapshotter stopped");
     }
 
     /// Tear down the live sessions at server shutdown: drain the session map and shut each session's

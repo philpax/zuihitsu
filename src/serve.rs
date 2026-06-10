@@ -24,8 +24,8 @@ use tokio::net::TcpListener;
 use zuihitsu::{
     Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
     MemoryView, ModelCall, ModelClient, OpenAiClient, Rollout, SeedSelf, Server, ServerError,
-    SessionView, Settings, SqliteStore, StdioHost, StoreError, SystemClock, TurnOutcome,
-    genesis::GenesisStatus,
+    SessionView, Settings, SnapshotSchedule, SqliteStore, StdioHost, StoreError, SystemClock,
+    TurnOutcome, genesis::GenesisStatus, snapshot, snapshot::SnapshotError,
 };
 
 /// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share (so
@@ -36,6 +36,9 @@ use zuihitsu::{
 struct AppState {
     server: Arc<Server>,
     model: Option<Arc<dyn ModelClient>>,
+    /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
+    /// otherwise (the snapshot endpoint then answers `409`).
+    snapshot_dir: Option<PathBuf>,
 }
 
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
@@ -61,6 +64,15 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
             source,
         }
     })?;
+    // Restore the graph from the latest snapshot when it leads the on-disk graph (a fresh, deleted, or
+    // corrupt graph), before the file is opened — so boot replays only the tail (spec §Snapshots).
+    let snapshot_dir = config.snapshots.effective_dir(&config.storage.graph);
+    if config.snapshots.enabled
+        && let Some(head) = snapshot::restore_if_stale(&config.storage.graph, &snapshot_dir)
+            .map_err(ServeError::Snapshot)?
+    {
+        tracing::info!(head = head.0, "restored the graph from a snapshot");
+    }
     let graph = Graph::open(&config.storage.graph).map_err(|source| ServeError::OpenGraph {
         path: config.storage.graph.clone(),
         source,
@@ -93,9 +105,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         async move { server.run_scheduler(tick, shutdown_signal()).await }
     });
 
+    // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
+    // §Snapshots), when enabled. Stops on the same shutdown signal.
+    let snapshotter = config.snapshots.enabled.then(|| {
+        let server = server.clone();
+        let schedule = SnapshotSchedule {
+            dir: snapshot_dir.clone(),
+            check_interval: Duration::from_secs(config.snapshots.check_interval_seconds.max(1)),
+            min_new_events: config.snapshots.min_new_events,
+            keep: config.snapshots.keep,
+        };
+        tokio::spawn(async move { server.run_snapshotter(schedule, shutdown_signal()).await })
+    });
+
     let app = router(AppState {
         server: server.clone(),
         model,
+        snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
     });
     let listener = TcpListener::bind(bind).await.map_err(ServeError::Bind)?;
     tracing::info!(?status, %bind, "zuihitsu serving");
@@ -106,6 +132,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 
     tracing::info!("shutdown signal received; stopping");
     let _ = driver.await;
+    if let Some(snapshotter) = snapshotter {
+        let _ = snapshotter.await;
+    }
     server.shutdown().await;
     Ok(())
 }
@@ -127,6 +156,7 @@ fn router(state: AppState) -> Router {
         .route("/control/recurring", get(recurring))
         .route("/control/arbitrations", get(arbitrations))
         .route("/control/interactions", get(interactions))
+        .route("/control/snapshot", post(snapshot))
         .route("/control/settings", get(settings).put(set_settings))
         .route("/control/imprint", post(imprint))
         // The participant surface: delivering turns and mid-session joins (spec §Clients → platform
@@ -244,6 +274,27 @@ async fn interactions(State(state): State<AppState>) -> Result<Json<Vec<ModelCal
     Ok(Json(state.server.control().model_calls()?))
 }
 
+/// `POST /control/snapshot` — write a graph snapshot now (the operator's take-one-before-an-experiment
+/// trigger). `409` when snapshotting is disabled. The response names the file written, or reports that
+/// the graph was already snapshotted at its current head.
+async fn snapshot(State(state): State<AppState>) -> Result<Json<SnapshotResponse>, ApiError> {
+    let dir = state
+        .snapshot_dir
+        .as_ref()
+        .ok_or(ApiError::SnapshotsDisabled)?;
+    let written = state.server.snapshot(dir)?;
+    Ok(Json(SnapshotResponse {
+        snapshot: written.map(|path| path.to_string_lossy().into_owned()),
+    }))
+}
+
+/// The snapshot a `POST /control/snapshot` wrote, or `null` when the graph was already checkpointed at
+/// its current head (no events since the last snapshot).
+#[derive(Serialize)]
+struct SnapshotResponse {
+    snapshot: Option<String>,
+}
+
 /// `GET /control/settings` — the agent's current behavioral settings.
 async fn settings(State(state): State<AppState>) -> Result<Json<Settings>, ApiError> {
     Ok(Json(state.server.control().settings()?))
@@ -353,6 +404,8 @@ enum ApiError {
     NotFound(String),
     /// A conversing endpoint was called but no model is configured.
     NoModel,
+    /// The snapshot endpoint was called but snapshotting is disabled (`[snapshots] enabled = false`).
+    SnapshotsDisabled,
 }
 
 impl From<ServerError> for ApiError {
@@ -372,6 +425,10 @@ impl IntoResponse for ApiError {
             ApiError::NoModel => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "no model endpoint is configured".to_owned(),
+            ),
+            ApiError::SnapshotsDisabled => (
+                StatusCode::CONFLICT,
+                "snapshots are disabled ([snapshots] enabled = false)".to_owned(),
             ),
         };
         (status, Json(ErrorBody { error: message })).into_response()
@@ -400,6 +457,8 @@ pub enum ServeError {
         path: PathBuf,
         source: GraphError,
     },
+    /// Restoring the graph from a snapshot at boot failed (spec §Snapshots).
+    Snapshot(SnapshotError),
     /// A server operation (boot, reading settings, connecting MCP) failed at startup.
     Server(ServerError),
     Bind(io::Error),
@@ -436,6 +495,12 @@ impl std::fmt::Display for ServeError {
                     path.display()
                 )
             }
+            ServeError::Snapshot(source) => {
+                write!(
+                    f,
+                    "serve: could not restore the graph from a snapshot: {source}"
+                )
+            }
             ServeError::Server(source) => write!(f, "serve: {source}"),
             ServeError::Bind(source) => write!(f, "serve: could not bind the listener: {source}"),
             ServeError::Serve(source) => write!(f, "serve: the HTTP server failed: {source}"),
@@ -451,6 +516,7 @@ impl std::error::Error for ServeError {
             ServeError::CreateDir { source, .. } => Some(source),
             ServeError::OpenEventLog { source, .. } => Some(source),
             ServeError::OpenGraph { source, .. } => Some(source),
+            ServeError::Snapshot(source) => Some(source),
             ServeError::Server(source) => Some(source),
             ServeError::Bind(source) | ServeError::Serve(source) => Some(source),
         }
@@ -478,6 +544,7 @@ mod tests {
         let app = router(AppState {
             server,
             model: None,
+            snapshot_dir: None,
         });
         let response = app
             .oneshot(
@@ -504,6 +571,7 @@ mod tests {
         let app = router(AppState {
             server,
             model: None,
+            snapshot_dir: None,
         });
 
         // Create the agent through the API.
@@ -588,6 +656,7 @@ mod tests {
         let app = router(AppState {
             server: Arc::new(server),
             model: Some(model),
+            snapshot_dir: None,
         });
 
         let body = serde_json::json!({
@@ -634,6 +703,7 @@ mod tests {
         let app = router(AppState {
             server: Arc::new(server),
             model: Some(model),
+            snapshot_dir: None,
         });
 
         let body = serde_json::json!({
@@ -675,5 +745,53 @@ mod tests {
             Completion::Reply("Hi there.".to_owned())
         );
         assert!(!calls[0].request_digest.is_empty());
+    }
+
+    #[tokio::test]
+    async fn snapshot_endpoint_writes_a_file_or_409s_when_disabled() {
+        let born = || {
+            let server =
+                Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+            server
+                .control()
+                .create_agent(&zuihitsu::SeedSelf {
+                    agent_name: "Kestrel".to_owned(),
+                    persona: "An assistant.".to_owned(),
+                    seed_entries: vec![],
+                })
+                .unwrap();
+            server
+        };
+        let post = || {
+            Request::builder()
+                .method("POST")
+                .uri("/control/snapshot")
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        // Enabled: the endpoint writes a snapshot into the configured directory.
+        let dir = std::env::temp_dir().join(format!(
+            "zuihitsu-snapep-{}",
+            zuihitsu::MemoryId::generate().0
+        ));
+        let app = router(AppState {
+            server: Arc::new(born()),
+            model: None,
+            snapshot_dir: Some(dir.clone()),
+        });
+        let response = app.oneshot(post()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(zuihitsu::snapshot::latest(&dir).unwrap().is_some());
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        // Disabled (no snapshot dir): the endpoint answers 409.
+        let app = router(AppState {
+            server: Arc::new(born()),
+            model: None,
+            snapshot_dir: None,
+        });
+        let response = app.oneshot(post()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 }
