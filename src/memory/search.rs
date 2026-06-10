@@ -240,7 +240,7 @@ mod tests {
     use crate::{
         agent::genesis::{self, SeedSelf},
         clock::ManualClock,
-        event::{Event, EventPayload, Teller, Visibility},
+        event::{Event, EventPayload, Teller, Visibility, Volatility},
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName, Seq},
         model::{
@@ -334,6 +334,53 @@ mod tests {
         let now = 20_000 * DAY;
         let (graph, id) = graph_with_entry(None, now - 3650 * DAY);
         assert!(bonus(&graph, id, now) < 0.01);
+    }
+
+    #[test]
+    fn higher_volatility_decays_faster_at_the_same_age() {
+        // The volatility-aware part: at the *same* age, the decay rate is keyed by the memory's
+        // volatility through τ — High (τ=90d) decays far faster than Medium (τ=365d) than Low (τ=3650d).
+        let now = 20_000 * DAY;
+        let one_year_ago = now - 365 * DAY;
+        let bonus_for = |volatility| {
+            let (mut graph, id) = graph_with_entry(
+                Some(TemporalRef::Instant(Timestamp::from_millis(one_year_ago))),
+                now,
+            );
+            graph
+                .apply(&event(
+                    3,
+                    EventPayload::MemoryVolatilitySet { id, volatility },
+                ))
+                .unwrap();
+            bonus(&graph, id, now)
+        };
+        let (high, medium, low) = (
+            bonus_for(Volatility::High),
+            bonus_for(Volatility::Medium),
+            bonus_for(Volatility::Low),
+        );
+
+        // Strictly ordered by volatility.
+        assert!(
+            high < medium,
+            "High should decay faster than Medium ({high} vs {medium})"
+        );
+        assert!(
+            medium < low,
+            "Medium should decay faster than Low ({medium} vs {low})"
+        );
+        // Concrete anchors at one year, with the default τ: exp(-365/90) ≈ 0.017, exp(-1) ≈ 0.37,
+        // exp(-365/3650) ≈ 0.90.
+        assert!(
+            high < 0.05,
+            "high volatility is nearly fully decayed at a year: {high}"
+        );
+        assert!(
+            (0.30..0.45).contains(&medium),
+            "medium is ~0.37 at a year: {medium}"
+        );
+        assert!(low > 0.85, "low volatility barely decays at a year: {low}");
     }
 
     #[test]
