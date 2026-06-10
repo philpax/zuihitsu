@@ -46,6 +46,7 @@ use crate::{
         identity::IdentityError,
         memory_block::Authority,
         scheduler::{self, SchedulerError},
+        search::{SearchError, SearchHit, SearchQuery, search as rank_search},
     },
     model::{
         ModelClient,
@@ -192,6 +193,49 @@ impl Server {
         graph.snapshot_into(&path)?;
         tracing::info!(head = head.0, ?path, "wrote graph snapshot");
         Ok(Some(path))
+    }
+
+    /// Run a semantic search over the agent's memory — the engine behind `memory.search`, exposed for
+    /// tests and a future operator/debugger search surface. Embeds the query off every lock, then ranks
+    /// under a brief graph + vector-index read lock. Empty on a graph-only instance (no embedder).
+    pub async fn search(
+        &self,
+        query: &str,
+        present_set: &[MemoryId],
+        limit: usize,
+    ) -> Result<Vec<SearchHit>, ServerError> {
+        let Some(retrieval) = &self.engine.retrieval else {
+            return Ok(Vec::new());
+        };
+        let embedding = retrieval
+            .embedder
+            .embed(&[query.to_owned()])
+            .await
+            .map_err(|error| ServerError::Index(IndexError::Embed(error)))?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        let settings = Settings::from_store(self.engine.store.lock().as_ref())?.search;
+        let now = self.engine.clock.now();
+        let request = SearchQuery {
+            text: query,
+            embedding: &embedding,
+            namespace: None,
+            tags: &[],
+            present_set,
+        };
+        // Graph before the vector index — the lock order search and the indexer share; held only across
+        // the synchronous ranking, never an await.
+        let graph = self.engine.graph.lock();
+        let vectors = retrieval.vectors.lock();
+        Ok(rank_search(
+            &graph,
+            vectors.as_ref(),
+            &request,
+            &settings,
+            now,
+            limit,
+        )?)
     }
 
     /// The operator-authority API facet. Takes `&self` so a shared `Arc<Server>` can hand out a facet
@@ -562,7 +606,7 @@ impl Server {
             .map_err(IndexError::Store)?;
         let count = events.len();
         let batch = embed_batch(retrieval.embedder.as_ref(), &events).await?;
-        apply_batch(&mut **retrieval.vectors.lock(), batch).map_err(IndexError::Vector)?;
+        apply_batch(retrieval.vectors.lock().as_mut(), batch).map_err(IndexError::Vector)?;
         Ok(count)
     }
 
@@ -682,6 +726,8 @@ pub enum ServerError {
     Snapshot(String),
     /// Catching the vector index up to the log failed (embedding, the vector store, or the log read).
     Index(IndexError),
+    /// A semantic search failed (the graph projection or the vector index).
+    Search(SearchError),
 }
 
 impl std::fmt::Display for ServerError {
@@ -693,6 +739,7 @@ impl std::fmt::Display for ServerError {
             ServerError::Mcp(error) => write!(f, "server (mcp): {error}"),
             ServerError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
             ServerError::Index(error) => write!(f, "server (index): {error}"),
+            ServerError::Search(error) => write!(f, "server (search): {error}"),
         }
     }
 }
@@ -706,7 +753,14 @@ impl std::error::Error for ServerError {
             ServerError::Mcp(error) => Some(error),
             ServerError::Snapshot(_) => None,
             ServerError::Index(error) => Some(error),
+            ServerError::Search(error) => Some(error),
         }
+    }
+}
+
+impl From<SearchError> for ServerError {
+    fn from(error: SearchError) -> Self {
+        ServerError::Search(error)
     }
 }
 

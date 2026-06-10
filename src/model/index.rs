@@ -137,11 +137,15 @@ pub async fn embed_batch(embedder: &dyn Embedder, events: &[Event]) -> Result<Ba
         }
     }
 
+    // Skip blank texts: an empty (or whitespace-only) entry or description carries no semantic
+    // content to embed, and a real embedding endpoint rejects an empty input outright ("the decoder
+    // prompt cannot be empty"). Dropping it here leaves no vector — correct, since there is nothing
+    // to retrieve — rather than failing the whole batch.
     let to_embed: Vec<(VectorId, String)> = ops
         .iter()
         .filter_map(|(key, op)| match op {
-            Pending::Embed(text) => Some((key.clone(), text.clone())),
-            Pending::Remove => None,
+            Pending::Embed(text) if !text.trim().is_empty() => Some((key.clone(), text.clone())),
+            Pending::Embed(_) | Pending::Remove => None,
         })
         .collect();
 
@@ -446,6 +450,63 @@ mod tests {
                 .iter()
                 .all(|hit| hit.id != key)
         );
+    }
+
+    #[tokio::test]
+    async fn a_blank_description_is_skipped_without_embedding() {
+        // A real embedding endpoint rejects an empty input, so a blank description (or entry) must
+        // never reach the embedder. `StrictEmbedder` panics if it does; the indexer should skip it
+        // and produce no vector.
+        let mut store = MemoryStore::new();
+        let ghost = MemoryId::generate();
+        store
+            .append(
+                at(1),
+                vec![EventPayload::MemoryDescriptionRegenerated {
+                    id: ghost,
+                    new_text: "   ".to_owned(),
+                    produced_by: None,
+                }],
+            )
+            .unwrap();
+
+        let embedder = StrictEmbedder;
+        let mut vectors = InMemoryVectorIndex::new();
+        let processed = Indexer::new(&embedder, &mut vectors)
+            .catch_up(&store)
+            .await
+            .unwrap();
+
+        // The event is processed (the cursor advances) but yields no vector.
+        assert_eq!(processed, 1);
+        assert!(vectors.is_empty().unwrap());
+        assert_eq!(vectors.cursor().unwrap(), store.head().unwrap());
+    }
+
+    /// An embedder that refuses blank input, mirroring a real endpoint — so a test fails loudly if
+    /// the indexer ever forwards an empty string to embed.
+    struct StrictEmbedder;
+
+    #[async_trait::async_trait]
+    impl Embedder for StrictEmbedder {
+        fn dimensions(&self) -> usize {
+            DIMS
+        }
+
+        fn model_id(&self) -> &str {
+            "strict-test-embedder"
+        }
+
+        async fn embed(
+            &self,
+            inputs: &[String],
+        ) -> Result<Vec<crate::model::embed::Embedding>, crate::model::ModelError> {
+            assert!(
+                inputs.iter().all(|text| !text.trim().is_empty()),
+                "the indexer forwarded a blank text to the embedder"
+            );
+            Ok(inputs.iter().map(|_| vec![0.0; DIMS]).collect())
+        }
     }
 
     /// Commit a description regeneration for `id` and return the resulting events to feed the indexer.

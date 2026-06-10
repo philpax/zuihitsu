@@ -496,6 +496,34 @@ impl Session {
         Ok(metatable)
     }
 
+    /// The metatable backing `memory.search` result objects: `__tostring` renders one as a readable
+    /// line (name, score, description, and any teller-private marker), so returning the result list
+    /// reads back as text rather than `<table>` while each result keeps its fields for the agent to
+    /// inspect (`result.name` to fetch, `result.score` to weigh).
+    fn search_result_metatable(&self) -> mlua::Result<Table> {
+        let metatable = self.lua.create_table()?;
+        metatable.set(
+            "__tostring",
+            self.lua.create_function(|_, this: Table| {
+                let name: String = this.get("name")?;
+                let description: String = this.get("description")?;
+                let score: f32 = this.get("score")?;
+                let marker: Option<String> = this.get("marker")?;
+                let mut line = format!("{name} (score {score:.2})");
+                if !description.is_empty() {
+                    line.push_str(" — ");
+                    line.push_str(&description);
+                }
+                if let Some(marker) = marker {
+                    line.push(' ');
+                    line.push_str(&marker);
+                }
+                Ok(line)
+            })?,
+        )?;
+        Ok(metatable)
+    }
+
     /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
     fn memory_table(&self, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
         let memory = self.lua.create_table()?;
@@ -551,13 +579,18 @@ impl Session {
         // memory.search(query[, opts]) — semantic + lexical recall over the agent's whole memory,
         // visibility-filtered against who is present (a teller-private hit only surfaces while its
         // teller is here, with a marker). Embeds the query off any lock, then ranks under a brief read
-        // lock. Returns a list of `{ name, description, score, marker? }`, best first.
+        // lock. Returns a list of result objects (`{ name, description, score, marker? }`), best first;
+        // each prints as a readable line so `return memory.search(...)` reads back the results rather
+        // than `<table>`.
+        let result_metatable = self.search_result_metatable()?;
         memory.set(
             "search",
             self.lua.create_async_function({
                 let api = api.clone();
+                let result_metatable = result_metatable.clone();
                 move |lua, (query, opts): (String, Value)| {
                     let api = api.clone();
+                    let result_metatable = result_metatable.clone();
                     async move {
                         let (engine, present_set) = api.block.lock().retrieval_handle();
                         let opts: SearchOpts = if opts.is_nil() {
@@ -577,6 +610,7 @@ impl Session {
                             if let Some(marker) = row.marker {
                                 table.set("marker", marker)?;
                             }
+                            table.set_metatable(Some(result_metatable.clone()))?;
                             list.set(index + 1, table)?;
                         }
                         Ok(Value::Table(list))
@@ -1223,7 +1257,7 @@ async fn run_memory_search(
         // are held only across the synchronous ranking, never an `.await`.
         let graph = engine.graph.lock();
         let vectors = retrieval.vectors.lock();
-        search(&graph, &**vectors, &request, &settings, now, limit)
+        search(&graph, vectors.as_ref(), &request, &settings, now, limit)
             .map_err(|error| format!("memory.search: {error}"))?
     };
     Ok(hits

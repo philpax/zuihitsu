@@ -844,6 +844,17 @@ async fn memory_search_recalls_an_indexed_entry() {
         panic!("expected commit, got {outcome:?}");
     };
     assert_eq!(result, "person/dave");
+
+    // Returning the result list renders as readable lines (each result's __tostring), not "<table>",
+    // so the agent can read its own search back.
+    let rendered = h
+        .run(r#"return memory.search("An avid rock climber")"#)
+        .await;
+    let BlockOutcome::Committed { result } = rendered else {
+        panic!("expected commit, got {rendered:?}");
+    };
+    assert!(result.contains("person/dave"), "rendered: {result:?}");
+    assert!(!result.contains("<table>"), "rendered: {result:?}");
 }
 
 #[tokio::test]
