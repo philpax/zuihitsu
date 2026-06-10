@@ -15,24 +15,32 @@
 //! Assembly is a pure function of already-fetched inputs, so the caller owns the store/graph/clock
 //! reads (and their error handling) and this stays trivially testable.
 
+use std::fmt::Write as _;
+
 use crate::{
-    graph::EntryView,
+    graph::{EntryView, TagVocabularyEntry},
     time::{self, Timestamp},
 };
 
 /// Compose the system prompt from the `scaffold` body, the agent's `identity` (the `self` memory's
 /// content entries, verbatim), the `api_reference` block (the build's callable Lua API, rendered by
-/// [`crate::agent::lua::render_api_reference`]), the session's frozen contextual `brief` (composed by
-/// [`crate::memory::brief::compose`] and captured on `SessionStarted`), and the session's start time `now`.
+/// [`crate::agent::lua::render_api_reference`]), the runtime `vocabulary` block (the current tag
+/// vocabulary and registered relations — runtime data, so composed by the caller from graph reads;
+/// see [`render_tag_vocabulary`]), the session's frozen contextual `brief` (composed by
+/// [`crate::memory::brief::compose`] and captured on `SessionStarted`), and the session's start time
+/// `now`. The vocabulary sits with the API description: both tell the agent what it can call and with
+/// what labels (spec §The API description is injected into the system prompt).
 pub fn assemble(
     scaffold: &str,
     identity: &[EntryView],
     api_reference: &str,
+    vocabulary: &str,
     brief: &str,
     now: Timestamp,
 ) -> String {
-    let mut prompt =
-        String::with_capacity(scaffold.len() + api_reference.len() + brief.len() + 256);
+    let mut prompt = String::with_capacity(
+        scaffold.len() + api_reference.len() + vocabulary.len() + brief.len() + 256,
+    );
     prompt.push_str(scaffold);
 
     if !identity.is_empty() {
@@ -50,6 +58,11 @@ pub fn assemble(
         prompt.push_str(api_reference);
     }
 
+    if !vocabulary.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(vocabulary);
+    }
+
     if !brief.is_empty() {
         prompt.push_str("\n\n# What you know right now\n\n");
         prompt.push_str(brief);
@@ -61,13 +74,34 @@ pub fn assemble(
     prompt
 }
 
+/// Render the current tag vocabulary as a prompt section, or the empty string when no tags exist. Each
+/// line is `name — purpose (N uses)`, so the agent knows which tags it may apply with `mem:tag` (and
+/// can see which are already in use). The caller reads the vocabulary from the graph and concatenates
+/// this with any further vocabulary blocks (e.g. registered relations) for [`assemble`].
+pub fn render_tag_vocabulary(tags: &[TagVocabularyEntry]) -> String {
+    if tags.is_empty() {
+        return String::new();
+    }
+    let mut out =
+        String::from("# Tags\n\nTags you can apply with mem:tag (create new ones with tags.create):");
+    for tag in tags {
+        let uses = if tag.count == 1 {
+            "1 use".to_owned()
+        } else {
+            format!("{} uses", tag.count)
+        };
+        let _ = write!(out, "\n- {} — {} ({uses})", tag.name.as_str(), tag.description);
+    }
+    out
+}
+
 // Gated on `lua` (not just `sqlite`) because the assertion exercises `render_api_reference`, which
 // is part of the Lua API surface.
 #[cfg(test)]
 mod tests {
     //! The scaffold framing, the agent's identity drawn from `self` (seeded as its description at
     //! genesis), and the declared current time are composed into one prompt.
-    use super::assemble;
+    use super::{assemble, render_tag_vocabulary};
     use crate::{
         agent::{
             genesis::{self, SeedSelf},
@@ -105,11 +139,13 @@ mod tests {
         let self_memory = graph.memory_by_name("self").unwrap().unwrap();
         let identity = graph.entries_local(self_memory.id).unwrap();
         let api = render_api_reference();
+        let vocabulary = render_tag_vocabulary(&graph.all_tags().unwrap());
         let brief = "<participant name=\"phil\">a friend</participant>";
         let prompt = assemble(
             &scaffold,
             &identity,
             &api,
+            &vocabulary,
             brief,
             Timestamp::from_millis(1_000),
         );
@@ -124,6 +160,9 @@ mod tests {
         assert!(prompt.contains("text: string (required)"));
         assert!(prompt.contains("opts.visibility: \"public\" | \"private\""));
         assert!(prompt.contains("context.current()"));
+        // The current tag vocabulary, drawn from the graph: the genesis-seeded `confidential` tag.
+        assert!(prompt.contains("# Tags"));
+        assert!(prompt.contains("confidential — Marks a context as confidential"));
         // The session's frozen contextual brief.
         assert!(prompt.contains("<participant name=\"phil\">a friend</participant>"));
         // The declared session time, in human units (1_000 ms after the epoch).

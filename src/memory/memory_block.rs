@@ -16,7 +16,7 @@ use serde::Deserialize;
 use crate::{
     engine::Engine,
     event::{EventPayload, LinkSource, Teller, Visibility},
-    graph::{EntryView, GraphError},
+    graph::{EntryView, GraphError, TagVocabularyEntry},
     ids::{ConversationId, EntryId, MemoryId, MemoryName},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -97,6 +97,12 @@ pub enum MemoryError {
     NameExists(MemoryName),
     /// A `link`/`unlink` named a relation that is not a registered link type.
     UnknownRelation(RelationName),
+    /// A `tags.create` named a tag already in the vocabulary — creation forces a fresh purpose, so a
+    /// collision is a teachable error (apply it, or change its purpose with `tags.describe`).
+    TagExists(TagName),
+    /// A `mem:tag`/`tags.describe` named a tag that was never created. Tags are a described, shared
+    /// vocabulary, so they must be created (`tags.create`) before they are applied or re-described.
+    UnknownTag(TagName),
     /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
     /// Only the control panel (operator authority) may edit `self`.
     SelfWriteForbidden,
@@ -131,6 +137,17 @@ impl std::fmt::Display for MemoryError {
                 f,
                 "unknown relation {:?}; it must be a registered link type",
                 relation.as_str()
+            ),
+            MemoryError::TagExists(name) => write!(
+                f,
+                "a tag named {:?} already exists; apply it with mem:tag, or change its purpose with \
+                 tags.describe",
+                name.as_str()
+            ),
+            MemoryError::UnknownTag(name) => write!(
+                f,
+                "unknown tag {:?}; create it first with tags.create(name, purpose)",
+                name.as_str()
             ),
             MemoryError::SelfWriteForbidden => {
                 write!(f, "self can only be edited from the control panel")
@@ -461,6 +478,80 @@ impl MemoryBlock {
         relation: RelationName,
     ) -> Result<(), MemoryError> {
         self.change_link(from, to, relation, false)
+    }
+
+    /// Create a tag with a one-line purpose. A tag's description is set only at creation; applying it
+    /// never mutates it (spec §Tag operations). A name already in the vocabulary is a teachable error.
+    pub fn create_tag(&mut self, name: TagName, description: &str) -> Result<(), MemoryError> {
+        if self.tag_exists(&name)? {
+            return Err(MemoryError::TagExists(name));
+        }
+        self.buffer.push(EventPayload::TagCreated {
+            name,
+            description: description.to_owned(),
+        });
+        Ok(())
+    }
+
+    /// Change an existing tag's one-line purpose. The tag must already exist — re-describing an
+    /// unknown tag is a teachable error (create it first).
+    pub fn describe_tag(&mut self, name: TagName, description: &str) -> Result<(), MemoryError> {
+        if !self.tag_exists(&name)? {
+            return Err(MemoryError::UnknownTag(name));
+        }
+        self.buffer.push(EventPayload::TagDescriptionChanged {
+            name,
+            new_description: description.to_owned(),
+        });
+        Ok(())
+    }
+
+    /// Apply a tag to a memory. The tag must be in the vocabulary (`tags.create` first) — applying an
+    /// unknown tag is a teachable error, since a tag is a shared, described vocabulary rather than an
+    /// ad-hoc label. Tagging is idempotent at the projection (`INSERT OR IGNORE`).
+    pub fn tag(&mut self, id: MemoryId, tag: TagName) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        if !self.tag_exists(&tag)? {
+            return Err(MemoryError::UnknownTag(tag));
+        }
+        self.touched.insert(id);
+        self.buffer
+            .push(EventPayload::TagAppliedToMemory { memory: id, tag });
+        Ok(())
+    }
+
+    /// Remove a tag from a memory. Idempotent — removing a tag the memory does not carry is a no-op
+    /// at the projection — so it needs no vocabulary check.
+    pub fn untag(&mut self, id: MemoryId, tag: TagName) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        self.touched.insert(id);
+        self.buffer
+            .push(EventPayload::TagRemovedFromMemory { memory: id, tag });
+        Ok(())
+    }
+
+    /// The whole tag vocabulary (committed), for `tags.list`. A plain read of the projection; this
+    /// block's pending tag creations are not yet reflected, like every other committed read.
+    pub fn all_tags(&self) -> Result<Vec<TagVocabularyEntry>, MemoryError> {
+        Ok(self.engine.graph.lock().all_tags()?)
+    }
+
+    /// Whether `name` is a created tag — checking this block's pending `TagCreated`s (read-your-writes)
+    /// before the committed vocabulary, so a tag created and applied within the same block is
+    /// recognized.
+    fn tag_exists(&self, name: &TagName) -> Result<bool, MemoryError> {
+        let pending = self.buffer.iter().any(|event| {
+            matches!(event, EventPayload::TagCreated { name: created, .. } if created == name)
+        });
+        if pending {
+            return Ok(true);
+        }
+        Ok(self
+            .engine
+            .graph
+            .lock()
+            .tag_description(name.as_str())?
+            .is_some())
     }
 
     /// The current conversation's context memory, or `None` — touches it so it enters the lock set.

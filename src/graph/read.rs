@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use rusqlite::{OptionalExtension, params};
 
 use super::{
-    EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView, backend,
-    parse_ulid,
+    EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView,
+    TagVocabularyEntry, backend, parse_ulid,
 };
 use crate::{
     db::{query_map_into, query_opt_into},
@@ -270,6 +270,31 @@ impl Graph {
             )
             .optional()
             .map_err(backend)
+    }
+
+    /// The whole tag vocabulary: every created tag with its one-line purpose and how many live
+    /// memories carry it, ordered by name. Backs `tags.list` and the system prompt's tag-vocabulary
+    /// block. The count joins only undeleted memories, so a tag applied solely to soft-deleted
+    /// memories reads as zero uses, consistent with every other agent-facing read.
+    pub fn all_tags(&self) -> Result<Vec<TagVocabularyEntry>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT t.name, t.description, COUNT(m.id) AS count
+             FROM tags t
+             LEFT JOIN memory_tags mt ON mt.tag = t.name
+             LEFT JOIN memories m ON m.id = mt.memory_id AND m.deleted = 0
+             GROUP BY t.name, t.description
+             ORDER BY t.name",
+        )?;
+        query_map_into(stmt, [], |row| {
+            let name: String = row.get("name")?;
+            let description: String = row.get("description")?;
+            let count: i64 = row.get("count")?;
+            Ok(TagVocabularyEntry {
+                name: TagName::new(name),
+                description,
+                count: count as usize,
+            })
+        })
     }
 
     /// A registered relation by its canonical name, or `None`.

@@ -240,21 +240,25 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let framing = templates::latest_template(engine.store.lock().as_ref(), template)?;
     let framing_version = framing.as_ref().map(|t| t.version);
     let framing_body = framing.map(|t| t.body).unwrap_or_default();
-    let identity = {
+    let (identity, vocabulary) = {
         let graph = engine.graph.lock();
-        match graph.memory_by_name(MemoryName::SELF)? {
+        let identity = match graph.memory_by_name(MemoryName::SELF)? {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
-        }
+        };
+        let vocabulary = system_prompt::render_tag_vocabulary(&graph.all_tags()?);
+        (identity, vocabulary)
     };
     // The API description is build-derived: rendered from the running binary so the prompt and the
     // installed Lua API can't drift (spec §System prompt → API description), plus the connected MCP
-    // servers' projected tools (runtime-derived from the session's catalogue).
+    // servers' projected tools (runtime-derived from the session's catalogue). The tag vocabulary is
+    // runtime data, read from the graph above and rendered alongside the API description.
     let api_reference = full_api_reference(session);
     let system = system_prompt::assemble(
         &framing_body,
         &identity,
         &api_reference,
+        &vocabulary,
         brief,
         engine.clock.now(),
     );
@@ -363,18 +367,21 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         return Ok(());
     };
 
-    let identity = {
+    let (identity, vocabulary) = {
         let graph = engine.graph.lock();
-        match graph.memory_by_name(MemoryName::SELF)? {
+        let identity = match graph.memory_by_name(MemoryName::SELF)? {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
-        }
+        };
+        let vocabulary = system_prompt::render_tag_vocabulary(&graph.all_tags()?);
+        (identity, vocabulary)
     };
     let api_reference = full_api_reference(session);
     let system = system_prompt::assemble(
         &template.body,
         &identity,
         &api_reference,
+        &vocabulary,
         brief,
         engine.clock.now(),
     );

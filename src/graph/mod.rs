@@ -62,6 +62,15 @@ pub struct RelationView {
     pub reflexive: bool,
 }
 
+/// A tag in the vocabulary as projected: its name, its one-line purpose, and how many live memories
+/// carry it. Backs `tags.list` and the system prompt's tag-vocabulary block.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagVocabularyEntry {
+    pub name: TagName,
+    pub description: String,
+    pub count: usize,
+}
+
 /// A stored edge in its canonical direction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkView {

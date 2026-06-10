@@ -321,6 +321,7 @@ impl Session {
         globals.set("block", self.block_table(api)?)?;
         globals.set("context", self.context_table(api, metatable)?)?;
         globals.set("calendar", self.calendar_table(api, metatable)?)?;
+        globals.set("tags", self.tags_table(api)?)?;
         Ok(())
     }
 
@@ -472,6 +473,44 @@ impl Session {
             })?,
         )?;
 
+        // mem:tag(name) / mem:untag(name) — apply or clear a vocabulary tag on this memory, locking it
+        // first. The tag must have been created (`tags.create`); the name is recognized into its typed
+        // [`TagName`] here, at the wrapper boundary.
+        methods.set(
+            "tag",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (this, name): (Table, String)| {
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock(id).await;
+                        api.block
+                            .lock()
+                            .tag(id, TagName::new(name))
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+        methods.set(
+            "untag",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (this, name): (Table, String)| {
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock(id).await;
+                        api.block
+                            .lock()
+                            .untag(id, TagName::new(name))
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+
         Ok(())
     }
 
@@ -525,6 +564,104 @@ impl Session {
             })?,
         )?;
         Ok(metatable)
+    }
+
+    /// The metatable backing `tags.list` result objects: `__tostring` renders one as `name — purpose
+    /// (N uses)`, so the vocabulary reads back as text rather than `<table>` while each result keeps
+    /// its `name`, `description`, and `count` fields.
+    fn tag_result_metatable(&self) -> mlua::Result<Table> {
+        let metatable = self.lua.create_table()?;
+        metatable.set(
+            "__tostring",
+            self.lua.create_function(|_, this: Table| {
+                let name: String = this.get("name")?;
+                let description: String = this.get("description")?;
+                let count: i64 = this.get("count")?;
+                let uses = if count == 1 {
+                    "1 use".to_owned()
+                } else {
+                    format!("{count} uses")
+                };
+                let mut line = name;
+                if !description.is_empty() {
+                    line.push_str(" — ");
+                    line.push_str(&description);
+                }
+                line.push_str(&format!(" ({uses})"));
+                Ok(line)
+            })?,
+        )?;
+        Ok(metatable)
+    }
+
+    /// The `tags` global: `create` and `describe` mutate the vocabulary, `list` reads it. Creation and
+    /// application are deliberately distinct — applying (`mem:tag`) never mutates a tag's description,
+    /// creating always forces a purpose (spec §Tag operations).
+    fn tags_table(&self, api: &BlockApi) -> mlua::Result<Table> {
+        let tags = self.lua.create_table()?;
+        // tags.create(name, description) — add a tag to the vocabulary with a one-line purpose.
+        tags.set(
+            "create",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (name, description): (String, String)| {
+                    let api = api.clone();
+                    async move {
+                        api.block
+                            .lock()
+                            .create_tag(TagName::new(name), &description)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+        // tags.describe(name, description) — change an existing tag's purpose.
+        tags.set(
+            "describe",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (name, description): (String, String)| {
+                    let api = api.clone();
+                    async move {
+                        api.block
+                            .lock()
+                            .describe_tag(TagName::new(name), &description)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+        // tags.list() — the whole vocabulary, each result `{ name, description, count }` printing as a
+        // readable line.
+        let result_metatable = self.tag_result_metatable()?;
+        tags.set(
+            "list",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |lua, ()| {
+                    let api = api.clone();
+                    let result_metatable = result_metatable.clone();
+                    async move {
+                        let entries = api
+                            .block
+                            .lock()
+                            .all_tags()
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        let list = lua.create_table()?;
+                        for (index, entry) in entries.into_iter().enumerate() {
+                            let table = lua.create_table()?;
+                            table.set("name", entry.name.as_str())?;
+                            table.set("description", entry.description)?;
+                            table.set("count", entry.count)?;
+                            table.set_metatable(Some(result_metatable.clone()))?;
+                            list.set(index + 1, table)?;
+                        }
+                        Ok(Value::Table(list))
+                    }
+                }
+            })?,
+        )?;
+        Ok(tags)
     }
 
     /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
@@ -924,6 +1061,41 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .required("relation", AT::String, "the relation")
         .required("other", AT::Handle, "the memory the link points to");
 
+    let tag = AE::new("mem:tag")
+        .description(
+            "Apply a tag to this memory. The tag must already exist in the vocabulary — create it \
+             first with tags.create. Tagging is what it's about; the namespace is what it is.",
+        )
+        .required(
+            "name",
+            AT::String,
+            "the tag, e.g. \"confidential\" on a context to mark the room confidential",
+        );
+
+    let untag = AE::new("mem:untag")
+        .description("Remove a tag from this memory.")
+        .required("name", AT::String, "the tag to clear");
+
+    let tags_create = AE::new("tags.create")
+        .description(
+            "Add a tag to the vocabulary with a one-line purpose. Creation is distinct from \
+             application: creating forces a purpose, while mem:tag never mutates it.",
+        )
+        .required("name", AT::String, "the tag name, e.g. \"hobbies\"")
+        .required("description", AT::String, "its one-line purpose");
+
+    let tags_describe = AE::new("tags.describe")
+        .description("Change an existing tag's one-line purpose (create it first with tags.create).")
+        .required("name", AT::String, "the tag name")
+        .required("description", AT::String, "the new purpose");
+
+    let tags_list = AE::new("tags.list")
+        .description(
+            "The whole tag vocabulary, each a table { name, description, count } that prints as a \
+             readable line — what you can apply with mem:tag.",
+        )
+        .returns(AT::Object(Vec::new()).list());
+
     let context = AE::new("context.current")
         .description(
             "The context/* memory for the current conversation. Check its #confidential tag to \
@@ -960,8 +1132,25 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .returns(AT::Handle.list());
 
     vec![
-        create, get, search, append, entries, history, supersede, link, unlink, context, abort,
-        upcoming, on, recurring,
+        create,
+        get,
+        search,
+        append,
+        entries,
+        history,
+        supersede,
+        link,
+        unlink,
+        tag,
+        untag,
+        tags_create,
+        tags_describe,
+        tags_list,
+        context,
+        abort,
+        upcoming,
+        on,
+        recurring,
     ]
 }
 

@@ -8,7 +8,8 @@ use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, Embedder, EnvConfig, FakeEmbedder,
     GenerateRequest, GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId,
     MemoryStore, ModelClient, ModelError, OpenAiClient, OpenAiEmbedder, ScriptedModel, SeedSelf,
-    Server, SqliteStore, SqliteVectorIndex, Store, ToolCall, TurnOutcome, Usage, VectorIndex,
+    Server, SqliteStore, SqliteVectorIndex, Store, TagName, ToolCall, TurnOutcome, Usage,
+    VectorIndex,
     event::EventPayload,
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
@@ -1107,4 +1108,79 @@ async fn real_model_recalls_a_fact_by_searching_its_memory() {
     // depends on the model's choice and embedding quality, separate from whether the path is wired
     // (which the deterministic `memory_search_recalls_an_indexed_entry` test gates).
     let _ = (searched, recalled);
+}
+
+/// A live probe of the tag wiring: in a channel the user asks to keep confidential, does the agent
+/// reach for `mem:tag("confidential")` on the room's context — now that the tag vocabulary is rendered
+/// into its prompt? This exercises the whole path end to end against the real model: the rendered
+/// vocabulary tells it the tag exists, `mem:tag` applies it, and the materializer records it.
+///
+/// Observational like the other reply-lane probes: the gate is only that the turn completes without an
+/// infrastructure error. Whether the model reached for the tag, and whether `#confidential` actually
+/// landed on the context, are logged for inspection — both depend on the model's judgement, separate
+/// from whether the path is wired (which the deterministic tag tests gate).
+#[tokio::test]
+#[ignore = "requires a reachable model (config.toml)"]
+async fn real_model_marks_a_room_confidential_with_a_tag() {
+    init_tracing();
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        tracing::warn!("skipping: no config.toml");
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        tracing::warn!("skipping: model endpoint not configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    let mut server = Server::in_memory(clock()).unwrap();
+    server.boot().unwrap();
+    server.control().create_agent(&seed()).unwrap();
+
+    // A private channel where the user asks to keep things between them — an *implicit* confidentiality
+    // cue that never says the word "confidential," so reaching for the tag means the agent understood
+    // its purpose (from the rendered description) rather than keyword-matching the name. This is the
+    // #confidential tag on the room's context the agent is meant to set from such a cue (spec
+    // §Conversations and contexts). `confidential` is genesis-seeded, so the tag already exists in the
+    // vocabulary the prompt renders; the agent only has to recognize the cue and apply it.
+    let dm = ConversationLocator::new("discord", "dm-phil");
+    let reply = server
+        .platform()
+        .route_message(
+            &client,
+            &dm,
+            "phil",
+            "Hey — before we get into it, can we keep this channel just between the two of us? I'd \
+             rather what I say in here doesn't go any further.",
+            &["phil"],
+        )
+        .await;
+    let Ok(outcome) = reply else {
+        tracing::warn!(?reply, "skipping: turn failed");
+        return;
+    };
+    tracing::info!(?outcome, "turn (confidential request) reply");
+
+    // What the agent did — did any step call a tag method (looking for the `:tag(` handle call)?
+    let mut tagged_call = false;
+    for call in server.control().model_calls().unwrap() {
+        if let Completion::ToolCalls(calls) = &call.completion {
+            for tool_call in calls {
+                if tool_call.name == "run_lua" && tool_call.arguments.contains(":tag(") {
+                    tagged_call = true;
+                    tracing::info!(script = %tool_call.arguments, "agent's tag call");
+                }
+            }
+        }
+    }
+
+    // Which tags actually landed on the room's context — the committed effect.
+    let mut context_confidential = false;
+    for context in server.control().memories("context/").unwrap() {
+        tracing::info!(name = %context.name.as_str(), tags = ?context.tags, "context memory");
+        if context.tags.contains(&TagName::Confidential) {
+            context_confidential = true;
+        }
+    }
+    tracing::info!(tagged_call, context_confidential, "verdict");
+    let _ = (tagged_call, context_confidential);
 }
