@@ -297,11 +297,14 @@ impl Graph {
         })
     }
 
-    /// A registered relation by its canonical name, or `None`.
+    /// A registered relation by either of its labels (canonical or inverse), or `None`. Resolving the
+    /// inverse label too is what lets a relation be used under either name (spec §Data model: one
+    /// relation, two labels) — both at `links.get` and when validating a `mem:link` asserted under the
+    /// inverse label.
     pub fn relation(&self, name: &str) -> Result<Option<RelationView>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT name, inverse, from_card, to_card, symmetric, reflexive
-             FROM relations WHERE name = ?1",
+             FROM relations WHERE name = ?1 OR inverse = ?1",
         )?;
         query_opt_into(stmt, params![name], |row| {
             let name: String = row.get("name")?;

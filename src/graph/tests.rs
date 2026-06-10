@@ -190,6 +190,17 @@ fn relation_registry_records_cardinality() {
 }
 
 #[test]
+fn relation_resolves_by_either_label() {
+    // A relation is one thing with two labels (spec §Data model), so it must resolve by its inverse
+    // label too — what lets `mem:link` be asserted under either name and `links.get` find it either
+    // way. Looking up "mentored_by" returns the same canonical relation as "mentor_of".
+    let (_store, graph) = materialized(vec![mentor_relation()]);
+    let by_inverse = graph.relation("mentored_by").unwrap().unwrap();
+    assert_eq!(by_inverse.name, RelationName::new("mentor_of"));
+    assert_eq!(by_inverse.inverse, RelationName::new("mentored_by"));
+}
+
+#[test]
 fn link_canonicalizes_inverse_label_to_one_edge() {
     let dave = MemoryId::generate();
     let erin = MemoryId::generate();
