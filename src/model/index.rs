@@ -20,7 +20,7 @@ use ulid::Ulid;
 
 use crate::{
     event::{Event, EventPayload},
-    ids::{EntryId, MemoryId},
+    ids::{EntryId, MemoryId, Seq},
     store::{Store, StoreError, Subscription},
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
 };
@@ -85,7 +85,7 @@ impl<'a> Indexer<'a> {
     pub async fn catch_up(&mut self, store: &dyn Store) -> Result<usize, IndexError> {
         let events = store.read_from(self.vectors.cursor()?.next())?;
         let count = events.len();
-        self.apply_and_advance(&events).await?;
+        self.index_batch(&events).await?;
         Ok(count)
     }
 
@@ -94,82 +94,117 @@ impl<'a> Indexer<'a> {
     pub async fn drain(&mut self, subscription: &Subscription) -> Result<usize, IndexError> {
         let events: Vec<Event> = subscription.try_iter().collect();
         let count = events.len();
-        self.apply_and_advance(&events).await?;
+        self.index_batch(&events).await?;
         Ok(count)
     }
 
-    /// Apply a batch, then advance the cursor to the batch's last `Seq` — done after the vectors are
-    /// written so a crash re-processes rather than skips.
-    async fn apply_and_advance(&mut self, events: &[Event]) -> Result<(), IndexError> {
-        self.apply(events).await?;
-        if let Some(last) = events.last() {
-            self.vectors.set_cursor(last.seq)?;
-        }
-        Ok(())
-    }
-
-    /// Index a batch of committed events. Coalesces to one operation per vector (last event wins),
-    /// so a description regenerated several times in the batch embeds once; entries are immutable, so
-    /// each embeds once anyway.
-    pub async fn apply(&mut self, events: &[Event]) -> Result<(), IndexError> {
-        let mut ops: BTreeMap<VectorId, Op> = BTreeMap::new();
-        for event in events {
-            match &event.payload {
-                EventPayload::MemoryContentAppended { entry_id, text, .. } => {
-                    ops.insert(
-                        VectorKey::Entry(*entry_id).to_vector_id(),
-                        Op::Embed(text.clone()),
-                    );
-                }
-                EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
-                    ops.insert(
-                        VectorKey::Description(*id).to_vector_id(),
-                        Op::Embed(new_text.clone()),
-                    );
-                }
-                EventPayload::MemoryDeleted { id } => {
-                    ops.insert(VectorKey::Description(*id).to_vector_id(), Op::Remove);
-                }
-                _ => {}
-            }
-        }
-
-        let to_embed: Vec<(VectorId, String)> = ops
-            .iter()
-            .filter_map(|(key, op)| match op {
-                Op::Embed(text) => Some((key.clone(), text.clone())),
-                Op::Remove => None,
-            })
-            .collect();
-
-        if !to_embed.is_empty() {
-            let texts: Vec<String> = to_embed.iter().map(|(_, text)| text.clone()).collect();
-            let embeddings = self.embedder.embed(&texts).await?;
-            let model_id = self.embedder.model_id();
-            for ((id, _), embedding) in to_embed.into_iter().zip(embeddings) {
-                self.vectors.upsert(VectorRecord {
-                    id,
-                    embedding,
-                    model_id: model_id.into(),
-                })?;
-            }
-        }
-
-        for (key, op) in &ops {
-            if matches!(op, Op::Remove) {
-                self.vectors.remove(key)?;
-            }
-        }
+    /// Embed a batch and apply it to the index, advancing the cursor. The convenience path for callers
+    /// that hold the embedder and index together (the tests, the rebuild). The live server instead uses
+    /// [`embed_batch`] then [`apply_batch`] separately, so the slow embedding holds no index lock.
+    pub async fn index_batch(&mut self, events: &[Event]) -> Result<(), IndexError> {
+        let batch = embed_batch(self.embedder, events).await?;
+        apply_batch(self.vectors, batch)?;
         Ok(())
     }
 }
 
-/// The pending change for one vector in a batch.
-enum Op {
-    /// (Re)embed to this text.
+/// Embed the content recorded in `events` into a [`Batch`] of pending index changes — **without
+/// touching the vector index**. Coalesces to one operation per vector (last event wins), so a
+/// description regenerated several times embeds once; entries are immutable, so each embeds once.
+/// Async because it calls the embedder. The caller applies the result with [`apply_batch`] under the
+/// index lock — separating the slow embedding from the brief index write is what lets a search proceed
+/// without waiting behind a batch's embedding (spec §Concurrency, §Storage → vector store).
+pub async fn embed_batch(embedder: &dyn Embedder, events: &[Event]) -> Result<Batch, IndexError> {
+    let mut ops: BTreeMap<VectorId, Pending> = BTreeMap::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::MemoryContentAppended { entry_id, text, .. } => {
+                ops.insert(
+                    VectorKey::Entry(*entry_id).to_vector_id(),
+                    Pending::Embed(text.clone()),
+                );
+            }
+            EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
+                ops.insert(
+                    VectorKey::Description(*id).to_vector_id(),
+                    Pending::Embed(new_text.clone()),
+                );
+            }
+            EventPayload::MemoryDeleted { id } => {
+                ops.insert(VectorKey::Description(*id).to_vector_id(), Pending::Remove);
+            }
+            _ => {}
+        }
+    }
+
+    let to_embed: Vec<(VectorId, String)> = ops
+        .iter()
+        .filter_map(|(key, op)| match op {
+            Pending::Embed(text) => Some((key.clone(), text.clone())),
+            Pending::Remove => None,
+        })
+        .collect();
+
+    let mut resolved = Vec::with_capacity(ops.len());
+    if !to_embed.is_empty() {
+        let texts: Vec<String> = to_embed.iter().map(|(_, text)| text.clone()).collect();
+        let embeddings = embedder.embed(&texts).await?;
+        let model_id = embedder.model_id();
+        for ((id, _), embedding) in to_embed.into_iter().zip(embeddings) {
+            resolved.push(ResolvedOp::Upsert(VectorRecord {
+                id,
+                embedding,
+                model_id: model_id.into(),
+            }));
+        }
+    }
+    for (key, op) in &ops {
+        if matches!(op, Pending::Remove) {
+            resolved.push(ResolvedOp::Remove(key.clone()));
+        }
+    }
+
+    Ok(Batch {
+        ops: resolved,
+        last_seq: events.last().map(|event| event.seq),
+    })
+}
+
+/// Apply an embedded [`Batch`] to the vector index and advance its cursor — **synchronous and brief**,
+/// so it can run under the index lock without blocking a concurrent search for long. The cursor is
+/// advanced last, after the vectors are written, so a crash re-processes the batch rather than skipping
+/// it (an idempotent re-embed).
+pub fn apply_batch(vectors: &mut dyn VectorIndex, batch: Batch) -> Result<(), VectorError> {
+    for op in batch.ops {
+        match op {
+            ResolvedOp::Upsert(record) => vectors.upsert(record)?,
+            ResolvedOp::Remove(id) => vectors.remove(&id)?,
+        }
+    }
+    if let Some(seq) = batch.last_seq {
+        vectors.set_cursor(seq)?;
+    }
+    Ok(())
+}
+
+/// A batch of index changes with their embeddings already computed (by [`embed_batch`]) — ready for a
+/// brief, lock-held [`apply_batch`]. Carries the highest `Seq` it covers, so applying it advances the
+/// index cursor.
+pub struct Batch {
+    ops: Vec<ResolvedOp>,
+    last_seq: Option<Seq>,
+}
+
+/// One vector's change before embedding: (re)embed to this text, or drop it.
+enum Pending {
     Embed(String),
-    /// Drop the vector.
     Remove,
+}
+
+/// One vector's change after embedding: the record to write, or the id to drop.
+enum ResolvedOp {
+    Upsert(VectorRecord),
+    Remove(VectorId),
 }
 
 /// A failure indexing the log: embedding the text, or writing the vector index, or reading the log.
@@ -378,11 +413,11 @@ mod tests {
             let mut indexer = Indexer::new(&embedder, &mut vectors);
             // A re-description replaces in place rather than adding a second vector.
             indexer
-                .apply(&events(&mut MemoryStore::new(), dave, "old description"))
+                .index_batch(&events(&mut MemoryStore::new(), dave, "old description"))
                 .await
                 .unwrap();
             indexer
-                .apply(&events(&mut MemoryStore::new(), dave, "new description"))
+                .index_batch(&events(&mut MemoryStore::new(), dave, "new description"))
                 .await
                 .unwrap();
         }
@@ -400,7 +435,7 @@ mod tests {
             .append(at(2), vec![EventPayload::MemoryDeleted { id: dave }])
             .unwrap();
         Indexer::new(&embedder, &mut vectors)
-            .apply(&deletion)
+            .index_batch(&deletion)
             .await
             .unwrap();
         assert!(vectors.is_empty().unwrap());

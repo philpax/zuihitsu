@@ -67,7 +67,7 @@ pub use agent::{
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     run_turn, session_touched,
 };
-pub use engine::Engine;
+pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,

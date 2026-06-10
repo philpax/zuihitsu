@@ -23,9 +23,10 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use zuihitsu::{
     Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
-    MemoryView, ModelCall, ModelClient, OpenAiClient, Rollout, SeedSelf, Server, ServerError,
-    SessionView, Settings, SnapshotSchedule, SqliteStore, StdioHost, StoreError, SystemClock,
-    TurnOutcome, genesis::GenesisStatus, snapshot, snapshot::SnapshotError,
+    MemoryView, ModelCall, ModelClient, OpenAiClient, OpenAiEmbedder, Rollout, SeedSelf, Server,
+    ServerError, SessionView, Settings, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
+    StdioHost, StoreError, SystemClock, TurnOutcome, VectorError, VectorIndex,
+    genesis::GenesisStatus, model::embed::Embedder, snapshot, snapshot::SnapshotError,
 };
 
 /// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share (so
@@ -40,6 +41,11 @@ struct AppState {
     /// otherwise (the snapshot endpoint then answers `409`).
     snapshot_dir: Option<PathBuf>,
 }
+
+/// How often the background indexer catches the vector index up to the log. Indexing is off the hot
+/// path (spec §Storage → vector store), so a short poll keeps search fresh without a per-commit cost;
+/// an idle tick is cheap (it reads the log from the index's cursor and finds nothing).
+const INDEX_TICK_SECONDS: u64 = 5;
 
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
@@ -77,7 +83,31 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         path: config.storage.graph.clone(),
         source,
     })?;
-    let mut server = Server::new(Box::new(store), graph, Box::new(SystemClock));
+    // Semantic retrieval is enabled when an embedding endpoint is configured: build the embedder and
+    // open the sqlite-vec index sized to the embedding dimensionality, so `memory.search` and the
+    // background indexer have an embedder and an index to work over (spec §Storage → vector store).
+    let retrieval = if config.embedding.endpoint.is_empty() {
+        tracing::warn!("no embedding endpoint configured; semantic search is unavailable");
+        None
+    } else {
+        let embedder: Arc<dyn Embedder> = Arc::new(OpenAiEmbedder::new(&config.embedding));
+        let vectors = SqliteVectorIndex::open(&config.storage.vectors, config.embedding.dimensions)
+            .map_err(|source| ServeError::OpenVectors {
+                path: config.storage.vectors.clone(),
+                source,
+            })?;
+        Some((embedder, Box::new(vectors) as Box<dyn VectorIndex>))
+    };
+    let mut server = match retrieval {
+        Some((embedder, vectors)) => Server::with_retrieval(
+            Box::new(store),
+            graph,
+            Box::new(SystemClock),
+            embedder,
+            vectors,
+        ),
+        None => Server::new(Box::new(store), graph, Box::new(SystemClock)),
+    };
     let status = server.boot()?;
 
     // Connect the configured MCP servers once, before the server is shared (`connect_mcp` is `&mut`).
@@ -103,6 +133,17 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let driver = tokio::spawn({
         let server = server.clone();
         async move { server.run_scheduler(tick, shutdown_signal()).await }
+    });
+
+    // The background indexer catches the vector index up to the log off the hot path (spec §Storage →
+    // vector store). A no-op (returns immediately) on a graph-only instance.
+    let indexer = tokio::spawn({
+        let server = server.clone();
+        async move {
+            server
+                .run_indexer(Duration::from_secs(INDEX_TICK_SECONDS), shutdown_signal())
+                .await
+        }
     });
 
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
@@ -132,6 +173,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 
     tracing::info!("shutdown signal received; stopping");
     let _ = driver.await;
+    let _ = indexer.await;
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;
     }
@@ -457,6 +499,10 @@ pub enum ServeError {
         path: PathBuf,
         source: GraphError,
     },
+    OpenVectors {
+        path: PathBuf,
+        source: VectorError,
+    },
     /// Restoring the graph from a snapshot at boot failed (spec §Snapshots).
     Snapshot(SnapshotError),
     /// A server operation (boot, reading settings, connecting MCP) failed at startup.
@@ -495,6 +541,13 @@ impl std::fmt::Display for ServeError {
                     path.display()
                 )
             }
+            ServeError::OpenVectors { path, source } => {
+                write!(
+                    f,
+                    "serve: could not open the vector index at {}: {source}",
+                    path.display()
+                )
+            }
             ServeError::Snapshot(source) => {
                 write!(
                     f,
@@ -516,6 +569,7 @@ impl std::error::Error for ServeError {
             ServeError::CreateDir { source, .. } => Some(source),
             ServeError::OpenEventLog { source, .. } => Some(source),
             ServeError::OpenGraph { source, .. } => Some(source),
+            ServeError::OpenVectors { source, .. } => Some(source),
             ServeError::Snapshot(source) => Some(source),
             ServeError::Server(source) => Some(source),
             ServeError::Bind(source) | ServeError::Serve(source) => Some(source),

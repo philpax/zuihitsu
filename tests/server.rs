@@ -5,10 +5,10 @@ mod common;
 
 use std::time::Duration;
 use zuihitsu::{
-    Completion, ConcurrencySettings, ConversationLocator, EnvConfig, GenerateRequest,
-    GenerateResponse, Graph, ManualClock, MemoryId, MemoryStore, ModelClient, ModelError,
-    OpenAiClient, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall, TurnOutcome,
-    Usage,
+    Completion, ConcurrencySettings, ConversationLocator, Embedder, EnvConfig, FakeEmbedder,
+    GenerateRequest, GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId,
+    MemoryStore, ModelClient, ModelError, OpenAiClient, ScriptedModel, SeedSelf, Server,
+    SqliteStore, Store, ToolCall, TurnOutcome, Usage, VectorIndex,
     event::EventPayload,
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
@@ -112,6 +112,31 @@ fn a_server_snapshot_captures_the_graph_at_its_head() {
     assert!(server.snapshot(&dir).unwrap().is_none());
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn the_indexer_catches_the_vector_index_up_to_the_log() {
+    let embedder: std::sync::Arc<dyn Embedder> = std::sync::Arc::new(FakeEmbedder::new(16));
+    let vectors: Box<dyn VectorIndex> = Box::new(InMemoryVectorIndex::new());
+    let mut server = Server::with_retrieval(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        clock(),
+        embedder,
+        vectors,
+    );
+    server.boot().unwrap();
+    // Genesis writes the agent's self memory with seed content entries — the indexer's input.
+    server.control().create_agent(&seed()).unwrap();
+
+    // The first catch-up embeds the genesis content into the index and advances the cursor; a second
+    // catch-up, with nothing new in the log, is a no-op — proving the cursor threads through the server.
+    let indexed = server.index_catch_up().await.unwrap();
+    assert!(
+        indexed > 0,
+        "genesis content should be indexed, got {indexed}"
+    );
+    assert_eq!(server.index_catch_up().await.unwrap(), 0);
 }
 
 /// Install a test-scoped tracing subscriber so the model-gated smoke emits structured, timestamped

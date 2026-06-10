@@ -71,8 +71,10 @@ impl From<rusqlite::Error> for VectorError {
     }
 }
 
-/// Approximate (here, exact) nearest-neighbour search over embeddings.
-pub trait VectorIndex {
+/// Approximate (here, exact) nearest-neighbour search over embeddings. `Send` so the index can live
+/// behind the shared [`Engine`](crate::engine::Engine)'s mutex and be driven from the background
+/// indexer task; its backends (a sqlite `Connection`, an in-memory map) are `Send`.
+pub trait VectorIndex: Send {
     /// Insert or replace a vector and its provenance.
     fn upsert(&mut self, record: VectorRecord) -> Result<(), VectorError>;
 

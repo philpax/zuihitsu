@@ -83,6 +83,9 @@ pub struct EmbeddingConfig {
 pub struct StorageConfig {
     pub event_log: PathBuf,
     pub graph: PathBuf,
+    /// The sqlite-vec index backing semantic search — a third rebuildable projection of the log,
+    /// populated only when an embedding endpoint is configured (spec §Storage → vector store).
+    pub vectors: PathBuf,
 }
 
 impl Default for StorageConfig {
@@ -90,6 +93,7 @@ impl Default for StorageConfig {
         StorageConfig {
             event_log: PathBuf::from("zuihitsu.events.sqlite"),
             graph: PathBuf::from("zuihitsu.graph.sqlite"),
+            vectors: PathBuf::from("zuihitsu.vectors.sqlite"),
         }
     }
 }
@@ -154,6 +158,7 @@ impl EnvConfig {
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         config.storage.event_log = base.join(&config.storage.event_log);
         config.storage.graph = base.join(&config.storage.graph);
+        config.storage.vectors = base.join(&config.storage.vectors);
         if let Some(dir) = &config.snapshots.dir {
             config.snapshots.dir = Some(base.join(dir));
         }
@@ -234,6 +239,7 @@ mod tests {
 
         assert_eq!(config.storage.event_log, dir.join("zuihitsu.events.sqlite"));
         assert_eq!(config.storage.graph, dir.join("zuihitsu.graph.sqlite"));
+        assert_eq!(config.storage.vectors, dir.join("zuihitsu.vectors.sqlite"));
 
         std::fs::remove_dir_all(&dir).ok();
     }

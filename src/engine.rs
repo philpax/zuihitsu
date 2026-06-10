@@ -16,7 +16,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::Mutex;
 
-use crate::{clock::Clock, graph::Graph, ids::MemoryId, store::Store};
+use crate::{
+    clock::Clock, graph::Graph, ids::MemoryId, model::embed::Embedder, store::Store,
+    vector::VectorIndex,
+};
 
 /// The store, graph, and clock a turn operates over, bundled behind one [`Arc`] (see the module docs
 /// for the locking discipline). Built once per agent and cloned cheaply for each turn.
@@ -28,16 +31,53 @@ pub struct Engine {
     /// memory it touches until block end, so a concurrent block in another conversation serializes on
     /// the same memory (spec §Concurrency). Shared by every session through the one `Arc<Engine>`.
     pub memory_locks: Arc<MemoryLocks>,
+    /// The semantic-retrieval backends, present when an embedding endpoint is configured. `None` on a
+    /// graph-only instance (no embedding endpoint, and most tests), where `memory.search` reports
+    /// itself unavailable rather than failing obscurely.
+    pub retrieval: Option<Retrieval>,
+}
+
+/// The embedder and vector index that back semantic search (spec §Storage → vector store). The vector
+/// index is behind a `parking_lot` mutex like the store and graph, held only across the brief sync
+/// index write or read — **never** across the slow `embedder.embed().await`. Both the background
+/// indexer and `memory.search` embed *before* taking this lock (see [`embed_batch`] / [`apply_batch`]),
+/// so the embedding never blocks a concurrent search and no guard ever crosses a suspension point. The
+/// embedder is immutable, shared as an `Arc`.
+pub struct Retrieval {
+    pub embedder: Arc<dyn Embedder>,
+    pub vectors: Mutex<Box<dyn VectorIndex>>,
 }
 
 impl Engine {
-    /// Bundle the three backends behind a shared [`Arc`].
+    /// Bundle the three backends behind a shared [`Arc`], graph-only (no semantic retrieval).
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Arc<Engine> {
         Arc::new(Engine {
             store: Mutex::new(store),
             graph: Mutex::new(graph),
             clock,
             memory_locks: Arc::new(MemoryLocks::new()),
+            retrieval: None,
+        })
+    }
+
+    /// As [`Engine::new`], with the semantic-retrieval backends attached — the configuration the live
+    /// server uses when an embedding endpoint is set.
+    pub fn with_retrieval(
+        store: Box<dyn Store>,
+        graph: Graph,
+        clock: Box<dyn Clock>,
+        embedder: Arc<dyn Embedder>,
+        vectors: Box<dyn VectorIndex>,
+    ) -> Arc<Engine> {
+        Arc::new(Engine {
+            store: Mutex::new(store),
+            graph: Mutex::new(graph),
+            clock,
+            memory_locks: Arc::new(MemoryLocks::new()),
+            retrieval: Some(Retrieval {
+                embedder,
+                vectors: Mutex::new(vectors),
+            }),
         })
     }
 }

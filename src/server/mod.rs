@@ -47,11 +47,16 @@ use crate::{
         memory_block::Authority,
         scheduler::{self, SchedulerError},
     },
-    model::ModelClient,
+    model::{
+        ModelClient,
+        embed::Embedder,
+        index::{IndexError, apply_batch, embed_batch},
+    },
     settings::{ConcurrencySettings, Settings},
     snapshot,
     store::{MemoryStore, Store, StoreError},
     time::Timestamp,
+    vector::VectorIndex,
 };
 
 pub struct Server {
@@ -101,7 +106,25 @@ pub struct SnapshotSchedule {
 
 impl Server {
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Server {
-        let engine = Engine::new(store, graph, clock);
+        Server::from_engine(Engine::new(store, graph, clock))
+    }
+
+    /// As [`Server::new`], with the semantic-retrieval backends attached — the live server's
+    /// configuration when an embedding endpoint is set, so `memory.search` and the background indexer
+    /// have an embedder and a vector index to work over.
+    pub fn with_retrieval(
+        store: Box<dyn Store>,
+        graph: Graph,
+        clock: Box<dyn Clock>,
+        embedder: Arc<dyn Embedder>,
+        vectors: Box<dyn VectorIndex>,
+    ) -> Server {
+        Server::from_engine(Engine::with_retrieval(
+            store, graph, clock, embedder, vectors,
+        ))
+    }
+
+    fn from_engine(engine: Arc<Engine>) -> Server {
         let streams = Semaphore::new(initial_stream_permits(&engine));
         Server {
             engine,
@@ -515,6 +538,65 @@ impl Server {
         tracing::info!("snapshotter stopped");
     }
 
+    /// Catch the vector index up to the log (spec §Storage → vector store). Reads the cursor and the
+    /// events past it under brief sync locks, **embeds off every lock**, then applies the embedded
+    /// batch under a brief vector-index lock. So the slow `embed().await` holds no guard at all — not
+    /// the store, not the graph, not the index — and a concurrent `memory.search` never waits behind a
+    /// batch's embedding. A no-op returning `0` on a graph-only instance (no embedder configured).
+    pub async fn index_catch_up(&self) -> Result<usize, ServerError> {
+        let Some(retrieval) = &self.engine.retrieval else {
+            return Ok(0);
+        };
+        let from = retrieval
+            .vectors
+            .lock()
+            .cursor()
+            .map_err(IndexError::Vector)?
+            .next();
+        let events = self
+            .engine
+            .store
+            .lock()
+            .read_from(from)
+            .map_err(IndexError::Store)?;
+        let count = events.len();
+        let batch = embed_batch(retrieval.embedder.as_ref(), &events).await?;
+        apply_batch(&mut **retrieval.vectors.lock(), batch).map_err(IndexError::Vector)?;
+        Ok(count)
+    }
+
+    /// The background indexer: on each tick, catch the vector index up to the log (spec §Storage →
+    /// vector store — indexing runs off the turn's hot path). Idempotent and cursor-resumed, so an idle
+    /// tick is cheap and the first tick rebuilds a fresh index. Stops on the shutdown signal; a failure
+    /// is logged, not fatal — search degrades to slightly stale until the next tick. Returns
+    /// immediately on a graph-only instance.
+    pub async fn run_indexer(
+        self: Arc<Self>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        if self.engine.retrieval.is_none() {
+            return;
+        }
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match self.index_catch_up().await {
+                        Ok(indexed) if indexed > 0 => {
+                            tracing::debug!(indexed, "indexer caught the vector index up")
+                        }
+                        Ok(_) => {}
+                        Err(error) => tracing::error!(%error, "indexer: catch-up failed"),
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("indexer stopped");
+    }
+
     /// Tear down the live sessions at server shutdown: drain the session map and shut each session's
     /// MCP instances down (best-effort). Called by the serving host once the HTTP server has stopped
     /// accepting. Dropping the drained sessions also releases their VMs.
@@ -597,6 +679,8 @@ pub enum ServerError {
     Mcp(crate::mcp::McpError),
     /// Writing a graph snapshot failed (creating the directory, or the `VACUUM INTO` itself).
     Snapshot(String),
+    /// Catching the vector index up to the log failed (embedding, the vector store, or the log read).
+    Index(IndexError),
 }
 
 impl std::fmt::Display for ServerError {
@@ -607,6 +691,7 @@ impl std::fmt::Display for ServerError {
             ServerError::Turn(error) => write!(f, "server (turn): {error}"),
             ServerError::Mcp(error) => write!(f, "server (mcp): {error}"),
             ServerError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
+            ServerError::Index(error) => write!(f, "server (index): {error}"),
         }
     }
 }
@@ -619,7 +704,14 @@ impl std::error::Error for ServerError {
             ServerError::Turn(error) => Some(error),
             ServerError::Mcp(error) => Some(error),
             ServerError::Snapshot(_) => None,
+            ServerError::Index(error) => Some(error),
         }
+    }
+}
+
+impl From<IndexError> for ServerError {
+    fn from(error: IndexError) -> Self {
+        ServerError::Index(error)
     }
 }
 
