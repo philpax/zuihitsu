@@ -1256,3 +1256,121 @@ async fn real_model_links_two_people_who_know_each_other() {
     tracing::info!(linked, registered, "verdict");
     let _ = (linked, registered);
 }
+
+/// A live, end-to-end probe of the recurring-wake-up functionality (and of how the agent behaves
+/// around it). The agent is asked to keep a recurring reminder; the clock is then advanced past the
+/// first instance and a fresh session opened, which fires the wake-up and drains it into the agent's
+/// buffer as a `# Due now` system turn. We read off three things: did the model record the reminder as
+/// a *recurring* occurrence (so it lands in the calendar/scheduler at all), did the wake-up fire, and
+/// does the agent surface it conversationally. Observational like the other reply-lane probes — it
+/// asserts only that the turns complete; the rest is logged for inspection, since recording-shape and
+/// surfacing are model judgement, separate from the firing mechanism (gated by the deterministic
+/// scheduler tests).
+#[tokio::test]
+#[ignore = "requires a reachable model (config.toml)"]
+async fn real_model_keeps_and_surfaces_a_recurring_reminder() {
+    init_tracing();
+    let Ok(config) = EnvConfig::load(std::path::Path::new("config.toml")) else {
+        tracing::warn!("skipping: no config.toml");
+        return;
+    };
+    if config.model.endpoint.is_empty() {
+        tracing::warn!("skipping: model endpoint not configured");
+        return;
+    }
+    let client = OpenAiClient::new(&config.model);
+    // A clock we hold a handle to, so the test can advance time past a recurrence instance.
+    let clock = ManualClock::new(TEST_NOW);
+    let mut server = Server::new(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.boot().unwrap();
+    server.control().create_agent(&seed()).unwrap();
+
+    // Turn 1: a natural, un-coached recurring request — no "just record it, don't ask." The scaffold
+    // should make the agent capture it (rather than interrogate) as a recurring event/ memory. We
+    // observe whether it does the Right Thing by default.
+    let room = ConversationLocator::new("discord", "team-room");
+    let first = server
+        .platform()
+        .route_message(
+            &client,
+            &room,
+            "phil",
+            "Can you remind me about our team standup? It's every Monday.",
+            &["phil"],
+        )
+        .await;
+    let Ok(first) = first else {
+        tracing::warn!(?first, "skipping: turn 1 failed");
+        return;
+    };
+    tracing::info!(?first, "turn 1 (record recurring reminder) reply");
+
+    // What it stored, and whether any memory carries a recurring occurrence — the mechanism only
+    // engages if the reminder was recorded as recurring.
+    for memory in server.control().memories("event/").unwrap() {
+        tracing::info!(name = %memory.name.as_str(), description = %memory.description, "stored event");
+    }
+    let recurring = server.control().recurring().unwrap();
+    let recorded_recurring = !recurring.is_empty();
+    // The Right Thing is to file a schedule on an event/ memory, not as a fact on the person.
+    let recorded_on_event = recurring
+        .iter()
+        .any(|memory| memory.name.as_str().starts_with("event/"));
+    for memory in &recurring {
+        tracing::info!(name = %memory.name.as_str(), "recorded as recurring");
+    }
+
+    // Advance past the first weekly instance and open a fresh session: the session-open catch-up fires
+    // the now-due recurrence and drains it into the agent's buffer as a `# Due now` system turn.
+    clock.advance_millis(8 * MILLIS_PER_DAY);
+    let second = server
+        .platform()
+        .route_message(
+            &client,
+            &room,
+            "phil",
+            "Morning! Anything on my plate I should know about?",
+            &["phil"],
+        )
+        .await;
+    let Ok(second) = second else {
+        tracing::warn!(?second, "skipping: turn 2 failed");
+        return;
+    };
+    let reply = match second {
+        TurnOutcome::Reply(text) => text,
+        other => {
+            tracing::info!(?other, "turn 2 ended without a reply");
+            String::new()
+        }
+    };
+    let surfaced = reply.to_lowercase().contains("standup");
+    tracing::info!(
+        recorded_recurring,
+        recorded_on_event,
+        surfaced,
+        %reply,
+        "verdict"
+    );
+
+    // The scaffold should make the agent do the Right Thing by default from an un-coached request:
+    // capture the schedule (rather than interrogate for details) as a recurring event/ memory. These
+    // two are the structural behavior the prompt shapes, so this acceptance probe gates on them. Note:
+    // unlike the other reply-lane probes this asserts rather than only logging, because the point of
+    // the test is to catch a regression in that tuning — run deliberately, against the real model.
+    assert!(
+        recorded_recurring,
+        "the agent should capture the reminder as a recurring occurrence by default"
+    );
+    assert!(
+        recorded_on_event,
+        "a recurring schedule belongs on an event/ memory, not as a fact on a person"
+    );
+    // Whether the agent *echoes* the surfaced wake-up in its reply is softer (the drain delivers it
+    // either way), so it stays observational.
+    let _ = surfaced;
+}

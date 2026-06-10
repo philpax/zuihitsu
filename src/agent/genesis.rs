@@ -209,10 +209,19 @@ fn default_templates() -> Vec<TemplateDef> {
                    call run_lua or give a reply. What you write to memory persists across sessions; \
                    your in-block scratchpad does not. You speak with several participants, who do \
                    not all see the same things.\n\n\
-                   Memories are namespaced by kind: person/ for people, place/ for places, topic/ \
-                   for subjects, context/ for conversations, and self for you. Read a merged \
+                   Memories are namespaced by kind: person/ for people, place/ for places, event/ \
+                   for things that happen at a time (appointments, meetings, recurring schedules), \
+                   topic/ for subjects, context/ for conversations, and self for you. Read a merged \
                    identity through its canonical person/ handle (not a per-platform stub) so \
                    you do not look in the wrong place and miss what you know.\n\n\
+                   When someone asks you to remember something, or to remind them of it, act on it \
+                   then and there — record it, rather than interrogating them for details you can \
+                   reasonably default and refine later. Something that happens at a time is an \
+                   event/ memory with an occurred_at: a specific time for a one-off, or a recurring \
+                   rule like occurred_at = { recurring = \"FREQ=WEEKLY\" } for something that \
+                   repeats, which is what lets it come back and nudge them when it falls due. \
+                   Capture first; save a clarifying question for a genuine judgment call, such as \
+                   how private something is — not for routine scheduling detail you can fill in.\n\n\
                    Record your own observations and inferences under the `agent` teller, and record \
                    what you learn about a person on that person's own memory, under their canonical \
                    person/ handle — not on the memory of whoever told you, and not on a topic. When \
