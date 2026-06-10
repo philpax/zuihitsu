@@ -64,8 +64,10 @@ pub enum BlockOutcome {
 
 impl Session {
     pub fn new(conversation: ConversationId) -> Session {
+        let lua = Lua::new();
+        install_inspect(&lua).expect("installing the inspect global");
         Session {
-            lua: Lua::new(),
+            lua,
             conversation,
             mcp: None,
         }
@@ -82,6 +84,7 @@ impl Session {
         catalogue: super::mcp_api::McpCatalogue,
     ) -> Session {
         let lua = Lua::new();
+        install_inspect(&lua).expect("installing the inspect global");
         let mcp = std::sync::Arc::new(super::mcp_api::McpSession::new(host, catalogue));
         super::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
         Session {
@@ -1284,7 +1287,7 @@ fn render(lua: &Lua, value: &Value) -> String {
         // not do this (it ignores `__tostring`), so call the `tostring` builtin, which honors it.
         Value::Table(t) => match tostring_via_metamethod(lua, value, t) {
             Some(text) => text,
-            None => render_table(lua, t),
+            None => render_table(lua, value, t),
         },
         other => format!("<{}>", other.type_name()),
     }
@@ -1305,8 +1308,11 @@ fn tostring_via_metamethod(lua: &Lua, value: &Value, table: &Table) -> Option<St
         .ok()
 }
 
-/// Render a table as its array part joined by newlines (e.g. a list of entry handles), else generic.
-fn render_table(lua: &Lua, table: &Table) -> String {
+/// Render an undecorated table (no `__tostring`): a sequence as its elements joined by newlines (a
+/// list of entry handles or search results), otherwise its structure via [`inspect_table`] — so a map
+/// table the agent built, or one we have not given a `__tostring`, reads back as its fields rather than
+/// an opaque `<table>` the model cannot act on.
+fn render_table(lua: &Lua, value: &Value, table: &Table) -> String {
     let items: Vec<String> = table
         .clone()
         .sequence_values::<Value>()
@@ -1314,10 +1320,41 @@ fn render_table(lua: &Lua, table: &Table) -> String {
         .map(|value| render(lua, &value))
         .collect();
     if items.is_empty() {
-        "<table>".to_owned()
+        inspect_table(lua, value)
     } else {
         items.join("\n")
     }
+}
+
+/// Pretty-print a table's structure through the vendored `inspect` global (loaded by
+/// [`install_inspect`]). This is the fallback for a table with neither a `__tostring` nor a sequence
+/// part; `inspect` only ever sees plain tables here, so its default options render clean
+/// `{ key = value }` structure with no metatable noise. Falls back to the bare token if the global is
+/// somehow absent.
+fn inspect_table(lua: &Lua, value: &Value) -> String {
+    lua.globals()
+        .get::<mlua::Function>("inspect")
+        .and_then(|inspect| inspect.call::<String>(value.clone()))
+        .unwrap_or_else(|_| "<table>".to_owned())
+}
+
+/// The vendored `inspect.lua` pretty-printer (MIT-licensed, kikito/inspect.lua; see
+/// `vendor/inspect.lua/VENDOR.md` for the exact commit). Loaded once per VM and exposed as the
+/// `inspect` global, it backs [`render`]'s fallback for an undecorated table so the agent never
+/// receives an opaque `<table>` it cannot read.
+const INSPECT_LUA: &str = include_str!("../../vendor/inspect.lua/inspect.lua");
+
+/// Evaluate `inspect.lua` and bind its pretty-printer as the `inspect` global. The chunk ends in
+/// `return inspect`, yielding the module — a *callable table* (it pretty-prints via a `__call`
+/// metamethod). We bind its underlying `inspect.inspect` function rather than the table itself, so the
+/// global is a plain function: `inspect(value)` still works from Lua, and the render fallback can fetch
+/// it as an `mlua::Function` (a callable table is not one). Done once at VM construction, like the MCP
+/// projection.
+fn install_inspect(lua: &Lua) -> mlua::Result<()> {
+    let module: Table = lua.load(INSPECT_LUA).set_name("inspect.lua").eval()?;
+    let inspect: mlua::Function = module.get("inspect")?;
+    lua.globals().set("inspect", inspect)?;
+    Ok(())
 }
 
 /// Render a value to its text for entry-handle `__concat`: an entry handle yields its `text`; any

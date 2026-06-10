@@ -787,6 +787,28 @@ async fn entries_render_as_their_text_and_concatenate() {
 }
 
 #[tokio::test]
+async fn an_undecorated_table_renders_as_its_structure_not_an_opaque_token() {
+    let h = Harness::new();
+    // A plain map table the agent builds and returns has no `__tostring`, so before it rendered as
+    // the information-free `<table>`. It now pretty-prints through the vendored `inspect`, so the
+    // model reads back the fields it returned.
+    let outcome = h
+        .run(
+            r#"
+        return { name = "person/dave", role = "climber", visits = 3 }
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_ne!(result, "<table>", "an undecorated table must not render opaquely");
+    assert!(result.contains("name"), "structure should be visible: {result}");
+    assert!(result.contains("person/dave"), "values should be visible: {result}");
+    assert!(result.contains("visits"), "every key should be visible: {result}");
+}
+
+#[tokio::test]
 async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
     let h = Harness::new();
     // An entry from another memory is not a live entry of dave's class — a teachable misuse, not a
