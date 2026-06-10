@@ -59,16 +59,20 @@ impl From<GraphError> for SchedulerError {
 }
 
 /// Fire every wake-up that has come due by `now`: append a `ScheduledJobFired` for each entry the
-/// comes-due rule selects (see [`Graph::due_occurrences`]). Global — it fires across all conversations,
-/// not just an opening one — and the single point a live clock enters the surface, made replayable by
-/// the events it writes. Returns the number fired; the caller materializes so the firings are visible
-/// to the drain.
+/// comes-due rule selects — both concrete occurrences ([`Graph::due_occurrences`]) and the next due
+/// instance of a recurring entry ([`Graph::due_recurring`]). Global — it fires across all
+/// conversations, not just an opening one — and the single point a live clock enters the surface, made
+/// replayable by the events it writes. A recurring firing re-arms itself: the materializer records the
+/// firing time, and the next `fire_due` computes the instance after it (so a long-idle agent fires one
+/// catch-up per recurring entry, not a backlog). Returns the number fired; the caller materializes so
+/// the firings are visible to the drain.
 pub fn fire_due(
     store: &mut dyn Store,
     graph: &Graph,
     now: Timestamp,
 ) -> Result<usize, SchedulerError> {
-    let due = graph.due_occurrences(now)?;
+    let mut due = graph.due_occurrences(now)?;
+    due.extend(graph.due_recurring(now)?);
     if due.is_empty() {
         return Ok(0);
     }
@@ -149,7 +153,7 @@ mod tests {
         ids::{EntryId, MemoryId, MemoryName, Seq},
         settings::SchedulerSettings,
         store::{MemoryStore, Store},
-        time::{Rrule, TemporalRef, Timestamp},
+        time::{MILLIS_PER_WEEK, Rrule, TemporalRef, Timestamp},
     };
 
     /// A store + graph materialized from `payloads`, committed at `at`.
@@ -270,7 +274,8 @@ mod tests {
                     Teller::Agent,
                     Visibility::Public,
                 ),
-                // Recurring — null occurred_sort, never fires here.
+                // Recurring weekly from 5_000 — its first instance is a week out, so not due at 6_000
+                // (it fires later; see `recurring_entry_fires_each_due_instance_and_rearms`).
                 created(recurring, "event/standup"),
                 appended(
                     recurring,
@@ -287,6 +292,59 @@ mod tests {
             fire_due(&mut store, &graph, Timestamp::from_millis(6_000)).unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn recurring_entry_fires_each_due_instance_and_rearms() {
+        // A weekly recurrence asserted at 1_000; instances at 1_000 + 1 week, + 2 weeks, …
+        let id = MemoryId::generate();
+        let entry = EntryId::generate();
+        let (mut store, mut graph) = world(
+            1_000,
+            vec![
+                created(id, "event/standup"),
+                appended(
+                    id,
+                    entry,
+                    1_000,
+                    Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into()))),
+                    Teller::Agent,
+                    Visibility::Public,
+                ),
+            ],
+        );
+
+        let at = |ms: i64| Timestamp::from_millis(ms);
+
+        // Before the first instance: nothing is due.
+        assert_eq!(
+            fire_due(&mut store, &graph, at(1_000 + MILLIS_PER_WEEK - 1)).unwrap(),
+            0
+        );
+        graph.materialize_from(&store).unwrap();
+
+        // Just past the first instance: it fires once.
+        assert_eq!(
+            fire_due(&mut store, &graph, at(1_000 + MILLIS_PER_WEEK + 1)).unwrap(),
+            1
+        );
+        graph.materialize_from(&store).unwrap();
+
+        // Still inside the same week: re-armed to the next instance, so it does not fire again.
+        assert_eq!(
+            fire_due(&mut store, &graph, at(1_000 + MILLIS_PER_WEEK + 2)).unwrap(),
+            0
+        );
+        graph.materialize_from(&store).unwrap();
+
+        // Past the second instance: it fires again — one firing per instance, re-armed each time.
+        assert_eq!(
+            fire_due(&mut store, &graph, at(1_000 + 2 * MILLIS_PER_WEEK + 1)).unwrap(),
+            1
+        );
+        graph.materialize_from(&store).unwrap();
+
+        assert_eq!(fired(&store), vec![entry, entry]);
     }
 
     #[test]

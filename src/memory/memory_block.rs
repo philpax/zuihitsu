@@ -471,18 +471,33 @@ impl MemoryBlock {
         Ok(ids)
     }
 
-    /// The distinct memories with an occurrence in `[from, to]`, soonest first, touched as reads.
+    /// The distinct memories with an occurrence in `[from, to]`, soonest first, touched as reads —
+    /// both concrete occurrences and the next in-window instance of a recurring entry (spec §Recurring
+    /// materialization), merged and ordered by instant so a weekly standup interleaves with one-offs.
     fn occurrence_memories(
         &mut self,
         from: Timestamp,
         to: Timestamp,
     ) -> Result<Vec<MemoryId>, MemoryError> {
+        let mut items: Vec<(Timestamp, MemoryId)> = Vec::new();
+        {
+            let graph = self.engine.graph.lock();
+            for (memory, entry) in graph.occurrences_in_window(from, to)? {
+                if let Some(sort) = entry.occurred_sort {
+                    items.push((sort, memory.id));
+                }
+            }
+            for (instant, memory) in graph.recurring_in_window(from, to)? {
+                items.push((instant, memory.id));
+            }
+        }
+        items.sort_by_key(|(instant, _)| *instant);
+
         let mut seen = BTreeSet::new();
         let mut ordered = Vec::new();
-        let occurrences = self.engine.graph.lock().occurrences_in_window(from, to)?;
-        for (memory, _entry) in occurrences {
-            if seen.insert(memory.id) {
-                ordered.push(memory.id);
+        for (_, id) in items {
+            if seen.insert(id) {
+                ordered.push(id);
             }
         }
         for id in &ordered {

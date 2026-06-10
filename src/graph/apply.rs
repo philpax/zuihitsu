@@ -174,9 +174,13 @@ impl Graph {
             EventPayload::ScheduledJobFired {
                 entry_id, fired_at, ..
             } => {
+                // Clear `surfaced_at` so a firing re-arms the surface: a recurring entry fires once per
+                // instance, and each firing must become pending again for the drain. A concrete entry
+                // fires only once, so clearing its (already-null) surface is a no-op for it.
                 self.conn
                     .execute(
-                        "UPDATE content_entries SET fired_at = ?1 WHERE entry_id = ?2",
+                        "UPDATE content_entries SET fired_at = ?1, surfaced_at = NULL \
+                         WHERE entry_id = ?2",
                         params![fired_at.as_millis(), entry_id.0.to_string()],
                     )
                     .map_err(backend)?;

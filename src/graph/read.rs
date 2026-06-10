@@ -13,7 +13,7 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::{Cardinality, Teller, Volatility},
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
-    time::{TemporalRef, Timestamp},
+    time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };
 
@@ -115,6 +115,52 @@ impl Graph {
         })
     }
 
+    /// Recurring entries whose next instance has come due by `now` — the recurring half of the wake-up
+    /// scheduler (spec §Recurring materialization and wake-up arming), the complement to
+    /// [`Graph::due_occurrences`], which handles only concrete occurrences. For each live recurring
+    /// entry, the next instance (anchored at `asserted_at`, since the rrule carries no `DTSTART`) is
+    /// computed strictly after its last firing — `fired_at`, or `asserted_at` if it has never fired —
+    /// and the entry is due when that instance is at or before `now`. Each firing re-arms it: the next
+    /// call computes the instance after the firing just recorded, so exactly one trigger is live per
+    /// recurring entry, never a backlog. A rule `next_occurrence` cannot interpret simply never fires.
+    pub fn due_recurring(&self, now: Timestamp) -> Result<Vec<(MemoryId, EntryId)>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT e.memory_id, e.entry_id, e.asserted_at, e.fired_at, e.occurred_at
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL
+               AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
+             ORDER BY e.seq",
+        )?;
+        let rows: Vec<(String, String, i64, Option<i64>, String)> =
+            query_map_into(stmt, [], |row| {
+                Ok::<_, GraphError>((
+                    row.get("memory_id")?,
+                    row.get("entry_id")?,
+                    row.get("asserted_at")?,
+                    row.get("fired_at")?,
+                    row.get("occurred_at")?,
+                ))
+            })?;
+
+        let mut due = Vec::new();
+        for (memory, entry, asserted_at, fired_at, occurred_json) in rows {
+            // An unresolved `BeforeAfter` is also sort-null; keep only true recurrences.
+            let Ok(TemporalRef::Recurring(rrule)) =
+                serde_json::from_str::<TemporalRef>(&occurred_json)
+            else {
+                continue;
+            };
+            let asserted_at = Timestamp::from_millis(asserted_at);
+            let baseline = fired_at.map_or(asserted_at, Timestamp::from_millis);
+            if let Some(instant) = time::next_occurrence(&rrule, asserted_at, baseline)
+                && instant <= now
+            {
+                due.push((MemoryId(parse_ulid(&memory)?), EntryId(parse_ulid(&entry)?)));
+            }
+        }
+        Ok(due)
+    }
+
     /// Live entries that have fired but are not yet surfaced — the wake-up surface the drain consumes
     /// (spec §Agent-initiated speech), each paired with its memory, soonest occurrence first.
     pub fn pending_wakeups(&self) -> Result<Vec<(MemoryView, EntryView)>, GraphError> {
@@ -165,6 +211,67 @@ impl Graph {
             }
             if seen.insert(memory_columns.0.clone()) {
                 out.push(self.assemble_memory(memory_columns)?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Live recurring memories whose next instance falls within `[from, to]`, each paired with that
+    /// instance and ordered soonest first — the recurring complement to
+    /// [`Graph::occurrences_in_window`], so `calendar.upcoming`/`calendar.on` surface a weekly standup
+    /// the same way they surface a one-off (spec §Recurring materialization). The instance is the
+    /// earliest occurrence at or after `from` (anchored at `asserted_at`); a memory appears once, at
+    /// its soonest in-window instance, even if it carries several recurring entries. A rule
+    /// `next_occurrence` cannot interpret is skipped, as is an unresolved `BeforeAfter` (also sort-null).
+    pub fn recurring_in_window(
+        &self,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<(Timestamp, MemoryView)>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.asserted_at,
+                    e.occurred_at
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL
+               AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
+             ORDER BY e.seq",
+        )?;
+        let rows: Vec<(MemoryColumns, i64, String)> = query_map_into(stmt, [], |row| {
+            let columns = (
+                row.get("id")?,
+                row.get("name")?,
+                row.get("description")?,
+                row.get("volatility")?,
+                row.get("created_at")?,
+            );
+            Ok::<_, GraphError>((columns, row.get("asserted_at")?, row.get("occurred_at")?))
+        })?;
+
+        // `from - 1` as the "strictly after" bound so an instance landing exactly on `from` counts.
+        let after = Timestamp::from_millis(from.as_millis().saturating_sub(1));
+        let mut hits = Vec::new();
+        for (columns, asserted_at, occurred_json) in rows {
+            let Ok(TemporalRef::Recurring(rrule)) =
+                serde_json::from_str::<TemporalRef>(&occurred_json)
+            else {
+                continue;
+            };
+            let asserted_at = Timestamp::from_millis(asserted_at);
+            if let Some(instant) = time::next_occurrence(&rrule, asserted_at, after)
+                && instant >= from
+                && instant <= to
+            {
+                hits.push((instant, columns));
+            }
+        }
+
+        // Soonest first, then one row per memory (its earliest in-window instance).
+        hits.sort_by_key(|(instant, _)| *instant);
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for (instant, columns) in hits {
+            if seen.insert(columns.0.clone()) {
+                out.push((instant, self.assemble_memory(columns)?));
             }
         }
         Ok(out)

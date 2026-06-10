@@ -112,6 +112,38 @@ async fn calendar_queries_return_matching_memories() {
 }
 
 #[tokio::test]
+async fn calendar_upcoming_includes_recurring_instances() {
+    let h = Harness::new();
+    // A weekly recurring event, recorded in one block (committed) so a later block's calendar query
+    // reads it from the materialized graph.
+    h.run(
+        r#"
+        local s = memory.create("event/standup")
+        s:append("Weekly standup", { visibility = "public", occurred_at = { recurring = "FREQ=WEEKLY" } })
+        "#,
+    )
+    .await;
+
+    // Its next instance falls inside a two-week window, so upcoming surfaces it — recurring instances
+    // now interleave with concrete occurrences rather than being invisible to the calendar.
+    let outcome = h
+        .run(
+            r#"
+        local target = memory.get("event/standup")
+        for _, m in ipairs(calendar.upcoming({ within = "14 days" })) do
+            if m.id == target.id then return "found" end
+        end
+        return "missing"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "found");
+}
+
+#[tokio::test]
 async fn calendar_rejects_a_malformed_argument() {
     let h = Harness::new();
     let outcome = h.run(r#"return calendar.on("not-a-date")"#).await;
