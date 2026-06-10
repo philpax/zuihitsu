@@ -22,6 +22,16 @@ use crate::{
     time::{self, Timestamp},
 };
 
+/// Explains the `<memory>:method(...)` notation used throughout the API description, so the agent
+/// calls a handle method as `handle:method(...)` rather than pasting the placeholder literally (the
+/// model otherwise tends to write `dave:<memory>:append(...)`, conflating the placeholder with its
+/// handle). Prepended to the API description.
+const METHOD_NOTATION_LEGEND: &str = "Methods are written `<memory>:method(...)`, where `<memory>` \
+    stands for a memory handle you hold — the result of `memory.create` or `memory.get`. Call the \
+    method directly on that handle: e.g. with `local m = memory.get(\"person/...\")`, write \
+    `m:append(\"...\")` (not `m:<memory>:append(...)`). The `memory.*`, `tags.*`, `links.*`, \
+    `calendar.*`, `context.*`, and `block.*` calls are module functions, called with a dot.";
+
 /// Compose the system prompt from the `scaffold` body, the agent's `identity` (the `self` memory's
 /// content entries, verbatim), the `api_reference` block (the build's callable Lua API, rendered by
 /// [`crate::agent::lua::render_api_reference`]), the runtime `vocabulary` block (the current tag
@@ -55,6 +65,8 @@ pub fn assemble(
 
     if !api_reference.is_empty() {
         prompt.push_str("\n\n# What you can do\n\n");
+        prompt.push_str(METHOD_NOTATION_LEGEND);
+        prompt.push_str("\n\n");
         prompt.push_str(api_reference);
     }
 
@@ -82,15 +94,21 @@ pub fn render_tag_vocabulary(tags: &[TagVocabularyEntry]) -> String {
     if tags.is_empty() {
         return String::new();
     }
-    let mut out =
-        String::from("# Tags\n\nTags you can apply with mem:tag (create new ones with tags.create):");
+    let mut out = String::from(
+        "# Tags\n\nTags you can apply with <memory>:tag (create new ones with tags.create):",
+    );
     for tag in tags {
         let uses = if tag.count == 1 {
             "1 use".to_owned()
         } else {
             format!("{} uses", tag.count)
         };
-        let _ = write!(out, "\n- {} — {} ({uses})", tag.name.as_str(), tag.description);
+        let _ = write!(
+            out,
+            "\n- {} — {} ({uses})",
+            tag.name.as_str(),
+            tag.description
+        );
     }
     out
 }
@@ -156,8 +174,10 @@ mod tests {
         assert!(prompt.contains("A discreet companion with a long memory."));
         // The build-derived API description, interpolated from the same typed source the implementation
         // uses: the call signature, a parameter's type, and the return type.
-        assert!(prompt.contains("mem:append(text, opts?)"));
+        assert!(prompt.contains("<memory>:append(text, opts?)"));
         assert!(prompt.contains("text: string (required)"));
+        // The notation legend that disambiguates a handle method from the placeholder.
+        assert!(prompt.contains("stands for a memory handle you hold"));
         assert!(prompt.contains("opts.visibility: \"public\" | \"private\""));
         assert!(prompt.contains("context.current()"));
         // The current tag vocabulary, drawn from the graph: the genesis-seeded `confidential` tag.

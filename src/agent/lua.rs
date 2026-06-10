@@ -972,7 +972,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
         )
         .returns(AT::Object(Vec::new()).list());
 
-    let append = AE::new("mem:append")
+    let append = AE::new("<memory>:append")
         .description(
             "Append a content entry. By default it is attributed to the current speaker, and an \
              aside about someone else defaults private to that speaker. When you record an entry \
@@ -1006,46 +1006,47 @@ pub fn api_reference() -> Vec<ApiEntry> {
         )
         .returns(AT::Entry);
 
-    let entries = AE::new("mem:entries")
+    let entries = AE::new("<memory>:entries")
         .description(
             "The memory's live content entries, across its whole merged identity. Each is an entry \
              object — read its text with entry.text (it also prints as its text), and pass the \
-             object itself to mem:supersede to replace it. Hold onto the object if you intend to \
+             object itself to <memory>:supersede to replace it. Hold onto the object if you intend to \
              supersede it.",
         )
         .returns(AT::Entry.list());
 
-    let history = AE::new("mem:history")
+    let history = AE::new("<memory>:history")
         .description(
             "The memory's entries including superseded ones, oldest first — the full record, where \
-             mem:entries shows only the live ones. Each is an entry object (entry.text for its \
+             <memory>:entries shows only the live ones. Each is an entry object (entry.text for its \
              text).",
         )
         .returns(AT::Entry.list());
 
-    let supersede = AE::new("mem:supersede")
+    let supersede = AE::new("<memory>:supersede")
         .description(
             "Correct or retract a fact: mark an old entry superseded by a new one. Append the \
              correction first to get the new entry object, then call supersede with the old entry \
-             object (from mem:entries) and the new one. The old entry drops from live reads but \
-             stays in mem:history.",
+             object (from <memory>:entries) and the new one. The old entry drops from live reads but \
+             stays in <memory>:history.",
         )
         .required(
             "old",
             AT::Entry,
-            "the entry object being replaced (from mem:entries)",
+            "the entry object being replaced (from <memory>:entries)",
         )
         .required(
             "new",
             AT::Entry,
-            "the entry object that replaces it (from mem:append)",
+            "the entry object that replaces it (from <memory>:append)",
         );
 
-    let link = AE::new("mem:link")
+    let link = AE::new("<memory>:link")
         .description(
             "Link this memory to another under a registered relation. Use it to flag a still-open \
              thread active_in the current context, so it carries into the next session across a \
-             compaction.",
+             compaction. For a symmetric relation (shown in the registry), link once — the reverse \
+             direction is implied, so linking both ways is redundant.",
         )
         .required("relation", AT::String, "the relation, e.g. \"active_in\"")
         .required(
@@ -1054,14 +1055,14 @@ pub fn api_reference() -> Vec<ApiEntry> {
             "the memory to link to, e.g. context.current()",
         );
 
-    let unlink = AE::new("mem:unlink")
+    let unlink = AE::new("<memory>:unlink")
         .description(
-            "Remove a link made with mem:link, e.g. clear active_in on a thread that has closed.",
+            "Remove a link made with <memory>:link, e.g. clear active_in on a thread that has closed.",
         )
         .required("relation", AT::String, "the relation")
         .required("other", AT::Handle, "the memory the link points to");
 
-    let tag = AE::new("mem:tag")
+    let tag = AE::new("<memory>:tag")
         .description(
             "Apply a tag to this memory. The tag must already exist in the vocabulary — create it \
              first with tags.create. Tagging is what it's about; the namespace is what it is.",
@@ -1072,27 +1073,29 @@ pub fn api_reference() -> Vec<ApiEntry> {
             "the tag, e.g. \"confidential\" on a context to mark the room confidential",
         );
 
-    let untag = AE::new("mem:untag")
+    let untag = AE::new("<memory>:untag")
         .description("Remove a tag from this memory.")
         .required("name", AT::String, "the tag to clear");
 
     let tags_create = AE::new("tags.create")
         .description(
             "Add a tag to the vocabulary with a one-line purpose. Creation is distinct from \
-             application: creating forces a purpose, while mem:tag never mutates it.",
+             application: creating forces a purpose, while <memory>:tag never mutates it.",
         )
         .required("name", AT::String, "the tag name, e.g. \"hobbies\"")
         .required("description", AT::String, "its one-line purpose");
 
     let tags_describe = AE::new("tags.describe")
-        .description("Change an existing tag's one-line purpose (create it first with tags.create).")
+        .description(
+            "Change an existing tag's one-line purpose (create it first with tags.create).",
+        )
         .required("name", AT::String, "the tag name")
         .required("description", AT::String, "the new purpose");
 
     let tags_list = AE::new("tags.list")
         .description(
             "The whole tag vocabulary, each a table { name, description, count } that prints as a \
-             readable line — what you can apply with mem:tag.",
+             readable line — what you can apply with <memory>:tag.",
         )
         .returns(AT::Object(Vec::new()).list());
 
