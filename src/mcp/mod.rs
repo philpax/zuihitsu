@@ -5,8 +5,9 @@
 //! source — and the integration spawns it, snapshots its tool catalogue, and calls those tools on
 //! demand. The seam is at the *instance* level so lifecycle is testable, not just calls: the real
 //! [`StdioHost`] drives a subprocess over newline-delimited JSON-RPC, while the scriptable
-//! [`FakeMcpHost`] returns canned results with no subprocess (spec §Testability). The Lua projection
-//! that exposes these as `mcp.<server>.*` arrives in a later increment; this is the client itself.
+//! [`FakeMcpHost`] returns canned results with no subprocess (spec §Testability). This module is the
+//! client itself; the Lua projection that exposes these as `mcp.<server>.*` lives in
+//! `crate::agent::mcp_api`.
 
 mod fake;
 mod stdio;
@@ -49,8 +50,8 @@ pub trait McpInstance: Send + Sync {
     async fn shutdown(&self);
 }
 
-/// One configured MCP server (the `[mcp.<name>]` block, spec §Configuration; parsed in a later
-/// increment). `command` is an executable launched as argv — never shell-split.
+/// One configured MCP server (the `[mcp.<name>]` block, spec §Configuration). `command` is an
+/// executable launched as argv — never shell-split.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct McpServerConfig {
@@ -58,14 +59,15 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub cwd: Option<PathBuf>,
-    /// Raw tool names to project; with `None`, the whole catalogue. Applied in a later increment.
+    /// Raw tool names to project; with `None`, the whole catalogue. Applied during MCP catalogue
+    /// probing (`crate::agent::mcp_api`).
     pub allow: Option<Vec<String>>,
-    /// Raw tool names to drop after `allow`. Applied in a later increment.
+    /// Raw tool names to drop after `allow`. Applied during the same probe.
     pub deny: Option<Vec<String>>,
 }
 
-/// One advertised tool: its raw name, description, and JSON-Schema input shape (rendered into the
-/// system prompt, and the basis of the `mcp.<server>.*` projection, in later increments).
+/// One advertised tool: its raw name, description, and JSON-Schema input shape — rendered into the
+/// system prompt and the basis of the `mcp.<server>.*` projection (`crate::agent::mcp_api`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct McpTool {
     pub name: String,
@@ -73,8 +75,8 @@ pub struct McpTool {
     pub input_schema: serde_json::Value,
 }
 
-/// A successful tool result: its content blocks, plus any decoded `structuredContent`. The raw shape;
-/// the Lua string-vs-table projection (spec §External I/O via MCP → results) is a later increment.
+/// A successful tool result: its content blocks, plus any decoded `structuredContent` — the raw shape
+/// the Lua projection (spec §External I/O via MCP → results) renders for the agent.
 #[derive(Clone, Debug, PartialEq)]
 pub struct McpOutput {
     pub content: Vec<ContentBlock>,

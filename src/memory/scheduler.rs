@@ -1,14 +1,15 @@
 //! Scheduled work: the fire and drain halves of the wake-up lifecycle (spec §Scheduled work,
 //! §Agent-initiated speech).
 //!
-//! [`fire_due`] is the scheduler — it derives wake-ups from the calendar (entries scheduled for the
-//! future whose time has now passed) and records `ScheduledJobFired`, pinning each firing into the log
-//! so the surface is a function of the log rather than a live clock. It is global and
-//! conversation-agnostic: a later background driver (deferred — see the Stage 10 roadmap) runs it on a
-//! timer, while for now the server calls it as a catch-up when a session opens. [`drain`] is the
-//! delivery half — it reads the fired-but-unsurfaced surface, keeps the items that are both visible to
-//! and targeted at the present set, and formats them for the server to raise as an `Initiated` system
-//! turn (recording `ScheduledItemSurfaced` so each is raised once).
+//! [`fire_due`] is the scheduler — it derives wake-ups from the calendar (concrete occurrences whose
+//! time has passed, and the next due instance of a recurring entry) and records `ScheduledJobFired`,
+//! pinning each firing into the log so the surface is a function of the log rather than a live clock.
+//! It is global and conversation-agnostic, and runs in two places with identical semantics: the
+//! background driver ([`crate::server::Server::run_scheduler`]) calls it continuously on a timer, and
+//! the server also calls it as a catch-up when a session opens. [`drain`] is the delivery half — it
+//! reads the fired-but-unsurfaced surface, keeps the items that are both visible to and targeted at
+//! the present set, and formats them for the server to raise as an `Initiated` system turn (recording
+//! `ScheduledItemSurfaced` so each is raised once).
 
 use crate::{
     event::EventPayload,

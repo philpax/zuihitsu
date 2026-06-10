@@ -4,9 +4,8 @@
 //! an entry carries in `occurred_at`, and its denormalization. Centralized so the date logic lives in
 //! one place rather than being re-derived per module.
 //!
-//! The constants, pure civil-date math, and [`temporal`] are always available; the `jiff`-backed
-//! datetime parsing and formatting are gated on `sqlite` (which is what pulls `jiff`), since the
-//! no-I/O build never formats or parses datetimes.
+//! The constants, pure civil-date math, and [`temporal`] are dependency-free; the datetime parsing,
+//! formatting, and recurrence-instance computation ([`next_occurrence`]) are backed by `jiff`.
 
 pub mod temporal;
 

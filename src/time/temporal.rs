@@ -40,7 +40,8 @@ pub enum TemporalRef {
     /// A fuzzy point: a center plus a symmetric tolerance in days.
     Approx { center: Timestamp, fuzz_days: u32 },
     /// A recurrence rule, never expanded into discrete instances in the log (spec §Known
-    /// limitations); a later increment computes virtual instances on the fly.
+    /// limitations); virtual instances are computed on the fly by [`super::next_occurrence`] for
+    /// wake-up arming and calendar expansion.
     Recurring(Rrule),
     /// Anchored relative to another memory's occurrence (e.g. `after event/dave-wedding`).
     BeforeAfter { dir: Direction, anchor: MemoryName },
@@ -60,7 +61,9 @@ pub enum Direction {
 #[serde(transparent)]
 pub struct CivilDate(pub SmolStr);
 
-/// An opaque RFC-5545 recurrence rule. Stored verbatim; not interpreted in this increment.
+/// An RFC-5545 recurrence rule, stored verbatim. The denormalization here leaves it sort-null (no
+/// fixed instant); a supported subset (`FREQ` + `INTERVAL`) is interpreted by [`super::next_occurrence`]
+/// when the scheduler and calendar need concrete instances.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Rrule(pub SmolStr);
@@ -117,7 +120,7 @@ impl TemporalRef {
                     hi: Some(Timestamp::from_millis(center.as_millis() + fuzz)),
                 }
             }
-            // No fixed instant; calendar expansion happens on the fly in a later increment.
+            // No fixed instant; concrete instances are computed on the fly via `next_occurrence`.
             TemporalRef::Recurring(_) => OccurrenceBounds::default(),
             TemporalRef::BeforeAfter { dir, .. } => {
                 let Some(anchor) = anchor else {

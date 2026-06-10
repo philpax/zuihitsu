@@ -40,8 +40,9 @@ pub struct Engine {
 /// The embedder and vector index that back semantic search (spec §Storage → vector store). The vector
 /// index is behind a `parking_lot` mutex like the store and graph, held only across the brief sync
 /// index write or read — **never** across the slow `embedder.embed().await`. Both the background
-/// indexer and `memory.search` embed *before* taking this lock (see [`embed_batch`] / [`apply_batch`]),
-/// so the embedding never blocks a concurrent search and no guard ever crosses a suspension point. The
+/// indexer and `memory.search` embed *before* taking this lock (see
+/// [`crate::model::index::embed_batch`] / [`crate::model::index::apply_batch`]), so the embedding never
+/// blocks a concurrent search and no guard ever crosses a suspension point. The
 /// embedder is immutable, shared as an `Arc`.
 pub struct Retrieval {
     pub embedder: Arc<dyn Embedder>,

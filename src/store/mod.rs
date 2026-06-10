@@ -27,7 +27,7 @@ pub type Subscription = Receiver<Event>;
 /// reader (spec principle 10, "one writer, many clients").
 ///
 /// `Send` so the store can ride behind the shared `Arc<Mutex<Box<dyn Store>>>` the turn engine
-/// threads (see [`crate::agent::Engine`]); both backends (`MemoryStore`, `SqliteStore`) are `Send`.
+/// threads (see [`crate::engine::Engine`]); both backends (`MemoryStore`, `SqliteStore`) are `Send`.
 pub trait Store: Send {
     /// Append a batch atomically, stamping every payload with `recorded_at` and assigning
     /// consecutive sequence numbers. Returns the committed events in order. A batch is the unit of
