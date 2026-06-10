@@ -981,6 +981,14 @@ A separate process over a local socket or HTTP, reading the same SQLite (a read-
 
 **Agent creation lives here too** (see **Initialization**): you can watch the genesis events stream into the event view as the agent is born.
 
+### Built first as the eval-package viewer
+
+The debugger is built before the live wiring it eventually drives, by starting it where the data already exists: an **eval package** (see **Validation**). The package embeds each run's event log, and the debugger's whole job is to render an event log into the views above — so the eval viewer and the live debugger are *one client over two sources*. The first phase renders a package loaded from a file; a later phase connects the same client to a running agent over the `/control` surface (authenticated by the per-surface API key — see **Trust model**), and, for an operator on the box, the read-only SQLite path under **Access model**. Because the package is just a log, every view — the per-turn deliberation, the materialized state, the trends across runs — is a reconstruction the live debugger reuses unchanged. The contract between the agent and the client is the **event log's types**, generated from the Rust definitions into TypeScript so the client is type-safe against the exact shapes the server emits; the Rust side stays the single source of truth.
+
+### Aesthetic
+
+The look is **Japandi** — the quiet meeting of Japanese and Scandinavian design: a warm neutral ground (off-white, oat, undyed paper), sumi-ink text, and one or two muted, earthen accents (clay, sage) used sparingly; a real typographic scale doing the structural work; hairline rules and generous negative space in place of boxes and shadows; restraint as the organizing principle. A debugger is read for hours, so it should be calm and legible — craft over chrome. The same system carries forward to every operator-facing surface.
+
 ## Testability and abstraction boundaries
 
 Every external dependency and every stateful surface sits behind an interface, so a complete agent can be constructed in-memory for tests without standing up vLLM, a real database, the network, or a wall clock. This is a hard design requirement, not an aspiration: the validation scenarios below are only runnable cheaply if the substitution points exist from the start.
@@ -1009,11 +1017,23 @@ The split is deliberate: pushing mechanism scenarios through the real model woul
 
 ### Stochastic assertions are asymmetric and N-run
 
-A reply-surface scenario runs N times. For a *must-not-surface* oracle (a leaked confidence, catastrophic and rare) the bar is zero leaks in N: one is a failure. For a *should-mark* or *should-surface* oracle (chronic, judgment-quality) the bar is a rate threshold (≥ K of N), since the model will sometimes miss and the metric is a rate. Tests decode greedily to cut variance, with the caveat that vLLM's continuous batching is not bit-deterministic even at temperature 0 — the other reason the reply surface is N-run rather than single-shot.
+A reply-surface scenario runs N times. For a *must-not-surface* oracle (a leaked confidence, catastrophic and rare) the bar is zero leaks in N: one is a failure. For a *should-mark* or *should-surface* oracle (chronic, judgment-quality) the bar is a rate threshold (≥ K of N), since the model will sometimes miss and the metric is a rate. Tests sample at the model's normal settings rather than decoding greedily: the reply surface is a rate over N by design, so suppressing variation buys nothing — and vLLM's continuous batching is not bit-deterministic even at temperature 0 regardless. The run is meant to tolerate the spread; the bar is the rate, not any single transcript.
 
 ### Two tiers
 
 Predicate and brief scenarios are pure and fast and run on every change. Reply scenarios need a live model and embedder, so they run in a model-gated lane that skips with a clear signal — not a failure — when the endpoints are unreachable. The corpus stays small for the reason given throughout, that operator-asserted identity means no identity classifier to calibrate, and the highest-value members are the must-not-surface leak tests, which now have a runnable home. Quality checks (link density, brief informativeness) are separate, fuzzier, and out of scope. The harness shape and the converted scenarios are the eval-harness blueprint.
+
+### The reply lane is a standalone harness that emits an eval package
+
+The reply lane is run by a standalone **eval harness** — a separate crate over the library, not the unit-test runner — that drives each reply scenario N times against the real model and produces an **eval package**: a structured artifact whose payload, per run, is the run's **actual event log**. That makes the package a special case of the debugger's input — a live agent's log is the other — so the same event-to-view reconstruction renders an eval run and a live conversation alike (see **Observability**). The harness adds only the per-run **verdicts** and computed **metrics** (per-scenario pass rate, model-call latency p50/p95, token usage, step counts, all derived from the `ModelCalled` events). Runs are independent (a fresh agent each), so they parallelize across a small bounded pool — bounded to the serving endpoint's real concurrency — keeping the whole suite inside its wall-clock budget.
+
+**Assessment is a pure, re-runnable function of the log.** A scenario's oracle reads the run's event log plus the scenario's own expectations — deterministic oracles directly (did a `ModelCalled` carry the `mem:tag` call, did the `TagAppliedToMemory` land, at what visibility), paraphrase-sensitive oracles through a judge. Because assessment takes the *stored* log rather than a live run, a package can be **re-assessed without re-running the model**, so an oracle or a judge prompt can be iterated cheaply against an existing corpus of runs.
+
+**The judge is the model, run clean-room.** Paraphrase-aware leak matching — a real model says "on his way out" for "being managed out," so a substring check silently passes a real leak — is delegated to the same model acting as judge, but in a *fresh request sharing no context with the agent turn*, fed a reprojection of only the slices relevant to the criterion (the confidence that was told, the reply under judgment), so it cannot rationalize from the agent's own reasoning trace. The judge returns a structured verdict and a rationale, both recorded in the package, because the matcher is a thing to review, not trust.
+
+**Gating versus measurement, in the exit code.** A must-not-surface safety oracle (the fixture-22 family) gates: a single regression across N fails the harness with a non-zero exit, so the lane can stop a release. A should-mark/should-surface quality metric (the fixture-23 family) is reported as a rate and never fails the run — a low rate is load-bearing news for tuning, not a stop.
+
+**Storage.** A full package is large (every run's whole log), so it is a local, gitignored artifact opened in the viewer for deep inspection; a compact, append-only history file — one deterministically-serialized line per run, carrying just the per-scenario rates, latencies, token means, and gating outcome — is tracked, so trends over time stay visible without bloating the repository.
 
 ### The harness is also the backstop for materializer logic bugs
 
