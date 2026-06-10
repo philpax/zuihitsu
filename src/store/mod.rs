@@ -270,7 +270,77 @@ mod tests {
             drop(first);
             assert!(SqliteStore::open(&path).is_ok()); // lock released
 
-            let _ = std::fs::remove_file(&path);
+            cleanup(&path);
+        }
+
+        /// A crash mid-batch leaves the log clean: an interrupted, uncommitted transaction contributes
+        /// nothing, so a reopened log holds exactly the committed events. This is the atomic-batch
+        /// guarantee the append path leans on against partial writes (spec §Storage, §Known
+        /// limitations → storage-layer corruption).
+        #[test]
+        fn an_uncommitted_batch_leaves_the_log_clean() {
+            let path = temp_log_path("clean");
+            {
+                let mut store = SqliteStore::open(&path).unwrap();
+                store
+                    .append(Timestamp::from_millis(1_000), sample_payloads())
+                    .unwrap(); // seq 1..=3
+            }
+            // Simulate a kill between INSERT and COMMIT: a raw connection opens a transaction, writes a
+            // partial batch, and is dropped before committing — so SQLite must roll it back.
+            {
+                let conn = rusqlite::Connection::open(&path).unwrap();
+                conn.execute_batch("BEGIN").unwrap();
+                conn.execute(
+                    "INSERT INTO events (seq, recorded_at, type, target_id, version, payload)
+                     VALUES (4, 9, 'MemoryDeleted', NULL, 1, '{}')",
+                    [],
+                )
+                .unwrap();
+                // No COMMIT: dropping the connection rolls the transaction back.
+            }
+            // The reopened log is exactly the committed batch; the abandoned event is gone.
+            {
+                let store = SqliteStore::open(&path).unwrap();
+                assert_eq!(store.head().unwrap(), Seq(3));
+                assert_eq!(store.read_from(Seq::ZERO).unwrap().len(), 3);
+            }
+            cleanup(&path);
+        }
+
+        /// A corrupt log surfaces an error rather than silently returning short or wrong data — the
+        /// worst failure for a system that rebuilds from the log would be to read a truncated one as if
+        /// it were whole (spec §Known limitations → storage-layer corruption).
+        #[test]
+        fn a_corrupt_log_is_an_error_not_silent_data() {
+            let path = temp_log_path("corrupt");
+            {
+                let mut store = SqliteStore::open(&path).unwrap();
+                store
+                    .append(Timestamp::from_millis(1_000), sample_payloads())
+                    .unwrap();
+            }
+            // Clobber the SQLite header magic with a torn write at the start of the file.
+            {
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+                file.write_all(&[0xFFu8; 32]).unwrap();
+            }
+            // Opening or reading must error, not hand back a partial or empty log as if it were whole.
+            let result = SqliteStore::open(&path)
+                .and_then(|store| store.read_from(Seq::ZERO).map(|events| events.len()));
+            assert!(result.is_err(), "a corrupt log must surface an error");
+            cleanup(&path);
+        }
+
+        /// A scratch log path unique to one test.
+        fn temp_log_path(tag: &str) -> std::path::PathBuf {
+            std::env::temp_dir().join(format!("zuihitsu-{tag}-{}.sqlite", MemoryId::generate().0))
+        }
+
+        /// Remove a log file and its WAL/shm sidecars, best-effort.
+        fn cleanup(path: &std::path::Path) {
+            let _ = std::fs::remove_file(path);
             let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
             let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
         }

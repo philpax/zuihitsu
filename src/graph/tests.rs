@@ -485,6 +485,148 @@ fn fingerprint_equals_for_identical_state_and_differs_on_change() {
     assert_ne!(a.fingerprint().unwrap(), c.fingerprint().unwrap());
 }
 
+/// A log exercising a broad slice of the materializer — creates, varied content, a description,
+/// volatility, a tag created and applied, a registered relation and a link, a supersession, and a soft
+/// delete — so a rebuild over it stresses most projection handlers, not just create-and-append.
+fn recovery_log() -> Vec<EventPayload> {
+    let dave = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let hooli = MemoryId::generate();
+    let (e1, e2, e3) = (
+        EntryId::generate(),
+        EntryId::generate(),
+        EntryId::generate(),
+    );
+    let appended = |id, entry_id, text: &str, visibility| EventPayload::MemoryContentAppended {
+        id,
+        entry_id,
+        asserted_at: Timestamp::from_millis(900),
+        occurred_at: None,
+        text: text.to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility,
+    };
+    vec![
+        EventPayload::MemoryCreated {
+            id: dave,
+            name: MemoryName::new("person/dave"),
+        },
+        EventPayload::MemoryCreated {
+            id: erin,
+            name: MemoryName::new("person/erin"),
+        },
+        EventPayload::MemoryCreated {
+            id: hooli,
+            name: MemoryName::new("place/hooli"),
+        },
+        appended(dave, e1, "Met at the climbing gym", Visibility::Public),
+        appended(dave, e2, "Now works at Hooli", Visibility::Public),
+        appended(
+            erin,
+            e3,
+            "An old friend of Dave's",
+            Visibility::PrivateToTeller,
+        ),
+        EventPayload::MemoryDescriptionRegenerated {
+            id: dave,
+            new_text: "A climber who works at Hooli".to_owned(),
+            produced_by: None,
+        },
+        EventPayload::MemoryVolatilitySet {
+            id: erin,
+            volatility: Volatility::High,
+        },
+        EventPayload::TagCreated {
+            name: TagName::new("colleagues"),
+            description: "People worked with".to_owned(),
+        },
+        EventPayload::TagAppliedToMemory {
+            memory: dave,
+            tag: TagName::new("colleagues"),
+        },
+        mentor_relation(),
+        EventPayload::LinkCreated {
+            from: dave,
+            to: erin,
+            relation: RelationName::new("mentor_of"),
+            source: LinkSource::Agent,
+        },
+        // Supersede dave's first entry with his second — it drops from live reads but stays recorded.
+        EventPayload::MemorySuperseded {
+            id: dave,
+            entry: e1,
+            superseded_by: e2,
+        },
+        // Soft-delete a memory — filtered from reads, retained in the tables.
+        EventPayload::MemoryDeleted { id: hooli },
+    ]
+}
+
+#[test]
+fn replay_is_deterministic_over_a_rich_log() {
+    // The same log materialized twice must produce identical projected state — the determinism a
+    // rebuild-from-the-log promise rests on (spec §Storage, §Known limitations → storage-layer
+    // corruption). A rich log exercises most handlers, where the existing fingerprint test uses a
+    // two-event log.
+    let log = recovery_log();
+    let (_a_store, a) = materialized(log.clone());
+    let (_b_store, b) = materialized(log);
+    assert_eq!(a.fingerprint().unwrap(), b.fingerprint().unwrap());
+}
+
+#[test]
+fn a_snapshot_plus_a_nonempty_tail_equals_a_full_replay() {
+    // The catch-up correctness behind cheap rebuild (spec §Storage → snapshots): a snapshot captured
+    // at seq N, plus the log tail replayed from it, is identical to a full replay from seq 0. The
+    // round-trip test replays only an empty tail; this one replays real events on top of the snapshot.
+    let log = recovery_log();
+    let split = log.len() / 2;
+
+    let temp = |tag: &str| {
+        std::env::temp_dir().join(format!("zuihitsu-{tag}-{}.sqlite", MemoryId::generate().0))
+    };
+    let cleanup = |path: std::path::PathBuf| {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    };
+
+    // Materialize the first half into a file graph, then snapshot it at that head.
+    let mut store = MemoryStore::new();
+    store
+        .append(Timestamp::from_millis(1_000), log[..split].to_vec())
+        .unwrap();
+    let graph_path = temp("recovery-graph");
+    let snap_path = temp("recovery-snap");
+    {
+        let mut head_graph = Graph::open(&graph_path).unwrap();
+        head_graph.materialize_from(&store).unwrap();
+        head_graph.snapshot_into(&snap_path).unwrap();
+    }
+
+    // The rest of the log arrives after the snapshot.
+    store
+        .append(Timestamp::from_millis(2_000), log[split..].to_vec())
+        .unwrap();
+
+    // Restore from the snapshot (copy it over a graph path) and replay only the tail.
+    let restored_path = temp("recovery-restored");
+    std::fs::copy(&snap_path, &restored_path).unwrap();
+    let mut restored = Graph::open(&restored_path).unwrap();
+    let replayed = restored.materialize_from(&store).unwrap();
+    assert_eq!(replayed, log.len() - split, "only the tail should replay");
+
+    // A full replay from seq 0 into a fresh graph must reach byte-identical projected state.
+    let mut full = Graph::open_in_memory().unwrap();
+    full.materialize_from(&store).unwrap();
+    assert_eq!(restored.fingerprint().unwrap(), full.fingerprint().unwrap());
+
+    cleanup(graph_path);
+    cleanup(snap_path);
+    cleanup(restored_path);
+}
+
 #[test]
 fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
     let dave = MemoryId::generate();
