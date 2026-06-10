@@ -51,18 +51,31 @@ pub struct ModelConfig {
 }
 
 /// How this instance serves its HTTP API (spec §Clients and the server boundary): the local address
-/// the long-running server binds, and that the CLI client connects to. Defaults to a loopback port, so
-/// the surface is reachable only from the same host until real auth and a non-loopback bind are added.
+/// the long-running server binds, and the per-surface API keys that authorize remote clients. Defaults
+/// to a loopback port with no keys — reachable only from the same host (spec §Trust model). A loopback
+/// peer is trusted without a key; a remote peer must present one of the surface's keys as
+/// `Authorization: Bearer <key>`, so binding a routable address is safe by default (fail-closed: no
+/// keys means no remote access).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct ServingConfig {
     pub bind: SocketAddr,
+    /// Valid API keys for the operator surface (`/control/*`). A remote peer must present one; a
+    /// loopback peer is trusted without one. An empty list (the default) rejects every remote control
+    /// request. Kept as an array so a single per-integration key can be revoked by removing its entry.
+    #[serde(default)]
+    pub control_keys: Vec<String>,
+    /// Valid API keys for the participant surface (`/platform/*`); the same rule as `control_keys`.
+    #[serde(default)]
+    pub platform_keys: Vec<String>,
 }
 
 impl Default for ServingConfig {
     fn default() -> Self {
         ServingConfig {
             bind: SocketAddr::from(([127, 0, 0, 1], 7777)),
+            control_keys: Vec::new(),
+            platform_keys: Vec::new(),
         }
     }
 }
@@ -310,6 +323,28 @@ mod tests {
         std::fs::write(&path, "[serving]\nbind = \"127.0.0.1:9090\"\n").unwrap();
         let config = EnvConfig::load(&path).unwrap();
         assert_eq!(config.serving.bind, "127.0.0.1:9090".parse().unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn serving_api_keys_default_empty_and_parse_as_arrays() {
+        // No keys by default — a loopback-only, no-remote-access posture.
+        assert!(EnvConfig::default().serving.control_keys.is_empty());
+        assert!(EnvConfig::default().serving.platform_keys.is_empty());
+
+        let dir = temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "[serving]\n\
+             bind = \"0.0.0.0:7777\"\n\
+             control_keys = [\"op-key\"]\n\
+             platform_keys = [\"discord-key\", \"web-key\"]\n",
+        )
+        .unwrap();
+        let config = EnvConfig::load(&path).unwrap();
+        assert_eq!(config.serving.control_keys, vec!["op-key"]);
+        assert_eq!(config.serving.platform_keys, vec!["discord-key", "web-key"]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

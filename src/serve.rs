@@ -7,6 +7,7 @@
 
 use std::{
     io,
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -14,12 +15,14 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::{ConnectInfo, Query, Request, State},
+    http::{StatusCode, header::AUTHORIZATION},
+    middleware::Next,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use zuihitsu::{
     Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
@@ -40,6 +43,12 @@ struct AppState {
     /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
     /// otherwise (the snapshot endpoint then answers `409`).
     snapshot_dir: Option<PathBuf>,
+    /// Valid API keys for the operator surface (`/control/*`); a remote peer must present one, a
+    /// loopback peer is trusted without one. `Arc<[String]>` so the per-request state clone is a
+    /// refcount bump, not a deep copy.
+    control_keys: Arc<[String]>,
+    /// Valid API keys for the participant surface (`/platform/*`); the same rule.
+    platform_keys: Arc<[String]>,
 }
 
 /// How often the background indexer catches the vector index up to the log. Indexing is off the hot
@@ -163,13 +172,20 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         server: server.clone(),
         model,
         snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
+        control_keys: config.serving.control_keys.into(),
+        platform_keys: config.serving.platform_keys.into(),
     });
     let listener = TcpListener::bind(bind).await.map_err(ServeError::Bind)?;
     tracing::info!(?status, %bind, "zuihitsu serving");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(ServeError::Serve)?;
+    // `into_make_service_with_connect_info` surfaces each connection's peer address to the auth
+    // middleware (a bare `axum::serve(listener, app)` would not), so a loopback peer can be trusted.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .map_err(ServeError::Serve)?;
 
     tracing::info!("shutdown signal received; stopping");
     let _ = driver.await;
@@ -182,30 +198,104 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 }
 
 /// The API router. `/` is the reserved web-debugger root; the operator surface lives under `/control`
-/// and the participant surface under `/platform` (filled in by later commits).
+/// and the participant surface under `/platform`. Each surface is its own sub-router carrying its own
+/// auth layer ([`require_control_key`] / [`require_platform_key`]), so a control key never authorizes
+/// `/platform` and vice versa. The layer is applied per sub-router rather than once at the top, because
+/// a top-level layer would also wrap the nested platform routes and force platform clients to present a
+/// control key. Under `.nest`, the sub-router routes are spelled relative (`/agent`, not
+/// `/control/agent`).
 fn router(state: AppState) -> Router {
+    // The operator surface: agent creation and read-only inspection (spec §Clients → control clients).
+    // The CLI and the future web debugger drive these.
+    let control = Router::new()
+        .route("/health", get(health))
+        .route("/agent", post(create_agent))
+        .route("/genesis", get(genesis))
+        .route("/memory", get(memory))
+        .route("/memories", get(memories))
+        .route("/entries", get(entries))
+        .route("/sessions", get(sessions))
+        .route("/recurring", get(recurring))
+        .route("/arbitrations", get(arbitrations))
+        .route("/interactions", get(interactions))
+        .route("/snapshot", post(snapshot))
+        .route("/settings", get(settings).put(set_settings))
+        .route("/imprint", post(imprint))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_control_key,
+        ));
+    // The participant surface: delivering turns and mid-session joins (spec §Clients → platform
+    // clients). It carries platform identity in the payload, never operator authority.
+    let platform = Router::new()
+        .route("/message", post(message))
+        .route("/join", post(join))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_platform_key,
+        ));
     Router::new()
+        // The reserved web-debugger root stays ungated for now (a static placeholder); the real UI
+        // will move under the control surface when it lands.
         .route("/", get(root))
-        .route("/control/health", get(health))
-        // The operator surface: agent creation and read-only inspection (spec §Clients → control
-        // clients). The CLI and the future web debugger drive these.
-        .route("/control/agent", post(create_agent))
-        .route("/control/genesis", get(genesis))
-        .route("/control/memory", get(memory))
-        .route("/control/memories", get(memories))
-        .route("/control/entries", get(entries))
-        .route("/control/sessions", get(sessions))
-        .route("/control/recurring", get(recurring))
-        .route("/control/arbitrations", get(arbitrations))
-        .route("/control/interactions", get(interactions))
-        .route("/control/snapshot", post(snapshot))
-        .route("/control/settings", get(settings).put(set_settings))
-        .route("/control/imprint", post(imprint))
-        // The participant surface: delivering turns and mid-session joins (spec §Clients → platform
-        // clients). It carries platform identity in the payload, never operator authority.
-        .route("/platform/message", post(message))
-        .route("/platform/join", post(join))
+        .nest("/control", control)
+        .nest("/platform", platform)
         .with_state(state)
+}
+
+/// Operator-surface auth: a loopback peer passes without a key; a remote peer must present a valid
+/// control key (spec §Trust model).
+async fn require_control_key(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    authorize(&state.control_keys, peer, request, next).await
+}
+
+/// Participant-surface auth: the same rule against the platform key list.
+async fn require_platform_key(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    authorize(&state.platform_keys, peer, request, next).await
+}
+
+/// Trust a loopback peer; require a valid bearer key from every remote peer. Fail-closed — an empty
+/// key list rejects every remote peer, so a routable bind with no keys is a silent lockout rather than
+/// a silent exposure (spec §Trust model). A reverse proxy would make every peer appear loopback, so
+/// this must not be fronted by one without re-checking auth.
+async fn authorize(keys: &[String], peer: SocketAddr, request: Request, next: Next) -> Response {
+    if peer.ip().is_loopback() {
+        return next.run(request).await;
+    }
+    let presented = request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        // The scheme match is deliberately case-sensitive: the clients are ours, not arbitrary agents.
+        .and_then(|value| value.strip_prefix("Bearer "));
+    match presented {
+        Some(key) if key_is_valid(key, keys) => next.run(request).await,
+        _ => StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+/// Whether `presented` matches any configured key. Compares fixed-width SHA-256 digests rather than the
+/// raw strings, so the comparison time does not depend on the key's length or a shared prefix (a plain
+/// `==` on the strings would leak both through early exit); the whole list is scanned unconditionally
+/// (`|=`, not an early `return`), so the number of configured keys and the matching position do not
+/// leak through timing either.
+fn key_is_valid(presented: &str, keys: &[String]) -> bool {
+    let presented = Sha256::digest(presented.as_bytes());
+    let mut matched = false;
+    for key in keys {
+        matched |= presented == Sha256::digest(key.as_bytes());
+    }
+    matched
 }
 
 /// The reserved web-debugger root — a placeholder until the frontend lands.
@@ -582,11 +672,29 @@ mod tests {
     use super::{AppState, router};
     use axum::{
         body::Body,
+        extract::ConnectInfo,
         http::{Request, StatusCode},
     };
-    use std::sync::Arc;
+    use std::{net::SocketAddr, sync::Arc};
     use tower::ServiceExt;
     use zuihitsu::{Completion, ManualClock, ModelCall, ScriptedModel, Server, time::Timestamp};
+
+    /// No configured keys — the existing tests run loopback, where keys are not consulted.
+    fn no_keys() -> Arc<[String]> {
+        Vec::new().into()
+    }
+
+    /// A loopback peer extension to inject into a `oneshot` request (real `axum::serve` sets this from
+    /// the socket; `Request::builder()` does not). The auth middleware trusts a loopback peer, so the
+    /// existing assertions are unaffected.
+    fn loopback() -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0)))
+    }
+
+    /// A non-loopback peer extension, for the auth tests — a remote peer must present a valid key.
+    fn remote() -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::from(([203, 0, 113, 1], 1234)))
+    }
 
     /// The router serves `/control/health` over an in-memory server, with no real socket — `oneshot`
     /// drives one request through the tower service.
@@ -599,10 +707,13 @@ mod tests {
             server,
             model: None,
             snapshot_dir: None,
+            control_keys: no_keys(),
+            platform_keys: no_keys(),
         });
         let response = app
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .uri("/control/health")
                     .body(Body::empty())
                     .unwrap(),
@@ -626,6 +737,8 @@ mod tests {
             server,
             model: None,
             snapshot_dir: None,
+            control_keys: no_keys(),
+            platform_keys: no_keys(),
         });
 
         // Create the agent through the API.
@@ -638,6 +751,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .method("POST")
                     .uri("/control/agent")
                     .header("content-type", "application/json")
@@ -653,6 +767,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .uri("/control/genesis")
                     .body(Body::empty())
                     .unwrap(),
@@ -669,6 +784,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .uri("/control/memory?name=self")
                     .body(Body::empty())
                     .unwrap(),
@@ -680,6 +796,7 @@ mod tests {
         let missing = app
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .uri("/control/memory?name=person/nobody")
                     .body(Body::empty())
                     .unwrap(),
@@ -711,6 +828,8 @@ mod tests {
             server: Arc::new(server),
             model: Some(model),
             snapshot_dir: None,
+            control_keys: no_keys(),
+            platform_keys: no_keys(),
         });
 
         let body = serde_json::json!({
@@ -722,6 +841,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .method("POST")
                     .uri("/platform/message")
                     .header("content-type", "application/json")
@@ -758,6 +878,8 @@ mod tests {
             server: Arc::new(server),
             model: Some(model),
             snapshot_dir: None,
+            control_keys: no_keys(),
+            platform_keys: no_keys(),
         });
 
         let body = serde_json::json!({
@@ -769,6 +891,7 @@ mod tests {
         app.clone()
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .method("POST")
                     .uri("/platform/message")
                     .header("content-type", "application/json")
@@ -781,6 +904,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
+                    .extension(loopback())
                     .uri("/control/interactions")
                     .body(Body::empty())
                     .unwrap(),
@@ -818,6 +942,7 @@ mod tests {
         };
         let post = || {
             Request::builder()
+                .extension(loopback())
                 .method("POST")
                 .uri("/control/snapshot")
                 .body(Body::empty())
@@ -833,6 +958,8 @@ mod tests {
             server: Arc::new(born()),
             model: None,
             snapshot_dir: Some(dir.clone()),
+            control_keys: no_keys(),
+            platform_keys: no_keys(),
         });
         let response = app.oneshot(post()).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -844,8 +971,114 @@ mod tests {
             server: Arc::new(born()),
             model: None,
             snapshot_dir: None,
+            control_keys: no_keys(),
+            platform_keys: no_keys(),
         });
         let response = app.oneshot(post()).await.unwrap();
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    /// A router over a fresh in-memory server with the given per-surface keys — for the auth tests.
+    fn keyed_app(control: &[&str], platform: &[&str]) -> axum::Router {
+        let server = Arc::new(
+            Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap(),
+        );
+        let keys = |k: &[&str]| -> Arc<[String]> { k.iter().map(|s| s.to_string()).collect() };
+        router(AppState {
+            server,
+            model: None,
+            snapshot_dir: None,
+            control_keys: keys(control),
+            platform_keys: keys(platform),
+        })
+    }
+
+    /// A GET request from `peer`, optionally bearing `key`.
+    fn get(peer: ConnectInfo<SocketAddr>, uri: &str, key: Option<&str>) -> Request<Body> {
+        let mut builder = Request::builder().extension(peer).uri(uri);
+        if let Some(key) = key {
+            builder = builder.header("authorization", format!("Bearer {key}"));
+        }
+        builder.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_remote_peer_without_a_valid_key_is_rejected() {
+        let app = keyed_app(&["op-key"], &["pf-key"]);
+        // No Authorization header → 401, on both surfaces.
+        let response = app
+            .clone()
+            .oneshot(get(remote(), "/control/genesis", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .extension(remote())
+                    .method("POST")
+                    .uri("/platform/message")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        // A wrong key → 401.
+        let response = app
+            .oneshot(get(remote(), "/control/genesis", Some("nope")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_valid_key_authorizes_only_its_own_surface() {
+        let app = keyed_app(&["op-key"], &["pf-key"]);
+        // The control key opens a control route.
+        let response = app
+            .clone()
+            .oneshot(get(remote(), "/control/genesis", Some("op-key")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        // ...but the same key does NOT open a platform route — the surfaces are isolated.
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .extension(remote())
+                    .method("POST")
+                    .uri("/platform/message")
+                    .header("authorization", "Bearer op-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_loopback_peer_is_trusted_without_a_key() {
+        // Even with keys configured, a loopback peer needs none — the local CLI keeps working.
+        let app = keyed_app(&["op-key"], &["pf-key"]);
+        let response = app
+            .oneshot(get(loopback(), "/control/genesis", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn an_empty_key_list_is_fail_closed_for_remote_peers() {
+        // No keys configured + a remote peer → always rejected, so a wide bind with no keys is a
+        // silent lockout, never a silent exposure.
+        let app = keyed_app(&[], &[]);
+        let response = app
+            .oneshot(get(remote(), "/control/genesis", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
