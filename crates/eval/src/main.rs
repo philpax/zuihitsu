@@ -200,28 +200,28 @@ fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
     Ok(())
 }
 
-/// One compact, deterministically-ordered line per run, appended to the tracked history (spec
-/// §Validation → the tracked metrics trend).
-#[derive(Serialize)]
-struct HistoryLine {
-    ts_ms: i64,
-    git_sha: Option<String>,
-    model_id: String,
-    runs_per_scenario: u32,
-    scenarios: Vec<HistoryScenario>,
-}
-
-#[derive(Serialize)]
-struct HistoryScenario {
-    name: String,
-    rate: f64,
-    gating_passed: bool,
-    latency_p50_ms: u64,
-    total_tokens_mean: u64,
-}
-
 fn append_history(package: &EvalPackage) -> Result<(), EvalError> {
     use std::io::Write as _;
+
+    /// One compact, deterministically-ordered line per run, appended to the tracked history (spec
+    /// §Validation → the tracked metrics trend).
+    #[derive(Serialize)]
+    struct HistoryLine {
+        ts_ms: i64,
+        git_sha: Option<String>,
+        model_id: String,
+        runs_per_scenario: u32,
+        scenarios: Vec<HistoryScenario>,
+    }
+
+    #[derive(Serialize)]
+    struct HistoryScenario {
+        name: String,
+        rate: f64,
+        gating_passed: bool,
+        latency_p50_ms: u64,
+        total_tokens_mean: u64,
+    }
 
     let line = HistoryLine {
         ts_ms: package.meta.finished_at_ms,

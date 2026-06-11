@@ -4,7 +4,15 @@
 
 use std::collections::BTreeMap;
 
-use zuihitsu::{Event, EventPayload, MemoryId, TemporalRef, TurnRole};
+use zuihitsu::{Event, EventPayload, MemoryId, TemporalRef, TurnRole, Visibility};
+
+/// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
+/// landed on, its text, and the visibility it was written with.
+pub struct EntryFacts {
+    pub memory: String,
+    pub text: String,
+    pub visibility: Visibility,
+}
 
 /// Every agent reply, in order.
 pub fn agent_replies(events: &[Event]) -> Vec<&str> {
@@ -95,6 +103,79 @@ pub fn recurring_memory_names(events: &[Event]) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+/// Every durable content entry written in the run, with the memory it landed on and its visibility.
+pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
+    let names = memory_names(events);
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::MemoryContentAppended {
+                id,
+                text,
+                visibility,
+                ..
+            } => Some(EntryFacts {
+                memory: names.get(id).cloned().unwrap_or_default(),
+                text: text.clone(),
+                visibility: visibility.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Each memory's latest synthesized description (the always-visible summary), as `(name, text)`. A
+/// later regeneration supersedes an earlier one, so only the last per memory is kept.
+pub fn descriptions(events: &[Event]) -> Vec<(String, String)> {
+    let names = memory_names(events);
+    let mut latest: BTreeMap<MemoryId, String> = BTreeMap::new();
+    for event in events {
+        if let EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } = &event.payload {
+            latest.insert(*id, new_text.clone());
+        }
+    }
+    latest
+        .into_iter()
+        .map(|(id, text)| (names.get(&id).cloned().unwrap_or_default(), text))
+        .collect()
+}
+
+/// The reconciling statements of every belief arbitration the run recorded.
+pub fn arbitrations(events: &[Event]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::BeliefArbitrated { resolution, .. } => Some(resolution.statement.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether the run recorded any recurring occurrence — emitted inline on a content append or resolved
+/// by the turn-end temporal extraction. Either path proves the model produced a `Recurring` reference
+/// rather than flattening "every Tuesday" to a single day.
+pub fn has_recurring_occurrence(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::MemoryContentAppended {
+                occurred_at: Some(TemporalRef::Recurring(_)),
+                ..
+            } | EventPayload::EntryTemporalResolved {
+                occurred_at: TemporalRef::Recurring(_),
+                ..
+            }
+        )
+    })
+}
+
+/// A crude lexical leak backstop: the subject term co-occurring with any of `terms` in the text. A dumb
+/// floor under the judge — an obvious leak can't slip a judge hiccup — never the primary signal.
+pub fn lexical_leak(text: &str, subject: &str, terms: &[&str]) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains(&subject.to_lowercase()) && terms.iter().any(|term| lower.contains(term))
 }
 
 /// Whether `script` calls `path`: an occurrence of `path` immediately followed (whitespace aside) by an

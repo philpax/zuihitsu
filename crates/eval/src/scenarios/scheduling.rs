@@ -102,3 +102,43 @@ impl Scenario for RecurringReminder {
         ]
     }
 }
+
+/// Emitting a recurring occurrence from a plainly recurring phrase (migrated from `eval_recurrence.rs`).
+/// The deterministic tests prove a `Recurring` occurrence stores and reads back; this asks whether the
+/// model *emits* one for "every Tuesday" rather than flattening it to a single day. A tracked rate.
+pub struct RecurringEmission;
+
+#[async_trait]
+impl Scenario for RecurringEmission {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "emits_a_recurring_occurrence".to_owned(),
+            category: Category::Scheduling,
+            description: "From a plainly recurring phrase (\"every Tuesday\"), the agent emits a \
+                          recurring temporal reference rather than flattening it to a single day."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.6 },
+        }
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        ctx.turn(Turn::new(
+            "discord",
+            "leads",
+            "dave",
+            "Please remember that I have a team standup every Tuesday at 9am.",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+        let emitted = analysis::has_recurring_occurrence(events);
+        vec![Verdict::metric_outcome(
+            "emitted a recurring occurrence",
+            emitted,
+            "recorded a recurring temporal reference",
+            "flattened the recurrence to a single day, or recorded none",
+        )]
+    }
+}

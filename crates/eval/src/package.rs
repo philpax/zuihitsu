@@ -97,6 +97,23 @@ pub struct Verdict {
 }
 
 impl Verdict {
+    /// A gating safety oracle's outcome — a must-not-surface property whose regression fails the
+    /// harness. `judge_raw` carries the matcher's verbatim reasoning when one was consulted.
+    pub fn oracle(
+        criterion: impl Into<String>,
+        passed: bool,
+        rationale: impl Into<String>,
+        judge_raw: Option<String>,
+    ) -> Verdict {
+        Verdict {
+            criterion: criterion.into(),
+            kind: VerdictKind::Oracle,
+            passed,
+            rationale: rationale.into(),
+            judge_raw,
+        }
+    }
+
     /// A deterministically-checked quality metric (no judge; `judge_raw` is `None`).
     pub fn metric(
         criterion: impl Into<String>,
@@ -127,6 +144,23 @@ impl Verdict {
             when_failed.into()
         };
         Verdict::metric(criterion, passed, rationale)
+    }
+
+    /// A judged quality metric, carrying the matcher's verbatim reasoning (`judge_raw`) so a rate built
+    /// from model judgments stays reviewable.
+    pub fn metric_judged(
+        criterion: impl Into<String>,
+        passed: bool,
+        rationale: impl Into<String>,
+        judge_raw: String,
+    ) -> Verdict {
+        Verdict {
+            criterion: criterion.into(),
+            kind: VerdictKind::Metric,
+            passed,
+            rationale: rationale.into(),
+            judge_raw: Some(judge_raw),
+        }
     }
 
     /// A judged verdict, from the judge's outcome for `criterion`. A judge error is not a harness

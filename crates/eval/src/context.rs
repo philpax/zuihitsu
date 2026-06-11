@@ -26,8 +26,8 @@ pub struct RunDeps {
 }
 
 /// One inbound message for [`RunContext::turn`], named so a call site reads as what it is rather than
-/// as five positional strings. `present` is just the sender for now; a `with_present` override arrives
-/// with the privacy scenarios, where who else is in the room changes what may surface.
+/// as five positional strings. `present` defaults to just the sender; [`Turn::with_present`] overrides
+/// it when others share the room — who else is present changes what the visibility predicate surfaces.
 pub struct Turn<'a> {
     platform: &'a str,
     scope: &'a str,
@@ -46,6 +46,16 @@ impl<'a> Turn<'a> {
             text,
             present: vec![sender],
         }
+    }
+
+    /// Override who is present for this turn (the default is the sender alone). The sender is always
+    /// present, so it is added if the caller's set omits it.
+    pub fn with_present(mut self, present: &[&'a str]) -> Turn<'a> {
+        self.present = present.to_vec();
+        if !self.present.contains(&self.sender) {
+            self.present.push(self.sender);
+        }
+        self
     }
 }
 
@@ -102,6 +112,21 @@ impl RunContext {
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.
     pub fn advance(&self, delta_ms: i64) {
         self.clock.advance_millis(delta_ms);
+    }
+
+    /// Tighten the compaction trigger so a short scripted session crosses the token budget and flushes
+    /// before the cut (the fixture-22/23 setup). Sets the budget and the flush floor, leaving the rest
+    /// of the settings as seeded.
+    pub fn tighten_compaction(
+        &self,
+        token_budget: i64,
+        flush_min_turns: i64,
+    ) -> Result<(), EvalError> {
+        let mut settings = self.server.control().settings()?;
+        settings.compaction.token_budget = token_budget;
+        settings.compaction.flush_min_turns = flush_min_turns;
+        self.server.control().set_settings(settings)?;
+        Ok(())
     }
 
     /// Catch the vector index up to the log, so a fact written this run is searchable next turn (the
