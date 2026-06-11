@@ -13,5 +13,5 @@ __pycache__/
 /spike/runs/
 
 # Eval harness: full packages are heavy local artifacts; the metrics history is tracked.
-/eval/latest.json
+/eval/*.json
 /eval/runs/
