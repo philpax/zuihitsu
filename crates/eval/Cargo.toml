@@ -9,16 +9,12 @@ path = "src/main.rs"
 
 [dependencies]
 zuihitsu = { path = "../..", features = ["ts"] }
-async-trait = "0.1.89"
-clap = { version = "4.6.1", features = ["derive"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-tokio = { version = "1.52.3", features = [
-    "rt-multi-thread",
-    "macros",
-    "sync",
-    "time",
-] }
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-ts-rs = "11.0"
+async-trait = { workspace = true }
+clap = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ts-rs = { workspace = true }
