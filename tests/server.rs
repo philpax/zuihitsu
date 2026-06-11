@@ -143,16 +143,14 @@ async fn the_indexer_catches_the_vector_index_up_to_the_log() {
 /// so a test can advance time.
 fn born_agent() -> (Server, ManualClock) {
     let clock = ManualClock::new(TEST_NOW);
-    let mut server = Server::new(
+    let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
         Box::new(clock.clone()),
     );
+    // `create_agent` baselines the describer cursor past genesis, so a synchronous catch-up never tries
+    // to regenerate the seeded `self` with a scripted response meant for the test's own writes.
     server.control().create_agent(&seed()).unwrap();
-    // Baseline the describer cursor past genesis: these tests script their own `synthesize` responses,
-    // so the catch-up must not also try to regenerate the seeded `self` (there is no scripted response
-    // for it). The served runtime does the same in `boot`.
-    server.boot().unwrap();
     (server, clock)
 }
 
@@ -278,6 +276,8 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
         Graph::open_in_memory().unwrap(),
         Box::new(clock.clone()),
     );
+    // `create_agent` baselines the describer cursor past genesis, so the open-time catch-up does not
+    // regenerate the seeded self with this test's scripted occurrence response.
     server.control().create_agent(&seed()).unwrap();
 
     // Plant a calendared item dated weeks ahead (the turn-end synthesis dates the entry), so it is not

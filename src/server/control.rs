@@ -122,6 +122,11 @@ impl Control<'_> {
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
+        // Baseline the describer cursor past genesis: the seeded `self` has no synthesized description
+        // yet, and nothing should try to regenerate it until real content is written (it would have no
+        // public entries, and a synchronous caller — a scripted test or the open-time forcing guard —
+        // must not block on it). The same baseline `boot` performs, here for the born-without-boot path.
+        self.server.baseline_describer_cursor()?;
         Ok(outcome)
     }
 
