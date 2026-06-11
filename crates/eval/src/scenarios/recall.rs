@@ -2,6 +2,8 @@
 //! (migrated from `real_model_recalls_a_fact_by_searching_its_memory`). A quality metric — the model
 //! sometimes misses — judged by whether the reply reflects the stored fact.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::Event;
 
@@ -13,6 +15,11 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(Recall)]
+}
 
 pub struct Recall;
 

@@ -4,6 +4,8 @@
 //! statements, does it flag the conflict rather than silently smoothing it into one description? A
 //! tracked quality rate, not a safety gate — conflict detection is a model judgment.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::Event;
 
@@ -15,6 +17,11 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(Contradiction)]
+}
 
 pub struct Contradiction;
 

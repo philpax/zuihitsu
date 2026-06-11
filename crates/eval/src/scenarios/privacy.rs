@@ -3,6 +3,8 @@
 //! sensitive aside non-`Public` (19, metric), and marking a sensitive non-person memory that has no
 //! mechanism net (20, metric — a floor-capability probe for the flagged gap).
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::{Event, Visibility};
 
@@ -14,6 +16,15 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![
+        Arc::new(ThirdPartyResidual),
+        Arc::new(FreshSensitiveAside),
+        Arc::new(SensitiveNonPerson),
+    ]
+}
 
 /// The judge re-evaluates the gating reply this many times; any "yes" counts (one-sided toward leak
 /// detection).

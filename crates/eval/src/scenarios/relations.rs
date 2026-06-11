@@ -2,6 +2,8 @@
 //! `real_model_links_two_people_who_know_each_other`). A quality metric: does the agent reach for a
 //! structured `mem:link` (with the seeded `knows` relation) rather than only recording prose?
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::Event;
 
@@ -13,6 +15,11 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(Knows)]
+}
 
 pub struct Knows;
 

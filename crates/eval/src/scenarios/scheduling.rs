@@ -3,6 +3,8 @@
 //! Thing: from an un-coached request, record the reminder as a recurring occurrence on an `event/`
 //! memory (which then fires a week later when the clock advances and a fresh session opens).
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::Event;
 
@@ -14,6 +16,11 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(RecurringReminder), Arc::new(RecurringEmission)]
+}
 
 /// Eight days — past the first weekly instance of a reminder recorded at the run's start.
 const EIGHT_DAYS_MS: i64 = 8 * 24 * 60 * 60 * 1_000;

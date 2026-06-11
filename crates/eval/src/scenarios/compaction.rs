@@ -7,6 +7,8 @@
 //! state. The visibility column does the first, exact cut for 22 — only `Public` durable entries can
 //! leak — then a paraphrase-aware matcher (a lexical backstop OR the conservative judge) reads them.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::{Event, Visibility};
 
@@ -18,6 +20,11 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(FlushVisibility), Arc::new(WorkingState)]
+}
 
 /// The private aside the scenario plants: told by Dave, in confidence, about absent Erin. Fixture 22
 /// asserts no durable `Public` entry conveys it.

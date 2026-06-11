@@ -2,6 +2,8 @@
 //! `real_model_marks_a_room_confidential_with_a_tag`). A quality metric: the user never says
 //! "confidential," so applying the tag means the agent understood the cue's purpose.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use zuihitsu::Event;
 
@@ -13,6 +15,11 @@ use crate::{
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
 };
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(Confidential)]
+}
 
 pub struct Confidential;
 
