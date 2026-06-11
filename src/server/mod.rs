@@ -304,6 +304,7 @@ impl Server {
             inbound: routed.inbound,
             inbound_participant: routed.participant,
             brief: &open.brief,
+            session_started_at: open.started_at,
             buffer: &buffer,
             template: routed.template,
             authority: routed.authority,
@@ -418,6 +419,7 @@ impl Server {
             id,
             vm,
             brief,
+            started_at: now,
             last_activity: AtomicI64::new(now.as_millis()),
             start_seq: carryover
                 .map(|carry| carry.from_seq)
@@ -692,6 +694,11 @@ struct OpenSession {
     id: SessionId,
     vm: Session,
     brief: String,
+    /// When the session opened — the time frozen into the system prompt's "the session begins on …",
+    /// so every turn in the session sends an identical system prefix (the live wall clock rides in the
+    /// per-message stamps instead). Holding it stable is what lets the serving layer reuse the prefix
+    /// cache across the session's turns.
+    started_at: Timestamp,
     /// The last-activity wall-clock in epoch millis, the idle-gap is measured from. Atomic so the
     /// idle-reuse path can bump it through the shared `&OpenSession` without a map-wide write lock.
     last_activity: AtomicI64,

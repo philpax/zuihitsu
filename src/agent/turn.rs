@@ -173,6 +173,10 @@ pub struct Turn<'a> {
     /// The session's frozen contextual brief, interpolated into the system prompt (captured on
     /// `SessionStarted`, so every turn in the session sees the same brief).
     pub brief: &'a str,
+    /// When the session opened, frozen into the system prompt's "the session begins on …". Held
+    /// stable across the session's turns (the live time rides in the per-message stamps) so the system
+    /// prefix is identical turn to turn and the serving layer can reuse its prefix cache.
+    pub session_started_at: Timestamp,
     /// The live buffer recorded before this inbound message — the session's prior turns, replayed as
     /// the prompt suffix after the frozen prefix ([`buffer_turns`]). Empty for the first turn of a
     /// session (or whenever the caller wants a single-message prompt).
@@ -205,6 +209,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         inbound,
         inbound_participant,
         brief,
+        session_started_at,
         buffer,
         template,
         authority,
@@ -255,13 +260,16 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // servers' projected tools (runtime-derived from the session's catalogue). The tag vocabulary is
     // runtime data, read from the graph above and rendered alongside the API description.
     let api_reference = full_api_reference(session);
+    // The time is frozen to the session's start, not the live clock: every turn in the session then
+    // sends an identical system prefix (current time rides in the per-message stamps below), so the
+    // serving layer can reuse its prefix cache across the session rather than re-encoding on each turn.
     let system = system_prompt::assemble(
         &framing_body,
         &identity,
         &api_reference,
         &vocabulary,
         brief,
-        engine.clock.now(),
+        session_started_at,
     );
 
     // Provenance for the agent's turn: the chat model and the template it ran against. If the
@@ -330,6 +338,9 @@ pub(crate) struct Flush<'a> {
     pub model: &'a dyn ModelClient,
     pub engine: Arc<Engine>,
     pub brief: &'a str,
+    /// When the session opened, frozen into the system prompt's time so the flush sends the same system
+    /// prefix the session's live turns did (see [`Turn::session_started_at`]).
+    pub session_started_at: Timestamp,
     pub buffer: &'a [TurnView],
     /// The session's participants — the visibility set the flush's `memory.search` filters against
     /// (see [`BlockContext::present_set`]).
@@ -355,6 +366,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         model,
         engine,
         brief,
+        session_started_at,
         buffer,
         present_set,
         max_steps,
@@ -385,7 +397,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         &api_reference,
         &vocabulary,
         brief,
-        engine.clock.now(),
+        session_started_at,
     );
     let provenance = Some(ProducedBy {
         model_id: model.model_id().into(),

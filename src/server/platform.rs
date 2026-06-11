@@ -278,6 +278,7 @@ impl Platform<'_> {
                 model,
                 engine: self.server.engine.clone(),
                 brief: &open.brief,
+                session_started_at: open.started_at,
                 buffer: &buffer,
                 present_set: &present_set,
                 max_steps: settings.turn.max_steps as usize,
