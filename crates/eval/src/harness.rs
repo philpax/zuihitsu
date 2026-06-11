@@ -3,7 +3,7 @@
 //! collected logs (judge calls only). Both phases are bounded by the same concurrency. Then metrics
 //! from the `ModelCalled` events and an aggregate per scenario.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use tokio::{sync::Semaphore, task::JoinSet};
 use zuihitsu::{Event, EventPayload, GenerateRequest, Message, ModelPhase};
@@ -17,8 +17,13 @@ use crate::{
     scenario::Scenario,
 };
 
-/// One run's log after phase one: the event log, or the reason it did not complete.
-type DrivenRun = Result<Vec<Event>, String>;
+/// One run after phase one: its event log (or the reason it did not complete) and the wall-clock it
+/// took to drive — the truthful cost, since it includes the synchronous catch-ups whose synthesis
+/// records no `ModelCalled` (spec §Write path).
+struct DrivenRun {
+    log: Result<Vec<Event>, String>,
+    wall_clock_ms: u64,
+}
 
 /// Issue one throwaway call to each model in play before any run is timed, so the serving layer has
 /// loaded its weights. Otherwise the first run absorbs cold-start latency that is the endpoint's, not
@@ -90,9 +95,14 @@ async fn drive_phase(
             let index = *index;
             set.spawn(async move {
                 let _permit = permit;
-                let driven = drive(scenario.as_ref(), &deps)
+                let started = Instant::now();
+                let log = drive(scenario.as_ref(), &deps)
                     .await
                     .map_err(|e| e.to_string());
+                let driven = DrivenRun {
+                    log,
+                    wall_clock_ms: started.elapsed().as_millis() as u64,
+                };
                 (index, run_index, driven)
             });
         }
@@ -169,14 +179,15 @@ async fn assess(
     driven: DrivenRun,
     judge: &Judge,
 ) -> RunRecord {
-    match driven {
+    let DrivenRun { log, wall_clock_ms } = driven;
+    match log {
         Ok(events) => {
             let verdicts = scenario.assess(&events, judge).await;
             let gating_passed = verdicts
                 .iter()
                 .filter(|verdict| matches!(verdict.kind, VerdictKind::Oracle))
                 .all(|verdict| verdict.passed);
-            let metrics = run_metrics(&events, gating_passed);
+            let metrics = run_metrics(&events, gating_passed, wall_clock_ms);
             RunRecord {
                 index,
                 events,
@@ -196,15 +207,17 @@ async fn assess(
             )],
             metrics: RunMetrics {
                 gating_passed: true,
+                wall_clock_ms,
                 ..RunMetrics::default()
             },
         },
     }
 }
 
-/// Sum the run's `ModelCalled` events into its metrics.
-fn run_metrics(events: &[Event], gating_passed: bool) -> RunMetrics {
+/// Sum the run's `ModelCalled` events into its metrics; `wall_clock_ms` is the measured drive time.
+fn run_metrics(events: &[Event], gating_passed: bool, wall_clock_ms: u64) -> RunMetrics {
     let mut metrics = RunMetrics {
+        wall_clock_ms,
         gating_passed,
         ..RunMetrics::default()
     };
@@ -239,6 +252,10 @@ fn aggregate(runs: &[RunRecord]) -> Aggregate {
         .count();
     let gating_passed = runs.iter().all(|run| run.metrics.gating_passed);
 
+    let wall_clocks: Vec<f64> = runs
+        .iter()
+        .map(|run| run.metrics.wall_clock_ms as f64)
+        .collect();
     let latencies: Vec<f64> = runs
         .iter()
         .map(|run| run.metrics.total_latency_ms as f64)
@@ -261,6 +278,7 @@ fn aggregate(runs: &[RunRecord]) -> Aggregate {
         runs: runs.len() as u32,
         rate: passed as f64 / n,
         gating_passed,
+        wall_clock_ms: stat(&wall_clocks),
         latency_ms: stat(&latencies),
         tokens: TokenStat {
             prompt_mean: mean(&prompt),

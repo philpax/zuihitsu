@@ -204,6 +204,13 @@ pub enum VerdictKind {
 pub struct RunMetrics {
     pub model_calls: u32,
     pub steps: u32,
+    /// The run's actual wall-clock to drive (turns plus the synchronous catch-ups it forces). The
+    /// truthful cost: unlike `total_latency_ms`, it includes work that records no `ModelCalled` — the
+    /// background describer's synthesis, run synchronously in the harness.
+    #[ts(type = "number")]
+    pub wall_clock_ms: u64,
+    /// Summed `ModelCalled` duration. Conversational model calls only — off-hot-path synthesis records
+    /// no `ModelCalled`, so this undercounts total compute; read `wall_clock_ms` for that.
     #[ts(type = "number")]
     pub total_latency_ms: u64,
     pub prompt_tokens: u32,
@@ -221,6 +228,8 @@ pub struct Aggregate {
     pub rate: f64,
     /// True iff every gating oracle held in every run (the safety invariant; drives the exit code).
     pub gating_passed: bool,
+    /// The per-run drive wall-clock distribution (the truthful cost; see [`RunMetrics::wall_clock_ms`]).
+    pub wall_clock_ms: Stat,
     pub latency_ms: Stat,
     pub tokens: TokenStat,
     pub steps_mean: f64,

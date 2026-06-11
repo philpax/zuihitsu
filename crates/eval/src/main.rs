@@ -159,6 +159,7 @@ async fn run(
             scenario = %report.meta.name,
             rate = report.aggregate.rate,
             gating = report.aggregate.gating_passed,
+            wall_p50_ms = report.aggregate.wall_clock_ms.p50,
             latency_p50_ms = report.aggregate.latency_ms.p50,
             "scenario result"
         );
@@ -219,6 +220,7 @@ fn append_history(package: &EvalPackage) -> Result<(), EvalError> {
         name: String,
         rate: f64,
         gating_passed: bool,
+        wall_clock_p50_ms: u64,
         latency_p50_ms: u64,
         total_tokens_mean: u64,
     }
@@ -236,6 +238,7 @@ fn append_history(package: &EvalPackage) -> Result<(), EvalError> {
                 // Round so an unchanged result produces an identical line (clean diffs/appends).
                 rate: (report.aggregate.rate * 1000.0).round() / 1000.0,
                 gating_passed: report.aggregate.gating_passed,
+                wall_clock_p50_ms: report.aggregate.wall_clock_ms.p50.round() as u64,
                 latency_p50_ms: report.aggregate.latency_ms.p50.round() as u64,
                 total_tokens_mean: report.aggregate.tokens.total_mean.round() as u64,
             })
