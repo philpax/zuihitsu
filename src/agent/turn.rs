@@ -355,11 +355,13 @@ pub(crate) struct Flush<'a> {
     pub capture: CaptureLevel,
 }
 
-/// Run the budget-gated pre-compaction flush: one agent turn, framed by the `Flush` template, whose
-/// job is to write durable working state to memory before the session is cut (spec §Compaction). It
-/// sees the full session buffer, acts unprompted (`Initiation::Initiated`), and attributes its writes
-/// to the agent. An ordinary `ConversationTurn` + `LuaExecuted`, fully logged and replay-trivial. A
-/// no-op if no `Flush` template is registered (an agent born before the template shipped).
+/// Run the budget-gated pre-compaction flush: one agent turn whose job is to write durable working
+/// state to memory before the session is cut (spec §Compaction). It reuses the session's scaffold
+/// system prompt and appends the `Flush` template's instruction as a trailing system message, so the
+/// cached system-plus-buffer prefix is preserved rather than re-encoded. It sees the full session
+/// buffer, acts unprompted (`Initiation::Initiated`), and attributes its writes to the agent. An
+/// ordinary `ConversationTurn` + `LuaExecuted`, fully logged and replay-trivial. A no-op if no `Flush`
+/// template is registered (an agent born before the template shipped).
 pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     let Flush {
         session,
@@ -374,11 +376,21 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         max_block_attempts,
         capture,
     } = flush;
-    let Some(template) =
+    // The flush's standing instruction comes from the `Flush` template; without it there is nothing to
+    // flush. It rides as a trailing message (below), not as the system prompt.
+    let Some(flush_instruction) =
         templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Flush)?
     else {
         return Ok(());
     };
+    // Frame the flush with the SAME scaffold system prompt the session's live turns used, so the
+    // identical system-plus-buffer prefix is already in the serving layer's cache. Swapping in a
+    // distinct flush system prompt (the old shape) changed token zero and forced a full re-encode of
+    // the whole buffer at max context — the worst-case latency on the hot path.
+    let scaffold =
+        templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Scaffold)?
+            .map(|template| template.body)
+            .unwrap_or_default();
 
     let (identity, vocabulary) = {
         let graph = engine.graph.lock();
@@ -392,27 +404,29 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     };
     let api_reference = full_api_reference(session);
     let system = system_prompt::assemble(
-        &template.body,
+        &scaffold,
         &identity,
         &api_reference,
         &vocabulary,
         brief,
         session_started_at,
     );
+    // The turn is still a flush for provenance — the `Flush` instruction drove it — even though the
+    // scaffold now frames the system prompt.
     let provenance = Some(ProducedBy {
         model_id: model.model_id().into(),
         template_name: PromptTemplateName::Flush,
-        template_version: template.version,
+        template_version: flush_instruction.version,
     });
 
     let turn_id = TurnId::generate();
     let cycle_start = engine.store.lock().head()?;
-    // The buffer is the flush's whole context; a final user nudge gives the model a turn to respond
-    // to (the transcript may end on an assistant turn) and states the flush's standing instruction.
+    // The buffer is the flush's whole context; the flush instruction is appended as a trailing
+    // system-role message — a stronger reframing than a user turn, while leaving the cached prefix
+    // intact. (If a serving backend rejects a non-leading system message, switch this to
+    // `Message::user`.)
     let mut messages = buffer_messages(buffer);
-    messages.push(Message::user(
-        "The session is ending — record anything from it worth keeping that you have not already.",
-    ));
+    messages.push(Message::system(flush_instruction.body));
 
     run_steps(Steps {
         session,
