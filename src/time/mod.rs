@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 /// human-readable queries and recency math; `Seq` is the authoritative timeline, and `Seq` breaks
 /// ties (see spec §Time → sequence vs wall-clock).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Timestamp(pub i64);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Timestamp(#[cfg_attr(feature = "ts", ts(type = "number"))] pub i64);
 
 impl Timestamp {
     pub fn from_millis(millis: i64) -> Timestamp {

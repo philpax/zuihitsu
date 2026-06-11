@@ -1,0 +1,24 @@
+[package]
+name = "zuihitsu-eval"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "eval"
+path = "src/main.rs"
+
+[dependencies]
+zuihitsu = { path = "../..", features = ["ts"] }
+async-trait = "0.1.89"
+clap = { version = "4.6.1", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+ts-rs = "11.0"

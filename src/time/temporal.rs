@@ -30,6 +30,7 @@ pub const BEFORE_AFTER_EPSILON_MILLIS: i64 = MILLIS_PER_HOUR;
 /// ("last week") are resolved to this type by a later increment's extraction pass, not here.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TemporalRef {
     /// A precise instant.
     Instant(Timestamp),
@@ -50,6 +51,7 @@ pub enum TemporalRef {
 /// Which side of an anchor a [`TemporalRef::BeforeAfter`] sits on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Direction {
     Before,
     After,
@@ -59,14 +61,16 @@ pub enum Direction {
 /// preserves "render it as a day" and lets the materializer derive its noon and day bounds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct CivilDate(pub SmolStr);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct CivilDate(#[cfg_attr(feature = "ts", ts(type = "string"))] pub SmolStr);
 
 /// An RFC-5545 recurrence rule, stored verbatim. The denormalization here leaves it sort-null (no
 /// fixed instant); a supported subset (`FREQ` + `INTERVAL`) is interpreted by [`super::next_occurrence`]
 /// when the scheduler and calendar need concrete instances.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Rrule(pub SmolStr);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Rrule(#[cfg_attr(feature = "ts", ts(type = "string"))] pub SmolStr);
 
 /// The three instants the materializer denormalizes from a [`TemporalRef`]: a representative `sort`
 /// for ranking, and a `[lo, hi]` bounding interval for calendar windows. Any may be absent (e.g. a

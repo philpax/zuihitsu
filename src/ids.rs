@@ -11,7 +11,8 @@ use ulid::Ulid;
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-pub struct Seq(pub u64);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Seq(#[cfg_attr(feature = "ts", ts(type = "number"))] pub u64);
 
 impl Seq {
     /// The position before the first event. `read_from(Seq::ZERO)` returns the whole log.
@@ -26,7 +27,8 @@ impl Seq {
 /// The canonical, immutable, internal identity of a memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MemoryId(pub Ulid);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MemoryId(#[cfg_attr(feature = "ts", ts(type = "string"))] pub Ulid);
 
 impl MemoryId {
     /// Mint a fresh identity. ULIDs are time-ordered and globally unique; the minted value is
@@ -40,7 +42,8 @@ impl MemoryId {
 /// [`ConversationLocator`] and persisting across sessions for the agent's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ConversationId(pub Ulid);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ConversationId(#[cfg_attr(feature = "ts", ts(type = "string"))] pub Ulid);
 
 impl ConversationId {
     pub fn generate() -> ConversationId {
@@ -53,8 +56,11 @@ impl ConversationId {
 /// key (`direct`, `discord`, `slack`); `scope_path` locates the room within it (a channel id, a DM
 /// thread). Two locators name the same room exactly when both fields match.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ConversationLocator {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub platform: SmolStr,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub scope_path: SmolStr,
 }
 
@@ -75,7 +81,8 @@ impl ConversationLocator {
 /// re-segment) and closes on idle (spec §Conversations).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SessionId(pub Ulid);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionId(#[cfg_attr(feature = "ts", ts(type = "string"))] pub Ulid);
 
 impl SessionId {
     pub fn generate() -> SessionId {
@@ -87,7 +94,8 @@ impl SessionId {
 /// turn. A block's buffered side effects and its `LuaExecuted` share their turn's id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct TurnId(pub Ulid);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TurnId(#[cfg_attr(feature = "ts", ts(type = "string"))] pub Ulid);
 
 impl TurnId {
     pub fn generate() -> TurnId {
@@ -99,7 +107,8 @@ impl TurnId {
 /// arbitration references, and per-entry vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct EntryId(pub Ulid);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EntryId(#[cfg_attr(feature = "ts", ts(type = "string"))] pub Ulid);
 
 impl EntryId {
     pub fn generate() -> EntryId {
@@ -110,7 +119,8 @@ impl EntryId {
 /// A memory's agent-facing handle, namespaced by kind (e.g. `person/dave`, `topic/climbing`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MemoryName(pub SmolStr);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MemoryName(#[cfg_attr(feature = "ts", ts(type = "string"))] pub SmolStr);
 
 impl MemoryName {
     /// The reserved handle of the agent's self-model memory: seeded at genesis, and writable only

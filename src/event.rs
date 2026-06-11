@@ -23,6 +23,7 @@ use crate::{
 
 /// How sharply a memory's facts decay in search ranking (spec §Data model). Defaults to `Medium`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Volatility {
     Low,
     #[default]
@@ -52,6 +53,7 @@ impl Volatility {
 /// A relation endpoint's cardinality. `One` means a memory has at most one link of this relation
 /// in that direction (enforcement of the replace-on-`One` rule is the Lua layer's, Stage 4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Cardinality {
     One,
     Many,
@@ -76,6 +78,7 @@ impl Cardinality {
 
 /// Who authored a link: the agent itself, or an operator acting through the control panel/debugger.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
     Agent,
     Debugger,
@@ -102,6 +105,7 @@ impl LinkSource {
 /// for genesis, `Orchestration` for prompt templates, `Debugger` for operator/control writes, and
 /// `Agent` for the agent's own (spec §Initialization, §Trust model).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventSource {
     Bootstrap,
     Agent,
@@ -112,6 +116,7 @@ pub enum EventSource {
 /// The author of a conversation turn (spec §Event sourcing → ConversationTurn). The participant and
 /// session bindings arrive with the conversation machinery at Stage 8.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TurnRole {
     /// An inbound participant message.
     Participant,
@@ -123,6 +128,7 @@ pub enum TurnRole {
 
 /// Whether a turn is the agent responding to a message or acting unprompted (spec §Time).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Initiation {
     Responding,
     Initiated,
@@ -132,6 +138,7 @@ pub enum Initiation {
 /// commits normally has no terminal cause; one the agent observed failing or deliberately aborting
 /// records why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TerminalCause {
     /// A runtime error the agent saw, as its message.
     Error(String),
@@ -143,6 +150,7 @@ pub enum TerminalCause {
 /// §Initialization → prompt templates). Serialized in kebab-case to match the human-facing names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PromptTemplateName {
     /// The system-prompt scaffold.
     Scaffold,
@@ -173,7 +181,9 @@ impl PromptTemplateName {
 /// so "which model and template produced this" is answerable, and so regenerative replay knows what
 /// to re-run; purely mechanical events leave it `None`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ProducedBy {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub model_id: SmolStr,
     pub template_name: PromptTemplateName,
     pub template_version: u32,
@@ -182,6 +192,7 @@ pub struct ProducedBy {
 /// How a [`EventPayload::BeliefArbitrated`] was resolved: which competing entries the agent credited
 /// (by `EntryId`) and the one-line reconciling statement it wrote (spec §Write path → arbitration).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ArbitrationResolution {
     pub credited: Vec<EntryId>,
     pub statement: String,
@@ -191,6 +202,7 @@ pub struct ArbitrationResolution {
 /// or the post-turn description synthesis (spec §Observability). Paired with `turn_id`, it groups a
 /// phase's calls so the prompt can be reconstructed from the [`RequestRecord`] deltas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ModelPhase {
     /// A step of the agent loop (the model chooses a tool call or a reply).
     Step,
@@ -206,6 +218,7 @@ pub enum ModelPhase {
 /// the `Base` of its `(turn_id, phase)` group, then concatenating the `Continuation` deltas in `seq`
 /// order; the frozen fields come from the `Base`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum RequestRecord {
     /// The first call of a `(turn_id, phase)` group: the frozen request shape plus the initial
     /// message buffer the call was sent.
@@ -224,6 +237,7 @@ pub enum RequestRecord {
 /// authorship *authority*: `told_by` is the *teller* whose confidence the read-time predicate
 /// reasons about.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Teller {
     /// A conversation participant, identified by their `person/*` memory.
     Participant(MemoryId),
@@ -237,6 +251,7 @@ pub enum Teller {
 /// `visible(...)` interprets these against the present set; `PrivateToTeller` additionally never
 /// surfaces to the subject of a person memory.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Visibility {
     /// Surfaces to any present set, including the subject.
     Public,
@@ -252,27 +267,24 @@ pub enum Visibility {
 /// Not `Eq`: [`Settings`] carries `f32` search weights. Equality is `PartialEq` throughout.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventPayload {
     /// Marks a completed genesis sequence; boot branches on its presence, not on log emptiness.
     GenesisCompleted {
         manifest_hash: String,
+        #[cfg_attr(feature = "ts", ts(type = "Record<string, number>"))]
         template_versions: BTreeMap<String, u32>,
     },
     /// Creates an empty memory. Initial content is recorded as a paired content-append event, so
     /// there is exactly one provenance path for all content.
-    MemoryCreated {
-        id: MemoryId,
-        name: MemoryName,
-    },
+    MemoryCreated { id: MemoryId, name: MemoryName },
     MemoryRenamed {
         id: MemoryId,
         old_name: MemoryName,
         new_name: MemoryName,
     },
     /// Soft delete: contents are preserved for replay and audit; the projection sets a flag.
-    MemoryDeleted {
-        id: MemoryId,
-    },
+    MemoryDeleted { id: MemoryId },
     /// Records a content entry. `told_by` is the teller, `told_in` the context it was told in (a
     /// `context/*` memory, resolved to its confidentiality at Stage 8; `None` until contexts exist),
     /// and `visibility` governs the read-time predicate. `asserted_at` is when the agent recorded the
@@ -356,25 +368,31 @@ pub enum EventPayload {
     /// Creates a tag, which always forces a purpose. Distinct from application, which never mutates
     /// the description (spec §Lua API → tags).
     TagCreated {
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         name: TagName,
         description: String,
     },
     TagDescriptionChanged {
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         name: TagName,
         new_description: String,
     },
     TagAppliedToMemory {
         memory: MemoryId,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         tag: TagName,
     },
     TagRemovedFromMemory {
         memory: MemoryId,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         tag: TagName,
     },
     /// Registers a relation in the schema, accessible under either label; the inverse view's
     /// cardinality is computed (spec §Data model: the registry lives in data, not code).
     LinkTypeRegistered {
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         name: RelationName,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         inverse: RelationName,
         from_card: Cardinality,
         to_card: Cardinality,
@@ -387,12 +405,14 @@ pub enum EventPayload {
     LinkCreated {
         from: MemoryId,
         to: MemoryId,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         relation: RelationName,
         source: LinkSource,
     },
     LinkRemoved {
         from: MemoryId,
         to: MemoryId,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         relation: RelationName,
     },
     /// Registers a versioned prompt template (scaffold, regen, …). Orchestration config, not
@@ -469,9 +489,7 @@ pub enum EventPayload {
         context_memory: MemoryId,
     },
     /// Retires a conversation permanently — rare, since conversations are durable.
-    ConversationEnded {
-        id: ConversationId,
-    },
+    ConversationEnded { id: ConversationId },
     /// Opens a bounded activity window within a conversation — the brief-freeze unit.
     /// `participants` is the present set at open; `brief` is the composed brief captured verbatim so
     /// the frozen prompt is faithfully replayable (spec §System prompt → replay); `seeded_from_turn`
@@ -503,7 +521,9 @@ pub enum EventPayload {
     /// rather than as a relation.
     ParticipantIdentified {
         memory: MemoryId,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         platform: SmolStr,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         platform_user_id: SmolStr,
     },
 }
@@ -596,8 +616,10 @@ impl EventPayload {
 }
 
 /// A committed event: a payload assigned a position in the log's total order and stamped with the
-/// wall-clock time it was recorded. This is what a read returns; it is immutable.
-#[derive(Clone, Debug, PartialEq)]
+/// wall-clock time it was recorded. This is what a read returns; it is immutable. Serializable so it
+/// rides verbatim in an eval package and (later) over the debugger's wire (spec §Observability).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Event {
     pub seq: Seq,
     pub recorded_at: Timestamp,

@@ -10,7 +10,7 @@ use crate::{
         TurnOutcome,
         genesis::{self, GenesisStatus, Rollout, SeedSelf},
     },
-    event::{EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord},
+    event::{Event, EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord},
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationId, ConversationLocator, MemoryName, Seq, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
@@ -217,6 +217,13 @@ impl Control<'_> {
             }
         }
         Ok(out)
+    }
+
+    /// The whole event log, oldest first — the raw record everything else is derived from (spec
+    /// §Observability → the Events view). The eval harness embeds this per run, and the debugger
+    /// reconstructs its views from it.
+    pub fn events(&self) -> Result<Vec<Event>, ServerError> {
+        Ok(self.server.engine.store.lock().read_from(Seq::ZERO)?)
     }
 
     /// Inspect a memory's local content entries by name — their text, teller, and visibility — for

@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/eval"]
+
 [package]
 name = "zuihitsu"
 version = "0.1.0"
@@ -10,6 +13,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "zuihitsu"
 path = "src/main.rs"
+
+# The `ts` feature exports the event-log wire types to TypeScript via ts-rs, so the debugger/eval
+# viewer shares the agent's exact type contract. Off by default — only the eval crate enables it; the
+# main binary never carries ts-rs.
+[features]
+ts = ["dep:ts-rs"]
 
 [dependencies]
 async-openai = { version = "0.40.2", default-features = false, features = [
@@ -46,6 +55,7 @@ tokio = { version = "1.52.3", features = [
 toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+ts-rs = { version = "11.0", optional = true }
 ulid = { version = "1.2.1", features = ["serde"] }
 
 [dev-dependencies]

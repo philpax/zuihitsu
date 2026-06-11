@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 /// message that called tools; `tool_call_id` ties a tool-result message to the call it answers —
 /// the threading the OpenAI protocol needs across multi-step tool use.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Message {
     pub role: Role,
     pub content: String,
@@ -82,6 +83,7 @@ impl Message {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Role {
     System,
     User,
@@ -92,14 +94,17 @@ pub enum Role {
 /// A tool the model may call: its name, a description, and a JSON-Schema for its arguments, sent to
 /// the model so it produces well-formed calls.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
+    #[cfg_attr(feature = "ts", ts(type = "any"))]
     pub parameters: serde_json::Value,
 }
 
 /// One structured tool call emitted by the model. `arguments` is JSON, parsed by the caller.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
@@ -110,6 +115,7 @@ pub struct ToolCall {
 /// (the agent loop); `Required` forces it to call a tool, used to coerce structured output — e.g.
 /// description regeneration forces a single `describe` tool so the answer can't drift into prose.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ToolChoice {
     #[default]
     Auto,
@@ -133,6 +139,7 @@ pub struct GenerateRequest {
 /// one step (spec §Agent loop), or it ends the turn silently — a first-class outcome, distinct
 /// from an empty reply, for messages not addressed to the agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Completion {
     ToolCalls(Vec<ToolCall>),
     Reply(String),
@@ -148,6 +155,7 @@ pub enum Completion {
 /// `total_tokens` are recorded for observability (the model-interaction record) but do not drive the
 /// compaction trigger.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Usage {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,

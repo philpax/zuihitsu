@@ -26,6 +26,7 @@ use crate::{
 /// starting values (each substruct carries its own).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Settings {
     pub compaction: CompactionSettings,
     pub brief: BriefSettings,
@@ -39,6 +40,7 @@ pub struct Settings {
 /// Session segmentation and the carryover across a compaction seam.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CompactionSettings {
     /// Buffer token budget that triggers a re-segment.
     pub token_budget: i64,
@@ -56,6 +58,7 @@ pub struct CompactionSettings {
 /// Brief composition: what enters each brief, and how many participants get one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefSettings {
     pub token_budget: i64,
     pub recent_facts: i64,
@@ -69,6 +72,7 @@ pub struct BriefSettings {
 /// Scheduled-work delivery: the drained wake-up surface (spec §Agent-initiated speech).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SchedulerSettings {
     /// The most fired wake-ups a single session-open drain raises.
     pub max_wakeups_per_session: i64,
@@ -80,6 +84,7 @@ pub struct SchedulerSettings {
 /// The agent step loop.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TurnSettings {
     /// Per-turn step bound; hitting it ends the turn with a surfaced error.
     pub max_steps: i64,
@@ -98,6 +103,7 @@ pub struct TurnSettings {
 /// streams crowd the model. Read when the server is constructed, so a change takes effect on restart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ConcurrencySettings {
     /// The most conversation turns that may be in flight at once; further streams queue for a slot.
     pub max_concurrent_streams: i64,
@@ -108,6 +114,7 @@ pub struct ConcurrencySettings {
 /// material at the `Base` of each turn), so the verbosity is operator-tunable at runtime.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ObservabilitySettings {
     /// How much of each model call to record (the deliberation is always captured; this governs the
     /// request side).
@@ -117,6 +124,7 @@ pub struct ObservabilitySettings {
 /// How much of a model call's request the model-interaction record stores (spec §Observability). The
 /// deliberation — reasoning, finish reason, usage, latency — is captured at every level above `Off`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum CaptureLevel {
     /// The delta-encoded request plus a digest — full reconstruction of every prompt.
     #[default]
@@ -131,6 +139,7 @@ pub enum CaptureLevel {
 /// decay.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SearchSettings {
     pub cosine: f32,
     pub bm25: f32,
@@ -141,6 +150,7 @@ pub struct SearchSettings {
 /// The recency bonus and its volatility-dependent decay constant.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RecencySettings {
     /// Maximum recency contribution (at zero age).
     pub bonus: f32,
@@ -151,6 +161,7 @@ pub struct RecencySettings {
 /// The recency decay constant (in days) for each [`Volatility`](crate::event::Volatility) level.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TauDays {
     pub high: f32,
     pub medium: f32,
