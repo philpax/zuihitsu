@@ -56,6 +56,11 @@ struct AppState {
 /// an idle tick is cheap (it reads the log from the index's cursor and finds nothing).
 const INDEX_TICK_SECONDS: u64 = 5;
 
+/// How often the background describer catches memory descriptions up to the log. Like indexing, it runs
+/// off the hot path (spec §Write path → regenerate off the hot path), so a short poll keeps descriptions
+/// fresh without a per-turn cost; an idle tick is cheap.
+const DESCRIBE_TICK_SECONDS: u64 = 5;
+
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
 pub fn run_blocking(config_path: &Path) -> Result<(), ServeError> {
@@ -155,6 +160,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         }
     });
 
+    // The background describer regenerates memory descriptions (and arbitration and temporal
+    // extraction) off the hot path (spec §Write path → regenerate off the hot path). Spawned only when
+    // a model is configured; without one there is nothing to run the synthesis call.
+    let describer = model.as_ref().map(|model| {
+        let server = server.clone();
+        let model = model.clone();
+        tokio::spawn(async move {
+            server
+                .run_describer(
+                    model,
+                    Duration::from_secs(DESCRIBE_TICK_SECONDS),
+                    shutdown_signal(),
+                )
+                .await
+        })
+    });
+
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
     // §Snapshots), when enabled. Stops on the same shutdown signal.
     let snapshotter = config.snapshots.enabled.then(|| {
@@ -190,6 +212,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     tracing::info!("shutdown signal received; stopping");
     let _ = driver.await;
     let _ = indexer.await;
+    if let Some(describer) = describer {
+        let _ = describer.await;
+    }
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;
     }

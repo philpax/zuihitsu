@@ -33,7 +33,7 @@ use crate::{
         McpCatalogue, Turn, TurnError, TurnReport, TurnView, buffer_turns,
         genesis::{self, GenesisStatus},
         lua::Session,
-        run_turn,
+        run_describe_catch_up, run_turn,
     },
     clock::Clock,
     engine::Engine,
@@ -78,6 +78,12 @@ pub struct Server {
     /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
     /// shared-`&Server` reason as `sessions`.
     pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
+    /// The describer's cursor: the log seq through which descriptions have been regenerated. The
+    /// background describer (and the explicit `describe_catch_up`) advances it as it catches synthesized
+    /// descriptions up to the log off the hot path (spec §Write path → regenerate off the hot path).
+    /// In-memory; `boot` re-seeds it to log-head, treating already-written state as described — a crash
+    /// mid-regen self-heals on the memory's next write rather than re-describing the whole log at boot.
+    describer_cursor: Mutex<Seq>,
     /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
     /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
     /// model at once; further streams queue. Sized from settings at construction (a change takes
@@ -131,6 +137,7 @@ impl Server {
             engine,
             sessions: Mutex::new(HashMap::new()),
             pending_carryover: Mutex::new(HashMap::new()),
+            describer_cursor: Mutex::new(Seq::ZERO),
             streams,
             mcp: None,
         }
@@ -168,6 +175,10 @@ impl Server {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
+        // Seed the describer's cursor to log-head: state written before this boot is treated as already
+        // described, so a restart does not re-describe the whole log (spec §Write path). New writes from
+        // here are caught up off the hot path.
+        *self.describer_cursor.lock() = self.engine.store.lock().head()?;
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "server booted");
         Ok(status)
@@ -642,6 +653,48 @@ impl Server {
             }
         }
         tracing::info!("indexer stopped");
+    }
+
+    /// Catch synthesized descriptions up to the log: regenerate every memory whose content changed
+    /// since the describer's cursor (description, belief arbitration, and temporal extraction), then
+    /// advance it (spec §Write path → regenerate off the hot path, as a catch-up). The synchronous
+    /// counterpart to the background describer — the same dual-mode shape as `index_catch_up` — driven
+    /// explicitly by tests and the eval harness so a caller can force regeneration to a known point and
+    /// then read fresh descriptions. Returns how many memories it considered.
+    pub async fn describe_catch_up(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+        let cursor = *self.describer_cursor.lock();
+        let (advanced, count) = run_describe_catch_up(&self.engine, model, cursor).await?;
+        *self.describer_cursor.lock() = advanced;
+        Ok(count)
+    }
+
+    /// The background describer: on each tick, catch synthesized descriptions up to the log off the
+    /// turn's hot path (spec §Write path). Idempotent and cursor-resumed, so an idle tick is cheap.
+    /// Stops on the shutdown signal; a failure is logged, not fatal — a description stays stale until
+    /// the next tick or the forcing guard before a brief.
+    pub async fn run_describer(
+        self: Arc<Self>,
+        model: Arc<dyn ModelClient>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match self.describe_catch_up(model.as_ref()).await {
+                        Ok(regenerated) if regenerated > 0 => {
+                            tracing::debug!(regenerated, "describer caught descriptions up")
+                        }
+                        Ok(_) => {}
+                        Err(error) => tracing::error!(%error, "describer: catch-up failed"),
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("describer stopped");
     }
 
     /// Tear down the live sessions at server shutdown: drain the session map and shut each session's

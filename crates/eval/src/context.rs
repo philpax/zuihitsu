@@ -136,6 +136,15 @@ impl RunContext {
         Ok(())
     }
 
+    /// Regenerate descriptions, belief arbitration, and temporal extraction for everything written so
+    /// far — the off-hot-path synthesis the background describer runs, driven explicitly (spec §Write
+    /// path). A scenario that asserts on a synthesized description, an arbitration, or a resolved
+    /// occurrence calls this after the turn that wrote it, before its log is assessed.
+    pub async fn describe_catch_up(&self) -> Result<(), EvalError> {
+        self.server.describe_catch_up(self.model.as_ref()).await?;
+        Ok(())
+    }
+
     /// The run's whole event log — the record the harness embeds and assessment reads.
     pub fn events(&self) -> Result<Vec<Event>, EvalError> {
         Ok(self.server.control().events()?)

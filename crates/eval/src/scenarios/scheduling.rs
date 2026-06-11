@@ -49,6 +49,9 @@ impl Scenario for RecurringReminder {
             "Can you remind me about our team standup? It's every Monday.",
         ))
         .await?;
+        // Temporal extraction (which schedules the recurrence) runs off the hot path; drive it before
+        // advancing the clock so the wake-up is actually scheduled to fire.
+        ctx.describe_catch_up().await?;
         // Advance past the first weekly instance, then a fresh-session turn fires the wake-up.
         ctx.advance(EIGHT_DAYS_MS);
         ctx.turn(Turn::new(
@@ -136,6 +139,9 @@ impl Scenario for RecurringEmission {
             "Please remember that I have a team standup every Tuesday at 9am.",
         ))
         .await?;
+        // The recurrence may be emitted by the off-hot-path temporal extraction; drive it before
+        // assessing.
+        ctx.describe_catch_up().await?;
         Ok(())
     }
 

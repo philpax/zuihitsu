@@ -237,8 +237,6 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             produced_by: None,
         },
     )?;
-    // Everything the cycle's blocks commit lands after this point, so it bounds the turn's writes.
-    let cycle_start = engine.store.lock().head()?;
 
     // Assemble the frozen system prompt once for the cycle: the `template` framing (Scaffold for a
     // participant turn, Imprint for the interview), the agent's identity from `self`, and the time.
@@ -307,22 +305,10 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     })
     .await?;
 
-    // Write path: coalesce the memories the turn wrote and regenerate each one's description from
-    // its entries. This runs after the reply is recorded, so a regeneration hiccup never costs the
-    // conversational outcome.
-    let written = collect_written_memories(engine.store.lock().as_ref(), cycle_start)?;
-    regenerate_descriptions(
-        model,
-        &engine,
-        &written,
-        cycle_start,
-        Recording {
-            conversation,
-            turn_id,
-            capture,
-        },
-    )
-    .await?;
+    // Description regeneration and temporal extraction for the memories this turn wrote run off the hot
+    // path, in the background describer (spec §Write path → regenerate off the hot path, as a
+    // catch-up), so the reply is not held waiting on summarization. The entries are committed and
+    // readable now; only the synthesized description lags until the next catch-up.
 
     Ok(TurnReport {
         outcome,
@@ -420,7 +406,6 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     });
 
     let turn_id = TurnId::generate();
-    let cycle_start = engine.store.lock().head()?;
     // The buffer is the flush's whole context; the flush instruction is appended as a trailing
     // system-role message — a stronger reframing than a user turn, while leaving the cached prefix
     // intact. (If a serving backend rejects a non-leading system message, switch this to
@@ -451,19 +436,9 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     })
     .await?;
 
-    let written = collect_written_memories(engine.store.lock().as_ref(), cycle_start)?;
-    regenerate_descriptions(
-        model,
-        &engine,
-        &written,
-        cycle_start,
-        Recording {
-            conversation: session.conversation(),
-            turn_id,
-            capture,
-        },
-    )
-    .await?;
+    // As with an ordinary turn, the flush's writes are regenerated off the hot path by the background
+    // describer (spec §Write path) — the flush stays cheap, and the post-compaction brief forces the
+    // catch-up for the working set before it composes (spec §Starvation bound).
     Ok(())
 }
 
@@ -503,7 +478,10 @@ fn stamp(text: &str, at: Timestamp) -> String {
 /// propagated.
 #[derive(Clone, Copy)]
 struct Recording {
-    conversation: ConversationId,
+    /// The conversation the recorded calls belong to, or `None` for off-conversation background work
+    /// (the description catch-up). A `None` recording emits no `ModelCalled` telemetry — there is no
+    /// conversation to attribute it to — but the work's own events still carry their `produced_by`.
+    conversation: Option<ConversationId>,
     turn_id: TurnId,
     capture: CaptureLevel,
 }
@@ -522,9 +500,13 @@ impl Recording {
         let started = Instant::now();
         let response = model.generate(request).await?;
         let duration_ms = started.elapsed().as_millis() as u64;
-        if self.capture != CaptureLevel::Off {
+        // Off-conversation background work (`conversation` is `None`) records no interaction event:
+        // there is no conversation to file it under, and its product carries its own provenance.
+        if self.capture != CaptureLevel::Off
+            && let Some(conversation) = self.conversation
+        {
             let event = EventPayload::ModelCalled {
-                conversation: self.conversation,
+                conversation,
                 turn_id: self.turn_id,
                 phase,
                 request_digest: request_digest(request),
@@ -615,7 +597,7 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
     } = steps;
     let conversation = session.conversation();
     let recording = Recording {
-        conversation,
+        conversation: Some(conversation),
         turn_id: context.turn_id,
         capture,
     };
@@ -717,6 +699,39 @@ fn collect_written_memories(
         }
     }
     Ok(ordered)
+}
+
+/// Catch descriptions up to the log off the hot path (spec §Write path → regenerate off the hot path,
+/// as a catch-up): regenerate every memory whose content changed in `(cursor, head]` and resolve any
+/// entries left untimed in that window, then return the head it advanced to and how many memories it
+/// considered. The background counterpart to the inline regeneration a turn used to do — driven by the
+/// served runtime on a timer and by tests and the eval harness explicitly. Its synthesis calls carry no
+/// conversation, so they record no `ModelCalled` telemetry; the `MemoryDescriptionRegenerated` events
+/// it emits still carry their `produced_by`. Idempotent: re-running from the same cursor reproduces the
+/// same events.
+pub async fn run_describe_catch_up(
+    engine: &Engine,
+    model: &dyn ModelClient,
+    cursor: Seq,
+) -> Result<(Seq, usize), TurnError> {
+    let head = engine.store.lock().head()?;
+    if head <= cursor {
+        return Ok((cursor, 0));
+    }
+    let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
+    regenerate_descriptions(
+        model,
+        engine,
+        &written,
+        cursor,
+        Recording {
+            conversation: None,
+            turn_id: TurnId::generate(),
+            capture: CaptureLevel::Off,
+        },
+    )
+    .await?;
+    Ok((head, written.len()))
 }
 
 /// Regenerate each written memory's description from its entries and, in the same model call,

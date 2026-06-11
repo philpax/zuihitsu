@@ -55,6 +55,9 @@ impl Scenario for DescriptionLeak {
              leave his company.",
         ))
         .await?;
+        // Descriptions are synthesized off the hot path; drive the catch-up so the always-visible
+        // summaries exist to be checked for the leak.
+        ctx.describe_catch_up().await?;
         Ok(())
     }
 

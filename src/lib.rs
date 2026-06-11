@@ -65,7 +65,7 @@ pub use vocabulary::{RelationName, TagName};
 pub use agent::{
     BlockContext, McpCatalogue, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
-    run_turn, session_touched,
+    run_describe_catch_up, run_turn, session_touched,
 };
 pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};

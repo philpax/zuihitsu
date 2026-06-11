@@ -50,6 +50,8 @@ impl Scenario for Contradiction {
              vegetarian at all.",
         ))
         .await?;
+        // Belief arbitration is synthesized off the hot path; drive it before the log is assessed.
+        ctx.describe_catch_up().await?;
         Ok(())
     }
 

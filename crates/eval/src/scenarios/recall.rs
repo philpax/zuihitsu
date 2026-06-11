@@ -50,7 +50,9 @@ impl Scenario for Recall {
              held in the Pied Piper conference room.",
         ))
         .await?;
-        // Embed what was written, as the background indexer would.
+        // Regenerate the memory's description off the hot path, then embed both it and the entry, as
+        // the background describer and indexer would.
+        ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // Turn 2: a different room, a different participant, an empty buffer — recall is the only path.
         ctx.turn(Turn::new(

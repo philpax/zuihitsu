@@ -10,13 +10,14 @@ pub mod time;
 pub use harness::Harness;
 
 mod harness {
-    use std::{sync::Arc, time::Duration};
+    use std::{cell::Cell, sync::Arc, time::Duration};
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
         FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryStore, ModelClient,
-        PromptTemplateName, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
+        PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
         model::index::{apply_batch, embed_batch},
+        run_describe_catch_up,
     };
 
     use super::time::TEST_NOW;
@@ -38,6 +39,10 @@ mod harness {
         pub session: Session,
         /// The stand-in inbound participant a turn is attributed to.
         pub participant: MemoryId,
+        /// The describer's cursor, mirroring the server's: descriptions have been regenerated through
+        /// this seq. Advanced by [`Harness::describe`]; baselined past genesis by
+        /// [`Harness::baseline_descriptions`] so a catch-up never reconsiders the seeded `self`.
+        describer_cursor: Cell<Seq>,
     }
 
     impl Default for Harness {
@@ -52,6 +57,7 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate()),
                 participant: MemoryId::generate(),
+                describer_cursor: Cell::new(Seq::ZERO),
             }
         }
     }
@@ -82,6 +88,7 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate()),
                 participant: MemoryId::generate(),
+                describer_cursor: Cell::new(Seq::ZERO),
             }
         }
 
@@ -95,6 +102,26 @@ mod harness {
                 .await
                 .unwrap();
             apply_batch(&mut **retrieval.vectors.lock(), batch).unwrap();
+        }
+
+        /// Baseline the describer cursor at the current log head — call after `genesis::rollout` so a
+        /// later [`Harness::describe`] only regenerates what the test itself wrote, not the seeded
+        /// `self` (whose description genesis already provided).
+        pub fn baseline_descriptions(&self) {
+            self.describer_cursor
+                .set(self.engine.store.lock().head().unwrap());
+        }
+
+        /// Run the description catch-up over everything written since the cursor — the off-hot-path
+        /// regeneration the server's background describer does, driven explicitly (spec §Write path).
+        /// Regenerates descriptions, belief arbitration, and temporal extraction for the memories the
+        /// turn(s) since the last call wrote, advancing the cursor.
+        pub async fn describe(&self, model: &dyn ModelClient) {
+            let (advanced, _) =
+                run_describe_catch_up(&self.engine, model, self.describer_cursor.get())
+                    .await
+                    .unwrap();
+            self.describer_cursor.set(advanced);
         }
 
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.

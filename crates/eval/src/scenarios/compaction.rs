@@ -148,6 +148,9 @@ impl Scenario for WorkingState {
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
         drive_session(ctx).await?;
+        // Force the description catch-up before the post-compaction brief composes, so it reads fresh
+        // prose for the flush's writes (spec §Starvation bound → composing a brief forces the catch-up).
+        ctx.describe_catch_up().await?;
         // The next message opens a session seeded from the compaction carryover; probe a thread worked
         // before the cut.
         ctx.turn(Turn::new(

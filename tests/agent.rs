@@ -95,6 +95,7 @@ async fn descriptions_regenerate_after_a_turn() {
         .lock()
         .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
+    h.baseline_descriptions();
 
     let model = ScriptedModel::new([
         // A public fact about Dave (the description is synthesized from Public entries only).
@@ -117,6 +118,7 @@ async fn descriptions_regenerate_after_a_turn() {
     run_turn(h.as_turn(&model, "Remember Dave", 8))
         .await
         .unwrap();
+    h.describe(&model).await;
 
     // The written memory's description was regenerated from its entries after the cycle.
     let dave = h
@@ -185,6 +187,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         .lock()
         .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
+    h.baseline_descriptions();
 
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("person/dave", "Met Dave last Tuesday")"#),
@@ -197,6 +200,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
     run_turn(h.as_turn(&model, "Remember Dave", 8))
         .await
         .unwrap();
+    h.describe(&model).await;
 
     // The untimed entry gained an occurrence, and an EntryTemporalResolved records it.
     let dave = h
@@ -271,6 +275,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         .lock()
         .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
+    h.baseline_descriptions();
 
     let model = ScriptedModel::new([
         run_lua_call(
@@ -287,6 +292,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
     run_turn(h.as_turn(&model, "Where does Dave work?", 8))
         .await
         .unwrap();
+    h.describe(&model).await;
 
     let dave = h
         .engine
@@ -352,6 +358,7 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
         .lock()
         .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
+    h.baseline_descriptions();
 
     // Dave's memory carries one public fact and one private, future-dated aside.
     let model = ScriptedModel::new([
@@ -371,6 +378,7 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     run_turn(h.as_turn(&model, "Remember Dave", 8))
         .await
         .unwrap();
+    h.describe(&model).await;
 
     // The description-synthesis prompt was shown the public fact but never the private aside — the leak
     // the split closes.
