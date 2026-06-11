@@ -49,7 +49,7 @@ enum Command {
         /// the wall-clock of a serial pass.
         #[arg(long, default_value_t = 1)]
         concurrency: usize,
-        /// Only run scenarios whose name contains this substring.
+        /// Only run scenarios whose name contains one of these comma-separated substrings.
         #[arg(long)]
         scenario: Option<String>,
         /// Where to write the full eval package.
@@ -136,7 +136,17 @@ async fn run(
 
     let mut scenarios = scenarios::all();
     if let Some(filter) = filter {
-        scenarios.retain(|scenario| scenario.meta().name.contains(filter));
+        // Comma-separated substrings, matched by OR — so a diverse subset can be selected in one run
+        // (e.g. `--scenario tag_room,recall,flush`), not just a single name.
+        let needles: Vec<&str> = filter
+            .split(',')
+            .map(str::trim)
+            .filter(|needle| !needle.is_empty())
+            .collect();
+        scenarios.retain(|scenario| {
+            let name = scenario.meta().name;
+            needles.iter().any(|needle| name.contains(needle))
+        });
     }
     tracing::info!(
         scenarios = scenarios.len(),
