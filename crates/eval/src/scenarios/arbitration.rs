@@ -1,8 +1,9 @@
-//! Flagging a direct contradiction (migrated from `eval_arbitration.rs`). The deterministic tests prove
-//! the mechanism — given an `arbitration` in the synthesize call, a `BeliefArbitrated` is recorded.
-//! This asks the harder question only the real model answers: shown two directly contradicting
-//! statements, does it flag the conflict rather than silently smoothing it into one description? A
-//! tracked quality rate, not a safety gate — conflict detection is a model judgment.
+//! Flagging a contradiction between accumulated beliefs (migrated from `eval_arbitration.rs`). Belief
+//! arbitration fires when the turn-end synthesis finds a memory's `Public` entries conflicting and
+//! reconciles them — so the conflict has to arrive as two separate public entries, not one summary.
+//! Two tellers give conflicting accounts of the same non-person fact across two turns (public by
+//! default), and the question is whether the model flags the conflict rather than silently smoothing
+//! it. A tracked quality rate, not a safety gate — conflict detection is a model judgment.
 
 use std::sync::Arc;
 
@@ -32,22 +33,34 @@ impl Scenario for Contradiction {
             name: "flags_a_contradiction".to_owned(),
             category: Category::Arbitration,
             description:
-                "Given two directly contradicting accounts of the same person in one message, \
-                          the agent flags the conflict (a belief arbitration) rather than silently \
-                          smoothing it into a single description."
+                "Told a non-person fact and then a conflicting account of it from a different teller \
+                          across two turns (so both land as public entries on one memory), the agent \
+                          flags the conflict as a belief arbitration rather than silently smoothing it \
+                          into a single description."
                     .to_owned(),
             bar: Bar::Metric { threshold: 0.5 },
         }
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Turn 1: establish one public account of where the Q3 offsite is.
         ctx.turn(Turn::new(
             "discord",
             "leads",
-            "dave",
-            "Two colleagues gave me contradictory accounts of Dave: Alice says Dave is a committed \
-             vegetarian who never eats meat, while Bob insists Dave eats steak every week and isn't \
-             vegetarian at all.",
+            "phil",
+            "For the Q3 planning notes: the team offsite this year is happening in Denver.",
+        ))
+        .await?;
+        ctx.describe_catch_up().await?;
+        // Turn 2: a different teller gives an independent, confident account of the same fact that
+        // happens to conflict — phrased as its own claim, not a correction of Phil's, so it lands as a
+        // second standing public entry the synthesis must reconcile rather than a supersession.
+        ctx.turn(Turn::new(
+            "discord",
+            "leads",
+            "erin",
+            "For the Q3 offsite, I've got Austin on my end — marketing locked in the Austin venue last \
+             week, so put that in the planning notes.",
         ))
         .await?;
         // Belief arbitration is synthesized off the hot path; drive it before the log is assessed.
