@@ -1333,10 +1333,38 @@ fn schema_of<T: JsonSchema>() -> serde_json::Value {
 
 /// Parse a forced `synthesize` tool call's arguments, or `None` if the model produced no usable call
 /// (no `synthesize` call, unparseable arguments, or an empty description).
+/// Parse a forced `synthesize` call leniently: the description and any arbitration are salvaged even
+/// when an `occurrence` is malformed, rather than discarding the whole call on one bad field. A smaller
+/// model often mis-shapes an occurrence (flattening the nested time, or inventing one for a statement
+/// with no temporal reference) while getting the description and arbitration right; a strict
+/// whole-struct parse would throw all of that away. Malformed occurrences are skipped, not fatal; a
+/// missing or empty description is, since that is the call's whole point.
 fn synthesize_argument(calls: &[ToolCall]) -> Option<SynthesizeArgs> {
     let call = calls.iter().find(|call| call.name == "synthesize")?;
-    let args: SynthesizeArgs = serde_json::from_str(&call.arguments).ok()?;
-    (!args.description.trim().is_empty()).then_some(args)
+    let value: serde_json::Value = serde_json::from_str(&call.arguments).ok()?;
+
+    let description = value.get("description")?.as_str()?.trim().to_owned();
+    if description.is_empty() {
+        return None;
+    }
+    let occurrences = value
+        .get("occurrences")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value::<ExtractedOccurrence>(item.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let arbitration = value
+        .get("arbitration")
+        .and_then(|value| serde_json::from_value::<ExtractedArbitration>(value.clone()).ok());
+    Some(SynthesizeArgs {
+        description,
+        occurrences,
+        arbitration,
+    })
 }
 
 /// One `ConversationTurn` to record: the inbound participant message, the agent's response, or a
