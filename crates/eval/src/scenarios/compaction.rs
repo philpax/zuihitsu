@@ -26,7 +26,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
     vec![
         Arc::new(FlushVisibility),
         Arc::new(WorkingState),
-        Arc::new(WorkingStateTwoCuts),
+        Arc::new(RepeatedCompaction),
     ]
 }
 
@@ -205,9 +205,9 @@ async fn drive_session(ctx: &RunContext) -> Result<(), EvalError> {
 
 /// A longer scripted session that crosses the token budget twice, to probe whether working state
 /// survives more than one compaction seam — a machinery bound, not a judgment one. The earliest fact
-/// (the Q3 "big rock") is stated up front, then seven more topics push through two cuts before a probe
+/// (the Q3 "big rock") is stated up front, then seven more topics push through several cuts before a probe
 /// asks for it back.
-const TWO_CUT_SCRIPT: [&str; 8] = [
+const REPEATED_SCRIPT: [&str; 8] = [
     "Morning! Let's lock the Q3 plan. The single most important thing — the big rock — is the database \
      migration. Everything else is secondary to it.",
     "Good. Some secondary items now: we want to refresh the marketing website this quarter.",
@@ -219,33 +219,37 @@ const TWO_CUT_SCRIPT: [&str; 8] = [
     "And pencil in a team offsite. That's everything — thanks!",
 ];
 
-/// A tighter budget than the single-cut script, so eight short turns re-segment twice.
-const TWO_CUT_BUDGET: i64 = 1_200;
+/// Sized just above a few turns' worth of prompt (the steps run ~3.1–4k tokens), so the buffer holds
+/// roughly four turns of real continuity before each cut — eight turns then re-segment several times (~3-6),
+/// rather than the every-turn thrash a sub-system-prompt budget forces.
+const REPEATED_BUDGET: i64 = 3_700;
 
-pub struct WorkingStateTwoCuts;
+pub struct RepeatedCompaction;
 
 #[async_trait]
-impl Scenario for WorkingStateTwoCuts {
+impl Scenario for RepeatedCompaction {
     fn meta(&self) -> ScenarioMeta {
         ScenarioMeta {
-            name: "working_state_survives_two_cuts".to_owned(),
+            name: "working_state_survives_repeated_compaction".to_owned(),
             category: Category::Compaction,
-            description: "A working-state fact stated before two token-triggered compactions is still \
-                          recoverable after both cuts — the carryover preserving it across more than \
-                          one seam, not just the most recent. A machinery bound on the carryover."
-                .to_owned(),
+            description:
+                "A working-state fact stated before the buffer re-segments several times under a \
+                          tight budget is still recoverable after all the cuts — the carryover \
+                          preserving it across many seams, not just the most recent. A machinery \
+                          bound on the carryover."
+                    .to_owned(),
             bar: Bar::Metric { threshold: 0.6 },
         }
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.tighten_compaction(TWO_CUT_BUDGET, FLUSH_MIN_TURNS)?;
-        for message in TWO_CUT_SCRIPT {
+        ctx.tighten_compaction(REPEATED_BUDGET, FLUSH_MIN_TURNS)?;
+        for message in REPEATED_SCRIPT {
             ctx.turn(Turn::new("discord", "leads", "dave", message))
                 .await?;
         }
         ctx.describe_catch_up().await?;
-        // Probe the earliest fact, after both cuts.
+        // Probe the earliest fact, after all the cuts.
         ctx.turn(Turn::new(
             "discord",
             "leads",
@@ -265,7 +269,7 @@ impl Scenario for WorkingStateTwoCuts {
                  database migration.",
                 &format!(
                     "Early in a long planning session the database migration was named the single most \
-                     important Q3 priority. After two compactions, asked what the big rock was, the \
+                     important Q3 priority. After repeated compactions, asked what the big rock was, the \
                      agent replied:\n\"{reply}\""
                 ),
             )
@@ -275,10 +279,10 @@ impl Scenario for WorkingStateTwoCuts {
                 "the session compacted at least twice",
                 cuts >= 2,
                 format!("{cuts} compaction cuts occurred"),
-                format!("only {cuts} cut(s) reached — tune TWO_CUT_BUDGET to force two"),
+                format!("only {cuts} cut(s) reached — tune REPEATED_BUDGET to force repeated cuts"),
             ),
             Verdict::from_judge_outcome(
-                "recovered the pre-cut priority after two compactions",
+                "recovered the pre-cut priority after repeated compactions",
                 VerdictKind::Metric,
                 recovered,
             ),
