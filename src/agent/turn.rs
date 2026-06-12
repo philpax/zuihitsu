@@ -281,8 +281,13 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it. The
     // live buffer is replayed as the prompt suffix, then the current inbound message.
     let turn_id = TurnId::generate();
-    let mut messages = buffer_messages(buffer);
-    messages.push(Message::user(stamp(inbound, engine.clock.now())));
+    let names = participant_names(engine.as_ref(), buffer, &[inbound_participant]);
+    let mut messages = buffer_messages(buffer, &names);
+    messages.push(Message::user(stamp(
+        inbound,
+        engine.clock.now(),
+        names.get(&inbound_participant).map(String::as_str),
+    )));
 
     let (outcome, peak_prompt_tokens) = run_steps(Steps {
         session,
@@ -410,7 +415,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     // system-role message — a stronger reframing than a user turn, while leaving the cached prefix
     // intact. (If a serving backend rejects a non-leading system message, switch this to
     // `Message::user`.)
-    let mut messages = buffer_messages(buffer);
+    let mut messages = buffer_messages(buffer, &participant_names(engine.as_ref(), buffer, &[]));
     messages.push(Message::system(flush_instruction.body));
 
     run_steps(Steps {
@@ -447,27 +452,81 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
 /// stays in the system prefix only — the buffer never perturbs it (prefix-cache stability). The
 /// messages the agent *reads* — participant and system turns — are prefixed with the time they were
 /// recorded; its own turns are left unstamped so it never learns to emit timestamps (spec §Time).
-fn buffer_messages(buffer: &[TurnView]) -> Vec<Message> {
+fn buffer_messages(buffer: &[TurnView], names: &BTreeMap<MemoryId, String>) -> Vec<Message> {
     let mut messages: Vec<Message> = Vec::with_capacity(buffer.len() + 1);
     for buffered in buffer {
         match buffered.role {
             TurnRole::Participant => {
-                messages.push(Message::user(stamp(&buffered.text, buffered.recorded_at)))
+                // Label the turn with who spoke, so a group room is not flattened into an anonymous
+                // `user` stream the model cannot attribute (see `participant_names`).
+                let speaker = buffered
+                    .participant
+                    .and_then(|id| names.get(&id))
+                    .map(String::as_str);
+                messages.push(Message::user(stamp(
+                    &buffered.text,
+                    buffered.recorded_at,
+                    speaker,
+                )))
             }
             TurnRole::Agent if buffered.text.is_empty() => {}
             TurnRole::Agent => messages.push(Message::assistant(buffered.text.clone())),
-            TurnRole::System => {
-                messages.push(Message::system(stamp(&buffered.text, buffered.recorded_at)))
-            }
+            TurnRole::System => messages.push(Message::system(stamp(
+                &buffered.text,
+                buffered.recorded_at,
+                None,
+            ))),
         }
     }
     messages
 }
 
+/// The display name (memory handle, e.g. `person/erin`) of every participant in `buffer` and any
+/// `extra` ids, resolved against the graph. Without these, every participant turn renders as an
+/// anonymous `user` message, so in a multi-party room the model cannot tell who said what — it reads
+/// two speakers as one interlocutor and attributes one's words to the other (the source of the
+/// fixture-18 leak). The handle matches `teller_display`, so a brief's "told by person/erin" and a
+/// buffer turn's "person/erin:" name the same person.
+fn participant_names(
+    engine: &Engine,
+    buffer: &[TurnView],
+    extra: &[MemoryId],
+) -> BTreeMap<MemoryId, String> {
+    let graph = engine.graph.lock();
+    let mut names = BTreeMap::new();
+    for id in buffer
+        .iter()
+        .filter_map(|turn| turn.participant)
+        .chain(extra.iter().copied())
+    {
+        names.entry(id).or_insert_with(|| {
+            graph
+                .memory_by_id(id)
+                .ok()
+                .flatten()
+                .map(|memory| speaker_display(memory.name.as_str()))
+                .unwrap_or_else(|| "someone".to_owned())
+        });
+    }
+    names
+}
+
+/// A participant's conversational display name: the `person/` namespace and any `@platform` stub
+/// suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
+/// operational noise irrelevant to who is speaking.
+fn speaker_display(memory_name: &str) -> String {
+    let handle = memory_name.strip_prefix("person/").unwrap_or(memory_name);
+    handle.split('@').next().unwrap_or(handle).to_owned()
+}
+
 /// Prefix a message the agent reads with the compact wall-clock time it was recorded (spec §Time →
-/// "Now").
-fn stamp(text: &str, at: Timestamp) -> String {
-    format!("[{}] {}", time::format_stamp(at), text)
+/// "Now"), and — for a participant turn — who spoke, so the model can attribute statements in a
+/// multi-party room.
+fn stamp(text: &str, at: Timestamp, speaker: Option<&str>) -> String {
+    match speaker {
+        Some(name) => format!("[{}] {}: {}", time::format_stamp(at), name, text),
+        None => format!("[{}] {}", time::format_stamp(at), text),
+    }
 }
 
 /// The cohesive context every model call needs to write its model-interaction record (spec

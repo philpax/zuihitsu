@@ -551,15 +551,17 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
 
     let seen = model.recorded_messages();
     assert_eq!(seen.len(), 2);
-    // Turn 1's prompt is just the inbound message, stamped with the time it was recorded (TEST_NOW;
-    // the clock does not advance in this test). The agent reads it, so it carries a time prefix.
+    // Turn 1's prompt is just the inbound message, stamped with who spoke and the time it was recorded
+    // (TEST_NOW; the clock does not advance in this test). The agent reads it, so it carries a
+    // speaker-and-time prefix that lets it attribute the turn in a multi-party room.
     let turn1: Vec<&str> = seen[0]
         .iter()
         .map(|message| message.content.as_str())
         .collect();
-    assert_eq!(turn1, vec!["[2026-06-08 00:00 UTC] hello there"]);
+    assert_eq!(turn1, vec!["[2026-06-08 00:00 UTC] dave: hello there"]);
     // Turn 2 replays the live buffer — turn 1's participant and agent turns — then the new inbound.
-    // The participant turns it reads are time-stamped; the agent's own reply is left unstamped.
+    // The participant turns it reads are speaker-and-time-stamped; the agent's own reply is left
+    // unstamped (its `assistant` role already identifies it).
     let turn2: Vec<&str> = seen[1]
         .iter()
         .map(|message| message.content.as_str())
@@ -567,9 +569,9 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     assert_eq!(
         turn2,
         vec![
-            "[2026-06-08 00:00 UTC] hello there",
+            "[2026-06-08 00:00 UTC] dave: hello there",
             "first reply",
-            "[2026-06-08 00:00 UTC] and again",
+            "[2026-06-08 00:00 UTC] dave: and again",
         ]
     );
 }
@@ -608,9 +610,9 @@ async fn each_turn_carries_its_own_recorded_time() {
     assert_eq!(
         turn2,
         vec![
-            "[2026-06-08 00:00 UTC] first message",
+            "[2026-06-08 00:00 UTC] dave: first message",
             "morning",
-            "[2026-06-08 00:10 UTC] second message",
+            "[2026-06-08 00:10 UTC] dave: second message",
         ]
     );
 }
