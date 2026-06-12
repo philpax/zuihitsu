@@ -23,7 +23,11 @@ use crate::{
 
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
-    vec![Arc::new(FlushVisibility), Arc::new(WorkingState)]
+    vec![
+        Arc::new(FlushVisibility),
+        Arc::new(WorkingState),
+        Arc::new(WorkingStateTwoCuts),
+    ]
 }
 
 /// The private aside the scenario plants: told by Dave, in confidence, about absent Erin. Fixture 22
@@ -197,4 +201,87 @@ async fn drive_session(ctx: &RunContext) -> Result<(), EvalError> {
             .await?;
     }
     Ok(())
+}
+
+/// A longer scripted session that crosses the token budget twice, to probe whether working state
+/// survives more than one compaction seam — a machinery bound, not a judgment one. The earliest fact
+/// (the Q3 "big rock") is stated up front, then seven more topics push through two cuts before a probe
+/// asks for it back.
+const TWO_CUT_SCRIPT: [&str; 8] = [
+    "Morning! Let's lock the Q3 plan. The single most important thing — the big rock — is the database \
+     migration. Everything else is secondary to it.",
+    "Good. Some secondary items now: we want to refresh the marketing website this quarter.",
+    "There's also the API versioning work — medium priority, after the migration lands.",
+    "On hiring: we need to bring on two more backend engineers this quarter.",
+    "Facilities says the office is moving to the new floor in Q3 as well.",
+    "A few customers are asking for a feedback portal; let's keep it on the list.",
+    "We should also schedule a security audit ahead of the migration.",
+    "And pencil in a team offsite. That's everything — thanks!",
+];
+
+/// A tighter budget than the single-cut script, so eight short turns re-segment twice.
+const TWO_CUT_BUDGET: i64 = 1_200;
+
+pub struct WorkingStateTwoCuts;
+
+#[async_trait]
+impl Scenario for WorkingStateTwoCuts {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "working_state_survives_two_cuts".to_owned(),
+            category: Category::Compaction,
+            description: "A working-state fact stated before two token-triggered compactions is still \
+                          recoverable after both cuts — the carryover preserving it across more than \
+                          one seam, not just the most recent. A machinery bound on the carryover."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.6 },
+        }
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        ctx.tighten_compaction(TWO_CUT_BUDGET, FLUSH_MIN_TURNS)?;
+        for message in TWO_CUT_SCRIPT {
+            ctx.turn(Turn::new("discord", "leads", "dave", message))
+                .await?;
+        }
+        ctx.describe_catch_up().await?;
+        // Probe the earliest fact, after both cuts.
+        ctx.turn(Turn::new(
+            "discord",
+            "leads",
+            "dave",
+            "Remind me — what did we say was the single most important thing, the big rock, for Q3?",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        let cuts = analysis::session_count(events).saturating_sub(1);
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let recovered = judge
+            .assess(
+                "The reply states that the single most important Q3 priority (the big rock) is the \
+                 database migration.",
+                &format!(
+                    "Early in a long planning session the database migration was named the single most \
+                     important Q3 priority. After two compactions, asked what the big rock was, the \
+                     agent replied:\n\"{reply}\""
+                ),
+            )
+            .await;
+        vec![
+            Verdict::metric_outcome(
+                "the session compacted at least twice",
+                cuts >= 2,
+                format!("{cuts} compaction cuts occurred"),
+                format!("only {cuts} cut(s) reached — tune TWO_CUT_BUDGET to force two"),
+            ),
+            Verdict::from_judge_outcome(
+                "recovered the pre-cut priority after two compactions",
+                VerdictKind::Metric,
+                recovered,
+            ),
+        ]
+    }
 }

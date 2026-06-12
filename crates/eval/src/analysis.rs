@@ -70,6 +70,15 @@ pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     })
 }
 
+/// How many sessions opened in the run — one more than the number of cuts (compaction or idle
+/// re-segmentation), so `session_count - 1` counts the seams the carryover crossed.
+pub fn session_count(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|event| matches!(&event.payload, EventPayload::SessionStarted { .. }))
+        .count()
+}
+
 /// Whether a fired wake-up was raised into a session — the recurrence actually surfaced, not merely
 /// got recorded.
 pub fn scheduled_item_surfaced(events: &[Event]) -> bool {
