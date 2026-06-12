@@ -14,7 +14,8 @@ pub mod openai;
 use std::{collections::VecDeque, sync::Mutex};
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 /// A message in the conversation handed to the model. `tool_calls` is populated on an assistant
 /// message that called tools; `tool_call_id` ties a tool-result message to the call it answers —
@@ -122,6 +123,17 @@ pub enum ToolChoice {
     Required,
 }
 
+/// A JSON-schema constraint on the whole response body — OpenAI `response_format: { type:
+/// "json_schema" }`. For a single structured extraction this is preferable to a forced tool call: some
+/// serving layers grammar-constrain the response-format path but leave forced-tool-call *arguments*
+/// unconstrained, so a weaker tool-caller free-forms the shape (the Gemma 4 case). The schema is
+/// `strict`, and the model's reply carries the JSON (possibly inside a fenced block).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ResponseSchema {
+    pub name: String,
+    pub schema: serde_json::Value,
+}
+
 /// What the model is asked to produce a step for.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GenerateRequest {
@@ -129,10 +141,79 @@ pub struct GenerateRequest {
     pub messages: Vec<Message>,
     pub tools: Vec<ToolSpec>,
     pub tool_choice: ToolChoice,
+    /// Constrain the whole response to a JSON schema instead of offering tools — used for a single
+    /// structured extraction (e.g. `synthesize`) where the response-format path is grammar-constrained
+    /// even when forced-tool-call arguments are not. Mutually exclusive with `tools` in practice.
+    pub response_format: Option<ResponseSchema>,
     /// Per-request override of the serving layer's reasoning mode: `None` uses the configured
     /// default; `Some(false)` forces it off — used for structured extractions (e.g. description
     /// regeneration), where reasoning adds nothing and makes a forced tool call unreliable.
     pub thinking: Option<bool>,
+}
+
+impl GenerateRequest {
+    /// A single schema-constrained structured-output call: one user message, the whole reply
+    /// constrained to `T`'s JSON schema via `response_format`, reasoning off. This is the reliable way
+    /// to extract one fixed structured object — the response-format path is grammar-constrained on
+    /// serving layers where a forced tool call's *arguments* are not (the Gemma 4 case), so a weak
+    /// tool-caller can free-form a schema-wrong shape through a tool but not through this. Read the
+    /// reply with [`parse_structured`] (strict) or [`extract_json_object`] (to salvage fields).
+    ///
+    /// The schema is also rendered into the system prompt. The `response_format` grammar constrains the
+    /// reply's *structure* token by token, but a serving layer's chat template does not necessarily show
+    /// the model the schema (Gemma's does not), so without this the model is forced into a shape it
+    /// cannot see — it satisfies the grammar but mis-assigns values (flattening a nested field, naming
+    /// the wrong enum variant). Showing the schema turns the constraint from a straitjacket into an
+    /// instruction the model is decoding toward.
+    pub fn structured<T: JsonSchema>(
+        system: impl Into<String>,
+        user: impl Into<String>,
+        schema_name: impl Into<String>,
+    ) -> GenerateRequest {
+        let schema = schema_of::<T>();
+        let schema_name = schema_name.into();
+        let system = format!(
+            "{}\n\nRespond with a single JSON object conforming to this JSON Schema \
+             (the `{schema_name}` schema):\n```json\n{}\n```",
+            system.into(),
+            serde_json::to_string_pretty(&schema).unwrap_or_else(|_| schema.to_string()),
+        );
+        GenerateRequest {
+            system,
+            messages: vec![Message::user(user.into())],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+            response_format: Some(ResponseSchema {
+                name: schema_name,
+                schema,
+            }),
+            thinking: Some(false),
+        }
+    }
+}
+
+/// The JSON-Schema for a type — the single source of truth shared between the schema sent to the model
+/// and the parser that reads its reply.
+pub fn schema_of<T: JsonSchema>() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(T)).unwrap_or_default()
+}
+
+/// Extract the JSON object from a structured-output reply: the body may arrive bare or inside a fenced
+/// block (some chat templates emit an optional thought, then a ```json … ``` block), so take the span
+/// from the first `{` to the last `}`. `None` if there is no brace pair.
+pub fn extract_json_object(content: &str) -> Option<&str> {
+    let start = content.find('{')?;
+    let end = content.rfind('}')?;
+    (end >= start).then(|| &content[start..=end])
+}
+
+/// Parse a structured-output reply into `T`: take the JSON object (see [`extract_json_object`]) and
+/// deserialize it strictly. `None` unless the reply is a `Reply` carrying a parseable `T`.
+pub fn parse_structured<T: DeserializeOwned>(completion: &Completion) -> Option<T> {
+    let Completion::Reply(content) = completion else {
+        return None;
+    };
+    serde_json::from_str(extract_json_object(content)?).ok()
 }
 
 /// A single step's outcome: the model either calls tools or produces a final reply, never both in
@@ -351,6 +432,7 @@ mod tests {
                 parameters: serde_json::json!({"type": "object"}),
             }],
             tool_choice: ToolChoice::Required,
+            response_format: None,
             thinking: Some(false),
         };
         let request_json = serde_json::to_string(&request).expect("request serializes");

@@ -41,6 +41,7 @@ async fn generates_a_reply() {
         messages: vec![Message::user("Say hello.")],
         tools: Vec::new(),
         tool_choice: ToolChoice::Auto,
+        response_format: None,
         thinking: None,
     };
     match client.generate(&request).await {
@@ -79,6 +80,7 @@ async fn emits_a_run_lua_tool_call() {
             }),
         }],
         tool_choice: ToolChoice::Auto,
+        response_format: None,
         thinking: None,
     };
     match client.generate(&request).await {

@@ -29,7 +29,7 @@ use crate::{
     memory::memory_block::Authority,
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
-        ToolChoice, ToolSpec,
+        ToolChoice, ToolSpec, extract_json_object, schema_of,
     },
     settings::CaptureLevel,
     store::{Store, StoreError},
@@ -691,6 +691,7 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
                 tools: tools.clone(),
                 // The loop lets the model choose between calling run_lua and replying.
                 tool_choice: ToolChoice::Auto,
+                response_format: None,
                 thinking: None,
             };
             let record = recording.request_record(&request, prev_sent_len);
@@ -1082,11 +1083,11 @@ fn compose_synthesis_system(description_body: &str, extraction_body: Option<&str
     }
 }
 
-/// Ask the model, in one forced `synthesize` call, to describe a memory from its entries and extract
-/// the occurrence time of any time-bearing statement. The entries are numbered (1-based) so the
-/// extracted occurrences key back to them, and the current time is stated so relative phrases ("last
-/// Tuesday") resolve. `None` means no usable call came back, which the caller treats as "leave the
-/// memory unchanged".
+/// Ask the model, in one schema-constrained `synthesize` reply, to describe a memory from its entries
+/// and extract the occurrence time of any time-bearing statement. The entries are numbered (1-based) so
+/// the extracted occurrences key back to them, and the current time is stated so relative phrases
+/// ("last Tuesday") resolve. `None` means no usable reply came back, which the caller treats as "leave
+/// the memory unchanged".
 async fn synthesize(
     model: &dyn ModelClient,
     engine: &Engine,
@@ -1105,18 +1106,13 @@ async fn synthesize(
         prompt.push_str(&format!("{}. {}\n", index + 1, entry.text));
     }
 
-    // Force a single `synthesize` tool call so the description and occurrences come back as clean
-    // arguments. Reasoning is forced off: a live probe showed extraction accuracy holds without it,
-    // and it makes the forced call intermittently emit an empty message.
-    let request = GenerateRequest {
-        system: system.to_owned(),
-        messages: vec![Message::user(prompt)],
-        tools: vec![synthesize_tool()],
-        tool_choice: ToolChoice::Required,
-        thinking: Some(false),
-    };
-    // The model still occasionally returns no usable call; retry a few times before giving up (this
-    // pass is off the hot path, so a couple of extra attempts is cheap).
+    // Constrain the whole reply to the `SynthesizeArgs` schema (response_format) rather than forcing a
+    // tool call: serving layers that grammar-constrain the response-format path leave forced tool-call
+    // *arguments* unconstrained (the Gemma 4 case), so a weak tool-caller free-forms a schema-wrong
+    // shape through a tool. One fixed schema, no tool-selection needed.
+    let request = GenerateRequest::structured::<SynthesizeArgs>(system, prompt, "synthesize");
+    // The model can still emit unusable JSON (or wrap it oddly); retry a few times before giving up
+    // (this pass is off the hot path, so a couple of extra attempts is cheap).
     const ATTEMPTS: usize = 3;
     for attempt in 1..=ATTEMPTS {
         // An off-buffer structured call; its usage must not move the conversational compaction
@@ -1126,8 +1122,8 @@ async fn synthesize(
         let GenerateResponse { completion, .. } = recording
             .generate(engine, model, &request, ModelPhase::Synthesis, record)
             .await?;
-        if let Completion::ToolCalls(calls) = completion
-            && let Some(args) = synthesize_argument(&calls)
+        if let Completion::Reply(content) = completion
+            && let Some(args) = synthesize_argument(&content)
         {
             if attempt > 1 {
                 tracing::debug!(memory = %memory.name.as_str(), attempt, "synthesis succeeded after a retry");
@@ -1137,7 +1133,7 @@ async fn synthesize(
         tracing::debug!(
             memory = %memory.name.as_str(),
             attempt,
-            "synthesis returned no usable call"
+            "synthesis returned no usable JSON"
         );
     }
     tracing::warn!(
@@ -1314,34 +1310,15 @@ fn run_lua_tool() -> ToolSpec {
     }
 }
 
-/// The single tool the turn-end synthesis call is forced to use (`ToolChoice::Required`), so the
-/// description and occurrences come back as clean arguments rather than free-form prose.
-fn synthesize_tool() -> ToolSpec {
-    ToolSpec {
-        name: "synthesize".to_owned(),
-        description: "Record the memory's description, the occurrence time of any time-bearing \
-                      statement, and any conflict between contradicting statements."
-            .to_owned(),
-        parameters: schema_of::<SynthesizeArgs>(),
-    }
-}
-
-/// The JSON-Schema for a tool's argument struct, the single source of truth shared with the parser.
-fn schema_of<T: JsonSchema>() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(T)).unwrap_or_default()
-}
-
-/// Parse a forced `synthesize` tool call's arguments, or `None` if the model produced no usable call
-/// (no `synthesize` call, unparseable arguments, or an empty description).
-/// Parse a forced `synthesize` call leniently: the description and any arbitration are salvaged even
-/// when an `occurrence` is malformed, rather than discarding the whole call on one bad field. A smaller
-/// model often mis-shapes an occurrence (flattening the nested time, or inventing one for a statement
-/// with no temporal reference) while getting the description and arbitration right; a strict
-/// whole-struct parse would throw all of that away. Malformed occurrences are skipped, not fatal; a
-/// missing or empty description is, since that is the call's whole point.
-fn synthesize_argument(calls: &[ToolCall]) -> Option<SynthesizeArgs> {
-    let call = calls.iter().find(|call| call.name == "synthesize")?;
-    let value: serde_json::Value = serde_json::from_str(&call.arguments).ok()?;
+/// Parse the structured-output `synthesize` reply leniently: the description and any arbitration are
+/// salvaged even when an `occurrence` is malformed, rather than discarding the whole reply on one bad
+/// field. A smaller model often mis-shapes an occurrence (flattening the nested time, or inventing one
+/// for a statement with no temporal reference) while getting the description and arbitration right; a
+/// strict whole-struct parse would throw all of that away. Malformed occurrences are skipped, not
+/// fatal; a missing or empty description is, since that is the reply's whole point. The model emits the
+/// schema as a fenced JSON block, so the object is located with [`extract_json_object`] before parsing.
+fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
+    let value: serde_json::Value = serde_json::from_str(extract_json_object(content)?).ok()?;
 
     let description = value.get("description")?.as_str()?.trim().to_owned();
     if description.is_empty() {

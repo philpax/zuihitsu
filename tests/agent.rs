@@ -104,15 +104,11 @@ async fn descriptions_regenerate_after_a_turn() {
                d:append("Met at the climbing gym", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
-        // The post-turn synthesis call: a forced `synthesize` tool call carries the description as a
-        // clean argument (the entry has no temporal phrase, so no occurrences).
-        Completion::ToolCalls(vec![ToolCall {
-            id: "regen".to_owned(),
-            name: "synthesize".to_owned(),
-            arguments:
-                r#"{"description":"Dave, whom I met at the climbing gym.","occurrences":[]}"#
-                    .to_owned(),
-        }]),
+        // The post-turn synthesis call: a `response_format`-constrained reply carries the description
+        // as clean JSON (the entry has no temporal phrase, so no occurrences).
+        synthesize_call(
+            r#"{"description":"Dave, whom I met at the climbing gym.","occurrences":[]}"#,
+        ),
     ]);
 
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -160,12 +156,11 @@ fn day_noon(date: &str) -> Timestamp {
     Timestamp::from_millis(midnight + 86_400_000 / 2)
 }
 
+/// The post-turn synthesis is now a `response_format`-constrained call: the model returns the
+/// `SynthesizeArgs` JSON as its reply (the schema may arrive fenced; the parser locates the object), so
+/// a scripted synthesis is a `Reply` carrying that JSON rather than a forced tool call.
 fn synthesize_call(arguments: &str) -> Completion {
-    Completion::ToolCalls(vec![ToolCall {
-        id: "regen".to_owned(),
-        name: "synthesize".to_owned(),
-        arguments: arguments.to_owned(),
-    }])
+    Completion::Reply(arguments.to_owned())
 }
 
 fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {

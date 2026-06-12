@@ -43,10 +43,12 @@ pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
 };
 pub use model::{
-    Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, Role,
-    ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
+    Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
+    ResponseSchema, Role, ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
     embed::{Embedder, Embedding, FakeEmbedder},
+    extract_json_object,
     index::{IndexError, Indexer},
+    parse_structured, schema_of,
 };
 pub use settings::{
     BriefSettings, CaptureLevel, CompactionSettings, ConcurrencySettings, ObservabilitySettings,

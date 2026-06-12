@@ -74,8 +74,23 @@ impl OpenAiClient {
         }
         let base = args.build().map_err(backend)?;
 
+        // A response-format constraint is built as raw JSON for the byot path: the response-format
+        // grammar path is the one some serving layers actually schema-constrain (where forced-tool-call
+        // arguments are not), so a single structured extraction goes here rather than through a tool.
+        let response_format = request.response_format.as_ref().map(|format| {
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": format.name,
+                    "schema": format.schema,
+                    "strict": true,
+                },
+            })
+        });
+
         Ok(ChatRequest {
             base,
+            response_format,
             top_k: self.config.top_k,
             min_p: self.config.min_p,
             // A per-request `thinking` overrides the configured default (e.g. regeneration forces
@@ -160,6 +175,10 @@ impl Embedder for OpenAiEmbedder {
 struct ChatRequest {
     #[serde(flatten)]
     base: CreateChatCompletionRequest,
+    /// An OpenAI `response_format` object, built as raw JSON for the byot path — a json-schema
+    /// constraint on the whole reply (see [`crate::model::ResponseSchema`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_k: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]

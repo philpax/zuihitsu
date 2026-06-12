@@ -287,15 +287,13 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
             r#"memory.get("person/dave@discord"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
-        Completion::ToolCalls(vec![ToolCall {
-            id: "synthesize".to_owned(),
-            name: "synthesize".to_owned(),
-            arguments: serde_json::json!({
+        Completion::Reply(
+            serde_json::json!({
                 "description": "Dave.",
                 "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
             })
             .to_string(),
-        }]),
+        ),
     ]);
     server
         .platform()
@@ -428,15 +426,13 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
             r#"memory.get("person/dave@discord"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
-        Completion::ToolCalls(vec![ToolCall {
-            id: "synthesize".to_owned(),
-            name: "synthesize".to_owned(),
-            arguments: serde_json::json!({
+        Completion::Reply(
+            serde_json::json!({
                 "description": "Dave.",
                 "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
             })
             .to_string(),
-        }]),
+        ),
     ]);
     server
         .platform()
@@ -626,13 +622,11 @@ fn run_lua_call(script: &str) -> Completion {
 }
 
 fn describe_call(description: &str) -> Completion {
-    // The turn-end synthesis call: a forced `synthesize` tool carrying the description (these
-    // scenarios plant no temporal phrases, so no occurrences).
-    Completion::ToolCalls(vec![ToolCall {
-        id: "synthesize".to_owned(),
-        name: "synthesize".to_owned(),
-        arguments: serde_json::json!({ "description": description, "occurrences": [] }).to_string(),
-    }])
+    // The turn-end synthesis is a `response_format`-constrained reply carrying the description as JSON
+    // (these scenarios plant no temporal phrases, so no occurrences).
+    Completion::Reply(
+        serde_json::json!({ "description": description, "occurrences": [] }).to_string(),
+    )
 }
 
 #[tokio::test]
