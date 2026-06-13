@@ -4,6 +4,7 @@ import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import { type EventCategory, eventCategory, eventSummary } from "../lib/events.ts";
 import { Eyebrow } from "../components/primitives.tsx";
+import { EventDetail } from "./EventDetail.tsx";
 
 const CATEGORIES: EventCategory[] = [
   "memory",
@@ -32,6 +33,7 @@ export function EventsView({ replica, events }: { replica: Replica; events: Even
   const nameById = new Map(replica.memories("").map((memory) => [memory.id, memory.name]));
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   const needle = search.trim().toLowerCase();
   const rows = events
@@ -86,18 +88,30 @@ export function EventsView({ replica, events }: { replica: Replica; events: Even
       </div>
 
       <ul className="font-mono text-xs">
-        {rows.map(({ event, category, summary }) => (
-          <li
-            key={event.seq}
-            className="grid grid-cols-[3rem_11rem_1fr] items-baseline gap-4 border-b border-line/60 py-2"
-          >
-            <span className="text-right text-ink-faint">{event.seq}</span>
-            <span className={CATEGORY_COLOR[category]}>{event.payload.type}</span>
-            <span className="truncate text-ink-soft" title={summary}>
-              {summary}
-            </span>
-          </li>
-        ))}
+        {rows.map(({ event, category, summary }) => {
+          const open = expanded === event.seq;
+          return (
+            <li key={event.seq} className="border-b border-line/60">
+              <button
+                onClick={() => setExpanded(open ? null : event.seq)}
+                className="grid w-full grid-cols-[3rem_11rem_1fr] items-baseline gap-4 py-2 text-left"
+              >
+                <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
+                  {event.seq}
+                </span>
+                <span className={CATEGORY_COLOR[category]}>{event.payload.type}</span>
+                <span className={"truncate " + (open ? "text-ink" : "text-ink-soft")} title={summary}>
+                  {summary}
+                </span>
+              </button>
+              {open && (
+                <div className="border-l-2 border-line py-3 pl-4 pr-2">
+                  <EventDetail payload={event.payload} nameById={nameById} />
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
