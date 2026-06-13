@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eval"]
+members = ["crates/eval", "console/spike"]
 
 # Dependencies shared by the root package and the eval crate live here, so their versions cannot drift.
 # Per-crate feature sets are added at the use site (features union across the workspace).
