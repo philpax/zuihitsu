@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
-import { type EventCategory, eventCategory, eventSummary } from "../lib/events.ts";
+import { type EventCategory, CATEGORY_COLOR, eventCategory, eventSummary } from "../lib/events.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "./EventDetail.tsx";
 
@@ -14,18 +14,6 @@ const CATEGORIES: EventCategory[] = [
   "lifecycle",
   "infra",
 ];
-
-/// The colour each category lends its event-type label — the restrained rhythm that lets the log be
-/// scanned by kind: clay for memory writes, sage for the link graph and room lifecycle, faint for
-/// the agent's deliberation and infrastructure.
-const CATEGORY_COLOR: Record<EventCategory, string> = {
-  memory: "text-clay",
-  link: "text-sage",
-  conversation: "text-ink",
-  deliberation: "text-ink-soft",
-  lifecycle: "text-sage",
-  infra: "text-ink-faint",
-};
 
 /// The Events view: the run's log as the source of truth, filtered by category and free text, and
 /// stopped at the timeline cursor. A flat, scannable stream — every other view is a projection of

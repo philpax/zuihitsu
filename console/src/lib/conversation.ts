@@ -1,9 +1,33 @@
 import type { Event } from "../types/Event.ts";
 import type { Completion } from "../types/Completion.ts";
+import type { EventPayload } from "../types/EventPayload.ts";
 import type { Initiation } from "../types/Initiation.ts";
 import type { ModelPhase } from "../types/ModelPhase.ts";
 import type { TerminalCause } from "../types/TerminalCause.ts";
 import type { TurnRole } from "../types/TurnRole.ts";
+import { type EventCategory, eventCategory, eventSummary } from "./events.ts";
+
+/// The graph-mutating events that result from an agent turn's Lua — what the turn actually *did*.
+/// They carry no `turn_id`, but are committed with the block that produced them, so they are
+/// attributed to the turn whose deliberation is in flight when they appear in `seq` order.
+const OUTCOME_TYPES = new Set<EventPayload["type"]>([
+  "MemoryCreated",
+  "MemoryRenamed",
+  "MemoryDeleted",
+  "MemoryContentAppended",
+  "MemorySuperseded",
+  "MemoryVolatilitySet",
+  "MemoryDescriptionRegenerated",
+  "BeliefArbitrated",
+  "EntryTemporalResolved",
+  "TagCreated",
+  "TagDescriptionChanged",
+  "TagAppliedToMemory",
+  "TagRemovedFromMemory",
+  "LinkTypeRegistered",
+  "LinkCreated",
+  "LinkRemoved",
+]);
 
 /// The Conversation view's model, reconstructed from a run's event stream: each durable room, its
 /// sessions (with the brief frozen at start), and the ordered turns. Every agent turn carries its
@@ -38,9 +62,19 @@ export interface TurnModel {
   speaker: string | null;
   initiation: Initiation;
   deliberation: DeliberationStep[];
+  /// What the turn produced: the graph-mutating events its Lua committed (writes, links, tags,
+  /// arbitrations), in order — the consequence of the deliberation above.
+  outcomes: TurnOutcome[];
   /// True when this turn is the speaker's first appearance and they were not in the opening present
   /// set — a mid-conversation entrance, surfaced so a participant does not just materialize.
   entrance: boolean;
+}
+
+/// One graph-mutating event a turn produced, summarized for the transcript.
+export interface TurnOutcome {
+  type: EventPayload["type"];
+  category: EventCategory;
+  summary: string;
 }
 
 export type DeliberationStep =
@@ -100,6 +134,7 @@ export function buildConversations(
         speaker: null,
         initiation: "Responding",
         deliberation: [],
+        outcomes: [],
         entrance: false,
       };
       turns.set(turnId, model);
@@ -113,7 +148,16 @@ export function buildConversations(
     return nameById.get(id) ?? id;
   }
 
-  for (const event of events) {
+  // The turn whose deliberation is in flight, used to attribute the writes it commits — its Lua's
+  // side-effect events carry no turn_id but appear contiguously in `seq` while it runs. The lock set
+  // each turn's blocks touched, and the candidate outcomes, are kept for a second pass that attributes
+  // a write only when its memory is in the turn's touched set — so between-turn orchestration (room
+  // minting, first-contact stubs), which shares no lock set, is excluded.
+  let currentTurnId: string | null = null;
+  const touchedByTurn = new Map<string, Set<string>>();
+  const candidates: Array<{ turnId: string; payload: EventPayload }> = [];
+
+  for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     const payload = event.payload;
     switch (payload.type) {
       case "ConversationStarted": {
@@ -122,6 +166,8 @@ export function buildConversations(
         model.scopePath = payload.locator.scope_path;
         model.contextName = name(payload.context_memory);
         model.contextMemory = payload.context_memory;
+        // A new room's eager setup (its context memory, first-contact stubs) is not a turn's doing.
+        currentTurnId = null;
         break;
       }
       case "SessionStarted": {
@@ -141,6 +187,9 @@ export function buildConversations(
         model.text = payload.text;
         model.speaker = name(payload.participant);
         model.initiation = payload.initiation;
+        // Outcomes belong to the agent's response cycle; an inbound or system turn closes the prior
+        // one so its post-reply synthesis attributes correctly and later setup does not.
+        currentTurnId = payload.role === "Agent" ? payload.turn_id : null;
         break;
       }
       case "ModelCalled": {
@@ -153,6 +202,7 @@ export function buildConversations(
           finishReason: payload.finish_reason,
           durationMs: Number(payload.duration_ms),
         });
+        currentTurnId = payload.turn_id;
         break;
       }
       case "LuaExecuted": {
@@ -164,8 +214,37 @@ export function buildConversations(
           terminalCause: payload.terminal_cause,
           durationMs: Number(payload.duration_ms),
         });
+        currentTurnId = payload.turn_id;
+        let touched = touchedByTurn.get(payload.turn_id);
+        if (!touched) {
+          touched = new Set();
+          touchedByTurn.set(payload.turn_id, touched);
+        }
+        for (const id of payload.touched) touched.add(id);
         break;
       }
+      default: {
+        if (currentTurnId && OUTCOME_TYPES.has(payload.type)) {
+          candidates.push({ turnId: currentTurnId, payload });
+        }
+      }
+    }
+  }
+
+  // Attribute outcomes: a write belongs to a turn only if the turn's blocks touched its memory (or
+  // it is a schema event — a tag/relation registration — with no memory to key on). Candidates are
+  // in seq order, so outcomes land in order.
+  for (const { turnId, payload } of candidates) {
+    const turnModel = turns.get(turnId);
+    if (!turnModel) continue;
+    const ids = outcomeMemoryIds(payload);
+    const touched = touchedByTurn.get(turnId);
+    if (ids.length === 0 || ids.some((id) => touched?.has(id) ?? false)) {
+      turnModel.outcomes.push({
+        type: payload.type,
+        category: eventCategory(payload.type),
+        summary: eventSummary(payload, nameById),
+      });
     }
   }
 
@@ -184,4 +263,31 @@ export function buildConversations(
     }
   }
   return [...conversations.values()];
+}
+
+/// The memory ids an outcome event targets — used to check it against the turn's touched set. A
+/// schema event (a tag or relation registration) targets no memory and returns empty, attributed by
+/// being inside a turn at all.
+function outcomeMemoryIds(payload: EventPayload): string[] {
+  switch (payload.type) {
+    case "MemoryCreated":
+    case "MemoryRenamed":
+    case "MemoryDeleted":
+    case "MemoryContentAppended":
+    case "MemorySuperseded":
+    case "MemoryVolatilitySet":
+    case "MemoryDescriptionRegenerated":
+    case "EntryTemporalResolved":
+      return [payload.id];
+    case "BeliefArbitrated":
+      return [payload.memory];
+    case "TagAppliedToMemory":
+    case "TagRemovedFromMemory":
+      return [payload.memory];
+    case "LinkCreated":
+    case "LinkRemoved":
+      return [payload.from, payload.to];
+    default:
+      return [];
+  }
 }

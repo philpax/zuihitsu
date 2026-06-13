@@ -10,6 +10,7 @@ import {
   buildConversations,
 } from "../lib/conversation.ts";
 import { formatMs } from "../lib/format.ts";
+import { CATEGORY_COLOR } from "../lib/events.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
 import { BriefTraceView } from "../components/BriefTrace.tsx";
@@ -175,6 +176,17 @@ function TurnItem({ turn }: { turn: TurnModel }) {
         <p className="text-sm italic text-ink-faint">stayed silent</p>
       )}
       {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
+      {turn.outcomes.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1">
+          {turn.outcomes.map((outcome, index) => (
+            <li key={index} className="flex items-baseline gap-2 font-mono text-2xs">
+              <span className="text-ink-faint">↳</span>
+              <span className={CATEGORY_COLOR[outcome.category]}>{outcome.type}</span>
+              <span className="truncate text-ink-soft">{outcome.summary}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

@@ -10,6 +10,17 @@ export type EventCategory =
   | "lifecycle"
   | "infra";
 
+/// The text color each category lends its event-type label — the restrained rhythm shared by the
+/// Events log and the per-turn outcomes in the transcript.
+export const CATEGORY_COLOR: Record<EventCategory, string> = {
+  memory: "text-clay",
+  link: "text-sage",
+  conversation: "text-ink",
+  deliberation: "text-ink-soft",
+  lifecycle: "text-sage",
+  infra: "text-ink-faint",
+};
+
 export function eventCategory(type: EventPayload["type"]): EventCategory {
   switch (type) {
     case "MemoryCreated":
