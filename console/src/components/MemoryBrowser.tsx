@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { Replica } from "../lib/replica.ts";
 import type { EntryView, MemoryDetail, MemoryView } from "../lib/graph.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../lib/labels.ts";
@@ -18,6 +20,7 @@ export function MemoryBrowser({
 }) {
   const memories = replica.memories("");
   const nameById = new Map(memories.map((memory) => [memory.id, memory.name]));
+  const [query, setQuery] = useState("");
 
   if (memories.length === 0) {
     return (
@@ -26,6 +29,16 @@ export function MemoryBrowser({
       </div>
     );
   }
+
+  const needle = query.trim().toLowerCase();
+  const listed = needle
+    ? memories.filter(
+        (memory) =>
+          memory.name.toLowerCase().includes(needle) ||
+          memory.description.toLowerCase().includes(needle) ||
+          memory.tags.some((tag) => tag.toLowerCase().includes(needle)),
+      )
+    : memories;
 
   // The chosen memory, or `self`, or the first — whichever exists at this fold.
   const effective =
@@ -36,7 +49,19 @@ export function MemoryBrowser({
 
   return (
     <div className="grid grid-cols-[15rem_1fr] gap-12">
-      <MemoryList memories={memories} selected={effective} onSelect={onSelect} />
+      <div className="flex flex-col gap-4 self-start">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="filter memories…"
+          className="border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+        />
+        {listed.length === 0 ? (
+          <p className="font-mono text-2xs text-ink-faint">no matches</p>
+        ) : (
+          <MemoryList memories={listed} selected={effective} onSelect={onSelect} />
+        )}
+      </div>
       {detail ? (
         <MemoryDetailPane detail={detail} nameById={nameById} />
       ) : (
