@@ -29,9 +29,11 @@ struct Row {
 /// rows, or the error string if any step fails — the caller renders either verbatim.
 #[wasm_bindgen]
 pub fn round_trip() -> Result<JsValue, JsValue> {
-    run().map_err(|error| JsValue::from_str(&error.to_string()))
+    run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
         .and_then(|result| {
-            serde_wasm_bindgen::to_value(&result).map_err(|error| JsValue::from_str(&error.to_string()))
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|error| JsValue::from_str(&error.to_string()))
         })
 }
 
