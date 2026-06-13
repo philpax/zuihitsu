@@ -13,7 +13,23 @@
 
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
-use zuihitsu_core::{event::Event, graph::Graph, ids::Seq};
+use zuihitsu_core::{
+    event::Event,
+    graph::{EntryView, Graph, LinkView, MemoryView},
+    ids::Seq,
+};
+
+/// Everything the State view shows when a memory is opened: the memory itself, its live content
+/// entries, its full history (including superseded entries), its links, and its `same_as` class.
+/// Composed from several core reads so the frontend opens a memory in one call.
+#[derive(Serialize)]
+struct MemoryDetail {
+    memory: MemoryView,
+    entries: Vec<EntryView>,
+    history: Vec<EntryView>,
+    links: Vec<LinkView>,
+    class: Vec<MemoryView>,
+}
 
 /// A materializing read replica: an event log plus the graph state it folds into. The log is
 /// retained so the graph can be re-folded to any earlier `Seq` for time-travel.
@@ -86,6 +102,45 @@ impl Replica {
             .map_err(graph_error)?;
         memories.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
         to_js(&memories)
+    }
+
+    /// The full State-view detail for one memory by name, or `null` if there is no such memory at
+    /// the current fold horizon. Bundles its live entries, its history, its links, and its `same_as`
+    /// class so the frontend opens a memory in a single call.
+    pub fn memory(&self, name: &str) -> Result<JsValue, JsError> {
+        let Some(memory) = self.graph.memory_by_name(name).map_err(graph_error)? else {
+            return Ok(JsValue::NULL);
+        };
+        let entries = self.graph.entries_local(memory.id).map_err(graph_error)?;
+        let history = self
+            .graph
+            .entries_local_history(memory.id)
+            .map_err(graph_error)?;
+        let links = self.graph.links(memory.id).map_err(graph_error)?;
+        let mut class = Vec::new();
+        for id in self.graph.class_members(memory.id).map_err(graph_error)? {
+            if let Some(view) = self.graph.memory_by_id(id).map_err(graph_error)? {
+                class.push(view);
+            }
+        }
+        to_js(&MemoryDetail {
+            memory,
+            entries,
+            history,
+            links,
+            class,
+        })
+    }
+
+    /// The tag vocabulary at the current fold horizon, as `TagVocabularyEntry[]` (name, purpose, and
+    /// live-use count).
+    pub fn tags(&self) -> Result<JsValue, JsError> {
+        to_js(&self.graph.all_tags().map_err(graph_error)?)
+    }
+
+    /// The registered link relations at the current fold horizon, as `RelationView[]`.
+    pub fn relations(&self) -> Result<JsValue, JsError> {
+        to_js(&self.graph.all_relations().map_err(graph_error)?)
     }
 }
 

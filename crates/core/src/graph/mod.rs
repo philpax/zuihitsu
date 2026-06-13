@@ -52,7 +52,7 @@ pub struct EntryView {
 }
 
 /// A registered relation as projected.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelationView {
     pub name: RelationName,
     pub inverse: RelationName,
@@ -64,7 +64,7 @@ pub struct RelationView {
 
 /// A tag in the vocabulary as projected: its name, its one-line purpose, and how many live memories
 /// carry it. Backs `tags.list` and the system prompt's tag-vocabulary block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TagVocabularyEntry {
     pub name: TagName,
     pub description: String,
@@ -72,7 +72,7 @@ pub struct TagVocabularyEntry {
 }
 
 /// A stored edge in its canonical direction.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkView {
     pub from: MemoryId,
     pub to: MemoryId,
