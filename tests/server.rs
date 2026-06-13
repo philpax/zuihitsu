@@ -466,7 +466,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
             .recorded_messages()
             .iter()
             .flatten()
-            .any(|message| message.content.contains("# Due now")),
+            .any(|message| message.content.contains("have come due")),
         "the drain should reach the model: {:?}",
         drained.recorded_messages()
     );
@@ -484,7 +484,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
             .recorded_messages()
             .iter()
             .flatten()
-            .all(|message| !message.content.contains("# Due now")),
+            .all(|message| !message.content.contains("have come due")),
         "a surfaced item must not be raised again",
     );
 }

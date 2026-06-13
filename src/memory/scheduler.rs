@@ -91,6 +91,10 @@ pub fn fire_due(
 /// The content a session-open drain delivers: the formatted block to raise and the entries it covers
 /// (each as `(entry, memory)`), so the caller can record a `ScheduledItemSurfaced` per entry.
 pub struct Drained {
+    /// The system turn raised into the opening session: a directive framing, not a bare list, because
+    /// the agent treats an unexplained data block as internal scratch and does not reliably relay it.
+    /// Naming the purpose — these are due reminders to bring to the participant — turns it from
+    /// background state into an instruction to act on.
     pub text: String,
     pub entries: Vec<(EntryId, MemoryId)>,
 }
@@ -127,7 +131,11 @@ pub fn drain(
         return Ok(None);
     }
     Ok(Some(Drained {
-        text: format!("# Due now\n{}", lines.join("\n")),
+        text: format!(
+            "These reminders have come due. Raise any that are relevant to the participant in your \
+             reply, in your own words:\n{}",
+            lines.join("\n")
+        ),
         entries,
     }))
 }
@@ -380,7 +388,7 @@ mod tests {
             .unwrap()
             .expect("eligible for Phil");
         assert_eq!(drained.entries, vec![(entry, dentist)]);
-        assert!(drained.text.contains("# Due now"));
+        assert!(drained.text.contains("have come due"));
         assert!(drained.text.contains("event/dentist"));
 
         // Only Erin present: Phil is the target and isn't here, so nothing drains.
