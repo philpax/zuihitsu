@@ -1,0 +1,5 @@
+# Scoped to the wasm target only, so host builds are untouched. getrandom 0.3 requires this cfg to
+# select its browser backend on wasm32-unknown-unknown (paired with the `wasm_js` feature enabled in
+# crates/core/Cargo.toml); without it, the build errors out asking for exactly this flag.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

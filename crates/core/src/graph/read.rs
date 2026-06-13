@@ -597,14 +597,14 @@ impl Graph {
     pub fn marker_room(
         &self,
         told_in: Option<MemoryId>,
-    ) -> Result<Option<crate::memory::visibility::MarkerRoom>, GraphError> {
+    ) -> Result<Option<crate::visibility::MarkerRoom>, GraphError> {
         let Some(context_id) = told_in else {
             return Ok(None);
         };
         Ok(self
             .memory_by_id(context_id)?
-            .map(|context| crate::memory::visibility::MarkerRoom {
-                name: crate::memory::visibility::room_display(context.name.as_str()),
+            .map(|context| crate::visibility::MarkerRoom {
+                name: crate::visibility::room_display(context.name.as_str()),
                 confidential: context.tags.contains(&TagName::Confidential),
             }))
     }

@@ -2940,11 +2940,14 @@ dependencies = [
 name = "zuihitsu-core"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "jiff",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "smol_str",
+ "tracing",
  "ts-rs",
  "ulid",
 ]

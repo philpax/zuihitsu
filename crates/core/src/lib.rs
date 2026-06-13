@@ -11,9 +11,11 @@
 
 pub mod db;
 pub mod event;
+pub mod graph;
 pub mod ids;
 pub mod model;
 pub mod settings;
 pub mod store;
 pub mod time;
+pub mod visibility;
 pub mod vocabulary;

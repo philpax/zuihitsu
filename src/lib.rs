@@ -9,7 +9,6 @@ pub mod agent;
 pub mod clock;
 pub mod config;
 pub mod engine;
-pub mod graph;
 pub mod mcp;
 pub mod memory;
 pub mod model;
@@ -20,9 +19,10 @@ pub mod vector;
 
 // The wasm-compatible core lives in `zuihitsu-core` and is re-exported here, so the rest of the
 // codebase reaches these modules at their existing `crate::*` paths. `db` (rusqlite query helpers)
-// is re-exported privately, since it is internal infrastructure rather than public API.
+// is re-exported privately, since it is internal infrastructure rather than public API; `visibility`
+// is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
-pub use zuihitsu_core::{event, ids, settings, time, vocabulary};
+pub use zuihitsu_core::{event, graph, ids, settings, time, vocabulary};
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
 // as `zuihitsu::genesis::{rollout, status}` without reaching through the `agent` subsystem.
