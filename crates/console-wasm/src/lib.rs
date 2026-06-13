@@ -14,9 +14,10 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{
-    event::Event,
+    event::{Event, EventPayload},
     graph::{EntryView, Graph, LinkView, MemoryView},
-    ids::Seq,
+    ids::{ConversationId, Seq, SessionId},
+    time::Timestamp,
 };
 
 /// Everything the State view shows when a memory is opened: the memory itself, its live content
@@ -29,6 +30,28 @@ struct MemoryDetail {
     history: Vec<EntryView>,
     links: Vec<LinkView>,
     class: Vec<MemoryView>,
+}
+
+/// A durable conversation (room) with its sessions, the backbone of the Conversation view. The
+/// turns themselves render off the event stream; this supplies the structure and the names the raw
+/// log only carries as ids — the room's `context/*` name and each session's participant handles.
+#[derive(Serialize)]
+struct ConversationDetail {
+    id: ConversationId,
+    platform: String,
+    scope_path: String,
+    context_name: Option<String>,
+    sessions: Vec<SessionSummary>,
+}
+
+/// One activity window within a conversation: when it opened, the brief frozen at its start, and the
+/// participants present, resolved to their memory handles.
+#[derive(Serialize)]
+struct SessionSummary {
+    id: SessionId,
+    started_at: Timestamp,
+    brief: String,
+    participants: Vec<String>,
 }
 
 /// A materializing read replica: an event log plus the graph state it folds into. The log is
@@ -141,6 +164,53 @@ impl Replica {
     /// The registered link relations at the current fold horizon, as `RelationView[]`.
     pub fn relations(&self) -> Result<JsValue, JsError> {
         to_js(&self.graph.all_relations().map_err(graph_error)?)
+    }
+
+    /// Every durable conversation up to the current fold horizon, each with its sessions — the
+    /// structure behind the Conversation view, with the `context/*` room name and the per-session
+    /// participant handles resolved from ids the raw log only carries opaquely.
+    pub fn conversations(&self) -> Result<JsValue, JsError> {
+        let mut conversations = Vec::new();
+        for event in self.events.iter().filter(|event| event.seq <= self.head) {
+            let EventPayload::ConversationStarted {
+                id,
+                locator,
+                context_memory,
+            } = &event.payload
+            else {
+                continue;
+            };
+            let context_name = self
+                .graph
+                .memory_by_id(*context_memory)
+                .map_err(graph_error)?
+                .map(|view| view.name.as_str().to_owned());
+            let mut sessions = Vec::new();
+            for session in self.graph.sessions_in(*id).map_err(graph_error)? {
+                let mut participants = Vec::new();
+                for participant in &session.participants {
+                    if let Some(view) =
+                        self.graph.memory_by_id(*participant).map_err(graph_error)?
+                    {
+                        participants.push(view.name.as_str().to_owned());
+                    }
+                }
+                sessions.push(SessionSummary {
+                    id: session.id,
+                    started_at: session.started_at,
+                    brief: session.brief,
+                    participants,
+                });
+            }
+            conversations.push(ConversationDetail {
+                id: *id,
+                platform: locator.platform.to_string(),
+                scope_path: locator.scope_path.to_string(),
+                context_name,
+                sessions,
+            });
+        }
+        to_js(&conversations)
     }
 }
 
