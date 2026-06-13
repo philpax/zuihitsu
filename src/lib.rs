@@ -8,11 +8,13 @@
 pub mod agent;
 pub mod clock;
 pub mod config;
-mod db;
 pub mod engine;
 pub mod event;
 pub mod graph;
 pub mod mcp;
+// `db` (rusqlite query helpers) lives in zuihitsu-core; re-exported privately so the SQLite-backed
+// layers reach it at `crate::db` as before.
+use zuihitsu_core::db;
 pub mod memory;
 pub mod model;
 pub mod server;

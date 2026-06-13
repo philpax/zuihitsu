@@ -10,7 +10,7 @@ use rusqlite::{Params, Row, Statement};
 
 /// Run `stmt` with `params`, mapping each row through `map` and collecting the results. The mapper
 /// may fail with any error that absorbs a `rusqlite::Error`.
-pub(crate) fn query_map_into<T, E, P, F>(
+pub fn query_map_into<T, E, P, F>(
     mut stmt: Statement<'_>,
     params: P,
     mut map: F,
@@ -30,7 +30,7 @@ where
 
 /// As [`query_map_into`], for a query expected to yield at most one row: maps the first row, or
 /// returns `None` when there is none.
-pub(crate) fn query_opt_into<T, E, P, F>(
+pub fn query_opt_into<T, E, P, F>(
     mut stmt: Statement<'_>,
     params: P,
     map: F,

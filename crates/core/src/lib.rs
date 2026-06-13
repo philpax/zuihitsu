@@ -9,6 +9,7 @@
 //! The main `zuihitsu` crate depends on this and re-exports every module, so the rest of the
 //! codebase continues to reach these types at their familiar `crate::*` paths.
 
+pub mod db;
 pub mod ids;
 pub mod model;
 pub mod time;

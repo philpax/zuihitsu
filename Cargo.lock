@@ -2941,6 +2941,7 @@ name = "zuihitsu-core"
 version = "0.1.0"
 dependencies = [
  "jiff",
+ "rusqlite",
  "serde",
  "serde_json",
  "smol_str",
