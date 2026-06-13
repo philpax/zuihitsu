@@ -109,6 +109,10 @@ impl LinkSource {
 pub enum EventSource {
     Bootstrap,
     Agent,
+    /// `Debugger` was this variant's name before the operator interface was renamed to the console;
+    /// the alias keeps logs written under the old name readable (spec §Schema evolution: old events
+    /// stay readable forever).
+    #[serde(alias = "Debugger")]
     Operator,
     Orchestration,
 }
