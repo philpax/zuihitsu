@@ -10,6 +10,7 @@ import { Dot, Eyebrow } from "./primitives.tsx";
 import { Nav } from "./Nav.tsx";
 import { ScenarioOverview } from "../views/ScenarioOverview.tsx";
 import { StateView } from "../views/StateView.tsx";
+import { ConversationView } from "../views/ConversationView.tsx";
 
 /// The loaded-package frame: a header naming the package and the run in focus, the view nav, and the
 /// active view. Run-scoped views fold the selected run's log into a [`Replica`] once and share it.
@@ -72,6 +73,11 @@ export function Shell({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void 
         {view === "scenarios" && <ScenarioOverview pkg={pkg} onSelectRun={selectRun} />}
         {view === "state" && (
           <RunScoped state={replica}>{(ready) => <StateView replica={ready} />}</RunScoped>
+        )}
+        {view === "conversation" && (
+          <RunScoped state={replica}>
+            {(ready) => <ConversationView replica={ready} events={activeRun!.run.events} />}
+          </RunScoped>
         )}
       </main>
     </div>
