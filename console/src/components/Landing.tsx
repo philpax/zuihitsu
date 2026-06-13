@@ -2,8 +2,17 @@ import { useState } from "react";
 
 import { Eyebrow } from "./primitives.tsx";
 
-/// The empty state: a calm invitation to open an eval package, by drop or by file picker.
-export function Landing({ onOpen, error }: { onOpen: (file: File) => void; error: string | null }) {
+/// The empty state: a calm invitation to open an eval package, by drop or by file picker, with a
+/// quieter way in for the tracked metrics history.
+export function Landing({
+  onOpenPackage,
+  onOpenHistory,
+  error,
+}: {
+  onOpenPackage: (file: File) => void;
+  onOpenHistory: (file: File) => void;
+  error: string | null;
+}) {
   const [hovering, setHovering] = useState(false);
 
   return (
@@ -26,7 +35,7 @@ export function Landing({ onOpen, error }: { onOpen: (file: File) => void; error
           event.preventDefault();
           setHovering(false);
           const file = event.dataTransfer.files[0];
-          if (file) onOpen(file);
+          if (file) onOpenPackage(file);
         }}
         className={
           "mt-10 flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed py-14 transition-colors " +
@@ -43,12 +52,25 @@ export function Landing({ onOpen, error }: { onOpen: (file: File) => void; error
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) onOpen(file);
+            if (file) onOpenPackage(file);
           }}
         />
       </label>
 
-      {error && <p className="mt-5 font-mono text-xs text-clay">{error}</p>}
+      <label className="mt-6 cursor-pointer text-center font-mono text-2xs text-ink-faint transition-colors hover:text-clay">
+        or open a history file to see trends over time
+        <input
+          type="file"
+          accept=".jsonl,application/json"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) onOpenHistory(file);
+          }}
+        />
+      </label>
+
+      {error && <p className="mt-5 text-center font-mono text-xs text-clay">{error}</p>}
     </div>
   );
 }
