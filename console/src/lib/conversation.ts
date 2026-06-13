@@ -73,6 +73,9 @@ export interface TurnModel {
   /// True when this turn is the speaker's first appearance and they were not in the opening present
   /// set — a mid-conversation entrance, surfaced so a participant does not just materialize.
   entrance: boolean;
+  /// The memory a scheduled wake-up surfaced from, when this `Initiated` turn was the agent speaking
+  /// to a fired reminder rather than responding (spec §Agent-initiated speech).
+  wakeup: string | null;
 }
 
 /// One graph-mutating event a turn produced, summarized for the transcript.
@@ -141,6 +144,7 @@ export function buildConversations(
         deliberation: [],
         outcomes: [],
         entrance: false,
+        wakeup: null,
       };
       turns.set(turnId, model);
       conversation(conversationId).turns.push(model);
@@ -159,6 +163,8 @@ export function buildConversations(
   // a write only when its memory is in the turn's touched set — so between-turn orchestration (room
   // minting, first-contact stubs), which shares no lock set, is excluded.
   let currentTurnId: string | null = null;
+  // A wake-up surfaces just before the Initiated turn it raises; hold it until that turn claims it.
+  let pendingWakeup: string | null = null;
   const touchedByTurn = new Map<string, Set<string>>();
   const candidates: Array<{ turnId: string; payload: EventPayload }> = [];
 
@@ -197,6 +203,14 @@ export function buildConversations(
         // Outcomes belong to the agent's response cycle; an inbound or system turn closes the prior
         // one so its post-reply synthesis attributes correctly and later setup does not.
         currentTurnId = payload.role === "Agent" ? payload.turn_id : null;
+        if (payload.initiation === "Initiated" && pendingWakeup) {
+          model.wakeup = pendingWakeup;
+          pendingWakeup = null;
+        }
+        break;
+      }
+      case "ScheduledItemSurfaced": {
+        pendingWakeup = name(payload.memory);
         break;
       }
       case "ModelCalled": {

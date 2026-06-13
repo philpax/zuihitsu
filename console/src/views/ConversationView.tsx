@@ -191,9 +191,12 @@ function TurnItem({ turn }: { turn: TurnModel }) {
         >
           {isAgent ? "the agent" : (turn.speaker ?? "someone")}
         </span>
-        {turn.initiation === "Initiated" && (
-          <span className="font-mono text-2xs text-ink-faint">· unprompted</span>
-        )}
+        {turn.initiation === "Initiated" &&
+          (turn.wakeup ? (
+            <span className="font-mono text-2xs text-clay">· woke up · {turn.wakeup}</span>
+          ) : (
+            <span className="font-mono text-2xs text-ink-faint">· unprompted</span>
+          ))}
       </div>
       {turn.text ? (
         <p className="text-base leading-relaxed text-ink">{turn.text}</p>
