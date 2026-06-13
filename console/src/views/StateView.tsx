@@ -2,8 +2,7 @@ import { useState } from "react";
 
 import type { Replica } from "../lib/replica.ts";
 import type { EntryView, MemoryDetail, MemoryView } from "../lib/graph.ts";
-import type { Teller } from "../types/Teller.ts";
-import type { Visibility } from "../types/Visibility.ts";
+import { isPrivate, tellerLabel, visibilityLabel } from "../lib/labels.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
 /// The State view: the materialized graph as it stands at the run's head. A namespace-grouped list
@@ -169,7 +168,7 @@ function EntryItem({
   nameById: Map<string, string>;
   faded?: boolean;
 }) {
-  const isPrivate = entry.visibility !== "Public";
+  const priv = isPrivate(entry.visibility);
   return (
     <li className={faded ? "opacity-55" : undefined}>
       <p className={"text-base leading-relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")}>
@@ -178,7 +177,7 @@ function EntryItem({
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">
         <span>told by {tellerLabel(entry.told_by, nameById)}</span>
         <span className="text-ink-faint/45">·</span>
-        <span className={isPrivate ? "text-clay" : undefined}>
+        <span className={priv ? "text-clay" : undefined}>
           {visibilityLabel(entry.visibility, nameById)}
         </span>
       </p>
@@ -197,19 +196,6 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 
 function Quiet({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-ink-faint">{children}</p>;
-}
-
-function tellerLabel(teller: Teller, nameById: Map<string, string>): string {
-  if (teller === "Agent") return "the agent";
-  if (teller === "Bootstrap") return "genesis";
-  return nameById.get(teller.Participant) ?? teller.Participant;
-}
-
-function visibilityLabel(visibility: Visibility, nameById: Map<string, string>): string {
-  if (visibility === "Public") return "public";
-  if (visibility === "PrivateToTeller") return "teller-private";
-  const names = visibility.Exclude.map((id) => nameById.get(id) ?? id);
-  return `excludes ${names.join(", ")}`;
 }
 
 /// Group memories by their namespace prefix (`person/dave` → `person`), `self` standing alone, with
