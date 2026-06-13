@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+/* ----------------------------------------------------------------------------------------------
+   Japandi design tokens — the quiet meeting of Japanese and Scandinavian design (spec §Aesthetic).
+   A warm paper ground, sumi-ink text, and two earthen accents (clay, sage) used sparingly. A real
+   typographic scale and hairline rules do the structural work in place of boxes and shadows.
+   ---------------------------------------------------------------------------------------------- */
+@theme {
+  /* Ground: undyed paper, warming as it deepens. */
+  --color-paper: #f4efe5;
+  --color-oat: #ebe3d3;
+  --color-oat-deep: #e0d6c2;
+
+  /* Sumi ink, never pure black; softening toward the page as it recedes. */
+  --color-ink: #2c2823;
+  --color-ink-soft: #6d665a;
+  --color-ink-faint: #9c9484;
+
+  /* Hairlines do the dividing — no boxes, no shadows. */
+  --color-line: #ddd4c3;
+  --color-line-strong: #c9bda7;
+
+  /* Two earthen accents, used sparingly. Clay marks attention and the live edge; sage marks calm
+     and what has held. The soft variants are for fills, the base for ink and strokes. */
+  --color-clay: #af6047;
+  --color-clay-soft: #d8b5a6;
+  --color-sage: #707a55;
+  --color-sage-soft: #b4bb9c;
+
+  /* A serif for editorial calm, a humanist sans for the body, a mono for the agent's own data. */
+  --font-serif: "Spectral", ui-serif, Georgia, serif;
+  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* A modular scale, sized for hours of reading: a comfortable 15px base. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1.45;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.55;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.65;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.6;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.875rem;
+  --text-2xl--line-height: 1.25;
+  --text-3xl: 2.5rem;
+  --text-3xl--line-height: 1.15;
+
+  --tracking-widest: 0.22em;
+
+  /* Restrained radii — softened, not rounded. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    /* Tabular figures so ids, seqs, and timings sit in true columns. */
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "cv01" 1;
+  }
+
+  /* The undyed-paper grain: a single fixed, ignorable layer of fibre. Kept far below the threshold
+     of notice — it warms the ground without ever announcing itself. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.4;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background-color: var(--color-clay-soft);
+    color: var(--color-ink);
+  }
+
+  /* A thin, warm scrollbar that belongs to the paper. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
