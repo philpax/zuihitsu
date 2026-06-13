@@ -16,6 +16,9 @@ path = "src/lib.rs"
 # enables it, and the eval crate turns that on to regenerate the console's type contract.
 [features]
 ts = ["dep:ts-rs"]
+# Exposes the `Store` seam contract helpers so the main crate's SqliteStore tests run the same
+# checks the in-memory backend does, rather than re-deriving them.
+test-support = []
 
 [dependencies]
 jiff = { workspace = true }

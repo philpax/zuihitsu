@@ -10,7 +10,10 @@
 //! codebase continues to reach these types at their familiar `crate::*` paths.
 
 pub mod db;
+pub mod event;
 pub mod ids;
 pub mod model;
+pub mod settings;
+pub mod store;
 pub mod time;
 pub mod vocabulary;

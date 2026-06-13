@@ -1,7 +1,7 @@
 //! Behavioral settings — the agent's tunables, stored in the log as a single typed struct.
 //!
-//! These are distinct from [`EnvConfig`](crate::config::EnvConfig), which is the serving/environment
-//! config read from `config.toml` (endpoints, sampling). Settings instead live *in the log*: a
+//! These are distinct from the main crate's `EnvConfig`, which is the serving/environment config
+//! read from `config.toml` (endpoints, sampling). Settings instead live *in the log*: a
 //! `ConfigSet` event carries a whole [`Settings`] snapshot, seeded at genesis and replaced when an
 //! operator changes a tunable, so replay reproduces the behavior each value produced. The current
 //! settings are the latest snapshot ([`Settings::from_store`]).

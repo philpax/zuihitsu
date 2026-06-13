@@ -83,3 +83,6 @@ zuihitsu-core = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
+# The Store-seam contract helpers, so SqliteStore's tests reuse the same checks as the in-memory
+# backend (see crates/core/src/store/mod.rs).
+zuihitsu-core = { workspace = true, features = ["test-support"] }
