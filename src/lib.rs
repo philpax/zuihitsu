@@ -12,7 +12,6 @@ mod db;
 pub mod engine;
 pub mod event;
 pub mod graph;
-pub mod ids;
 pub mod mcp;
 pub mod memory;
 pub mod model;
@@ -20,9 +19,11 @@ pub mod server;
 pub mod settings;
 pub mod snapshot;
 pub mod store;
-pub mod time;
 pub mod vector;
-pub mod vocabulary;
+
+// The wasm-compatible core lives in `zuihitsu-core` and is re-exported here, so the rest of the
+// codebase reaches these modules at their existing `crate::*` paths.
+pub use zuihitsu_core::{ids, time, vocabulary};
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
 // as `zuihitsu::genesis::{rollout, status}` without reaching through the `agent` subsystem.

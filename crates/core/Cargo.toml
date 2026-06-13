@@ -1,0 +1,26 @@
+# The wasm-compatible core of the agent: the event-log wire types, the materialized graph, and the
+# pure projection logic the console replays in the browser (see console/PLAN.md). Deliberately free
+# of the host-only machinery (mlua, tokio, reqwest, axum, async-openai, file-backed SQLite), so it
+# compiles to wasm32-unknown-unknown. The main `zuihitsu` crate depends on this and re-exports it, so
+# the rest of the codebase reaches these types at their existing paths.
+[package]
+name = "zuihitsu-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "zuihitsu_core"
+path = "src/lib.rs"
+
+# The `ts` feature exports the wire types to TypeScript via ts-rs; the main crate's `ts` feature
+# enables it, and the eval crate turns that on to regenerate the console's type contract.
+[features]
+ts = ["dep:ts-rs"]
+
+[dependencies]
+jiff = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smol_str = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+ulid = { workspace = true }

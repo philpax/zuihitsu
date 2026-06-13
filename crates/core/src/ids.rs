@@ -124,8 +124,9 @@ pub struct MemoryName(#[cfg_attr(feature = "ts", ts(type = "string"))] pub SmolS
 
 impl MemoryName {
     /// The reserved handle of the agent's self-model memory: seeded at genesis, and writable only
-    /// from the console (see [`crate::memory::memory_block::Authority`]). Held here so the one literal
-    /// has a single home, used wherever code looks `self` up or guards a write against it.
+    /// from the console under operator authority (see the main crate's `memory::memory_block::Authority`).
+    /// Held here so the one literal has a single home, used wherever code looks `self` up or guards a
+    /// write against it.
     pub const SELF: &'static str = "self";
 
     pub fn new(name: impl Into<SmolStr>) -> MemoryName {

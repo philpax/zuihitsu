@@ -2933,6 +2933,19 @@ dependencies = [
  "tracing-subscriber",
  "ts-rs",
  "ulid",
+ "zuihitsu-core",
+]
+
+[[package]]
+name = "zuihitsu-core"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "serde",
+ "serde_json",
+ "smol_str",
+ "ts-rs",
+ "ulid",
 ]
 
 [[package]]
