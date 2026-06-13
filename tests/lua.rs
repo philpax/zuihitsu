@@ -1118,6 +1118,58 @@ async fn memory_search_recalls_an_indexed_entry() {
 }
 
 #[tokio::test]
+async fn print_output_is_surfaced_in_the_block_result() {
+    // `print(...)` must feed back to the agent: Lua's default print writes to a process stdout the
+    // model never reads, so an agent that inspects a value by printing it would see nothing. A block
+    // whose final value is nil but which printed still returns the printed text.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        print("hello")
+        print("a", "b")
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "hello\na\tb");
+}
+
+#[tokio::test]
+async fn printed_search_results_recall_the_fact() {
+    // The recall failure mode: the agent searches, then `print`s each hit in a loop (so the block's
+    // final value is nil) instead of returning the list. The printed names must still come back.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local dave = memory.create("person/dave")
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.search("An avid rock climber")
+        for _, res in ipairs(results) do
+            print(res.name, res.description)
+        end
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.contains("person/dave"), "result: {result:?}");
+    assert!(!result.contains("<table>"), "result: {result:?}");
+}
+
+#[tokio::test]
 async fn memory_search_without_an_embedder_is_a_teachable_error() {
     // A graph-only harness has no retrieval, so search reports itself unavailable rather than failing
     // obscurely — and commits nothing.

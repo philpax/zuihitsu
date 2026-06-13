@@ -176,6 +176,7 @@ impl Session {
                 infra: Arc::new(Mutex::new(None)),
                 lock_set: Arc::new(Mutex::new(LockSet::default())),
                 manager: manager.clone(),
+                printed: Arc::new(Mutex::new(String::new())),
             };
 
             // The handle metatable and its methods table back every memory handle the API mints; the
@@ -228,7 +229,13 @@ impl Session {
                 // Abort-and-retry: the buffer emitted nothing, so a fresh attempt is the only trace.
                 continue;
             };
-            let evaluated = evaluated.map(|value| render(&self.lua, &value));
+            // The agent-visible result is the rendered final value, prefixed by anything the block
+            // printed (so an agent that prints a query result instead of returning it still sees it).
+            let evaluated = evaluated.map(|value| {
+                let rendered = render(&self.lua, &value);
+                let printed = std::mem::take(&mut *api.printed.lock());
+                combine_output(printed, rendered)
+            });
 
             // An infrastructure failure during the block (a graph read) takes precedence over the
             // script's apparent outcome: it bubbles up, discarding the buffer and releasing the locks,
@@ -319,6 +326,26 @@ impl Session {
     ) -> mlua::Result<()> {
         self.install_handle_methods(api, methods, entry_metatable)?;
         let globals = self.lua.globals();
+        // `print(...)` captures into the block's output buffer (rendered the same way returned values
+        // are), so the agent sees what it prints fed back — Lua's default `print` writes to a process
+        // stdout the model never reads. Tab-separated args, newline-terminated, matching Lua semantics.
+        globals.set(
+            "print",
+            self.lua.create_function({
+                let printed = api.printed.clone();
+                move |lua, args: mlua::Variadic<Value>| {
+                    let mut buffer = printed.lock();
+                    for (index, arg) in args.iter().enumerate() {
+                        if index > 0 {
+                            buffer.push('\t');
+                        }
+                        buffer.push_str(&render(lua, arg));
+                    }
+                    buffer.push('\n');
+                    Ok(())
+                }
+            })?,
+        )?;
         globals.set("memory", self.memory_table(api, metatable)?)?;
         globals.set("block", self.block_table(api)?)?;
         globals.set("context", self.context_table(api, metatable)?)?;
@@ -1372,6 +1399,10 @@ struct BlockApi {
     infra: Arc<Mutex<Option<GraphError>>>,
     lock_set: Arc<Mutex<LockSet>>,
     manager: Arc<MemoryLocks>,
+    /// What the block wrote with `print(...)`, accumulated across the script and folded into the
+    /// block's agent-visible result. Without this, `print` output is lost, so an agent that inspects a
+    /// query by printing it (rather than returning it) sees nothing come back — the recall failure mode.
+    printed: Arc<Mutex<String>>,
 }
 
 impl BlockApi {
@@ -1640,6 +1671,21 @@ async fn run_memory_search(
 }
 
 /// Render a script's final value to the text the agent sees back (REPL-style).
+/// Fold a block's `print` output and its final-value rendering into the one agent-visible result.
+/// When nothing was printed this is just the value (the common `return …` case, unchanged). When the
+/// block printed but returned nothing meaningful (a `for … print(x) end` loop, whose value is `nil`),
+/// the printed output stands alone rather than being buried under a bare `nil`.
+fn combine_output(printed: String, value: String) -> String {
+    let printed = printed.trim_end_matches('\n');
+    if printed.is_empty() {
+        value
+    } else if value.is_empty() || value == "nil" {
+        printed.to_owned()
+    } else {
+        format!("{printed}\n{value}")
+    }
+}
+
 fn render(lua: &Lua, value: &Value) -> String {
     match value {
         Value::Nil => "nil".to_owned(),
