@@ -2,6 +2,7 @@ import initWasm, { Replica as WasmReplica } from "../wasm/console_wasm.js";
 import wasmUrl from "../wasm/console_wasm_bg.wasm?url";
 
 import type { Event } from "../types/Event.ts";
+import type { BriefTrace } from "./brief.ts";
 import type {
   ConversationDetail,
   MemoryDetail,
@@ -71,5 +72,11 @@ export class Replica {
 
   conversations(): ConversationDetail[] {
     return this.#inner.conversations() as ConversationDetail[];
+  }
+
+  /// Re-derive a session's brief and the trace of how it was composed, against the graph at the
+  /// current fold. `present` and `context` are memory ids; `nowMs` is the session start time.
+  brief(present: string[], context: string | null, nowMs: number): BriefTrace {
+    return this.#inner.brief(present, context, nowMs) as BriefTrace;
   }
 }

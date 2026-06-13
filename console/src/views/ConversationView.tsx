@@ -3,10 +3,16 @@ import { useState } from "react";
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import { completionSummary } from "../lib/labels.ts";
-import { type DeliberationStep, type TurnModel, buildConversations } from "../lib/conversation.ts";
+import {
+  type DeliberationStep,
+  type SessionModel,
+  type TurnModel,
+  buildConversations,
+} from "../lib/conversation.ts";
 import { formatMs } from "../lib/format.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
+import { BriefTraceView } from "../components/BriefTrace.tsx";
 
 /// The Conversation view: a run's rooms, each session's frozen brief, and the transcript — with
 /// every agent turn openable to the reasoning and Lua that produced it. "What was the agent
@@ -64,7 +70,13 @@ export function ConversationView({
       </header>
 
       {conversation.sessions.map((session) => (
-        <BriefBlock key={session.id} brief={session.brief} participants={session.participants} />
+        <BriefBlock
+          key={session.id}
+          replica={replica}
+          session={session}
+          contextMemory={conversation.contextMemory}
+          cursor={cursor}
+        />
       ))}
 
       <ol className="mt-2 flex flex-col">
@@ -76,7 +88,17 @@ export function ConversationView({
   );
 }
 
-function BriefBlock({ brief, participants }: { brief: string; participants: string[] }) {
+function BriefBlock({
+  replica,
+  session,
+  contextMemory,
+  cursor,
+}: {
+  replica: Replica;
+  session: SessionModel;
+  contextMemory: string | null;
+  cursor: number;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mb-6 border-b border-line pb-6">
@@ -86,16 +108,34 @@ function BriefBlock({ brief, participants }: { brief: string; participants: stri
       >
         <Eyebrow>{open ? "▾ brief" : "▸ brief"}</Eyebrow>
         <span className="font-mono text-2xs text-ink-faint">
-          {participants.join(", ") || "no participants"}
+          how it was composed · {session.participants.join(", ") || "no one present"}
         </span>
       </button>
       {open && (
-        <pre className="mt-4 max-h-96 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-4 py-3 font-mono text-2xs leading-relaxed text-ink-soft">
-          {brief}
-        </pre>
+        <BriefComposition
+          key={cursor}
+          replica={replica}
+          session={session}
+          contextMemory={contextMemory}
+        />
       )}
     </div>
   );
+}
+
+/// Re-derives the brief at the current timeline cursor (hence keyed by it in the parent, so a scrub
+/// re-runs the composer) and renders its trace.
+function BriefComposition({
+  replica,
+  session,
+  contextMemory,
+}: {
+  replica: Replica;
+  session: SessionModel;
+  contextMemory: string | null;
+}) {
+  const trace = replica.brief(session.participantIds, contextMemory, session.startedAt);
+  return <BriefTraceView trace={trace} />;
 }
 
 function TurnItem({ turn }: { turn: TurnModel }) {

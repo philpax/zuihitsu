@@ -15,6 +15,8 @@ export interface ConversationModel {
   platform: string;
   scopePath: string;
   contextName: string | null;
+  /// The room's `context/*` memory id, for re-deriving the brief.
+  contextMemory: string | null;
   sessions: SessionModel[];
   turns: TurnModel[];
 }
@@ -24,6 +26,8 @@ export interface SessionModel {
   brief: string;
   startedAt: number;
   participants: string[];
+  /// The present set as memory ids (the names above are resolved from these).
+  participantIds: string[];
 }
 
 export interface TurnModel {
@@ -68,7 +72,15 @@ export function buildConversations(
   function conversation(id: string): ConversationModel {
     let model = conversations.get(id);
     if (!model) {
-      model = { id, platform: "", scopePath: "", contextName: null, sessions: [], turns: [] };
+      model = {
+        id,
+        platform: "",
+        scopePath: "",
+        contextName: null,
+        contextMemory: null,
+        sessions: [],
+        turns: [],
+      };
       conversations.set(id, model);
     }
     return model;
@@ -105,6 +117,7 @@ export function buildConversations(
         model.platform = payload.locator.platform;
         model.scopePath = payload.locator.scope_path;
         model.contextName = name(payload.context_memory);
+        model.contextMemory = payload.context_memory;
         break;
       }
       case "SessionStarted": {
@@ -113,6 +126,7 @@ export function buildConversations(
           brief: payload.brief,
           startedAt: payload.started_at,
           participants: payload.participants.map((id) => name(id) ?? id),
+          participantIds: payload.participants,
         });
         break;
       }
