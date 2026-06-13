@@ -9,6 +9,13 @@ export class Replica {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Re-derive a session's contextual brief and the trace of how it was composed — every memory the
+     * composer considered and, per entry, the visibility verdict and whether it reached the brief.
+     * The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
+     * and its start time; the brief is composed against the graph at the current fold horizon.
+     */
+    brief(present_set: string[], context: string | null | undefined, now_ms: number): any;
+    /**
      * Every durable conversation up to the current fold horizon, each with its sessions — the
      * structure behind the Conversation view, with the `context/*` room name and the per-session
      * participant handles resolved from ids the raw log only carries opaquely.
@@ -63,6 +70,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_replica_free: (a: number, b: number) => void;
+    readonly replica_brief: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly replica_conversations: (a: number) => [number, number, number];
     readonly replica_eventCount: (a: number) => number;
     readonly replica_foldTo: (a: number, b: number) => [number, number];

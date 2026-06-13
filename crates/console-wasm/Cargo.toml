@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 zuihitsu-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+ulid = { workspace = true }
 # Pinned to the wasm-bindgen CLI on PATH — the glue generator and the crate must match exactly.
 wasm-bindgen = "=0.2.117"
 serde-wasm-bindgen = "0.6"

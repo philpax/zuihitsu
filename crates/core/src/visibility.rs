@@ -14,6 +14,8 @@
 //! Injecting the resolver keeps the predicate free of I/O (and trivially testable) while letting the
 //! caller back it with the graph.
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     event::{Teller, Visibility},
     graph::{EntryView, GraphError, MemoryView},
@@ -24,6 +26,40 @@ use crate::{
 /// production resolver reads the graph; a leak-safe predicate must propagate that rather than guess.
 pub type ClassOf<'a> = dyn Fn(MemoryId) -> Result<MemoryId, GraphError> + 'a;
 
+/// Why an entry is or isn't visible: the [`visible`] predicate's verdict with its reason. The three
+/// visible verdicts and the four hidden ones are told apart by [`VisibilityDecision::is_visible`].
+/// Carried so the console's brief trace can show not just whether a fact surfaced but why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum VisibilityDecision {
+    /// Surfaces to anyone — a public entry.
+    Public,
+    /// Surfaces: teller-private, the teller is present, and the subject-guard does not block.
+    TellerPresent,
+    /// Surfaces: an `Exclude` entry with the teller present, no named excludee present, and no guard.
+    NotExcluded,
+    /// Hidden: a newer entry superseded this one.
+    Superseded,
+    /// Hidden: the teller is not present.
+    TellerAbsent,
+    /// Hidden by the subject-guard — the subject of this memory is present.
+    SubjectPresent,
+    /// Hidden: a named excludee is present.
+    ExcludeePresent,
+}
+
+impl VisibilityDecision {
+    /// Whether this verdict surfaces the entry.
+    pub fn is_visible(self) -> bool {
+        matches!(
+            self,
+            VisibilityDecision::Public
+                | VisibilityDecision::TellerPresent
+                | VisibilityDecision::NotExcluded
+        )
+    }
+}
+
 /// Whether `entry` (on `memory`) may surface to the participants in `present_set`, resolving
 /// identity through `class_of`.
 pub fn visible(
@@ -32,23 +68,44 @@ pub fn visible(
     present_set: &[MemoryId],
     class_of: &ClassOf,
 ) -> Result<bool, GraphError> {
-    // A superseded entry is never live, on any surface (spec §Visibility → superseded entries are
-    // not live). The live entry reads already exclude these in SQL; this guards the search path,
-    // which resolves a vector hit through `entry_by_id` (which does not filter) before this predicate.
+    Ok(explain(entry, memory, present_set, class_of)?.is_visible())
+}
+
+/// As [`visible`], but reporting *why* — the verdict the brief trace renders. A superseded entry is
+/// never live on any surface (spec §Visibility → superseded entries are not live); the live entry
+/// reads already exclude these in SQL, so this guard covers the search path, which resolves a vector
+/// hit through `entry_by_id` (which does not filter) before this predicate.
+pub fn explain(
+    entry: &EntryView,
+    memory: &MemoryView,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+) -> Result<VisibilityDecision, GraphError> {
     if entry.superseded_by.is_some() {
-        return Ok(false);
+        return Ok(VisibilityDecision::Superseded);
     }
     let subject = subject_participant(memory.name.as_str(), memory.id);
     Ok(match &entry.visibility {
-        Visibility::Public => true,
+        Visibility::Public => VisibilityDecision::Public,
         Visibility::PrivateToTeller => {
-            teller_present(&entry.told_by, present_set, class_of)?
-                && !subject_blocks(subject, &entry.told_by, present_set, class_of)?
+            if !teller_present(&entry.told_by, present_set, class_of)? {
+                VisibilityDecision::TellerAbsent
+            } else if subject_blocks(subject, &entry.told_by, present_set, class_of)? {
+                VisibilityDecision::SubjectPresent
+            } else {
+                VisibilityDecision::TellerPresent
+            }
         }
         Visibility::Exclude(excluded) => {
-            teller_present(&entry.told_by, present_set, class_of)?
-                && no_excludee_present(excluded, present_set, class_of)?
-                && !subject_blocks(subject, &entry.told_by, present_set, class_of)?
+            if !teller_present(&entry.told_by, present_set, class_of)? {
+                VisibilityDecision::TellerAbsent
+            } else if !no_excludee_present(excluded, present_set, class_of)? {
+                VisibilityDecision::ExcludeePresent
+            } else if subject_blocks(subject, &entry.told_by, present_set, class_of)? {
+                VisibilityDecision::SubjectPresent
+            } else {
+                VisibilityDecision::NotExcluded
+            }
         }
     })
 }

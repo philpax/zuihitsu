@@ -16,6 +16,27 @@ export class Replica {
         wasm.__wbg_replica_free(ptr, 0);
     }
     /**
+     * Re-derive a session's contextual brief and the trace of how it was composed — every memory the
+     * composer considered and, per entry, the visibility verdict and whether it reached the brief.
+     * The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
+     * and its start time; the brief is composed against the graph at the current fold horizon.
+     * @param {string[]} present_set
+     * @param {string | null | undefined} context
+     * @param {number} now_ms
+     * @returns {any}
+     */
+    brief(present_set, context, now_ms) {
+        const ptr0 = passArrayJsValueToWasm0(present_set, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        var ptr1 = isLikeNone(context) ? 0 : passStringToWasm0(context, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len1 = WASM_VECTOR_LEN;
+        const ret = wasm.replica_brief(this.__wbg_ptr, ptr0, len0, ptr1, len1, now_ms);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Every durable conversation up to the current fold horizon, each with its sessions — the
      * structure behind the Conversation view, with the `context/*` room name and the per-session
      * participant handles resolved from ids the raw log only carries opaquely.
@@ -151,6 +172,14 @@ function __wbg_get_imports() {
             const ret = String(arg1);
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_string_get_914df97fcfa788f2: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'string' ? obj : undefined;
+            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
@@ -307,10 +336,24 @@ function handleError(f, args) {
     }
 }
 
+function isLikeNone(x) {
+    return x === undefined || x === null;
+}
+
 function passArray8ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 1, 1) >>> 0;
     getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayJsValueToWasm0(array, malloc) {
+    const ptr = malloc(array.length * 4, 4) >>> 0;
+    for (let i = 0; i < array.length; i++) {
+        const add = addToExternrefTable0(array[i]);
+        getDataViewMemory0().setUint32(ptr + 4 * i, add, true);
+    }
+    WASM_VECTOR_LEN = array.length;
     return ptr;
 }
 

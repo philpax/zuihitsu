@@ -12,11 +12,14 @@
 //! which type `Seq` and the timestamps as `number`.
 
 use serde::Serialize;
+use ulid::Ulid;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{
+    brief::{BriefRequest, compose_traced},
     event::{Event, EventPayload},
     graph::{EntryView, Graph, LinkView, MemoryView},
-    ids::{ConversationId, Seq, SessionId},
+    ids::{ConversationId, MemoryId, Seq, SessionId},
+    settings::BriefSettings,
     time::Timestamp,
 };
 
@@ -166,6 +169,35 @@ impl Replica {
         to_js(&self.graph.all_relations().map_err(graph_error)?)
     }
 
+    /// Re-derive a session's contextual brief and the trace of how it was composed — every memory the
+    /// composer considered and, per entry, the visibility verdict and whether it reached the brief.
+    /// The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
+    /// and its start time; the brief is composed against the graph at the current fold horizon.
+    pub fn brief(
+        &self,
+        present_set: Vec<String>,
+        context: Option<String>,
+        now_ms: f64,
+    ) -> Result<JsValue, JsError> {
+        let present = present_set
+            .iter()
+            .map(|id| parse_memory_id(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let current_context = match context {
+            Some(id) => Some(parse_memory_id(&id)?),
+            None => None,
+        };
+        let request = BriefRequest {
+            present_set: &present,
+            current_context,
+            working_set: &[],
+            now: Timestamp::from_millis(now_ms as i64),
+        };
+        let trace = compose_traced(&self.graph, &BriefSettings::default(), &request)
+            .map_err(|error| JsError::new(&format!("console: {error}")))?;
+        to_js(&trace)
+    }
+
     /// Every durable conversation up to the current fold horizon, each with its sessions — the
     /// structure behind the Conversation view, with the `context/*` room name and the per-session
     /// participant handles resolved from ids the raw log only carries opaquely.
@@ -238,4 +270,11 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
 /// Render a core graph error as a JS error, leading with the console context.
 fn graph_error(error: zuihitsu_core::graph::GraphError) -> JsError {
     JsError::new(&format!("console: {error}"))
+}
+
+/// Parse a memory id (a ULID string, as the frontend serializes it) back into a [`MemoryId`].
+fn parse_memory_id(id: &str) -> Result<MemoryId, JsError> {
+    Ulid::from_string(id)
+        .map(MemoryId)
+        .map_err(|error| JsError::new(&format!("console: invalid memory id {id:?}: {error}")))
 }

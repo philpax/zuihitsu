@@ -346,6 +346,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "ulid",
  "wasm-bindgen",
  "zuihitsu-core",
 ]
