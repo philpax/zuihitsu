@@ -59,10 +59,12 @@ A `wasm-bindgen` wrapper over the materializer:
 
 Rust stays the single source of truth, exported two ways:
 
-- **Types:** `cargo run -p zuihitsu-eval -- export-types console/src/types` (the existing `ts` cargo feature; bindings checked in, "generated — do not edit" headers). Regenerate and commit whenever a Rust wire type changes. The entry type is `EvalPackage`; the embedded log is `Event[]` with the `EventPayload` union.
-- **The materializer wasm artifact:** built via `wasm-pack` from a new thin wrapper crate (workspace member, e.g. `crates/console-wasm`), and **checked in** next to the types, same regenerate-and-commit discipline. A binary blob in git is mildly ugly, but it preserves the property that a fresh checkout (or a frontend-only dev) gets a working console with no Rust toolchain. One command should regenerate both.
+- **Types:** the ts-rs bindings in `console/src/types` (the existing `ts` cargo feature; checked in, "generated — do not edit" headers). The entry type is `EvalPackage`; the embedded log is `Event[]` with the `EventPayload` union.
+- **The materializer wasm bundle:** built from the `console-wasm` wrapper crate (`crates/console-wasm`) into `console/src/wasm` (`console_wasm.js` loader, `console_wasm_bg.wasm`, `.d.ts`), and **checked in** next to the types. A ~2 MB blob in git is mildly ugly, but it preserves the property that a fresh checkout (or a frontend-only dev) gets a working console with no Rust toolchain.
 
-The original plan said the Rust side wouldn't be modified. That changes in exactly one bounded way: the wasm wrapper crate and its export workflow. Harness behavior, the materializer's logic, and the server do not change in the first phase. (The live phase later adds the `/control` events endpoint and snapshot download — see below.)
+**One command regenerates both:** `./console/regen.sh` (re-execs into the nix-shell for the wasm C toolchain; runs the ts-rs export, then `cargo build --target wasm32-unknown-unknown` + `wasm-bindgen --target web` + `wasm-opt -Oz`). Rerun and commit whenever a wire type or the materializer changes. This uses `wasm-bindgen` + `wasm-opt` directly rather than `wasm-pack`, since the tools are already on `PATH` and in the dev shell, and it avoids `wasm-pack`'s separate `wasm-opt` download in a sandboxed build.
+
+The Rust side changes in two bounded ways from the original "untouched" intent: the `console-wasm` wrapper crate and its build workflow, and the `zuihitsu-core` carve-out that makes the materializer wasm-compatible (done — see the git history). The materializer's *logic*, the harness, and the server are unchanged. (The live phase later adds the `/control` events endpoint and snapshot download — see below.)
 
 ## Views: what each consumes, and build order
 
