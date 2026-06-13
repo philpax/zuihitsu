@@ -1,0 +1,20 @@
+# The console's WASM bridge: a wasm-bindgen API over zuihitsu-core's materializer, so the frontend
+# folds an event log into queryable graph state with the agent's own projection code (see
+# console/PLAN.md). Built with wasm-pack; the generated package is checked in beside the ts-rs types.
+[package]
+name = "console-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+# cdylib for the wasm artifact; rlib so the crate is unit-testable on the host.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+zuihitsu-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Pinned to the wasm-bindgen CLI on PATH — the glue generator and the crate must match exactly.
+wasm-bindgen = "=0.2.117"
+serde-wasm-bindgen = "0.6"

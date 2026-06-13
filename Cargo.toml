@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/eval"]
+members = ["crates/core", "crates/console-wasm", "crates/eval"]
 
 # Dependencies shared across the workspace crates live here, so their versions cannot drift.
 # Per-crate feature sets are added at the use site (features union across the workspace).
