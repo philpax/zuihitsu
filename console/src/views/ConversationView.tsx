@@ -70,21 +70,46 @@ export function ConversationView({
         </p>
       </header>
 
-      {conversation.sessions.map((session) => (
-        <BriefBlock
-          key={session.id}
-          replica={replica}
-          session={session}
-          contextMemory={conversation.contextMemory}
-          cursor={cursor}
-        />
-      ))}
-
-      <ol className="mt-2 flex flex-col">
-        {conversation.turns.map((turn) => (
-          <TurnItem key={turn.turnId} turn={turn} />
-        ))}
-      </ol>
+      {conversation.sessions.length === 0 ? (
+        <ol className="flex flex-col">
+          {conversation.turns.map((turn) => (
+            <TurnItem key={turn.turnId} turn={turn} />
+          ))}
+        </ol>
+      ) : (
+        conversation.sessions.map((session, index) => {
+          // Each session owns the turns from its open until the next session re-segments.
+          const fromSeq = index === 0 ? 0 : session.seq;
+          const toSeq = conversation.sessions[index + 1]?.seq ?? Infinity;
+          const turns = conversation.turns.filter(
+            (turn) => turn.seq >= fromSeq && turn.seq < toSeq,
+          );
+          return (
+            <div key={session.id}>
+              {session.compaction && (
+                <div className="my-7 flex items-center gap-3 text-clay">
+                  <span className="h-px flex-1 bg-line" />
+                  <span className="font-mono text-2xs uppercase tracking-widest">
+                    re-briefed · compaction
+                  </span>
+                  <span className="h-px flex-1 bg-line" />
+                </div>
+              )}
+              <BriefBlock
+                replica={replica}
+                session={session}
+                contextMemory={conversation.contextMemory}
+                cursor={cursor}
+              />
+              <ol className="mt-2 flex flex-col">
+                {turns.map((turn) => (
+                  <TurnItem key={turn.turnId} turn={turn} />
+                ))}
+              </ol>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }

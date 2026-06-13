@@ -47,11 +47,16 @@ export interface ConversationModel {
 
 export interface SessionModel {
   id: string;
+  /// The seq the session opened at, for interleaving its brief with the turns.
+  seq: number;
   brief: string;
   startedAt: number;
   participants: string[];
   /// The present set as memory ids (the names above are resolved from these).
   participantIds: string[];
+  /// True when the session opened by re-segmenting a prior one (compaction) rather than fresh — it
+  /// carries `seeded_from_turn`, so the transcript can mark a continuity cut.
+  compaction: boolean;
 }
 
 export interface TurnModel {
@@ -173,10 +178,12 @@ export function buildConversations(
       case "SessionStarted": {
         conversation(payload.conversation).sessions.push({
           id: payload.id,
+          seq: event.seq,
           brief: payload.brief,
           startedAt: payload.started_at,
           participants: payload.participants.map((id) => name(id) ?? id),
           participantIds: payload.participants,
+          compaction: payload.seeded_from_turn !== null,
         });
         break;
       }
