@@ -3,10 +3,12 @@ import { useState } from "react";
 import type { Replica } from "../lib/replica.ts";
 import { MemoryBrowser } from "../components/MemoryBrowser.tsx";
 
-/// The State view: the materialized graph as it stands at the run's head, browsed memory by memory.
-/// The fold never moves here — that is the Time-travel view's job — so the shared browser is used
-/// directly, with selection held locally.
-export function StateView({ replica }: { replica: Replica }) {
+/// The State view: the materialized graph as it stands at the timeline cursor, browsed memory by
+/// memory. The Shell folds the replica to `cursor`; keying the browser by it re-queries at that
+/// fold, while selection is held here so it survives the remount.
+export function StateView({ replica, cursor }: { replica: Replica; cursor: number }) {
   const [selected, setSelected] = useState<string | null>(null);
-  return <MemoryBrowser replica={replica} selected={selected} onSelect={setSelected} />;
+  return (
+    <MemoryBrowser key={cursor} replica={replica} selected={selected} onSelect={setSelected} />
+  );
 }

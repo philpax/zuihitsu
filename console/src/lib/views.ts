@@ -6,7 +6,6 @@ export const VIEWS = [
   { id: "state", label: "State", scope: "run", ready: true },
   { id: "conversation", label: "Conversation", scope: "run", ready: true },
   { id: "events", label: "Events", scope: "run", ready: true },
-  { id: "time", label: "Time-travel", scope: "run", ready: true },
 ] as const;
 
 export type ViewId = (typeof VIEWS)[number]["id"];

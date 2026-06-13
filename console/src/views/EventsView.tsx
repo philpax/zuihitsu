@@ -27,9 +27,18 @@ const CATEGORY_COLOR: Record<EventCategory, string> = {
   infra: "text-ink-faint",
 };
 
-/// The Events view: the run's log as the source of truth, filtered by category and free text. A flat,
-/// scannable stream — every other view is a projection of exactly these rows.
-export function EventsView({ replica, events }: { replica: Replica; events: Event[] }) {
+/// The Events view: the run's log as the source of truth, filtered by category and free text, and
+/// stopped at the timeline cursor. A flat, scannable stream — every other view is a projection of
+/// exactly these rows.
+export function EventsView({
+  replica,
+  events,
+  cursor,
+}: {
+  replica: Replica;
+  events: Event[];
+  cursor: number;
+}) {
   const nameById = new Map(replica.memories("").map((memory) => [memory.id, memory.name]));
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [search, setSearch] = useState("");
@@ -37,6 +46,7 @@ export function EventsView({ replica, events }: { replica: Replica; events: Even
 
   const needle = search.trim().toLowerCase();
   const rows = events
+    .filter((event) => event.seq <= cursor)
     .map((event) => ({
       event,
       category: eventCategory(event.payload.type),
@@ -84,7 +94,10 @@ export function EventsView({ replica, events }: { replica: Replica; events: Even
 
       <div className="mb-3 flex items-baseline justify-between">
         <Eyebrow>{rows.length} events</Eyebrow>
-        <Eyebrow>seq 1 – {events.length}</Eyebrow>
+        <Eyebrow>
+          seq 1 – {cursor}
+          {cursor < events.length ? ` of ${events.length}` : ""}
+        </Eyebrow>
       </div>
 
       <ul className="font-mono text-xs">

@@ -8,27 +8,48 @@ import { type ViewId } from "../lib/views.ts";
 import { formatDate } from "../lib/format.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
 import { Nav } from "./Nav.tsx";
+import { Timeline } from "./Timeline.tsx";
 import { ScenarioOverview } from "../views/ScenarioOverview.tsx";
 import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
-import { TimeTravelView } from "../views/TimeTravelView.tsx";
 
-/// The loaded-package frame: a header naming the package and the run in focus, the view nav, and the
-/// active view. Run-scoped views fold the selected run's log into a [`Replica`] once and share it.
+/// The loaded-package frame: a header naming the package and the run in focus, the view nav, the
+/// active view, and — for the run-scoped views — a global timeline. The selected run's log folds
+/// into a shared [`Replica`]; one seq cursor drives every run-scoped view, so scrubbing the timeline
+/// folds the State graph and stops the Conversation and Events at the same point.
 export function Shell({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void }) {
   const [view, setView] = useState<ViewId>("scenarios");
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
+  // null means "the head" — the latest state. A number pins the cursor to an earlier seq.
+  const [seq, setSeq] = useState<number | null>(null);
   const replica = useReplica(activeRun?.run.events ?? null);
+
+  const ready = replica.status === "ready" ? replica.replica : null;
+  const head = ready?.headSeq ?? 0;
+  const cursor = seq ?? head;
+  const runScoped = view !== "scenarios";
 
   function selectRun(next: ActiveRun) {
     setActiveRun(next);
+    setSeq(null);
     setView("state");
   }
 
   function clearRun() {
     setActiveRun(null);
+    setSeq(null);
     setView("scenarios");
+  }
+
+  function scrub(next: number) {
+    ready?.foldTo(next);
+    setSeq(next >= head ? null : next);
+  }
+
+  function reset() {
+    ready?.foldTo(head);
+    setSeq(null);
   }
 
   return (
@@ -74,24 +95,29 @@ export function Shell({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void 
       <main className="flex-1 py-10">
         {view === "scenarios" && <ScenarioOverview pkg={pkg} onSelectRun={selectRun} />}
         {view === "state" && (
-          <RunScoped state={replica}>{(ready) => <StateView replica={ready} />}</RunScoped>
+          <RunScoped state={replica}>{(r) => <StateView replica={r} cursor={cursor} />}</RunScoped>
         )}
         {view === "conversation" && (
           <RunScoped state={replica}>
-            {(ready) => <ConversationView replica={ready} events={activeRun!.run.events} />}
+            {(r) => <ConversationView replica={r} events={activeRun!.run.events} cursor={cursor} />}
           </RunScoped>
         )}
         {view === "events" && (
           <RunScoped state={replica}>
-            {(ready) => <EventsView replica={ready} events={activeRun!.run.events} />}
-          </RunScoped>
-        )}
-        {view === "time" && (
-          <RunScoped state={replica}>
-            {(ready) => <TimeTravelView replica={ready} events={activeRun!.run.events} />}
+            {(r) => <EventsView replica={r} events={activeRun!.run.events} cursor={cursor} />}
           </RunScoped>
         )}
       </main>
+
+      {runScoped && ready && activeRun && (
+        <Timeline
+          head={head}
+          seq={cursor}
+          events={activeRun.run.events}
+          onScrub={scrub}
+          onReset={reset}
+        />
+      )}
     </div>
   );
 }

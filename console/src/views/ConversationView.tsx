@@ -11,9 +11,20 @@ import { Lua } from "../components/Lua.tsx";
 /// The Conversation view: a run's rooms, each session's frozen brief, and the transcript — with
 /// every agent turn openable to the reasoning and Lua that produced it. "What was the agent
 /// thinking," made literal (spec §Observability).
-export function ConversationView({ replica, events }: { replica: Replica; events: Event[] }) {
+export function ConversationView({
+  replica,
+  events,
+  cursor,
+}: {
+  replica: Replica;
+  events: Event[];
+  cursor: number;
+}) {
   const nameById = new Map(replica.memories("").map((memory) => [memory.id, memory.name]));
-  const conversations = buildConversations(events, nameById);
+  const conversations = buildConversations(
+    events.filter((event) => event.seq <= cursor),
+    nameById,
+  );
   const [room, setRoom] = useState(0);
 
   if (conversations.length === 0) {
