@@ -24,8 +24,8 @@ use crate::{
 
 use super::visibility::{default_visibility_named, subject_participant};
 
-/// Who is driving a block's writes. Operator authority is the control panel; it is the only path
-/// permitted to edit `self`, and it authors its links as `Debugger` rather than `Agent` (spec
+/// Who is driving a block's writes. Operator authority is the console; it is the only path
+/// permitted to edit `self`, and it authors its links as `Operator` rather than `Agent` (spec
 /// §Imprint interview). Platform authority is an ordinary conversation turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Authority {
@@ -106,7 +106,7 @@ pub enum MemoryError {
     /// A `links.register` gave a cardinality that is neither "one" nor "many".
     BadCardinality(String),
     /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
-    /// Only the control panel (operator authority) may edit `self`.
+    /// Only the console (operator authority) may edit `self`.
     SelfWriteForbidden,
     /// A platform-authority write tried to assert or retract a `same_as` merge. Cross-platform
     /// identity is operator-asserted only — the agent never merges two identities on its own.
@@ -155,13 +155,10 @@ impl std::fmt::Display for MemoryError {
                 write!(f, "cardinality {value:?} must be \"one\" or \"many\"")
             }
             MemoryError::SelfWriteForbidden => {
-                write!(f, "self can only be edited from the control panel")
+                write!(f, "self can only be edited from the console")
             }
             MemoryError::MergeForbidden => {
-                write!(
-                    f,
-                    "same_as merges can only be asserted from the control panel"
-                )
+                write!(f, "same_as merges can only be asserted from the console")
             }
             MemoryError::VisibilityRequired => write!(
                 f,
@@ -702,12 +699,12 @@ impl MemoryBlock {
         if relation == RelationName::SameAs && self.authority == Authority::Platform {
             return Err(MemoryError::MergeForbidden);
         }
-        // A link from or to `self` modifies the self model — barred outside the control panel.
+        // A link from or to `self` modifies the self model — barred outside the console.
         self.guard_self(from)?;
         self.guard_self(to)?;
-        // Operator-authored links carry control-panel provenance; the agent's own carry `Agent`.
+        // Operator-authored links carry operator provenance; the agent's own carry `Agent`.
         let source = match self.authority {
-            Authority::Operator => LinkSource::Debugger,
+            Authority::Operator => LinkSource::Operator,
             Authority::Platform => LinkSource::Agent,
         };
         self.touched.insert(from);
@@ -725,7 +722,7 @@ impl MemoryBlock {
         Ok(())
     }
 
-    /// Reject a platform-authority write that touches `self`. The control panel (operator authority)
+    /// Reject a platform-authority write that touches `self`. The console (operator authority)
     /// is the only path permitted to edit `self`, so the self model cannot be forged from a
     /// conversation (spec §Imprint interview). `create("self")` needs no guard — it is already blocked
     /// by `NameExists`, since `self` is seeded at genesis.
@@ -1067,13 +1064,13 @@ mod tests {
     }
 
     #[test]
-    fn operator_authority_may_write_self_and_links_carry_debugger() {
+    fn operator_authority_may_write_self_and_links_carry_operator() {
         let (graph, self_id) = graph_with_self();
         let clock = ManualClock::new(Timestamp::from_millis(2_000));
         let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
         let phil = block.create("person/phil", None).unwrap();
 
-        // The same writes that platform authority bars all succeed from the control panel.
+        // The same writes that platform authority bars all succeed from the console.
         block
             .append(
                 self_id,
@@ -1083,7 +1080,7 @@ mod tests {
             .unwrap();
         block.link(self_id, phil, RelationName::CreatedBy).unwrap();
 
-        // The operator-authored link carries control-panel provenance, not the agent's own.
+        // The operator-authored link carries operator provenance, not the agent's own.
         let source = block
             .into_effects()
             .events
@@ -1093,7 +1090,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(source, LinkSource::Debugger);
+        assert_eq!(source, LinkSource::Operator);
     }
 
     #[test]

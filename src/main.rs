@@ -1,7 +1,7 @@
 //! The zuihitsu binary. Run with no subcommand it boots the long-running HTTP server that hosts the
 //! agent (see [`serve`]); with a subcommand it is the operator CLI — a client of that running server
 //! (see [`client`]), reaching the agent through its `/control` API rather than opening the store
-//! directly (only the server holds the single-writer log lock). A "CLI debugger": inspection
+//! directly (only the server holds the single-writer log lock). A "CLI console": inspection
 //! subcommands print their JSON response to stdout; diagnostics go through `tracing` to stderr.
 
 use std::{
@@ -254,7 +254,7 @@ fn set_settings(client: &Client, file: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Print a response as pretty JSON to stdout — the machine-readable command output a debugger consumes.
+/// Print a response as pretty JSON to stdout — the machine-readable command output a console consumes.
 fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
     let json = serde_json::to_string_pretty(value).map_err(CliError::Render)?;
     println!("{json}");

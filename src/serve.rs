@@ -1,8 +1,8 @@
 //! The long-running HTTP server — `zuihitsu` with no subcommand boots this (spec §Clients and the
 //! server boundary). It opens the instance the config selects (acquiring the single-writer log lock),
 //! reconciles the graph, connects any configured MCP servers, runs the background scheduler driver,
-//! and serves the API the CLI and a future web debugger drive. The HTTP layer lives here, in the
-//! binary, so the library stays transport-agnostic; `/` is reserved for the web debugger, the
+//! and serves the API the CLI and a future web console drive. The HTTP layer lives here, in the
+//! binary, so the library stays transport-agnostic; `/` is reserved for the web console, the
 //! operator surface lives under `/control`, and the participant surface under `/platform`.
 
 use std::{
@@ -222,7 +222,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     Ok(())
 }
 
-/// The API router. `/` is the reserved web-debugger root; the operator surface lives under `/control`
+/// The API router. `/` is the reserved web-console root; the operator surface lives under `/control`
 /// and the participant surface under `/platform`. Each surface is its own sub-router carrying its own
 /// auth layer ([`require_control_key`] / [`require_platform_key`]), so a control key never authorizes
 /// `/platform` and vice versa. The layer is applied per sub-router rather than once at the top, because
@@ -231,7 +231,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 /// `/control/agent`).
 fn router(state: AppState) -> Router {
     // The operator surface: agent creation and read-only inspection (spec §Clients → control clients).
-    // The CLI and the future web debugger drive these.
+    // The CLI and the future web console drive these.
     let control = Router::new()
         .route("/health", get(health))
         .route("/agent", post(create_agent))
@@ -260,7 +260,7 @@ fn router(state: AppState) -> Router {
             require_platform_key,
         ));
     Router::new()
-        // The reserved web-debugger root stays ungated for now (a static placeholder); the real UI
+        // The reserved web-console root stays ungated for now (a static placeholder); the real UI
         // will move under the control surface when it lands.
         .route("/", get(root))
         .nest("/control", control)
@@ -323,11 +323,11 @@ fn key_is_valid(presented: &str, keys: &[String]) -> bool {
     matched
 }
 
-/// The reserved web-debugger root — a placeholder until the frontend lands.
+/// The reserved web-console root — a placeholder until the frontend lands.
 async fn root() -> impl IntoResponse {
     (
         StatusCode::OK,
-        "zuihitsu is serving. The web debugger will live here; the API is under /control and \
+        "zuihitsu is serving. The web console will live here; the API is under /control and \
          /platform.\n",
     )
 }

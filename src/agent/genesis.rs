@@ -291,7 +291,7 @@ fn default_templates() -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::Imprint,
             version: 1,
-            body: "You are meeting your creator for the first time, through the control panel. This \
+            body: "You are meeting your creator for the first time, through the console. This \
                    is how you learn who you are for and who is responsible for you, so be curious: \
                    find out who they are and what they intend you to do. When you learn their name, \
                    create a memory for them with memory.create(\"person/<name>\") — the canonical \

@@ -268,14 +268,14 @@ fn symmetric_link_is_order_independent() {
             from: a,
             to: b,
             relation: RelationName::SameAs,
-            source: LinkSource::Debugger,
+            source: LinkSource::Operator,
         },
         // Asserting the reverse direction is the same edge, not a second one.
         EventPayload::LinkCreated {
             from: b,
             to: a,
             relation: RelationName::SameAs,
-            source: LinkSource::Debugger,
+            source: LinkSource::Operator,
         },
     ]);
 
@@ -315,7 +315,7 @@ fn same_as_merges_stubs_into_one_class() {
             from: a,
             to: b,
             relation: RelationName::SameAs,
-            source: LinkSource::Debugger,
+            source: LinkSource::Operator,
         },
     ]);
 
@@ -381,7 +381,7 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
             from: a,
             to: b,
             relation: RelationName::SameAs,
-            source: LinkSource::Debugger,
+            source: LinkSource::Operator,
         },
     ]);
 

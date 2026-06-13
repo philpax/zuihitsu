@@ -200,7 +200,7 @@ impl Session {
             // The agent-visible outcome: the rendered final value, or the runtime error/abort that
             // ended the script, bounded by the block's time budget. The block's memory functions only
             // hold their parking_lot guards transiently, never across this suspension point. `started`
-            // times this attempt's eval for the debugger's turn timeline (the final attempt's, since a
+            // times this attempt's eval for the console's turn timeline (the final attempt's, since a
             // retry restarts it).
             let started = Instant::now();
             let timed = tokio::time::timeout(

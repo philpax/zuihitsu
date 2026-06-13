@@ -182,7 +182,7 @@ pub struct Turn<'a> {
     /// session (or whenever the caller wants a single-message prompt).
     pub buffer: &'a [TurnView],
     /// Which prompt template frames the system prompt and stamps the agent turn's provenance:
-    /// `Scaffold` for an ordinary participant turn, `Imprint` for the control-panel imprint interview.
+    /// `Scaffold` for an ordinary participant turn, `Imprint` for the console imprint interview.
     pub template: PromptTemplateName,
     /// The authority the turn's writes run under — `Platform` for a participant turn, `Operator` for
     /// the imprint interview (the only authority that may write `self`).

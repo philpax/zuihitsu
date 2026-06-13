@@ -1,6 +1,6 @@
 //! The eval-package schema — the JSON contract between the harness and the viewer (spec §Validation →
 //! the reply lane emits an eval package). A package's payload, per run, is the run's **actual event
-//! log** (`Vec<Event>`), so it is a special case of the debugger's input; the harness adds only the
+//! log** (`Vec<Event>`), so it is a special case of the console's input; the harness adds only the
 //! per-run verdicts and the computed metrics. These types derive `ts_rs::TS`, and `export-types` emits
 //! them — plus the whole transitively-referenced event-log graph — as TypeScript for the viewer.
 

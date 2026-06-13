@@ -326,7 +326,7 @@ impl ScriptedModel {
     }
 
     /// Script completions paired with the reasoning text and token usage each reports, for tests that
-    /// exercise the model-interaction record (the deliberation surface the debugger captures).
+    /// exercise the model-interaction record (the deliberation surface the console captures).
     pub fn with_deliberation(
         steps: impl IntoIterator<Item = (Completion, String, Usage)>,
     ) -> ScriptedModel {

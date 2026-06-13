@@ -76,40 +76,40 @@ impl Cardinality {
     }
 }
 
-/// Who authored a link: the agent itself, or an operator acting through the control panel/debugger.
+/// Who authored a link: the agent itself, or an operator acting through the console.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
     Agent,
-    Debugger,
+    Operator,
 }
 
 impl LinkSource {
     pub fn as_str(self) -> &'static str {
         match self {
             LinkSource::Agent => "Agent",
-            LinkSource::Debugger => "Debugger",
+            LinkSource::Operator => "Operator",
         }
     }
 
     pub fn parse(text: &str) -> Option<LinkSource> {
         match text {
             "Agent" => Some(LinkSource::Agent),
-            "Debugger" => Some(LinkSource::Debugger),
+            "Operator" => Some(LinkSource::Operator),
             _ => None,
         }
     }
 }
 
 /// Provenance for events that carry an authority, distinct from a participant teller: `Bootstrap`
-/// for genesis, `Orchestration` for prompt templates, `Debugger` for operator/control writes, and
+/// for genesis, `Orchestration` for prompt templates, `Operator` for operator/control writes, and
 /// `Agent` for the agent's own (spec §Initialization, §Trust model).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventSource {
     Bootstrap,
     Agent,
-    Debugger,
+    Operator,
     Orchestration,
 }
 
@@ -160,7 +160,7 @@ pub enum PromptTemplateName {
     TemporalExtraction,
     /// Frames the pre-compaction flush turn: write durable working state to memory before the cut.
     Flush,
-    /// Frames the control-panel imprint interview: meet the creator and form self-knowledge.
+    /// Frames the console imprint interview: meet the creator and form self-knowledge.
     Imprint,
 }
 
@@ -306,7 +306,7 @@ pub enum EventPayload {
     /// which entry replaces it (spec §Visibility → superseded entries are not live, §Data model →
     /// `superseded_by`). The original `MemoryContentAppended` stays immutable; applying this stamps
     /// the superseded entry's `superseded_by`. Live surfaces then exclude it, while history surfaces
-    /// (`mem:history()`, the debugger) still show it. `entry` and `superseded_by` belong to the same
+    /// (`mem:history()`, the console) still show it. `entry` and `superseded_by` belong to the same
     /// `same_as` class as `id`.
     MemorySuperseded {
         id: MemoryId,
@@ -435,7 +435,7 @@ pub enum EventPayload {
     /// feeds the model exactly the string it saw. `touched` is the set of memories the block read
     /// or wrote; `terminal_cause` is set only for agent-visible error/abort outcomes. `duration_ms`
     /// is the block's wall-clock execution time (the final attempt's, on the retry path), recorded
-    /// for the debugger's turn timeline; `#[serde(default)]` so pre-timing logs replay as `0`.
+    /// for the console's turn timeline; `#[serde(default)]` so pre-timing logs replay as `0`.
     LuaExecuted {
         conversation: ConversationId,
         turn_id: TurnId,
@@ -446,7 +446,7 @@ pub enum EventPayload {
         #[serde(default)]
         duration_ms: u64,
     },
-    /// Records one model call's interaction — the deliberation surface the debugger reconstructs
+    /// Records one model call's interaction — the deliberation surface the console reconstructs
     /// (spec §Observability). Log-only telemetry: the materializer ignores it, so faithful replay's
     /// rebuilt state is identical with or without it, and the recorded (non-deterministic) reasoning,
     /// usage, and latency are reproduced verbatim because replay reads them rather than recomputing.
@@ -598,7 +598,7 @@ impl EventPayload {
             // A whole-settings snapshot, not about a single entity.
             EventPayload::ConfigSet { .. } => None,
             // Conversation-keyed events target the conversation, so per-conversation history (the
-            // debugger's conversation view, compaction's read of a session's blocks) is a cheap
+            // console's conversation view, compaction's read of a session's blocks) is a cheap
             // indexed filter. A `LuaExecuted` touches many memories, but it belongs to one
             // conversation; its memory set is recovered from `touched`, not this column.
             EventPayload::ConversationStarted { id, .. }
@@ -617,7 +617,7 @@ impl EventPayload {
 
 /// A committed event: a payload assigned a position in the log's total order and stamped with the
 /// wall-clock time it was recorded. This is what a read returns; it is immutable. Serializable so it
-/// rides verbatim in an eval package and (later) over the debugger's wire (spec §Observability).
+/// rides verbatim in an eval package and (later) over the console's wire (spec §Observability).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Event {

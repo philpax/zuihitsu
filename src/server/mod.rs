@@ -3,7 +3,7 @@
 //!
 //! Authority is a property of the client's role, enforced here — never of where the client runs.
 //! The operator-authority surface is [`Control`] (agent creation and read-only inspection; its
-//! writes are authored as source `Debugger`). The platform-authority surface — delivering
+//! writes are authored as source `Operator`). The platform-authority surface — delivering
 //! participant turns via `route_message` — arrives with the agent loop in Stage 4 as a sibling
 //! facet that structurally lacks Control's creation and inspection methods, which is what makes
 //! "the operator has no platform identity" enforceable.
@@ -207,7 +207,7 @@ impl Server {
     }
 
     /// Run a semantic search over the agent's memory — the engine behind `memory.search`, exposed for
-    /// tests and a future operator/debugger search surface. Embeds the query off every lock, then ranks
+    /// tests and a future operator/console search surface. Embeds the query off every lock, then ranks
     /// under a brief graph + vector-index read lock. Empty on a graph-only instance (no embedder).
     pub async fn search(
         &self,
@@ -267,7 +267,7 @@ impl Server {
 /// One routed turn's inputs: the `conversation` it lands in, who is `present_set` (for the session
 /// brief), the `participant` it is attributed to, the `inbound` text, and the `template`/`authority`
 /// that frame it — `Scaffold`/`Platform` for an ordinary message, `Imprint`/`Operator` for the
-/// control-panel interview. Bundled so [`Server::run_session_turn`] takes the routed turn as a whole.
+/// console interview. Bundled so [`Server::run_session_turn`] takes the routed turn as a whole.
 struct RoutedTurn<'a> {
     conversation: ConversationId,
     present_set: &'a [MemoryId],
@@ -486,7 +486,7 @@ impl Server {
         Ok(open)
     }
 
-    /// Resolve the control-panel operator's stable `person/operator` stub, minting it once on the
+    /// Resolve the console operator's stable `person/operator` stub, minting it once on the
     /// first imprint. Unlike a platform participant it carries no `ParticipantIdentified` binding —
     /// the operator has no platform identity, must never collide with a real participant, and must
     /// resolve identically across imprints — so it is keyed only by its canonical name.

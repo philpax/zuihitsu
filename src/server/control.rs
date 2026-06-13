@@ -26,17 +26,17 @@ pub struct Control<'a> {
 }
 
 /// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent
-/// wrote (spec §Write path). The operator/debugger view of "why does it believe X".
+/// wrote (spec §Write path). The operator/console view of "why does it believe X".
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Arbitration {
     pub memory: MemoryName,
     pub statement: String,
 }
 
-/// One recorded model interaction — the debugger's view of a single model call (spec
+/// One recorded model interaction — the console's view of a single model call (spec
 /// §Observability). The `seq` and `recorded_at` of the `ModelCalled` event place the call on the
 /// timeline; the rest mirrors the event. The `request` is delta-encoded (`Base`/`Continuation`); the
-/// debugger reconstructs a full prompt by walking a `(turn_id, phase)` group, and `request_digest`
+/// console reconstructs a full prompt by walking a `(turn_id, phase)` group, and `request_digest`
 /// checks the reconstruction against the call actually sent.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelCall {
@@ -55,10 +55,10 @@ pub struct ModelCall {
 }
 
 impl Control<'_> {
-    /// Run one operator message of the imprint interview: the control-panel conversation where the
+    /// Run one operator message of the imprint interview: the console conversation where the
     /// operator introduces themselves and the agent learns who they are and what it is for (spec
     /// §Imprint interview). It runs under operator authority, so the agent may write `self` — the
-    /// only path that may — and authors its links as `Debugger`. The operator is a stable
+    /// only path that may — and authors its links as `Operator`. The operator is a stable
     /// `person/operator` stub (minted on first contact, no platform binding); the agent learns their
     /// real name, creates `person/<name>`, and merges the two with `same_as`. Multi-turn and
     /// re-runnable: each call delivers one operator message and runs the agent's response. No
@@ -184,7 +184,7 @@ impl Control<'_> {
     }
 
     /// The model interactions recorded on the log, oldest first — each call's request (delta-encoded),
-    /// deliberation, token usage, and latency. The debugger's deliberation surface and the answer to
+    /// deliberation, token usage, and latency. The console's deliberation surface and the answer to
     /// "where did the turn's time go" (spec §Observability); `ModelCalled` is log-only, so this reads
     /// it from the log. Returns nothing under the `Off` capture level, since no events were written.
     pub fn model_calls(&self) -> Result<Vec<ModelCall>, ServerError> {
@@ -225,7 +225,7 @@ impl Control<'_> {
     }
 
     /// The whole event log, oldest first — the raw record everything else is derived from (spec
-    /// §Observability → the Events view). The eval harness embeds this per run, and the debugger
+    /// §Observability → the Events view). The eval harness embeds this per run, and the console
     /// reconstructs its views from it.
     pub fn events(&self) -> Result<Vec<Event>, ServerError> {
         Ok(self.server.engine.store.lock().read_from(Seq::ZERO)?)
@@ -251,7 +251,7 @@ impl Control<'_> {
     }
 
     /// Replace the agent's behavioral settings, logged as an operator `ConfigSet` (source
-    /// `Debugger`) — the read-modify-write the configuration design calls for (spec §Initialization →
+    /// `Operator`) — the read-modify-write the configuration design calls for (spec §Initialization →
     /// configuration). The new snapshot is the latest and takes effect on the next read; settings are
     /// read from the log, so no projection is involved.
     pub fn set_settings(&self, settings: Settings) -> Result<(), ServerError> {
@@ -260,7 +260,7 @@ impl Control<'_> {
             now,
             vec![EventPayload::ConfigSet {
                 settings,
-                source: EventSource::Debugger,
+                source: EventSource::Operator,
             }],
         )?;
         Ok(())

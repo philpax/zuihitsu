@@ -19,7 +19,7 @@ use crate::{
     time::Timestamp,
 };
 
-/// A live feed of events committed after the subscription was taken. The debugger and other
+/// A live feed of events committed after the subscription was taken. The console and other
 /// read-side clients use this for incremental updates (spec §Observability).
 pub type Subscription = Receiver<Event>;
 

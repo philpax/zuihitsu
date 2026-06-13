@@ -292,7 +292,7 @@ impl Graph {
     }
 
     /// As [`Graph::entries_local`], but including superseded entries — the per-stub history primitive
-    /// for the surfaces where history is the point (`mem:history()`, the debugger), which deliberately
+    /// for the surfaces where history is the point (`mem:history()`, the console), which deliberately
     /// bypass the live filter (spec §Visibility → superseded entries are not live).
     pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
@@ -326,7 +326,7 @@ impl Graph {
     }
 
     /// As [`Graph::class_entries`], but including superseded entries — the class-wide history read
-    /// for `mem:history()` and the debugger (spec §Visibility → superseded entries are not live).
+    /// for `mem:history()` and the console (spec §Visibility → superseded entries are not live).
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, text, told_by, told_in, visibility,
