@@ -38,6 +38,9 @@ export interface TurnModel {
   speaker: string | null;
   initiation: Initiation;
   deliberation: DeliberationStep[];
+  /// True when this turn is the speaker's first appearance and they were not in the opening present
+  /// set — a mid-conversation entrance, surfaced so a participant does not just materialize.
+  entrance: boolean;
 }
 
 export type DeliberationStep =
@@ -97,6 +100,7 @@ export function buildConversations(
         speaker: null,
         initiation: "Responding",
         deliberation: [],
+        entrance: false,
       };
       turns.set(turnId, model);
       conversation(conversationId).turns.push(model);
@@ -168,6 +172,16 @@ export function buildConversations(
   for (const model of conversations.values()) {
     model.turns.sort((a, b) => a.seq - b.seq);
     for (const t of model.turns) t.deliberation.sort((a, b) => a.seq - b.seq);
+    // A participant speaking for the first time, when they were not in the session's opening present
+    // set, is a mid-conversation entrance — mark it so the transcript shows them arriving rather than
+    // simply appearing (the brief, frozen at session start, does not yet know them).
+    const present = new Set(model.sessions[0]?.participants ?? []);
+    for (const turn of model.turns) {
+      if (turn.role === "Participant" && turn.speaker && !present.has(turn.speaker)) {
+        turn.entrance = true;
+        present.add(turn.speaker);
+      }
+    }
   }
   return [...conversations.values()];
 }

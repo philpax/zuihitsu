@@ -150,6 +150,13 @@ function TurnItem({ turn }: { turn: TurnModel }) {
   const isAgent = turn.role === "Agent";
   return (
     <li className="border-b border-line/70 py-5 last:border-b-0">
+      {turn.entrance && turn.speaker && (
+        <div className="mb-4 flex items-center gap-3 text-ink-faint">
+          <span className="h-px flex-1 bg-line" />
+          <span className="font-mono text-2xs">{turn.speaker} entered the room</span>
+          <span className="h-px flex-1 bg-line" />
+        </div>
+      )}
       <div className="mb-1.5 flex items-baseline gap-2">
         <span
           className={
