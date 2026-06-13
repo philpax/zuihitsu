@@ -9,6 +9,7 @@ mod error;
 mod harness;
 mod judge;
 mod package;
+mod retry;
 mod scenario;
 mod scenarios;
 
@@ -28,6 +29,7 @@ use crate::{
     context::RunDeps,
     error::EvalError,
     package::{EvalPackage, RunMeta},
+    retry::{RetryingEmbedder, RetryingModel},
 };
 
 #[derive(Parser)]
@@ -125,9 +127,17 @@ async fn run(
         return Ok(true);
     }
 
-    let model: Arc<dyn ModelClient> = Arc::new(OpenAiClient::new(&config.model));
-    let embedder: Option<Arc<dyn Embedder>> = (!config.embedding.endpoint.is_empty())
-        .then(|| Arc::new(OpenAiEmbedder::new(&config.embedding)) as Arc<dyn Embedder>);
+    // Wrap both seams in the retrying adapters so a transient endpoint outage (a host rebuild,
+    // a serving-layer restart) backs off and recovers rather than aborting whichever runs coincide
+    // with it and counting them as quality failures (see `retry`).
+    let model: Arc<dyn ModelClient> = Arc::new(RetryingModel::new(Arc::new(OpenAiClient::new(
+        &config.model,
+    ))));
+    let embedder: Option<Arc<dyn Embedder>> = (!config.embedding.endpoint.is_empty()).then(|| {
+        Arc::new(RetryingEmbedder::new(Arc::new(OpenAiEmbedder::new(
+            &config.embedding,
+        )))) as Arc<dyn Embedder>
+    });
     let deps = RunDeps {
         model,
         embedder,
