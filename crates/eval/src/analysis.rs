@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use zuihitsu::{Event, EventPayload, MemoryId, TemporalRef, TurnRole, Visibility};
+use zuihitsu::{Event, EventPayload, Initiation, MemoryId, TemporalRef, TurnRole, Visibility};
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
 /// landed on, its text, and the visibility it was written with.
@@ -14,13 +14,17 @@ pub struct EntryFacts {
     pub visibility: Visibility,
 }
 
-/// Every agent reply, in order.
+/// Every agent reply to a participant, in order. Only `Responding` turns count: an `Initiated` agent
+/// turn is the agent acting unprompted — the pre-compaction flush, a wake-up — self-directed bookkeeping
+/// addressed to no one, not a reply. Under a tight compaction budget every turn trails a flush, so
+/// including those would let a flush summary stand in for the agent's actual answer to a probe.
 pub fn agent_replies(events: &[Event]) -> Vec<&str> {
     events
         .iter()
         .filter_map(|event| match &event.payload {
             EventPayload::ConversationTurn {
                 role: TurnRole::Agent,
+                initiation: Initiation::Responding,
                 text,
                 ..
             } => Some(text.as_str()),
