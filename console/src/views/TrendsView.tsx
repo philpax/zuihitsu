@@ -1,83 +1,233 @@
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ZAxis,
+} from "recharts";
+
 import type { HistoryEntry, HistoryScenario } from "../lib/history.ts";
 import { formatDate, formatMs, formatRate, formatTokens } from "../lib/format.ts";
-import { Sparkline } from "../components/Sparkline.tsx";
 import { Eyebrow } from "../components/primitives.tsx";
 
-/// The Trends view: each scenario's pass rate, latency, and token cost over the tracked run history,
-/// as small trend lines. The metrics history is the one thing that outlives a single package — the
-/// shape of how the agent's behavior moves as the model and the code change.
+// The palette as concrete colors — Recharts draws SVG, so it gets hex rather than the CSS tokens.
+const INK = "#2c2823";
+const FAINT = "#9c9484";
+const LINE = "#ddd4c3";
+const CLAY = "#af6047";
+const SAGE = "#707a55";
+const PAPER = "#f4efe5";
+
+const TICK = { fill: FAINT, fontSize: 10, fontFamily: "var(--font-mono)" } as const;
+const TOOLTIP = {
+  background: PAPER,
+  border: `1px solid ${LINE}`,
+  borderRadius: 2,
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  color: INK,
+} as const;
+
+/// The Trends view: the metrics history as a small spread of charts — a pass-rate trend, a latency
+/// comparison, and a cost scatter. The one surface that outlives a single package; the shape of how
+/// the agent's behavior moves as the model and the code change.
 export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
   const names = scenarioOrder(entries);
-  const models = [...new Set(entries.map((entry) => entry.model_id))];
+  // Each scenario's most recent data point. Entries are oldest-first, so the last write wins; this
+  // keeps a partial run (a single scenario re-run) from blanking the latest-state comparisons.
+  const latestByName = new Map<string, HistoryScenario>();
+  for (const entry of entries) for (const s of entry.scenarios) latestByName.set(s.name, s);
+  const gatingByName = new Map([...latestByName].map(([name, s]) => [name, s.gating_passed]));
+  const models = [...new Set(entries.map((e) => e.model_id))];
   const span =
     entries.length > 0
       ? `${formatDate(entries[0].ts_ms)} – ${formatDate(entries[entries.length - 1].ts_ms)}`
       : "";
 
+  // Only the scenarios whose rate actually moves earn a line; the rest are noted as steady, so the
+  // trend chart stays legible rather than a thicket of flat lines at 100%.
+  const moving = names.filter((name) => {
+    const rates = entries
+      .map((e) => e.scenarios.find((s) => s.name === name)?.rate)
+      .filter((rate): rate is number => rate !== undefined);
+    return new Set(rates).size > 1;
+  });
+  const steady = names.length - moving.length;
+
+  const rateData = entries.map((entry, index) => {
+    const row: Record<string, number | string> = { run: `${index + 1}` };
+    for (const scenario of entry.scenarios) row[scenario.name] = scenario.rate;
+    return row;
+  });
+
+  const recent = [...latestByName.values()];
+  const latency = [...recent]
+    .sort((a, b) => b.latency_p50_ms - a.latency_p50_ms)
+    .map((s) => ({ name: s.name, latency: s.latency_p50_ms, ok: s.gating_passed }));
+
+  const cost = recent.map((s) => ({
+    name: s.name,
+    latency: s.latency_p50_ms,
+    tokens: s.total_tokens_mean,
+  }));
+
   return (
-    <section>
-      <div className="mb-9 flex items-baseline justify-between">
+    <section className="flex flex-col gap-12">
+      <div className="flex items-baseline justify-between">
         <h2 className="font-serif text-2xl text-ink">Trends</h2>
         <span className="font-mono text-xs text-ink-soft">
           {entries.length} runs · {span} · {models.join(", ")}
         </span>
       </div>
 
-      <div className="grid grid-cols-[1fr_9rem_9rem_9rem] items-end gap-x-8 border-b border-line pb-2">
-        <Eyebrow>scenario</Eyebrow>
-        <Eyebrow>pass rate</Eyebrow>
-        <Eyebrow>latency p50</Eyebrow>
-        <Eyebrow>tokens</Eyebrow>
-      </div>
+      <Panel label={`pass rate over time · ${moving.length} moving, ${steady} steady at 100%`}>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={rateData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+            <CartesianGrid vertical={false} stroke={LINE} />
+            <XAxis dataKey="run" tick={TICK} tickLine={false} axisLine={{ stroke: LINE }} />
+            <YAxis
+              domain={[0, 1]}
+              tickFormatter={(v: number) => formatRate(v)}
+              tick={TICK}
+              tickLine={false}
+              axisLine={false}
+              width={38}
+            />
+            <Tooltip
+              contentStyle={TOOLTIP}
+              formatter={(value) => formatRate(Number(value))}
+              itemStyle={{ color: INK }}
+              labelFormatter={(label) => `run ${label}`}
+            />
+            {moving.map((name) => (
+              <Line
+                key={name}
+                type="monotone"
+                dataKey={name}
+                stroke={gatingByName.get(name) ? SAGE : CLAY}
+                strokeWidth={1.5}
+                dot={{ r: 2 }}
+                activeDot={{ r: 3 }}
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </Panel>
 
-      {names.map((name) => {
-        const points = entries
-          .map((entry) => entry.scenarios.find((scenario) => scenario.name === name))
-          .filter((scenario): scenario is HistoryScenario => scenario !== undefined);
-        const last = points[points.length - 1];
-        const rateColor = last.gating_passed ? "var(--color-sage)" : "var(--color-clay)";
-
-        return (
-          <div
-            key={name}
-            className="grid grid-cols-[1fr_9rem_9rem_9rem] items-center gap-x-8 border-b border-line py-5"
+      <Panel label="latency p50 by scenario · most recent">
+        <ResponsiveContainer width="100%" height={names.length * 24 + 32}>
+          <BarChart
+            data={latency}
+            layout="vertical"
+            margin={{ top: 0, right: 24, bottom: 0, left: 8 }}
           >
-            <span className="font-mono text-sm text-ink">{name}</span>
-            <Metric
-              chart={
-                <Sparkline values={points.map((p) => p.rate)} domainMax={1} stroke={rateColor} />
-              }
-              value={formatRate(last.rate)}
+            <CartesianGrid horizontal={false} stroke={LINE} />
+            <XAxis
+              type="number"
+              tickFormatter={(v: number) => formatMs(v)}
+              tick={TICK}
+              tickLine={false}
+              axisLine={{ stroke: LINE }}
             />
-            <Metric
-              chart={<Sparkline values={points.map((p) => p.latency_p50_ms)} stroke={INK_FAINT} />}
-              value={formatMs(last.latency_p50_ms)}
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={210}
+              tick={TICK}
+              tickLine={false}
+              axisLine={false}
             />
-            <Metric
-              chart={
-                <Sparkline values={points.map((p) => p.total_tokens_mean)} stroke={INK_FAINT} />
-              }
-              value={formatTokens(last.total_tokens_mean)}
+            <Tooltip
+              contentStyle={TOOLTIP}
+              cursor={{ fill: "#00000008" }}
+              formatter={(value) => formatMs(Number(value))}
             />
-          </div>
-        );
-      })}
+            <Bar dataKey="latency" radius={[0, 1, 1, 0]} barSize={11}>
+              {latency.map((d) => (
+                <Cell key={d.name} fill={d.ok ? SAGE : CLAY} fillOpacity={0.75} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Panel>
+
+      <Panel label="latency vs token cost · most recent">
+        <ResponsiveContainer width="100%" height={300}>
+          <ScatterChart margin={{ top: 8, right: 20, bottom: 8, left: 8 }}>
+            <CartesianGrid stroke={LINE} />
+            <XAxis
+              type="number"
+              dataKey="latency"
+              name="latency"
+              tickFormatter={(v: number) => formatMs(v)}
+              tick={TICK}
+              tickLine={false}
+              axisLine={{ stroke: LINE }}
+            />
+            <YAxis
+              type="number"
+              dataKey="tokens"
+              name="tokens"
+              tickFormatter={(v: number) => formatTokens(v)}
+              tick={TICK}
+              tickLine={false}
+              axisLine={false}
+              width={44}
+            />
+            <ZAxis range={[36, 36]} />
+            <Tooltip contentStyle={TOOLTIP} cursor={{ stroke: LINE }} content={<CostTooltip />} />
+            <Scatter data={cost} fill={CLAY} fillOpacity={0.55} />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </Panel>
     </section>
   );
 }
 
-const INK_FAINT = "var(--color-ink-faint)";
-
-function Metric({ chart, value }: { chart: React.ReactNode; value: string }) {
+function Panel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      {chart}
-      <span className="font-mono text-2xs text-ink-soft">{value}</span>
+    <div>
+      <Eyebrow>{label}</Eyebrow>
+      <div className="mt-4">{children}</div>
     </div>
   );
 }
 
-/// The scenarios in first-seen order across the history, so the rows stay stable as the corpus grows.
+/// A scatter point names the scenario the default tooltip cannot.
+function CostTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: Cost }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0].payload;
+  return (
+    <div style={TOOLTIP} className="px-2 py-1">
+      <div className="text-ink">{point.name}</div>
+      <div className="text-ink-faint">
+        {formatMs(point.latency)} · {formatTokens(point.tokens)} tok
+      </div>
+    </div>
+  );
+}
+
+interface Cost {
+  name: string;
+  latency: number;
+  tokens: number;
+}
+
 function scenarioOrder(entries: HistoryEntry[]): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
