@@ -12,6 +12,7 @@ import { ScenarioOverview } from "../views/ScenarioOverview.tsx";
 import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
+import { TimeTravelView } from "../views/TimeTravelView.tsx";
 
 /// The loaded-package frame: a header naming the package and the run in focus, the view nav, and the
 /// active view. Run-scoped views fold the selected run's log into a [`Replica`] once and share it.
@@ -83,6 +84,11 @@ export function Shell({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void 
         {view === "events" && (
           <RunScoped state={replica}>
             {(ready) => <EventsView replica={ready} events={activeRun!.run.events} />}
+          </RunScoped>
+        )}
+        {view === "time" && (
+          <RunScoped state={replica}>
+            {(ready) => <TimeTravelView replica={ready} events={activeRun!.run.events} />}
           </RunScoped>
         )}
       </main>
