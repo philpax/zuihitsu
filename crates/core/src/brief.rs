@@ -25,7 +25,7 @@ use crate::{
     vocabulary::TagName,
 };
 
-use super::visibility::{self, ClassOf};
+use crate::visibility::{self, ClassOf};
 
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]
@@ -339,10 +339,10 @@ mod tests {
     //! present set, and asserts a fact is present or absent — model-free, because composition is
     //! deterministic.
     use crate::{
+        brief::{self, BriefRequest},
         event::{EventPayload, Teller, Visibility},
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName},
-        memory::brief::{self, BriefRequest},
         settings::{BriefSettings, Settings},
         store::{MemoryStore, Store},
         time::{CivilDate, TemporalRef, Timestamp},

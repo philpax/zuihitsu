@@ -5,13 +5,12 @@
 //! ranked query and a composed context block); and [`identity`] resolves conversations and
 //! participants to their canonical memories.
 //!
-//! The visibility predicate is pure and graph-derived, so it lives in `zuihitsu-core` and is
-//! re-exported here at its historical `memory::visibility` path.
+//! The visibility predicate and the brief composer are pure and graph-derived, so they live in
+//! `zuihitsu-core` and are re-exported here at their historical `memory::*` paths.
 
-pub mod brief;
 pub mod identity;
 pub mod memory_block;
 pub mod scheduler;
 pub mod search;
 
-pub use zuihitsu_core::visibility;
+pub use zuihitsu_core::{brief, visibility};
