@@ -103,4 +103,30 @@
     scrollbar-width: thin;
     scrollbar-color: var(--color-line-strong) transparent;
   }
+
+  /* highlight.js, dressed in the Japandi palette instead of a stock editor theme: clay for the
+     grammar, sage for strings, faint italic for comments, ink for the rest. */
+  .hljs {
+    color: var(--color-ink);
+  }
+  .hljs-keyword,
+  .hljs-built_in,
+  .hljs-literal {
+    color: var(--color-clay);
+  }
+  .hljs-string,
+  .hljs-meta .hljs-string {
+    color: var(--color-sage);
+  }
+  .hljs-comment {
+    color: var(--color-ink-faint);
+    font-style: italic;
+  }
+  .hljs-number {
+    color: var(--color-ink-soft);
+  }
+  .hljs-operator,
+  .hljs-punctuation {
+    color: var(--color-ink-faint);
+  }
 }

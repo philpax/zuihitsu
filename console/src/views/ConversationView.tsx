@@ -1,8 +1,8 @@
 import { useState } from "react";
 
 import type { Event } from "../types/Event.ts";
-import type { Completion } from "../types/Completion.ts";
 import type { Replica } from "../lib/replica.ts";
+import { completionSummary } from "../lib/labels.ts";
 import {
   type DeliberationStep,
   type TurnModel,
@@ -10,6 +10,7 @@ import {
 } from "../lib/conversation.ts";
 import { formatMs } from "../lib/format.ts";
 import { Eyebrow } from "../components/primitives.tsx";
+import { Lua } from "../components/Lua.tsx";
 
 /// The Conversation view: a run's rooms, each session's frozen brief, and the transcript — with
 /// every agent turn openable to the reasoning and Lua that produced it. "What was the agent
@@ -167,9 +168,7 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
   const error = step.terminalCause;
   return (
     <div>
-      <pre className="overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-2xs leading-relaxed text-ink">
-        {step.script}
-      </pre>
+      <Lua code={step.script} />
       {error ? (
         <p className="mt-1 font-mono text-2xs text-clay">
           {"Error" in error ? `error: ${error.Error}` : `aborted: ${error.Aborted}`}
@@ -183,8 +182,3 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
   );
 }
 
-function completionSummary(completion: Completion): string {
-  if (completion === "Silent") return "stayed silent";
-  if ("Reply" in completion) return "replied";
-  return `${completion.ToolCalls.length} tool call${completion.ToolCalls.length > 1 ? "s" : ""}`;
-}
