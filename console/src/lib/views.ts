@@ -5,7 +5,7 @@ export const VIEWS = [
   { id: "scenarios", label: "Scenarios", scope: "package", ready: true },
   { id: "state", label: "State", scope: "run", ready: true },
   { id: "conversation", label: "Conversation", scope: "run", ready: true },
-  { id: "events", label: "Events", scope: "run", ready: false },
+  { id: "events", label: "Events", scope: "run", ready: true },
   { id: "time", label: "Time-travel", scope: "run", ready: false },
 ] as const;
 
