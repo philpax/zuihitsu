@@ -52,7 +52,8 @@ export function EventDetail({
             {payload.usage.total_tokens ?? "—"}
             <span className="text-ink-faint">
               {" "}
-              ({payload.usage.prompt_tokens ?? "?"} in · {payload.usage.completion_tokens ?? "?"} out)
+              ({payload.usage.prompt_tokens ?? "?"} in · {payload.usage.completion_tokens ?? "?"}{" "}
+              out)
             </span>
           </Field>
           <Field label="duration">{formatMs(Number(payload.duration_ms))}</Field>

@@ -71,7 +71,9 @@
     font-size: var(--text-base);
     /* Tabular figures so ids, seqs, and timings sit in true columns. */
     font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum" 1, "cv01" 1;
+    font-feature-settings:
+      "tnum" 1,
+      "cv01" 1;
   }
 
   /* The undyed-paper grain: a single fixed, ignorable layer of fibre. Kept far below the threshold

@@ -113,7 +113,9 @@ function RunScoped({
 
 function Placeholder({ children, tone }: { children: ReactNode; tone?: "error" }) {
   return (
-    <div className={"py-24 text-center text-sm " + (tone === "error" ? "text-clay" : "text-ink-faint")}>
+    <div
+      className={"py-24 text-center text-sm " + (tone === "error" ? "text-clay" : "text-ink-faint")}
+    >
       {children}
     </div>
   );

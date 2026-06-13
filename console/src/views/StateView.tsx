@@ -21,7 +21,11 @@ export function StateView({ replica }: { replica: Replica }) {
   const detail = selected ? replica.memory(selected) : null;
 
   if (memories.length === 0) {
-    return <div className="py-24 text-center text-sm text-ink-faint">No memories at this point in the log.</div>;
+    return (
+      <div className="py-24 text-center text-sm text-ink-faint">
+        No memories at this point in the log.
+      </div>
+    );
   }
 
   return (
@@ -171,7 +175,11 @@ function EntryItem({
   const priv = isPrivate(entry.visibility);
   return (
     <li className={faded ? "opacity-55" : undefined}>
-      <p className={"text-base leading-relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")}>
+      <p
+        className={
+          "text-base leading-relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")
+        }
+      >
         {entry.text}
       </p>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">

@@ -3,11 +3,7 @@ import { useState } from "react";
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import { completionSummary } from "../lib/labels.ts";
-import {
-  type DeliberationStep,
-  type TurnModel,
-  buildConversations,
-} from "../lib/conversation.ts";
+import { type DeliberationStep, type TurnModel, buildConversations } from "../lib/conversation.ts";
 import { formatMs } from "../lib/format.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
@@ -21,7 +17,9 @@ export function ConversationView({ replica, events }: { replica: Replica; events
   const [room, setRoom] = useState(0);
 
   if (conversations.length === 0) {
-    return <div className="py-24 text-center text-sm text-ink-faint">No conversations in this run.</div>;
+    return (
+      <div className="py-24 text-center text-sm text-ink-faint">No conversations in this run.</div>
+    );
   }
 
   const conversation = conversations[Math.min(room, conversations.length - 1)];
@@ -46,7 +44,9 @@ export function ConversationView({ replica, events }: { replica: Replica; events
       )}
 
       <header className="mb-8">
-        <h2 className="font-serif text-2xl text-ink">{conversation.contextName ?? "Conversation"}</h2>
+        <h2 className="font-serif text-2xl text-ink">
+          {conversation.contextName ?? "Conversation"}
+        </h2>
         <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
           {conversation.platform} · {conversation.scopePath}
         </p>
@@ -100,7 +100,11 @@ function TurnItem({ turn }: { turn: TurnModel }) {
   return (
     <li className="border-b border-line/70 py-5 last:border-b-0">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <span className={"font-mono text-2xs uppercase tracking-widest " + (isAgent ? "text-sage" : "text-clay")}>
+        <span
+          className={
+            "font-mono text-2xs uppercase tracking-widest " + (isAgent ? "text-sage" : "text-clay")
+          }
+        >
           {isAgent ? "the agent" : (turn.speaker ?? "someone")}
         </span>
         {turn.initiation === "Initiated" && (
@@ -175,10 +179,11 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
         </p>
       ) : (
         step.result && (
-          <p className="mt-1 whitespace-pre-wrap font-mono text-2xs text-ink-soft">→ {step.result}</p>
+          <p className="mt-1 whitespace-pre-wrap font-mono text-2xs text-ink-soft">
+            → {step.result}
+          </p>
         )
       )}
     </div>
   );
 }
-

@@ -3,13 +3,7 @@ import { useState } from "react";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The empty state: a calm invitation to open an eval package, by drop or by file picker.
-export function Landing({
-  onOpen,
-  error,
-}: {
-  onOpen: (file: File) => void;
-  error: string | null;
-}) {
+export function Landing({ onOpen, error }: { onOpen: (file: File) => void; error: string | null }) {
   const [hovering, setHovering] = useState(false);
 
   return (

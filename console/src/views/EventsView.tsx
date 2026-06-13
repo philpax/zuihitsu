@@ -100,7 +100,10 @@ export function EventsView({ replica, events }: { replica: Replica; events: Even
                   {event.seq}
                 </span>
                 <span className={CATEGORY_COLOR[category]}>{event.payload.type}</span>
-                <span className={"truncate " + (open ? "text-ink" : "text-ink-soft")} title={summary}>
+                <span
+                  className={"truncate " + (open ? "text-ink" : "text-ink-soft")}
+                  title={summary}
+                >
                   {summary}
                 </span>
               </button>

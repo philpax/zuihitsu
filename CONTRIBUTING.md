@@ -140,3 +140,34 @@ Within each module, organize code as follows:
 - **insta**: For snapshot testing.
 - **libtest-mimic**: For custom test harnesses.
 - **pretty_assertions**: For better assertion output.
+
+## Frontend (the console)
+
+The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React
+Compiler enabled (so the data-heavy views auto-memoize; prefer plain derivation over hand-written
+`useMemo`/`useCallback`). See `console/PLAN.md` for the architecture and `docs/spec.md` →
+**Observability** for what the views are.
+
+### Checks
+
+Run these from `console/`; all four must pass, and CI enforces them:
+
+- `npm run typecheck` — `tsc -b` with no errors.
+- `npm run lint` — ESLint, including the `react-hooks` and React Compiler rules (the views must stay
+  within the Rules of React the compiler relies on).
+- `npm run format:check` — Prettier. `npm run format` writes the fixes.
+- `npm run build` — the production build.
+
+### Conventions
+
+- **Rust is the source of truth for the wire contract.** The TypeScript bindings in
+  `console/src/types/` and the wasm materializer bundle in `console/src/wasm/` are *generated* and
+  checked in — never hand-edit them. Regenerate both with `./console/regen.sh` (which re-execs into
+  the nix-shell for the wasm C toolchain) whenever a wire type or the materializer changes, and
+  commit the result. Linting and formatting skip these directories.
+- **Cast wasm crossings in one place.** The `Replica` wrapper (`src/lib/replica.ts`) is the only
+  place the wasm `JsValue` results are typed; views consume the typed surface.
+- **The aesthetic is Japandi**, expressed as design tokens in `src/app.css` (`@theme`): a warm paper
+  ground, sumi-ink text, clay and sage accents used sparingly, a real type scale, and hairline
+  rules. Reach for the tokens (`text-ink`, `border-line`, `font-serif`, `text-clay`, …) rather than
+  ad-hoc colors, so the system stays coherent. Craft over chrome — calm and legible over dense.

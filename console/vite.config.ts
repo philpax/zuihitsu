@@ -7,9 +7,5 @@ import tailwindcss from "@tailwindcss/vite";
 // only on real changes without hand-written useMemo/useCallback noise. In plugin-react v6 it rides a
 // Babel pass via the exported preset; React 19 ships the runtime, so no target override is needed.
 export default defineConfig({
-  plugins: [
-    react(),
-    babel({ presets: [reactCompilerPreset()] }),
-    tailwindcss(),
-  ],
+  plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
 });

@@ -1,0 +1,7 @@
+dist
+src/types
+src/wasm
+package-lock.json
+
+# Prose docs keep their own hand-tuned markdown style.
+*.md
