@@ -1183,12 +1183,16 @@ pub fn api_reference() -> Vec<ApiEntry> {
 
     let link = AE::new("<memory>:link")
         .description(
-            "Link this memory to another under a registered relation. Use it to flag a still-open \
-             thread active_in the current context, so it carries into the next session across a \
-             compaction. For a symmetric relation (shown in the registry), link once — the reverse \
-             direction is implied, so linking both ways is redundant.",
+            "Record a relationship between this memory and another under a registered relation. When \
+             you learn that two memories relate — two people who know each other, an event that \
+             belongs to a topic — capture it with link rather than only describing it in their text, \
+             so the connection is queryable and can be traversed (pick the fitting relation from the \
+             registry). One such use is flagging a still-open thread active_in the current context, \
+             so it carries into the next session across a compaction. For a symmetric relation (shown \
+             in the registry), link once — the reverse direction is implied, so linking both ways is \
+             redundant.",
         )
-        .required("relation", AT::String, "the relation, e.g. \"active_in\"")
+        .required("relation", AT::String, "the relation from the registry, e.g. \"active_in\"")
         .required(
             "other",
             AT::Handle,
