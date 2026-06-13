@@ -52,15 +52,19 @@ impl Scenario for Contradiction {
         ))
         .await?;
         ctx.describe_catch_up().await?;
-        // Turn 2: a different teller gives an independent, confident account of the same fact that
-        // happens to conflict — phrased as its own claim, not a correction of Phil's, so it lands as a
-        // second standing public entry the synthesis must reconcile rather than a supersession.
+        // Turn 2: a different teller gives an independent, equally-confident account of the same fact
+        // that happens to conflict — phrased as her own standing understanding, not a correction of
+        // Phil's, and carrying no recency or authority cue ("locked in last week", "just confirmed")
+        // that would license treating it as a newer, truer fact. With both accounts co-equal, the agent
+        // has no ground to supersede one with the other; the conflict must land as a second standing
+        // public entry the synthesis reconciles. (A recency cue here invites a defensible supersession
+        // instead, which would test the wrong thing.)
         ctx.turn(Turn::new(
             "discord",
             "leads",
             "erin",
-            "For the Q3 offsite, I've got Austin on my end — marketing locked in the Austin venue last \
-             week, so put that in the planning notes.",
+            "For the Q3 offsite, I've got it down as Austin on my end — please put Austin in the \
+             planning notes.",
         ))
         .await?;
         // Belief arbitration is synthesized off the hot path; drive it before the log is assessed.
