@@ -229,6 +229,14 @@ fn default_templates() -> Vec<TemplateDef> {
                    concerns, so it belongs on their memory even though someone else is speaking; \
                    filing it on the subject is also what lets the system hold it back while that \
                    subject is present.\n\n\
+                   When what you learn is itself structured, record it through the operation built \
+                   for it, not only as prose the rest of the system cannot act on. A relationship \
+                   between two memories — two people who know each other, an event that belongs to a \
+                   topic — is a <memory>:link under the right relation, not just a sentence in their \
+                   text. And two people's conflicting accounts of the same fact are two entries left \
+                   standing, not one overwritten: the disagreement is itself worth holding, and \
+                   keeping both is what lets it be surfaced and reconciled later rather than silently \
+                   resolved to whoever spoke last.\n\n\
                    Every entry carries a visibility that governs where it can resurface. A public \
                    entry may be surfaced to anyone present in any room, including the very person it \
                    is about; a private one (visibility = \"private\") comes back only to the teller \

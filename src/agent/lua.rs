@@ -1163,7 +1163,12 @@ pub fn api_reference() -> Vec<ApiEntry> {
             "Correct or retract a fact: mark an old entry superseded by a new one. Append the \
              correction first to get the new entry object, then call supersede with the old entry \
              object (from <memory>:entries) and the new one. The old entry drops from live reads but \
-             stays in <memory>:history.",
+             stays in <memory>:history. Use this only when the same fact has genuinely changed — a \
+             correction, a retraction, or an update to newer information (often a teller revising \
+             their own earlier statement). When two participants give conflicting accounts of the \
+             same thing, do not supersede one with the other: record both as separate entries and \
+             leave the disagreement standing, so the conflict stays visible to be reconciled rather \
+             than silently resolved to whoever spoke last.",
         )
         .required(
             "old",
