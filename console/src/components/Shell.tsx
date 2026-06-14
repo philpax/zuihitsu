@@ -1,66 +1,32 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { ActiveRun } from "../lib/run.ts";
-import type { Replica } from "../lib/replica.ts";
 import { type ReplicaState, useReplica } from "../lib/useReplica.ts";
-import { type ViewId } from "../lib/views.ts";
 import { formatDate } from "../lib/format.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
-import { Nav } from "./Nav.tsx";
-import { Timeline } from "./Timeline.tsx";
+import { StreamWorkspace } from "./StreamWorkspace.tsx";
 import { ScenarioOverview } from "../views/ScenarioOverview.tsx";
-import { StateView } from "../views/StateView.tsx";
-import { ConversationView } from "../views/ConversationView.tsx";
-import { EventsView } from "../views/EventsView.tsx";
 
-/// The loaded-package frame: a header naming the package and the run in focus, the view nav, the
-/// active view, and — for the run-scoped views — a global timeline. The selected run's log folds
-/// into a shared [`Replica`]; one seq cursor drives every run-scoped view, so scrubbing the timeline
-/// folds the State graph and stops the Conversation and Events at the same point.
+/// The eval frame: a loaded package of many runs. The Scenarios overview is the run picker; opening
+/// a run folds its embedded log into a [`Replica`] and hands it to the shared [`StreamWorkspace`] —
+/// the same views, timeline, and room switcher the live agent frame uses, just sourced from a file
+/// and scoped to the one run in focus. A breadcrumb returns to the package, the way the agent frame
+/// disconnects.
 export function Shell({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void }) {
-  const [view, setView] = useState<ViewId>("scenarios");
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
-  // null means "the head" — the latest state. A number pins the cursor to an earlier seq.
-  const [seq, setSeq] = useState<number | null>(null);
   const replica = useReplica(activeRun?.run.events ?? null);
-
   const ready = replica.status === "ready" ? replica.replica : null;
-  const head = ready?.headSeq ?? 0;
-  const cursor = seq ?? head;
-  const runScoped = view !== "scenarios";
-
-  function selectRun(next: ActiveRun) {
-    setActiveRun(next);
-    setSeq(null);
-    setView("state");
-  }
-
-  function clearRun() {
-    setActiveRun(null);
-    setSeq(null);
-    setView("scenarios");
-  }
-
-  function scrub(next: number) {
-    ready?.foldTo(next);
-    setSeq(next >= head ? null : next);
-  }
-
-  function reset() {
-    ready?.foldTo(head);
-    setSeq(null);
-  }
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-8">
       <header className="flex items-baseline justify-between border-b border-line py-6">
         <div className="flex items-baseline gap-3">
           <span className="font-serif text-xl text-ink">zuihitsu</span>
-          <Eyebrow>console</Eyebrow>
+          <Eyebrow>console · eval</Eyebrow>
           {activeRun && (
             <button
-              onClick={clearRun}
+              onClick={() => setActiveRun(null)}
               className="ml-1 flex items-baseline gap-2 font-mono text-xs text-ink-soft transition-colors hover:text-clay"
               title="Back to the package"
             >
@@ -90,65 +56,31 @@ export function Shell({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void 
         </div>
       </header>
 
-      <Nav view={view} onSelect={setView} runActive={!!activeRun} />
-
-      <main className="flex-1 py-10">
-        {view === "scenarios" && <ScenarioOverview pkg={pkg} onSelectRun={selectRun} />}
-        {view === "state" && (
-          <RunScoped state={replica}>{(r) => <StateView replica={r} cursor={cursor} />}</RunScoped>
-        )}
-        {view === "conversation" && (
-          <RunScoped state={replica}>
-            {(r) => <ConversationView replica={r} events={activeRun!.run.events} cursor={cursor} />}
-          </RunScoped>
-        )}
-        {view === "events" && (
-          <RunScoped state={replica}>
-            {(r) => <EventsView replica={r} events={activeRun!.run.events} cursor={cursor} />}
-          </RunScoped>
-        )}
-      </main>
-
-      {runScoped && ready && activeRun && (
-        <Timeline
-          head={head}
-          seq={cursor}
+      {!activeRun ? (
+        <main className="flex-1 py-10">
+          <ScenarioOverview pkg={pkg} onSelectRun={setActiveRun} />
+        </main>
+      ) : !ready ? (
+        <Pending state={replica} />
+      ) : (
+        // Key on the run so the workspace resets its cursor and view when a different run is opened.
+        <StreamWorkspace
+          key={`${activeRun.scenario.meta.name}-${activeRun.run.index}`}
+          replica={ready}
           events={activeRun.run.events}
-          onScrub={scrub}
-          onReset={reset}
+          head={ready.headSeq}
         />
       )}
     </div>
   );
 }
 
-/// Gate a run-scoped view on its replica: prompt when no run is chosen, reassure while the log
-/// folds, surface a failure, and otherwise hand the ready replica to the view.
-function RunScoped({
-  state,
-  children,
-}: {
-  state: ReplicaState;
-  children: (replica: Replica) => ReactNode;
-}) {
-  switch (state.status) {
-    case "idle":
-      return <Placeholder>Select a run from Scenarios to inspect its state.</Placeholder>;
-    case "loading":
-      return <Placeholder>Folding the event log…</Placeholder>;
-    case "error":
-      return <Placeholder tone="error">Could not fold the log — {state.message}</Placeholder>;
-    case "ready":
-      return <>{children(state.replica)}</>;
-  }
-}
-
-function Placeholder({ children, tone }: { children: ReactNode; tone?: "error" }) {
+function Pending({ state }: { state: ReplicaState }) {
+  const error = state.status === "error";
+  const message = error ? `Could not fold the log — ${state.message}` : "Folding the event log…";
   return (
-    <div
-      className={"py-24 text-center text-sm " + (tone === "error" ? "text-clay" : "text-ink-faint")}
-    >
-      {children}
+    <div className={"flex-1 py-24 text-center text-sm " + (error ? "text-clay" : "text-ink-faint")}>
+      {message}
     </div>
   );
 }

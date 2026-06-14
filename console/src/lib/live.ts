@@ -77,7 +77,9 @@ export function useLiveLog(connection: LiveConnection, following: RefObject<bool
         head = replica!.headSeq;
         if (following.current) replica!.foldTo(head);
         events = [...events, ...tail];
-        setLog({ replica, events, head, status: { status: "live" } });
+        // A fresh handle so the views re-derive off the grown log without remounting (and losing the
+        // open room); the underlying wasm replica is shared.
+        setLog({ replica: replica!.snapshot(), events, head, status: { status: "live" } });
       } catch (cause) {
         if (!cancelled) setLog((prev) => ({ ...prev, status: errorStatus(cause) }));
       }

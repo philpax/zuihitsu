@@ -47,6 +47,14 @@ export class Replica {
     this.#inner.append(bytes);
   }
 
+  /// A fresh handle over the same underlying wasm replica — a new object identity, no rebuild. Live
+  /// mode mutates one replica in place as the log tails; handing the views a fresh handle per batch
+  /// lets React's memoization re-derive (so a new participant's name resolves) without remounting
+  /// the views and losing their local state, such as the open room.
+  snapshot(): Replica {
+    return new Replica(this.#inner);
+  }
+
   /// The highest seq in the log — the upper bound of the time-travel range.
   get headSeq(): number {
     return this.#inner.headSeq;

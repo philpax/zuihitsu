@@ -2,8 +2,12 @@ import { useState } from "react";
 
 import { Eyebrow } from "./primitives.tsx";
 
-/// The empty state: a calm invitation to open an eval package, by drop or by file picker, with a
-/// quieter way in for the tracked metrics history.
+type Source = "agent" | "eval";
+
+/// The empty state: choose a source to debug. The two behave near-identically once open — the same
+/// state, conversation, and event views over one stream — differing only in where the stream comes
+/// from. **Agent** tails a running instance live; **Eval** loads a package of finished runs from a
+/// file and lets you open any one of them.
 export function Landing({
   onOpenPackage,
   onOpenHistory,
@@ -15,18 +19,73 @@ export function Landing({
   onConnectLive: () => void;
   error: string | null;
 }) {
-  const [hovering, setHovering] = useState(false);
+  const [source, setSource] = useState<Source>("agent");
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-8">
       <Eyebrow className="mb-3">zuihitsu · console</Eyebrow>
       <h1 className="font-serif text-3xl text-ink">What was the agent thinking?</h1>
       <p className="mt-4 max-w-prose text-base text-ink-soft">
-        Open an eval package to inspect a run end to end — its memories and their confidences, the
-        rooms it spoke in, and the deliberation behind every turn. The package is a replay of the
-        agent's own event log; everything here is a reconstruction from it.
+        Inspect an agent's memories and their confidences, the rooms it spoke in, and the
+        deliberation behind every turn. Everything here is a reconstruction from the agent's own
+        event log.
       </p>
 
+      <div className="mt-10 flex gap-7 border-b border-line text-sm">
+        {(["agent", "eval"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setSource(tab)}
+            className={
+              "-mb-px border-b-2 py-3 capitalize transition-colors " +
+              (tab === source
+                ? "border-clay text-ink"
+                : "border-transparent text-ink-soft hover:text-ink")
+            }
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {source === "agent" ? (
+        <AgentPanel onConnect={onConnectLive} />
+      ) : (
+        <EvalPanel onOpenPackage={onOpenPackage} onOpenHistory={onOpenHistory} />
+      )}
+
+      {error && <p className="mt-5 text-center font-mono text-xs text-clay">{error}</p>}
+    </div>
+  );
+}
+
+function AgentPanel({ onConnect }: { onConnect: () => void }) {
+  return (
+    <div className="mt-8 flex flex-col items-center gap-4 py-10">
+      <p className="max-w-prose text-center text-sm text-ink-soft">
+        Tail the running instance live — its log streams in as it thinks, and the timeline grows
+        with it. Scrub back to inspect any earlier moment without stopping the stream.
+      </p>
+      <button
+        onClick={onConnect}
+        className="border border-line-strong px-6 py-2.5 text-base text-ink transition-colors hover:border-clay hover:text-clay"
+      >
+        Connect to the agent
+      </button>
+    </div>
+  );
+}
+
+function EvalPanel({
+  onOpenPackage,
+  onOpenHistory,
+}: {
+  onOpenPackage: (file: File) => void;
+  onOpenHistory: (file: File) => void;
+}) {
+  const [hovering, setHovering] = useState(false);
+  return (
+    <div className="mt-8">
       <label
         onDragOver={(event) => {
           event.preventDefault();
@@ -40,7 +99,7 @@ export function Landing({
           if (file) onOpenPackage(file);
         }}
         className={
-          "mt-10 flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed py-14 transition-colors " +
+          "flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed py-14 transition-colors " +
           (hovering
             ? "border-clay bg-clay-soft/15 text-ink"
             : "border-line-strong text-ink-soft hover:border-ink-faint")
@@ -59,25 +118,18 @@ export function Landing({
         />
       </label>
 
-      <div className="mt-6 flex flex-col items-center gap-2 font-mono text-2xs text-ink-faint">
-        <button onClick={onConnectLive} className="transition-colors hover:text-clay">
-          or connect to a running agent to tail it live
-        </button>
-        <label className="cursor-pointer transition-colors hover:text-clay">
-          or open a history file to see trends over time
-          <input
-            type="file"
-            accept=".jsonl,application/json"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) onOpenHistory(file);
-            }}
-          />
-        </label>
-      </div>
-
-      {error && <p className="mt-5 text-center font-mono text-xs text-clay">{error}</p>}
+      <label className="mt-6 block cursor-pointer text-center font-mono text-2xs text-ink-faint transition-colors hover:text-clay">
+        or open a history file to see trends over time
+        <input
+          type="file"
+          accept=".jsonl,application/json"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) onOpenHistory(file);
+          }}
+        />
+      </label>
     </div>
   );
 }
