@@ -1,20 +1,27 @@
 import { useState } from "react";
 
+import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import type { EntryView, MemoryDetail, MemoryView } from "../lib/graph.ts";
 import { isPrivate, nameById, tellerLabel, visibilityLabel } from "../lib/labels.ts";
+import { type Arbitration, arbitrationsFor } from "../lib/audit.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
 /// on the left, the opened memory's contents, links, and `same_as` class on the right. Selection is
 /// controlled by the parent so it survives the remount the Time-travel scrubber forces on each fold.
-/// The console sees everything — superseded entries and all visibilities, plainly marked.
+/// The console sees everything — superseded entries and all visibilities, plainly marked, plus the
+/// belief arbitrations the log records but the graph does not keep.
 export function MemoryBrowser({
   replica,
+  events,
+  cursor,
   selected,
   onSelect,
 }: {
   replica: Replica;
+  events: Event[];
+  cursor: number;
   selected: string | null;
   onSelect: (name: string) => void;
 }) {
@@ -68,7 +75,11 @@ export function MemoryBrowser({
         )}
       </div>
       {detail ? (
-        <MemoryDetailPane detail={detail} nameById={names} />
+        <MemoryDetailPane
+          detail={detail}
+          nameById={names}
+          arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
+        />
       ) : (
         <div className="py-24 text-center text-sm text-ink-faint">Select a memory.</div>
       )}
@@ -155,9 +166,11 @@ function MemoryList({
 function MemoryDetailPane({
   detail,
   nameById,
+  arbitrations,
 }: {
   detail: MemoryDetail;
   nameById: Map<string, string>;
+  arbitrations: Arbitration[];
 }) {
   const { memory, entries, history, links } = detail;
   const superseded = history.filter((entry) => entry.superseded_by !== null);
@@ -226,6 +239,22 @@ function MemoryDetailPane({
           <ul className="flex flex-col gap-4">
             {superseded.map((entry) => (
               <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded />
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {arbitrations.length > 0 && (
+        <Section label={`arbitrations · ${arbitrations.length}`}>
+          <ul className="flex flex-col gap-3">
+            {arbitrations.map((arbitration, index) => (
+              <li key={index}>
+                <p className="text-sm leading-relaxed text-ink">{arbitration.statement}</p>
+                <p className="mt-1 font-mono text-2xs text-ink-faint">
+                  reconciled {arbitration.competing} competing{" "}
+                  {arbitration.competing === 1 ? "entry" : "entries"}
+                </p>
+              </li>
             ))}
           </ul>
         </Section>

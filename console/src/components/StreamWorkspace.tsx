@@ -108,7 +108,7 @@ export function StreamWorkspace({
             exit={{ x: direction * -shift, opacity: 0 }}
             transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
           >
-            {view === "state" && <StateView replica={replica} cursor={cursor} />}
+            {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
             {view === "conversation" && (
               <ConversationView
                 replica={replica}
