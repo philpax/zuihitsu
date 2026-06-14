@@ -1,0 +1,277 @@
+//! Bi-temporal `occurred_at` (Stage 9): the materializer denormalizes each entry's typed occurrence
+//! into the sortable `occurred_sort` column read-side views expose.
+
+use super::materialized;
+use crate::{
+    event::{EventPayload, Teller, Visibility},
+    graph::Graph,
+    ids::{EntryId, MemoryId, MemoryName},
+    time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, Rrule, TemporalRef, Timestamp},
+};
+
+const DAY: i64 = 86_400_000;
+
+fn created(id: MemoryId, name: &str) -> EventPayload {
+    EventPayload::MemoryCreated {
+        id,
+        name: MemoryName::new(name),
+    }
+}
+
+fn appended(id: MemoryId, entry_id: EntryId, occurred_at: Option<TemporalRef>) -> EventPayload {
+    EventPayload::MemoryContentAppended {
+        id,
+        entry_id,
+        asserted_at: Timestamp::from_millis(1),
+        occurred_at,
+        text: "fact".to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+    }
+}
+
+#[test]
+fn denormalizes_each_variant_to_its_representative_instant() {
+    let id = MemoryId::generate();
+    let refs = [
+        Some(TemporalRef::Instant(Timestamp::from_millis(1_000))),
+        Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
+        Some(TemporalRef::Approx {
+            center: Timestamp::from_millis(10 * DAY),
+            fuzz_days: 2,
+        }),
+        Some(TemporalRef::Range {
+            start: Timestamp::from_millis(0),
+            end: Timestamp::from_millis(100),
+        }),
+        // A recurring rule has no fixed instant, and a plain entry no occurrence at all: both NULL.
+        Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into()))),
+        None,
+    ];
+    let entry_ids: Vec<EntryId> = refs.iter().map(|_| EntryId::generate()).collect();
+    let mut events = vec![created(id, "topic/dated")];
+    for (entry_id, reference) in entry_ids.iter().zip(refs.iter()) {
+        events.push(appended(id, *entry_id, reference.clone()));
+    }
+
+    let (_store, graph) = materialized(events);
+    let entries = graph.entries_local(id).unwrap();
+    assert_eq!(entries.len(), refs.len());
+    for (entry, reference) in entries.iter().zip(refs.iter()) {
+        let expected = reference
+            .as_ref()
+            .and_then(|r| r.bounds(None, BEFORE_AFTER_EPSILON_MILLIS).sort);
+        assert_eq!(entry.occurred_sort, expected);
+    }
+}
+
+#[test]
+fn before_after_resolves_against_its_anchor() {
+    let anchor = MemoryId::generate();
+    let dependent = MemoryId::generate();
+    let anchor_at = 1_000_000;
+    let dep_entry = EntryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(anchor, "event/wedding"),
+        appended(
+            anchor,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(anchor_at))),
+        ),
+        created(dependent, "event/reception"),
+        appended(
+            dependent,
+            dep_entry,
+            Some(TemporalRef::BeforeAfter {
+                dir: Direction::After,
+                anchor: MemoryName::new("event/wedding"),
+            }),
+        ),
+    ]);
+    let entries = graph.entries_local(dependent).unwrap();
+    assert_eq!(
+        entries[0].occurred_sort,
+        Some(Timestamp::from_millis(
+            anchor_at + BEFORE_AFTER_EPSILON_MILLIS
+        ))
+    );
+}
+
+#[test]
+fn before_after_resolves_a_soft_deleted_anchor() {
+    // MemoryDeleted preserves contents, so an anchor deleted before the dependent's append still
+    // resolves — the spec's load-bearing watch-list case.
+    let anchor = MemoryId::generate();
+    let dependent = MemoryId::generate();
+    let anchor_at = 2_000_000;
+    let (_store, graph) = materialized(vec![
+        created(anchor, "event/move"),
+        appended(
+            anchor,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(anchor_at))),
+        ),
+        EventPayload::MemoryDeleted { id: anchor },
+        created(dependent, "event/housewarming"),
+        appended(
+            dependent,
+            EntryId::generate(),
+            Some(TemporalRef::BeforeAfter {
+                dir: Direction::After,
+                anchor: MemoryName::new("event/move"),
+            }),
+        ),
+    ]);
+    let entries = graph.entries_local(dependent).unwrap();
+    assert_eq!(
+        entries[0].occurred_sort,
+        Some(Timestamp::from_millis(
+            anchor_at + BEFORE_AFTER_EPSILON_MILLIS
+        ))
+    );
+}
+
+#[test]
+fn before_after_with_an_unknown_anchor_is_untimed() {
+    let dependent = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(dependent, "event/orphan"),
+        appended(
+            dependent,
+            EntryId::generate(),
+            Some(TemporalRef::BeforeAfter {
+                dir: Direction::After,
+                anchor: MemoryName::new("event/never-created"),
+            }),
+        ),
+    ]);
+    let entries = graph.entries_local(dependent).unwrap();
+    assert_eq!(entries[0].occurred_sort, None);
+}
+
+#[test]
+fn occurrence_columns_survive_replay() {
+    let id = MemoryId::generate();
+    let (store, graph) = materialized(vec![
+        created(id, "topic/dated"),
+        appended(
+            id,
+            EntryId::generate(),
+            Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
+        ),
+    ]);
+    // A second projection of the same log reproduces the denormalized columns exactly.
+    let mut replayed = Graph::open_in_memory().unwrap();
+    replayed.materialize_from(&store).unwrap();
+    let original: Vec<_> = graph
+        .entries_local(id)
+        .unwrap()
+        .iter()
+        .map(|e| e.occurred_sort)
+        .collect();
+    let again: Vec<_> = replayed
+        .entries_local(id)
+        .unwrap()
+        .iter()
+        .map(|e| e.occurred_sort)
+        .collect();
+    assert_eq!(original, again);
+    assert!(original[0].is_some());
+}
+
+#[test]
+fn occurrences_in_window_returns_in_window_pairs_soonest_first() {
+    let a = MemoryId::generate();
+    let b = MemoryId::generate();
+    let c = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(a, "event/a"),
+        appended(
+            a,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(300))),
+        ),
+        // An untimed entry on the same memory must not pull it in twice.
+        appended(a, EntryId::generate(), None),
+        created(b, "event/b"),
+        appended(
+            b,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(100))),
+        ),
+        created(c, "event/c"),
+        appended(
+            c,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(5_000))),
+        ),
+    ]);
+    let hits = graph
+        .occurrences_in_window(Timestamp::from_millis(0), Timestamp::from_millis(1_000))
+        .unwrap();
+    let names: Vec<_> = hits
+        .iter()
+        .map(|(memory, _)| memory.name.as_str().to_owned())
+        .collect();
+    // Ordered by occurrence (100 then 300); c at 5_000 is out of the window.
+    assert_eq!(names, vec!["event/b", "event/a"]);
+}
+
+#[test]
+fn occurrences_in_window_excludes_soft_deleted() {
+    let a = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(a, "event/a"),
+        appended(
+            a,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(100))),
+        ),
+        EventPayload::MemoryDeleted { id: a },
+    ]);
+    assert!(
+        graph
+            .occurrences_in_window(Timestamp::from_millis(0), Timestamp::from_millis(1_000))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn recurring_memories_lists_only_true_recurrences() {
+    let standup = MemoryId::generate();
+    let concrete = MemoryId::generate();
+    let dangling = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(standup, "event/standup"),
+        appended(
+            standup,
+            EntryId::generate(),
+            Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into()))),
+        ),
+        created(concrete, "event/concrete"),
+        appended(
+            concrete,
+            EntryId::generate(),
+            Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
+        ),
+        // An unresolved BeforeAfter is also sort-null but is not a recurrence.
+        created(dangling, "event/dangling"),
+        appended(
+            dangling,
+            EntryId::generate(),
+            Some(TemporalRef::BeforeAfter {
+                dir: Direction::After,
+                anchor: MemoryName::new("event/never-created"),
+            }),
+        ),
+    ]);
+    let names: Vec<_> = graph
+        .recurring_memories()
+        .unwrap()
+        .iter()
+        .map(|memory| memory.name.as_str().to_owned())
+        .collect();
+    assert_eq!(names, vec!["event/standup"]);
+}
