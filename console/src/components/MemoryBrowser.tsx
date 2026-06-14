@@ -4,7 +4,13 @@ import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import type { EntryView, MemoryDetail, MemoryView } from "../lib/graph.ts";
 import { isPrivate, nameById, tellerLabel, visibilityLabel } from "../lib/labels.ts";
-import { type Arbitration, arbitrationsFor } from "../lib/audit.ts";
+import {
+  type Arbitration,
+  type RecurringItem,
+  arbitrationsFor,
+  recurringByMemory,
+  rruleLabel,
+} from "../lib/audit.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
@@ -27,6 +33,7 @@ export function MemoryBrowser({
 }) {
   const memories = replica.memories("");
   const names = nameById(memories);
+  const recurring = recurringByMemory(events, cursor);
   const [query, setQuery] = useState("");
 
   if (memories.length === 0) {
@@ -67,9 +74,19 @@ export function MemoryBrowser({
           <p className="font-mono text-2xs text-ink-faint">no matches</p>
         ) : (
           <>
-            <MemorySelect memories={listed} selected={effective} onSelect={onSelect} />
+            <MemorySelect
+              memories={listed}
+              selected={effective}
+              recurring={recurring}
+              onSelect={onSelect}
+            />
             <div className="hidden md:block">
-              <MemoryList memories={listed} selected={effective} onSelect={onSelect} />
+              <MemoryList
+                memories={listed}
+                selected={effective}
+                recurring={recurring}
+                onSelect={onSelect}
+              />
             </div>
           </>
         )}
@@ -79,6 +96,7 @@ export function MemoryBrowser({
           detail={detail}
           nameById={names}
           arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
+          recurring={recurring.get(detail.memory.id) ?? []}
         />
       ) : (
         <div className="py-24 text-center text-sm text-ink-faint">Select a memory.</div>
@@ -93,10 +111,12 @@ export function MemoryBrowser({
 function MemorySelect({
   memories,
   selected,
+  recurring,
   onSelect,
 }: {
   memories: MemoryView[];
   selected: string | null;
+  recurring: Map<string, RecurringItem[]>;
   onSelect: (name: string) => void;
 }) {
   const groups = groupByNamespace(memories);
@@ -112,6 +132,7 @@ function MemorySelect({
           {items.map((memory) => (
             <option key={memory.id} value={memory.name}>
               {memory.name}
+              {recurring.has(memory.id) ? " ↻" : ""}
             </option>
           ))}
         </optgroup>
@@ -123,10 +144,12 @@ function MemorySelect({
 function MemoryList({
   memories,
   selected,
+  recurring,
   onSelect,
 }: {
   memories: MemoryView[];
   selected: string | null;
+  recurring: Map<string, RecurringItem[]>;
   onSelect: (name: string) => void;
 }) {
   const groups = groupByNamespace(memories);
@@ -152,6 +175,11 @@ function MemoryList({
                     }
                   >
                     <span className="truncate">{leafName(memory.name, namespace)}</span>
+                    {recurring.has(memory.id) && (
+                      <span className="ml-1.5 shrink-0 text-sage" title="recurring">
+                        ↻
+                      </span>
+                    )}
                   </button>
                 </li>
               );
@@ -167,10 +195,12 @@ function MemoryDetailPane({
   detail,
   nameById,
   arbitrations,
+  recurring,
 }: {
   detail: MemoryDetail;
   nameById: Map<string, string>;
   arbitrations: Arbitration[];
+  recurring: RecurringItem[];
 }) {
   const { memory, entries, history, links } = detail;
   const superseded = history.filter((entry) => entry.superseded_by !== null);
@@ -239,6 +269,24 @@ function MemoryDetailPane({
           <ul className="flex flex-col gap-4">
             {superseded.map((entry) => (
               <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded />
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {recurring.length > 0 && (
+        <Section label={`recurring · ${recurring.length}`}>
+          <ul className="flex flex-col gap-3">
+            {recurring.map((item, index) => (
+              <li key={index} className="flex items-baseline gap-3">
+                <span
+                  className="shrink-0 border border-sage-soft px-1.5 py-0.5 font-mono text-2xs text-sage"
+                  title={item.rrule}
+                >
+                  ↻ {rruleLabel(item.rrule)}
+                </span>
+                <span className="text-sm leading-relaxed text-ink">{item.text}</span>
+              </li>
             ))}
           </ul>
         </Section>
