@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
@@ -33,6 +33,14 @@ export interface Participant {
   setSender: (value: string) => void;
 }
 
+/// An agent-only view appended to the nav — a live tool that is not timeline-scoped (the operator Lua
+/// console), so the scrubber steps aside while it is open. The eval frame passes none.
+export interface ExtraView {
+  id: string;
+  label: string;
+  node: ReactNode;
+}
+
 /// Drive the run-scoped views off one stream. Owns the view tab and the timeline cursor — `null`
 /// follows the head (the latest state), a number pins an earlier seq — and folds the replica to the
 /// cursor on a scrub. `head` is the stream's current head: fixed for an eval run, growing for a live
@@ -45,14 +53,16 @@ export function StreamWorkspace({
   head,
   onFollowingChange,
   participant,
+  extraViews = [],
 }: {
   replica: Replica;
   events: Event[];
   head: number;
   onFollowingChange?: (following: boolean) => void;
   participant?: Participant;
+  extraViews?: ExtraView[];
 }) {
-  const [view, setView] = useState<StreamViewId>("conversation");
+  const [view, setView] = useState<string>("conversation");
   const [seq, setSeq] = useState<number | null>(null);
   const cursor = seq ?? head;
   // Which way the next view slides: +1 from the right when moving rightward along the tabs, -1 from
@@ -62,9 +72,11 @@ export function StreamWorkspace({
   const reduce = useReducedMotion();
   const shift = reduce ? 0 : 36;
 
-  function selectView(next: StreamViewId) {
-    const order = (id: StreamViewId) => STREAM_VIEWS.findIndex((entry) => entry.id === id);
-    setDirection(order(next) >= order(view) ? 1 : -1);
+  const tabs = [...STREAM_VIEWS.map((entry) => entry.id), ...extraViews.map((entry) => entry.id)];
+  const extra = extraViews.find((entry) => entry.id === view);
+
+  function selectView(next: string) {
+    setDirection(tabs.indexOf(next) >= tabs.indexOf(view) ? 1 : -1);
     setView(next);
   }
 
@@ -84,7 +96,7 @@ export function StreamWorkspace({
   return (
     <>
       <nav className="flex gap-7 border-b border-line text-sm">
-        {STREAM_VIEWS.map((entry) => (
+        {[...STREAM_VIEWS, ...extraViews].map((entry) => (
           <button
             key={entry.id}
             onClick={() => selectView(entry.id)}
@@ -121,11 +133,12 @@ export function StreamWorkspace({
             )}
             {view === "agenda" && <AgendaView replica={replica} events={events} cursor={cursor} />}
             {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
+            {extra?.node}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {head > 0 && (
+      {head > 0 && !extra && (
         <Timeline head={head} seq={cursor} events={events} onScrub={scrub} onReset={reset} />
       )}
     </>
