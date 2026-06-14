@@ -4,6 +4,7 @@
 
 mod arbitration;
 mod compaction;
+mod conversations;
 mod description;
 mod privacy;
 mod recall;
@@ -26,6 +27,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         privacy::scenarios(),
         description::scenarios(),
         compaction::scenarios(),
+        conversations::scenarios(),
     ]
     .into_iter()
     .flatten()
