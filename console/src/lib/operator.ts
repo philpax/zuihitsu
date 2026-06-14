@@ -45,3 +45,16 @@ export async function imprint(connection: LiveConnection, text: string): Promise
   });
   if (!response.ok) throw new Error(await errorMessage(response));
 }
+
+/// Write a graph snapshot now — the operator's take-one-before-an-experiment trigger. Returns the file
+/// written, or `null` when the graph was already checkpointed at its current head (nothing to do).
+/// Throws when snapshotting is disabled (the server answers `409`).
+export async function snapshotNow(connection: LiveConnection): Promise<string | null> {
+  const response = await fetch(`${connection.baseUrl}/control/snapshot`, {
+    method: "POST",
+    headers: authHeaders(connection),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  const body = (await response.json()) as { snapshot: string | null };
+  return body.snapshot;
+}

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { LiveConnection } from "../lib/live.ts";
 import { type Settings, getSettings, putSettings } from "../lib/settings.ts";
 import { type ConfigTree, type ConfigValue, getConfig } from "../lib/config.ts";
+import { snapshotNow } from "../lib/operator.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// One leaf field's value, and a record of them — the structural shape the generic editor walks. The
@@ -21,6 +22,11 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<ConfigTree | null>(null);
+  const [snapshot, setSnapshot] = useState<
+    | { state: "idle" | "working" }
+    | { state: "done"; message: string }
+    | { state: "error"; message: string }
+  >({ state: "idle" });
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +82,22 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
     }
   }
 
+  async function takeSnapshot() {
+    setSnapshot({ state: "working" });
+    try {
+      const written = await snapshotNow(connection);
+      setSnapshot({
+        state: "done",
+        message: written ? `Wrote ${written}` : "Already at head — nothing new to snapshot.",
+      });
+    } catch (cause) {
+      setSnapshot({
+        state: "error",
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }
+
   if (status === "loading" || !tree) {
     return (
       <p className="py-16 text-center text-sm text-ink-faint">
@@ -119,6 +141,29 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
           <span className="font-mono text-2xs text-ink-faint">no unsaved changes</span>
         )}
       </div>
+
+      <section className="mt-10 border-t border-line pt-8">
+        <h3 className="font-serif text-lg text-ink">Maintenance</h3>
+        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
+          Write a graph snapshot now — the take-one-before-an-experiment trigger. Boot restores from
+          the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
+        </p>
+        <div className="mt-4 flex items-center gap-4">
+          <button
+            onClick={takeSnapshot}
+            disabled={snapshot.state === "working"}
+            className="border border-line-strong px-5 py-2 text-base text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
+          >
+            {snapshot.state === "working" ? "Snapshotting…" : "Snapshot now"}
+          </button>
+          {snapshot.state === "done" && (
+            <span className="font-mono text-2xs text-ink-soft">{snapshot.message}</span>
+          )}
+          {snapshot.state === "error" && (
+            <span className="font-mono text-2xs text-clay">{snapshot.message}</span>
+          )}
+        </div>
+      </section>
 
       {config && (
         <section className="mt-10 border-t border-line pt-8">
