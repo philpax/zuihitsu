@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { LiveConnection } from "../lib/live.ts";
 import { type Settings, getSettings, putSettings } from "../lib/settings.ts";
+import { type ConfigTree, type ConfigValue, getConfig } from "../lib/config.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// One leaf field's value, and a record of them — the structural shape the generic editor walks. The
@@ -19,6 +20,19 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
   const [original, setOriginal] = useState<string>("");
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [config, setConfig] = useState<ConfigTree | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // The environmental config is read-only and non-essential, so a failure just hides its section.
+    getConfig(connection).then(
+      (value) => !cancelled && setConfig(value),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [connection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +119,27 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
           <span className="font-mono text-2xs text-ink-faint">no unsaved changes</span>
         )}
       </div>
+
+      {config && (
+        <section className="mt-10 border-t border-line pt-8">
+          <h3 className="font-serif text-lg text-ink">Environment</h3>
+          <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
+            The TOML config this instance booted from — read-only here (it is read at startup, not
+            from the log). Secrets are redacted: API keys show as counts, MCP env as its variable
+            names.
+          </p>
+          <div className="mt-5 flex flex-col gap-7">
+            {Object.entries(config).map(([section, value]) => (
+              <div key={section}>
+                <Eyebrow>{label(section)}</Eyebrow>
+                <div className="mt-3">
+                  <ConfigFields value={value} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -189,6 +224,50 @@ function Leaf({
       <span className="font-mono text-2xs text-ink-soft">{label(name)}</span>
       {input}
     </label>
+  );
+}
+
+/// Render the environmental config read-only: a nested object indents under its name, and a scalar
+/// or array shows its value (a redacted key count, an endpoint, a path, a list of names).
+function ConfigFields({ value }: { value: ConfigValue }) {
+  if (!isNestedObject(value)) return <Scalar value={value} />;
+  return (
+    <div className="flex flex-col gap-1.5">
+      {Object.entries(value).map(([key, child]) =>
+        isNestedObject(child) ? (
+          <div key={key} className="border-l border-line pl-4">
+            <Eyebrow>{label(key)}</Eyebrow>
+            <div className="mt-2">
+              <ConfigFields value={child} />
+            </div>
+          </div>
+        ) : (
+          <div key={key} className="flex items-baseline justify-between gap-4">
+            <span className="font-mono text-2xs text-ink-faint">{label(key)}</span>
+            <Scalar value={child} />
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+function isNestedObject(value: ConfigValue): value is ConfigTree {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function Scalar({ value }: { value: ConfigValue }) {
+  const text = Array.isArray(value)
+    ? value.length === 0
+      ? "—"
+      : value.map(String).join(", ")
+    : value === null || value === ""
+      ? "—"
+      : String(value);
+  return (
+    <span className="max-w-[65%] truncate text-right font-mono text-xs text-ink-soft" title={text}>
+      {text}
+    </span>
   );
 }
 

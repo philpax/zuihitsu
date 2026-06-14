@@ -12,13 +12,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::mcp::McpServerConfig;
 
 /// The parsed environmental config. Unknown sections (e.g. `[model]`, wired in Stage 5) are
 /// ignored, so the file can carry settings later stages will consume.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct EnvConfig {
     pub storage: StorageConfig,
@@ -36,7 +36,7 @@ pub struct EnvConfig {
 /// Where to reach the generation model, and how to sample from it. An empty `endpoint` means "not
 /// configured". Each sampling field is optional: unset fields are simply not sent, so the serving
 /// layer applies its own per-model default.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ModelConfig {
     pub endpoint: String,
@@ -56,18 +56,27 @@ pub struct ModelConfig {
 /// peer is trusted without a key; a remote peer must present one of the surface's keys as
 /// `Authorization: Bearer <key>`, so binding a routable address is safe by default (fail-closed: no
 /// keys means no remote access).
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ServingConfig {
     pub bind: SocketAddr,
     /// Valid API keys for the operator surface (`/control/*`). A remote peer must present one; a
     /// loopback peer is trusted without one. An empty list (the default) rejects every remote control
     /// request. Kept as an array so a single per-integration key can be revoked by removing its entry.
-    #[serde(default)]
+    /// Serializes as a count, never the keys themselves, so the config view (`GET /control/config`)
+    /// cannot leak a secret.
+    #[serde(default, serialize_with = "redact_keys")]
     pub control_keys: Vec<String>,
     /// Valid API keys for the participant surface (`/platform/*`); the same rule as `control_keys`.
-    #[serde(default)]
+    #[serde(default, serialize_with = "redact_keys")]
     pub platform_keys: Vec<String>,
+}
+
+/// Serialize a list of API keys as its length — the count is informative ("two keys configured"); the
+/// secrets never cross the wire. Intrinsic to the type, so no serialization of a `ServingConfig` can
+/// expose a key.
+fn redact_keys<S: Serializer>(keys: &[String], serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(keys.len() as u64)
 }
 
 impl Default for ServingConfig {
@@ -81,7 +90,7 @@ impl Default for ServingConfig {
 }
 
 /// Where to reach the embedding model, and the dimensionality it produces.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct EmbeddingConfig {
     pub endpoint: String,
@@ -91,7 +100,7 @@ pub struct EmbeddingConfig {
 
 /// Where this instance's two databases live. The event log is the source of truth; the graph is a
 /// rebuildable projection.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct StorageConfig {
     pub event_log: PathBuf,
@@ -117,7 +126,7 @@ impl Default for StorageConfig {
 /// safe default is to keep them. Set `enabled = false` to turn it off. The cadence is activity-gated:
 /// the background task checks every `check_interval_seconds` and snapshots only when at least
 /// `min_new_events` have been appended since the last one, so idle periods never snapshot.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SnapshotConfig {
     pub enabled: bool,

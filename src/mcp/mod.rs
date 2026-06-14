@@ -18,7 +18,7 @@ pub use stdio::StdioHost;
 use std::{collections::BTreeMap, path::PathBuf};
 
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 
 /// Spawns server instances from config — the swappable factory behind the seam (the real stdio host,
 /// or a scriptable fake). `Send + Sync` so the host (and the instances it yields) ride behind the
@@ -52,11 +52,14 @@ pub trait McpInstance: Send + Sync {
 
 /// One configured MCP server (the `[mcp.<name>]` block, spec §Configuration). `command` is an
 /// executable launched as argv — never shell-split.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
+    /// Serializes as its variable names only, never their values, so the config view
+    /// (`GET /control/config`) cannot leak a secret an MCP server reads from the environment.
+    #[serde(serialize_with = "redact_env")]
     pub env: BTreeMap<String, String>,
     pub cwd: Option<PathBuf>,
     /// Raw tool names to project; with `None`, the whole catalogue. Applied during MCP catalogue
@@ -64,6 +67,15 @@ pub struct McpServerConfig {
     pub allow: Option<Vec<String>>,
     /// Raw tool names to drop after `allow`. Applied during the same probe.
     pub deny: Option<Vec<String>>,
+}
+
+/// Serialize an env map as the list of its variable names — the values (which may hold secrets the
+/// MCP server reads) never cross the wire. Intrinsic to the type, so no serialization leaks them.
+fn redact_env<S: Serializer>(
+    env: &BTreeMap<String, String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(env.keys())
 }
 
 /// One advertised tool: its raw name, description, and JSON-Schema input shape — rendered into the

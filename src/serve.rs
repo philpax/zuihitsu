@@ -50,6 +50,10 @@ struct AppState {
     control_keys: Arc<[String]>,
     /// Valid API keys for the participant surface (`/platform/*`); the same rule.
     platform_keys: Arc<[String]>,
+    /// The environmental config this instance booted from, for the read-only config view. Serializing
+    /// it redacts the secrets (the API keys serialize as counts, the MCP env as its variable names),
+    /// so the view never exposes a key.
+    config: Arc<EnvConfig>,
 }
 
 /// How often the background indexer catches the vector index up to the log. Indexing is off the hot
@@ -77,6 +81,9 @@ pub fn run_blocking(config_path: &Path) -> Result<(), ServeError> {
 /// down gracefully (stop accepting, stop the driver, tear down live sessions).
 async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let bind = config.serving.bind;
+    // Capture the booted config for the read-only config view before its parts are moved out below
+    // (the MCP table into `connect_mcp`, the API keys into the auth layers).
+    let env_config = Arc::new(config.clone());
     ensure_parent_dir(&config.storage.event_log)?;
     ensure_parent_dir(&config.storage.graph)?;
     let store = SqliteStore::open(&config.storage.event_log).map_err(|source| {
@@ -197,6 +204,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
         control_keys: config.serving.control_keys.into(),
         platform_keys: config.serving.platform_keys.into(),
+        config: env_config,
     });
     let listener = TcpListener::bind(bind).await.map_err(ServeError::Bind)?;
     tracing::info!(?status, %bind, "zuihitsu serving");
@@ -247,6 +255,7 @@ fn router(state: AppState) -> Router {
         .route("/events", get(events))
         .route("/snapshot", post(snapshot))
         .route("/settings", get(settings).put(set_settings))
+        .route("/config", get(env_config))
         .route("/imprint", post(imprint))
         .route("/lua", post(run_lua))
         .route("/lua-api", get(lua_api))
@@ -359,6 +368,13 @@ async fn create_agent(
 /// `GET /control/genesis` — whether an agent exists and is ready.
 async fn genesis(State(state): State<AppState>) -> Result<Json<GenesisStatus>, ApiError> {
     Ok(Json(state.server.control().genesis_status()?))
+}
+
+/// `GET /control/config` — the environmental config this instance booted from (the TOML), read-only:
+/// storage paths, model and embedding endpoints, the bind address, snapshots, and the MCP servers.
+/// Secrets are redacted by the types themselves (API keys as counts, MCP env as its variable names).
+async fn env_config(State(state): State<AppState>) -> Json<EnvConfig> {
+    Json((*state.config).clone())
 }
 
 /// A `?name=` query — a memory or entry name (which may contain `/` and `@`, so it rides as a query
@@ -804,6 +820,7 @@ mod tests {
             snapshot_dir: None,
             control_keys: no_keys(),
             platform_keys: no_keys(),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         });
         let response = app
             .oneshot(
@@ -834,6 +851,7 @@ mod tests {
             snapshot_dir: None,
             control_keys: no_keys(),
             platform_keys: no_keys(),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         });
 
         // Create the agent through the API.
@@ -925,6 +943,7 @@ mod tests {
             snapshot_dir: None,
             control_keys: no_keys(),
             platform_keys: no_keys(),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         });
 
         let body = serde_json::json!({
@@ -975,6 +994,7 @@ mod tests {
             snapshot_dir: None,
             control_keys: no_keys(),
             platform_keys: no_keys(),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         });
 
         let body = serde_json::json!({
@@ -1055,6 +1075,7 @@ mod tests {
             snapshot_dir: Some(dir.clone()),
             control_keys: no_keys(),
             platform_keys: no_keys(),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         });
         let response = app.oneshot(post()).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1068,6 +1089,7 @@ mod tests {
             snapshot_dir: None,
             control_keys: no_keys(),
             platform_keys: no_keys(),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         });
         let response = app.oneshot(post()).await.unwrap();
         assert_eq!(response.status(), StatusCode::CONFLICT);
@@ -1085,6 +1107,7 @@ mod tests {
             snapshot_dir: None,
             control_keys: keys(control),
             platform_keys: keys(platform),
+            config: Arc::new(zuihitsu::EnvConfig::default()),
         })
     }
 
