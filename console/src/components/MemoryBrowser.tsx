@@ -25,12 +25,14 @@ export function MemoryBrowser({
   cursor,
   selected,
   onSelect,
+  onShowEvents,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
   selected: string | null;
   onSelect: (name: string) => void;
+  onShowEvents?: (id: string, name: string) => void;
 }) {
   const memories = replica.memories("");
   const names = nameById(memories);
@@ -98,6 +100,7 @@ export function MemoryBrowser({
           nameById={names}
           arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
           recurring={recurring.get(detail.memory.id) ?? []}
+          onShowEvents={onShowEvents}
         />
       ) : (
         <div className="py-24 text-center text-sm text-ink-faint">Select a memory.</div>
@@ -197,11 +200,13 @@ function MemoryDetailPane({
   nameById,
   arbitrations,
   recurring,
+  onShowEvents,
 }: {
   detail: MemoryDetail;
   nameById: Map<string, string>;
   arbitrations: Arbitration[];
   recurring: RecurringItem[];
+  onShowEvents?: (id: string, name: string) => void;
 }) {
   const { memory, entries, history, links } = detail;
   const superseded = history.filter((entry) => entry.superseded_by !== null);
@@ -213,7 +218,18 @@ function MemoryDetailPane({
         <div className="flex items-baseline justify-between gap-4">
           {/* On mobile the dropdown already names the open memory, so the heading would just repeat it. */}
           <h2 className="hidden font-mono text-base text-ink md:block">{memory.name}</h2>
-          <Eyebrow>{memory.volatility} volatility</Eyebrow>
+          <div className="flex items-baseline gap-4">
+            {onShowEvents && (
+              <button
+                onClick={() => onShowEvents(memory.id, memory.name)}
+                className="shrink-0 font-mono text-2xs text-clay transition-colors hover:text-ink"
+                title="Show every event touching this memory"
+              >
+                events ↗
+              </button>
+            )}
+            <Eyebrow>{memory.volatility} volatility</Eyebrow>
+          </div>
         </div>
         {memory.tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">

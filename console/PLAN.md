@@ -121,6 +121,26 @@ The harness is the `crates/eval` crate (binary `eval`), a workspace member over 
 2. **Console first phase**: scaffold Vite/React/Tailwind with the design tokens; `EventSource` + `PackageSource`; views in the order above.
 3. **Live phase** (with the live wiring, not before): `/control` events endpoint + snapshot download on the server, `LiveSource` + snapshot catch-up in the client. Nothing above the source changes.
 
+## Deferred observability gaps (need a decision or a backend change)
+
+Two spec items from **§Observability** are intentionally not built, because each is blocked on a
+decision rather than effort:
+
+- **An `events.*` namespace in the State view's Lua REPL, and re-running a query against historical
+  state.** The REPL currently runs the agent's *real* async Lua server-side (`POST /control/lua`,
+  read-only dry-run) against live head — richer than the spec's synchronous-client-side sketch, but
+  it can neither query at a past cursor nor run at all in eval (file) mode, and it has no `events.*`.
+  A truly client-side REPL would need `mlua` compiled to wasm, which `zuihitsu-core` deliberately
+  excludes; adding `events.*` server-side instead would widen the *agent's* own Lua surface, which the
+  spec framed as console-only. So this wants a deliberate design pass (wasm Lua vs. a console-only
+  query API), not a quick build.
+- **Filtering the Events view by `source`.** The `Event` envelope carries no universal source field —
+  only `ConfigSet`, `PromptTemplateRegistered`, and `LinkCreated` carry provenance — so an
+  operator-vs-agent-vs-system filter across the whole log would need an `EventSource` (or equivalent)
+  added at the envelope level in Rust, then regenerated. The other axes are covered: time (the
+  cursor), type (categories plus the new click-to-filter exact type), and target/participant (the
+  State view's "events touching this memory" jump).
+
 ## Known risks
 
 - rusqlite's wasm support is roughly six months old; pin versions, expect rough edges, and keep the pure-core fallback in reserve.

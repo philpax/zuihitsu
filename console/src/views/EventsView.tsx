@@ -2,7 +2,13 @@ import { useState } from "react";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
-import { type EventCategory, CATEGORY_COLOR, eventCategory, eventSummary } from "../lib/events.ts";
+import {
+  type EventCategory,
+  CATEGORY_COLOR,
+  eventCategory,
+  eventSummary,
+  eventTouchesMemory,
+} from "../lib/events.ts";
 import { nameById } from "../lib/labels.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "./EventDetail.tsx";
@@ -23,14 +29,21 @@ export function EventsView({
   replica,
   events,
   cursor,
+  focus = null,
+  onClearFocus,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
+  /// When set, only events touching this memory are shown — the State view's "events touching this"
+  /// jump lands here. `null` shows the whole log.
+  focus?: { id: string; name: string } | null;
+  onClearFocus?: () => void;
 }) {
   const names = nameById(replica.memories(""));
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const needle = search.trim().toLowerCase();
@@ -42,6 +55,8 @@ export function EventsView({
       summary: eventSummary(event.payload, names),
     }))
     .filter(({ event, category, summary }) => {
+      if (focus && !eventTouchesMemory(event.payload, focus.id)) return false;
+      if (typeFilter && event.payload.type !== typeFilter) return false;
       if (!active.has(category)) return false;
       if (!needle) return true;
       return (
@@ -58,6 +73,19 @@ export function EventsView({
 
   return (
     <section>
+      {focus && (
+        <div className="mb-5 flex items-baseline justify-between gap-4 border-l-2 border-clay bg-clay-soft/15 py-2 pl-3 pr-2">
+          <span className="font-mono text-2xs text-ink-soft">
+            events touching <span className="text-ink">{focus.name}</span>
+          </span>
+          <button
+            onClick={onClearFocus}
+            className="shrink-0 font-mono text-2xs text-clay transition-colors hover:text-ink"
+          >
+            clear ✕
+          </button>
+        </div>
+      )}
       <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <div className="flex flex-wrap gap-x-4 gap-y-2">
           {CATEGORIES.map((category) => (
@@ -81,8 +109,19 @@ export function EventsView({
         />
       </div>
 
-      <div className="mb-3 flex items-baseline justify-between">
-        <Eyebrow>{rows.length} events</Eyebrow>
+      <div className="mb-3 flex items-baseline justify-between gap-4">
+        <div className="flex items-baseline gap-3">
+          <Eyebrow>{rows.length} events</Eyebrow>
+          {typeFilter && (
+            <button
+              onClick={() => setTypeFilter(null)}
+              className="font-mono text-2xs text-clay transition-colors hover:text-ink"
+              title="Clear the type filter"
+            >
+              {typeFilter} ✕
+            </button>
+          )}
+        </div>
         <Eyebrow>
           seq 1 – {cursor}
           {cursor < events.length ? ` of ${events.length}` : ""}
@@ -101,7 +140,20 @@ export function EventsView({
                 <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
                   {event.seq}
                 </span>
-                <span className={"truncate " + CATEGORY_COLOR[category]} title={event.payload.type}>
+                <span
+                  // Click the type to narrow to just it — a precise filter under the coarse
+                  // categories. The row is a button, so this stays a span and stops the toggle.
+                  role="button"
+                  tabIndex={-1}
+                  onClick={(click) => {
+                    click.stopPropagation();
+                    setTypeFilter((current) =>
+                      current === event.payload.type ? null : event.payload.type,
+                    );
+                  }}
+                  className={"truncate hover:underline " + CATEGORY_COLOR[category]}
+                  title={`Filter to ${event.payload.type}`}
+                >
                   {event.payload.type}
                 </span>
                 <span

@@ -9,6 +9,7 @@ import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
+import { DiffView } from "../views/DiffView.tsx";
 
 /// The views over a single event stream — the debugging surface shared by the eval and agent
 /// frames. A run's embedded log and a live agent's tailed log are the same shape (one stream of
@@ -19,6 +20,7 @@ const STREAM_VIEWS = [
   { id: "conversation", label: "Conversation" },
   { id: "agenda", label: "Agenda" },
   { id: "events", label: "Events" },
+  { id: "compare", label: "Time-travel" },
 ] as const;
 
 export type StreamViewId = (typeof STREAM_VIEWS)[number]["id"];
@@ -65,6 +67,8 @@ export function StreamWorkspace({
   const [view, setView] = useState<string>("conversation");
   const [seq, setSeq] = useState<number | null>(null);
   const cursor = seq ?? head;
+  // The memory the Events view is pinned to, set by the State view's "events touching this" jump.
+  const [eventFocus, setEventFocus] = useState<{ id: string; name: string } | null>(null);
   // Which way the next view slides: +1 from the right when moving rightward along the tabs, -1 from
   // the left when moving leftward. Computed at the switch (not from a lagging ref) so it stays within
   // the Rules of React; reduced-motion flattens the slide to a quick fade.
@@ -78,6 +82,12 @@ export function StreamWorkspace({
   function selectView(next: string) {
     setDirection(tabs.indexOf(next) >= tabs.indexOf(view) ? 1 : -1);
     setView(next);
+  }
+
+  // Jump from a memory in the State view to the events touching it, pinning the Events filter.
+  function showEvents(id: string, name: string) {
+    setEventFocus({ id, name });
+    selectView("events");
   }
 
   function scrub(next: number) {
@@ -122,7 +132,14 @@ export function StreamWorkspace({
             exit={{ x: direction * -shift, opacity: 0 }}
             transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
           >
-            {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
+            {view === "state" && (
+              <StateView
+                replica={replica}
+                events={events}
+                cursor={cursor}
+                onShowEvents={showEvents}
+              />
+            )}
             {view === "conversation" && (
               <ConversationView
                 replica={replica}
@@ -132,7 +149,16 @@ export function StreamWorkspace({
               />
             )}
             {view === "agenda" && <AgendaView replica={replica} events={events} cursor={cursor} />}
-            {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
+            {view === "events" && (
+              <EventsView
+                replica={replica}
+                events={events}
+                cursor={cursor}
+                focus={eventFocus}
+                onClearFocus={() => setEventFocus(null)}
+              />
+            )}
+            {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
             {extra?.node}
           </motion.div>
         </AnimatePresence>

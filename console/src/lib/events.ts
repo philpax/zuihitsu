@@ -67,6 +67,48 @@ export function refName(id: string, nameById: Map<string, string>): string {
   return nameById.get(id) ?? shortId(id);
 }
 
+/// Whether an event references `memoryId` — backs the State view's "events touching this memory" jump.
+/// Covers the memory's own mutations (create, append, supersede, rename, delete, description,
+/// volatility, arbitration), its tags, links from either end, scheduled occurrences, the `told_in`
+/// room an aside was scoped to, a block that touched it, and the conversation/identity references that
+/// name it.
+export function eventTouchesMemory(payload: EventPayload, memoryId: string): boolean {
+  switch (payload.type) {
+    case "MemoryCreated":
+    case "MemoryRenamed":
+    case "MemoryDeleted":
+    case "MemorySuperseded":
+    case "EntryTemporalResolved":
+    case "MemoryDescriptionRegenerated":
+    case "MemoryVolatilitySet":
+      return payload.id === memoryId;
+    case "MemoryContentAppended":
+      return payload.id === memoryId || payload.told_in === memoryId;
+    case "ScheduledJobFired":
+    case "ScheduledItemSurfaced":
+    case "BeliefArbitrated":
+    case "TagAppliedToMemory":
+    case "TagRemovedFromMemory":
+    case "ParticipantIdentified":
+      return payload.memory === memoryId;
+    case "LinkCreated":
+    case "LinkRemoved":
+      return payload.from === memoryId || payload.to === memoryId;
+    case "ConversationStarted":
+      return payload.context_memory === memoryId;
+    case "SessionStarted":
+      return payload.participants.includes(memoryId);
+    case "ParticipantJoined":
+      return payload.participant === memoryId;
+    case "ConversationTurn":
+      return payload.participant === memoryId;
+    case "LuaExecuted":
+      return payload.touched.includes(memoryId);
+    default:
+      return false;
+  }
+}
+
 /// A concise, human-readable one-line summary of an event, resolving ids to handles where it can.
 export function eventSummary(payload: EventPayload, nameById: Map<string, string>): string {
   const ref = (id: string) => refName(id, nameById);

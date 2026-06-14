@@ -12,10 +12,12 @@ export function StateView({
   replica,
   events,
   cursor,
+  onShowEvents,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
+  onShowEvents?: (id: string, name: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   return (
@@ -26,6 +28,7 @@ export function StateView({
       cursor={cursor}
       selected={selected}
       onSelect={setSelected}
+      onShowEvents={onShowEvents}
     />
   );
 }
