@@ -12,7 +12,7 @@ export function TrendsScreen({
   onClose: () => void;
 }) {
   return (
-    <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-8">
+    <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-4 sm:px-8">
       <header className="flex items-baseline justify-between border-b border-line py-6">
         <div className="flex items-baseline gap-3">
           <span className="font-serif text-xl text-ink">zuihitsu</span>

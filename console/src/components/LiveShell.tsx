@@ -39,23 +39,34 @@ export function LiveShell({
   }, [connection]);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-8">
-      <header className="flex items-baseline justify-between border-b border-line py-6">
-        <div className="flex items-baseline gap-3">
-          <span className="font-serif text-xl text-ink">zuihitsu</span>
-          <Eyebrow>console · agent</Eyebrow>
+    <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-4 sm:px-8">
+      <header className="border-b border-line py-4 sm:py-6">
+        <div className="flex items-baseline justify-between gap-3">
+          <div className="flex items-baseline gap-3">
+            <span className="font-serif text-xl text-ink">zuihitsu</span>
+            <Eyebrow>console · agent</Eyebrow>
+          </div>
+          <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
+            <span className="hidden items-baseline gap-3 sm:flex">
+              <ConnectionBadge status={log.status} />
+              <Dot />
+              <span>{log.head} events</span>
+            </span>
+            <button
+              onClick={onClose}
+              className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
+              title="Disconnect"
+            >
+              ✕
+            </button>
+          </div>
         </div>
-        <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
+
+        {/* On mobile the connection status drops to a quieter second row. */}
+        <div className="mt-2 flex items-baseline gap-3 font-mono text-xs text-ink-soft sm:hidden">
           <ConnectionBadge status={log.status} />
           <Dot />
           <span>{log.head} events</span>
-          <button
-            onClick={onClose}
-            className="ml-1 text-ink-faint transition-colors hover:text-clay"
-            title="Disconnect"
-          >
-            ✕
-          </button>
         </div>
       </header>
 

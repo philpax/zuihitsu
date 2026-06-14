@@ -58,7 +58,7 @@ export function EventsView({
 
   return (
     <section>
-      <div className="mb-7 flex items-center justify-between gap-6">
+      <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <div className="flex flex-wrap gap-x-4 gap-y-2">
           {CATEGORIES.map((category) => (
             <button
@@ -77,7 +77,7 @@ export function EventsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="filter…"
-          className="w-44 border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+          className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none sm:w-44"
         />
       </div>
 
@@ -96,12 +96,14 @@ export function EventsView({
             <li key={event.seq} className="border-b border-line/60">
               <button
                 onClick={() => setExpanded(open ? null : event.seq)}
-                className="grid w-full grid-cols-[3rem_11rem_1fr] items-baseline gap-4 py-2 text-left"
+                className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr] sm:gap-4"
               >
                 <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
                   {event.seq}
                 </span>
-                <span className={CATEGORY_COLOR[category]}>{event.payload.type}</span>
+                <span className={"truncate " + CATEGORY_COLOR[category]} title={event.payload.type}>
+                  {event.payload.type}
+                </span>
                 <span
                   className={"truncate " + (open ? "text-ink" : "text-ink-soft")}
                   title={summary}

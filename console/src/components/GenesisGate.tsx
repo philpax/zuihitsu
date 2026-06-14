@@ -47,7 +47,7 @@ export function GenesisGate({
   return (
     <div className="mx-auto max-w-prose py-16">
       <header className="mb-8">
-        <h2 className="font-serif text-2xl text-ink">No agent here yet</h2>
+        <h2 className="font-serif text-xl text-ink sm:text-2xl">No agent here yet</h2>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
           This instance has no agent. Bring one into being — its name, a one-line persona, and any
           first-person truths to plant in <code>self</code>. You can refine who it is afterward in

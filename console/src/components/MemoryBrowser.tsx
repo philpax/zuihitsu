@@ -48,7 +48,7 @@ export function MemoryBrowser({
   const detail = replica.memory(effective);
 
   return (
-    <div className="grid grid-cols-[15rem_1fr] gap-12">
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-[15rem_1fr] md:gap-12">
       <div className="flex flex-col gap-4 self-start">
         <input
           value={query}
@@ -59,7 +59,12 @@ export function MemoryBrowser({
         {listed.length === 0 ? (
           <p className="font-mono text-2xs text-ink-faint">no matches</p>
         ) : (
-          <MemoryList memories={listed} selected={effective} onSelect={onSelect} />
+          <>
+            <MemorySelect memories={listed} selected={effective} onSelect={onSelect} />
+            <div className="hidden md:block">
+              <MemoryList memories={listed} selected={effective} onSelect={onSelect} />
+            </div>
+          </>
         )}
       </div>
       {detail ? (
@@ -68,6 +73,39 @@ export function MemoryBrowser({
         <div className="py-24 text-center text-sm text-ink-faint">Select a memory.</div>
       )}
     </div>
+  );
+}
+
+/// The mobile face of the memory list: a native dropdown grouped by namespace, so the opened memory
+/// owns the screen instead of scrolling past the whole list. Hidden once there is room for the
+/// sidebar (`md`).
+function MemorySelect({
+  memories,
+  selected,
+  onSelect,
+}: {
+  memories: MemoryView[];
+  selected: string | null;
+  onSelect: (name: string) => void;
+}) {
+  const groups = groupByNamespace(memories);
+  return (
+    <select
+      value={selected ?? ""}
+      onChange={(event) => onSelect(event.target.value)}
+      className="w-full border border-line bg-paper px-3 py-2 font-mono text-xs text-ink focus:border-ink-faint focus:outline-none md:hidden"
+      aria-label="Choose a memory"
+    >
+      {groups.map(([namespace, items]) => (
+        <optgroup key={namespace} label={namespace}>
+          {items.map((memory) => (
+            <option key={memory.id} value={memory.name}>
+              {memory.name}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
   );
 }
 
@@ -83,7 +121,7 @@ function MemoryList({
   const groups = groupByNamespace(memories);
 
   return (
-    <nav className="flex flex-col gap-6 self-start">
+    <nav className="flex flex-col gap-4 sm:gap-6">
       {groups.map(([namespace, items]) => (
         <div key={namespace}>
           <Eyebrow>{namespace}</Eyebrow>
@@ -94,14 +132,15 @@ function MemoryList({
                 <li key={memory.id}>
                   <button
                     onClick={() => onSelect(memory.name)}
+                    title={memory.name}
                     className={
-                      "-ml-3 flex w-full items-baseline border-l-2 py-1 pl-2.5 text-left font-mono text-xs transition-colors " +
+                      "-ml-3 flex w-full min-w-0 items-baseline border-l-2 py-1 pl-2.5 text-left font-mono text-xs transition-colors " +
                       (active
                         ? "border-clay text-ink"
                         : "border-transparent text-ink-soft hover:text-ink")
                     }
                   >
-                    {leafName(memory.name, namespace)}
+                    <span className="truncate">{leafName(memory.name, namespace)}</span>
                   </button>
                 </li>
               );
@@ -128,7 +167,8 @@ function MemoryDetailPane({
     <article className="max-w-prose">
       <header className="border-b border-line pb-5">
         <div className="flex items-baseline justify-between gap-4">
-          <h2 className="font-mono text-base text-ink">{memory.name}</h2>
+          {/* On mobile the dropdown already names the open memory, so the heading would just repeat it. */}
+          <h2 className="hidden font-mono text-base text-ink md:block">{memory.name}</h2>
           <Eyebrow>{memory.volatility} volatility</Eyebrow>
         </div>
         {memory.tags.length > 0 && (

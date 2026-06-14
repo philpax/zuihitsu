@@ -18,8 +18,8 @@ export function ScenarioOverview({
 
   return (
     <section>
-      <div className="mb-9 flex items-baseline justify-between">
-        <h2 className="font-serif text-2xl text-ink">Scenarios</h2>
+      <div className="mb-6 flex items-baseline justify-between sm:mb-9">
+        <h2 className="font-serif text-xl text-ink sm:text-2xl">Scenarios</h2>
         <span className="font-mono text-xs text-ink-soft">
           {pkg.scenarios.length} scenarios ·{" "}
           {regressions === 0 ? (
@@ -54,7 +54,7 @@ function ScenarioRow({
   const multiRun = scenario.runs.length > 1;
 
   return (
-    <li className="group grid grid-cols-[1fr_auto] items-start gap-x-10 gap-y-3 border-b border-line py-6 first:border-t">
+    <li className="group grid grid-cols-1 items-start gap-x-10 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto]">
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
           <button
@@ -85,7 +85,7 @@ function ScenarioRow({
         <p className="mt-2 max-w-prose text-sm leading-relaxed text-ink-soft">{meta.description}</p>
       </div>
 
-      <div className="flex flex-col items-end gap-2.5">
+      <div className="flex flex-col items-start gap-2.5 sm:items-end">
         <div className="flex items-baseline gap-2.5">
           <span className="font-mono text-lg text-ink">{formatRate(aggregate.rate)}</span>
           <span className="font-mono text-2xs text-ink-faint">

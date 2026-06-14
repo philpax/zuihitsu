@@ -96,61 +96,96 @@ export function ConversationView({
   }
 
   return (
-    <div className="grid grid-cols-[14rem_1fr] gap-10">
-      <aside className="flex flex-col gap-5 self-start">
-        {participate && (
-          <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
-            <span className="text-line-strong">+</span>
-            <input
-              value={draftRoom}
-              onChange={(event) => setDraftRoom(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && startRoom()}
-              placeholder="new conversation"
-              className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
-            />
-          </div>
-        )}
-
-        {listed.length === 0 && !operatorChannel ? (
-          <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
-        ) : (
-          <nav className="flex flex-col gap-1">
-            {listed.map((channel) => (
-              <ChannelLink
-                key={channel.key}
-                channel={channel}
-                active={channel.key === selected?.key}
-                onSelect={() => setSelectedKey(channel.key)}
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-[14rem_1fr] md:gap-10">
+      <div className="md:sticky md:top-4 md:self-start">
+        <aside className="hidden flex-col gap-5 md:flex">
+          {participate && (
+            <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
+              <span className="text-line-strong">+</span>
+              <input
+                value={draftRoom}
+                onChange={(event) => setDraftRoom(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && startRoom()}
+                placeholder="new conversation"
+                className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
               />
-            ))}
-          </nav>
-        )}
+            </div>
+          )}
 
-        {operatorChannel && (
-          <div className="border-t border-line pt-4">
-            <Eyebrow>operator</Eyebrow>
-            <nav className="mt-2">
-              <ChannelLink
-                channel={operatorChannel}
-                active={operatorChannel.key === selected?.key}
-                onSelect={() => setSelectedKey(operatorChannel.key)}
-              />
+          {listed.length === 0 && !operatorChannel ? (
+            <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
+          ) : (
+            <nav className="flex flex-col gap-1">
+              {listed.map((channel) => (
+                <ChannelLink
+                  key={channel.key}
+                  channel={channel}
+                  active={channel.key === selected?.key}
+                  onSelect={() => setSelectedKey(channel.key)}
+                />
+              ))}
             </nav>
-          </div>
-        )}
+          )}
 
-        {participate && (
-          <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
-            <Eyebrow>you are</Eyebrow>
-            <input
-              value={participate.sender}
-              onChange={(event) => participate.setSender(event.target.value)}
-              placeholder="a handle"
-              className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
-            />
-          </label>
-        )}
-      </aside>
+          {operatorChannel && (
+            <div className="border-t border-line pt-4">
+              <Eyebrow>operator</Eyebrow>
+              <nav className="mt-2">
+                <ChannelLink
+                  channel={operatorChannel}
+                  active={operatorChannel.key === selected?.key}
+                  onSelect={() => setSelectedKey(operatorChannel.key)}
+                />
+              </nav>
+            </div>
+          )}
+
+          {participate && (
+            <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
+              <Eyebrow>you are</Eyebrow>
+              <input
+                value={participate.sender}
+                onChange={(event) => participate.setSender(event.target.value)}
+                placeholder="a handle"
+                className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+              />
+            </label>
+          )}
+        </aside>
+
+        {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
+        <div className="flex flex-col gap-3 md:hidden">
+          <ChannelSelect
+            listed={listed}
+            operatorChannel={operatorChannel}
+            selectedKey={selected?.key ?? null}
+            onSelect={setSelectedKey}
+          />
+          {participate && (
+            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
+              <span className="flex items-baseline gap-2">
+                <span className="text-line-strong">+</span>
+                <input
+                  value={draftRoom}
+                  onChange={(event) => setDraftRoom(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && startRoom()}
+                  placeholder="new conversation"
+                  className="w-36 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
+                />
+              </span>
+              <span className="flex items-baseline gap-2">
+                <Eyebrow>you are</Eyebrow>
+                <input
+                  value={participate.sender}
+                  onChange={(event) => participate.setSender(event.target.value)}
+                  placeholder="a handle"
+                  className="w-24 bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none"
+                />
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {selected ? (
         <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
@@ -196,9 +231,9 @@ function Room({
 
   return (
     <div className="mx-auto flex w-full max-w-prose flex-col">
-      <header className="mb-8">
-        <div className="flex items-baseline gap-3">
-          <h2 className="font-serif text-2xl text-ink">{channel.label}</h2>
+      <header className="mb-5 sm:mb-8">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="font-serif text-xl text-ink sm:text-2xl">{channel.label}</h2>
           {isOperator && <Eyebrow>operator authority · writes self</Eyebrow>}
         </div>
         <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
@@ -304,6 +339,44 @@ interface Channel {
   conversation: ConversationModel | null;
 }
 
+/// The mobile face of the conversation list: a native dropdown (participant rooms, then the operator
+/// room as its own group) so the transcript owns the screen. Hidden once the sidebar fits (`md`).
+function ChannelSelect({
+  listed,
+  operatorChannel,
+  selectedKey,
+  onSelect,
+}: {
+  listed: Channel[];
+  operatorChannel: Channel | null;
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <select
+      value={selectedKey ?? ""}
+      onChange={(event) => onSelect(event.target.value)}
+      className="w-full border border-line bg-paper px-3 py-2 text-sm text-ink focus:border-ink-faint focus:outline-none"
+      aria-label="Choose a conversation"
+    >
+      {listed.length > 0 && (
+        <optgroup label="conversations">
+          {listed.map((channel) => (
+            <option key={channel.key} value={channel.key}>
+              {channel.label}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {operatorChannel && (
+        <optgroup label="operator">
+          <option value={operatorChannel.key}>{operatorChannel.label}</option>
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
 function ChannelLink({
   channel,
   active,
@@ -316,13 +389,14 @@ function ChannelLink({
   return (
     <button
       onClick={onSelect}
+      title={channel.label}
       className={
-        "-ml-3 flex w-full items-baseline border-l-2 py-1 pl-2.5 text-left text-sm transition-colors " +
+        "-ml-3 flex w-full min-w-0 items-baseline border-l-2 py-1 pl-2.5 text-left text-sm transition-colors " +
         (active ? "border-clay text-ink" : "border-transparent text-ink-soft hover:text-ink") +
         (channel.conversation ? "" : " italic text-ink-faint")
       }
     >
-      {channel.label}
+      <span className="truncate">{channel.label}</span>
     </button>
   );
 }
@@ -432,7 +506,7 @@ function TurnItem({ turn }: { turn: TurnModel }) {
 
   const isAgent = turn.role === "Agent";
   return (
-    <li className="border-b border-line/70 py-5 last:border-b-0">
+    <li className="border-b border-line/70 py-4 last:border-b-0 sm:py-5">
       {turn.entrance && turn.speaker && (
         <div className="mb-4 flex items-center gap-3 text-ink-faint">
           <span className="h-px flex-1 bg-line" />
