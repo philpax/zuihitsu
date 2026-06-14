@@ -236,7 +236,14 @@ fn default_templates() -> Vec<TemplateDef> {
                    text. And two people's conflicting accounts of the same fact are two entries left \
                    standing, not one overwritten: the disagreement is itself worth holding, and \
                    keeping both is what lets it be surfaced and reconciled later rather than silently \
-                   resolved to whoever spoke last.\n\n\
+                   resolved to whoever spoke last. A correction is the opposite case: when a fact you \
+                   already recorded plainly changes — the teller revises it, or newer information \
+                   replaces it (a phone number that changed, a title someone was promoted into) — \
+                   append the new value and mark the stale entry superseded by it with \
+                   <memory>:supersede, so the outdated value stops surfacing as if it still held. \
+                   Telling the two apart is the point: conflicting accounts that both stand are a \
+                   disagreement to hold, while a fact that has clearly moved on is an update to \
+                   supersede.\n\n\
                    Every entry carries a visibility that governs where it can resurface. A public \
                    entry may be surfaced to anyone present in any room, including the very person it \
                    is about; a private one (visibility = \"private\") comes back only to the teller \
