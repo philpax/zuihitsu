@@ -258,9 +258,13 @@ fn default_templates() -> Vec<TemplateDef> {
                    prose — no preamble, headings, notes, or first-person framing — synthesizing only \
                    from the entries given. If two or more statements directly contradict each other \
                    about the same thing, record it in `arbitration`: the conflicting statement \
-                   numbers in `competing`, the number(s) you judge correct in `credited`, and a \
-                   one-line reconciling note in `statement`. Only for genuine contradictions — not a \
-                   fact being added, refined, or updated over time.",
+                   numbers in `competing`, the number(s) you judge correct in `credited` (leave it \
+                   empty when neither is yet known to be right), and a one-line reconciling note in \
+                   `statement`. Two accounts of the same fact attributed to different people — \"one \
+                   says X, another says Y\" about the same thing — still contradict and should be \
+                   arbitrated; do not treat them as compatible merely because each holds as someone's \
+                   account. Only for genuine contradictions — not a fact being added, refined, or \
+                   updated over time.",
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
