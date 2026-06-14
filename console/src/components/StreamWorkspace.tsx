@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
@@ -52,6 +53,18 @@ export function StreamWorkspace({
   const [view, setView] = useState<StreamViewId>("conversation");
   const [seq, setSeq] = useState<number | null>(null);
   const cursor = seq ?? head;
+  // Which way the next view slides: +1 from the right when moving rightward along the tabs, -1 from
+  // the left when moving leftward. Computed at the switch (not from a lagging ref) so it stays within
+  // the Rules of React; reduced-motion flattens the slide to a quick fade.
+  const [direction, setDirection] = useState(1);
+  const reduce = useReducedMotion();
+  const shift = reduce ? 0 : 36;
+
+  function selectView(next: StreamViewId) {
+    const order = (id: StreamViewId) => STREAM_VIEWS.findIndex((entry) => entry.id === id);
+    setDirection(order(next) >= order(view) ? 1 : -1);
+    setView(next);
+  }
 
   function scrub(next: number) {
     replica.foldTo(next);
@@ -72,7 +85,7 @@ export function StreamWorkspace({
         {STREAM_VIEWS.map((entry) => (
           <button
             key={entry.id}
-            onClick={() => setView(entry.id)}
+            onClick={() => selectView(entry.id)}
             className={
               "-mb-px border-b-2 py-3 transition-colors " +
               (entry.id === view
@@ -85,17 +98,28 @@ export function StreamWorkspace({
         ))}
       </nav>
 
-      <main className="flex-1 py-10">
-        {view === "state" && <StateView replica={replica} cursor={cursor} />}
-        {view === "conversation" && (
-          <ConversationView
-            replica={replica}
-            events={events}
-            cursor={cursor}
-            participate={participant && { ...participant, atHead: cursor >= head }}
-          />
-        )}
-        {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
+      <main className="relative flex-1 overflow-x-clip py-10">
+        <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+          <motion.div
+            key={view}
+            custom={direction}
+            initial={{ x: direction * shift, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: direction * -shift, opacity: 0 }}
+            transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+          >
+            {view === "state" && <StateView replica={replica} cursor={cursor} />}
+            {view === "conversation" && (
+              <ConversationView
+                replica={replica}
+                events={events}
+                cursor={cursor}
+                participate={participant && { ...participant, atHead: cursor >= head }}
+              />
+            )}
+            {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {head > 0 && (

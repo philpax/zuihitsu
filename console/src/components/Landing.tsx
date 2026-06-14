@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Eyebrow } from "./primitives.tsx";
 
@@ -20,6 +21,10 @@ export function Landing({
   error: string | null;
 }) {
   const [source, setSource] = useState<Source>("agent");
+  const reduce = useReducedMotion();
+  const shift = reduce ? 0 : 24;
+  // Agent sits left of Eval, so Eval slides in from the right and Agent from the left.
+  const direction = source === "eval" ? 1 : -1;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-8">
@@ -48,11 +53,23 @@ export function Landing({
         ))}
       </div>
 
-      {source === "agent" ? (
-        <AgentPanel onConnect={onConnectLive} />
-      ) : (
-        <EvalPanel onOpenPackage={onOpenPackage} onOpenHistory={onOpenHistory} />
-      )}
+      <div className="relative overflow-x-clip">
+        <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+          <motion.div
+            key={source}
+            initial={{ x: direction * shift, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: direction * -shift, opacity: 0 }}
+            transition={{ duration: reduce ? 0.12 : 0.28, ease: [0.32, 0.72, 0, 1] }}
+          >
+            {source === "agent" ? (
+              <AgentPanel onConnect={onConnectLive} />
+            ) : (
+              <EvalPanel onOpenPackage={onOpenPackage} onOpenHistory={onOpenHistory} />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
       {error && <p className="mt-5 text-center font-mono text-xs text-clay">{error}</p>}
     </div>
