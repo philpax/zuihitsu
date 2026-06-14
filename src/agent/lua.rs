@@ -254,16 +254,22 @@ impl Session {
             } = api.block.lock().take_effects();
             let outcome = match evaluated {
                 Ok(result) => {
-                    let mut events = events;
-                    events.push(self.lua_executed(
-                        context.turn_id,
-                        script,
-                        Some(result.clone()),
-                        touched,
-                        None,
-                        started.elapsed().as_millis() as u64,
-                    ));
-                    self.finish(engine, events, BlockOutcome::Committed { result })
+                    // A dry run discards the whole buffer — including the `LuaExecuted` record — and
+                    // commits nothing; the operator gets the rendered result over a clean log.
+                    if context.dry_run {
+                        Ok(BlockOutcome::Committed { result })
+                    } else {
+                        let mut events = events;
+                        events.push(self.lua_executed(
+                            context.turn_id,
+                            script,
+                            Some(result.clone()),
+                            touched,
+                            None,
+                            started.elapsed().as_millis() as u64,
+                        ));
+                        self.finish(engine, events, BlockOutcome::Committed { result })
+                    }
                 }
                 Err(error) => {
                     // Discard the buffer; record only what the agent saw — the terminal cause.
@@ -271,15 +277,19 @@ impl Session {
                         Some(reason) => TerminalCause::Aborted(reason),
                         None => TerminalCause::Error(error.to_string()),
                     };
-                    let event = self.lua_executed(
-                        context.turn_id,
-                        script,
-                        None,
-                        touched,
-                        Some(cause.clone()),
-                        started.elapsed().as_millis() as u64,
-                    );
-                    self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
+                    if context.dry_run {
+                        Ok(BlockOutcome::Terminated(cause))
+                    } else {
+                        let event = self.lua_executed(
+                            context.turn_id,
+                            script,
+                            None,
+                            touched,
+                            Some(cause.clone()),
+                            started.elapsed().as_millis() as u64,
+                        );
+                        self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
+                    }
                 }
             };
             release_locks(&api.lock_set);
@@ -299,6 +309,10 @@ impl Session {
         started: Instant,
     ) -> Result<BlockOutcome, LuaError> {
         let BlockEffects { touched, .. } = block.lock().take_effects();
+        // A dry run commits nothing — not even the terminal record.
+        if context.dry_run {
+            return Ok(BlockOutcome::Terminated(cause));
+        }
         let event = self.lua_executed(
             context.turn_id,
             script,

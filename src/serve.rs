@@ -25,11 +25,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use zuihitsu::{
-    Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Event, Graph, GraphError,
-    MemoryView, ModelCall, ModelClient, OpenAiClient, OpenAiEmbedder, Rollout, SeedSelf, Seq,
-    Server, ServerError, SessionView, Settings, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
-    StdioHost, StoreError, SystemClock, TurnOutcome, VectorError, VectorIndex,
-    genesis::GenesisStatus, model::embed::Embedder, snapshot, snapshot::SnapshotError,
+    ApiEntry, Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Event, Graph,
+    GraphError, LuaConsoleOutcome, MemoryView, ModelCall, ModelClient, OpenAiClient,
+    OpenAiEmbedder, Rollout, SeedSelf, Seq, Server, ServerError, SessionView, Settings,
+    SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, StoreError, SystemClock,
+    TurnOutcome, VectorError, VectorIndex, genesis::GenesisStatus, model::embed::Embedder,
+    snapshot, snapshot::SnapshotError,
 };
 
 /// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share (so
@@ -247,6 +248,8 @@ fn router(state: AppState) -> Router {
         .route("/snapshot", post(snapshot))
         .route("/settings", get(settings).put(set_settings))
         .route("/imprint", post(imprint))
+        .route("/lua", post(run_lua))
+        .route("/lua-api", get(lua_api))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_control_key,
@@ -504,6 +507,33 @@ async fn imprint(
         .imprint(model.as_ref(), &request.text)
         .await?;
     Ok(Json(outcome))
+}
+
+/// `POST /control/lua` — run an ad-hoc operator Lua block in a no-commit sandbox and return its
+/// rendered result (or error). MCP is off unless `allow_mcp` is set; needs no model (a block only
+/// embeds if it calls `memory.search`, which uses the embedder, not the chat model).
+#[derive(Deserialize)]
+struct LuaRequest {
+    script: String,
+    #[serde(default)]
+    allow_mcp: bool,
+}
+
+async fn run_lua(
+    State(state): State<AppState>,
+    Json(request): Json<LuaRequest>,
+) -> Result<Json<LuaConsoleOutcome>, ApiError> {
+    let outcome = state
+        .server
+        .control()
+        .run_lua(&request.script, request.allow_mcp)
+        .await?;
+    Ok(Json(outcome))
+}
+
+/// `GET /control/lua-api` — the structured Lua API catalogue the console renders as a reference guide.
+async fn lua_api(State(state): State<AppState>) -> Result<Json<Vec<ApiEntry>>, ApiError> {
+    Ok(Json(state.server.control().lua_api()))
 }
 
 /// `POST /platform/message` — deliver a participant turn and run the agent's response cycle. Carries

@@ -158,6 +158,11 @@ pub struct BlockContext {
     /// entry hits against, so the agent never recalls a teller-private aside into a room where the
     /// teller is absent (spec §Visibility). The agent is always present to itself.
     pub present_set: Vec<MemoryId>,
+    /// Run the block but commit nothing: the block executes against the live graph (reads see real
+    /// memory), its rendered result is returned, and its buffered effects — including the
+    /// `LuaExecuted` record — are discarded. The operator Lua console's no-commit sandbox; always
+    /// `false` for a real turn.
+    pub dry_run: bool,
 }
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
@@ -301,6 +306,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             block_timeout,
             max_block_attempts,
             present_set: present_set.to_vec(),
+            dry_run: false,
         },
         messages,
         initiation: Initiation::Responding,
@@ -432,6 +438,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             block_timeout,
             max_block_attempts,
             present_set: present_set.to_vec(),
+            dry_run: false,
         },
         messages,
         initiation: Initiation::Initiated,

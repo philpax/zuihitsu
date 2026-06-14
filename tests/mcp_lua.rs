@@ -74,6 +74,7 @@ async fn run_bounded(
                 block_timeout,
                 max_block_attempts: 3,
                 present_set: Vec::new(),
+                dry_run: false,
             },
             script,
         )

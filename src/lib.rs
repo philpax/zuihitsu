@@ -89,6 +89,8 @@ pub use memory::{
     },
 };
 pub use model::openai::{OpenAiClient, OpenAiEmbedder};
-pub use server::{Arbitration, Control, ModelCall, Server, ServerError, SnapshotSchedule};
+pub use server::{
+    Arbitration, Control, LuaConsoleOutcome, ModelCall, Server, ServerError, SnapshotSchedule,
+};
 pub use store::SqliteStore;
 pub use vector::SqliteVectorIndex;

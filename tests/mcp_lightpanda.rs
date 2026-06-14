@@ -116,6 +116,7 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
                 block_timeout: Duration::from_secs(60),
                 max_block_attempts: 3,
                 present_set: Vec::new(),
+                dry_run: false,
             },
             r#"
             mcp.lightpanda.navigate{ url = "https://philpax.me" }

@@ -4,13 +4,20 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::time::Duration;
+
 use super::{RoutedTurn, Server, ServerError};
 use crate::{
     agent::{
-        TurnOutcome,
+        BlockContext, TurnOutcome,
+        api_doc::ApiEntry,
         genesis::{self, GenesisStatus, Rollout, SeedSelf},
+        lua::{self, BlockOutcome, Session},
     },
-    event::{Event, EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord},
+    event::{
+        Event, EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord, Teller,
+        TerminalCause,
+    },
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationId, ConversationLocator, MemoryName, Seq, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
@@ -52,6 +59,16 @@ pub struct ModelCall {
     pub finish_reason: Option<String>,
     pub usage: Usage,
     pub duration_ms: u64,
+}
+
+/// The result of one operator Lua console run (spec §Observability → the operator Lua console): the
+/// rendered value of the block's final expression, or the error/abort that ended it. Exactly one is
+/// `Some`. The run is a no-commit sandbox — nothing it writes persists — so it leaves no trace on the
+/// log.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LuaConsoleOutcome {
+    pub result: Option<String>,
+    pub error: Option<String>,
 }
 
 impl Control<'_> {
@@ -107,6 +124,92 @@ impl Control<'_> {
             )
             .await?;
         Ok(report.outcome)
+    }
+
+    /// Run an ad-hoc operator Lua block in a no-commit sandbox (spec §Observability → the operator Lua
+    /// console). The block executes against the live graph — reads see real memory — but its buffered
+    /// effects, including any `LuaExecuted` record, are discarded, so nothing persists and the run is
+    /// invisible to the log. It runs under operator authority on a throwaway VM bound to a dedicated
+    /// `console/lua` conversation. MCP is **off** unless `allow_mcp` is set and a host is connected:
+    /// an MCP call is a real external effect that no sandbox can roll back, so reaching outward is an
+    /// explicit opt-in (e.g. to exercise an input-leaning integration), never the default.
+    pub async fn run_lua(
+        &self,
+        script: &str,
+        allow_mcp: bool,
+    ) -> Result<LuaConsoleOutcome, ServerError> {
+        // The block may embed (`memory.search`) and, with MCP, reach outward, so it takes a stream
+        // permit like any model-driving operation (spec §Concurrency), held across the run below.
+        let _stream = self
+            .server
+            .streams
+            .acquire()
+            .await
+            .expect("the stream semaphore is never closed");
+
+        // A dedicated console conversation, minted once (graph before store, per the lock-ordering rule).
+        let conversation = {
+            let graph = self.server.engine.graph.lock();
+            resolve_or_mint_conversation(
+                self.server.engine.store.lock().as_mut(),
+                self.server.engine.clock.as_ref(),
+                &graph,
+                &ConversationLocator::new("console", "lua"),
+            )?
+        };
+        self.server
+            .engine
+            .graph
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
+
+        // A throwaway VM isolated from live sessions; MCP only when opted in and a host is connected.
+        let session = match (allow_mcp, self.server.mcp.as_ref()) {
+            (true, Some(runtime)) => Session::with_mcp(
+                conversation,
+                runtime.host.clone(),
+                runtime.catalogue.clone(),
+            ),
+            _ => Session::new(conversation),
+        };
+
+        let turn = Settings::from_store(self.server.engine.store.lock().as_ref())?.turn;
+        let context = BlockContext {
+            teller: Teller::Agent,
+            authority: Authority::Operator,
+            turn_id: TurnId::generate(),
+            block_timeout: Duration::from_secs(turn.block_timeout_seconds.max(0) as u64),
+            max_block_attempts: turn.max_block_attempts.max(1) as u32,
+            present_set: Vec::new(),
+            dry_run: true,
+        };
+
+        let outcome = session
+            .execute(&self.server.engine, &context, script)
+            .await?;
+        session.shutdown_mcp().await;
+
+        Ok(match outcome {
+            BlockOutcome::Committed { result } => LuaConsoleOutcome {
+                result: Some(result),
+                error: None,
+            },
+            BlockOutcome::Terminated(TerminalCause::Error(message)) => LuaConsoleOutcome {
+                result: None,
+                error: Some(message),
+            },
+            BlockOutcome::Terminated(TerminalCause::Aborted(message)) => LuaConsoleOutcome {
+                result: None,
+                error: Some(format!("aborted: {message}")),
+            },
+        })
+    }
+
+    /// The Lua API as the structured catalogue the console renders into a reference guide — the same
+    /// build-derived entries projected into the agent's system prompt (spec §What you can do). Static,
+    /// so it needs no engine access. MCP tools are excluded; they appear only when actually connected.
+    pub fn lua_api(&self) -> Vec<ApiEntry> {
+        lua::api_reference()
     }
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads

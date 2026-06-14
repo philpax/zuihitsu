@@ -209,6 +209,7 @@ async fn append_carries_teller_context_and_default_visibility() {
                     block_timeout: TEST_BLOCK_TIMEOUT,
                     max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                     present_set: Vec::new(),
+                    dry_run: false,
                 },
                 script,
             )
@@ -314,6 +315,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
         present_set: Vec::new(),
+        dry_run: false,
     };
 
     // The agent flags the thread active_in the current context.
@@ -400,6 +402,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 present_set: Vec::new(),
+                dry_run: false,
             },
             r#"memory.create("topic/sensitive", "something said in confidence")"#,
         )
@@ -655,6 +658,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
         present_set: Vec::new(),
+        dry_run: false,
     };
     h.session
         .execute(
@@ -685,6 +689,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         block_timeout: Duration::from_millis(60),
         max_block_attempts: 1,
         present_set: Vec::new(),
+        dry_run: false,
     };
     let blocked = h
         .session
@@ -735,6 +740,7 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
                 block_timeout: Duration::from_millis(40),
                 max_block_attempts: 2,
                 present_set: Vec::new(),
+                dry_run: false,
             },
             r#"memory.get("topic/locked"):append("y")"#,
         )

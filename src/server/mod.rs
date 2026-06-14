@@ -11,7 +11,7 @@
 mod control;
 mod platform;
 
-pub use control::{Arbitration, Control, ModelCall};
+pub use control::{Arbitration, Control, LuaConsoleOutcome, ModelCall};
 pub use platform::Platform;
 
 use std::{
@@ -808,6 +808,9 @@ pub enum ServerError {
     Index(IndexError),
     /// A semantic search failed (the graph projection or the vector index).
     Search(SearchError),
+    /// An operator Lua console block failed at the VM level (a script error reaches the operator as
+    /// a result, not this; this is an infrastructure failure running the block).
+    Lua(crate::agent::lua::LuaError),
 }
 
 impl std::fmt::Display for ServerError {
@@ -820,6 +823,7 @@ impl std::fmt::Display for ServerError {
             ServerError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
             ServerError::Index(error) => write!(f, "server (index): {error}"),
             ServerError::Search(error) => write!(f, "server (search): {error}"),
+            ServerError::Lua(error) => write!(f, "server (lua): {error}"),
         }
     }
 }
@@ -834,6 +838,7 @@ impl std::error::Error for ServerError {
             ServerError::Snapshot(_) => None,
             ServerError::Index(error) => Some(error),
             ServerError::Search(error) => Some(error),
+            ServerError::Lua(error) => Some(error),
         }
     }
 }
@@ -899,5 +904,11 @@ impl From<SchedulerError> for ServerError {
 impl From<TurnError> for ServerError {
     fn from(error: TurnError) -> Self {
         ServerError::Turn(error)
+    }
+}
+
+impl From<crate::agent::lua::LuaError> for ServerError {
+    fn from(error: crate::agent::lua::LuaError) -> Self {
+        ServerError::Lua(error)
     }
 }

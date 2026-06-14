@@ -10,8 +10,10 @@
 
 use std::fmt::Write as _;
 
+use serde::Serialize;
+
 /// A parameter (or object field) type. Broad enough to express the Lua API and a JSON-Schema input.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum ApiType {
     String,
     Integer,
@@ -88,7 +90,7 @@ pub fn object() -> ObjectBuilder {
 }
 
 /// One named parameter (or object field): its type, whether it is required, and a one-line doc.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ApiParam {
     pub name: String,
     pub ty: ApiType,
@@ -134,7 +136,7 @@ impl From<ObjectBuilder> for ApiType {
 /// One callable: its call form, what it does, its parameters, and what it returns. Built fluently —
 /// `ApiEntry::new(call).description(…).required(…).optional(…).returns(…)` — defaulting to an empty
 /// description, no parameters, and a `nil` return.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ApiEntry {
     pub call: String,
     pub doc: String,

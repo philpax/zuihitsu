@@ -203,6 +203,7 @@ mod harness {
                         authority: Authority::Platform,
                         turn_id: TurnId::generate(),
                         present_set: Vec::new(),
+                        dry_run: false,
                         block_timeout: TEST_BLOCK_TIMEOUT,
                         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                     },
