@@ -43,15 +43,19 @@ pub struct Settings {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CompactionSettings {
     /// Buffer token budget that triggers a re-segment.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub token_budget: i64,
     /// Quiet period that ends a session.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub idle_gap_seconds: i64,
     /// How much raw transcript crosses a compaction boundary.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub carryover_char_budget: i64,
     /// Minimum number of turns in the ending session for the pre-compaction flush to run — the
     /// flush-gating threshold. A low-activity session (e.g. one that crossed the budget via a single
     /// large paste) falls below it and skips the flush, so the hot-path model call is paid only when
     /// there is working state worth flushing (spec §Compaction → pre-compaction flush).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub flush_min_turns: i64,
 }
 
@@ -60,12 +64,17 @@ pub struct CompactionSettings {
 #[serde(default)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefSettings {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub token_budget: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub recent_facts: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub present_set_cap: i64,
     /// How far ahead the `<upcoming/>` block looks, in days.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub upcoming_window_days: i64,
     /// The most upcoming items the `<upcoming/>` block lists.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_upcoming_items: i64,
 }
 
@@ -75,9 +84,11 @@ pub struct BriefSettings {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SchedulerSettings {
     /// The most fired wake-ups a single session-open drain raises.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_wakeups_per_session: i64,
     /// How often the background scheduler driver fires due wake-ups, in seconds (spec §Scheduled work).
     /// Read by the serving host at startup, so a change takes effect on restart.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub tick_seconds: i64,
 }
 
@@ -87,14 +98,17 @@ pub struct SchedulerSettings {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TurnSettings {
     /// Per-turn step bound; hitting it ends the turn with a surfaced error.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_steps: i64,
     /// Per-block duration budget (spec §Concurrency → lock acquisition): a block held longer than this —
     /// stuck on slow external I/O or a lock-wait — aborts, emitting nothing. Set generously, above a
     /// single MCP call's own timeout, so an ordinary multi-call block is never cut.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub block_timeout_seconds: i64,
     /// How many times a block that times out on a lock-wait (with no MCP call) is re-run before giving
     /// up with a terminal error (spec §Concurrency → timeout-and-retry). A block that has made an MCP
     /// call is never retried, regardless of this bound.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_block_attempts: i64,
 }
 
@@ -106,6 +120,7 @@ pub struct TurnSettings {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ConcurrencySettings {
     /// The most conversation turns that may be in flight at once; further streams queue for a slot.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_concurrent_streams: i64,
 }
 

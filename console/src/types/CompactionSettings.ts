@@ -7,19 +7,19 @@ export type CompactionSettings = {
 /**
  * Buffer token budget that triggers a re-segment.
  */
-token_budget: bigint, 
+token_budget: number, 
 /**
  * Quiet period that ends a session.
  */
-idle_gap_seconds: bigint, 
+idle_gap_seconds: number, 
 /**
  * How much raw transcript crosses a compaction boundary.
  */
-carryover_char_budget: bigint, 
+carryover_char_budget: number, 
 /**
  * Minimum number of turns in the ending session for the pre-compaction flush to run — the
  * flush-gating threshold. A low-activity session (e.g. one that crossed the budget via a single
  * large paste) falls below it and skips the flush, so the hot-path model call is paid only when
  * there is working state worth flushing (spec §Compaction → pre-compaction flush).
  */
-flush_min_turns: bigint, };
+flush_min_turns: number, };

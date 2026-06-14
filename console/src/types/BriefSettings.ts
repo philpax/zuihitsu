@@ -3,12 +3,12 @@
 /**
  * Brief composition: what enters each brief, and how many participants get one.
  */
-export type BriefSettings = { token_budget: bigint, recent_facts: bigint, present_set_cap: bigint, 
+export type BriefSettings = { token_budget: number, recent_facts: number, present_set_cap: number, 
 /**
  * How far ahead the `<upcoming/>` block looks, in days.
  */
-upcoming_window_days: bigint, 
+upcoming_window_days: number, 
 /**
  * The most upcoming items the `<upcoming/>` block lists.
  */
-max_upcoming_items: bigint, };
+max_upcoming_items: number, };

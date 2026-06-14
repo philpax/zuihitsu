@@ -9,4 +9,4 @@ export type ConcurrencySettings = {
 /**
  * The most conversation turns that may be in flight at once; further streams queue for a slot.
  */
-max_concurrent_streams: bigint, };
+max_concurrent_streams: number, };

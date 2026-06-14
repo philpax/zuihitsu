@@ -7,9 +7,9 @@ export type SchedulerSettings = {
 /**
  * The most fired wake-ups a single session-open drain raises.
  */
-max_wakeups_per_session: bigint, 
+max_wakeups_per_session: number, 
 /**
  * How often the background scheduler driver fires due wake-ups, in seconds (spec §Scheduled work).
  * Read by the serving host at startup, so a change takes effect on restart.
  */
-tick_seconds: bigint, };
+tick_seconds: number, };
