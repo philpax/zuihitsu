@@ -13,6 +13,7 @@ use crate::{
         api_doc::ApiEntry,
         genesis::{self, GenesisStatus, Rollout, SeedSelf},
         lua::{self, BlockOutcome, Session},
+        templates,
     },
     event::{
         Event, EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord, Teller,
@@ -210,6 +211,27 @@ impl Control<'_> {
     /// so it needs no engine access. MCP tools are excluded; they appear only when actually connected.
     pub fn lua_api(&self) -> Vec<ApiEntry> {
         lua::api_reference()
+    }
+
+    /// Register a new version of a prompt template — the operator edit path (spec §Initialization →
+    /// prompt templates). Templates are read from the log as the highest version per name, so an
+    /// edit is a fresh registration at the next version under operator source; old `produced_by`
+    /// references keep resolving to the version they named. No projection — templates are not
+    /// materialized into the graph.
+    pub fn register_prompt(&self, name: PromptTemplateName, body: &str) -> Result<(), ServerError> {
+        let current = templates::latest_template(self.server.engine.store.lock().as_ref(), name)?;
+        let version = current.map_or(1, |template| template.version + 1);
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
+            now,
+            vec![EventPayload::PromptTemplateRegistered {
+                name,
+                version,
+                body: body.to_owned(),
+                source: EventSource::Operator,
+            }],
+        )?;
+        Ok(())
     }
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads

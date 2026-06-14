@@ -8,6 +8,7 @@ import { StreamWorkspace } from "./StreamWorkspace.tsx";
 import { GenesisGate } from "./GenesisGate.tsx";
 import { LuaConsole } from "./LuaConsole.tsx";
 import { SettingsView } from "./SettingsView.tsx";
+import { PromptsView } from "./PromptsView.tsx";
 
 /// The agent frame: tail a running agent's event log and drive the shared stream views off it,
 /// exactly as the eval frame drives them off a run's embedded log. The differences are all the agent
@@ -93,6 +94,11 @@ export function LiveShell({
           participant={{ connection, sender, setSender }}
           extraViews={[
             { id: "console", label: "Console", node: <LuaConsole connection={connection} /> },
+            {
+              id: "prompts",
+              label: "Prompts",
+              node: <PromptsView connection={connection} events={log.events} />,
+            },
             { id: "settings", label: "Settings", node: <SettingsView connection={connection} /> },
           ]}
         />

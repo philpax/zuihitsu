@@ -27,8 +27,8 @@ use tokio::net::TcpListener;
 use zuihitsu::{
     ApiEntry, Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Event, Graph,
     GraphError, LuaConsoleOutcome, MemoryView, ModelCall, ModelClient, OpenAiClient,
-    OpenAiEmbedder, Rollout, SeedSelf, Seq, Server, ServerError, SessionView, Settings,
-    SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, StoreError, SystemClock,
+    OpenAiEmbedder, PromptTemplateName, Rollout, SeedSelf, Seq, Server, ServerError, SessionView,
+    Settings, SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, StoreError, SystemClock,
     TurnOutcome, VectorError, VectorIndex, genesis::GenesisStatus, model::embed::Embedder,
     snapshot, snapshot::SnapshotError,
 };
@@ -250,6 +250,7 @@ fn router(state: AppState) -> Router {
         .route("/imprint", post(imprint))
         .route("/lua", post(run_lua))
         .route("/lua-api", get(lua_api))
+        .route("/prompt", post(register_prompt))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_control_key,
@@ -534,6 +535,25 @@ async fn run_lua(
 /// `GET /control/lua-api` — the structured Lua API catalogue the console renders as a reference guide.
 async fn lua_api(State(state): State<AppState>) -> Result<Json<Vec<ApiEntry>>, ApiError> {
     Ok(Json(state.server.control().lua_api()))
+}
+
+/// `POST /control/prompt` — register a new version of a prompt template (the operator edit path); the
+/// body replaces the template from the next read on, logged as an operator `PromptTemplateRegistered`.
+#[derive(Deserialize)]
+struct PromptRequest {
+    name: PromptTemplateName,
+    body: String,
+}
+
+async fn register_prompt(
+    State(state): State<AppState>,
+    Json(request): Json<PromptRequest>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .server
+        .control()
+        .register_prompt(request.name, &request.body)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `POST /platform/message` — deliver a participant turn and run the agent's response cycle. Carries
