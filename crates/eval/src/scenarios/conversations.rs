@@ -25,11 +25,17 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(AWeekWithTheTeam),
         Arc::new(ShiftingPlans),
         Arc::new(AppliesARememberedPreference),
+        Arc::new(AReminderComesDue),
+        Arc::new(GettingToKnowSomeone),
+        Arc::new(ConflictingAccounts),
     ]
 }
 
 /// The judge re-evaluates a gating leak this many times; any "yes" counts (one-sided toward detection).
 const JUDGE_REPEATS: usize = 3;
+
+/// Five days in milliseconds — enough to cross a "this Friday" deadline from the run's Monday anchor.
+const FIVE_DAYS_MS: i64 = 5 * 86_400_000;
 
 /// A week's worth of team chatter in one run: the agent is asked to track two teammates (a `knows`
 /// link), put a recurring standup on the calendar (a recurring occurrence), is told a health confidence
@@ -179,10 +185,284 @@ impl Scenario for AWeekWithTheTeam {
     }
 }
 
+/// A genuine disagreement, not a correction: two people give conflicting accounts of where an event is
+/// held, and neither retracts. Both accounts should stand — overwriting one would silently resolve a
+/// live disagreement to whoever spoke last — so the synthesis should arbitrate, and when asked from
+/// another room the agent should surface the discrepancy rather than confidently pick one. The mirror
+/// of [`ShiftingPlans`]: an explicit correction is superseded, a standing disagreement is arbitrated,
+/// and telling the two apart is the capability under test.
+pub struct ConflictingAccounts;
+
+#[async_trait]
+impl Scenario for ConflictingAccounts {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "conflicting_accounts".to_owned(),
+            category: Category::Arbitration,
+            description: "Two people give conflicting accounts of where the all-hands is held, neither \
+                          retracting. Both should stand (not overwrite to whoever spoke last), the \
+                          synthesis should arbitrate the contradiction, and asked from another room the \
+                          agent should surface the discrepancy rather than confidently pick one."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.5 },
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Phil states a location.
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "Heads up for everyone: the all-hands next week is in the main auditorium.",
+        ))
+        .await?;
+        // Erin contradicts it — a genuine conflicting account, no retraction by Phil.
+        ctx.turn(
+            Turn::new(
+                "discord",
+                "team-room",
+                "erin",
+                "Wait, that's not what I heard — I'm fairly sure the all-hands got moved to the rooftop \
+                 terrace. Worth double-checking.",
+            )
+            .with_present(&["phil", "erin"]),
+        )
+        .await?;
+        // Reconcile off the hot path (the arbitration pass), then embed for cross-room recall.
+        ctx.describe_catch_up().await?;
+        ctx.index_catch_up().await?;
+        // From another room, someone asks where it is — the agent should not silently pick a side.
+        ctx.turn(Turn::new(
+            "discord",
+            "hallway",
+            "frank",
+            "Quick q — do you know where the all-hands is being held?",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        let arbitrated = !analysis::arbitrations(events).is_empty();
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let judged = judge
+            .assess(
+                "The reply surfaces the disagreement about the all-hands location — it conveys that \
+                 there are two accounts (main auditorium vs rooftop terrace) or that it is unsettled / \
+                 worth confirming, rather than confidently asserting just one location as settled fact.",
+                &format!(
+                    "Two people gave conflicting accounts of the all-hands location — one said the main \
+                     auditorium, the other the rooftop terrace, neither retracting. Asked from another \
+                     room where it is, the agent replied:\n\"{reply}\""
+                ),
+            )
+            .await;
+
+        vec![
+            Verdict::metric_outcome(
+                "kept both accounts standing and recorded an arbitration",
+                arbitrated,
+                "the contradiction was held as two entries and arbitrated",
+                "no arbitration recorded — the disagreement was overwritten or dropped",
+            ),
+            Verdict::from_judge_outcome(
+                "surfaced the discrepancy rather than confidently picking one",
+                VerdictKind::Metric,
+                judged,
+            ),
+        ]
+    }
+}
+
+/// A one-off deadline, not a recurrence: the agent is asked to remember a task due "this Friday", the
+/// clock crosses Friday, and a fresh-session turn should fire the wake-up and surface the reminder. A
+/// task shape the recurring-reminder fixture does not cover — a single dated obligation coming due.
+pub struct AReminderComesDue;
+
+#[async_trait]
+impl Scenario for AReminderComesDue {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "a_reminder_comes_due".to_owned(),
+            category: Category::Scheduling,
+            description: "Asked to remember a one-off task due this Friday, the agent should schedule it; \
+                          after the clock crosses Friday, a fresh-session turn should fire the wake-up \
+                          and surface the reminder in the reply — a single dated obligation, not a \
+                          recurrence."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.5 },
+        }
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "Don't let me forget — I need to send the board update this Friday. Nudge me about it?",
+        ))
+        .await?;
+        // Temporal extraction (which schedules the wake-up) runs off the hot path; drive it before
+        // advancing so the reminder is actually scheduled to fire.
+        ctx.describe_catch_up().await?;
+        // Cross Friday, then a fresh-session turn fires the due wake-up.
+        ctx.advance(FIVE_DAYS_MS);
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "Morning! Anything I should be on top of today?",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        let surfaced = analysis::scheduled_item_surfaced(events);
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let delivered = judge
+            .assess(
+                "The reply reminds the user about sending the board update — the task it was earlier \
+                 asked to nudge them about.",
+                &format!(
+                    "Earlier, the agent was asked to remind the user to send the board update this \
+                     Friday. After Friday, asked \"anything I should be on top of today?\", the agent \
+                     replied:\n\"{reply}\""
+                ),
+            )
+            .await;
+
+        vec![
+            Verdict::metric_outcome(
+                "the one-off wake-up fired and surfaced into a session",
+                surfaced,
+                "a fired occurrence was raised into a session",
+                "no wake-up surfaced after the clock crossed Friday",
+            ),
+            Verdict::from_judge_outcome(
+                "surfaced the due reminder to the user in its reply",
+                VerdictKind::Metric,
+                delivered,
+            ),
+        ]
+    }
+}
+
+/// Getting to know one person over a thread: facts accumulate on a `person/*` memory across turns, one
+/// of them is explicitly corrected (an update — the agent should supersede the stale value, not keep it
+/// as a standing contradiction), and a closing "tell me about them" should produce a rundown reflecting
+/// the corrected facts. Accumulation, update handling, and a coherent summary in one conversation — no
+/// cross-room recall, so it runs without an embedder.
+pub struct GettingToKnowSomeone;
+
+#[async_trait]
+impl Scenario for GettingToKnowSomeone {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "getting_to_know_someone".to_owned(),
+            category: Category::Description,
+            description: "Facts about one person accumulate across a thread, one is explicitly \
+                          corrected, and a closing rundown should reflect the corrected facts — \
+                          accumulation, superseding the stale value on a correction, and a coherent \
+                          summary in one conversation."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.6 },
+        }
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        ctx.turn(Turn::new(
+            "discord",
+            "general",
+            "phil",
+            "Someone I'd like you to keep track of: Sam. She's a product designer at Hooli, started \
+             there last month.",
+        ))
+        .await?;
+        ctx.turn(Turn::new(
+            "discord",
+            "general",
+            "phil",
+            "A couple more things about Sam — she's really into rock climbing, and she's based in \
+             Seattle.",
+        ))
+        .await?;
+        // A correction: the location was wrong. A direct contradiction the agent should reconcile.
+        ctx.turn(Turn::new(
+            "discord",
+            "general",
+            "phil",
+            "Oh — I had it wrong, Sam's actually in Portland, not Seattle. Mixed her up with someone.",
+        ))
+        .await?;
+        // Reconcile the contradiction and settle the description off the hot path.
+        ctx.describe_catch_up().await?;
+        // A closing rundown should reflect the corrected facts.
+        ctx.turn(Turn::new(
+            "discord",
+            "general",
+            "phil",
+            "Can you give me a quick rundown on Sam?",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        // Facts landed on a person/ memory (more than the first stub-creating entry).
+        let sam_entries = analysis::entries(events)
+            .into_iter()
+            .filter(|entry| entry.memory.starts_with("person/"))
+            .count();
+        let accumulated = sam_entries >= 2;
+        let superseded = analysis::any_superseded(events);
+
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let judged = judge
+            .assess(
+                "The rundown reflects the corrected facts about Sam — she is in Portland (not Seattle), \
+                 a product designer at Hooli, and into rock climbing. It must not state she is in \
+                 Seattle.",
+                &format!(
+                    "The agent was told over a few turns that Sam is a product designer at Hooli, into \
+                     rock climbing, and — after a correction — based in Portland (first said Seattle, \
+                     then corrected). Asked for a rundown on Sam, it replied:\n\"{reply}\""
+                ),
+            )
+            .await;
+
+        vec![
+            Verdict::from_judge_outcome(
+                "gave a rundown reflecting the corrected facts, not the stale location",
+                VerdictKind::Metric,
+                judged,
+            ),
+            Verdict::metric_outcome(
+                "accumulated the facts onto a person memory",
+                accumulated,
+                format!("{sam_entries} entries landed on a person/ memory"),
+                "the facts did not accumulate on a person/ memory",
+            ),
+            Verdict::metric_outcome(
+                "superseded the stale location on the correction",
+                superseded,
+                "the Seattle entry was superseded by the Portland correction",
+                "the stale location was left standing (or only the reply was updated)",
+            ),
+        ]
+    }
+}
+
 /// A planning thread where a date changes under the agent: a launch is penciled in, then slips a week
 /// with the first date explicitly scrapped, then — from another room — someone asks the current date.
-/// Intermingles arbitration (the contradiction is recorded and reconciled), temporal handling, and
-/// cross-room recall (the reply must give the corrected date, not the stale one).
+/// An explicit correction is an *update*, not a standing contradiction (so the synthesis should not
+/// arbitrate it); the right move is to supersede the stale date and answer with the current one.
+/// Intermingles update handling, temporal reasoning, and cross-room recall.
 pub struct ShiftingPlans;
 
 #[async_trait]
@@ -190,11 +470,12 @@ impl Scenario for ShiftingPlans {
     fn meta(&self) -> ScenarioMeta {
         ScenarioMeta {
             name: "shifting_plans".to_owned(),
-            category: Category::Arbitration,
+            category: Category::Recall,
             description: "A launch date is set, then slips a week with the first date explicitly \
-                          scrapped, then asked from another room. The agent should record and reconcile \
-                          the contradiction and answer with the corrected date, not the stale one — \
-                          arbitration, temporal handling, and recall in one thread."
+                          scrapped, then asked from another room. The agent should supersede the stale \
+                          date (an explicit correction is an update, not a contradiction to arbitrate) \
+                          and answer with the corrected date — update handling, temporal reasoning, and \
+                          recall in one thread."
                 .to_owned(),
             bar: Bar::Metric { threshold: 0.6 },
         }
@@ -241,7 +522,7 @@ impl Scenario for ShiftingPlans {
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
-        let arbitrated = !analysis::arbitrations(events).is_empty();
+        let superseded = analysis::any_superseded(events);
 
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let evidence = format!(
@@ -264,10 +545,10 @@ impl Scenario for ShiftingPlans {
                 judged,
             ),
             Verdict::metric_outcome(
-                "recorded a belief arbitration for the conflicting dates",
-                arbitrated,
-                "the contradiction was recorded as an arbitration",
-                "no arbitration recorded for the conflicting dates",
+                "superseded the stale date rather than leaving it standing",
+                superseded,
+                "the original date entry was superseded by the correction",
+                "the stale date was left standing (or only the reply was updated)",
             ),
         ]
     }

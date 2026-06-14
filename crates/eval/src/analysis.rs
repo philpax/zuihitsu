@@ -155,6 +155,16 @@ pub fn descriptions(events: &[Event]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Whether the run superseded any entry — the structured "this supersedes that" move that records an
+/// explicit correction or update in state, rather than leaving the stale value standing or only saying
+/// so in a reply. The signal that a correction landed durably (distinct from a genuine contradiction,
+/// where both accounts are kept and the synthesis arbitrates instead).
+pub fn any_superseded(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(event.payload, EventPayload::MemorySuperseded { .. }))
+}
+
 /// The reconciling statements of every belief arbitration the run recorded.
 pub fn arbitrations(events: &[Event]) -> Vec<String> {
     events
