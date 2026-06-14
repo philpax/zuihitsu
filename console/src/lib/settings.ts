@@ -1,5 +1,6 @@
 import type { Settings } from "../types/Settings.ts";
 import type { LiveConnection } from "./live.ts";
+import { authHeaders, errorMessage } from "./http.ts";
 
 export type { Settings };
 
@@ -21,20 +22,4 @@ export async function putSettings(connection: LiveConnection, settings: Settings
     body: JSON.stringify(settings),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
-}
-
-function authHeaders(connection: LiveConnection): HeadersInit {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (connection.key) headers.Authorization = `Bearer ${connection.key}`;
-  return headers;
-}
-
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) return body.error;
-  } catch {
-    /* fall through to the status line */
-  }
-  return `the agent answered ${response.status} ${response.statusText}`;
 }

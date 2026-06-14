@@ -1,4 +1,5 @@
 import type { LiveConnection } from "./live.ts";
+import { authHeaders, errorMessage } from "./http.ts";
 
 /// The environmental config as a read-only value tree — storage paths, endpoints, the bind address,
 /// snapshots, and MCP servers. The server redacts secrets before it reaches here (API keys arrive as
@@ -10,10 +11,9 @@ export interface ConfigTree {
 
 /// The environmental config this instance booted from (`GET /control/config`), read-only.
 export async function getConfig(connection: LiveConnection): Promise<ConfigTree> {
-  const headers: HeadersInit = connection.key ? { Authorization: `Bearer ${connection.key}` } : {};
-  const response = await fetch(`${connection.baseUrl}/control/config`, { headers });
-  if (!response.ok) {
-    throw new Error(`the agent answered ${response.status} ${response.statusText}`);
-  }
+  const response = await fetch(`${connection.baseUrl}/control/config`, {
+    headers: authHeaders(connection),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as ConfigTree;
 }

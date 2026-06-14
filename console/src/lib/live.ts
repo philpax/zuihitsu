@@ -2,6 +2,7 @@ import { useEffect, useState, type RefObject } from "react";
 
 import type { Event } from "../types/Event.ts";
 import { Replica } from "./replica.ts";
+import { errorMessage } from "./http.ts";
 
 /// Where to reach a running agent's control surface, and the key to present. The base URL is
 /// relative by default (`""`), so the console talks to its own origin — the same host that serves it
@@ -55,11 +56,11 @@ export function useLiveLog(connection: LiveConnection, following: RefObject<bool
     let head = 0;
 
     async function fetchFrom(from: number): Promise<Event[]> {
+      // A bodyless GET, so just the bearer key — the effect depends on the primitive `key`/`baseUrl`
+      // (not the `connection` object) so it re-runs only when the agent actually changes.
       const headers: HeadersInit = key ? { Authorization: `Bearer ${key}` } : {};
       const response = await fetch(`${baseUrl}/control/events?from=${from}`, { headers });
-      if (!response.ok) {
-        throw new Error(`the agent answered ${response.status} ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(await errorMessage(response));
       return (await response.json()) as Event[];
     }
 

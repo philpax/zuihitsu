@@ -1,4 +1,5 @@
 import type { LiveConnection } from "./live.ts";
+import { authHeaders, errorMessage } from "./http.ts";
 
 /// What boot found in the agent's log: no events yet, an interrupted genesis to re-drive, or a born
 /// agent ready to serve (mirrors the Rust `GenesisStatus`, which serializes as this bare string).
@@ -18,7 +19,7 @@ export async function genesisStatus(connection: LiveConnection): Promise<Genesis
   const response = await fetch(`${connection.baseUrl}/control/genesis`, {
     headers: authHeaders(connection),
   });
-  if (!response.ok) throw new Error(`the agent answered ${response.status} ${response.statusText}`);
+  if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as GenesisStatus;
 }
 
@@ -43,22 +44,4 @@ export async function imprint(connection: LiveConnection, text: string): Promise
     body: JSON.stringify({ text }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
-}
-
-function authHeaders(connection: LiveConnection): HeadersInit {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (connection.key) headers.Authorization = `Bearer ${connection.key}`;
-  return headers;
-}
-
-/// The control surface answers an error as `{ "error": "<context>: …" }`; fall back to the status
-/// line when the body is not that shape.
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) return body.error;
-  } catch {
-    /* fall through to the status line */
-  }
-  return `the agent answered ${response.status} ${response.statusText}`;
 }

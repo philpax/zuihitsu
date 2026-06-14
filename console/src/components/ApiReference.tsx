@@ -1,4 +1,5 @@
 import { type ApiEntry, formatType } from "../lib/lua.ts";
+import { groupBy } from "../lib/collections.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The Lua API the agent acts through, projected as a reference — the same structured catalogue
@@ -52,13 +53,5 @@ function Signature({ entry }: { entry: ApiEntry }) {
 /// Group calls by the namespace before their first `.` or `:` (`memory.create` → `memory`,
 /// `mem:append` → `mem`), preserving the catalogue's order within each.
 function groupByNamespace(entries: ApiEntry[]): Array<[string, ApiEntry[]]> {
-  const groups = new Map<string, ApiEntry[]>();
-  for (const entry of entries) {
-    const match = entry.call.match(/^[^.:]+/);
-    const namespace = match ? match[0] : entry.call;
-    const bucket = groups.get(namespace);
-    if (bucket) bucket.push(entry);
-    else groups.set(namespace, [entry]);
-  }
-  return [...groups.entries()];
+  return groupBy(entries, (entry) => entry.call.match(/^[^.:]+/)?.[0] ?? entry.call);
 }

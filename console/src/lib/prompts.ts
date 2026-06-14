@@ -1,6 +1,7 @@
 import type { Event } from "../types/Event.ts";
 import type { PromptTemplateName } from "../types/PromptTemplateName.ts";
 import type { LiveConnection } from "./live.ts";
+import { authHeaders, errorMessage } from "./http.ts";
 
 /// One prompt template at its current version — the highest version registered under a name (spec
 /// §Initialization → prompt templates). The agent reads the system-prompt scaffold and the framing
@@ -39,21 +40,10 @@ export async function registerPrompt(
   name: PromptTemplateName,
   body: string,
 ): Promise<void> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (connection.key) headers.Authorization = `Bearer ${connection.key}`;
   const response = await fetch(`${connection.baseUrl}/control/prompt`, {
     method: "POST",
-    headers,
+    headers: authHeaders(connection),
     body: JSON.stringify({ name, body }),
   });
-  if (!response.ok) {
-    let detail = `the agent answered ${response.status} ${response.statusText}`;
-    try {
-      const error = (await response.json()) as { error?: string };
-      if (error.error) detail = error.error;
-    } catch {
-      /* fall through to the status line */
-    }
-    throw new Error(detail);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response));
 }

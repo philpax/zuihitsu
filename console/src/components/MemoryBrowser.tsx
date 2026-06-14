@@ -11,6 +11,7 @@ import {
   recurringByMemory,
   rruleLabel,
 } from "../lib/audit.ts";
+import { groupBy } from "../lib/collections.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
@@ -353,15 +354,11 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 /// Group memories by their namespace prefix (`person/dave` → `person`), `self` standing alone, with
 /// `self` first and the rest alphabetical — a stable, scannable order.
 function groupByNamespace(memories: MemoryView[]): Array<[string, MemoryView[]]> {
-  const groups = new Map<string, MemoryView[]>();
-  for (const memory of memories) {
-    const slash = memory.name.indexOf("/");
-    const namespace = slash === -1 ? memory.name : memory.name.slice(0, slash);
-    const bucket = groups.get(namespace);
-    if (bucket) bucket.push(memory);
-    else groups.set(namespace, [memory]);
-  }
-  return [...groups.entries()].sort(([a], [b]) => {
+  const namespaceOf = (name: string) => {
+    const slash = name.indexOf("/");
+    return slash === -1 ? name : name.slice(0, slash);
+  };
+  return groupBy(memories, (memory) => namespaceOf(memory.name)).sort(([a], [b]) => {
     if (a === "self") return -1;
     if (b === "self") return 1;
     return a.localeCompare(b);

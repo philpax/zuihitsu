@@ -1,5 +1,6 @@
 import type { ConversationLocator } from "../types/ConversationLocator.ts";
 import type { LiveConnection } from "./live.ts";
+import { authHeaders, errorMessage } from "./http.ts";
 
 /// The platform key the console uses for its own conversations — the spec's "direct interface"
 /// platform client. A room the console starts is addressed `(direct, <name>)`; the console can also
@@ -23,21 +24,10 @@ export async function sendMessage(
   connection: LiveConnection,
   message: OutboundMessage,
 ): Promise<void> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (connection.key) headers.Authorization = `Bearer ${connection.key}`;
   const response = await fetch(`${connection.baseUrl}/platform/message`, {
     method: "POST",
-    headers,
+    headers: authHeaders(connection),
     body: JSON.stringify(message),
   });
-  if (!response.ok) {
-    let detail = `the agent answered ${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body.error) detail = body.error;
-    } catch {
-      /* fall through to the status line */
-    }
-    throw new Error(detail);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response));
 }

@@ -1,4 +1,5 @@
 import type { LiveConnection } from "./live.ts";
+import { authHeaders, errorMessage } from "./http.ts";
 
 /// The structured Lua API catalogue the agent projects into its system prompt, served by
 /// `GET /control/lua-api` for the console to render as a reference guide. These mirror the Rust
@@ -83,20 +84,4 @@ export function formatType(type: ApiType): string {
   if ("List" in type) return `${formatType(type.List)} list`;
   if ("Enum" in type) return type.Enum.map((value) => `"${value}"`).join(" | ");
   return `${formatType(type.Optional)} or nil`;
-}
-
-function authHeaders(connection: LiveConnection): HeadersInit {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (connection.key) headers.Authorization = `Bearer ${connection.key}`;
-  return headers;
-}
-
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) return body.error;
-  } catch {
-    /* fall through to the status line */
-  }
-  return `the agent answered ${response.status} ${response.statusText}`;
 }
