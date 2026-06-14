@@ -9,11 +9,12 @@ export class Replica {
     free(): void;
     [Symbol.dispose](): void;
     /**
-     * The agent's upcoming agenda within `horizon_days` of `now_ms`: one-off dated occurrences and
-     * recurring entries projected to their next instance, merged and ordered soonest first. The
-     * next-occurrence of a recurring rule is computed by the agent's own `next_occurrence` (via
-     * `recurring_in_window`), so the console never reimplements RRULE expansion and cannot drift
-     * from the agent's calendar.
+     * The agent's upcoming agenda from `now_ms`: **all** future one-off dated occurrences (a thing
+     * set three months out stays visible), plus recurring entries *expanded* into every instance
+     * within `horizon_days` (each rule capped at [`MAX_RECURRING_INSTANCES`] so a daily one cannot
+     * flood it) — recurring needs a horizon since it is unbounded, one-offs do not. Merged and
+     * ordered soonest first. Each recurring instance comes from the agent's own `next_occurrence`,
+     * so the console never reimplements RRULE expansion and cannot drift from the agent's calendar.
      */
     agenda(now_ms: number, horizon_days: number): any;
     /**

@@ -4,8 +4,8 @@ import type { Replica } from "../lib/replica.ts";
 import { formatDate } from "../lib/format.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
-/// How far ahead the agenda looks. Recurring rules are projected to their next instance within this
-/// window, so a weekly standup always appears even when no one-off event is near.
+/// How far ahead recurring rules are projected (they are unbounded, so they need a horizon). One-off
+/// dated events have no such bound — every future one shows, even months out.
 const HORIZON_DAYS = 60;
 
 /// The Agenda view: the agent's horizon — its upcoming dated and recurring events, soonest first.
@@ -32,9 +32,7 @@ export function AgendaView({
     return (
       <div className="mx-auto max-w-prose">
         <Header now={now} />
-        <p className="py-16 text-center text-sm text-ink-faint">
-          Nothing on the horizon in the next {HORIZON_DAYS} days.
-        </p>
+        <p className="py-16 text-center text-sm text-ink-faint">Nothing scheduled ahead.</p>
       </div>
     );
   }
@@ -67,7 +65,9 @@ function Header({ now }: { now: number }) {
     <header className="mb-8">
       <h2 className="font-serif text-xl text-ink sm:text-2xl">Agenda</h2>
       <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
-        {now > 0 ? `as of ${formatDate(now)} · next ${HORIZON_DAYS} days` : "no events yet"}
+        {now > 0
+          ? `as of ${formatDate(now)} · all dated events · recurring ${HORIZON_DAYS} days out`
+          : "no events yet"}
       </p>
     </header>
   );

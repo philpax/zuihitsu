@@ -277,6 +277,70 @@ impl Graph {
         Ok(out)
     }
 
+    /// Every instance of each live recurring entry within `[from, to]` (up to `max_per_entry` per
+    /// entry), each paired with its memory and the entry's text, ordered soonest first — the
+    /// console's calendar *expansion*. Distinct from [`Graph::recurring_in_window`], which collapses
+    /// to a memory's single next instance for the agent's `calendar.upcoming`; here a weekly standup
+    /// yields a row for each of the coming weeks. Instances anchor at `asserted_at` (the rrule carries
+    /// no `DTSTART`) and run through the same `next_occurrence`, so the expansion cannot drift from
+    /// the agent's scheduling. A rule `next_occurrence` cannot interpret yields no instances.
+    pub fn recurring_instances_in_window(
+        &self,
+        from: Timestamp,
+        to: Timestamp,
+        max_per_entry: usize,
+    ) -> Result<Vec<(Timestamp, MemoryView, String)>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.asserted_at,
+                    e.occurred_at, e.text
+             FROM content_entries e JOIN memories m ON m.id = e.memory_id
+             WHERE m.deleted = 0 AND e.superseded_by IS NULL
+               AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
+             ORDER BY e.seq",
+        )?;
+        let rows: Vec<(MemoryColumns, i64, String, String)> = query_map_into(stmt, [], |row| {
+            let columns = (
+                row.get("id")?,
+                row.get("name")?,
+                row.get("description")?,
+                row.get("volatility")?,
+                row.get("created_at")?,
+            );
+            Ok::<_, GraphError>((
+                columns,
+                row.get("asserted_at")?,
+                row.get("occurred_at")?,
+                row.get("text")?,
+            ))
+        })?;
+
+        // `from - 1` as the "strictly after" seed so an instance landing exactly on `from` counts.
+        let seed = Timestamp::from_millis(from.as_millis().saturating_sub(1));
+        let mut hits = Vec::new();
+        for (columns, asserted_at, occurred_json, text) in rows {
+            let Ok(TemporalRef::Recurring(rrule)) =
+                serde_json::from_str::<TemporalRef>(&occurred_json)
+            else {
+                continue;
+            };
+            let asserted_at = Timestamp::from_millis(asserted_at);
+            let memory = self.assemble_memory(columns)?;
+            let mut after = seed;
+            for _ in 0..max_per_entry {
+                let Some(instant) = time::next_occurrence(&rrule, asserted_at, after) else {
+                    break;
+                };
+                if instant > to {
+                    break;
+                }
+                hits.push((instant, memory.clone(), text.clone()));
+                after = instant;
+            }
+        }
+        hits.sort_by_key(|(instant, _, _)| *instant);
+        Ok(hits)
+    }
+
     /// A memory's own live content entries, in commit order — the per-stub read primitive that
     /// class-aware reads compose across a `same_as` class. Excludes superseded entries (a live
     /// surface, spec §Visibility); see [`Graph::entries_local_history`] for the unfiltered form, and

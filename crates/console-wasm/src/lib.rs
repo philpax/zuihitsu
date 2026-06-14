@@ -23,6 +23,11 @@ use zuihitsu_core::{
     time::{MILLIS_PER_DAY, Timestamp},
 };
 
+/// How many instances of a single recurring rule the agenda expands within its horizon — a bound so
+/// a daily rule cannot flood the view (a weekly or monthly rule stays well under it over the
+/// horizon).
+const MAX_RECURRING_INSTANCES: usize = 20;
+
 /// Everything the State view shows when a memory is opened: the memory itself, its live content
 /// entries, its full history (including superseded entries), its links, and its `same_as` class.
 /// Composed from several core reads so the frontend opens a memory in one call.
@@ -35,10 +40,10 @@ struct MemoryDetail {
     class: Vec<MemoryView>,
 }
 
-/// One upcoming item on the agent's agenda: when it next occurs, the memory it lives in, a label,
-/// and whether it is a recurring instance. Composed from the same `occurrences_in_window` and
-/// `recurring_in_window` reads the agent's `calendar.upcoming` uses, so the console's horizon matches
-/// the agent's.
+/// One item on the agent's agenda: when it occurs, the memory it lives in, the text, and whether it
+/// is a recurring instance. One-offs come from `occurrences_in_window`; recurring instances from
+/// `recurring_instances_in_window`, which expands each rule through the agent's own `next_occurrence`
+/// so the projection cannot drift from the agent's scheduling.
 #[derive(Serialize)]
 struct AgendaItem {
     when: Timestamp,
@@ -229,18 +234,21 @@ impl Replica {
         to_js(&trace)
     }
 
-    /// The agent's upcoming agenda within `horizon_days` of `now_ms`: one-off dated occurrences and
-    /// recurring entries projected to their next instance, merged and ordered soonest first. The
-    /// next-occurrence of a recurring rule is computed by the agent's own `next_occurrence` (via
-    /// `recurring_in_window`), so the console never reimplements RRULE expansion and cannot drift
-    /// from the agent's calendar.
+    /// The agent's upcoming agenda from `now_ms`: **all** future one-off dated occurrences (a thing
+    /// set three months out stays visible), plus recurring entries *expanded* into every instance
+    /// within `horizon_days` (each rule capped at [`MAX_RECURRING_INSTANCES`] so a daily one cannot
+    /// flood it) — recurring needs a horizon since it is unbounded, one-offs do not. Merged and
+    /// ordered soonest first. Each recurring instance comes from the agent's own `next_occurrence`,
+    /// so the console never reimplements RRULE expansion and cannot drift from the agent's calendar.
     pub fn agenda(&self, now_ms: f64, horizon_days: f64) -> Result<JsValue, JsError> {
         let from = Timestamp::from_millis(now_ms as i64);
-        let to = Timestamp::from_millis(now_ms as i64 + (horizon_days as i64) * MILLIS_PER_DAY);
+        let horizon =
+            Timestamp::from_millis(now_ms as i64 + (horizon_days as i64) * MILLIS_PER_DAY);
         let mut items = Vec::new();
+        // One-offs are finite, so they have no upper bound — a far-future event stays on the agenda.
         for (memory, entry) in self
             .graph
-            .occurrences_in_window(from, to)
+            .occurrences_in_window(from, Timestamp::from_millis(i64::MAX))
             .map_err(graph_error)?
         {
             items.push(AgendaItem {
@@ -250,16 +258,11 @@ impl Replica {
                 recurring: false,
             });
         }
-        for (instant, memory) in self
+        for (instant, memory, text) in self
             .graph
-            .recurring_in_window(from, to)
+            .recurring_instances_in_window(from, horizon, MAX_RECURRING_INSTANCES)
             .map_err(graph_error)?
         {
-            let text = if memory.description.is_empty() {
-                memory.name.as_str().to_owned()
-            } else {
-                memory.description
-            };
             items.push(AgendaItem {
                 when: instant,
                 memory: memory.name.as_str().to_owned(),
