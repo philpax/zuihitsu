@@ -9,6 +9,14 @@ export class Replica {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * The agent's upcoming agenda within `horizon_days` of `now_ms`: one-off dated occurrences and
+     * recurring entries projected to their next instance, merged and ordered soonest first. The
+     * next-occurrence of a recurring rule is computed by the agent's own `next_occurrence` (via
+     * `recurring_in_window`), so the console never reimplements RRULE expansion and cannot drift
+     * from the agent's calendar.
+     */
+    agenda(now_ms: number, horizon_days: number): any;
+    /**
      * Append a JSON-encoded `Event[]` tail to the log without re-folding — the live console's
      * catch-up poll (spec §Observability → live phase). New events are merged in `seq` order; any
      * at or below the current log head are dropped as a poll-overlap re-delivery. The fold horizon
@@ -78,6 +86,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_replica_free: (a: number, b: number) => void;
+    readonly replica_agenda: (a: number, b: number, c: number) => [number, number, number];
     readonly replica_append: (a: number, b: number, c: number) => [number, number];
     readonly replica_brief: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly replica_conversations: (a: number) => [number, number, number];

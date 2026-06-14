@@ -16,6 +16,23 @@ export class Replica {
         wasm.__wbg_replica_free(ptr, 0);
     }
     /**
+     * The agent's upcoming agenda within `horizon_days` of `now_ms`: one-off dated occurrences and
+     * recurring entries projected to their next instance, merged and ordered soonest first. The
+     * next-occurrence of a recurring rule is computed by the agent's own `next_occurrence` (via
+     * `recurring_in_window`), so the console never reimplements RRULE expansion and cannot drift
+     * from the agent's calendar.
+     * @param {number} now_ms
+     * @param {number} horizon_days
+     * @returns {any}
+     */
+    agenda(now_ms, horizon_days) {
+        const ret = wasm.replica_agenda(this.__wbg_ptr, now_ms, horizon_days);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Append a JSON-encoded `Event[]` tail to the log without re-folding — the live console's
      * catch-up poll (spec §Observability → live phase). New events are merged in `seq` order; any
      * at or below the current log head are dropped as a poll-overlap re-delivery. The fold horizon

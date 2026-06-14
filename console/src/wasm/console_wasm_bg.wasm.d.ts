@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_replica_free: (a: number, b: number) => void;
+export const replica_agenda: (a: number, b: number, c: number) => [number, number, number];
 export const replica_append: (a: number, b: number, c: number) => [number, number];
 export const replica_brief: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const replica_conversations: (a: number) => [number, number, number];

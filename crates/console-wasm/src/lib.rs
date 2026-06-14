@@ -20,7 +20,7 @@ use zuihitsu_core::{
     graph::{EntryView, Graph, LinkView, MemoryView},
     ids::{ConversationId, MemoryId, Seq, SessionId},
     settings::BriefSettings,
-    time::Timestamp,
+    time::{MILLIS_PER_DAY, Timestamp},
 };
 
 /// Everything the State view shows when a memory is opened: the memory itself, its live content
@@ -33,6 +33,18 @@ struct MemoryDetail {
     history: Vec<EntryView>,
     links: Vec<LinkView>,
     class: Vec<MemoryView>,
+}
+
+/// One upcoming item on the agent's agenda: when it next occurs, the memory it lives in, a label,
+/// and whether it is a recurring instance. Composed from the same `occurrences_in_window` and
+/// `recurring_in_window` reads the agent's `calendar.upcoming` uses, so the console's horizon matches
+/// the agent's.
+#[derive(Serialize)]
+struct AgendaItem {
+    when: Timestamp,
+    memory: String,
+    text: String,
+    recurring: bool,
 }
 
 /// A durable conversation (room) with its sessions, the backbone of the Conversation view. The
@@ -215,6 +227,48 @@ impl Replica {
         let trace = compose_traced(&self.graph, &BriefSettings::default(), &request)
             .map_err(|error| JsError::new(&format!("console: {error}")))?;
         to_js(&trace)
+    }
+
+    /// The agent's upcoming agenda within `horizon_days` of `now_ms`: one-off dated occurrences and
+    /// recurring entries projected to their next instance, merged and ordered soonest first. The
+    /// next-occurrence of a recurring rule is computed by the agent's own `next_occurrence` (via
+    /// `recurring_in_window`), so the console never reimplements RRULE expansion and cannot drift
+    /// from the agent's calendar.
+    pub fn agenda(&self, now_ms: f64, horizon_days: f64) -> Result<JsValue, JsError> {
+        let from = Timestamp::from_millis(now_ms as i64);
+        let to = Timestamp::from_millis(now_ms as i64 + (horizon_days as i64) * MILLIS_PER_DAY);
+        let mut items = Vec::new();
+        for (memory, entry) in self
+            .graph
+            .occurrences_in_window(from, to)
+            .map_err(graph_error)?
+        {
+            items.push(AgendaItem {
+                when: entry.occurred_sort.unwrap_or(from),
+                memory: memory.name.as_str().to_owned(),
+                text: entry.text,
+                recurring: false,
+            });
+        }
+        for (instant, memory) in self
+            .graph
+            .recurring_in_window(from, to)
+            .map_err(graph_error)?
+        {
+            let text = if memory.description.is_empty() {
+                memory.name.as_str().to_owned()
+            } else {
+                memory.description
+            };
+            items.push(AgendaItem {
+                when: instant,
+                memory: memory.name.as_str().to_owned(),
+                text,
+                recurring: true,
+            });
+        }
+        items.sort_by_key(|item| item.when.as_millis());
+        to_js(&items)
     }
 
     /// Every durable conversation up to the current fold horizon, each with its sessions — the

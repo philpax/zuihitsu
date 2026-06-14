@@ -80,3 +80,11 @@ export interface ConversationDetail {
   context_name: string | null;
   sessions: SessionSummary[];
 }
+
+export interface AgendaItem {
+  /// The instant the item next occurs, in epoch milliseconds.
+  when: number;
+  memory: string;
+  text: string;
+  recurring: boolean;
+}

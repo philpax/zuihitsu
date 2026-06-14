@@ -8,6 +8,7 @@ import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
+import { AgendaView } from "../views/AgendaView.tsx";
 
 /// The views over a single event stream — the debugging surface shared by the eval and agent
 /// frames. A run's embedded log and a live agent's tailed log are the same shape (one stream of
@@ -16,6 +17,7 @@ import { EventsView } from "../views/EventsView.tsx";
 const STREAM_VIEWS = [
   { id: "state", label: "State" },
   { id: "conversation", label: "Conversation" },
+  { id: "agenda", label: "Agenda" },
   { id: "events", label: "Events" },
 ] as const;
 
@@ -117,6 +119,7 @@ export function StreamWorkspace({
                 participate={participant && { ...participant, atHead: cursor >= head }}
               />
             )}
+            {view === "agenda" && <AgendaView replica={replica} events={events} cursor={cursor} />}
             {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
           </motion.div>
         </AnimatePresence>

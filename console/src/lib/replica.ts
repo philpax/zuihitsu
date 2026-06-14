@@ -4,6 +4,7 @@ import wasmUrl from "../wasm/console_wasm_bg.wasm?url";
 import type { Event } from "../types/Event.ts";
 import type { BriefTrace } from "./brief.ts";
 import type {
+  AgendaItem,
   ConversationDetail,
   MemoryDetail,
   MemoryView,
@@ -88,6 +89,12 @@ export class Replica {
 
   conversations(): ConversationDetail[] {
     return this.#inner.conversations() as ConversationDetail[];
+  }
+
+  /// The agent's upcoming agenda within `horizonDays` of `nowMs` — one-off and recurring occurrences
+  /// merged and ordered soonest first, using the agent's own next-occurrence logic.
+  agenda(nowMs: number, horizonDays: number): AgendaItem[] {
+    return this.#inner.agenda(nowMs, horizonDays) as AgendaItem[];
   }
 
   /// Re-derive a session's brief and the trace of how it was composed, against the graph at the
