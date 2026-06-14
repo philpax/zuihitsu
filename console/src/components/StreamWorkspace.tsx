@@ -12,8 +12,8 @@ import { AgendaView } from "../views/AgendaView.tsx";
 
 /// The views over a single event stream — the debugging surface shared by the eval and agent
 /// frames. A run's embedded log and a live agent's tailed log are the same shape (one stream of
-/// events folding into one graph), so the same three views and the same global timeline serve both;
-/// the Conversation view's sidebar reaches every conversation in the stream.
+/// events folding into one graph), so the same views and the same global timeline serve both; the
+/// Conversation view's sidebar reaches every conversation in the stream.
 const STREAM_VIEWS = [
   { id: "state", label: "State" },
   { id: "conversation", label: "Conversation" },
@@ -95,13 +95,13 @@ export function StreamWorkspace({
 
   return (
     <>
-      <nav className="flex gap-7 border-b border-line text-sm">
+      <nav className="flex gap-7 overflow-x-auto border-b border-line text-sm">
         {[...STREAM_VIEWS, ...extraViews].map((entry) => (
           <button
             key={entry.id}
             onClick={() => selectView(entry.id)}
             className={
-              "-mb-px border-b-2 py-3 transition-colors " +
+              "-mb-px shrink-0 whitespace-nowrap border-b-2 py-3 transition-colors " +
               (entry.id === view
                 ? "border-clay text-ink"
                 : "border-transparent text-ink-soft hover:text-ink")

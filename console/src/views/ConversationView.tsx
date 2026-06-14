@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 
 import type { Event } from "../types/Event.ts";
+import type { Message } from "../types/Message.ts";
 import type { Replica } from "../lib/replica.ts";
 import type { LiveConnection } from "../lib/live.ts";
 import type { ConversationLocator } from "../types/ConversationLocator.ts";
@@ -12,7 +13,8 @@ import {
   type TurnModel,
   buildConversations,
 } from "../lib/conversation.ts";
-import { formatMs } from "../lib/format.ts";
+import { type ModelInteraction, buildInteractions, tokenBudgetAt } from "../lib/interactions.ts";
+import { formatMs, formatTokens } from "../lib/format.ts";
 import { imprint } from "../lib/operator.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
 import { Eyebrow } from "../components/primitives.tsx";
@@ -32,12 +34,21 @@ export interface Participation {
   atHead: boolean;
 }
 
+/// The reconstructed model calls (by their `seq`) and the context budget in effect, so a turn's
+/// deliberation can show what each call fed the model and how much of the budget it consumed,
+/// without drilling the lookup through every layer of the transcript.
+const ModelCalls = createContext<{ bySeq: Map<number, ModelInteraction>; budget: number }>({
+  bySeq: new Map(),
+  budget: 0,
+});
+
 /// The Conversation view: every room the agent speaks in, browsed from a sidebar, with each
 /// session's frozen brief and the full transcript — every agent turn openable to the reasoning and
-/// Lua behind it ("what was the agent thinking," made literal, spec §Observability). Live, it is also
-/// where you *speak*: the console stands in as the agent's `direct` platform client, and the
-/// `operator/imprint` room is one entry in the list — selecting it composes with operator authority
-/// (the only path that may write `self`). So a single surface watches, replays, and converses.
+/// Lua behind it, and to the prompt each model call actually saw ("what was the agent thinking,"
+/// made literal, spec §Observability). Live, it is also where you *speak*: the console stands in as
+/// the agent's `direct` platform client, and the `operator/imprint` room is one entry in the list —
+/// selecting it composes with operator authority (the only path that may write `self`). So a single
+/// surface watches, replays, and converses.
 export function ConversationView({
   replica,
   events,
@@ -53,6 +64,10 @@ export function ConversationView({
     events.filter((event) => event.seq <= cursor),
     nameById(replica.memories("")),
   );
+  const modelCalls = {
+    bySeq: new Map(buildInteractions(events, cursor).map((call) => [call.seq, call])),
+    budget: tokenBudgetAt(events, cursor),
+  };
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draftRoom, setDraftRoom] = useState("");
   // A room the operator named but has not sent to yet — held as its own locator rather than packed
@@ -96,105 +111,107 @@ export function ConversationView({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-5 md:grid-cols-[14rem_1fr] md:gap-10">
-      <div className="md:sticky md:top-4 md:self-start">
-        <aside className="hidden flex-col gap-5 md:flex">
-          {participate && (
-            <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
-              <span className="text-line-strong">+</span>
-              <input
-                value={draftRoom}
-                onChange={(event) => setDraftRoom(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && startRoom()}
-                placeholder="new conversation"
-                className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
-              />
-            </div>
-          )}
-
-          {listed.length === 0 && !operatorChannel ? (
-            <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
-          ) : (
-            <nav className="flex flex-col gap-1">
-              {listed.map((channel) => (
-                <ChannelLink
-                  key={channel.key}
-                  channel={channel}
-                  active={channel.key === selected?.key}
-                  onSelect={() => setSelectedKey(channel.key)}
-                />
-              ))}
-            </nav>
-          )}
-
-          {operatorChannel && (
-            <div className="border-t border-line pt-4">
-              <Eyebrow>operator</Eyebrow>
-              <nav className="mt-2">
-                <ChannelLink
-                  channel={operatorChannel}
-                  active={operatorChannel.key === selected?.key}
-                  onSelect={() => setSelectedKey(operatorChannel.key)}
-                />
-              </nav>
-            </div>
-          )}
-
-          {participate && (
-            <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
-              <Eyebrow>you are</Eyebrow>
-              <input
-                value={participate.sender}
-                onChange={(event) => participate.setSender(event.target.value)}
-                placeholder="a handle"
-                className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
-              />
-            </label>
-          )}
-        </aside>
-
-        {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
-        <div className="flex flex-col gap-3 md:hidden">
-          <ChannelSelect
-            listed={listed}
-            operatorChannel={operatorChannel}
-            selectedKey={selected?.key ?? null}
-            onSelect={setSelectedKey}
-          />
-          {participate && (
-            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
-              <span className="flex items-baseline gap-2">
+    <ModelCalls.Provider value={modelCalls}>
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-[14rem_1fr] md:gap-10">
+        <div className="md:sticky md:top-4 md:self-start">
+          <aside className="hidden flex-col gap-5 md:flex">
+            {participate && (
+              <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
                 <span className="text-line-strong">+</span>
                 <input
                   value={draftRoom}
                   onChange={(event) => setDraftRoom(event.target.value)}
                   onKeyDown={(event) => event.key === "Enter" && startRoom()}
                   placeholder="new conversation"
-                  className="w-36 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
+                  className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
                 />
-              </span>
-              <span className="flex items-baseline gap-2">
+              </div>
+            )}
+
+            {listed.length === 0 && !operatorChannel ? (
+              <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
+            ) : (
+              <nav className="flex flex-col gap-1">
+                {listed.map((channel) => (
+                  <ChannelLink
+                    key={channel.key}
+                    channel={channel}
+                    active={channel.key === selected?.key}
+                    onSelect={() => setSelectedKey(channel.key)}
+                  />
+                ))}
+              </nav>
+            )}
+
+            {operatorChannel && (
+              <div className="border-t border-line pt-4">
+                <Eyebrow>operator</Eyebrow>
+                <nav className="mt-2">
+                  <ChannelLink
+                    channel={operatorChannel}
+                    active={operatorChannel.key === selected?.key}
+                    onSelect={() => setSelectedKey(operatorChannel.key)}
+                  />
+                </nav>
+              </div>
+            )}
+
+            {participate && (
+              <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
                 <Eyebrow>you are</Eyebrow>
                 <input
                   value={participate.sender}
                   onChange={(event) => participate.setSender(event.target.value)}
                   placeholder="a handle"
-                  className="w-24 bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none"
+                  className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
                 />
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
+              </label>
+            )}
+          </aside>
 
-      {selected ? (
-        <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
-      ) : (
-        <div className="py-24 text-center text-sm text-ink-faint">
-          {participate ? "Name a conversation to start one." : "No conversations in this run."}
+          {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
+          <div className="flex flex-col gap-3 md:hidden">
+            <ChannelSelect
+              listed={listed}
+              operatorChannel={operatorChannel}
+              selectedKey={selected?.key ?? null}
+              onSelect={setSelectedKey}
+            />
+            {participate && (
+              <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
+                <span className="flex items-baseline gap-2">
+                  <span className="text-line-strong">+</span>
+                  <input
+                    value={draftRoom}
+                    onChange={(event) => setDraftRoom(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && startRoom()}
+                    placeholder="new conversation"
+                    className="w-36 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
+                  />
+                </span>
+                <span className="flex items-baseline gap-2">
+                  <Eyebrow>you are</Eyebrow>
+                  <input
+                    value={participate.sender}
+                    onChange={(event) => participate.setSender(event.target.value)}
+                    placeholder="a handle"
+                    className="w-24 bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none"
+                  />
+                </span>
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </div>
+
+        {selected ? (
+          <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
+        ) : (
+          <div className="py-24 text-center text-sm text-ink-faint">
+            {participate ? "Name a conversation to start one." : "No conversations in this run."}
+          </div>
+        )}
+      </div>
+    </ModelCalls.Provider>
   );
 }
 
@@ -569,6 +586,9 @@ function Deliberation({ steps }: { steps: DeliberationStep[] }) {
 }
 
 function ModelStep({ step }: { step: Extract<DeliberationStep, { kind: "model" }> }) {
+  const { bySeq, budget } = useContext(ModelCalls);
+  const interaction = bySeq.get(step.seq);
+  const [showPrompt, setShowPrompt] = useState(false);
   return (
     <div>
       <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
@@ -578,12 +598,96 @@ function ModelStep({ step }: { step: Extract<DeliberationStep, { kind: "model" }
         <span className="text-ink-faint/45">·</span>
         <span>{formatMs(step.durationMs)}</span>
       </div>
+      {interaction && <ContextBar usage={interaction.usage} budget={budget} />}
       {step.reasoning && (
         <p className="mt-1 font-serif text-sm italic leading-relaxed text-ink-soft">
           {step.reasoning}
         </p>
       )}
+      {interaction && (interaction.system || interaction.messages.length > 0) && (
+        <div className="mt-1.5">
+          <button
+            onClick={() => setShowPrompt(!showPrompt)}
+            className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
+          >
+            {showPrompt ? "▾" : "▸"} prompt · {interaction.messages.length} message
+            {interaction.messages.length === 1 ? "" : "s"}
+          </button>
+          {showPrompt && <Prompt interaction={interaction} />}
+        </div>
+      )}
     </div>
+  );
+}
+
+/// How much of the context budget this call's prompt consumed — a slim bar filling toward the budget,
+/// sage with headroom and clay as it nears it (where compaction looms), with the token counts.
+function ContextBar({ usage, budget }: { usage: ModelInteraction["usage"]; budget: number }) {
+  if (usage.prompt_tokens === null) return null;
+  const fraction = budget > 0 ? usage.prompt_tokens / budget : 0;
+  return (
+    <div className="mt-1.5 flex items-center gap-3">
+      <div className="h-1 w-24 shrink-0 bg-oat">
+        <div
+          className={"h-1 " + (fraction >= 0.8 ? "bg-clay" : "bg-sage")}
+          style={{ width: `${Math.min(100, fraction * 100)}%` }}
+        />
+      </div>
+      <span className="font-mono text-2xs text-ink-faint">
+        {formatTokens(usage.prompt_tokens)} / {formatTokens(budget)} · {Math.round(fraction * 100)}%
+        {usage.completion_tokens !== null && ` · +${formatTokens(usage.completion_tokens)} out`}
+      </span>
+    </div>
+  );
+}
+
+/// The full prompt the model saw, reconstructed from the delta-encoded request: the system prompt,
+/// the messages, and the tools offered.
+function Prompt({ interaction }: { interaction: ModelInteraction }) {
+  return (
+    <div className="mt-2 flex flex-col gap-3 border-l border-line pl-4">
+      <div>
+        <Eyebrow>system</Eyebrow>
+        <Block text={interaction.system || "(none)"} />
+      </div>
+      <div>
+        <Eyebrow>messages</Eyebrow>
+        <div className="mt-1 flex flex-col gap-2">
+          {interaction.messages.map((message, index) => (
+            <MessageRow key={index} message={message} />
+          ))}
+        </div>
+      </div>
+      {interaction.tools.length > 0 && (
+        <p className="font-mono text-2xs text-ink-faint">
+          tools · {interaction.tools.map((tool) => tool.name).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MessageRow({ message }: { message: Message }) {
+  return (
+    <div>
+      <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+        {message.role}
+      </span>
+      {message.content && <Block text={message.content} />}
+      {message.tool_calls.length > 0 && (
+        <p className="mt-1 font-mono text-2xs text-clay">
+          → {message.tool_calls.map((call) => call.name).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Block({ text }: { text: string }) {
+  return (
+    <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-3 py-2 font-mono text-2xs leading-relaxed text-ink-soft">
+      {text}
+    </pre>
   );
 }
 
