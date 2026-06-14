@@ -1,7 +1,14 @@
 import type { ReactNode } from "react";
 
 import type { EventPayload } from "../types/EventPayload.ts";
-import { completionSummary, isPrivate, tellerLabel, visibilityLabel } from "../lib/labels.ts";
+import { refName } from "../lib/events.ts";
+import {
+  completionSummary,
+  isPrivate,
+  tellerLabel,
+  terminalCauseLabel,
+  visibilityLabel,
+} from "../lib/labels.ts";
 import { formatMs } from "../lib/format.ts";
 import { Lua } from "../components/Lua.tsx";
 import { Json } from "../components/Json.tsx";
@@ -17,7 +24,7 @@ export function EventDetail({
   payload: EventPayload;
   nameById: Map<string, string>;
 }) {
-  const ref = (id: string) => nameById.get(id) ?? shortId(id);
+  const ref = (id: string) => refName(id, nameById);
 
   switch (payload.type) {
     case "MemoryContentAppended":
@@ -66,9 +73,7 @@ export function EventDetail({
           <Lua code={payload.script} />
           {payload.terminal_cause ? (
             <p className="font-mono text-2xs text-clay">
-              {"Error" in payload.terminal_cause
-                ? `error: ${payload.terminal_cause.Error}`
-                : `aborted: ${payload.terminal_cause.Aborted}`}
+              {terminalCauseLabel(payload.terminal_cause)}
             </p>
           ) : (
             payload.result && (
@@ -167,8 +172,4 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="leading-relaxed">{children}</span>
     </div>
   );
-}
-
-function shortId(id: string): string {
-  return id.length > 10 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id;
 }

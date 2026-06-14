@@ -2,6 +2,7 @@ import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
 import type { ActiveRun } from "../lib/run.ts";
 import { formatMs, formatRate, formatTokens } from "../lib/format.ts";
+import { Dot } from "../components/primitives.tsx";
 
 /// The eval-package overview: every scenario with its pass rate, how it is judged, and the cost it
 /// ran at. The first thing an operator wants — which scenarios held, and which did not — and the
@@ -138,8 +139,4 @@ function RateBar({
       )}
     </div>
   );
-}
-
-function Dot() {
-  return <span className="text-ink-faint/45">·</span>;
 }

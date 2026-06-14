@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import { type EventCategory, CATEGORY_COLOR, eventCategory, eventSummary } from "../lib/events.ts";
+import { nameById } from "../lib/labels.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "./EventDetail.tsx";
 
@@ -27,7 +28,7 @@ export function EventsView({
   events: Event[];
   cursor: number;
 }) {
-  const nameById = new Map(replica.memories("").map((memory) => [memory.id, memory.name]));
+  const names = nameById(replica.memories(""));
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -38,7 +39,7 @@ export function EventsView({
     .map((event) => ({
       event,
       category: eventCategory(event.payload.type),
-      summary: eventSummary(event.payload, nameById),
+      summary: eventSummary(event.payload, names),
     }))
     .filter(({ event, category, summary }) => {
       if (!active.has(category)) return false;
@@ -110,7 +111,7 @@ export function EventsView({
               </button>
               {open && (
                 <div className="border-l-2 border-line py-3 pl-4 pr-2">
-                  <EventDetail payload={event.payload} nameById={nameById} />
+                  <EventDetail payload={event.payload} nameById={names} />
                 </div>
               )}
             </li>

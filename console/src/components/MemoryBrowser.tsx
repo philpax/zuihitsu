@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { Replica } from "../lib/replica.ts";
 import type { EntryView, MemoryDetail, MemoryView } from "../lib/graph.ts";
-import { isPrivate, tellerLabel, visibilityLabel } from "../lib/labels.ts";
+import { isPrivate, nameById, tellerLabel, visibilityLabel } from "../lib/labels.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
@@ -19,7 +19,7 @@ export function MemoryBrowser({
   onSelect: (name: string) => void;
 }) {
   const memories = replica.memories("");
-  const nameById = new Map(memories.map((memory) => [memory.id, memory.name]));
+  const names = nameById(memories);
   const [query, setQuery] = useState("");
 
   if (memories.length === 0) {
@@ -63,7 +63,7 @@ export function MemoryBrowser({
         )}
       </div>
       {detail ? (
-        <MemoryDetailPane detail={detail} nameById={nameById} />
+        <MemoryDetailPane detail={detail} nameById={names} />
       ) : (
         <div className="py-24 text-center text-sm text-ink-faint">Select a memory.</div>
       )}

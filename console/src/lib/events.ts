@@ -1,4 +1,5 @@
 import type { EventPayload } from "../types/EventPayload.ts";
+import { terminalCauseLabel } from "./labels.ts";
 
 /// A coarse grouping of event kinds, for a calm colour rhythm in the log: memory writes, the link
 /// graph, conversation flow, the agent's deliberation, session/room lifecycle, and infrastructure.
@@ -60,9 +61,15 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
   }
 }
 
+/// Resolve a memory id to its handle, falling back to an abbreviated id when it is not in the map —
+/// how the Events log and the per-event detail name the ids they reference.
+export function refName(id: string, nameById: Map<string, string>): string {
+  return nameById.get(id) ?? shortId(id);
+}
+
 /// A concise, human-readable one-line summary of an event, resolving ids to handles where it can.
 export function eventSummary(payload: EventPayload, nameById: Map<string, string>): string {
-  const ref = (id: string) => nameById.get(id) ?? shortId(id);
+  const ref = (id: string) => refName(id, nameById);
 
   switch (payload.type) {
     case "MemoryCreated":
@@ -105,9 +112,7 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${payload.phase.toLowerCase()} call`;
     case "LuaExecuted":
       return payload.terminal_cause
-        ? "Error" in payload.terminal_cause
-          ? `error: ${payload.terminal_cause.Error}`
-          : `aborted: ${payload.terminal_cause.Aborted}`
+        ? terminalCauseLabel(payload.terminal_cause)
         : quote(payload.script);
     case "ParticipantIdentified":
       return `${ref(payload.memory)} @${payload.platform}`;

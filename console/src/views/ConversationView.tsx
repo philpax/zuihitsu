@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
-import { completionSummary } from "../lib/labels.ts";
+import { completionSummary, nameById, terminalCauseLabel } from "../lib/labels.ts";
 import {
   type DeliberationStep,
   type SessionModel,
@@ -10,9 +10,9 @@ import {
   buildConversations,
 } from "../lib/conversation.ts";
 import { formatMs } from "../lib/format.ts";
-import { CATEGORY_COLOR } from "../lib/events.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
+import { OutcomeList } from "../components/OutcomeList.tsx";
 import { BriefTraceView } from "../components/BriefTrace.tsx";
 
 /// The Conversation view: a run's rooms, each session's frozen brief, and the transcript — with
@@ -27,10 +27,9 @@ export function ConversationView({
   events: Event[];
   cursor: number;
 }) {
-  const nameById = new Map(replica.memories("").map((memory) => [memory.id, memory.name]));
   const conversations = buildConversations(
     events.filter((event) => event.seq <= cursor),
-    nameById,
+    nameById(replica.memories("")),
   );
   const [room, setRoom] = useState(0);
 
@@ -204,17 +203,7 @@ function TurnItem({ turn }: { turn: TurnModel }) {
         <p className="text-sm italic text-ink-faint">stayed silent</p>
       )}
       {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
-      {turn.outcomes.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1">
-          {turn.outcomes.map((outcome, index) => (
-            <li key={index} className="flex items-baseline gap-2 font-mono text-2xs">
-              <span className="text-ink-faint">↳</span>
-              <span className={CATEGORY_COLOR[outcome.category]}>{outcome.type}</span>
-              <span className="truncate text-ink-soft">{outcome.summary}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {turn.outcomes.length > 0 && <OutcomeList outcomes={turn.outcomes} className="mt-3 gap-1" />}
     </li>
   );
 }
@@ -272,9 +261,7 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
     <div>
       <Lua code={step.script} />
       {error ? (
-        <p className="mt-1 font-mono text-2xs text-clay">
-          {"Error" in error ? `error: ${error.Error}` : `aborted: ${error.Aborted}`}
-        </p>
+        <p className="mt-1 font-mono text-2xs text-clay">{terminalCauseLabel(error)}</p>
       ) : (
         step.result && (
           <p className="mt-1 whitespace-pre-wrap font-mono text-2xs text-ink-soft">

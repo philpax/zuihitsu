@@ -11,8 +11,9 @@ import {
   imprint,
 } from "../lib/operator.ts";
 import { type TurnModel, buildConversations } from "../lib/conversation.ts";
-import { CATEGORY_COLOR } from "../lib/events.ts";
+import { nameById } from "../lib/labels.ts";
 import { Eyebrow } from "./primitives.tsx";
+import { OutcomeList } from "./OutcomeList.tsx";
 
 /// The Operator view: the one surface where the two frames genuinely diverge, so it lives only in
 /// the agent frame. Under operator authority the console may speak to the agent directly — the
@@ -165,8 +166,7 @@ function ImprintChat({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const nameById = new Map(replica.memories("").map((memory) => [memory.id, memory.name]));
-  const imprintRoom = buildConversations(events, nameById).find(
+  const imprintRoom = buildConversations(events, nameById(replica.memories(""))).find(
     (conversation) => conversation.platform === "operator",
   );
   const turns = (imprintRoom?.turns ?? []).filter((turn) => turn.role !== "System");
@@ -250,15 +250,7 @@ function Bubble({ turn }: { turn: TurnModel }) {
         {turn.text || <span className="italic text-ink-faint">stayed silent</span>}
       </div>
       {isAgent && turn.outcomes.length > 0 && (
-        <ul className="mt-0.5 flex flex-col gap-0.5">
-          {turn.outcomes.map((outcome, index) => (
-            <li key={index} className="flex items-baseline gap-2 font-mono text-2xs">
-              <span className="text-ink-faint">↳</span>
-              <span className={CATEGORY_COLOR[outcome.category]}>{outcome.type}</span>
-              <span className="truncate text-ink-soft">{outcome.summary}</span>
-            </li>
-          ))}
-        </ul>
+        <OutcomeList outcomes={turn.outcomes} className="mt-0.5 gap-0.5" />
       )}
     </div>
   );
