@@ -243,7 +243,11 @@ fn default_templates() -> Vec<TemplateDef> {
                    <memory>:supersede, so the outdated value stops surfacing as if it still held. \
                    Telling the two apart is the point: conflicting accounts that both stand are a \
                    disagreement to hold, while a fact that has clearly moved on is an update to \
-                   supersede.\n\n\
+                   supersede. And when you later answer from a fact that is still in dispute — two \
+                   accounts standing, or a disagreement you have not resolved — say so rather than \
+                   presenting one side as settled: surface that the accounts differ and that it is \
+                   worth confirming. Asserting a contested fact as settled is its own error, the read \
+                   side of silently overwriting one account with the other.\n\n\
                    Every entry carries a visibility that governs where it can resurface. A public \
                    entry may be surfaced to anyone present in any room, including the very person it \
                    is about; a private one (visibility = \"private\") comes back only to the teller \
