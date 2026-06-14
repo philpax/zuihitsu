@@ -25,9 +25,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use zuihitsu::{
-    Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Graph, GraphError,
-    MemoryView, ModelCall, ModelClient, OpenAiClient, OpenAiEmbedder, Rollout, SeedSelf, Server,
-    ServerError, SessionView, Settings, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
+    Arbitration, ConfigError, ConversationLocator, EntryView, EnvConfig, Event, Graph, GraphError,
+    MemoryView, ModelCall, ModelClient, OpenAiClient, OpenAiEmbedder, Rollout, SeedSelf, Seq,
+    Server, ServerError, SessionView, Settings, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
     StdioHost, StoreError, SystemClock, TurnOutcome, VectorError, VectorIndex,
     genesis::GenesisStatus, model::embed::Embedder, snapshot, snapshot::SnapshotError,
 };
@@ -243,6 +243,7 @@ fn router(state: AppState) -> Router {
         .route("/recurring", get(recurring))
         .route("/arbitrations", get(arbitrations))
         .route("/interactions", get(interactions))
+        .route("/events", get(events))
         .route("/snapshot", post(snapshot))
         .route("/settings", get(settings).put(set_settings))
         .route("/imprint", post(imprint))
@@ -429,6 +430,25 @@ async fn arbitrations(State(state): State<AppState>) -> Result<Json<Vec<Arbitrat
 /// surface: per-call request, reasoning, token usage, and latency).
 async fn interactions(State(state): State<AppState>) -> Result<Json<Vec<ModelCall>>, ApiError> {
     Ok(Json(state.server.control().model_calls()?))
+}
+
+/// A `?from=` query — the lowest `seq` to return, defaulting to `0` (the whole log). The live
+/// console seeds its replica with `from=0`, then polls `from=<head + 1>` for the new tail.
+#[derive(Deserialize)]
+struct FromQuery {
+    #[serde(default)]
+    from: u64,
+}
+
+/// `GET /control/events?from=` — the event log from `from` onward, in order (the whole log when
+/// `from` is omitted). The eval package embeds the full log per run; the live console seeds its
+/// replica with one `from=0` read, then polls the tail with `from=<head + 1>` (spec §Observability →
+/// live phase).
+async fn events(
+    State(state): State<AppState>,
+    Query(query): Query<FromQuery>,
+) -> Result<Json<Vec<Event>>, ApiError> {
+    Ok(Json(state.server.control().events_from(Seq(query.from))?))
 }
 
 /// `POST /control/snapshot` — write a graph snapshot now (the operator's take-one-before-an-experiment

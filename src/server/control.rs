@@ -228,7 +228,14 @@ impl Control<'_> {
     /// §Observability → the Events view). The eval harness embeds this per run, and the console
     /// reconstructs its views from it.
     pub fn events(&self) -> Result<Vec<Event>, ServerError> {
-        Ok(self.server.engine.store.lock().read_from(Seq::ZERO)?)
+        self.events_from(Seq::ZERO)
+    }
+
+    /// The event log from `from` onward (every event with `seq >= from`), in order. The live
+    /// console's catch-up and tail surface (spec §Observability → live phase): an initial
+    /// `events_from(ZERO)` seeds the replica, then repeated `events_from(head)` polls the new tail.
+    pub fn events_from(&self, from: Seq) -> Result<Vec<Event>, ServerError> {
+        Ok(self.server.engine.store.lock().read_from(from)?)
     }
 
     /// Inspect a memory's local content entries by name — their text, teller, and visibility — for
