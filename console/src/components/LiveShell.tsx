@@ -1,16 +1,17 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { LiveConnection, LiveStatus } from "../lib/live.ts";
 import { useLiveLog } from "../lib/live.ts";
+import { type GenesisStatus, genesisStatus } from "../lib/operator.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
 import { StreamWorkspace } from "./StreamWorkspace.tsx";
-import { OperatorChat } from "./OperatorChat.tsx";
+import { GenesisGate } from "./GenesisGate.tsx";
 
 /// The agent frame: tail a running agent's event log and drive the shared stream views off it,
-/// exactly as the eval frame drives them off a run's embedded log. The only differences are the
-/// source (a live `/control/events` tail rather than a loaded file) and that the timeline's head
-/// grows as events arrive — following it keeps the views on the latest state, while scrubbing back
-/// pins them as new events keep extending the timeline.
+/// exactly as the eval frame drives them off a run's embedded log. The differences are all the agent
+/// frame's: the source is a live `/control/events` tail (so the timeline head grows as events
+/// arrive), the Conversation view is interactive (you converse and act with operator authority), and
+/// an agentless instance is gated behind genesis until it is born.
 export function LiveShell({
   connection,
   onClose,
@@ -22,6 +23,20 @@ export function LiveShell({
   // while followed — a ref so the long-lived interval reads the current value without re-subscribing.
   const following = useRef(true);
   const log = useLiveLog(connection, following);
+  // The handle you converse under as a participant, lifted here so it survives view switches.
+  const [sender, setSender] = useState("");
+  const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    genesisStatus(connection).then(
+      (value) => !cancelled && setGenesis(value),
+      () => !cancelled && setGenesis("unreachable"),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [connection]);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-8">
@@ -44,7 +59,17 @@ export function LiveShell({
         </div>
       </header>
 
-      {log.replica ? (
+      {!log.replica ? (
+        <Pending status={log.status} />
+      ) : genesis === "loading" ? (
+        <Pending status={log.status} />
+      ) : genesis === "Empty" || genesis === "Incomplete" ? (
+        <GenesisGate
+          connection={connection}
+          resuming={genesis === "Incomplete"}
+          onCreated={() => setGenesis("Complete")}
+        />
+      ) : (
         <StreamWorkspace
           replica={log.replica}
           events={log.events}
@@ -52,18 +77,8 @@ export function LiveShell({
           onFollowingChange={(value) => {
             following.current = value;
           }}
-          extraViews={[
-            {
-              id: "operator",
-              label: "Operator",
-              node: (
-                <OperatorChat replica={log.replica} events={log.events} connection={connection} />
-              ),
-            },
-          ]}
+          participant={{ connection, sender, setSender }}
         />
-      ) : (
-        <Pending status={log.status} />
       )}
     </div>
   );
