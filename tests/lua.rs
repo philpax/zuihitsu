@@ -1188,3 +1188,37 @@ async fn memory_search_without_an_embedder_is_a_teachable_error() {
         other => panic!("expected a teachable error, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn the_block_vm_is_sandboxed_against_host_access() {
+    // The Lua surface is an orchestration language over the projected API, never a host program: the
+    // filesystem, the environment, the process, and arbitrary code on disk must be out of reach, so
+    // MCP stays the only sanctioned outward path (spec §External I/O via MCP). A regression guard — a
+    // stock `Lua::new()` would expose every one of these.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local exposed = {}
+        for _, name in ipairs({ "os", "io", "package", "require", "dofile", "loadfile",
+                                "load", "loadstring" }) do
+            if _G[name] ~= nil then exposed[#exposed + 1] = name end
+        end
+        -- The pure orchestration libraries stay available.
+        assert(type(string.format) == "function", "string library missing")
+        assert(type(table.insert) == "function", "table library missing")
+        assert(type(math.floor) == "function", "math library missing")
+        return table.concat(exposed, ",")
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected the probe block to commit, got {outcome:?}");
+    };
+    assert_eq!(
+        result.trim(),
+        "",
+        "these host globals must not be reachable from a block: {}",
+        result.trim()
+    );
+}

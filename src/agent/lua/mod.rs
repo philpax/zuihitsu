@@ -21,7 +21,7 @@ mod tables;
 
 use std::{sync::Arc, time::Instant};
 
-use mlua::{Lua, Value};
+use mlua::{Lua, LuaOptions, StdLib, Value};
 use parking_lot::Mutex;
 
 use crate::{
@@ -62,8 +62,7 @@ pub enum BlockOutcome {
 
 impl Session {
     pub fn new(conversation: ConversationId) -> Session {
-        let lua = Lua::new();
-        install_inspect(&lua).expect("installing the inspect global");
+        let lua = sandboxed_lua();
         Session {
             lua,
             conversation,
@@ -81,8 +80,7 @@ impl Session {
         host: std::sync::Arc<dyn crate::mcp::McpHost>,
         catalogue: super::mcp_api::McpCatalogue,
     ) -> Session {
-        let lua = Lua::new();
-        install_inspect(&lua).expect("installing the inspect global");
+        let lua = sandboxed_lua();
         let mcp = std::sync::Arc::new(super::mcp_api::McpSession::new(host, catalogue));
         super::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
         Session {
@@ -354,6 +352,34 @@ impl Session {
         graph.materialize_from(engine.store.lock().as_ref())?;
         Ok(outcome)
     }
+}
+
+/// Construct the block VM with a deliberately narrow surface: a memory block is an orchestration
+/// script over the projected API (`memory`, `block`, `context`, `mcp`, …), never a host program, so it
+/// must not reach the filesystem, the environment, the process, or arbitrary code on disk. MCP is the
+/// only sanctioned outward reach (spec §External I/O via MCP).
+///
+/// Only the pure libraries are loaded — string, table, math, utf8, and coroutine — so `os`, `io`,
+/// `package` (and thus `require`), `debug`, and the FFI/JIT escapes are never present. The base library
+/// is always loaded, so the code-loading globals it still carries (`load`, `loadfile`, `dofile`,
+/// `loadstring`, `require`) are then removed by hand. Dropping `os` also keeps blocks deterministic
+/// under replay: there is no wall-clock `os.time`/`os.date`, so time only ever comes from the injected
+/// clock. `print` and `inspect` are installed per block; here we only fix the global environment.
+fn sandboxed_lua() -> Lua {
+    let lua = Lua::new_with(
+        StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE,
+        LuaOptions::default(),
+    )
+    .expect("constructing the sandboxed Lua VM");
+    let globals = lua.globals();
+    for unsafe_global in ["load", "loadfile", "dofile", "loadstring", "require"] {
+        globals
+            .set(unsafe_global, Value::Nil)
+            .expect("removing an unsafe base-library global");
+    }
+    drop(globals);
+    install_inspect(&lua).expect("installing the inspect global");
+    lua
 }
 
 /// An infrastructure failure executing a block (not an agent-visible terminal outcome, which is a
