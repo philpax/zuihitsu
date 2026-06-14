@@ -4,6 +4,7 @@ import type { LiveConnection, LiveStatus } from "../lib/live.ts";
 import { useLiveLog } from "../lib/live.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
 import { StreamWorkspace } from "./StreamWorkspace.tsx";
+import { OperatorChat } from "./OperatorChat.tsx";
 
 /// The agent frame: tail a running agent's event log and drive the shared stream views off it,
 /// exactly as the eval frame drives them off a run's embedded log. The only differences are the
@@ -51,6 +52,15 @@ export function LiveShell({
           onFollowingChange={(value) => {
             following.current = value;
           }}
+          extraViews={[
+            {
+              id: "operator",
+              label: "Operator",
+              node: (
+                <OperatorChat replica={log.replica} events={log.events} connection={connection} />
+              ),
+            },
+          ]}
         />
       ) : (
         <Pending status={log.status} />
