@@ -39,6 +39,14 @@ export class Replica {
     return this.#inner.eventCount;
   }
 
+  /// Append a live catch-up batch to the log without re-folding — the tail a `/control/events` poll
+  /// returned. The fold horizon is left where it is; the caller advances it with `foldTo` to follow
+  /// the head, or holds it to stay time-travel pinned.
+  append(events: Event[]): void {
+    const bytes = new TextEncoder().encode(JSON.stringify(events));
+    this.#inner.append(bytes);
+  }
+
   /// The highest seq in the log — the upper bound of the time-travel range.
   get headSeq(): number {
     return this.#inner.headSeq;

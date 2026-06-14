@@ -9,6 +9,14 @@ export class Replica {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Append a JSON-encoded `Event[]` tail to the log without re-folding — the live console's
+     * catch-up poll (spec §Observability → live phase). New events are merged in `seq` order; any
+     * at or below the current log head are dropped as a poll-overlap re-delivery. The fold horizon
+     * is left untouched, so the caller chooses whether to advance it (follow the head) or hold it
+     * (time-travel pinned) with a subsequent `foldTo`.
+     */
+    append(events_json: Uint8Array): void;
+    /**
      * Re-derive a session's contextual brief and the trace of how it was composed — every memory the
      * composer considered and, per entry, the visibility verdict and whether it reached the brief.
      * The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
@@ -70,6 +78,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_replica_free: (a: number, b: number) => void;
+    readonly replica_append: (a: number, b: number, c: number) => [number, number];
     readonly replica_brief: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly replica_conversations: (a: number) => [number, number, number];
     readonly replica_eventCount: (a: number) => number;

@@ -7,10 +7,12 @@ import { Eyebrow } from "./primitives.tsx";
 export function Landing({
   onOpenPackage,
   onOpenHistory,
+  onConnectLive,
   error,
 }: {
   onOpenPackage: (file: File) => void;
   onOpenHistory: (file: File) => void;
+  onConnectLive: () => void;
   error: string | null;
 }) {
   const [hovering, setHovering] = useState(false);
@@ -57,18 +59,23 @@ export function Landing({
         />
       </label>
 
-      <label className="mt-6 cursor-pointer text-center font-mono text-2xs text-ink-faint transition-colors hover:text-clay">
-        or open a history file to see trends over time
-        <input
-          type="file"
-          accept=".jsonl,application/json"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) onOpenHistory(file);
-          }}
-        />
-      </label>
+      <div className="mt-6 flex flex-col items-center gap-2 font-mono text-2xs text-ink-faint">
+        <button onClick={onConnectLive} className="transition-colors hover:text-clay">
+          or connect to a running agent to tail it live
+        </button>
+        <label className="cursor-pointer transition-colors hover:text-clay">
+          or open a history file to see trends over time
+          <input
+            type="file"
+            accept=".jsonl,application/json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onOpenHistory(file);
+            }}
+          />
+        </label>
+      </div>
 
       {error && <p className="mt-5 text-center font-mono text-xs text-clay">{error}</p>}
     </div>

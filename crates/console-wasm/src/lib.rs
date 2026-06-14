@@ -91,6 +91,25 @@ impl Replica {
         Ok(replica)
     }
 
+    /// Append a JSON-encoded `Event[]` tail to the log without re-folding — the live console's
+    /// catch-up poll (spec §Observability → live phase). New events are merged in `seq` order; any
+    /// at or below the current log head are dropped as a poll-overlap re-delivery. The fold horizon
+    /// is left untouched, so the caller chooses whether to advance it (follow the head) or hold it
+    /// (time-travel pinned) with a subsequent `foldTo`.
+    pub fn append(&mut self, events_json: &[u8]) -> Result<(), JsError> {
+        let mut incoming: Vec<Event> = serde_json::from_slice(events_json)
+            .map_err(|error| JsError::new(&format!("console: parsing the event tail: {error}")))?;
+        let log_head = self
+            .events
+            .last()
+            .map(|event| event.seq)
+            .unwrap_or(Seq::ZERO);
+        incoming.retain(|event| event.seq > log_head);
+        incoming.sort_by_key(|event| event.seq);
+        self.events.extend(incoming);
+        Ok(())
+    }
+
     /// The number of events in the log (independent of the fold horizon).
     #[wasm_bindgen(getter, js_name = eventCount)]
     pub fn event_count(&self) -> usize {

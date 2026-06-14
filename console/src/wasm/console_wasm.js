@@ -16,6 +16,22 @@ export class Replica {
         wasm.__wbg_replica_free(ptr, 0);
     }
     /**
+     * Append a JSON-encoded `Event[]` tail to the log without re-folding — the live console's
+     * catch-up poll (spec §Observability → live phase). New events are merged in `seq` order; any
+     * at or below the current log head are dropped as a poll-overlap re-delivery. The fold horizon
+     * is left untouched, so the caller chooses whether to advance it (follow the head) or hold it
+     * (time-travel pinned) with a subsequent `foldTo`.
+     * @param {Uint8Array} events_json
+     */
+    append(events_json) {
+        const ptr0 = passArray8ToWasm0(events_json, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.replica_append(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Re-derive a session's contextual brief and the trace of how it was composed — every memory the
      * composer considered and, per entry, the visibility verdict and whether it reached the brief.
      * The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
