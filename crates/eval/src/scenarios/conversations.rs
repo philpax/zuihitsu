@@ -221,14 +221,18 @@ impl Scenario for ConflictingAccounts {
             "Heads up for everyone: the all-hands next week is in the main auditorium.",
         ))
         .await?;
-        // Erin contradicts it — a genuine conflicting account, no retraction by Phil.
+        // Erin contradicts it — a genuine conflicting account, no retraction by Phil. She asserts a
+        // firm competing *present* belief, not an announced change ("it got moved to ...") and not a
+        // hedged "I'm not sure": the two accounts stand side by side as a flat contradiction, so the
+        // right operation is to arbitrate (keeping both), not to supersede one with a newer value, and
+        // not to soften it into "unconfirmed" prose the synthesis narrates but never records.
         ctx.turn(
             Turn::new(
                 "discord",
                 "team-room",
                 "erin",
-                "Wait, that's not what I heard — I'm fairly sure the all-hands got moved to the rooftop \
-                 terrace. Worth double-checking.",
+                "Wait, that's not what I heard — it's in the rooftop terrace, not the auditorium. \
+                 Let's get that straightened out.",
             )
             .with_present(&["phil", "erin"]),
         )
@@ -248,7 +252,10 @@ impl Scenario for ConflictingAccounts {
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
-        let arbitrated = !analysis::arbitrations(events).is_empty();
+        // A genuine both-stand arbitration (crediting neither account), not merely any arbitration: an
+        // arbitration that credits a side is supersession by another name, which is what the scenario
+        // says not to do ("both should stand, not overwrite to whoever spoke last").
+        let arbitrated = analysis::both_stand_arbitration(events);
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let judged = judge
             .assess(

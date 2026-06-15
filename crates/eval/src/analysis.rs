@@ -210,6 +210,19 @@ pub fn arbitrations(events: &[Event]) -> Vec<String> {
         .collect()
 }
 
+/// Whether the run recorded a *both-stand* arbitration: one that credits neither competing entry
+/// (`credited` empty), keeping both accounts standing rather than resolving the contradiction to one
+/// side. This is the faithful signal for a genuine unresolved conflict — distinct from an arbitration
+/// that credits a side, which is supersession by another name (one account chosen over the other).
+pub fn both_stand_arbitration(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::BeliefArbitrated { resolution, .. } if resolution.credited.is_empty()
+        )
+    })
+}
+
 /// Whether the run recorded any recurring occurrence — emitted inline on a content append or resolved
 /// by the turn-end temporal extraction. Either path proves the model produced a `Recurring` reference
 /// rather than flattening "every Tuesday" to a single day.
