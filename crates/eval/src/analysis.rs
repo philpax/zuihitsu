@@ -2,16 +2,20 @@
 //! assessment is a pure function of the log). Everything here is a query over `&[Event]`, so it works
 //! identically on a live run and on a stored package being re-assessed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use zuihitsu::{Event, EventPayload, Initiation, MemoryId, TemporalRef, TurnRole, Visibility};
+use zuihitsu::{
+    Event, EventPayload, Initiation, MemoryId, Teller, TemporalRef, TurnRole, Visibility,
+};
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
-/// landed on, its text, and the visibility it was written with.
+/// landed on, its text, the visibility it was written with, and who it is attributed to (so an oracle
+/// can catch a relayed fact re-recorded under the wrong teller).
 pub struct EntryFacts {
     pub memory: String,
     pub text: String,
     pub visibility: Visibility,
+    pub told_by: Teller,
 }
 
 /// Every agent reply to a participant, in order. Only `Responding` turns count: an `Initiated` agent
@@ -128,15 +132,36 @@ pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
                 id,
                 text,
                 visibility,
+                told_by,
                 ..
             } => Some(EntryFacts {
                 memory: names.get(id).cloned().unwrap_or_default(),
                 text: text.clone(),
                 visibility: visibility.clone(),
+                told_by: told_by.clone(),
             }),
             _ => None,
         })
         .collect()
+}
+
+/// How many distinct conversation participants are credited as the teller of a non-Public entry on a
+/// memory whose name contains `subject`. A confidence about `subject` should be held under exactly its
+/// one original teller; a count above one means it was re-recorded under a second teller — typically
+/// the current speaker when the agent redundantly re-wrote a fact it already held — which silently
+/// re-keys whose private note it is and can later surface the confidence to the wrong person.
+pub fn private_tellers_of(events: &[Event], subject: &str) -> usize {
+    let subject = subject.to_lowercase();
+    let mut tellers = BTreeSet::new();
+    for entry in entries(events) {
+        if entry.visibility != Visibility::Public
+            && entry.memory.to_lowercase().contains(&subject)
+            && let Teller::Participant(id) = entry.told_by
+        {
+            tellers.insert(id);
+        }
+    }
+    tellers.len()
 }
 
 /// Each memory's latest synthesized description (the always-visible summary), as `(name, text)`. A
@@ -152,6 +177,15 @@ pub fn descriptions(events: &[Event]) -> Vec<(String, String)> {
     latest
         .into_iter()
         .map(|(id, text)| (names.get(&id).cloned().unwrap_or_default(), text))
+        .collect()
+}
+
+/// The names of every memory minted in the run whose name begins with `prefix` (e.g. `event/`), for
+/// asserting the agent reused an existing memory rather than creating a duplicate of the same entity.
+pub fn memories_in_namespace(events: &[Event], prefix: &str) -> Vec<String> {
+    memory_names(events)
+        .into_values()
+        .filter(|name| name.starts_with(prefix))
         .collect()
 }
 

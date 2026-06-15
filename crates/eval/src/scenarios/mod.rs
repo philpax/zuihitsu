@@ -9,6 +9,7 @@ mod description;
 mod privacy;
 mod recall;
 mod relations;
+mod reuse;
 mod scheduling;
 mod tagging;
 
@@ -20,6 +21,7 @@ use crate::scenario::Scenario;
 pub fn all() -> Vec<Arc<dyn Scenario>> {
     [
         recall::scenarios(),
+        reuse::scenarios(),
         tagging::scenarios(),
         relations::scenarios(),
         scheduling::scenarios(),
