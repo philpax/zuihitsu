@@ -35,10 +35,43 @@ impl Graph {
             | EventPayload::ConfigSet { .. }
             | EventPayload::LuaExecuted { .. }
             | EventPayload::ConversationTurn { .. } => {}
-            // Log-only telemetry, read from the log rather than projected: the agent's belief
-            // arbitration (spec §Write path → arbitration), and the model-interaction record (spec
-            // §Observability), which is replay-inert by construction.
-            EventPayload::BeliefArbitrated { .. } | EventPayload::ModelCalled { .. } => {}
+            // The model-interaction record is log-only telemetry, read from the log rather than
+            // projected (spec §Observability), and replay-inert by construction.
+            EventPayload::ModelCalled { .. } => {}
+            // The arbitration's reconciling resolution stays a log-only audit record, but its
+            // unresolved competing entries are projected so reads can mark a fact as disputed (spec
+            // §Write path → arbitration). Each synthesis cycle replaces the memory's prior dispute
+            // state; a resolution that credits a side clears it, since the disagreement is settled.
+            // The "≥2 live competing entries" rule is applied at read time, so superseding one
+            // account ends the dispute without a second apply pass.
+            EventPayload::BeliefArbitrated {
+                memory,
+                competing_entries,
+                resolution,
+                ..
+            } => {
+                self.conn
+                    .execute(
+                        "DELETE FROM entry_disputes WHERE memory_id = ?1",
+                        params![memory.0.to_string()],
+                    )
+                    .map_err(backend)?;
+                if resolution.credited.is_empty() {
+                    for entry in competing_entries {
+                        self.conn
+                            .execute(
+                                "INSERT OR REPLACE INTO entry_disputes (entry_id, memory_id, statement)
+                                 VALUES (?1, ?2, ?3)",
+                                params![
+                                    entry.0.to_string(),
+                                    memory.0.to_string(),
+                                    resolution.statement
+                                ],
+                            )
+                            .map_err(backend)?;
+                    }
+                }
+            }
             EventPayload::MemoryCreated { id, name } => {
                 // A lone memory is its own class; a later same_as merge recomputes class_id.
                 self.conn
@@ -575,7 +608,7 @@ mod tests {
 
     use super::Graph;
     use crate::{
-        event::{Event, EventPayload, Teller, Visibility},
+        event::{ArbitrationResolution, Event, EventPayload, Teller, Visibility},
         ids::{EntryId, MemoryId, MemoryName, Seq},
         time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, TemporalRef, Timestamp},
     };
@@ -715,5 +748,85 @@ mod tests {
             )
             .unwrap();
         assert_eq!(sort_after, Some(anchor_at + BEFORE_AFTER_EPSILON_MILLIS));
+    }
+
+    /// An unresolved arbitration (crediting neither side) projects its competing entries as disputed;
+    /// crediting a side clears them, superseding one account drops the dispute (the ≥2-live rule), and
+    /// a fresh arbitration replaces the prior memory's state.
+    #[test]
+    fn disputed_entries_track_the_latest_unresolved_arbitration() {
+        let mut graph = Graph::open_in_memory().unwrap();
+        let memory = MemoryId::generate();
+        let a = EntryId::generate();
+        let b = EntryId::generate();
+        let append = |seq, entry, text: &str| {
+            event(
+                seq,
+                EventPayload::MemoryContentAppended {
+                    id: memory,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at: None,
+                    text: text.to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            )
+        };
+        let arbitrate = |seq, credited: Vec<EntryId>| {
+            event(
+                seq,
+                EventPayload::BeliefArbitrated {
+                    memory,
+                    competing_entries: vec![a, b],
+                    resolution: ArbitrationResolution {
+                        credited,
+                        statement: "one says auditorium, another rooftop".to_owned(),
+                    },
+                    produced_by: None,
+                },
+            )
+        };
+        graph
+            .apply(&event(
+                1,
+                EventPayload::MemoryCreated {
+                    id: memory,
+                    name: MemoryName::new("event/all-hands"),
+                },
+            ))
+            .unwrap();
+        graph.apply(&append(2, a, "in the auditorium")).unwrap();
+        graph.apply(&append(3, b, "on the rooftop")).unwrap();
+
+        // Unresolved: both competing entries are disputed.
+        graph.apply(&arbitrate(4, vec![])).unwrap();
+        assert_eq!(
+            graph.disputed_entries(memory).unwrap(),
+            [a, b].into_iter().collect()
+        );
+
+        // Crediting a side settles it: nothing disputed.
+        graph.apply(&arbitrate(5, vec![a])).unwrap();
+        assert!(graph.disputed_entries(memory).unwrap().is_empty());
+
+        // Back to unresolved, then supersede one account — one live competitor is not a dispute.
+        graph.apply(&arbitrate(6, vec![])).unwrap();
+        let c = EntryId::generate();
+        graph
+            .apply(&append(7, c, "confirmed: the rooftop"))
+            .unwrap();
+        graph
+            .apply(&event(
+                8,
+                EventPayload::MemorySuperseded {
+                    id: memory,
+                    entry: a,
+                    superseded_by: c,
+                },
+            ))
+            .unwrap();
+        assert!(graph.disputed_entries(memory).unwrap().is_empty());
     }
 }

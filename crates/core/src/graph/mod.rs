@@ -201,6 +201,13 @@ impl Graph {
              CREATE INDEX IF NOT EXISTS idx_entries_pending_wakeup
                  ON content_entries(occurred_sort)
                  WHERE fired_at IS NOT NULL AND surfaced_at IS NULL;
+             CREATE TABLE IF NOT EXISTS entry_disputes (
+                 entry_id  TEXT PRIMARY KEY,
+                 memory_id TEXT NOT NULL,
+                 statement TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_entry_disputes_memory
+                 ON entry_disputes(memory_id);
              CREATE TABLE IF NOT EXISTS tags (
                  name        TEXT PRIMARY KEY,
                  description TEXT NOT NULL

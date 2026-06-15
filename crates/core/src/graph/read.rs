@@ -406,6 +406,30 @@ impl Graph {
         )
     }
 
+    /// The entries of `id` currently under an unresolved belief arbitration — the facts the agent
+    /// should surface as contested rather than assert as settled (spec §Write path → arbitration). An
+    /// entry is disputed when it is a competing entry of the memory's latest arbitration, that
+    /// arbitration credited neither side, and at least two of its competing entries are still live —
+    /// so superseding one account (resolving the conflict) ends the dispute without a fresh
+    /// arbitration. Keyed on the memory itself; a merged class's cross-stub disputes are out of scope
+    /// until agent-driven merge lands.
+    pub fn disputed_entries(&self, id: MemoryId) -> Result<BTreeSet<EntryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT ed.entry_id FROM entry_disputes ed
+             JOIN content_entries ce ON ce.entry_id = ed.entry_id
+             WHERE ed.memory_id = ?1 AND ce.superseded_by IS NULL",
+        )?;
+        let live: Vec<EntryId> = query_map_into(stmt, params![id.0.to_string()], |row| {
+            let entry_id: String = row.get(0)?;
+            Ok::<_, GraphError>(EntryId(parse_ulid(&entry_id)?))
+        })?;
+        Ok(if live.len() >= 2 {
+            live.into_iter().collect()
+        } else {
+            BTreeSet::new()
+        })
+    }
+
     /// A single entry by id, with its live owning memory — or `None` if the entry is unknown or its
     /// memory is soft-deleted. The visibility predicate needs both: the entry's teller/visibility and
     /// the memory's subject. Used to resolve and filter an entry-vector search hit.
