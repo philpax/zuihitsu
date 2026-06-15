@@ -583,7 +583,10 @@ async fn lua_executed_records_the_script_result_and_touched_set() {
             _ => None,
         })
         .expect("a LuaExecuted event");
-    assert_eq!(recorded.0.as_deref(), Some("done"));
+    // The script result is recorded, now trailed by the committed-effects summary the agent also saw.
+    let recorded_result = recorded.0.as_deref().expect("a recorded result");
+    assert!(recorded_result.starts_with("done"));
+    assert!(recorded_result.contains("Committed: created place/sydney"));
     assert_eq!(recorded.1.len(), 1); // touched the one created memory
 }
 
@@ -774,7 +777,9 @@ async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(result, "live=1 history=2");
+    // The returned value, now trailed by the committed-effects summary (including the supersession).
+    assert!(result.starts_with("live=1 history=2"));
+    assert!(result.contains("superseded an entry on person/dave"));
 
     // Committed and projected: the live read shows only the correction; history shows both, with the
     // superseded entry's pointer stamped.
@@ -821,7 +826,7 @@ async fn entries_render_as_their_text_and_concatenate() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(result, "first: climbs on Tuesdays");
+    assert!(result.starts_with("first: climbs on Tuesdays"));
 }
 
 #[tokio::test]
@@ -1220,5 +1225,47 @@ async fn the_block_vm_is_sandboxed_against_host_access() {
         "",
         "these host globals must not be reachable from a block: {}",
         result.trim()
+    );
+}
+
+#[tokio::test]
+async fn a_write_block_reports_what_it_committed() {
+    // A write block returns nil, which alone tells the agent nothing about whether its create and
+    // append landed. The committed-effects summary stands in for that bare nil, so the agent sees its
+    // writes took and does not re-issue them next turn (the soak-observed double-record). A read-only
+    // query keeps its own rendered result, unchanged.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local plan = memory.create("topic/q3_plan")
+        plan:append("Ship the database migration", { visibility = "public" })
+        plan:append("Refresh the marketing site", { visibility = "public" })
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.contains("Committed: created topic/q3_plan"),
+        "the write block should report its create: {result:?}"
+    );
+    assert!(
+        result.contains("appended 2 entries to topic/q3_plan"),
+        "the write block should report its appends: {result:?}"
+    );
+
+    // A read-only query in the same session reports its rendered value, with no commit summary.
+    let outcome = h
+        .run(r#"return #memory.get("topic/q3_plan"):entries()"#)
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "2");
+    assert!(
+        !result.contains("Committed:"),
+        "a read-only query should carry no commit summary: {result:?}"
     );
 }
