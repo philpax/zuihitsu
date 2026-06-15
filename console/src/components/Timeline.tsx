@@ -1,5 +1,6 @@
 import type { Event } from "../types/Event.ts";
 import { eventSummary } from "../lib/events.ts";
+import { formatDate, formatDateTime, formatTime } from "../lib/format.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The global time cursor for the run-scoped views: a sticky scrubber over the run's seq range that
@@ -21,6 +22,9 @@ export function Timeline({
   const current = events.find((event) => event.seq === seq) ?? null;
   const nameById = namesUpTo(events, seq);
   const atHead = seq >= head;
+  // The run's span, for the dates flanking the scrubber (events arrive in seq order).
+  const first = events[0] ?? null;
+  const last = events[events.length - 1] ?? null;
 
   return (
     <footer className="sticky bottom-0 border-t border-line bg-paper/95 py-3 backdrop-blur">
@@ -35,9 +39,18 @@ export function Timeline({
             seq {seq} / {head}
           </button>
           {current && (
-            <span className="truncate text-ink-faint">
-              · {current.payload.type} {eventSummary(current.payload, nameById)}
-            </span>
+            <>
+              <time
+                className="shrink-0 text-ink-faint"
+                dateTime={new Date(current.recorded_at).toISOString()}
+                title={formatDateTime(current.recorded_at)}
+              >
+                · {formatTime(current.recorded_at)}
+              </time>
+              <span className="truncate text-ink-faint">
+                · {current.payload.type} {eventSummary(current.payload, nameById)}
+              </span>
+            </>
           )}
         </div>
       </div>
@@ -49,6 +62,12 @@ export function Timeline({
         onChange={(event) => onScrub(Number(event.target.value))}
         className="w-full accent-clay"
       />
+      {first && last && (
+        <div className="mt-1 flex justify-between font-mono text-2xs text-ink-faint/70">
+          <span>{formatDate(first.recorded_at)}</span>
+          <span>{formatDate(last.recorded_at)}</span>
+        </div>
+      )}
     </footer>
   );
 }

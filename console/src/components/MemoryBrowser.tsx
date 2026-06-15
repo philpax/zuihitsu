@@ -4,6 +4,7 @@ import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import type { EntryView, MemoryDetail, MemoryView } from "../lib/graph.ts";
 import { isPrivate, nameById, tellerLabel, visibilityLabel } from "../lib/labels.ts";
+import { formatDateTime } from "../lib/format.ts";
 import {
   type Arbitration,
   type RecurringItem,
@@ -253,6 +254,9 @@ function MemoryDetailPane({
             same as {classPeers.map((peer) => peer.name).join(", ")}
           </p>
         )}
+        <p className="mt-3 font-mono text-2xs text-ink-faint">
+          created {formatDateTime(memory.created_at)}
+        </p>
       </header>
 
       <Section label={`contents · ${entries.length}`}>
@@ -353,6 +357,10 @@ function EntryItem({
         <span className={priv ? "text-clay" : undefined}>
           {visibilityLabel(entry.visibility, nameById)}
         </span>
+        <span className="text-ink-faint/45">·</span>
+        <time dateTime={new Date(entry.asserted_at).toISOString()}>
+          {formatDateTime(entry.asserted_at)}
+        </time>
       </p>
     </li>
   );

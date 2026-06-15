@@ -10,6 +10,7 @@ import {
   eventTouchesMemory,
 } from "../lib/events.ts";
 import { nameById } from "../lib/labels.ts";
+import { formatDateTime, formatTime } from "../lib/format.ts";
 import { useStreamBase } from "../lib/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "./EventDetail.tsx";
@@ -137,7 +138,7 @@ export function EventsView({
             <li key={event.seq} className="border-b border-line/60">
               <button
                 onClick={() => setExpanded(open ? null : event.seq)}
-                className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr] sm:gap-4"
+                className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr_auto] sm:gap-4"
               >
                 <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
                   {event.seq}
@@ -164,6 +165,13 @@ export function EventsView({
                 >
                   {summary}
                 </span>
+                <time
+                  className="hidden shrink-0 text-right text-ink-faint sm:block"
+                  dateTime={new Date(event.recorded_at).toISOString()}
+                  title={formatDateTime(event.recorded_at)}
+                >
+                  {formatTime(event.recorded_at)}
+                </time>
               </button>
               {open && (
                 <div className="border-l-2 border-line py-3 pl-4 pr-2">
@@ -172,6 +180,7 @@ export function EventsView({
                     nameById={names}
                     base={base}
                     seq={event.seq}
+                    recordedAt={event.recorded_at}
                   />
                 </div>
               )}

@@ -85,6 +85,7 @@ export interface TurnModel {
 /// payload so a row can expand into the same specialized viewer the Events tab uses.
 export interface TurnOutcome {
   seq: number;
+  recordedAt: number;
   type: EventPayload["type"];
   category: EventCategory;
   summary: string;
@@ -173,7 +174,12 @@ export function buildConversations(
   // A wake-up surfaces just before the Initiated turn it raises; hold it until that turn claims it.
   let pendingWakeup: string | null = null;
   const touchedByTurn = new Map<string, Set<string>>();
-  const candidates: Array<{ turnId: string; seq: number; payload: EventPayload }> = [];
+  const candidates: Array<{
+    turnId: string;
+    seq: number;
+    recordedAt: number;
+    payload: EventPayload;
+  }> = [];
 
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     const payload = event.payload;
@@ -254,7 +260,12 @@ export function buildConversations(
       }
       default: {
         if (currentTurnId && OUTCOME_TYPES.has(payload.type)) {
-          candidates.push({ turnId: currentTurnId, seq: event.seq, payload });
+          candidates.push({
+            turnId: currentTurnId,
+            seq: event.seq,
+            recordedAt: event.recorded_at,
+            payload,
+          });
         }
       }
     }
@@ -263,7 +274,7 @@ export function buildConversations(
   // Attribute outcomes: a write belongs to a turn only if the turn's blocks touched its memory (or
   // it is a schema event — a tag/relation registration — with no memory to key on). Candidates are
   // in seq order, so outcomes land in order.
-  for (const { turnId, seq, payload } of candidates) {
+  for (const { turnId, seq, recordedAt, payload } of candidates) {
     const turnModel = turns.get(turnId);
     if (!turnModel) continue;
     const ids = outcomeMemoryIds(payload);
@@ -271,6 +282,7 @@ export function buildConversations(
     if (ids.length === 0 || ids.some((id) => touched?.has(id) ?? false)) {
       turnModel.outcomes.push({
         seq,
+        recordedAt,
         type: payload.type,
         category: eventCategory(payload.type),
         summary: eventSummary(payload, nameById),

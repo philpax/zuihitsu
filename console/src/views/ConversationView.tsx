@@ -14,7 +14,7 @@ import {
   buildConversations,
 } from "../lib/conversation.ts";
 import { type ModelInteraction, buildInteractions, tokenBudgetAt } from "../lib/interactions.ts";
-import { formatDate, formatDateTime, formatMs, formatTime, formatTokens } from "../lib/format.ts";
+import { formatDateTime, formatMs, formatTime, formatTokens } from "../lib/format.ts";
 import { imprint } from "../lib/operator.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
 import { Eyebrow } from "../components/primitives.tsx";
@@ -485,7 +485,7 @@ function SessionDivider({ session, first }: { session: SessionModel; first: bool
       <span className="flex items-baseline gap-2 font-mono text-2xs uppercase tracking-widest">
         <span>{label}</span>
         <span className="tracking-normal text-ink-faint normal-case">
-          {formatDate(session.startedAt)}
+          {formatDateTime(session.startedAt)}
         </span>
       </span>
       <span className="h-px flex-1 bg-line" />

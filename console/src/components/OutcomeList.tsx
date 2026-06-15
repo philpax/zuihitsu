@@ -62,6 +62,7 @@ function OutcomeRow({
             nameById={nameById}
             base={base}
             seq={outcome.seq}
+            recordedAt={outcome.recordedAt}
           />
         </div>
       )}
