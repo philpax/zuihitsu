@@ -292,8 +292,13 @@ fn default_templates() -> Vec<TemplateDef> {
                    `statement`. Two accounts of the same fact attributed to different people — \"one \
                    says X, another says Y\" about the same thing — still contradict and should be \
                    arbitrated; do not treat them as compatible merely because each holds as someone's \
-                   account. Only for genuine contradictions — not a fact being added, refined, or \
-                   updated over time.",
+                   account. The `description` and the `arbitration` are not alternatives: if your \
+                   description notes that the accounts disagree, conflict, or leave something unsettled \
+                   between two values (\"conflicting reports\", \"either X or Y\", \"although Erin \
+                   believes Z\"), you must also fill `arbitration` — narrating the conflict in prose \
+                   without recording it structurally is the omission this field exists to catch, since \
+                   only the structured record lets the disagreement be surfaced later. Only for genuine \
+                   contradictions — not a fact being added, refined, or updated over time.",
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
