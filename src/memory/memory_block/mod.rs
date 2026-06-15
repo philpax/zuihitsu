@@ -68,15 +68,13 @@ pub struct MemoryBlock {
 pub struct EntryRef {
     pub entry_id: EntryId,
     pub text: String,
-}
-
-impl EntryRef {
-    fn from_view(entry: EntryView) -> EntryRef {
-        EntryRef {
-            entry_id: entry.entry_id,
-            text: entry.text,
-        }
-    }
+    /// How widely the entry may surface — so a read renders it self-describingly and the agent sees at
+    /// a glance whether a fact is a confidence to hold (`PrivateToTeller`/`Exclude`) or freely shareable.
+    pub visibility: Visibility,
+    /// Who the entry is attributed to, resolved to a readable label ("person/erin", "you" for the
+    /// agent's own note) — so a read shows where a fact came from, which is what tells the agent whose
+    /// confidence it is.
+    pub teller: String,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -401,7 +399,7 @@ impl MemoryBlock {
         let mut refs: Vec<EntryRef> = graph_entries
             .into_iter()
             .filter(|entry| !pending_superseded.contains(&entry.entry_id))
-            .map(EntryRef::from_view)
+            .map(|entry| self.entry_ref(entry))
             .collect();
         refs.extend(self.pending_entries(&members, &pending_superseded));
         Ok(refs)
@@ -417,7 +415,10 @@ impl MemoryBlock {
             (graph.class_members(id)?, graph.class_history(id)?)
         };
         let members = self.touch_class(id, members);
-        let mut refs: Vec<EntryRef> = graph_entries.into_iter().map(EntryRef::from_view).collect();
+        let mut refs: Vec<EntryRef> = graph_entries
+            .into_iter()
+            .map(|entry| self.entry_ref(entry))
+            .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
     }
@@ -802,14 +803,66 @@ impl MemoryBlock {
             .iter()
             .filter_map(|event| match event {
                 EventPayload::MemoryContentAppended {
-                    id, entry_id, text, ..
+                    id,
+                    entry_id,
+                    text,
+                    told_by,
+                    visibility,
+                    ..
                 } if members.contains(id) && !exclude.contains(entry_id) => Some(EntryRef {
                     entry_id: *entry_id,
                     text: text.clone(),
+                    visibility: visibility.clone(),
+                    teller: self.teller_label(told_by),
                 }),
                 _ => None,
             })
             .collect()
+    }
+
+    /// The [`EntryRef`] for an entry just appended this block (found in the buffer) — so `mem:append`
+    /// can hand back a handle that renders with the same visibility and teller a read would show.
+    pub fn entry_ref_by_id(&self, entry_id: EntryId) -> Option<EntryRef> {
+        self.buffer.iter().find_map(|event| match event {
+            EventPayload::MemoryContentAppended {
+                entry_id: appended,
+                text,
+                told_by,
+                visibility,
+                ..
+            } if *appended == entry_id => Some(EntryRef {
+                entry_id: *appended,
+                text: text.clone(),
+                visibility: visibility.clone(),
+                teller: self.teller_label(told_by),
+            }),
+            _ => None,
+        })
+    }
+
+    /// Project an [`EntryView`] into an [`EntryRef`], resolving its teller to a readable label.
+    fn entry_ref(&self, view: EntryView) -> EntryRef {
+        EntryRef {
+            entry_id: view.entry_id,
+            text: view.text,
+            visibility: view.visibility,
+            teller: self.teller_label(&view.told_by),
+        }
+    }
+
+    /// A readable label for who an entry is attributed to: the participant's canonical handle, `you`
+    /// for the agent's own observations, or `genesis` for seeded content.
+    fn teller_label(&self, teller: &Teller) -> String {
+        match teller {
+            Teller::Participant(id) => self
+                .resolve_name(*id)
+                .ok()
+                .flatten()
+                .map(|name| name.as_str().to_owned())
+                .unwrap_or_else(|| "someone".to_owned()),
+            Teller::Agent => "you".to_owned(),
+            Teller::Bootstrap => "genesis".to_owned(),
+        }
     }
 
     /// The live entry ids of `id`'s `same_as` class: committed-live (the graph already excludes

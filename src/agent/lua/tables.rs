@@ -91,12 +91,19 @@ impl Session {
                         } else {
                             lua.from_value(opts)?
                         };
-                        let entry_id = api
-                            .block
-                            .lock()
-                            .append(id, &text, opts)
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                        make_entry_handle(&lua, entry_id, &text, &entry_metatable)
+                        let entry = {
+                            let mut block = api.block.lock();
+                            let entry_id = block
+                                .append(id, &text, opts)
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                            block.entry_ref_by_id(entry_id)
+                        };
+                        let entry = entry.ok_or_else(|| {
+                            mlua::Error::runtime(
+                                "the appended entry was not found in the block buffer",
+                            )
+                        })?;
+                        make_entry_handle(&lua, &entry, &entry_metatable)
                     }
                 }
             })?,
@@ -258,10 +265,24 @@ impl Session {
     /// addressable entry for `mem:supersede`.
     pub(super) fn entry_metatable(&self) -> mlua::Result<Table> {
         let metatable = self.lua.create_table()?;
+        // An entry renders self-describingly: its text prefixed by what governs sharing it — the
+        // visibility and who it came from, e.g. "[private · from person/erin] …". So printing a memory's
+        // entries shows at a glance which are confidences to hold and whose they are, rather than bare
+        // text the agent has to reason about the provenance of separately.
         metatable.set(
             "__tostring",
-            self.lua
-                .create_function(|_, this: Table| this.get::<String>("text"))?,
+            self.lua.create_function(|_, this: Table| {
+                let text = this.get::<String>("text")?;
+                match (
+                    this.get::<Option<String>>("visibility")?,
+                    this.get::<Option<String>>("told_by")?,
+                ) {
+                    (Some(visibility), Some(teller)) => {
+                        Ok(format!("[{visibility} · from {teller}] {text}"))
+                    }
+                    _ => Ok(text),
+                }
+            })?,
         )?;
         metatable.set(
             "__concat",

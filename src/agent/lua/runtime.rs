@@ -12,7 +12,7 @@ use ulid::Ulid;
 
 use crate::{
     engine::{Engine, MemoryLocks},
-    event::TerminalCause,
+    event::{TerminalCause, Visibility},
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
@@ -187,15 +187,27 @@ pub(super) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
 /// renders as its text (`__tostring` / `__concat`) yet stays addressable for `mem:supersede`.
 pub(super) fn make_entry_handle(
     lua: &Lua,
-    entry_id: EntryId,
-    text: &str,
+    entry: &EntryRef,
     entry_metatable: &Table,
 ) -> mlua::Result<Table> {
     let handle = lua.create_table()?;
-    handle.set("id", entry_id.0.to_string())?;
-    handle.set("text", text)?;
+    handle.set("id", entry.entry_id.0.to_string())?;
+    handle.set("text", entry.text.as_str())?;
+    // Carried so a read renders self-describingly (see the entry metatable's `__tostring`) and so a
+    // script can branch on them: `entry.visibility` ("public"/"private"), `entry.told_by` (the teller).
+    handle.set("visibility", visibility_label(&entry.visibility))?;
+    handle.set("told_by", entry.teller.as_str())?;
     handle.set_metatable(Some(entry_metatable.clone()))?;
     Ok(handle)
+}
+
+/// The agent-facing label for an entry's visibility — `public` for freely surfaceable, `private` for a
+/// confidence (`PrivateToTeller`/`Exclude`) that only resurfaces to its teller.
+pub(super) fn visibility_label(visibility: &Visibility) -> &'static str {
+    match visibility {
+        Visibility::Public => "public",
+        Visibility::PrivateToTeller | Visibility::Exclude(_) => "private",
+    }
 }
 
 /// Wrap a list of entry refs as a Lua sequence of entry handles, in order — the `mem:entries()` /
@@ -207,10 +219,7 @@ pub(super) fn make_entry_handle_list(
 ) -> mlua::Result<Value> {
     let list = lua.create_table()?;
     for (index, entry) in entries.into_iter().enumerate() {
-        list.set(
-            index + 1,
-            make_entry_handle(lua, entry.entry_id, &entry.text, entry_metatable)?,
-        )?;
+        list.set(index + 1, make_entry_handle(lua, &entry, entry_metatable)?)?;
     }
     Ok(Value::Table(list))
 }
