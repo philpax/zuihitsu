@@ -429,6 +429,7 @@ mod tests {
             text: text.to_owned(),
             participant: None,
             recorded_at: Timestamp::from_millis(0),
+            committed: Vec::new(),
         }
     }
 
