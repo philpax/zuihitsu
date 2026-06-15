@@ -37,18 +37,22 @@ export function RunFrame() {
 
   const ready = replica.status === "ready" ? replica.replica : null;
 
+  // Distinct keys per sibling: the panel and the workspace both reset per run, but they must not
+  // share a key — duplicate keys among siblings break reconciliation, leaving stale panels mounted.
+  const runKey = `${scenario.meta.name}/${run.index}`;
+
   return (
     <div className="flex flex-1 gap-6 pt-7">
       <ScenarioRail pkg={pkg} active={scenario.meta.name} />
       <div className="flex min-w-0 flex-1 flex-col">
         <ScenarioSummary scenario={scenario} />
         <RunPicker scenario={scenario} active={run.index} />
-        <VerdictPanel key={`${scenario.meta.name}-${run.index}`} run={run} />
+        <VerdictPanel key={`verdict:${runKey}`} run={run} />
         {!ready ? (
           <Pending state={replica} />
         ) : (
           <StreamWorkspace
-            key={`${scenario.meta.name}-${run.index}`}
+            key={`stream:${runKey}`}
             replica={ready}
             events={run.events}
             head={ready.headSeq}
