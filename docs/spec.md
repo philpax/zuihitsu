@@ -174,13 +174,17 @@ The agent-facing way to name a specific stub is `name@platform` (for example, `p
 
 ### Stub creation on first contact
 
-The first time the agent encounters someone on a platform, it eagerly creates a `person/<handle>` stub with the platform's display name and an empty content list. An unused stub costs almost nothing; not having a node to attach a fact to mid-conversation costs a tool call at the worst moment.
+The first time the agent encounters someone on a platform, it eagerly creates a `person/*` stub for them with an empty content list. An unused stub costs almost nothing; not having a node to attach a fact to mid-conversation costs a tool call at the worst moment.
+
+The stub is named by the participant's **clean handle** — `person/dave` — and the platform-qualified form (`person/dave@discord`) is used **only to disambiguate a genuine collision**: when that clean name already belongs to a *different* identity (the same handle seen on two platforms), so two distinct people stay distinct rather than silently merging onto one node. This matters for autonomy: a person is then *one coherent memory* the agent reads and writes under a single handle, not a system-minted `@platform` stub that the agent shadows with a canonical of its own — the latter splits a person's facts across two unlinked nodes the agent has no way to reconcile (it cannot assert `same_as`; see below). The `(platform, platform_user_id)` binding lives in `ParticipantIdentified` independent of the name, so the name is free to be the clean one and to be renamed later (humanizing a raw platform id) without breaking resolution.
 
 ### Cross-platform identity is operator-asserted only
 
 A single human may appear as several stubs — you on the direct interface, you on Discord. These are reconciled by an operator assertion through the console, which emits a `LinkCreated { relation: "same_as", ... }`. There is no heuristic merging and no inference in this system: the agent never guesses that two stubs are the same person. This is the deliberate consequence of operator trust — the operator knows the truth and states it — and it is what keeps the visibility predicate simple (see below).
 
 Display-name matching, fuzzy matching, and shared-acquaintance signals do not exist here. If the agent suspects two stubs are one person it can say so in conversation, but only an operator's console assertion creates the link.
+
+The reason the gate sits *here specifically*: a `same_as` merge enables cross-context surfacing (a confidence told on one platform can reach the merged identity on another), so a wrong or socially-engineered merge is a leak — it is the one genuinely sensitive identity operation. Everything *else* about a person the agent now does autonomously: their single within-platform handle, renaming it to humanize a raw id, recording and reading their facts. Whether the agent should additionally be able to *propose* a cross-platform merge from its own judgment — recorded with provenance, conservative about surfacing until corroborated, the operator as backstop rather than the sole initiator — is the intended evolution of this gate, so that autonomy covers the routine and the gate guards only the genuinely dangerous. Not yet built; the current behavior is operator-asserted only.
 
 `same_as` is symmetric, and its equivalence classes are transitively closed at materialization time via union-find, producing a denormalized `class_id` on each memory in the projection. Membership tests, presence checks, and lock acquisition then reduce to an indexed equality on `class_id`. A merge unions two classes; an unmerge (see **Known limitations**) forces a recompute of the affected component, not a local patch. Because every link is operator-asserted, classes are small and trustworthy.
 
@@ -688,6 +692,8 @@ A turn is a loop of model *steps*. At each step the model is given the conversat
 
 Each `run_lua` execution is recorded as a `LuaExecuted` event under the rules in **Event sourcing**: what the agent saw is what's stored. The loop itself is orchestration, not agent-editable.
 
+**A block reports what it committed, and the agent re-sees that across turns.** A write block's result carries a concise summary of the effects it committed — `Committed: created topic/q3_plan; appended 2 entries to topic/q3_plan.` — so a block that returns nothing still confirms to the agent that its create or append *landed*, rather than a bare `nil` that says nothing about whether the write took. Those committed-effects summaries then persist into the cross-turn conversation buffer (alongside the reply text, but **not** the within-turn scratch — the script, the query results, the step reasoning), so on a later turn the agent re-sees what it durably wrote. This distinction — the ephemeral scratch is hidden, the durable effects are carried — is load-bearing: an agent that cannot see its own prior writes mistakes a fact surfaced in front of it (sitting in the buffer, or recalled) for something new and re-issues the write, which re-records a confidence under whoever is now speaking (silently re-keying whose private note it is) and re-dumps working state at every flush. Recording is for what is *new*; a fact already held needs no re-recording, and a question that merely surfaces something known is answered from memory, not written again.
+
 ## Server API and turn lifecycle
 
 Clients reach the server through a small API; the server owns the loop, the log, the model, and the scheduler. The surface splits by client authority (see **Clients and the server boundary**).
@@ -772,6 +778,8 @@ dave:history()
 `same_as` is auto-traversed on reads: `memory.get`, search, and `outgoing`/`incoming`/`links` surface content and links from the whole class, deduplicated, with per-stub provenance preserved. Writes are not traversed, so `dave@discord:append(...)` writes the Discord stub. A write through a class-spanning handle resolves to the class's primary stub, the right home for a platform-agnostic human-fact; to attribute to a specific platform, name the stub with `memory.get_stub(...)`.
 
 Visibility on append is given in the options table. Omit it for the write-time default (`Public` on your own memory, `PrivateToTeller` on someone else's); `visibility = "public"` → `Public`; `visibility = "private"` → `PrivateToTeller`; `visibility = { exclude = { "person/dave", erin } }` → `Exclude(set)`, with members named as handles or as Memory or participant objects.
+
+Reads render an entry **self-describingly**, prefixed by what governs sharing it — its visibility and who it came from: `mem:entries()` prints `[private · from person/erin] …`, mirroring the inline marker search hits already carry (see **Visibility → Search is a third visibility surface**), and `entry.visibility` / `entry.told_by` are exposed as fields a script can branch on. So an agent reading a person's entries sees at a glance which are confidences to hold and whose they are, rather than bare text whose provenance it must reconstruct separately — which is what lets it honor a confidence it surfaces *from memory* (recalled on a later turn, in another room) rather than only one fresh in the conversation.
 
 ### Tag operations
 
