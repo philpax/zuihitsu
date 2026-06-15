@@ -28,3 +28,13 @@ export function formatDate(ms: number): string {
     year: "numeric",
   });
 }
+
+/// Epoch milliseconds as a 24-hour clock time: `"14:32"`.
+export function formatTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+/// Epoch milliseconds as a date and time: `"13 Jun 2026, 14:32"`.
+export function formatDateTime(ms: number): string {
+  return `${formatDate(ms)}, ${formatTime(ms)}`;
+}

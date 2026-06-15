@@ -62,6 +62,9 @@ export interface SessionModel {
 export interface TurnModel {
   turnId: string;
   seq: number;
+  /// The wall-clock time the turn was committed (the `ConversationTurn` event's `recorded_at`), `0`
+  /// until that event is seen — a turn assembled only from in-flight deliberation has no time yet.
+  recordedAt: number;
   role: TurnRole;
   text: string;
   speaker: string | null;
@@ -137,6 +140,7 @@ export function buildConversations(
       model = {
         turnId,
         seq,
+        recordedAt: 0,
         role: "Agent",
         text: "",
         speaker: null,
@@ -196,6 +200,7 @@ export function buildConversations(
       case "ConversationTurn": {
         const model = turn(payload.conversation, payload.turn_id, event.seq);
         model.seq = event.seq;
+        model.recordedAt = event.recorded_at;
         model.role = payload.role;
         model.text = payload.text;
         model.speaker = name(payload.participant);

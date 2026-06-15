@@ -14,7 +14,7 @@ import {
   buildConversations,
 } from "../lib/conversation.ts";
 import { type ModelInteraction, buildInteractions, tokenBudgetAt } from "../lib/interactions.ts";
-import { formatDate, formatMs, formatTokens } from "../lib/format.ts";
+import { formatDate, formatDateTime, formatMs, formatTime, formatTokens } from "../lib/format.ts";
 import { imprint } from "../lib/operator.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
 import { Eyebrow } from "../components/primitives.tsx";
@@ -569,6 +569,15 @@ function TurnItem({ turn }: { turn: TurnModel }) {
           ) : (
             <span className="font-mono text-2xs text-ink-faint">· unprompted</span>
           ))}
+        {turn.recordedAt > 0 && (
+          <time
+            className="ml-auto shrink-0 font-mono text-2xs text-ink-faint"
+            dateTime={new Date(turn.recordedAt).toISOString()}
+            title={formatDateTime(turn.recordedAt)}
+          >
+            {formatTime(turn.recordedAt)}
+          </time>
+        )}
       </div>
       {turn.text ? (
         <p className="text-base leading-relaxed text-ink">{turn.text}</p>
