@@ -17,7 +17,7 @@ export function VerdictPanel({ run }: { run: RunRecord }) {
   const passed = run.verdicts.length - failed.length;
 
   return (
-    <section className="border-b border-line pb-3">
+    <section className="border-b border-line py-3">
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full flex-wrap items-baseline gap-x-4 gap-y-1 py-1 text-left"
