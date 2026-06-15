@@ -47,7 +47,11 @@ export function RunFrame() {
       <div className="flex min-w-0 flex-1 flex-col">
         <ScenarioSummary scenario={scenario} />
         <RunPicker scenario={scenario} active={run.index} />
-        <VerdictPanel key={`verdict:${runKey}`} run={run} />
+        <VerdictPanel
+          key={`verdict:${runKey}`}
+          run={run}
+          gating={scenario.meta.bar.kind === "gating"}
+        />
         {!ready ? (
           <Pending state={replica} />
         ) : (

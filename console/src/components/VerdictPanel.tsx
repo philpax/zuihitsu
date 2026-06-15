@@ -10,11 +10,20 @@ import { Eyebrow } from "./primitives.tsx";
 /// expanding it lists every oracle and metric the judge scored — its rationale, and the verbatim
 /// judge response behind a judged (rather than deterministically checked) criterion. Open by default
 /// when something failed, since that is the moment this panel exists for.
-export function VerdictPanel({ run }: { run: RunRecord }) {
+export function VerdictPanel({ run, gating }: { run: RunRecord; gating: boolean }) {
   const failed = run.verdicts.filter((verdict) => !verdict.passed);
   const [open, setOpen] = useState(failed.length > 0);
   const { metrics } = run;
-  const passed = run.verdicts.length - failed.length;
+  const total = run.verdicts.length;
+  const passed = total - failed.length;
+  // A gating eval's badge is the gate's outcome; a metric eval gates nothing, so its badge is the
+  // run's criteria tally instead (the gate would always read "held" and mislead).
+  const clean = gating ? metrics.gating_passed : failed.length === 0;
+  const badge = gating
+    ? metrics.gating_passed
+      ? "gating · held"
+      : "gating · regressed"
+    : `metric · ${passed}/${total} passed`;
 
   return (
     <section className="border-b border-line py-3">
@@ -26,16 +35,15 @@ export function VerdictPanel({ run }: { run: RunRecord }) {
           <span className="font-mono text-2xs text-ink-faint">{open ? "▾" : "▸"}</span>
           <span
             className={
-              "font-mono text-2xs uppercase tracking-widest " +
-              (metrics.gating_passed ? "text-sage" : "text-clay")
+              "font-mono text-2xs uppercase tracking-widest " + (clean ? "text-sage" : "text-clay")
             }
           >
-            {metrics.gating_passed ? "gating · held" : "gating · regressed"}
+            {badge}
           </span>
         </span>
-        {run.verdicts.length > 0 && (
+        {gating && total > 0 && (
           <span className="font-mono text-2xs text-ink-soft">
-            {passed}/{run.verdicts.length} criteria passed
+            {passed}/{total} criteria passed
           </span>
         )}
         <span className="ml-auto flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
