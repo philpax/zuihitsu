@@ -146,7 +146,10 @@ function RunPicker({ scenario, active }: { scenario: ScenarioReport; active: num
       <nav className="flex flex-wrap gap-1.5">
         {scenario.runs.map((run) => {
           const isActive = run.index === active;
-          const passed = run.metrics.gating_passed;
+          // A run is clean only if the gate held *and* every criterion passed — a metric-only eval
+          // gates nothing, so its failures show only in the verdicts, not in gating_passed.
+          const passed =
+            run.metrics.gating_passed && run.verdicts.every((verdict) => verdict.passed);
           // A regressed run reads in clay (border, tint, and text); the open one is filled.
           const tone = isActive
             ? passed
@@ -159,7 +162,7 @@ function RunPicker({ scenario, active }: { scenario: ScenarioReport; active: num
             <Link
               key={run.index}
               to={runPath(scenario.meta.name, run.index)}
-              title={`Run ${run.index} · ${passed ? "held" : "regressed"}`}
+              title={`Run ${run.index} · ${passed ? "passed" : "failed"}`}
               className={
                 "flex h-7 min-w-[1.75rem] items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
                 tone
