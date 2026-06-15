@@ -112,7 +112,7 @@ export function ConversationView({
 
   return (
     <ModelCalls.Provider value={modelCalls}>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-[14rem_1fr] md:gap-10">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-[11rem_1fr] md:gap-8">
         <div className="md:sticky md:top-4 md:self-start">
           <aside className="hidden flex-col gap-5 md:flex">
             {participate && (
@@ -247,7 +247,7 @@ function Room({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-prose flex-col">
+    <div className="flex w-full max-w-prose flex-col">
       <header className="mb-5 sm:mb-8">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="font-serif text-xl text-ink sm:text-2xl">{channel.label}</h2>
