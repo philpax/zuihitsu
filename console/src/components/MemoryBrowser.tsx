@@ -102,6 +102,7 @@ export function MemoryBrowser({
           arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
           recurring={recurring.get(detail.memory.id) ?? []}
           onShowEvents={onShowEvents}
+          onSelect={onSelect}
         />
       ) : (
         <div className="py-16 text-center text-sm text-ink-faint">Select a memory.</div>
@@ -202,12 +203,14 @@ function MemoryDetailPane({
   arbitrations,
   recurring,
   onShowEvents,
+  onSelect,
 }: {
   detail: MemoryDetail;
   nameById: Map<string, string>;
   arbitrations: Arbitration[];
   recurring: RecurringItem[];
   onShowEvents?: (id: string, name: string) => void;
+  onSelect: (name: string) => void;
 }) {
   const { memory, entries, history, links } = detail;
   const superseded = history.filter((entry) => entry.superseded_by !== null);
@@ -251,7 +254,13 @@ function MemoryDetailPane({
         )}
         {classPeers.length > 0 && (
           <p className="mt-3 font-mono text-2xs text-ink-faint">
-            same as {classPeers.map((peer) => peer.name).join(", ")}
+            same as{" "}
+            {classPeers.map((peer, index) => (
+              <span key={peer.id}>
+                {index > 0 && ", "}
+                <MemoryRef name={peer.name} onSelect={onSelect} />
+              </span>
+            ))}
           </p>
         )}
         <p className="mt-3 font-mono text-2xs text-ink-faint">
@@ -274,13 +283,20 @@ function MemoryDetailPane({
       {links.length > 0 && (
         <Section label={`links · ${links.length}`}>
           <ul className="flex flex-col gap-1.5 font-mono text-xs text-ink-soft">
-            {links.map((link, index) => (
-              <li key={index} className="flex items-baseline gap-2">
-                <span className="text-clay">{link.relation}</span>
-                <span className="text-ink-faint">→</span>
-                <span>{nameById.get(link.to) ?? link.to}</span>
-              </li>
-            ))}
+            {links.map((link, index) => {
+              const target = nameById.get(link.to);
+              return (
+                <li key={index} className="flex items-baseline gap-2">
+                  <span className="text-clay">{link.relation}</span>
+                  <span className="text-ink-faint">→</span>
+                  {target ? (
+                    <MemoryRef name={target} onSelect={onSelect} />
+                  ) : (
+                    <span>{link.to}</span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </Section>
       )}
@@ -329,6 +345,20 @@ function MemoryDetailPane({
         </Section>
       )}
     </article>
+  );
+}
+
+/// A link to another memory within the State view — a `same_as` peer or a relation's target — that
+/// opens it at the current fold, so the graph is walkable from the detail pane.
+function MemoryRef({ name, onSelect }: { name: string; onSelect: (name: string) => void }) {
+  return (
+    <button
+      onClick={() => onSelect(name)}
+      title={`Open ${name}`}
+      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+    >
+      {name}
+    </button>
   );
 }
 
