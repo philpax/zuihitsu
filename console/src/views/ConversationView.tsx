@@ -601,12 +601,25 @@ function TurnItem({ turn }: { turn: TurnModel }) {
           </time>
         )}
       </div>
-      {turn.text ? (
-        <p className="text-base leading-relaxed text-ink">{turn.text}</p>
-      ) : (
-        <p className="text-sm italic text-ink-faint">stayed silent</p>
-      )}
+      {/* Deliberation precedes the response — the agent thinks, then speaks. */}
       {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
+      {turn.text ? (
+        <p
+          className={
+            "text-base leading-relaxed text-ink" + (turn.deliberation.length > 0 ? " mt-3" : "")
+          }
+        >
+          {turn.text}
+        </p>
+      ) : (
+        <p
+          className={
+            "text-sm italic text-ink-faint" + (turn.deliberation.length > 0 ? " mt-3" : "")
+          }
+        >
+          stayed silent
+        </p>
+      )}
       {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
     </li>
   );
