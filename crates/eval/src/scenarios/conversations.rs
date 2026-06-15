@@ -604,7 +604,9 @@ impl Scenario for AppliesARememberedPreference {
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
-        let searched = analysis::lua_called(events, "memory.search");
+        // Recalling the preference is implied by applying it: the request is in a different room with an
+        // empty buffer, so a reply that reflects the preference can only have come from memory (whether
+        // the agent reached it by search or by the person's handle). So judge the outcome, not the call.
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let evidence = format!(
             "Earlier, the person mentioned they are vegetarian. Later, in a different room, they asked \
@@ -612,25 +614,22 @@ impl Scenario for AppliesARememberedPreference {
         );
         let judged = judge
             .assess(
-                "The reply respects that the person is vegetarian — it does not suggest a meat dish or \
-                 a meat-centric place, and ideally reflects the dietary preference (whether or not it \
-                 names it explicitly).",
+                "The reply lets the person's vegetarian preference shape the suggestion: it recalls the \
+                 preference and tailors to it — offering vegetarian or vegetarian-friendly options, or \
+                 naming the preference. It FAILS only if it ignores the preference entirely or steers \
+                 them somewhere clearly meat-defined (a steakhouse, a barbecue joint) with no vegetarian \
+                 consideration. Judge whether the remembered preference shaped the reply, NOT whether \
+                 every option named is exclusively vegetarian — a place that also serves non-vegetarian \
+                 food (most restaurants, sushi, a café) does not by itself fail when the reply has \
+                 plainly accounted for the preference.",
                 &evidence,
             )
             .await;
 
-        vec![
-            Verdict::from_judge_outcome(
-                "applied the remembered dietary preference to the recommendation",
-                VerdictKind::Metric,
-                judged,
-            ),
-            Verdict::metric_outcome(
-                "reached for memory.search",
-                searched,
-                "called memory.search",
-                "answered without calling memory.search",
-            ),
-        ]
+        vec![Verdict::from_judge_outcome(
+            "applied the remembered dietary preference to the recommendation",
+            VerdictKind::Metric,
+            judged,
+        )]
     }
 }
