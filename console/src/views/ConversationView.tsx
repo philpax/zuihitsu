@@ -14,7 +14,7 @@ import {
   buildConversations,
 } from "../lib/conversation.ts";
 import { type ModelInteraction, buildInteractions, tokenBudgetAt } from "../lib/interactions.ts";
-import { formatMs, formatTokens } from "../lib/format.ts";
+import { formatDate, formatMs, formatTokens } from "../lib/format.ts";
 import { imprint } from "../lib/operator.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
 import { Eyebrow } from "../components/primitives.tsx";
@@ -318,15 +318,7 @@ function Transcript({
         const turns = conversation.turns.filter((turn) => turn.seq >= fromSeq && turn.seq < toSeq);
         return (
           <div key={session.id}>
-            {session.compaction && (
-              <div className="my-7 flex items-center gap-3 text-clay">
-                <span className="h-px flex-1 bg-line" />
-                <span className="font-mono text-2xs uppercase tracking-widest">
-                  re-briefed · compaction
-                </span>
-                <span className="h-px flex-1 bg-line" />
-              </div>
-            )}
+            <SessionDivider session={session} first={index === 0} />
             <BriefBlock
               replica={replica}
               session={session}
@@ -460,6 +452,38 @@ function localKey(locator: ConversationLocator): string {
 
 function lastActivity(conversation: ConversationModel | null): number {
   return conversation ? conversation.turns.reduce((max, turn) => Math.max(max, turn.seq), 0) : 0;
+}
+
+/// The seam between conversations in one context. A context can hold several conversations over time
+/// — each opens its own session with a freshly composed brief — and previously the only sign of a new
+/// one was the brief reappearing. This draws the boundary plainly: a labelled rule with the date the
+/// conversation opened, reading "conversation" at the context's first, "new conversation" at each one
+/// after, and "re-briefed · compaction" when a session reopened by re-segmenting the last rather than
+/// starting fresh.
+function SessionDivider({ session, first }: { session: SessionModel; first: boolean }) {
+  const label = session.compaction
+    ? "re-briefed · compaction"
+    : first
+      ? "conversation"
+      : "new conversation";
+  return (
+    <div
+      className={
+        "flex items-center gap-3 " +
+        (first ? "mb-7" : "mb-7 mt-9 ") +
+        (session.compaction ? "text-clay" : "text-ink-soft")
+      }
+    >
+      <span className="h-px flex-1 bg-line" />
+      <span className="flex items-baseline gap-2 font-mono text-2xs uppercase tracking-widest">
+        <span>{label}</span>
+        <span className="tracking-normal text-ink-faint normal-case">
+          {formatDate(session.startedAt)}
+        </span>
+      </span>
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  );
 }
 
 function BriefBlock({
