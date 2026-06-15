@@ -7,6 +7,7 @@ import type { LiveConnection } from "../lib/live.ts";
 import { STREAM_VIEWS } from "../lib/streamViews.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/StateView.tsx";
+import { MemoryGraphView } from "../views/MemoryGraphView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
@@ -146,6 +147,7 @@ export function StreamWorkspace({
                 onShowEvents={showEvents}
               />
             )}
+            {view === "graph" && <MemoryGraphView key={cursor} replica={replica} cursor={cursor} />}
             {view === "conversation" && (
               <ConversationView
                 replica={replica}
