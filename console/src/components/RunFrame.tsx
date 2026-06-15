@@ -38,7 +38,7 @@ export function RunFrame() {
   const ready = replica.status === "ready" ? replica.replica : null;
 
   return (
-    <div className="flex flex-1 gap-6">
+    <div className="flex flex-1 gap-6 pt-7">
       <ScenarioRail pkg={pkg} active={scenario.meta.name} />
       <div className="flex min-w-0 flex-1 flex-col">
         <ScenarioSummary scenario={scenario} />
