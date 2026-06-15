@@ -32,7 +32,7 @@ impl Scenario for Knows {
             description: "Told two people are close friends, the agent should record a structured \
                           link between them (the seeded `knows` relation), not only prose."
                 .to_owned(),
-            bar: Bar::Metric { threshold: 0.6 },
+            bar: Bar::Gating,
         }
     }
 
@@ -50,7 +50,7 @@ impl Scenario for Knows {
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
         let linked = analysis::link_created_with(events, "knows");
-        vec![Verdict::metric_outcome(
+        vec![Verdict::oracle_outcome(
             "linked the two people with the knows relation",
             linked,
             "created a knows link between the two memories",

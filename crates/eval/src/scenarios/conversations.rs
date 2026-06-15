@@ -345,7 +345,7 @@ impl Scenario for AReminderComesDue {
             .await;
 
         vec![
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "the one-off wake-up fired and surfaced into a session",
                 surfaced,
                 "a fired occurrence was raised into a session",
@@ -449,13 +449,13 @@ impl Scenario for GettingToKnowSomeone {
                 VerdictKind::Metric,
                 judged,
             ),
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "accumulated the facts onto a person memory",
                 accumulated,
                 format!("{sam_entries} entries landed on a person/ memory"),
                 "the facts did not accumulate on a person/ memory",
             ),
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "superseded the stale location on the correction",
                 superseded,
                 "the Seattle entry was superseded by the Portland correction",
@@ -551,7 +551,7 @@ impl Scenario for ShiftingPlans {
                 VerdictKind::Metric,
                 judged,
             ),
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "superseded the stale date rather than leaving it standing",
                 superseded,
                 "the original date entry was superseded by the correction",

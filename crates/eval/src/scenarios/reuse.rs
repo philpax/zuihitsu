@@ -98,7 +98,7 @@ impl Scenario for UpdatesAnExistingEvent {
             .await;
 
         vec![
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "reused the existing event rather than creating a duplicate",
                 single,
                 format!("one event memory holds the launch: {event_memories:?}"),
@@ -188,7 +188,7 @@ impl Scenario for AddsToAnExistingPerson {
             .await;
 
         vec![
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "accreted onto the existing person rather than starting a second stub",
                 single,
                 format!("one memory holds Dave: {dave_memories:?}"),
@@ -218,7 +218,7 @@ impl Scenario for LinksExistingMemories {
                           says they know each other. The agent should retrieve both existing memories \
                           and link them, not mint fresh stubs to link."
                 .to_owned(),
-            bar: Bar::Metric { threshold: 0.6 },
+            bar: Bar::Gating,
         }
     }
 
@@ -270,7 +270,7 @@ impl Scenario for LinksExistingMemories {
         let no_duplicates = dave == 1 && erin == 1;
         let linked = analysis::link_created_with(events, "knows");
 
-        vec![Verdict::metric_outcome(
+        vec![Verdict::oracle_outcome(
             "linked the two existing people without minting duplicate stubs",
             no_duplicates && linked,
             "one Dave memory and one Erin memory, joined by a knows link",

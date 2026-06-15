@@ -114,6 +114,24 @@ impl Verdict {
         }
     }
 
+    /// A gating oracle whose rationale reads differently when it holds than when it does not — the
+    /// `oracle` counterpart of [`Verdict::metric_outcome`], for a deterministic correctness property
+    /// reliable enough that a regression should fail the harness rather than only lower a rate. The
+    /// `when_failed` message is what makes that failure legible.
+    pub fn oracle_outcome(
+        criterion: impl Into<String>,
+        passed: bool,
+        when_passed: impl Into<String>,
+        when_failed: impl Into<String>,
+    ) -> Verdict {
+        let rationale = if passed {
+            when_passed.into()
+        } else {
+            when_failed.into()
+        };
+        Verdict::oracle(criterion, passed, rationale, None)
+    }
+
     /// A deterministically-checked quality metric (no judge; `judge_raw` is `None`).
     pub fn metric(
         criterion: impl Into<String>,

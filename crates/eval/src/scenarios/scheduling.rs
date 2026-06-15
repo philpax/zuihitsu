@@ -98,7 +98,7 @@ impl Scenario for RecurringReminder {
                 "the recurring memory is in the event/ namespace",
                 "the recurring occurrence is not on an event/ memory",
             ),
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "the wake-up fired and surfaced into a session",
                 surfaced,
                 "a fired occurrence was raised into a session",
@@ -127,7 +127,7 @@ impl Scenario for RecurringEmission {
             description: "From a plainly recurring phrase (\"every Tuesday\"), the agent emits a \
                           recurring temporal reference rather than flattening it to a single day."
                 .to_owned(),
-            bar: Bar::Metric { threshold: 0.6 },
+            bar: Bar::Gating,
         }
     }
 
@@ -147,7 +147,7 @@ impl Scenario for RecurringEmission {
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
         let emitted = analysis::has_recurring_occurrence(events);
-        vec![Verdict::metric_outcome(
+        vec![Verdict::oracle_outcome(
             "emitted a recurring occurrence",
             emitted,
             "recorded a recurring temporal reference",

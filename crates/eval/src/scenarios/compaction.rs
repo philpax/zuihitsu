@@ -275,7 +275,7 @@ impl Scenario for RepeatedCompaction {
             )
             .await;
         vec![
-            Verdict::metric_outcome(
+            Verdict::oracle_outcome(
                 "the session compacted at least twice",
                 cuts >= 2,
                 format!("{cuts} compaction cuts occurred"),
