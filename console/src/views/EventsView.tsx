@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
@@ -31,23 +32,33 @@ export function EventsView({
   replica,
   events,
   cursor,
-  focus = null,
-  onClearFocus,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
-  /// When set, only events touching this memory are shown — the State view's "events touching this"
-  /// jump lands here. `null` shows the whole log.
-  focus?: { id: string; name: string } | null;
-  onClearFocus?: () => void;
 }) {
   const names = nameById(replica.memories(""));
   const base = useStreamBase();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The memory the view is pinned to (the State view's "events touching this" jump), carried in the
+  // URL so the focus is shareable and survives back/forward. `null` shows the whole log.
+  const focusId = searchParams.get("focus");
+  const focusName = focusId ? (names.get(focusId) ?? focusId) : null;
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+
+  function clearFocus() {
+    setSearchParams(
+      (prev) => {
+        const updated = new URLSearchParams(prev);
+        updated.delete("focus");
+        return updated;
+      },
+      { replace: true },
+    );
+  }
 
   const needle = search.trim().toLowerCase();
   const rows = events
@@ -58,7 +69,7 @@ export function EventsView({
       summary: eventSummary(event.payload, names),
     }))
     .filter(({ event, category, summary }) => {
-      if (focus && !eventTouchesMemory(event.payload, focus.id)) return false;
+      if (focusId && !eventTouchesMemory(event.payload, focusId)) return false;
       if (typeFilter && event.payload.type !== typeFilter) return false;
       if (!active.has(category)) return false;
       if (!needle) return true;
@@ -76,13 +87,13 @@ export function EventsView({
 
   return (
     <section>
-      {focus && (
+      {focusName && (
         <div className="mb-5 flex items-baseline justify-between gap-4 border-l-2 border-clay bg-clay-soft/15 py-2 pl-3 pr-2">
           <span className="font-mono text-2xs text-ink-soft">
-            events touching <span className="text-ink">{focus.name}</span>
+            events touching <span className="text-ink">{focusName}</span>
           </span>
           <button
-            onClick={onClearFocus}
+            onClick={clearFocus}
             className="shrink-0 font-mono text-2xs text-clay transition-colors hover:text-ink"
           >
             clear ✕

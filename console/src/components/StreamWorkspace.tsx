@@ -73,8 +73,6 @@ export function StreamWorkspace({
   extraViews?: ExtraView[];
 }) {
   const cursor = seq ?? head;
-  // The memory the Events view is pinned to, set by the State view's "events touching this" jump.
-  const [eventFocus, setEventFocus] = useState<{ id: string; name: string } | null>(null);
   // Which way the next view slides: +1 from the right when moving rightward along the tabs, -1 from
   // the left when moving leftward. Computed at the switch (not from a lagging ref) so it stays within
   // the Rules of React; reduced-motion flattens the slide to a quick fade.
@@ -95,12 +93,6 @@ export function StreamWorkspace({
   function selectView(next: string) {
     setDirection(tabs.indexOf(next) >= tabs.indexOf(view) ? 1 : -1);
     onSelectView(next);
-  }
-
-  // Jump from a memory in the State view to the events touching it, pinning the Events filter.
-  function showEvents(id: string, name: string) {
-    setEventFocus({ id, name });
-    selectView("events");
   }
 
   function scrub(next: number) {
@@ -143,14 +135,7 @@ export function StreamWorkspace({
             exit={{ x: direction * -shift, opacity: 0 }}
             transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
           >
-            {view === "state" && (
-              <StateView
-                replica={replica}
-                events={events}
-                cursor={cursor}
-                onShowEvents={showEvents}
-              />
-            )}
+            {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
             {view === "graph" && (
               <Suspense
                 fallback={
@@ -169,15 +154,7 @@ export function StreamWorkspace({
               />
             )}
             {view === "agenda" && <AgendaView replica={replica} events={events} cursor={cursor} />}
-            {view === "events" && (
-              <EventsView
-                replica={replica}
-                events={events}
-                cursor={cursor}
-                focus={eventFocus}
-                onClearFocus={() => setEventFocus(null)}
-              />
-            )}
+            {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
             {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
             {extra?.node}
           </motion.div>
