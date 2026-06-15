@@ -12,7 +12,9 @@ use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
     Clock, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName, MemoryStore,
     RelationName, Seq, Session, Store, TagName, Teller, TemporalRef, TerminalCause, TurnId,
-    Visibility, event::EventPayload, resolve_or_mint_conversation,
+    Visibility,
+    event::{ArbitrationResolution, EventPayload},
+    resolve_or_mint_conversation,
 };
 
 /// A block-duration budget generous enough that these in-memory blocks never trip it.
@@ -52,6 +54,74 @@ async fn block_commits_and_projects_with_read_your_writes() {
     assert_eq!(
         h.engine.graph.lock().entries_local(dave.id).unwrap().len(),
         2
+    );
+}
+
+#[tokio::test]
+async fn a_disputed_entry_reads_as_disputed() {
+    // An entry under an unresolved belief arbitration renders with a `disputed` marker on read, so the
+    // agent sees at a glance that a fact is contested and surfaces it rather than asserting it as
+    // settled (spec §Lua API → reads render self-describingly).
+    let h = Harness::new();
+    h.run(
+        r#"
+        local ev = memory.create("event/all-hands")
+        ev:append("It is in the main auditorium.", { visibility = "public" })
+        ev:append("It is on the rooftop terrace.", { visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+
+    let (memory, competing) = {
+        let graph = h.engine.graph.lock();
+        let ev = graph.memory_by_name("event/all-hands").unwrap().unwrap();
+        let competing: Vec<_> = graph
+            .entries_local(ev.id)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.entry_id)
+            .collect();
+        (ev.id, competing)
+    };
+
+    // Inject the unresolved arbitration the synthesis pass would record, and project it.
+    h.engine
+        .store
+        .lock()
+        .as_mut()
+        .append(
+            h.clock.now(),
+            vec![EventPayload::BeliefArbitrated {
+                memory,
+                competing_entries: competing,
+                resolution: ArbitrationResolution {
+                    credited: Vec::new(),
+                    statement: "one says auditorium, another rooftop".to_owned(),
+                },
+                produced_by: None,
+            }],
+        )
+        .unwrap();
+    {
+        let store = h.engine.store.lock();
+        h.engine
+            .graph
+            .lock()
+            .materialize_from(store.as_ref())
+            .unwrap();
+    }
+
+    let outcome = h
+        .run(r#"return memory.get("event/all-hands"):entries()"#)
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit");
+    };
+    assert_eq!(
+        result.matches("[disputed").count(),
+        2,
+        "both competing entries should read as disputed, got: {result}"
     );
 }
 

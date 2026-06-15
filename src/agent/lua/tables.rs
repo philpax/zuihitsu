@@ -266,22 +266,31 @@ impl Session {
     pub(super) fn entry_metatable(&self) -> mlua::Result<Table> {
         let metatable = self.lua.create_table()?;
         // An entry renders self-describingly: its text prefixed by what governs sharing it — the
-        // visibility and who it came from, e.g. "[private · from person/erin] …". So printing a memory's
-        // entries shows at a glance which are confidences to hold and whose they are, rather than bare
-        // text the agent has to reason about the provenance of separately.
+        // visibility and who it came from, and a `disputed` marker when the fact is under an unresolved
+        // arbitration, e.g. "[disputed · private · from person/erin] …". So printing a memory's entries
+        // shows at a glance which are confidences to hold, whose they are, and which are contested,
+        // rather than bare text the agent has to reason about the provenance of separately.
         metatable.set(
             "__tostring",
             self.lua.create_function(|_, this: Table| {
                 let text = this.get::<String>("text")?;
-                match (
+                let disputed = this.get::<Option<bool>>("disputed")?.unwrap_or(false);
+                let prefix = match (
                     this.get::<Option<String>>("visibility")?,
                     this.get::<Option<String>>("told_by")?,
                 ) {
-                    (Some(visibility), Some(teller)) => {
-                        Ok(format!("[{visibility} · from {teller}] {text}"))
+                    (Some(visibility), Some(teller)) if disputed => {
+                        Some(format!("disputed · {visibility} · from {teller}"))
                     }
-                    _ => Ok(text),
-                }
+                    (Some(visibility), Some(teller)) => {
+                        Some(format!("{visibility} · from {teller}"))
+                    }
+                    _ => disputed.then(|| "disputed".to_owned()),
+                };
+                Ok(match prefix {
+                    Some(prefix) => format!("[{prefix}] {text}"),
+                    None => text,
+                })
             })?,
         )?;
         metatable.set(

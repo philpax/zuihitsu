@@ -194,9 +194,12 @@ pub(super) fn make_entry_handle(
     handle.set("id", entry.entry_id.0.to_string())?;
     handle.set("text", entry.text.as_str())?;
     // Carried so a read renders self-describingly (see the entry metatable's `__tostring`) and so a
-    // script can branch on them: `entry.visibility` ("public"/"private"), `entry.told_by` (the teller).
+    // script can branch on them: `entry.visibility` ("public"/"private"), `entry.told_by` (the teller),
+    // and `entry.disputed` (true when the fact is under an unresolved arbitration, to be surfaced as
+    // contested rather than asserted as settled).
     handle.set("visibility", visibility_label(&entry.visibility))?;
     handle.set("told_by", entry.teller.as_str())?;
+    handle.set("disputed", entry.disputed)?;
     handle.set_metatable(Some(entry_metatable.clone()))?;
     Ok(handle)
 }

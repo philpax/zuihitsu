@@ -75,6 +75,10 @@ pub struct EntryRef {
     /// agent's own note) — so a read shows where a fact came from, which is what tells the agent whose
     /// confidence it is.
     pub teller: String,
+    /// Whether the entry is under an unresolved belief arbitration — a fact the agent recorded as
+    /// contested and should surface as such rather than assert as settled. Lets a read advertise the
+    /// dispute so the agent honors it when answering, instead of confidently picking one account.
+    pub disputed: bool,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -388,9 +392,13 @@ impl MemoryBlock {
     /// touches every class member, not just `id`. Each entry is addressable (by id) so the agent can
     /// hand one to [`MemoryBlock::supersede`].
     pub fn entries(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
-        let (members, graph_entries) = {
+        let (members, graph_entries, disputed) = {
             let graph = self.engine.graph.lock();
-            (graph.class_members(id)?, graph.class_entries(id)?)
+            (
+                graph.class_members(id)?,
+                graph.class_entries(id)?,
+                graph.disputed_entries(id)?,
+            )
         };
         let members = self.touch_class(id, members);
         // A supersession buffered this block (not yet committed) must hide its target from this live
@@ -399,7 +407,7 @@ impl MemoryBlock {
         let mut refs: Vec<EntryRef> = graph_entries
             .into_iter()
             .filter(|entry| !pending_superseded.contains(&entry.entry_id))
-            .map(|entry| self.entry_ref(entry))
+            .map(|entry| self.entry_ref(entry, &disputed))
             .collect();
         refs.extend(self.pending_entries(&members, &pending_superseded));
         Ok(refs)
@@ -410,14 +418,18 @@ impl MemoryBlock {
     /// Like [`MemoryBlock::entries`], a class-traversing read over the graph plus this block's pending
     /// appends; pending supersessions are *not* applied, since history keeps the superseded entries.
     pub fn history(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
-        let (members, graph_entries) = {
+        let (members, graph_entries, disputed) = {
             let graph = self.engine.graph.lock();
-            (graph.class_members(id)?, graph.class_history(id)?)
+            (
+                graph.class_members(id)?,
+                graph.class_history(id)?,
+                graph.disputed_entries(id)?,
+            )
         };
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = graph_entries
             .into_iter()
-            .map(|entry| self.entry_ref(entry))
+            .map(|entry| self.entry_ref(entry, &disputed))
             .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
@@ -814,6 +826,7 @@ impl MemoryBlock {
                     text: text.clone(),
                     visibility: visibility.clone(),
                     teller: self.teller_label(told_by),
+                    disputed: false,
                 }),
                 _ => None,
             })
@@ -835,14 +848,17 @@ impl MemoryBlock {
                 text: text.clone(),
                 visibility: visibility.clone(),
                 teller: self.teller_label(told_by),
+                disputed: false,
             }),
             _ => None,
         })
     }
 
-    /// Project an [`EntryView`] into an [`EntryRef`], resolving its teller to a readable label.
-    fn entry_ref(&self, view: EntryView) -> EntryRef {
+    /// Project an [`EntryView`] into an [`EntryRef`], resolving its teller to a readable label and
+    /// marking it disputed when it is in the memory's set of unresolved-arbitration competing entries.
+    fn entry_ref(&self, view: EntryView, disputed: &BTreeSet<EntryId>) -> EntryRef {
         EntryRef {
+            disputed: disputed.contains(&view.entry_id),
             entry_id: view.entry_id,
             text: view.text,
             visibility: view.visibility,
