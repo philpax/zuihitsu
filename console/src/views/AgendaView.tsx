@@ -1,7 +1,11 @@
+import { Link } from "react-router-dom";
+
 import type { Event } from "../types/Event.ts";
 import type { AgendaItem } from "../lib/graph.ts";
 import type { Replica } from "../lib/replica.ts";
 import { formatDate } from "../lib/format.ts";
+import { statePath } from "../lib/routes.ts";
+import { useStreamBase } from "../lib/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
 /// How far ahead recurring rules are projected (they are unbounded, so they need a horizon). One-off
@@ -22,6 +26,7 @@ export function AgendaView({
   events: Event[];
   cursor: number;
 }) {
+  const base = useStreamBase();
   const now = events.reduce(
     (max, event) => (event.seq <= cursor && event.recorded_at > max ? event.recorded_at : max),
     0,
@@ -50,7 +55,7 @@ export function AgendaView({
             </div>
             <ul className="flex flex-col gap-3 border-l border-line pl-5">
               {dayItems.map((item, index) => (
-                <AgendaRow key={index} item={item} />
+                <AgendaRow key={index} item={item} base={base} cursor={cursor} />
               ))}
             </ul>
           </li>
@@ -73,7 +78,7 @@ function Header({ now }: { now: number }) {
   );
 }
 
-function AgendaRow({ item }: { item: AgendaItem }) {
+function AgendaRow({ item, base, cursor }: { item: AgendaItem; base: string; cursor: number }) {
   const at = clockTime(item.when);
   return (
     <li className="flex items-baseline gap-3">
@@ -81,7 +86,13 @@ function AgendaRow({ item }: { item: AgendaItem }) {
       <div className="min-w-0 flex-1">
         <p className="text-sm leading-relaxed text-ink">{item.text}</p>
         <p className="mt-0.5 flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
-          <span className="truncate">{item.memory}</span>
+          <Link
+            to={statePath(base, cursor, item.memory)}
+            title={`Open ${item.memory} in State`}
+            className="truncate text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+          >
+            {item.memory}
+          </Link>
           {item.recurring && (
             <span className="shrink-0 text-sage" title="recurring">
               ↻
