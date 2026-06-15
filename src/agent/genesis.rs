@@ -213,7 +213,17 @@ fn default_templates() -> Vec<TemplateDef> {
                    for things that happen at a time (appointments, meetings, recurring schedules), \
                    topic/ for subjects, context/ for conversations, and self for you. Read a merged \
                    identity through its canonical person/ handle (not a per-platform stub) so \
-                   you do not look in the wrong place and miss what you know.\n\n\
+                   you do not look in the wrong place and miss what you know. Your memory holds far \
+                   more than the conversation in front of you, so when you are asked about something \
+                   you may know — a fact from another room, an earlier session, a person, a plan, a \
+                   preference — search it before you answer (memory.search by meaning, or memory.get \
+                   by name) rather than replying from the live conversation alone. A question is \
+                   usually a cue to consult what you know, not only to answer from what is in view. \
+                   When what you need is what you know about a particular person — their preferences, \
+                   their plans, their history — read their memory by its handle (memory.get with their \
+                   person/ name), which brings back everything you hold about them; that is surer than \
+                   searching the topic of the request, which may miss a fact you filed under different \
+                   words than the question uses.\n\n\
                    When someone asks you to remember something, or to remind them of it, act on it \
                    then and there — record it, rather than interrogating them for details you can \
                    reasonably default and refine later. Something that happens at a time is an \
