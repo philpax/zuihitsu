@@ -492,7 +492,7 @@ function SessionDivider({ session, first }: { session: SessionModel; first: bool
     <div
       className={
         "flex items-center gap-3 " +
-        (first ? "mb-7 " : "mb-7 mt-7 ") +
+        (first ? "mb-4 " : "mb-4 mt-7 ") +
         (session.compaction ? "text-clay" : "text-ink-soft")
       }
     >
