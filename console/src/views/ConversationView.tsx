@@ -1,4 +1,5 @@
 import { createContext, useContext, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import type { Event } from "../types/Event.ts";
 import type { Message } from "../types/Message.ts";
@@ -73,7 +74,10 @@ export function ConversationView({
     bySeq: new Map(buildInteractions(events, cursor).map((call) => [call.seq, call])),
     budget: tokenBudgetAt(events, cursor),
   };
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The open room rides in the URL (`?room`), so it deep-links, survives a view switch, and moves
+  // with browser back and forward like the rest of the stream's state.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedKey = searchParams.get("room");
   const [draftRoom, setDraftRoom] = useState("");
   // A room the operator named but has not sent to yet — held as its own locator rather than packed
   // into a key, so it survives until its first message creates it on the log.
@@ -106,12 +110,23 @@ export function ConversationView({
     operatorChannel ??
     null;
 
+  function selectRoom(key: string) {
+    setSearchParams(
+      (prev) => {
+        const updated = new URLSearchParams(prev);
+        updated.set("room", key);
+        return updated;
+      },
+      { replace: true },
+    );
+  }
+
   function startRoom() {
     const name = draftRoom.trim();
     if (!name) return;
     const locator = { platform: DIRECT_PLATFORM, scope_path: name };
     setPendingRoom(locator);
-    setSelectedKey(localKey(locator));
+    selectRoom(localKey(locator));
     setDraftRoom("");
   }
 
@@ -143,7 +158,7 @@ export function ConversationView({
                       key={channel.key}
                       channel={channel}
                       active={channel.key === selected?.key}
-                      onSelect={() => setSelectedKey(channel.key)}
+                      onSelect={() => selectRoom(channel.key)}
                     />
                   ))}
                 </nav>
@@ -156,7 +171,7 @@ export function ConversationView({
                     <ChannelLink
                       channel={operatorChannel}
                       active={operatorChannel.key === selected?.key}
-                      onSelect={() => setSelectedKey(operatorChannel.key)}
+                      onSelect={() => selectRoom(operatorChannel.key)}
                     />
                   </nav>
                 </div>
@@ -181,7 +196,7 @@ export function ConversationView({
                 listed={listed}
                 operatorChannel={operatorChannel}
                 selectedKey={selected?.key ?? null}
-                onSelect={setSelectedKey}
+                onSelect={selectRoom}
               />
               {participate && (
                 <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
