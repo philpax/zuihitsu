@@ -38,6 +38,8 @@ export function App() {
 function Console() {
   const navigate = useNavigate();
   const [pkg, setPkg] = useState<EvalPackage | null>(null);
+  // The package's file name, kept for the header — the package itself does not carry it.
+  const [pkgName, setPkgName] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [live, setLive] = useState<LiveConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,7 @@ function Console() {
     setReading(file.name);
     try {
       setPkg(await loadPackageFromFile(file));
+      setPkgName(file.name);
       setError(null);
       setReading(null);
       navigate("/eval");
@@ -105,7 +108,14 @@ function Console() {
             path="/eval"
             element={
               pkg ? (
-                <EvalFrame pkg={pkg} onClose={() => setPkg(null)} />
+                <EvalFrame
+                  pkg={pkg}
+                  fileName={pkgName}
+                  onClose={() => {
+                    setPkg(null);
+                    setPkgName(null);
+                  }}
+                />
               ) : (
                 <Navigate to="/" replace />
               )

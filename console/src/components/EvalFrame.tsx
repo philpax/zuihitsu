@@ -7,10 +7,19 @@ import { FrameNav } from "./FrameNav.tsx";
 
 /// The eval frame: a loaded package of many runs. The header is shared by every nested route — the
 /// Scenarios overview at the index, and a single run's deep views below it — carrying the package's
-/// model, commit, and date, with a breadcrumb back to the overview that shows while a run is open.
+/// file name, model, commit, and date, with a breadcrumb back to the overview that shows while a run
+/// is open.
 /// The package itself flows to the nested routes as the outlet context, so a run route can resolve
 /// its scenario and run from the URL against it.
-export function EvalFrame({ pkg, onClose }: { pkg: EvalPackage; onClose: () => void }) {
+export function EvalFrame({
+  pkg,
+  fileName,
+  onClose,
+}: {
+  pkg: EvalPackage;
+  fileName: string | null;
+  onClose: () => void;
+}) {
   // The active run, if any, drives the breadcrumb. `:run` is the run index; `:scenario` its name.
   const runMatch = useMatch("/eval/:scenario/:run/:view");
   const crumb = runMatch
@@ -37,8 +46,16 @@ export function EvalFrame({ pkg, onClose }: { pkg: EvalPackage; onClose: () => v
             )}
           </div>
           <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
-            <span className="hidden max-w-[16rem] truncate sm:inline">{pkg.meta.model_id}</span>
             <span className="hidden items-baseline gap-3 sm:flex">
+              {fileName && (
+                <>
+                  <span className="max-w-[14rem] truncate text-ink" title={fileName}>
+                    {fileName}
+                  </span>
+                  <Dot />
+                </>
+              )}
+              <span className="max-w-[16rem] truncate">{pkg.meta.model_id}</span>
               <Dot />
               {pkg.meta.git_sha && (
                 <>
@@ -72,7 +89,7 @@ export function EvalFrame({ pkg, onClose }: { pkg: EvalPackage; onClose: () => v
           ) : (
             <span />
           )}
-          <span className="shrink-0 truncate text-ink-faint">{pkg.meta.model_id}</span>
+          <span className="shrink-0 truncate text-ink-faint">{fileName ?? pkg.meta.model_id}</span>
         </div>
       </header>
 
