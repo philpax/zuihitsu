@@ -32,8 +32,12 @@ export function useStreamLocation(base: string): StreamLocation {
   return {
     view: params.view,
     seq,
-    selectView: (view) =>
-      navigate({ pathname: `${base}/${view}`, search: searchParams.toString() }),
+    selectView: (view) => {
+      // `?focus` is the Events view's pin; drop it when leaving so it does not linger on other views.
+      const search = new URLSearchParams(searchParams);
+      if (view !== "events") search.delete("focus");
+      navigate({ pathname: `${base}/${view}`, search: search.toString() });
+    },
     // Replace, not push, so dragging the scrubber does not bury the back button under a history entry
     // per step; the view path is left intact.
     setSeq: (next) =>
