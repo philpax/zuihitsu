@@ -147,6 +147,14 @@ function RunPicker({ scenario, active }: { scenario: ScenarioReport; active: num
         {scenario.runs.map((run) => {
           const isActive = run.index === active;
           const passed = run.metrics.gating_passed;
+          // A regressed run reads in clay (border, tint, and text); the open one is filled.
+          const tone = isActive
+            ? passed
+              ? "border-clay bg-clay-soft/25 text-ink "
+              : "border-clay bg-clay-soft/40 text-clay "
+            : passed
+              ? "border-line text-ink-soft hover:border-ink-faint "
+              : "border-clay/50 bg-clay-soft/15 text-clay hover:border-clay ";
           return (
             <Link
               key={run.index}
@@ -154,10 +162,7 @@ function RunPicker({ scenario, active }: { scenario: ScenarioReport; active: num
               title={`Run ${run.index} · ${passed ? "held" : "regressed"}`}
               className={
                 "flex h-7 min-w-[1.75rem] items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
-                (isActive
-                  ? "border-clay bg-clay-soft/20 "
-                  : "border-line hover:border-ink-faint ") +
-                (passed ? "text-ink-soft" : "text-clay")
+                tone
               }
             >
               {run.index}
