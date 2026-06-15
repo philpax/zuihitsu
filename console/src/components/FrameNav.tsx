@@ -45,7 +45,13 @@ function Section({
   onLoad: (file: File) => void;
 }) {
   if (active) {
-    return <span className="border-b-2 border-clay pb-1 text-ink">{label}</span>;
+    // A link to the section's root even while marked current, so it returns from a sub-page (a run)
+    // to the section's index (the overview) — a no-op when already there.
+    return (
+      <Link to={to} className="border-b-2 border-clay pb-1 text-ink">
+        {label}
+      </Link>
+    );
   }
   if (loaded) {
     return (
