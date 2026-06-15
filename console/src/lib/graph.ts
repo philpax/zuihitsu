@@ -64,6 +64,8 @@ export interface MemoryDetail {
   history: EntryView[];
   links: LinkView[];
   class: MemoryView[];
+  // Entry ids currently under an unresolved belief arbitration — the view marks these as disputed.
+  disputed: EntryId[];
 }
 
 export interface SessionSummary {

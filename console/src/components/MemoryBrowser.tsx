@@ -215,6 +215,7 @@ function MemoryDetailPane({
   const { memory, entries, history, links } = detail;
   const superseded = history.filter((entry) => entry.superseded_by !== null);
   const classPeers = detail.class.filter((peer) => peer.id !== memory.id);
+  const disputed = new Set(detail.disputed);
 
   return (
     <article className="max-w-prose">
@@ -274,7 +275,12 @@ function MemoryDetailPane({
         ) : (
           <ul className="flex flex-col gap-4">
             {entries.map((entry) => (
-              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} />
+              <EntryItem
+                key={entry.entry_id}
+                entry={entry}
+                nameById={nameById}
+                disputed={disputed.has(entry.entry_id)}
+              />
             ))}
           </ul>
         )}
@@ -366,10 +372,12 @@ function EntryItem({
   entry,
   nameById,
   faded,
+  disputed,
 }: {
   entry: EntryView;
   nameById: Map<string, string>;
   faded?: boolean;
+  disputed?: boolean;
 }) {
   const priv = isPrivate(entry.visibility);
   return (
@@ -382,6 +390,12 @@ function EntryItem({
         {entry.text}
       </p>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">
+        {disputed && (
+          <>
+            <span className="text-clay">disputed</span>
+            <span className="text-ink-faint/45">·</span>
+          </>
+        )}
         <span>told by {tellerLabel(entry.told_by, nameById)}</span>
         <span className="text-ink-faint/45">·</span>
         <span className={priv ? "text-clay" : undefined}>

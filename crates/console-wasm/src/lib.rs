@@ -18,7 +18,7 @@ use zuihitsu_core::{
     brief::{BriefRequest, compose_traced},
     event::{Event, EventPayload},
     graph::{EntryView, Graph, LinkView, MemoryView},
-    ids::{ConversationId, MemoryId, Seq, SessionId},
+    ids::{ConversationId, EntryId, MemoryId, Seq, SessionId},
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };
@@ -38,6 +38,9 @@ struct MemoryDetail {
     history: Vec<EntryView>,
     links: Vec<LinkView>,
     class: Vec<MemoryView>,
+    /// The entry ids currently under an unresolved belief arbitration, so the view can mark a contested
+    /// fact as disputed (the same signal the agent sees on a read).
+    disputed: Vec<EntryId>,
 }
 
 /// One item on the agent's agenda: when it occurs, the memory it lives in, the text, and whether it
@@ -185,12 +188,19 @@ impl Replica {
                 class.push(view);
             }
         }
+        let disputed = self
+            .graph
+            .disputed_entries(memory.id)
+            .map_err(graph_error)?
+            .into_iter()
+            .collect();
         to_js(&MemoryDetail {
             memory,
             entries,
             history,
             links,
             class,
+            disputed,
         })
     }
 
