@@ -81,11 +81,14 @@ export interface TurnModel {
   wakeup: string | null;
 }
 
-/// One graph-mutating event a turn produced, summarized for the transcript.
+/// One graph-mutating event a turn produced, summarized for the transcript and carrying the full
+/// payload so a row can expand into the same specialized viewer the Events tab uses.
 export interface TurnOutcome {
+  seq: number;
   type: EventPayload["type"];
   category: EventCategory;
   summary: string;
+  payload: EventPayload;
 }
 
 export type DeliberationStep =
@@ -170,7 +173,7 @@ export function buildConversations(
   // A wake-up surfaces just before the Initiated turn it raises; hold it until that turn claims it.
   let pendingWakeup: string | null = null;
   const touchedByTurn = new Map<string, Set<string>>();
-  const candidates: Array<{ turnId: string; payload: EventPayload }> = [];
+  const candidates: Array<{ turnId: string; seq: number; payload: EventPayload }> = [];
 
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     const payload = event.payload;
@@ -251,7 +254,7 @@ export function buildConversations(
       }
       default: {
         if (currentTurnId && OUTCOME_TYPES.has(payload.type)) {
-          candidates.push({ turnId: currentTurnId, payload });
+          candidates.push({ turnId: currentTurnId, seq: event.seq, payload });
         }
       }
     }
@@ -260,16 +263,18 @@ export function buildConversations(
   // Attribute outcomes: a write belongs to a turn only if the turn's blocks touched its memory (or
   // it is a schema event — a tag/relation registration — with no memory to key on). Candidates are
   // in seq order, so outcomes land in order.
-  for (const { turnId, payload } of candidates) {
+  for (const { turnId, seq, payload } of candidates) {
     const turnModel = turns.get(turnId);
     if (!turnModel) continue;
     const ids = outcomeMemoryIds(payload);
     const touched = touchedByTurn.get(turnId);
     if (ids.length === 0 || ids.some((id) => touched?.has(id) ?? false)) {
       turnModel.outcomes.push({
+        seq,
         type: payload.type,
         category: eventCategory(payload.type),
         summary: eventSummary(payload, nameById),
+        payload,
       });
     }
   }

@@ -42,6 +42,10 @@ const ModelCalls = createContext<{ bySeq: Map<number, ModelInteraction>; budget:
   budget: 0,
 });
 
+/// The id → handle map at the cursor, so a turn's outcome rows can expand into the event viewer (which
+/// resolves memory and participant ids) without drilling the map through the transcript.
+const Names = createContext<Map<string, string>>(new Map());
+
 /// The Conversation view: every room the agent speaks in, browsed from a sidebar, with each
 /// session's frozen brief and the full transcript — every agent turn openable to the reasoning and
 /// Lua behind it, and to the prompt each model call actually saw ("what was the agent thinking,"
@@ -60,9 +64,10 @@ export function ConversationView({
   cursor: number;
   participate?: Participation;
 }) {
+  const names = nameById(replica.memories(""));
   const conversations = buildConversations(
     events.filter((event) => event.seq <= cursor),
-    nameById(replica.memories("")),
+    names,
   );
   const modelCalls = {
     bySeq: new Map(buildInteractions(events, cursor).map((call) => [call.seq, call])),
@@ -112,105 +117,107 @@ export function ConversationView({
 
   return (
     <ModelCalls.Provider value={modelCalls}>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-[11rem_1fr] md:gap-8">
-        <div className="md:sticky md:top-4 md:self-start">
-          <aside className="hidden flex-col gap-5 md:flex">
-            {participate && (
-              <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
-                <span className="text-line-strong">+</span>
-                <input
-                  value={draftRoom}
-                  onChange={(event) => setDraftRoom(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && startRoom()}
-                  placeholder="new conversation"
-                  className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
-                />
-              </div>
-            )}
-
-            {listed.length === 0 && !operatorChannel ? (
-              <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
-            ) : (
-              <nav className="flex flex-col gap-1">
-                {listed.map((channel) => (
-                  <ChannelLink
-                    key={channel.key}
-                    channel={channel}
-                    active={channel.key === selected?.key}
-                    onSelect={() => setSelectedKey(channel.key)}
-                  />
-                ))}
-              </nav>
-            )}
-
-            {operatorChannel && (
-              <div className="border-t border-line pt-4">
-                <Eyebrow>operator</Eyebrow>
-                <nav className="mt-2">
-                  <ChannelLink
-                    channel={operatorChannel}
-                    active={operatorChannel.key === selected?.key}
-                    onSelect={() => setSelectedKey(operatorChannel.key)}
-                  />
-                </nav>
-              </div>
-            )}
-
-            {participate && (
-              <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
-                <Eyebrow>you are</Eyebrow>
-                <input
-                  value={participate.sender}
-                  onChange={(event) => participate.setSender(event.target.value)}
-                  placeholder="a handle"
-                  className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
-                />
-              </label>
-            )}
-          </aside>
-
-          {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
-          <div className="flex flex-col gap-3 md:hidden">
-            <ChannelSelect
-              listed={listed}
-              operatorChannel={operatorChannel}
-              selectedKey={selected?.key ?? null}
-              onSelect={setSelectedKey}
-            />
-            {participate && (
-              <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
-                <span className="flex items-baseline gap-2">
+      <Names.Provider value={names}>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-[11rem_1fr] md:gap-8">
+          <div className="md:sticky md:top-4 md:self-start">
+            <aside className="hidden flex-col gap-5 md:flex">
+              {participate && (
+                <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
                   <span className="text-line-strong">+</span>
                   <input
                     value={draftRoom}
                     onChange={(event) => setDraftRoom(event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && startRoom()}
                     placeholder="new conversation"
-                    className="w-36 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
+                    className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
                   />
-                </span>
-                <span className="flex items-baseline gap-2">
+                </div>
+              )}
+
+              {listed.length === 0 && !operatorChannel ? (
+                <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
+              ) : (
+                <nav className="flex flex-col gap-1">
+                  {listed.map((channel) => (
+                    <ChannelLink
+                      key={channel.key}
+                      channel={channel}
+                      active={channel.key === selected?.key}
+                      onSelect={() => setSelectedKey(channel.key)}
+                    />
+                  ))}
+                </nav>
+              )}
+
+              {operatorChannel && (
+                <div className="border-t border-line pt-4">
+                  <Eyebrow>operator</Eyebrow>
+                  <nav className="mt-2">
+                    <ChannelLink
+                      channel={operatorChannel}
+                      active={operatorChannel.key === selected?.key}
+                      onSelect={() => setSelectedKey(operatorChannel.key)}
+                    />
+                  </nav>
+                </div>
+              )}
+
+              {participate && (
+                <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
                   <Eyebrow>you are</Eyebrow>
                   <input
                     value={participate.sender}
                     onChange={(event) => participate.setSender(event.target.value)}
                     placeholder="a handle"
-                    className="w-24 bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none"
+                    className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
                   />
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
+                </label>
+              )}
+            </aside>
 
-        {selected ? (
-          <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
-        ) : (
-          <div className="py-24 text-center text-sm text-ink-faint">
-            {participate ? "Name a conversation to start one." : "No conversations in this run."}
+            {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
+            <div className="flex flex-col gap-3 md:hidden">
+              <ChannelSelect
+                listed={listed}
+                operatorChannel={operatorChannel}
+                selectedKey={selected?.key ?? null}
+                onSelect={setSelectedKey}
+              />
+              {participate && (
+                <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-line-strong">+</span>
+                    <input
+                      value={draftRoom}
+                      onChange={(event) => setDraftRoom(event.target.value)}
+                      onKeyDown={(event) => event.key === "Enter" && startRoom()}
+                      placeholder="new conversation"
+                      className="w-36 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
+                    />
+                  </span>
+                  <span className="flex items-baseline gap-2">
+                    <Eyebrow>you are</Eyebrow>
+                    <input
+                      value={participate.sender}
+                      onChange={(event) => participate.setSender(event.target.value)}
+                      placeholder="a handle"
+                      className="w-24 bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none"
+                    />
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+
+          {selected ? (
+            <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
+          ) : (
+            <div className="py-24 text-center text-sm text-ink-faint">
+              {participate ? "Name a conversation to start one." : "No conversations in this run."}
+            </div>
+          )}
+        </div>
+      </Names.Provider>
     </ModelCalls.Provider>
   );
 }
@@ -585,9 +592,16 @@ function TurnItem({ turn }: { turn: TurnModel }) {
         <p className="text-sm italic text-ink-faint">stayed silent</p>
       )}
       {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
-      {turn.outcomes.length > 0 && <OutcomeList outcomes={turn.outcomes} className="mt-3 gap-1" />}
+      {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
     </li>
   );
+}
+
+/// A turn's outcome rows, wired to the cursor's name map from context so each can expand into the
+/// event viewer.
+function Outcomes({ outcomes }: { outcomes: TurnModel["outcomes"] }) {
+  const names = useContext(Names);
+  return <OutcomeList outcomes={outcomes} nameById={names} className="mt-3 gap-1" />;
 }
 
 function Deliberation({ steps }: { steps: DeliberationStep[] }) {
