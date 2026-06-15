@@ -13,7 +13,7 @@ use crate::{
     event::{Cardinality, Teller, Visibility, Volatility},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     store::{Store, StoreError},
-    time::Timestamp,
+    time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };
 
@@ -41,6 +41,11 @@ pub struct EntryView {
     pub entry_id: EntryId,
     pub asserted_at: Timestamp,
     pub occurred_sort: Option<Timestamp>,
+    /// The entry's typed occurrence — when the fact happens — or `None` if undated. Carried alongside
+    /// the flattened `occurred_sort` so a read can render the date faithfully (a recurrence or range,
+    /// not just its sort instant), letting the agent see *when* on read instead of inspecting a
+    /// structured field or searching for a date that lives outside the entry text.
+    pub occurred_at: Option<TemporalRef>,
     pub text: String,
     pub told_by: Teller,
     pub told_in: Option<MemoryId>,

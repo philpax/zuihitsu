@@ -20,6 +20,7 @@ use crate::{
         search::{SearchQuery, search},
     },
     settings::Settings,
+    time,
     vocabulary::TagName,
 };
 
@@ -195,11 +196,14 @@ pub(super) fn make_entry_handle(
     handle.set("text", entry.text.as_str())?;
     // Carried so a read renders self-describingly (see the entry metatable's `__tostring`) and so a
     // script can branch on them: `entry.visibility` ("public"/"private"), `entry.told_by` (the teller),
-    // and `entry.disputed` (true when the fact is under an unresolved arbitration, to be surfaced as
-    // contested rather than asserted as settled).
+    // `entry.disputed` (true when the fact is under an unresolved arbitration), and `entry.occurred_at`
+    // (the rendered date, when the fact is dated, so a script can read *when* without reparsing).
     handle.set("visibility", visibility_label(&entry.visibility))?;
     handle.set("told_by", entry.teller.as_str())?;
     handle.set("disputed", entry.disputed)?;
+    if let Some(occurred_at) = &entry.occurred_at {
+        handle.set("occurred_at", time::format_occurrence(occurred_at))?;
+    }
     handle.set_metatable(Some(entry_metatable.clone()))?;
     Ok(handle)
 }

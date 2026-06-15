@@ -79,6 +79,9 @@ pub struct EntryRef {
     /// contested and should surface as such rather than assert as settled. Lets a read advertise the
     /// dispute so the agent honors it when answering, instead of confidently picking one account.
     pub disputed: bool,
+    /// When the fact occurs, if dated — so a read shows the date inline rather than leaving it in a
+    /// structured field the agent must inspect or search for separately. `None` for an undated note.
+    pub occurred_at: Option<TemporalRef>,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -820,6 +823,7 @@ impl MemoryBlock {
                     text,
                     told_by,
                     visibility,
+                    occurred_at,
                     ..
                 } if members.contains(id) && !exclude.contains(entry_id) => Some(EntryRef {
                     entry_id: *entry_id,
@@ -827,6 +831,7 @@ impl MemoryBlock {
                     visibility: visibility.clone(),
                     teller: self.teller_label(told_by),
                     disputed: false,
+                    occurred_at: occurred_at.clone(),
                 }),
                 _ => None,
             })
@@ -842,6 +847,7 @@ impl MemoryBlock {
                 text,
                 told_by,
                 visibility,
+                occurred_at,
                 ..
             } if *appended == entry_id => Some(EntryRef {
                 entry_id: *appended,
@@ -849,6 +855,7 @@ impl MemoryBlock {
                 visibility: visibility.clone(),
                 teller: self.teller_label(told_by),
                 disputed: false,
+                occurred_at: occurred_at.clone(),
             }),
             _ => None,
         })
@@ -863,6 +870,7 @@ impl MemoryBlock {
             text: view.text,
             visibility: view.visibility,
             teller: self.teller_label(&view.told_by),
+            occurred_at: view.occurred_at,
         }
     }
 

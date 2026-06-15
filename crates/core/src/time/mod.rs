@@ -111,6 +111,36 @@ pub fn format_day(at: Timestamp) -> String {
     format_with(at, "%a %d %b")
 }
 
+/// Render an entry's [`TemporalRef`] occurrence as a compact, human-readable phrase for a read —
+/// `2027-03-15` for a day, the instant for a precise time, a span for a range, and the rule or anchor
+/// for the vaguer forms. So a dated fact shows *when* it happens on read, rather than hiding the date
+/// in a structured field the agent has to inspect (or search for) separately.
+pub fn format_occurrence(occurred_at: &TemporalRef) -> String {
+    match occurred_at {
+        TemporalRef::Day(date) => date.0.to_string(),
+        TemporalRef::Instant(at) => format_with(*at, "%Y-%m-%d %H:%M UTC"),
+        TemporalRef::Range { start, end } => format!(
+            "{} – {}",
+            format_with(*start, "%Y-%m-%d"),
+            format_with(*end, "%Y-%m-%d")
+        ),
+        TemporalRef::Approx { center, fuzz_days } => {
+            format!(
+                "around {} (±{fuzz_days}d)",
+                format_with(*center, "%Y-%m-%d")
+            )
+        }
+        TemporalRef::Recurring(rule) => format!("recurring: {}", rule.0),
+        TemporalRef::BeforeAfter { dir, anchor } => {
+            let side = match dir {
+                Direction::Before => "before",
+                Direction::After => "after",
+            };
+            format!("{side} {}", anchor.as_str())
+        }
+    }
+}
+
 fn format_with(at: Timestamp, format: &str) -> String {
     match jiff::Timestamp::from_millisecond(at.as_millis()) {
         Ok(timestamp) => timestamp

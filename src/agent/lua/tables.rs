@@ -265,31 +265,33 @@ impl Session {
     /// addressable entry for `mem:supersede`.
     pub(super) fn entry_metatable(&self) -> mlua::Result<Table> {
         let metatable = self.lua.create_table()?;
-        // An entry renders self-describingly: its text prefixed by what governs sharing it — the
-        // visibility and who it came from, and a `disputed` marker when the fact is under an unresolved
-        // arbitration, e.g. "[disputed · private · from person/erin] …". So printing a memory's entries
-        // shows at a glance which are confidences to hold, whose they are, and which are contested,
-        // rather than bare text the agent has to reason about the provenance of separately.
+        // An entry renders self-describingly: its text prefixed by what governs reading it — when the
+        // fact occurs (if dated), a `disputed` marker when it is under an unresolved arbitration, the
+        // visibility, and who it came from, e.g. "[2027-03-15 · disputed · private · from person/erin]
+        // …". So printing a memory's entries shows at a glance when a dated fact happens, which are
+        // contested, which are confidences to hold, and whose they are — rather than bare text whose
+        // date and provenance the agent has to reconstruct (or search for) separately.
         metatable.set(
             "__tostring",
             self.lua.create_function(|_, this: Table| {
                 let text = this.get::<String>("text")?;
-                let disputed = this.get::<Option<bool>>("disputed")?.unwrap_or(false);
-                let prefix = match (
+                let mut segments = Vec::new();
+                if let Some(occurred_at) = this.get::<Option<String>>("occurred_at")? {
+                    segments.push(occurred_at);
+                }
+                if this.get::<Option<bool>>("disputed")?.unwrap_or(false) {
+                    segments.push("disputed".to_owned());
+                }
+                if let (Some(visibility), Some(teller)) = (
                     this.get::<Option<String>>("visibility")?,
                     this.get::<Option<String>>("told_by")?,
                 ) {
-                    (Some(visibility), Some(teller)) if disputed => {
-                        Some(format!("disputed · {visibility} · from {teller}"))
-                    }
-                    (Some(visibility), Some(teller)) => {
-                        Some(format!("{visibility} · from {teller}"))
-                    }
-                    _ => disputed.then(|| "disputed".to_owned()),
-                };
-                Ok(match prefix {
-                    Some(prefix) => format!("[{prefix}] {text}"),
-                    None => text,
+                    segments.push(format!("{visibility} · from {teller}"));
+                }
+                Ok(if segments.is_empty() {
+                    text
+                } else {
+                    format!("[{}] {text}", segments.join(" · "))
                 })
             })?,
         )?;

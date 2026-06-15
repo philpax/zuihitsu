@@ -126,6 +126,30 @@ async fn a_disputed_entry_reads_as_disputed() {
 }
 
 #[tokio::test]
+async fn a_dated_entry_reads_with_its_date() {
+    // A dated fact renders its occurrence inline on read, so the agent sees *when* it happens without
+    // inspecting a structured field or searching for a date that lives outside the entry text (spec
+    // §Lua API → reads render self-describingly).
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create("event/product_launch")
+        ev:append("Penciled in by Phil", { visibility = "public", occurred_at = { day = "2027-03-15" } })
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("[2027-03-15") && result.contains("Penciled in by Phil"),
+        "the dated entry should render its date inline, got: {result}"
+    );
+}
+
+#[tokio::test]
 async fn append_records_a_structured_occurred_at() {
     let h = Harness::new();
     let outcome = h

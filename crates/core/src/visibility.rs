@@ -304,6 +304,7 @@ mod tests {
             entry_id: EntryId::generate(),
             asserted_at: Timestamp::from_millis(0),
             occurred_sort: None,
+            occurred_at: None,
             text: "an aside".to_owned(),
             told_by,
             told_in: None,
