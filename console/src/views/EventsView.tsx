@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
@@ -85,6 +86,26 @@ export function EventsView({
     setActive(next);
   }
 
+  // A run's log is thousands of rows, so only the visible window is rendered. The list scrolls with
+  // the page (window virtualizer), so `scrollMargin` tracks the list's offset from the top of the
+  // document — re-measured when the layout above it changes (the verdict panel collapsing, a resize).
+  // Rows measure their own height, so an expanded row's detail is accounted for without a fixed size.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => listRef.current && setScrollMargin(listRef.current.offsetTop);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, []);
+  const virtualizer = useWindowVirtualizer({
+    count: rows.length,
+    estimateSize: () => 37,
+    overscan: 12,
+    scrollMargin,
+  });
+
   return (
     <section>
       {focusName && (
@@ -142,63 +163,74 @@ export function EventsView({
         </Eyebrow>
       </div>
 
-      <ul className="font-mono text-xs">
-        {rows.map(({ event, category, summary }) => {
-          const open = expanded === event.seq;
-          return (
-            <li key={event.seq} className="border-b border-line/60">
-              <button
-                onClick={() => setExpanded(open ? null : event.seq)}
-                className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr_auto] sm:gap-4"
+      <div ref={listRef} className="font-mono text-xs">
+        <div className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+          {virtualizer.getVirtualItems().map((item) => {
+            const { event, category, summary } = rows[item.index];
+            const open = expanded === event.seq;
+            return (
+              <div
+                key={event.seq}
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                className="absolute left-0 top-0 w-full border-b border-line/60"
+                style={{
+                  transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
+                }}
               >
-                <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
-                  {event.seq}
-                </span>
-                <span
-                  // Click the type to narrow to just it — a precise filter under the coarse
-                  // categories. The row is a button, so this stays a span and stops the toggle.
-                  role="button"
-                  tabIndex={-1}
-                  onClick={(click) => {
-                    click.stopPropagation();
-                    setTypeFilter((current) =>
-                      current === event.payload.type ? null : event.payload.type,
-                    );
-                  }}
-                  className={"truncate hover:underline " + CATEGORY_COLOR[category]}
-                  title={`Filter to ${event.payload.type}`}
+                <button
+                  onClick={() => setExpanded(open ? null : event.seq)}
+                  className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr_auto] sm:gap-4"
                 >
-                  {event.payload.type}
-                </span>
-                <span
-                  className={"truncate " + (open ? "text-ink" : "text-ink-soft")}
-                  title={summary}
-                >
-                  {summary}
-                </span>
-                <time
-                  className="hidden shrink-0 text-right text-ink-faint sm:block"
-                  dateTime={new Date(event.recorded_at).toISOString()}
-                  title={formatDateTime(event.recorded_at)}
-                >
-                  {formatTime(event.recorded_at)}
-                </time>
-              </button>
-              {open && (
-                <div className="border-l-2 border-line py-3 pl-4 pr-2">
-                  <EventDetail
-                    payload={event.payload}
-                    nameById={names}
-                    base={base}
-                    seq={event.seq}
-                    recordedAt={event.recorded_at}
-                  />
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                  <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
+                    {event.seq}
+                  </span>
+                  <span
+                    // Click the type to narrow to just it — a precise filter under the coarse
+                    // categories. The row is a button, so this stays a span and stops the toggle.
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(click) => {
+                      click.stopPropagation();
+                      setTypeFilter((current) =>
+                        current === event.payload.type ? null : event.payload.type,
+                      );
+                    }}
+                    className={"truncate hover:underline " + CATEGORY_COLOR[category]}
+                    title={`Filter to ${event.payload.type}`}
+                  >
+                    {event.payload.type}
+                  </span>
+                  <span
+                    className={"truncate " + (open ? "text-ink" : "text-ink-soft")}
+                    title={summary}
+                  >
+                    {summary}
+                  </span>
+                  <time
+                    className="hidden shrink-0 text-right text-ink-faint sm:block"
+                    dateTime={new Date(event.recorded_at).toISOString()}
+                    title={formatDateTime(event.recorded_at)}
+                  >
+                    {formatTime(event.recorded_at)}
+                  </time>
+                </button>
+                {open && (
+                  <div className="border-l-2 border-line py-3 pl-4 pr-2">
+                    <EventDetail
+                      payload={event.payload}
+                      nameById={names}
+                      base={base}
+                      seq={event.seq}
+                      recordedAt={event.recorded_at}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }
