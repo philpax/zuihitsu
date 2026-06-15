@@ -45,8 +45,8 @@ export function GenesisGate({
 
   const ready = name.trim().length > 0 && persona.trim().length > 0;
   return (
-    <div className="mx-auto max-w-prose py-16">
-      <header className="mb-8">
+    <div className="mx-auto max-w-prose py-12">
+      <header className="mb-6">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">No agent here yet</h2>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
           This instance has no agent. Bring one into being — its name, a one-line persona, and any

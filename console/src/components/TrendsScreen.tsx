@@ -27,7 +27,7 @@ export function TrendsScreen({
         </button>
       </header>
 
-      <main className="flex-1 py-10">
+      <main className="flex-1 py-7">
         <TrendsView entries={entries} />
       </main>
     </div>

@@ -131,10 +131,10 @@ function ConnectionBadge({ status }: { status: LiveStatus }) {
 function Pending({ status }: { status: LiveStatus }) {
   if (status.status === "error") {
     return (
-      <div className="py-24 text-center text-sm text-clay">
+      <div className="py-16 text-center text-sm text-clay">
         Could not reach the agent — {status.message}
       </div>
     );
   }
-  return <div className="py-24 text-center text-sm text-ink-faint">Connecting to the agent…</div>;
+  return <div className="py-16 text-center text-sm text-ink-faint">Connecting to the agent…</div>;
 }

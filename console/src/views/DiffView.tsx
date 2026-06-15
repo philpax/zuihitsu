@@ -65,7 +65,7 @@ export function DiffView({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <header className="mb-8">
+      <header className="mb-6">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Time-travel</h2>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
           How the graph changed between two points in the log. The timeline scrubber sets one end;
@@ -73,7 +73,7 @@ export function DiffView({
         </p>
       </header>
 
-      <div className="mb-8">
+      <div className="mb-6">
         <div className="mb-1.5 flex items-baseline justify-between gap-4">
           <Eyebrow>baseline</Eyebrow>
           <span className="font-mono text-2xs text-ink-soft">
@@ -92,9 +92,9 @@ export function DiffView({
       </div>
 
       {changes === null ? (
-        <p className="py-10 text-center text-sm text-ink-faint">Folding…</p>
+        <p className="py-7 text-center text-sm text-ink-faint">Folding…</p>
       ) : changes.length === 0 ? (
-        <p className="py-10 text-center text-sm text-ink-faint">
+        <p className="py-7 text-center text-sm text-ink-faint">
           {lo === hi ? "Move either end to compare." : "No graph changes between these points."}
         </p>
       ) : (
@@ -117,7 +117,7 @@ export function DiffView({
       )}
 
       {bridging.length > 0 && (
-        <section className="mt-10 border-t border-line pt-6">
+        <section className="mt-8 border-t border-line pt-6">
           <Eyebrow>events between</Eyebrow>
           <ul className="mt-3 flex flex-col gap-1">
             {bridging.map((event) => (

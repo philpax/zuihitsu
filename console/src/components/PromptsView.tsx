@@ -22,7 +22,7 @@ export function PromptsView({
 
   if (templates.length === 0) {
     return (
-      <div className="py-24 text-center text-sm text-ink-faint">
+      <div className="py-16 text-center text-sm text-ink-faint">
         No prompt templates registered yet.
       </div>
     );

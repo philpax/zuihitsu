@@ -100,7 +100,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
 
   if (status === "loading" || !tree) {
     return (
-      <p className="py-16 text-center text-sm text-ink-faint">
+      <p className="py-12 text-center text-sm text-ink-faint">
         {status === "error" ? `Could not load settings — ${error}` : "Loading settings…"}
       </p>
     );
@@ -109,7 +109,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
   const dirty = JSON.stringify(tree) !== original;
   return (
     <div className="mx-auto max-w-prose">
-      <header className="mb-8">
+      <header className="mb-6">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Settings</h2>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
           The agent's behavioral settings. A save logs an operator <code>ConfigSet</code> and takes
@@ -117,7 +117,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
         </p>
       </header>
 
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         {Object.entries(tree as unknown as FieldRecord).map(([section, value]) => (
           <section key={section}>
             <Eyebrow>{label(section)}</Eyebrow>
@@ -128,7 +128,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
         ))}
       </div>
 
-      <div className="mt-8 flex items-center gap-4 border-t border-line pt-5">
+      <div className="mt-6 flex items-center gap-4 border-t border-line pt-5">
         <button
           onClick={save}
           disabled={!dirty || status === "saving"}
@@ -142,7 +142,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
         )}
       </div>
 
-      <section className="mt-10 border-t border-line pt-8">
+      <section className="mt-8 border-t border-line pt-6">
         <h3 className="font-serif text-lg text-ink">Maintenance</h3>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
           Write a graph snapshot now — the take-one-before-an-experiment trigger. Boot restores from
@@ -166,7 +166,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
       </section>
 
       {config && (
-        <section className="mt-10 border-t border-line pt-8">
+        <section className="mt-8 border-t border-line pt-6">
           <h3 className="font-serif text-lg text-ink">Environment</h3>
           <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
             The TOML config this instance booted from — read-only here (it is read at startup, not

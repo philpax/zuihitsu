@@ -32,7 +32,7 @@ export function AgendaView({
     return (
       <div className="mx-auto max-w-prose">
         <Header now={now} />
-        <p className="py-16 text-center text-sm text-ink-faint">Nothing scheduled ahead.</p>
+        <p className="py-12 text-center text-sm text-ink-faint">Nothing scheduled ahead.</p>
       </div>
     );
   }
@@ -41,9 +41,9 @@ export function AgendaView({
   return (
     <div className="mx-auto max-w-prose">
       <Header now={now} />
-      <ol className="flex flex-col gap-8">
+      <ol className="flex flex-col gap-6">
         {days.map(([day, dayItems]) => (
-          <li key={day} className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[9rem_1fr]">
+          <li key={day} className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[9rem_1fr]">
             <div className="sm:sticky sm:top-4 sm:self-start">
               <p className="font-serif text-base text-ink">{day}</p>
               <Eyebrow>{weekday(dayItems[0].when)}</Eyebrow>
@@ -62,7 +62,7 @@ export function AgendaView({
 
 function Header({ now }: { now: number }) {
   return (
-    <header className="mb-8">
+    <header className="mb-6">
       <h2 className="font-serif text-xl text-ink sm:text-2xl">Agenda</h2>
       <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
         {now > 0

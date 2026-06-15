@@ -118,7 +118,7 @@ export function ConversationView({
   return (
     <ModelCalls.Provider value={modelCalls}>
       <Names.Provider value={names}>
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-[11rem_1fr] md:gap-8">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-[11rem_1fr] md:gap-6">
           <div className="md:sticky md:top-4 md:self-start">
             <aside className="hidden flex-col gap-5 md:flex">
               {participate && (
@@ -212,7 +212,7 @@ export function ConversationView({
           {selected ? (
             <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
           ) : (
-            <div className="py-24 text-center text-sm text-ink-faint">
+            <div className="py-16 text-center text-sm text-ink-faint">
               {participate ? "Name a conversation to start one." : "No conversations in this run."}
             </div>
           )}
@@ -255,7 +255,7 @@ function Room({
 
   return (
     <div className="flex w-full max-w-prose flex-col">
-      <header className="mb-5 sm:mb-8">
+      <header className="mb-5 sm:mb-6">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="font-serif text-xl text-ink sm:text-2xl">{channel.label}</h2>
           {isOperator && <Eyebrow>operator authority · writes self</Eyebrow>}
@@ -268,7 +268,7 @@ function Room({
       {channel.conversation ? (
         <Transcript replica={replica} conversation={channel.conversation} cursor={cursor} />
       ) : (
-        <p className="py-10 text-sm text-ink-faint">
+        <p className="py-7 text-sm text-ink-faint">
           {isOperator
             ? "Introduce yourself to begin the interview."
             : "No messages yet — say hello."}
@@ -477,7 +477,7 @@ function SessionDivider({ session, first }: { session: SessionModel; first: bool
     <div
       className={
         "flex items-center gap-3 " +
-        (first ? "mb-7" : "mb-7 mt-9 ") +
+        (first ? "mb-7" : "mb-7 mt-7 ") +
         (session.compaction ? "text-clay" : "text-ink-soft")
       }
     >

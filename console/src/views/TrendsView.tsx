@@ -80,7 +80,7 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
   }));
 
   return (
-    <section className="flex flex-col gap-8 sm:gap-12">
+    <section className="flex flex-col gap-6 sm:gap-8">
       <div className="flex flex-wrap items-baseline justify-between gap-y-1">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Trends</h2>
         <span className="font-mono text-xs text-ink-soft">

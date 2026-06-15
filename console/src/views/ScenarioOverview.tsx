@@ -14,8 +14,8 @@ export function ScenarioOverview() {
   const regressions = pkg.scenarios.filter((s) => !s.aggregate.gating_passed).length;
 
   return (
-    <main className="flex-1 py-10">
-      <div className="mb-6 flex items-baseline justify-between sm:mb-9">
+    <main className="flex-1 py-7">
+      <div className="mb-6 flex items-baseline justify-between sm:mb-7">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Scenarios</h2>
         <span className="font-mono text-xs text-ink-soft">
           {pkg.scenarios.length} scenarios ·{" "}
@@ -45,7 +45,7 @@ function ScenarioRow({ scenario }: { scenario: ScenarioReport }) {
   const multiRun = scenario.runs.length > 1;
 
   return (
-    <li className="group grid grid-cols-1 items-start gap-x-10 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto]">
+    <li className="group grid grid-cols-1 items-start gap-x-8 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto]">
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
           <Link

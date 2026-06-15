@@ -41,7 +41,7 @@ export function MemoryBrowser({
 
   if (memories.length === 0) {
     return (
-      <div className="py-24 text-center text-sm text-ink-faint">
+      <div className="py-16 text-center text-sm text-ink-faint">
         No memories at this point in the log.
       </div>
     );
@@ -65,7 +65,7 @@ export function MemoryBrowser({
   const detail = replica.memory(effective);
 
   return (
-    <div className="grid grid-cols-1 gap-5 md:grid-cols-[15rem_1fr] md:gap-12">
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-[15rem_1fr] md:gap-8">
       <div className="flex flex-col gap-4 self-start">
         <input
           value={query}
@@ -103,7 +103,7 @@ export function MemoryBrowser({
           onShowEvents={onShowEvents}
         />
       ) : (
-        <div className="py-24 text-center text-sm text-ink-faint">Select a memory.</div>
+        <div className="py-16 text-center text-sm text-ink-faint">Select a memory.</div>
       )}
     </div>
   );
@@ -360,7 +360,7 @@ function EntryItem({
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <section className="mt-8">
+    <section className="mt-6">
       <Eyebrow>{label}</Eyebrow>
       <div className="mt-3">{children}</div>
     </section>

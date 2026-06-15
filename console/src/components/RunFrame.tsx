@@ -134,7 +134,7 @@ function Pending({ state }: { state: ReplicaState }) {
   const error = state.status === "error";
   const message = error ? `Could not fold the log — ${state.message}` : "Folding the event log…";
   return (
-    <div className={"flex-1 py-24 text-center text-sm " + (error ? "text-clay" : "text-ink-faint")}>
+    <div className={"flex-1 py-16 text-center text-sm " + (error ? "text-clay" : "text-ink-faint")}>
       {message}
     </div>
   );

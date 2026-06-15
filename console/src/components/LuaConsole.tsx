@@ -58,7 +58,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
   }
 
   return (
-    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-10 lg:grid-cols-[1fr_20rem]">
+    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
       <div>
         <header className="mb-6">
           <h2 className="font-serif text-xl text-ink sm:text-2xl">Console</h2>
@@ -98,7 +98,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
           <span className="font-mono text-2xs text-ink-faint">⌘/ctrl + ↵ to run</span>
         </div>
 
-        <ol className="mt-8 flex flex-col gap-6">
+        <ol className="mt-6 flex flex-col gap-6">
           {runs.map((entry) => (
             <RunResult key={entry.id} run={entry} />
           ))}

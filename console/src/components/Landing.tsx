@@ -36,7 +36,7 @@ export function Landing({
         event log.
       </p>
 
-      <div className="mt-10 flex gap-7 border-b border-line text-sm">
+      <div className="mt-8 flex gap-7 border-b border-line text-sm">
         {(["agent", "eval"] as const).map((tab) => (
           <button
             key={tab}
@@ -78,7 +78,7 @@ export function Landing({
 
 function AgentPanel({ onConnect }: { onConnect: () => void }) {
   return (
-    <div className="mt-8 flex flex-col items-center gap-4 py-10">
+    <div className="mt-6 flex flex-col items-center gap-4 py-7">
       <p className="max-w-prose text-center text-sm text-ink-soft">
         Tail the running instance live — its log streams in as it thinks, and the timeline grows
         with it. Scrub back to inspect any earlier moment without stopping the stream.
@@ -102,7 +102,7 @@ function EvalPanel({
 }) {
   const [hovering, setHovering] = useState(false);
   return (
-    <div className="mt-8">
+    <div className="mt-6">
       <label
         onDragOver={(event) => {
           event.preventDefault();
@@ -116,7 +116,7 @@ function EvalPanel({
           if (file) onOpenPackage(file);
         }}
         className={
-          "flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed py-14 transition-colors " +
+          "flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed py-10 transition-colors " +
           (hovering
             ? "border-clay bg-clay-soft/15 text-ink"
             : "border-line-strong text-ink-soft hover:border-ink-faint")
