@@ -40,7 +40,7 @@ export function RunFrame() {
     <div className="flex flex-1 gap-6">
       <ScenarioRail pkg={pkg} scenario={scenario} run={run} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <VerdictPanel run={run} />
+        <VerdictPanel key={`${scenario.meta.name}-${run.index}`} run={run} />
         {!ready ? (
           <Pending state={replica} />
         ) : (
