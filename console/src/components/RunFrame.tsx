@@ -9,6 +9,7 @@ import { useStreamLocation } from "../lib/useStreamLocation.ts";
 import { STREAM_VIEWS } from "../lib/streamViews.ts";
 import { Eyebrow } from "./primitives.tsx";
 import { StreamWorkspace } from "./StreamWorkspace.tsx";
+import { VerdictPanel } from "./VerdictPanel.tsx";
 
 /// A single run's deep views, resolved from the URL: `:scenario` (name) and `:run` (index) pick the
 /// run out of the package, `:view` selects the view, and `?seq` pins the timeline cursor. Folding the
@@ -39,6 +40,7 @@ export function RunFrame() {
     <div className="flex flex-1 gap-6">
       <ScenarioRail pkg={pkg} scenario={scenario} run={run} />
       <div className="flex min-w-0 flex-1 flex-col">
+        <VerdictPanel run={run} />
         {!ready ? (
           <Pending state={replica} />
         ) : (
