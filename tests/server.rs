@@ -538,7 +538,7 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
         .iter()
         .map(|message| message.content.as_str())
         .collect();
-    assert_eq!(turn1, vec!["[2026-06-08 00:00 UTC] dave: hello there"]);
+    assert_eq!(turn1, vec!["[Mon 2026-06-08 00:00 UTC] dave: hello there"]);
     // Turn 2 replays the live buffer — turn 1's participant and agent turns — then the new inbound.
     // The participant turns it reads are speaker-and-time-stamped; the agent's own reply is left
     // unstamped (its `assistant` role already identifies it).
@@ -549,9 +549,9 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     assert_eq!(
         turn2,
         vec![
-            "[2026-06-08 00:00 UTC] dave: hello there",
+            "[Mon 2026-06-08 00:00 UTC] dave: hello there",
             "first reply",
-            "[2026-06-08 00:00 UTC] dave: and again",
+            "[Mon 2026-06-08 00:00 UTC] dave: and again",
         ]
     );
 }
@@ -590,9 +590,9 @@ async fn each_turn_carries_its_own_recorded_time() {
     assert_eq!(
         turn2,
         vec![
-            "[2026-06-08 00:00 UTC] dave: first message",
+            "[Mon 2026-06-08 00:00 UTC] dave: first message",
             "morning",
-            "[2026-06-08 00:10 UTC] dave: second message",
+            "[Mon 2026-06-08 00:10 UTC] dave: second message",
         ]
     );
 }
