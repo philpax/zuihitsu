@@ -3,7 +3,7 @@
 //! is independent (its own in-memory store, graph, and — when retrieval is configured — vector index),
 //! which is what lets runs parallelize.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
     ConversationLocator, Embedder, Event, Graph, ManualClock, MemoryStore, ModelClient, SeedSelf,
@@ -15,6 +15,11 @@ use crate::error::EvalError;
 /// The fixed clock anchor every run starts at (2026-06-08T00:00:00Z), so scenario timing is
 /// reproducible; scenarios advance from here.
 const RUN_START_MS: i64 = 1_780_876_800_000;
+
+/// A human's pause before sending a message — applied before each inbound turn so consecutive turns in
+/// a busy room are spaced apart, not stacked at one instant. Small against the day-scale advances a
+/// scheduling scenario makes, so it does not perturb those.
+const HUMAN_PAUSE_MS: i64 = 10_000;
 
 /// The shared, build-once inputs every run needs: the model, and — when an embedding endpoint is
 /// configured — the embedder and its dimensionality (a fresh vector index is built per run).
@@ -93,10 +98,15 @@ impl RunContext {
         })
     }
 
-    /// Route one inbound message and run the agent's turn, returning what it said.
+    /// Route one inbound message and run the agent's turn, returning what it said. Advances the run
+    /// clock so turns sit on a realistic timescale: a human pause before the message, then the agent's
+    /// actual think time after — so the recorded timestamps reflect how the conversation paced (legible
+    /// especially in the multi-party rooms), rather than stacking every turn at one frozen instant.
     pub async fn turn(&self, turn: Turn<'_>) -> Result<TurnOutcome, EvalError> {
+        self.clock.advance_millis(HUMAN_PAUSE_MS);
         let locator = ConversationLocator::new(turn.platform, turn.scope);
-        Ok(self
+        let started = Instant::now();
+        let outcome = self
             .server
             .platform()
             .route_message(
@@ -106,7 +116,10 @@ impl RunContext {
                 turn.text,
                 &turn.present,
             )
-            .await?)
+            .await?;
+        self.clock
+            .advance_millis(started.elapsed().as_millis() as i64);
+        Ok(outcome)
     }
 
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.
