@@ -1,9 +1,9 @@
 import type { HistoryEntry } from "../lib/history.ts";
 import { TrendsView } from "../views/TrendsView.tsx";
-import { Eyebrow } from "./primitives.tsx";
+import { FrameNav } from "./FrameNav.tsx";
 
 /// The frame for the metrics history — a minimal header (the history is not a package, so it has no
-/// run meta or view nav) around the Trends view.
+/// run meta or view nav) around the Trends view, with the cross-section nav to pivot to a package.
 export function TrendsScreen({
   entries,
   onClose,
@@ -16,7 +16,7 @@ export function TrendsScreen({
       <header className="flex items-baseline justify-between border-b border-line py-6">
         <div className="flex items-baseline gap-3">
           <span className="font-serif text-xl text-ink">zuihitsu</span>
-          <Eyebrow>console · history</Eyebrow>
+          <FrameNav current="trends" />
         </div>
         <button
           onClick={onClose}

@@ -2,7 +2,8 @@ import { Link, Outlet, useMatch } from "react-router-dom";
 
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import { formatDate } from "../lib/format.ts";
-import { Dot, Eyebrow } from "./primitives.tsx";
+import { Dot } from "./primitives.tsx";
+import { FrameNav } from "./FrameNav.tsx";
 
 /// The eval frame: a loaded package of many runs. The header is shared by every nested route — the
 /// Scenarios overview at the index, and a single run's deep views below it — carrying the package's
@@ -22,7 +23,7 @@ export function EvalFrame({ pkg, onClose }: { pkg: EvalPackage; onClose: () => v
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <span className="font-serif text-xl text-ink">zuihitsu</span>
-            <Eyebrow>console · eval</Eyebrow>
+            <FrameNav current="eval" />
             {crumb && (
               <Link
                 to="/eval"
