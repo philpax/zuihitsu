@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
@@ -7,11 +7,15 @@ import type { LiveConnection } from "../lib/live.ts";
 import { STREAM_VIEWS } from "../lib/streamViews.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/StateView.tsx";
-import { MemoryGraphView } from "../views/MemoryGraphView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
 import { DiffView } from "../views/DiffView.tsx";
+
+// The graph view pulls a force-graph/canvas library, so it loads only when the Graph tab is opened.
+const MemoryGraphView = lazy(() =>
+  import("../views/MemoryGraphView.tsx").then((module) => ({ default: module.MemoryGraphView })),
+);
 
 /// The views over a single event stream — the debugging surface shared by the eval and agent
 /// frames. A run's embedded log and a live agent's tailed log are the same shape (one stream of
@@ -147,7 +151,15 @@ export function StreamWorkspace({
                 onShowEvents={showEvents}
               />
             )}
-            {view === "graph" && <MemoryGraphView key={cursor} replica={replica} cursor={cursor} />}
+            {view === "graph" && (
+              <Suspense
+                fallback={
+                  <div className="py-16 text-center text-sm text-ink-faint">Loading the graph…</div>
+                }
+              >
+                <MemoryGraphView key={cursor} replica={replica} cursor={cursor} />
+              </Suspense>
+            )}
             {view === "conversation" && (
               <ConversationView
                 replica={replica}
