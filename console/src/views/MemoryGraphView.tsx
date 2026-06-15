@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ForceGraph2D from "react-force-graph-2d";
+import ForceGraph2D, {
+  type ForceGraphMethods,
+  type LinkObject,
+  type NodeObject,
+} from "react-force-graph-2d";
 
 import type { Replica } from "../lib/replica.ts";
-import type { MemoryGraphLink, MemoryGraphNode } from "../lib/memoryGraph.ts";
 import { buildMemoryGraph } from "../lib/memoryGraph.ts";
 import { useStreamBase } from "../lib/useStreamLocation.ts";
 import { statePath } from "../lib/routes.ts";
@@ -20,6 +23,7 @@ export function MemoryGraphView({ replica, cursor }: { replica: Replica; cursor:
 
   // The force-graph canvas needs explicit pixel dimensions, so measure the container it fills.
   const wrap = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const element = wrap.current;
@@ -59,21 +63,48 @@ export function MemoryGraphView({ replica, cursor }: { replica: Replica; cursor:
       <div ref={wrap} className="h-[68vh] w-full overflow-hidden border border-line bg-oat/20">
         {size.width > 0 && (
           <ForceGraph2D
+            ref={graphRef}
             graphData={graph}
             width={size.width}
             height={size.height}
             backgroundColor="rgba(0,0,0,0)"
+            cooldownTicks={100}
+            onEngineStop={() => graphRef.current?.zoomToFit(400, 60)}
             nodeRelSize={4}
-            nodeColor={(node: MemoryGraphNode) => (node.id === "self" ? palette.clay : palette.ink)}
-            nodeLabel={(node: MemoryGraphNode) => node.id}
-            linkColor={(link: MemoryGraphLink) => (link.same ? palette.sage : palette.clay)}
-            linkLineDash={(link: MemoryGraphLink) => (link.same ? [3, 3] : null)}
-            linkDirectionalArrowLength={(link: MemoryGraphLink) => (link.same ? 0 : 3)}
+            nodeColor={(node: NodeObject) => (node.id === "self" ? palette.clay : palette.ink)}
+            nodeLabel={(node: NodeObject) => String(node.id)}
+            linkColor={(link: LinkObject) => (link.same ? palette.sage : palette.clay)}
+            linkLineDash={(link: LinkObject) => (link.same ? [3, 3] : null)}
+            linkDirectionalArrowLength={(link: LinkObject) => (link.same ? 0 : 3)}
             linkDirectionalArrowRelPos={1}
             linkWidth={1}
-            linkLabel={(link: MemoryGraphLink) => link.relation}
+            linkLabel={(link: LinkObject) => String(link.relation)}
+            linkCanvasObjectMode={() => "after"}
+            linkCanvasObject={(link: LinkObject, ctx, scale) => {
+              const { source, target } = link;
+              if (typeof source !== "object" || typeof target !== "object") return;
+              const x = ((source.x ?? 0) + (target.x ?? 0)) / 2;
+              const y = ((source.y ?? 0) + (target.y ?? 0)) / 2;
+              const fontSize = 8 / scale;
+              ctx.font = `${fontSize}px ui-monospace, monospace`;
+              const width = ctx.measureText(link.relation).width;
+              const padX = 3 / scale;
+              const padY = 1.5 / scale;
+              // A paper chip behind the text keeps it legible where it crosses an edge or node.
+              ctx.fillStyle = palette.paper;
+              ctx.fillRect(
+                x - width / 2 - padX,
+                y - fontSize / 2 - padY,
+                width + padX * 2,
+                fontSize + padY * 2,
+              );
+              ctx.fillStyle = link.same ? palette.sage : palette.inkSoft;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(link.relation, x, y);
+            }}
             nodeCanvasObjectMode={() => "after"}
-            nodeCanvasObject={(node: NodeWithCoords, ctx, scale) => {
+            nodeCanvasObject={(node: NodeObject, ctx, scale) => {
               const fontSize = 11 / scale;
               ctx.font = `${fontSize}px ui-monospace, monospace`;
               ctx.fillStyle = palette.inkSoft;
@@ -81,9 +112,7 @@ export function MemoryGraphView({ replica, cursor }: { replica: Replica; cursor:
               ctx.textBaseline = "top";
               ctx.fillText(String(node.id), node.x ?? 0, (node.y ?? 0) + 5);
             }}
-            onNodeClick={(node: MemoryGraphNode) =>
-              navigate(statePath(base, cursor, String(node.id)))
-            }
+            onNodeClick={(node: NodeObject) => navigate(statePath(base, cursor, String(node.id)))}
           />
         )}
       </div>
@@ -91,11 +120,15 @@ export function MemoryGraphView({ replica, cursor }: { replica: Replica; cursor:
   );
 }
 
-type NodeWithCoords = MemoryGraphNode & { x?: number; y?: number };
-
 /// Read the Japandi tokens off the document once, so the canvas (which can only take concrete colors)
 /// stays in step with the design tokens rather than hard-coding hexes.
-let cachedPalette: { ink: string; inkSoft: string; clay: string; sage: string } | null = null;
+let cachedPalette: {
+  ink: string;
+  inkSoft: string;
+  clay: string;
+  sage: string;
+  paper: string;
+} | null = null;
 function readPalette() {
   if (!cachedPalette) {
     const root = getComputedStyle(document.documentElement);
@@ -105,6 +138,7 @@ function readPalette() {
       inkSoft: value("--color-ink-soft"),
       clay: value("--color-clay"),
       sage: value("--color-sage"),
+      paper: value("--color-paper"),
     };
   }
   return cachedPalette;
