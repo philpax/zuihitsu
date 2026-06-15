@@ -21,6 +21,7 @@
     "motion": "^12.40.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
     "recharts": "^3.8.1"
   },
   "devDependencies": {

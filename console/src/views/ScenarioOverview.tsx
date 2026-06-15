@@ -1,23 +1,20 @@
+import { Link, useOutletContext } from "react-router-dom";
+
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
-import type { ActiveRun } from "../lib/run.ts";
 import { formatMs, formatRate, formatTokens } from "../lib/format.ts";
+import { runPath } from "../lib/routes.ts";
 import { Dot } from "../components/primitives.tsx";
 
 /// The eval-package overview: every scenario with its pass rate, how it is judged, and the cost it
 /// ran at. The first thing an operator wants — which scenarios held, and which did not — and the
-/// way into a single run for the deeper views.
-export function ScenarioOverview({
-  pkg,
-  onSelectRun,
-}: {
-  pkg: EvalPackage;
-  onSelectRun: (run: ActiveRun) => void;
-}) {
+/// way into a single run for the deeper views. The package arrives as the eval frame's outlet context.
+export function ScenarioOverview() {
+  const pkg = useOutletContext<EvalPackage>();
   const regressions = pkg.scenarios.filter((s) => !s.aggregate.gating_passed).length;
 
   return (
-    <section>
+    <main className="flex-1 py-10">
       <div className="mb-6 flex items-baseline justify-between sm:mb-9">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Scenarios</h2>
         <span className="font-mono text-xs text-ink-soft">
@@ -34,20 +31,14 @@ export function ScenarioOverview({
 
       <ul>
         {pkg.scenarios.map((scenario) => (
-          <ScenarioRow key={scenario.meta.name} scenario={scenario} onSelectRun={onSelectRun} />
+          <ScenarioRow key={scenario.meta.name} scenario={scenario} />
         ))}
       </ul>
-    </section>
+    </main>
   );
 }
 
-function ScenarioRow({
-  scenario,
-  onSelectRun,
-}: {
-  scenario: ScenarioReport;
-  onSelectRun: (run: ActiveRun) => void;
-}) {
+function ScenarioRow({ scenario }: { scenario: ScenarioReport }) {
   const { meta, aggregate } = scenario;
   const threshold = meta.bar.kind === "metric" ? meta.bar.threshold : null;
   const held = meta.bar.kind === "gating" ? aggregate.gating_passed : aggregate.rate >= threshold!;
@@ -57,27 +48,27 @@ function ScenarioRow({
     <li className="group grid grid-cols-1 items-start gap-x-10 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto]">
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
-          <button
-            onClick={() => onSelectRun({ scenario, run: scenario.runs[0] })}
+          <Link
+            to={runPath(meta.name, scenario.runs[0].index)}
             className="font-mono text-sm text-ink transition-colors hover:text-clay"
             title="Inspect this run"
           >
             {meta.name}
-          </button>
+          </Link>
           <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
             {meta.category}
           </span>
           {multiRun && (
             <span className="flex items-baseline gap-1.5">
               {scenario.runs.map((run) => (
-                <button
+                <Link
                   key={run.index}
-                  onClick={() => onSelectRun({ scenario, run })}
+                  to={runPath(meta.name, run.index)}
                   className="font-mono text-2xs text-ink-faint transition-colors hover:text-clay"
                   title={`Inspect run ${run.index}`}
                 >
                   {run.index}
-                </button>
+                </Link>
               ))}
             </span>
           )}

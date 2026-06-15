@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import type { LiveConnection } from "../lib/live.ts";
+import { STREAM_VIEWS } from "../lib/streamViews.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
@@ -14,16 +15,9 @@ import { DiffView } from "../views/DiffView.tsx";
 /// The views over a single event stream — the debugging surface shared by the eval and agent
 /// frames. A run's embedded log and a live agent's tailed log are the same shape (one stream of
 /// events folding into one graph), so the same views and the same global timeline serve both; the
-/// Conversation view's sidebar reaches every conversation in the stream.
-const STREAM_VIEWS = [
-  { id: "state", label: "State" },
-  { id: "conversation", label: "Conversation" },
-  { id: "agenda", label: "Agenda" },
-  { id: "events", label: "Events" },
-  { id: "compare", label: "Time-travel" },
-] as const;
-
-export type StreamViewId = (typeof STREAM_VIEWS)[number]["id"];
+/// Conversation view's sidebar reaches every conversation in the stream. The view list itself lives
+/// in `lib/streamViews.ts`, so the eval frame can validate a URL against it without importing this
+/// component.
 
 /// What the agent frame passes so its Conversation view can also *speak*: the live connection and
 /// the handle you converse under (lifted here so it survives view switches). Absent in the eval
@@ -43,16 +37,21 @@ export interface ExtraView {
   node: ReactNode;
 }
 
-/// Drive the run-scoped views off one stream. Owns the view tab and the timeline cursor — `null`
-/// follows the head (the latest state), a number pins an earlier seq — and folds the replica to the
-/// cursor on a scrub. `head` is the stream's current head: fixed for an eval run, growing for a live
-/// tail. `onFollowingChange` reports whether the cursor tracks the head, so a live tail can fold a
-/// new batch to the head only while followed (and leave a pinned graph undisturbed). `participant`,
-/// when present, makes the Conversation view interactive (the agent frame).
+/// Drive the run-scoped views off one stream. The active view and the timeline cursor are *owned by
+/// the caller* — both the eval and agent frames hold them in the URL, so browser back and forward
+/// move between views and timeline positions the same way in either. `seq` is `null` to follow the
+/// head (the latest state) or a number to pin an earlier seq; `head` is the stream's current head,
+/// fixed for an eval run and growing for a live tail. `onFollowingChange` reports whether the cursor
+/// tracks the head, so a live tail can fold a new batch to the head only while followed (and leave a
+/// pinned graph undisturbed). `participant`, when present, makes the Conversation view interactive.
 export function StreamWorkspace({
   replica,
   events,
   head,
+  view,
+  onSelectView,
+  seq,
+  onSeq,
   onFollowingChange,
   participant,
   extraViews = [],
@@ -60,12 +59,14 @@ export function StreamWorkspace({
   replica: Replica;
   events: Event[];
   head: number;
+  view: string;
+  onSelectView: (view: string) => void;
+  seq: number | null;
+  onSeq: (seq: number | null) => void;
   onFollowingChange?: (following: boolean) => void;
   participant?: Participant;
   extraViews?: ExtraView[];
 }) {
-  const [view, setView] = useState<string>("conversation");
-  const [seq, setSeq] = useState<number | null>(null);
   const cursor = seq ?? head;
   // The memory the Events view is pinned to, set by the State view's "events touching this" jump.
   const [eventFocus, setEventFocus] = useState<{ id: string; name: string } | null>(null);
@@ -76,12 +77,19 @@ export function StreamWorkspace({
   const reduce = useReducedMotion();
   const shift = reduce ? 0 : 36;
 
+  // Fold the graph to the cursor before the views below query it. The replica is an external mutable
+  // store, not React state, so syncing it here — rather than in an effect that runs after the views
+  // have already queried — keeps every query this render makes consistent with the cursor, with no
+  // stale flash when a back/forward jump moves the cursor without a remount. The guard makes it
+  // idempotent, so it is a no-op on the renders where the cursor did not move.
+  if (replica.foldedSeq !== cursor) replica.foldTo(cursor);
+
   const tabs = [...STREAM_VIEWS.map((entry) => entry.id), ...extraViews.map((entry) => entry.id)];
   const extra = extraViews.find((entry) => entry.id === view);
 
   function selectView(next: string) {
     setDirection(tabs.indexOf(next) >= tabs.indexOf(view) ? 1 : -1);
-    setView(next);
+    onSelectView(next);
   }
 
   // Jump from a memory in the State view to the events touching it, pinning the Events filter.
@@ -91,16 +99,14 @@ export function StreamWorkspace({
   }
 
   function scrub(next: number) {
-    replica.foldTo(next);
     const following = next >= head;
     onFollowingChange?.(following);
-    setSeq(following ? null : next);
+    onSeq(following ? null : next);
   }
 
   function reset() {
-    replica.foldTo(head);
     onFollowingChange?.(true);
-    setSeq(null);
+    onSeq(null);
   }
 
   return (

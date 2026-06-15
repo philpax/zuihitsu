@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { LiveConnection, LiveStatus } from "../lib/live.ts";
 import { useLiveLog } from "../lib/live.ts";
+import { useStreamLocation } from "../lib/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../lib/operator.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
 import { StreamWorkspace } from "./StreamWorkspace.tsx";
@@ -26,6 +27,8 @@ export function LiveShell({
   // while followed — a ref so the long-lived interval reads the current value without re-subscribing.
   const following = useRef(true);
   const log = useLiveLog(connection, following);
+  // The active view and timeline cursor live in the URL, exactly as in the eval frame.
+  const { view, seq, selectView, setSeq } = useStreamLocation("/live");
   // The handle you converse under as a participant, lifted here so it survives view switches.
   const [sender, setSender] = useState("");
   const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
@@ -88,6 +91,10 @@ export function LiveShell({
           replica={log.replica}
           events={log.events}
           head={log.head}
+          view={view ?? "conversation"}
+          onSelectView={selectView}
+          seq={seq}
+          onSeq={setSeq}
           onFollowingChange={(value) => {
             following.current = value;
           }}
