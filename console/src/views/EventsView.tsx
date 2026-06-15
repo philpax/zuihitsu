@@ -10,6 +10,7 @@ import {
   eventTouchesMemory,
 } from "../lib/events.ts";
 import { nameById } from "../lib/labels.ts";
+import { useStreamBase } from "../lib/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "./EventDetail.tsx";
 
@@ -41,6 +42,7 @@ export function EventsView({
   onClearFocus?: () => void;
 }) {
   const names = nameById(replica.memories(""));
+  const base = useStreamBase();
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -165,7 +167,12 @@ export function EventsView({
               </button>
               {open && (
                 <div className="border-l-2 border-line py-3 pl-4 pr-2">
-                  <EventDetail payload={event.payload} nameById={names} />
+                  <EventDetail
+                    payload={event.payload}
+                    nameById={names}
+                    base={base}
+                    seq={event.seq}
+                  />
                 </div>
               )}
             </li>

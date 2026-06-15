@@ -11,3 +11,12 @@ export function runBase(scenario: string, run: number): string {
 export function runPath(scenario: string, run: number, view = "conversation"): string {
   return `${runBase(scenario, run)}/${view}`;
 }
+
+/// The State view of a stream, folded to `seq` and opened on `memory` — the target an event's memory
+/// ref jumps to, landing on the memory as it stood at the point in the timeline that event occurred.
+/// `base` is the stream's path (a run's base, or `/live`); the memory name rides in the query, encoded
+/// against its slashes.
+export function statePath(base: string, seq: number, memory: string): string {
+  const query = new URLSearchParams({ seq: String(seq), memory });
+  return `${base}/state?${query.toString()}`;
+}

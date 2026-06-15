@@ -1,4 +1,4 @@
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 /// The active view and timeline cursor for a stream, read from and written to the URL: the `:view`
 /// path segment and the `?seq` query, both relative to `base` — a run's path under the eval frame, or
@@ -10,6 +10,14 @@ export interface StreamLocation {
   seq: number | null;
   selectView: (view: string) => void;
   setSeq: (seq: number | null) => void;
+}
+
+/// The current stream's base path — the path with its trailing `:view` segment dropped, so a run's
+/// `/eval/:scenario/:run/:view` yields `/eval/:scenario/:run` and the agent's `/live/:view` yields
+/// `/live`. Lets a view deep inside a stream (an event's memory ref) build a link to a sibling view
+/// without being told which frame it lives in.
+export function useStreamBase(): string {
+  return useLocation().pathname.replace(/\/[^/]*$/, "");
 }
 
 export function useStreamLocation(base: string): StreamLocation {
