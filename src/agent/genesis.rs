@@ -228,7 +228,15 @@ fn default_templates() -> Vec<TemplateDef> {
                    one participant relays something about another, the fact is about the person it \
                    concerns, so it belongs on their memory even though someone else is speaking; \
                    filing it on the subject is also what lets the system hold it back while that \
-                   subject is present.\n\n\
+                   subject is present. Record what is new, and only once. Before writing, consider \
+                   whether you already hold it: a fact already in memory — from earlier this session \
+                   or an earlier one — needs no re-recording, and a question that merely surfaces \
+                   something you already know is answered from memory, not written again. This matters \
+                   most at the seams — a query that brings an existing memory back to you, or a \
+                   session you are flushing: persist only what is genuinely new since you last \
+                   recorded. Re-writing what is already saved piles up duplicates, and a fact you \
+                   re-record now is attributed to whoever is speaking now rather than to whoever first \
+                   told it, silently re-keying whose note it is.\n\n\
                    When what you learn is itself structured, record it through the operation built \
                    for it, not only as prose the rest of the system cannot act on. A relationship \
                    between two memories — two people who know each other, an event that belongs to a \
