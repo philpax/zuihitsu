@@ -175,13 +175,7 @@ async fn route_message_opens_a_session_and_runs_a_turn() {
             .unwrap()
             .is_some()
     );
-    assert!(
-        server
-            .control()
-            .memory("person/dave@discord")
-            .unwrap()
-            .is_some()
-    );
+    assert!(server.control().memory("person/dave").unwrap().is_some());
 
     // One session opened, carrying a frozen, non-empty brief.
     let sessions = server.control().sessions(&leads).unwrap();
@@ -284,7 +278,7 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     // yet due when written.
     let plant = ScriptedModel::new([
         run_lua_call(
-            r#"memory.get("person/dave@discord"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/dave"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         Completion::Reply(
@@ -391,21 +385,11 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
         .route_message(&model, &leads, "dave", "hi", &["dave"])
         .await
         .unwrap();
-    let dave = server
-        .control()
-        .memory("person/dave@discord")
-        .unwrap()
-        .unwrap()
-        .id;
+    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
 
     // Erin joins mid-session: she is recorded on the session, alongside Dave.
     server.platform().note_join(&leads, "erin").unwrap();
-    let erin = server
-        .control()
-        .memory("person/erin@discord")
-        .unwrap()
-        .unwrap()
-        .id;
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
 
     let sessions = server.control().sessions(&leads).unwrap();
     assert_eq!(sessions.len(), 1);
@@ -423,7 +407,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     // 2026-07-01 — a calendared item scheduled weeks after the present TEST_NOW.
     let plant = ScriptedModel::new([
         run_lua_call(
-            r#"memory.get("person/dave@discord"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/dave"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         Completion::Reply(

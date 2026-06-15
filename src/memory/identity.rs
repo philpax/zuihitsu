@@ -61,10 +61,18 @@ impl From<GraphError> for IdentityError {
     }
 }
 
-/// Resolve a platform participant to their `person/*` stub, minting one on first contact. Returns
-/// the stub's id (the caller materializes the graph to see a freshly minted stub). A mint appends a
-/// `MemoryCreated` under a provisional `person/<platform_user_id>@<platform>` name — which the
-/// operator renames or merges later — and a `ParticipantIdentified` binding the platform key to it.
+/// Resolve a platform participant to their `person/*` memory, minting one on first contact. Returns
+/// the memory's id (the caller materializes the graph to see a freshly minted one). A mint appends a
+/// `MemoryCreated` and a `ParticipantIdentified` binding the `(platform, platform_user_id)` key to it.
+///
+/// The name is the clean `person/<platform_user_id>`, so a person is one coherent memory the agent
+/// reads and writes under a single handle — not split between a system stub and a canonical the agent
+/// mints alongside it. The platform-qualified `person/<platform_user_id>@<platform>` form is used only
+/// to disambiguate a genuine collision: when that clean name already belongs to a *different* identity
+/// (the same handle on two platforms), so two distinct people stay distinct rather than silently
+/// merging — the cross-platform-explicit property. The `(platform, key)` binding lives in
+/// `ParticipantIdentified` regardless of the name, so the name stays free to be the clean one and to be
+/// renamed later (humanizing a raw id) without breaking resolution.
 pub fn resolve_or_mint_participant(
     store: &mut dyn Store,
     clock: &dyn Clock,
@@ -76,11 +84,19 @@ pub fn resolve_or_mint_participant(
         return Ok(id);
     }
     let id = MemoryId::generate();
-    let name = MemoryName::new(format!("person/{platform_user_id}@{platform}"));
+    let clean = format!("person/{platform_user_id}");
+    let name = if graph.memory_by_name(&clean)?.is_some() {
+        MemoryName::new(format!("person/{platform_user_id}@{platform}"))
+    } else {
+        MemoryName::new(clean)
+    };
     store.append(
         clock.now(),
         vec![
-            EventPayload::MemoryCreated { id, name },
+            EventPayload::MemoryCreated {
+                id,
+                name: name.clone(),
+            },
             EventPayload::ParticipantIdentified {
                 memory: id,
                 platform: platform.into(),
@@ -88,7 +104,7 @@ pub fn resolve_or_mint_participant(
             },
         ],
     )?;
-    tracing::info!(%platform, %platform_user_id, memory = %id.0, "minted participant stub");
+    tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
     Ok(id)
 }
 
@@ -151,7 +167,7 @@ mod tests {
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let mut graph = Graph::open_in_memory().unwrap();
 
-        // First contact mints a provisional stub bound to the platform key.
+        // First contact mints a clean handle (no platform suffix) bound to the platform key.
         let id =
             resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "12345").unwrap();
         graph.materialize_from(&store).unwrap();
@@ -159,24 +175,40 @@ mod tests {
         assert_eq!(graph.participant_for("discord", "12345").unwrap(), Some(id));
         assert_eq!(
             graph.memory_by_id(id).unwrap().unwrap().name.as_str(),
-            "person/12345@discord"
+            "person/12345"
         );
 
-        // Second contact resolves to the same stub and mints nothing.
+        // Second contact resolves to the same memory and mints nothing.
         let again =
             resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "12345").unwrap();
         assert_eq!(again, id);
         assert_eq!(store.head().unwrap(), Seq(2));
 
-        // A different platform user, and the same user_id on another platform, are distinct stubs.
+        // A different platform user gets its own clean handle.
         let other =
             resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "67890").unwrap();
+        // The same user_id on another platform collides with the clean name, so it disambiguates by
+        // platform rather than silently merging two distinct people onto one handle.
         let elsewhere =
             resolve_or_mint_participant(&mut store, &clock, &graph, "slack", "12345").unwrap();
+        graph.materialize_from(&store).unwrap();
         assert_ne!(other, id);
         assert_ne!(elsewhere, id);
         assert_ne!(elsewhere, other);
         assert_eq!(store.head().unwrap(), Seq(6)); // two more mints, two events each
+        assert_eq!(
+            graph.memory_by_id(other).unwrap().unwrap().name.as_str(),
+            "person/67890"
+        );
+        assert_eq!(
+            graph
+                .memory_by_id(elsewhere)
+                .unwrap()
+                .unwrap()
+                .name
+                .as_str(),
+            "person/12345@slack"
+        );
     }
 
     #[test]
