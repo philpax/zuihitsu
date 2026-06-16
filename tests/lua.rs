@@ -1577,3 +1577,96 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
         "a refusing verdict should be recorded for the operator"
     );
 }
+
+/// A direct read withholds a confidence from a present audience that is not cleared to see it — the
+/// same predicate search applies, now on `mem:entries`/`mem:history`. This closes the name-conflation
+/// leak: reading `person/dave` while someone *other* than Dave is present must not hand over Dave's
+/// confidence. A public fact is never withheld; with no one present the agent sees everything.
+#[tokio::test]
+async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
+    let h = Harness::new();
+    h.run(r#"memory.create("person/dave"); memory.create("person/erin")"#)
+        .await;
+    let id = |name: &str| {
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name(name)
+            .unwrap()
+            .unwrap()
+            .id
+    };
+    let (dave, erin) = (id("person/dave"), id("person/erin"));
+
+    // Dave, present, confides something private and states a public fact.
+    h.run_as(
+        Teller::Participant(dave),
+        vec![dave],
+        r#"
+        memory.get("person/dave"):append("interviewing at a competitor", { visibility = "private" })
+        memory.get("person/dave"):append("runs the Berlin marathon", { visibility = "public" })
+        "#,
+    )
+    .await;
+
+    // A read script that reports each entry as "<withheld>:<text>", oldest first.
+    let read = r#"
+        local lines = {}
+        for _, e in ipairs(memory.get("person/dave"):entries()) do
+            lines[#lines + 1] = tostring(e.withheld) .. ":" .. e.text
+        end
+        return table.concat(lines, "|")
+    "#;
+
+    // (a) Erin present, Dave absent: the confidence is withheld to a stub; the public fact stands.
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, vec![erin], read).await else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("true:(withheld"),
+        "the confidence should be withheld from Erin: {result}"
+    );
+    assert!(
+        !result.contains("interviewing at a competitor"),
+        "the confidence text must not reach a read while only Erin is present: {result}"
+    );
+    assert!(
+        result.contains("false:runs the Berlin marathon"),
+        "the public fact should stand: {result}"
+    );
+
+    // (b) Dave himself present: his own confidence surfaces in full.
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, vec![dave], read).await else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("false:interviewing at a competitor"),
+        "Dave present should see his own confidence: {result}"
+    );
+
+    // (c) No one present (a solo flush or maintenance read): the agent sees its whole memory.
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, Vec::new(), read).await else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("false:interviewing at a competitor"),
+        "a solo read is unredacted: {result}"
+    );
+
+    // (d) History redacts on the same rule, even though it shows superseded entries — Erin present.
+    let history = r#"
+        local lines = {}
+        for _, e in ipairs(memory.get("person/dave"):history()) do
+            lines[#lines + 1] = tostring(e.withheld) .. ":" .. e.text
+        end
+        return table.concat(lines, "|")
+    "#;
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, vec![erin], history).await
+    else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("true:(withheld") && !result.contains("interviewing at a competitor"),
+        "history withholds the confidence from Erin too: {result}"
+    );
+}

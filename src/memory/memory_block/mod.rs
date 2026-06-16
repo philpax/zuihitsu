@@ -16,13 +16,13 @@ use serde::Deserialize;
 use crate::{
     engine::Engine,
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
-    graph::{EntryView, GraphError, RelationView, TagVocabularyEntry},
+    graph::{EntryView, Graph, GraphError, RelationView, TagVocabularyEntry},
     ids::{ConversationId, EntryId, MemoryId, MemoryName},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };
 
-use super::visibility::{default_visibility_named, subject_participant};
+use super::visibility::{default_visibility_named, subject_participant, visible};
 
 /// Who is driving a block's writes. Operator authority is the console; it is the only path
 /// permitted to edit `self`, and it authors its links as `Operator` rather than `Agent` (spec
@@ -82,6 +82,13 @@ pub struct EntryRef {
     /// When the fact occurs, if dated — so a read shows the date inline rather than leaving it in a
     /// structured field the agent must inspect or search for separately. `None` for an undated note.
     pub occurred_at: Option<TemporalRef>,
+    /// Whether the entry's content was withheld from this read because the present audience is not
+    /// cleared to see it (the same visibility predicate search applies — a confidence whose teller is
+    /// absent, or guarded by an `Exclude`/subject rule). When set, `text` is a stub naming that
+    /// something was confided, not the confidence itself: the agent learns a private fact exists, and
+    /// by whom and when, without being handed content it must not relay to who is present. Only ever
+    /// set on a direct read with an audience present; a solo read sees everything.
+    pub withheld: bool,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -404,22 +411,25 @@ impl MemoryBlock {
     /// touches every class member, not just `id`. Each entry is addressable (by id) so the agent can
     /// hand one to [`MemoryBlock::supersede`].
     pub fn entries(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
-        let (members, graph_entries, disputed) = {
-            let graph = self.engine.graph.lock();
-            (
-                graph.class_members(id)?,
-                graph.class_entries(id)?,
-                graph.disputed_entries(id)?,
-            )
-        };
-        let members = self.touch_class(id, members);
         // A supersession buffered this block (not yet committed) must hide its target from this live
         // read too, so the agent sees the effect of a correction it just made.
         let pending_superseded = self.pending_superseded();
-        let mut refs: Vec<EntryRef> = graph_entries
+        let (members, annotated, disputed) = {
+            let graph = self.engine.graph.lock();
+            let members = graph.class_members(id)?;
+            let disputed = graph.disputed_entries(id)?;
+            let live: Vec<EntryView> = graph
+                .class_entries(id)?
+                .into_iter()
+                .filter(|entry| !pending_superseded.contains(&entry.entry_id))
+                .collect();
+            let annotated = self.annotate_withheld(&graph, id, live)?;
+            (members, annotated, disputed)
+        };
+        let members = self.touch_class(id, members);
+        let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .filter(|entry| !pending_superseded.contains(&entry.entry_id))
-            .map(|entry| self.entry_ref(entry, &disputed))
+            .map(|(entry, withheld)| self.entry_ref(entry, &disputed, withheld))
             .collect();
         refs.extend(self.pending_entries(&members, &pending_superseded));
         Ok(refs)
@@ -430,18 +440,17 @@ impl MemoryBlock {
     /// Like [`MemoryBlock::entries`], a class-traversing read over the graph plus this block's pending
     /// appends; pending supersessions are *not* applied, since history keeps the superseded entries.
     pub fn history(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
-        let (members, graph_entries, disputed) = {
+        let (members, annotated, disputed) = {
             let graph = self.engine.graph.lock();
-            (
-                graph.class_members(id)?,
-                graph.class_history(id)?,
-                graph.disputed_entries(id)?,
-            )
+            let members = graph.class_members(id)?;
+            let disputed = graph.disputed_entries(id)?;
+            let annotated = self.annotate_withheld(&graph, id, graph.class_history(id)?)?;
+            (members, annotated, disputed)
         };
         let members = self.touch_class(id, members);
-        let mut refs: Vec<EntryRef> = graph_entries
+        let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|entry| self.entry_ref(entry, &disputed))
+            .map(|(entry, withheld)| self.entry_ref(entry, &disputed, withheld))
             .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
@@ -865,6 +874,7 @@ impl MemoryBlock {
                     teller: self.teller_label(told_by),
                     disputed: false,
                     occurred_at: occurred_at.clone(),
+                    withheld: false,
                 }),
                 _ => None,
             })
@@ -889,22 +899,60 @@ impl MemoryBlock {
                 teller: self.teller_label(told_by),
                 disputed: false,
                 occurred_at: occurred_at.clone(),
+                withheld: false,
             }),
             _ => None,
         })
     }
 
-    /// Project an [`EntryView`] into an [`EntryRef`], resolving its teller to a readable label and
-    /// marking it disputed when it is in the memory's set of unresolved-arbitration competing entries.
-    fn entry_ref(&self, view: EntryView, disputed: &BTreeSet<EntryId>) -> EntryRef {
+    /// Project an [`EntryView`] into an [`EntryRef`], resolving its teller to a readable label,
+    /// marking it disputed when it is in the memory's set of unresolved-arbitration competing entries,
+    /// and — when `withheld` — replacing its content with a stub so the confidence is not handed to a
+    /// read whose present audience is not cleared to see it (see [`EntryRef::withheld`]).
+    fn entry_ref(&self, view: EntryView, disputed: &BTreeSet<EntryId>, withheld: bool) -> EntryRef {
         EntryRef {
             disputed: disputed.contains(&view.entry_id),
             entry_id: view.entry_id,
-            text: view.text,
+            text: if withheld {
+                WITHHELD_STUB.to_owned()
+            } else {
+                view.text
+            },
             visibility: view.visibility,
             teller: self.teller_label(&view.told_by),
             occurred_at: view.occurred_at,
+            withheld,
         }
+    }
+
+    /// Mark each entry of a direct read withheld when the present audience is not cleared to see it,
+    /// applying the same [`visible`] predicate search does (resolving identity over the `same_as`
+    /// class). Two deliberate carve-outs keep the agent's reach over its own memory intact: with no one
+    /// present — a solo flush or maintenance pass — nothing is withheld; and the audience check ignores
+    /// supersession (probing with `superseded_by` cleared), so `history` still shows a superseded entry
+    /// yet still withholds one that was a confidence not for who is present.
+    fn annotate_withheld(
+        &self,
+        graph: &Graph,
+        id: MemoryId,
+        entries: Vec<EntryView>,
+    ) -> Result<Vec<(EntryView, bool)>, MemoryError> {
+        if self.present_set.is_empty() {
+            return Ok(entries.into_iter().map(|entry| (entry, false)).collect());
+        }
+        let Some(memory) = graph.memory_by_id(id)? else {
+            return Ok(entries.into_iter().map(|entry| (entry, false)).collect());
+        };
+        let class_of = |mid| graph.class_id(mid).map(|class| class.unwrap_or(mid));
+        entries
+            .into_iter()
+            .map(|entry| {
+                let mut probe = entry.clone();
+                probe.superseded_by = None;
+                let withheld = !visible(&probe, &memory, &self.present_set, &class_of)?;
+                Ok((entry, withheld))
+            })
+            .collect()
     }
 
     /// A readable label for who an entry is attributed to: the participant's canonical handle, `you`
@@ -1035,6 +1083,11 @@ impl MemoryBlock {
 }
 
 const DEFAULT_UPCOMING_DAYS: i64 = 7;
+
+/// The text a withheld entry carries in place of its content (see [`EntryRef::withheld`]). It names
+/// only that something was confided — the date and teller ride the entry's own marker — so the agent
+/// can acknowledge a confidence exists and decline to share it, without ever holding the words.
+const WITHHELD_STUB: &str = "(withheld — a confidence not for the present audience)";
 
 #[cfg(test)]
 mod tests;

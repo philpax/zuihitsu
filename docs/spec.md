@@ -385,11 +385,11 @@ The framing that makes the rest cohere: the agent is not a store with an access-
 
 This is the hardest correctness concern in a multi-participant memory, and the place to spend the most care.
 
-Every `ContentEntry` carries `told_by` and `visibility`. The filter is applied during brief composition and during search; the agent never sees entries it shouldn't, through any channel.
+Every `ContentEntry` carries `told_by` and `visibility`. The filter is applied during brief composition, during search, and on the agent's direct reads of a memory by handle; the agent never relays an entry it shouldn't, through any channel.
 
 ### Superseded entries are not live
 
-Alongside the visibility filter, all live surfaces — `visible(...)`, `recent_facts`, and search — exclude any entry with `superseded_by` set, exactly as they exclude soft-deleted memories. This matters specifically because entries are embedded once on append and never re-touched (see **Storage → Vector store**): a corrected or retracted confidence stays semantically retrievable forever, so without this filter a superseded private aside could resurface through search even though a newer entry replaced it. Superseded entries remain visible only where history is the point — `mem:history()` and the console — which deliberately bypass the live filter.
+Alongside the visibility filter, all live surfaces — `visible(...)`, `recent_facts`, and search — exclude any entry with `superseded_by` set, exactly as they exclude soft-deleted memories. This matters specifically because entries are embedded once on append and never re-touched (see **Storage → Vector store**): a corrected or retracted confidence stays semantically retrievable forever, so without this filter a superseded private aside could resurface through search even though a newer entry replaced it. Superseded entries remain visible only where history is the point — `mem:history()` and the console — which deliberately bypass the *supersession* exclusion. (They do not bypass the audience predicate below: `mem:history()` still withholds a superseded confidence from a present outsider, so "show the old value" never becomes a back door around visibility.)
 
 ### Search is a third visibility surface
 
@@ -398,6 +398,17 @@ Because private content is embedded and therefore semantically retrievable (see 
 Surviving private hits carry the inline teller-private marker (`[teller-private, told by … in … (confidential)]`), resolved at retrieval the same way the brief resolves it, not as out-of-band metadata, for the same frozen-context reason. Search is not a back door around visibility; it is the predicate applied to a different candidate set.
 
 *Implementation note:* because the predicate filters hits after retrieval, search over-fetches beyond the requested `limit` and filters down to it; and because reads traverse `same_as`, hits are deduplicated across a class (two stubs of one person can both match) before the limit is applied.
+
+### Direct reads are a fourth visibility surface
+
+The agent also reads a memory *by handle* — `memory.get(name)` then `mem:entries()` / `mem:history()` — the read it uses to inspect what it holds about someone before answering. This is a different candidate set from search (one named memory's class, not a semantic query), and earlier it was the agent's unfiltered window: it saw the whole memory, on the reasoning that the privacy model governs what the agent *surfaces*, not what it may *see*. That reasoning has a hole the name-conflation case walks straight through. Two unmerged stubs can share a display name; an outsider present under that name asks the agent to recall, the agent reads the same-named stub directly, and relays a confidence the present audience was never cleared for — the subject-guard and teller-gating that search applies are simply absent on the direct path. A marker alone does not close it, because the content is still in front of the model to repeat.
+
+So a direct read applies the same `visible(...)` predicate, with two deliberate refinements that keep the agent's reach over its own memory intact:
+
+- It **redacts rather than drops.** An entry the present audience may not see stays in the read — addressable (so the agent can still `mem:supersede` it) and still showing its date and teller — but its content is replaced by a stub (`(withheld — a confidence not for the present audience)`). The agent learns *that* a confidence exists, from whom and when, and can decline gracefully ("Dave told me something in confidence — let me check with him"), without ever holding the words it must not relay. This is the read-path analogue of the teller-private marker: legibility where search can afford suppression, because a named read expects *something* back.
+- It **fires only with an audience present.** When the present set is empty — a solo compaction flush, a maintenance pass, a wake-up the agent raises to itself — nothing is withheld; the agent sees its whole memory, because there is no one present to leak to and the working-set rebuild depends on it. Redaction is a property of *reading to an audience*, not of the store.
+
+The audience check ignores supersession (it probes with `superseded_by` cleared), so `mem:history()` keeps its purpose — showing the superseded entry — while still withholding it when it is a confidence not for who is present. Direct reads are not a back door around visibility; they are the predicate applied to the agent's own by-handle reach, redacting instead of dropping because the agent asked by name.
 
 ### The read-time predicate
 

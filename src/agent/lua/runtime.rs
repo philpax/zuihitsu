@@ -202,6 +202,9 @@ pub(super) fn make_entry_handle(
     handle.set("visibility", visibility_label(&entry.visibility))?;
     handle.set("told_by", entry.teller.as_str())?;
     handle.set("disputed", entry.disputed)?;
+    // When set, `text` is already the withheld stub (the content never leaves the block); the flag
+    // lets a script branch and lets the metatable render it as a withheld confidence, not bare text.
+    handle.set("withheld", entry.withheld)?;
     if let Some(occurred_at) = &entry.occurred_at {
         handle.set("occurred_at", lua.to_value(occurred_at)?)?;
     }

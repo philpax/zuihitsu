@@ -226,5 +226,31 @@ mod harness {
                 .await
                 .unwrap()
         }
+
+        /// Execute one block with an explicit teller and present set — for the visibility-sensitive
+        /// reads where *who is present* changes what a direct read may surface.
+        pub async fn run_as(
+            &self,
+            teller: Teller,
+            present_set: Vec<MemoryId>,
+            script: &str,
+        ) -> BlockOutcome {
+            self.session
+                .execute(
+                    &self.engine,
+                    &BlockContext {
+                        teller,
+                        authority: Authority::Platform,
+                        turn_id: TurnId::generate(),
+                        present_set,
+                        dry_run: false,
+                        block_timeout: TEST_BLOCK_TIMEOUT,
+                        max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                    },
+                    script,
+                )
+                .await
+                .unwrap()
+        }
     }
 }
