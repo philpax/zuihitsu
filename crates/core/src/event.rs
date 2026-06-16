@@ -76,12 +76,16 @@ impl Cardinality {
     }
 }
 
-/// Who authored a link: the agent itself, or an operator acting through the console.
+/// Who authored a link: the agent itself, an operator acting through the console, or — for a
+/// cross-platform `same_as` only — the merge-adjudication pass that accepted an agent's proposal on
+/// the evidence. `Adjudicated` is the one path past the operator-only merge gate, distinguishable in
+/// the log so an audit can tell a console merge from an adjudicated one (spec §Cross-platform identity).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
     Agent,
     Operator,
+    Adjudicated,
 }
 
 impl LinkSource {
@@ -89,6 +93,7 @@ impl LinkSource {
         match self {
             LinkSource::Agent => "Agent",
             LinkSource::Operator => "Operator",
+            LinkSource::Adjudicated => "Adjudicated",
         }
     }
 
@@ -96,6 +101,7 @@ impl LinkSource {
         match text {
             "Agent" => Some(LinkSource::Agent),
             "Operator" => Some(LinkSource::Operator),
+            "Adjudicated" => Some(LinkSource::Adjudicated),
             _ => None,
         }
     }
@@ -166,6 +172,9 @@ pub enum PromptTemplateName {
     Flush,
     /// Frames the console imprint interview: meet the creator and form self-knowledge.
     Imprint,
+    /// Adjudicates a proposed cross-platform merge: weigh the two stubs' independently-recorded facts
+    /// against the confidences at risk and accept or refuse.
+    MergeAdjudication,
 }
 
 impl PromptTemplateName {
@@ -176,6 +185,7 @@ impl PromptTemplateName {
             PromptTemplateName::TemporalExtraction => "temporal-extraction",
             PromptTemplateName::Flush => "flush",
             PromptTemplateName::Imprint => "imprint",
+            PromptTemplateName::MergeAdjudication => "merge-adjudication",
         }
     }
 }
@@ -365,6 +375,26 @@ pub enum EventPayload {
         resolution: ArbitrationResolution,
         produced_by: Option<ProducedBy>,
     },
+    /// The agent's judgment that two `person/*` stubs may be the same human across platforms, recorded
+    /// for the off-hot-path adjudication pass to weigh (spec §Cross-platform identity → agent-proposed
+    /// merge). Deliberately *not* a `same_as` link and not projected into the graph: a proposal is inert
+    /// — it leaves both stubs in their own classes and surfaces nothing — so nothing crosses the
+    /// would-be merge until an adjudication accepts it. `produced_by` is `None` (the agent proposes from
+    /// a turn, not an inference pass).
+    MergeProposed { from: MemoryId, to: MemoryId },
+    /// The adjudication pass's verdict on a `MergeProposed`: whether the two stubs' independently-
+    /// recorded facts coincide improbably enough to be one person, given the confidences at risk (spec
+    /// §Cross-platform identity → adjudicated merge). A log-only audit record carrying the reasoning. On
+    /// `accepted`, the pass also authors the `same_as` link (`LinkSource::Adjudicated`) that actually
+    /// merges; on refusal, the proposal stands recorded for the operator backstop. `produced_by` records
+    /// the inference, so a refusal is replayable and a wrong accept is auditable.
+    MergeAdjudicated {
+        from: MemoryId,
+        to: MemoryId,
+        accepted: bool,
+        rationale: String,
+        produced_by: Option<ProducedBy>,
+    },
     MemoryVolatilitySet {
         id: MemoryId,
         volatility: Volatility,
@@ -547,6 +577,8 @@ impl EventPayload {
             EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
             EventPayload::BeliefArbitrated { .. } => "BeliefArbitrated",
+            EventPayload::MergeProposed { .. } => "MergeProposed",
+            EventPayload::MergeAdjudicated { .. } => "MergeAdjudicated",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
@@ -587,6 +619,8 @@ impl EventPayload {
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::BeliefArbitrated { memory: id, .. }
+            | EventPayload::MergeProposed { from: id, .. }
+            | EventPayload::MergeAdjudicated { from: id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
             | EventPayload::ScheduledJobFired { memory: id, .. }
             | EventPayload::ScheduledItemSurfaced { memory: id, .. }
