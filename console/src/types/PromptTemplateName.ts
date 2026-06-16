@@ -4,4 +4,4 @@
  * The orchestration prompt templates the build ships — a closed, build-defined set (spec
  * §Initialization → prompt templates). Serialized in kebab-case to match the human-facing names.
  */
-export type PromptTemplateName = "scaffold" | "description-regen" | "temporal-extraction" | "flush" | "imprint";
+export type PromptTemplateName = "scaffold" | "description-regen" | "temporal-extraction" | "flush" | "imprint" | "merge-adjudication";
