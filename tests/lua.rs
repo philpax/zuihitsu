@@ -10,10 +10,10 @@ use std::{sync::Arc, time::Duration};
 use common::Harness;
 use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
-    Clock, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName, MemoryStore,
-    RelationName, Seq, Session, Store, TagName, Teller, TemporalRef, TerminalCause, TurnId,
-    Visibility,
-    event::{ArbitrationResolution, EventPayload},
+    Clock, Completion, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName,
+    MemoryStore, PromptTemplateName, RelationName, ScriptedModel, Seq, Session, Store, TagName,
+    Teller, TemporalRef, TerminalCause, TurnId, Visibility,
+    event::{ArbitrationResolution, EventPayload, EventSource},
     resolve_or_mint_conversation,
 };
 
@@ -1474,5 +1474,106 @@ async fn a_write_block_reports_what_it_committed() {
     assert!(
         !result.contains("Committed:"),
         "a read-only query should carry no commit summary: {result:?}"
+    );
+}
+
+/// Register the merge-adjudication template directly, so the adjudication pass has its prompt without a
+/// full genesis rollout (the scripted model returns a fixed verdict regardless of the prompt text).
+fn register_adjudication_template(h: &Harness) {
+    h.engine
+        .store
+        .lock()
+        .as_mut()
+        .append(
+            h.clock.now(),
+            vec![EventPayload::PromptTemplateRegistered {
+                name: PromptTemplateName::MergeAdjudication,
+                version: 1,
+                body: "Decide whether two stubs are the same person, on the evidence.".to_owned(),
+                source: EventSource::Orchestration,
+            }],
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_adjudicated_merge_links_two_stubs_on_accept() {
+    // The agent proposes two stubs are one person; the off-hot-path adjudicator, accepting, authors the
+    // same_as that merges them into one class (spec §Cross-platform identity → adjudicated merge).
+    let h = Harness::new();
+    register_adjudication_template(&h);
+    h.run(
+        r#"
+        local a = memory.create("person/dave-slack")
+        a:append("Off sick the first week of March", { visibility = "private" })
+        local b = memory.create("person/dave-discord")
+        b:append("Out sick the week of March 3rd", { visibility = "private" })
+        a:propose_merge(b)
+        return "ok"
+        "#,
+    )
+    .await;
+
+    let model = ScriptedModel::new([Completion::Reply(
+        r#"{"accepted": true, "rationale": "Both off sick the same week — an improbable coincidence."}"#
+            .to_owned(),
+    )]);
+    h.adjudicate(&model).await;
+
+    let graph = h.engine.graph.lock();
+    let a = graph.memory_by_name("person/dave-slack").unwrap().unwrap();
+    let b = graph
+        .memory_by_name("person/dave-discord")
+        .unwrap()
+        .unwrap();
+    let members = graph.class_members(a.id).unwrap();
+    assert!(
+        members.contains(&b.id),
+        "the accepted merge should put both stubs in one same_as class, got {members:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_merge_leaves_the_stubs_distinct() {
+    // On only a generic overlap the adjudicator refuses; no same_as is authored, the stubs stay in
+    // separate classes, and the refusal is recorded for the operator.
+    let h = Harness::new();
+    register_adjudication_template(&h);
+    h.run(
+        r#"
+        local a = memory.create("person/sam-slack")
+        a:append("Is an engineer", { visibility = "public" })
+        local b = memory.create("person/sam-discord")
+        b:append("Works in engineering", { visibility = "public" })
+        a:propose_merge(b)
+        return "ok"
+        "#,
+    )
+    .await;
+
+    let model = ScriptedModel::new([Completion::Reply(
+        r#"{"accepted": false, "rationale": "Only a generic overlap; no specific coincidence."}"#
+            .to_owned(),
+    )]);
+    h.adjudicate(&model).await;
+
+    let graph = h.engine.graph.lock();
+    let a = graph.memory_by_name("person/sam-slack").unwrap().unwrap();
+    let b = graph.memory_by_name("person/sam-discord").unwrap().unwrap();
+    assert!(
+        !graph.class_members(a.id).unwrap().contains(&b.id),
+        "a refused merge must leave the stubs in separate classes"
+    );
+    drop(graph);
+    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    assert!(
+        events.iter().any(|e| matches!(
+            &e.payload,
+            EventPayload::MergeAdjudicated {
+                accepted: false,
+                ..
+            }
+        )),
+        "a refusing verdict should be recorded for the operator"
     );
 }
