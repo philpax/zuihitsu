@@ -963,9 +963,31 @@ impl MemoryBlock {
             .map(|memory| memory.id))
     }
 
-    /// Resolve a memory's name from this block's pending creates first, then the graph — so an
-    /// append's write-time default visibility is computed even for a memory created earlier in the
-    /// same block.
+    /// A readable field of a memory by id — `name` or `description` — backing the handle metatable's
+    /// lazy `handle.name` / `handle.description` accessors, so a memory handle minted from only an id (a
+    /// calendar or link result) still reads its name. `name` honors this block's pending creates;
+    /// `description` is graph-only (a just-created memory has none synthesized yet). An unknown field is
+    /// `None`, so the metatable falls through to its methods.
+    pub(crate) fn handle_field(
+        &self,
+        id: MemoryId,
+        field: &str,
+    ) -> Result<Option<String>, MemoryError> {
+        match field {
+            "name" => Ok(self.resolve_name(id)?.map(|name| name.as_str().to_owned())),
+            "description" => Ok(self
+                .engine
+                .graph
+                .lock()
+                .memory_by_id(id)?
+                .map(|memory| memory.description)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Resolve a memory's name, honoring a pending `MemoryCreated` not yet projected — so a handle to a
+    /// memory created this block reads its name (and the teller label for an entry attributed within the
+    /// same block).
     fn resolve_name(&self, id: MemoryId) -> Result<Option<MemoryName>, GraphError> {
         let pending = self.buffer.iter().find_map(|event| match event {
             EventPayload::MemoryCreated { id: created, name } if *created == id => {

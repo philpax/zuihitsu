@@ -610,7 +610,10 @@ mod tests {
     use crate::{
         event::{ArbitrationResolution, Event, EventPayload, Teller, Visibility},
         ids::{EntryId, MemoryId, MemoryName, Seq},
-        time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, TemporalRef, Timestamp},
+        time::{
+            BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, MILLIS_PER_DAY, Rrule, TemporalRef,
+            Timestamp,
+        },
     };
 
     fn event(seq: u64, payload: EventPayload) -> Event {
@@ -828,5 +831,50 @@ mod tests {
             ))
             .unwrap();
         assert!(graph.disputed_entries(memory).unwrap().is_empty());
+    }
+
+    /// A weekly recurring memory surfaces in `recurring_in_window` when its next virtual instance falls
+    /// in the window — the calendar.upcoming expansion path. Reproduces the standup case: asserted on a
+    /// Monday, queried the following week, the next instance a few days out must be found.
+    #[test]
+    fn recurring_in_window_surfaces_a_weekly_instance() {
+        let mut graph = Graph::open_in_memory().unwrap();
+        let memory = MemoryId::generate();
+        let entry = EntryId::generate();
+        let asserted = Timestamp::from_millis(1_780_876_810_000); // 2026-06-08T00:00:10 (a Monday).
+        graph
+            .apply(&event(
+                1,
+                EventPayload::MemoryCreated {
+                    id: memory,
+                    name: MemoryName::new("event/standup"),
+                },
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                2,
+                EventPayload::MemoryContentAppended {
+                    id: memory,
+                    entry_id: entry,
+                    asserted_at: asserted,
+                    occurred_at: Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY;BYDAY=MO".into()))),
+                    text: "Recurring every Monday".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ))
+            .unwrap();
+
+        // Query the following week — the next instance (2026-06-22) is ~6 days into the 7-day window.
+        let from = Timestamp::from_millis(1_781_568_034_855); // 2026-06-16T00:00:34.
+        let to = Timestamp::from_millis(from.as_millis() + 7 * MILLIS_PER_DAY);
+        let hits = graph.recurring_in_window(from, to).unwrap();
+        assert_eq!(
+            hits.len(),
+            1,
+            "the weekly standup should surface in the upcoming window, got {hits:?}"
+        );
     }
 }

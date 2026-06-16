@@ -178,9 +178,8 @@ impl Session {
             // `mem:entries` / `mem:history` return (text-rendering, so reading stays ergonomic).
             let methods = self.lua.create_table().map_err(LuaError::Vm)?;
             let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
-            metatable
-                .set("__index", methods.clone())
-                .map_err(LuaError::Vm)?;
+            // `__index` is wired in `install_block_api`: it resolves `handle.name` / `handle.description`
+            // lazily from the id and otherwise dispatches to `methods`.
             let entry_metatable = self.entry_metatable().map_err(LuaError::Vm)?;
 
             // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects

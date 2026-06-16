@@ -205,6 +205,43 @@ async fn calendar_computes_dates_for_occurred_at() {
 }
 
 #[tokio::test]
+async fn calendar_upcoming_surfaces_a_recurring_instance() {
+    // A recurring memory whose next virtual instance falls in the window surfaces in calendar.upcoming,
+    // so the agent's own calendar query sees a standup it set for "every Monday" rather than coming up
+    // empty (spec §Calendar). Reproduces the recurring_reminder miss.
+    let h = Harness::new(); // clock at Monday 2026-06-08
+    h.run(
+        r#"
+        local e = memory.create("event/standup", "Team standup")
+        e:append("Recurring every Monday", { occurred_at = { recurring = "FREQ=WEEKLY;BYDAY=MO" }, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    // Advance past the first instance into the next week, as the scenario does before the fresh turn.
+    h.clock.advance_millis(8 * 86_400_000 + 34_000);
+    let outcome = h
+        .run(
+            r#"
+        local names = {}
+        for _, m in ipairs(calendar.upcoming({ within = "7 days" })) do
+            table.insert(names, m.name)
+        end
+        return "[" .. table.concat(names, ",") .. "]"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit");
+    };
+    // The recurring instance surfaces, and the handle reads its name (the bug: m.name was nil).
+    assert!(
+        result.contains("event/standup"),
+        "the recurring standup should surface in upcoming and read its name, got: {result}"
+    );
+}
+
+#[tokio::test]
 async fn calendar_date_objects_carry_arithmetic() {
     // Date objects render as their ISO day and carry calendar-correct arithmetic (month clamping
     // included), so the agent composes dates from operations rather than computing them.

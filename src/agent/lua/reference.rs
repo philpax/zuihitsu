@@ -258,7 +258,9 @@ pub fn api_reference() -> Vec<ApiEntry> {
 
     let upcoming = AE::new("calendar.upcoming")
         .description(
-            "Memories with something happening soon, soonest first — read each for detail.",
+            "Memories with something happening soon (including the next instance of a recurring one), \
+             soonest first. Each is a memory handle — read m.name and m.description, or call its \
+             methods (m:entries() …) for detail.",
         )
         .optional(
             "opts",

@@ -35,6 +35,31 @@ impl Session {
         entry_metatable: &Table,
     ) -> mlua::Result<()> {
         self.install_handle_methods(api, methods, entry_metatable)?;
+        // A memory handle reads `handle.name` and `handle.description` lazily from its id, so a handle
+        // minted from only an id — a `calendar.*` or relation result — still reads its name, not just
+        // one the agent already named via `memory.get`. Any other key dispatches to the methods table
+        // (`handle:append`, `handle:entries`, …). Without this a script iterating calendar results and
+        // reading `m.name` got nil and concluded the calendar was empty.
+        metatable.set("__index", {
+            let methods = methods.clone();
+            let api = api.clone();
+            self.lua
+                .create_function(move |lua, (handle, key): (Table, String)| {
+                    if key == "name" || key == "description" {
+                        let id = handle_id(&handle)?;
+                        let field = api
+                            .block
+                            .lock()
+                            .handle_field(id, &key)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        return Ok(match field {
+                            Some(text) => Value::String(lua.create_string(&text)?),
+                            None => Value::Nil,
+                        });
+                    }
+                    methods.get::<Value>(key)
+                })?
+        })?;
         let globals = self.lua.globals();
         // `print(...)` captures into the block's output buffer (rendered the same way returned values
         // are), so the agent sees what it prints fed back — Lua's default `print` writes to a process
