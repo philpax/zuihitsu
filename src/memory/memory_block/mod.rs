@@ -113,9 +113,12 @@ pub enum MemoryError {
     /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
     /// Only the console (operator authority) may edit `self`.
     SelfWriteForbidden,
-    /// A platform-authority write tried to assert or retract a `same_as` merge. Cross-platform
-    /// identity is operator-asserted only — the agent never merges two identities on its own.
+    /// A platform-authority write tried to assert or retract a `same_as` merge directly. The agent
+    /// never authors a `same_as` from a turn — it `propose_merge`s, and the adjudication pass (or the
+    /// operator) decides; a retraction is operator-only.
     MergeForbidden,
+    /// A merge proposal named the same memory twice — there is nothing to merge.
+    MergeProposalInvalid,
     /// An agent-authored entry about a person was written with no explicit visibility. Such a write
     /// has no protective default — the aside mechanism keys on a participant teller, not the agent —
     /// so it must classify the entry rather than fall silently to public (which is how a re-recorded
@@ -161,6 +164,12 @@ impl std::fmt::Display for MemoryError {
             }
             MemoryError::SelfWriteForbidden => {
                 write!(f, "self can only be edited from the console")
+            }
+            MemoryError::MergeProposalInvalid => {
+                write!(
+                    f,
+                    "memory: a merge proposal must name two different memories"
+                )
             }
             MemoryError::MergeForbidden => {
                 write!(f, "same_as merges can only be asserted from the console")
@@ -545,6 +554,22 @@ impl MemoryBlock {
         self.change_link(from, to, relation, false)
     }
 
+    /// Propose that two stubs are the same human across platforms, for the adjudication pass to weigh
+    /// (spec §Cross-platform identity → adjudicated merge). This is *not* a merge: it buffers an inert
+    /// `MergeProposed` — no `same_as`, no class change, nothing surfaces across the would-be merge — so
+    /// the agent records its judgment without itself collapsing two identities' visibility. A proposal
+    /// naming one memory twice is rejected as a teachable error; everything else (whether the two are
+    /// truly the same) is the adjudicator's call, on the evidence.
+    pub fn propose_merge(&mut self, from: MemoryId, to: MemoryId) -> Result<(), MemoryError> {
+        if from == to {
+            return Err(MemoryError::MergeProposalInvalid);
+        }
+        self.touched.insert(from);
+        self.touched.insert(to);
+        self.buffer.push(EventPayload::MergeProposed { from, to });
+        Ok(())
+    }
+
     /// Register a link relation, accessible thereafter under either label; re-registering an existing
     /// name updates it in place (the materializer upserts). The cardinality strings are parsed here, at
     /// the block boundary, so a bad value is a teachable error rather than a silent mis-store.
@@ -724,7 +749,9 @@ impl MemoryBlock {
         // A link from or to `self` modifies the self model — barred outside the console.
         self.guard_self(from)?;
         self.guard_self(to)?;
-        // Operator-authored links carry operator provenance; the agent's own carry `Agent`.
+        // Operator-authored links carry operator provenance; the agent's own carry `Agent`. (The
+        // adjudicated `same_as` is authored by the merge-adjudication pass directly, not through a block,
+        // so it never reaches this seam — see `LinkSource::Adjudicated`.)
         let source = match self.authority {
             Authority::Operator => LinkSource::Operator,
             Authority::Platform => LinkSource::Agent,

@@ -7,8 +7,10 @@
 //! an empty silent terminal, or a surfaced `max_steps` error — so "the agent saw this and chose
 //! its outcome" is always auditable. The inbound message is its own `role = participant` turn.
 
+mod adjudicate;
 mod describe;
 
+pub use adjudicate::run_adjudicate_catch_up;
 pub use describe::run_describe_catch_up;
 
 use schemars::JsonSchema;

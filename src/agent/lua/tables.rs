@@ -245,6 +245,27 @@ impl Session {
             })?,
         )?;
 
+        // mem:propose_merge(other) — record that this memory and `other` may be the same person across
+        // platforms, for the adjudication pass to weigh on the evidence. Not a merge: it surfaces nothing
+        // until adjudicated. Locks both endpoints.
+        methods.set(
+            "propose_merge",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (this, other): (Table, Table)| {
+                    let api = api.clone();
+                    async move {
+                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                        api.lock_all([from, to]).await;
+                        api.block
+                            .lock()
+                            .propose_merge(from, to)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+
         // mem:tag(name) / mem:untag(name) — apply or clear a vocabulary tag on this memory, locking it
         // first. The tag must have been created (`tags.create`); the name is recognized into its typed
         // [`TagName`] here, at the wrapper boundary.
