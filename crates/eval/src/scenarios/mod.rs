@@ -6,6 +6,7 @@ mod arbitration;
 mod compaction;
 mod conversations;
 mod description;
+mod merge;
 mod privacy;
 mod recall;
 mod relations;
@@ -24,6 +25,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         reuse::scenarios(),
         tagging::scenarios(),
         relations::scenarios(),
+        merge::scenarios(),
         scheduling::scenarios(),
         arbitration::scenarios(),
         privacy::scenarios(),

@@ -78,6 +78,27 @@ pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     })
 }
 
+/// Whether the agent proposed a cross-platform merge (a `MergeProposed`) — the agent's judgment that
+/// two stubs may be one person, before any adjudication.
+pub fn merge_proposed(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(&event.payload, EventPayload::MergeProposed { .. }))
+}
+
+/// Whether the run actually merged two stubs: an adjudication accepted *and* authored the `same_as`
+/// (`source = Adjudicated`). This is the surfacing-changing outcome — distinct from merely proposing,
+/// which is inert.
+pub fn merge_committed(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkCreated { relation, source, .. }
+                if relation.as_str() == "same_as" && source.as_str() == "Adjudicated"
+        )
+    })
+}
+
 /// How many sessions opened in the run — one more than the number of cuts (compaction or idle
 /// re-segmentation), so `session_count - 1` counts the seams the carryover crossed.
 pub fn session_count(events: &[Event]) -> usize {
