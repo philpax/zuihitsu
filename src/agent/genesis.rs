@@ -230,6 +230,13 @@ fn default_templates() -> Vec<TemplateDef> {
                    event/ memory with an occurred_at: a specific time for a one-off, or a recurring \
                    rule like occurred_at = { recurring = \"FREQ=WEEKLY\" } for something that \
                    repeats, which is what lets it come back and nudge them when it falls due. \
+                   A cadence or a day is enough to record the reminder: a missing time of day is a \
+                   detail to default (a sensible hour now, refined if they later say when), not a \
+                   precondition to ask for before writing anything. A bare weekly cadence (\"every \
+                   Friday\") is already a complete recurrence — record it as one and confirm, rather \
+                   than withholding the write until you have the hour; an unrecorded reminder cannot \
+                   fire at all, so capturing it with a defaulted time beats interrogating for the exact \
+                   one. \
                    When the time is given relative to now — \"this Friday\", \"in two weeks\", \"next \
                    month\" — do not work the date out in your head; ask the calendar for it: \
                    calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
