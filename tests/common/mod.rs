@@ -17,7 +17,7 @@ mod harness {
         FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryStore, ModelClient,
         PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
         model::index::{apply_batch, embed_batch},
-        run_describe_catch_up,
+        run_adjudicate_catch_up, run_describe_catch_up,
     };
 
     use super::time::TEST_NOW;
@@ -43,6 +43,7 @@ mod harness {
         /// this seq. Advanced by [`Harness::describe`]; baselined past genesis by
         /// [`Harness::baseline_descriptions`] so a catch-up never reconsiders the seeded `self`.
         describer_cursor: Cell<Seq>,
+        adjudicator_cursor: Cell<Seq>,
     }
 
     impl Default for Harness {
@@ -58,6 +59,7 @@ mod harness {
                 session: Session::new(ConversationId::generate()),
                 participant: MemoryId::generate(),
                 describer_cursor: Cell::new(Seq::ZERO),
+                adjudicator_cursor: Cell::new(Seq::ZERO),
             }
         }
     }
@@ -89,6 +91,7 @@ mod harness {
                 session: Session::new(ConversationId::generate()),
                 participant: MemoryId::generate(),
                 describer_cursor: Cell::new(Seq::ZERO),
+                adjudicator_cursor: Cell::new(Seq::ZERO),
             }
         }
 
@@ -122,6 +125,17 @@ mod harness {
                     .await
                     .unwrap();
             self.describer_cursor.set(advanced);
+        }
+
+        /// Run the merge-adjudication catch-up over the proposals written since its cursor — the
+        /// off-hot-path pass the server's background adjudicator does, driven explicitly. Weighs each
+        /// proposed merge and, on acceptance, authors the `same_as`, advancing the cursor.
+        pub async fn adjudicate(&self, model: &dyn ModelClient) {
+            let (advanced, _) =
+                run_adjudicate_catch_up(&self.engine, model, self.adjudicator_cursor.get())
+                    .await
+                    .unwrap();
+            self.adjudicator_cursor.set(advanced);
         }
 
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.

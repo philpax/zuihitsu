@@ -78,6 +78,11 @@ const INDEX_TICK_SECONDS: u64 = 5;
 /// fresh without a per-turn cost; an idle tick is cheap.
 const DESCRIBE_TICK_SECONDS: u64 = 5;
 
+/// How often the background adjudicator weighs proposed merges (spec §Cross-platform identity →
+/// adjudicated merge). Proposals are rare, so this polls less eagerly than the describer; an idle tick
+/// is cheap (a head check against the cursor).
+const ADJUDICATE_TICK_SECONDS: u64 = 7;
+
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
 pub fn run_blocking(config_path: &Path) -> Result<(), ServeError> {
@@ -197,6 +202,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
+    // The background adjudicator weighs proposed cross-platform merges off the hot path (spec
+    // §Cross-platform identity → adjudicated merge). Spawned only when a model is configured; without
+    // one there is no judge to run.
+    let adjudicator = model.as_ref().map(|model| {
+        let server = server.clone();
+        let model = model.clone();
+        tokio::spawn(async move {
+            server
+                .run_adjudicator(
+                    model,
+                    Duration::from_secs(ADJUDICATE_TICK_SECONDS),
+                    shutdown_signal(),
+                )
+                .await
+        })
+    });
+
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
     // §Snapshots), when enabled. Stops on the same shutdown signal.
     let snapshotter = config.snapshots.enabled.then(|| {
@@ -235,6 +257,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let _ = indexer.await;
     if let Some(describer) = describer {
         let _ = describer.await;
+    }
+    if let Some(adjudicator) = adjudicator {
+        let _ = adjudicator.await;
     }
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;

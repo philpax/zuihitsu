@@ -33,7 +33,7 @@ use crate::{
         McpCatalogue, Turn, TurnError, TurnReport, TurnView, buffer_turns,
         genesis::{self, GenesisStatus},
         lua::Session,
-        run_describe_catch_up, run_turn,
+        run_adjudicate_catch_up, run_describe_catch_up, run_turn,
     },
     clock::Clock,
     engine::Engine,
@@ -84,6 +84,11 @@ pub struct Server {
     /// In-memory; `boot` re-seeds it to log-head, treating already-written state as described — a crash
     /// mid-regen self-heals on the memory's next write rather than re-describing the whole log at boot.
     describer_cursor: Mutex<Seq>,
+    /// The merge-adjudicator's cursor: the log seq through which proposed merges have been adjudicated.
+    /// Its own background pass (and the explicit `adjudicate_catch_up`) advances it as it weighs pending
+    /// proposals off the hot path (spec §Cross-platform identity → adjudicated merge). Re-seeded to
+    /// log-head at boot, like the describer's.
+    adjudicator_cursor: Mutex<Seq>,
     /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
     /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
     /// model at once; further streams queue. Sized from settings at construction (a change takes
@@ -138,6 +143,7 @@ impl Server {
             sessions: Mutex::new(HashMap::new()),
             pending_carryover: Mutex::new(HashMap::new()),
             describer_cursor: Mutex::new(Seq::ZERO),
+            adjudicator_cursor: Mutex::new(Seq::ZERO),
             streams,
             mcp: None,
         }
@@ -179,6 +185,7 @@ impl Server {
         // described, so a restart does not re-describe the whole log (spec §Write path). New writes from
         // here are caught up off the hot path.
         self.baseline_describer_cursor()?;
+        self.baseline_adjudicator_cursor()?;
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "server booted");
         Ok(status)
@@ -715,6 +722,53 @@ impl Server {
             }
         }
         tracing::info!("describer stopped");
+    }
+
+    /// Catch merge adjudications up to the log off the hot path (spec §Cross-platform identity →
+    /// adjudicated merge): weigh every proposed merge written since the cursor, advancing it. Driven on
+    /// a timer by the served runtime and explicitly by tests and the eval harness. Returns how many
+    /// proposals it considered.
+    pub async fn adjudicate_catch_up(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+        let cursor = *self.adjudicator_cursor.lock();
+        let (advanced, count) = run_adjudicate_catch_up(&self.engine, model, cursor).await?;
+        *self.adjudicator_cursor.lock() = advanced;
+        Ok(count)
+    }
+
+    /// Seed the adjudicator's cursor to log-head, treating every proposal so far as already adjudicated.
+    /// Called at boot and at agent creation, like the describer's, so a restart does not re-weigh old
+    /// proposals.
+    pub(crate) fn baseline_adjudicator_cursor(&self) -> Result<(), ServerError> {
+        *self.adjudicator_cursor.lock() = self.engine.store.lock().head()?;
+        Ok(())
+    }
+
+    /// The background adjudicator: on each tick, weigh proposed merges off the hot path. Idempotent and
+    /// cursor-resumed, so an idle tick is cheap; a failure is logged, not fatal — a proposal stays
+    /// pending until the next tick or an operator decides.
+    pub async fn run_adjudicator(
+        self: Arc<Self>,
+        model: Arc<dyn ModelClient>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match self.adjudicate_catch_up(model.as_ref()).await {
+                        Ok(considered) if considered > 0 => {
+                            tracing::debug!(considered, "adjudicator weighed merge proposals")
+                        }
+                        Ok(_) => {}
+                        Err(error) => tracing::error!(%error, "adjudicator: catch-up failed"),
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("adjudicator stopped");
     }
 
     /// Tear down the live sessions at server shutdown: drain the session map and shut each session's

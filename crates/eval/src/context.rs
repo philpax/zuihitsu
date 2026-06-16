@@ -158,6 +158,14 @@ impl RunContext {
         Ok(())
     }
 
+    /// Adjudicate the merges proposed so far — the off-hot-path pass the background adjudicator runs,
+    /// driven explicitly (spec §Cross-platform identity → adjudicated merge). A scenario that proposes a
+    /// merge calls this before its log is assessed, so the verdict (and any `same_as`) is recorded.
+    pub async fn adjudicate_catch_up(&self) -> Result<(), EvalError> {
+        self.server.adjudicate_catch_up(self.model.as_ref()).await?;
+        Ok(())
+    }
+
     /// The run's whole event log — the record the harness embeds and assessment reads.
     pub fn events(&self) -> Result<Vec<Event>, EvalError> {
         Ok(self.server.control().events()?)

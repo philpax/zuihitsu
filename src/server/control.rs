@@ -252,6 +252,7 @@ impl Control<'_> {
         // public entries, and a synchronous caller — a scripted test or the open-time forcing guard —
         // must not block on it). The same baseline `boot` performs, here for the born-without-boot path.
         self.server.baseline_describer_cursor()?;
+        self.server.baseline_adjudicator_cursor()?;
         Ok(outcome)
     }
 
