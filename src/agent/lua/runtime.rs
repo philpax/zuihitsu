@@ -4,7 +4,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use mlua::{Lua, Table, Value};
+use mlua::{Lua, LuaSerdeExt, Table, Value};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use tokio::sync::OwnedMutexGuard;
@@ -20,7 +20,6 @@ use crate::{
         search::{SearchQuery, search},
     },
     settings::Settings,
-    time,
     vocabulary::TagName,
 };
 
@@ -197,12 +196,14 @@ pub(super) fn make_entry_handle(
     // Carried so a read renders self-describingly (see the entry metatable's `__tostring`) and so a
     // script can branch on them: `entry.visibility` ("public"/"private"), `entry.told_by` (the teller),
     // `entry.disputed` (true when the fact is under an unresolved arbitration), and `entry.occurred_at`
-    // (the rendered date, when the fact is dated, so a script can read *when* without reparsing).
+    // (the occurrence as the *same* tagged table `append` accepts — `{ day = "…" }` etc. — so a read
+    // round-trips to a write and a script can match on `entry.occurred_at.day`, not a string it has to
+    // reparse; the metatable's `__tostring` renders it for display).
     handle.set("visibility", visibility_label(&entry.visibility))?;
     handle.set("told_by", entry.teller.as_str())?;
     handle.set("disputed", entry.disputed)?;
     if let Some(occurred_at) = &entry.occurred_at {
-        handle.set("occurred_at", time::format_occurrence(occurred_at))?;
+        handle.set("occurred_at", lua.to_value(occurred_at)?)?;
     }
     handle.set_metatable(Some(entry_metatable.clone()))?;
     Ok(handle)

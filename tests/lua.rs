@@ -150,6 +150,36 @@ async fn a_dated_entry_reads_with_its_date() {
 }
 
 #[tokio::test]
+async fn an_entry_occurred_at_round_trips_for_supersede() {
+    // A read's occurred_at is the same tagged table append takes, so a script can match an entry by
+    // entry.occurred_at.day and supersede it — the update path that silently no-opped when occurred_at
+    // read back as a rendered string (entry.occurred_at.day was then nil).
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create("event/launch")
+        ev:append("Launch", { occurred_at = { day = "2027-03-15" }, visibility = "public" })
+        local old
+        for _, e in ipairs(ev:entries()) do
+            if e.occurred_at and e.occurred_at.day == "2027-03-15" then old = e end
+        end
+        local new = ev:append("Launch", { occurred_at = { day = "2027-03-22" }, visibility = "public" })
+        ev:supersede(old, new)
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("[2027-03-22") && !result.contains("[2027-03-15"),
+        "matching by occurred_at.day should have superseded the 15th with the 22nd, got: {result}"
+    );
+}
+
+#[tokio::test]
 async fn calendar_computes_dates_for_occurred_at() {
     // The agent names a relative date and the runtime computes it, so the recorded occurrence is
     // correct without the model doing date arithmetic in its head (spec §Calendar → date arithmetic is

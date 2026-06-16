@@ -97,9 +97,11 @@ pub fn api_reference() -> Vec<ApiEntry> {
     let entries = AE::new("<memory>:entries")
         .description(
             "The memory's live content entries, across its whole merged identity. Each is an entry \
-             object — read its text with entry.text (it also prints as its text), and pass the \
-             object itself to <memory>:supersede to replace it. Hold onto the object if you intend \
-             to supersede it.",
+             object — read its text with entry.text (it also prints as its text, prefixed by its \
+             date, visibility, teller, and a disputed marker when contested), and pass the object \
+             itself to <memory>:supersede to replace it. entry.occurred_at, when dated, is the same \
+             tagged table append takes (e.g. entry.occurred_at.day), so you can match an entry by its \
+             date and reuse it. Hold onto the object if you intend to supersede it.",
         )
         .returns(AT::Entry.list());
 

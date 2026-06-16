@@ -274,11 +274,15 @@ impl Session {
         // date and provenance the agent has to reconstruct (or search for) separately.
         metatable.set(
             "__tostring",
-            self.lua.create_function(|_, this: Table| {
+            self.lua.create_function(|lua, this: Table| {
                 let text = this.get::<String>("text")?;
                 let mut segments = Vec::new();
-                if let Some(occurred_at) = this.get::<Option<String>>("occurred_at")? {
-                    segments.push(occurred_at);
+                // `occurred_at` is the structured tagged table; render it back to a date for display.
+                let occurred = this.get::<Value>("occurred_at")?;
+                if !occurred.is_nil()
+                    && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
+                {
+                    segments.push(time::format_occurrence(&temporal));
                 }
                 if this.get::<Option<bool>>("disputed")?.unwrap_or(false) {
                     segments.push("disputed".to_owned());
