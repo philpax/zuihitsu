@@ -141,6 +141,58 @@ pub fn format_occurrence(occurred_at: &TemporalRef) -> String {
     }
 }
 
+/// Today's civil day (`YYYY-MM-DD`, UTC) for `now` — the anchor the relative-date constructors build
+/// on, so the agent names an operation ("next Friday", "in two weeks") instead of computing the date.
+pub fn today(now: Timestamp) -> String {
+    format_with(now, "%Y-%m-%d")
+}
+
+/// A civil day shifted by `days` (negative goes back), or `None` if `date` is not a valid `YYYY-MM-DD`.
+/// Exact: a UTC day plus whole days has no DST hazard.
+pub fn add_days(date: &str, days: i64) -> Option<String> {
+    let millis = civil_date_to_millis(date)?;
+    let shifted = millis.checked_add(days.checked_mul(MILLIS_PER_DAY)?)?;
+    Some(format_with(Timestamp::from_millis(shifted), "%Y-%m-%d"))
+}
+
+/// A civil day shifted by `months`, day-of-month preserved where it exists and clamped where it does
+/// not (31 Jan + 1 month → 28/29 Feb), or `None` if `date` is invalid or the result is out of range.
+pub fn add_months(date: &str, months: i64) -> Option<String> {
+    let millis = civil_date_to_millis(date)?;
+    let shifted = add_calendar(Timestamp::from_millis(millis), months, 0)?;
+    Some(format_with(shifted, "%Y-%m-%d"))
+}
+
+/// The full weekday name of a civil day (e.g. `Monday`), or `None` if `date` is not a valid date.
+pub fn weekday(date: &str) -> Option<String> {
+    let millis = civil_date_to_millis(date)?;
+    Some(format_with(Timestamp::from_millis(millis), "%A"))
+}
+
+/// The soonest civil day on or after `now`'s day whose weekday is `name` (a case-insensitive full
+/// weekday name), or `None` if `name` is not a weekday — `today` itself when today already matches. So
+/// "this Friday" is a lookup, never arithmetic the model carries in its head.
+pub fn next_weekday(now: Timestamp, name: &str) -> Option<String> {
+    const WEEKDAYS: [&str; 7] = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ];
+    let target = name.trim().to_ascii_lowercase();
+    if !WEEKDAYS.contains(&target.as_str()) {
+        return None;
+    }
+    let today = today(now);
+    (0..7).find_map(|offset| {
+        let day = add_days(&today, offset)?;
+        (weekday(&day)?.to_ascii_lowercase() == target).then_some(day)
+    })
+}
+
 fn format_with(at: Timestamp, format: &str) -> String {
     match jiff::Timestamp::from_millisecond(at.as_millis()) {
         Ok(timestamp) => timestamp
@@ -314,8 +366,9 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        MILLIS_PER_DAY, MILLIS_PER_WEEK, Rrule, Timestamp, civil_date_to_millis, day_window,
-        next_occurrence, parse_duration_millis,
+        MILLIS_PER_DAY, MILLIS_PER_WEEK, Rrule, Timestamp, add_days, add_months,
+        civil_date_to_millis, day_window, next_occurrence, next_weekday, parse_duration_millis,
+        today, weekday,
     };
 
     /// `next_occurrence` against a `dtstart`/`after` given in epoch millis, for brevity.
@@ -331,6 +384,39 @@ mod tests {
     /// Midnight-UTC millis of a `YYYY-MM-DD` day (the tests' calendar anchors).
     fn day(date: &str) -> i64 {
         civil_date_to_millis(date).unwrap()
+    }
+
+    /// The agent-facing date arithmetic: day/month shifts (with month clamping), weekday lookup, and
+    /// the next-weekday resolution that replaces "compute this Friday's date" in the model's head.
+    #[test]
+    fn date_helpers_compute_relative_days() {
+        // 2026-06-08 is a Monday, the suite's anchor.
+        let monday = Timestamp::from_millis(day("2026-06-08"));
+        assert_eq!(today(monday), "2026-06-08");
+        assert_eq!(weekday("2026-06-08").as_deref(), Some("Monday"));
+
+        // "this Friday" from Monday is +4 days, never +5 (the off-by-one the model slipped on).
+        assert_eq!(
+            next_weekday(monday, "friday").as_deref(),
+            Some("2026-06-12")
+        );
+        assert_eq!(
+            next_weekday(monday, "Friday").as_deref(),
+            Some("2026-06-12")
+        );
+        // The current weekday resolves to today, not a week out.
+        assert_eq!(
+            next_weekday(monday, "monday").as_deref(),
+            Some("2026-06-08")
+        );
+        assert_eq!(next_weekday(monday, "notaday"), None);
+
+        assert_eq!(add_days("2026-06-08", 4).as_deref(), Some("2026-06-12"));
+        assert_eq!(add_days("2026-06-08", -8).as_deref(), Some("2026-05-31"));
+        // Month arithmetic clamps the day where the target month is shorter.
+        assert_eq!(add_months("2026-01-31", 1).as_deref(), Some("2026-02-28"));
+        assert_eq!(add_months("2026-06-08", 2).as_deref(), Some("2026-08-08"));
+        assert_eq!(add_days("not-a-date", 1), None);
     }
 
     #[test]

@@ -6,13 +6,14 @@ use mlua::{LuaSerdeExt, Table, Value};
 
 use crate::{
     memory::memory_block::{AppendOptions, RelationSpec},
+    time,
     vocabulary::{RelationName, TagName},
 };
 
 use super::{
     Session,
     runtime::{
-        BlockApi, SearchOpts, entry_handle_id, handle_id, make_entry_handle,
+        BlockApi, SearchOpts, entry_handle_id, handle_id, make_date, make_entry_handle,
         make_entry_handle_list, make_handle, make_handle_list, make_relation_result, render,
         route_error, run_memory_search, value_text,
     },
@@ -306,6 +307,56 @@ impl Session {
                     ))
                 })?,
         )?;
+        Ok(metatable)
+    }
+
+    /// The metatable backing the date objects `calendar` constructs. `__tostring` renders the ISO day;
+    /// the methods are calendar-correct arithmetic returning new date objects (`:add_days`,
+    /// `:add_weeks`, `:add_months`), plus `:weekday()`. A date object is `{ day = "YYYY-MM-DD" }`, so it
+    /// doubles as an `occurred_at` value — the runtime does the date math the model would otherwise slip
+    /// on.
+    pub(super) fn date_metatable(&self) -> mlua::Result<Table> {
+        let metatable = self.lua.create_table()?;
+        metatable.set(
+            "__tostring",
+            self.lua
+                .create_function(|_, this: Table| this.get::<String>("day"))?,
+        )?;
+        let methods = self.lua.create_table()?;
+        // :add_days(n) / :add_weeks(n) — shift by whole days (a UTC day plus whole days is exact).
+        for (name, per) in [("add_days", 1i64), ("add_weeks", 7)] {
+            let mt = metatable.clone();
+            methods.set(
+                name,
+                self.lua
+                    .create_function(move |lua, (this, count): (Table, i64)| {
+                        let day = this.get::<String>("day")?;
+                        let shifted = time::add_days(&day, count.saturating_mul(per))
+                            .ok_or_else(|| date_error(&day))?;
+                        make_date(lua, shifted, &mt)
+                    })?,
+            )?;
+        }
+        // :add_months(n) — calendar arithmetic, clamping a day past the target month's length.
+        let mt = metatable.clone();
+        methods.set(
+            "add_months",
+            self.lua
+                .create_function(move |lua, (this, count): (Table, i64)| {
+                    let day = this.get::<String>("day")?;
+                    let shifted = time::add_months(&day, count).ok_or_else(|| date_error(&day))?;
+                    make_date(lua, shifted, &mt)
+                })?,
+        )?;
+        // :weekday() — the day's weekday name.
+        methods.set(
+            "weekday",
+            self.lua.create_function(|_, this: Table| {
+                let day = this.get::<String>("day")?;
+                time::weekday(&day).ok_or_else(|| date_error(&day))
+            })?,
+        )?;
+        metatable.set("__index", methods)?;
         Ok(metatable)
     }
 
@@ -753,6 +804,61 @@ impl Session {
                 }
             })?,
         )?;
+
+        // Date construction: the agent names a relative date and the runtime computes it, so a date is
+        // never arithmetic the model carries in its head. Each returns a date object (see
+        // `date_metatable`) that doubles as an `occurred_at` value. Synchronous — they read the clock and
+        // do pure date math, touching no memory, so they need no lock.
+        let date_metatable = self.date_metatable()?;
+        calendar.set("today", {
+            let api = api.clone();
+            let dmt = date_metatable.clone();
+            self.lua.create_function(move |lua, ()| {
+                let now = api.block.lock().now();
+                make_date(lua, time::today(now), &dmt)
+            })?
+        })?;
+        calendar.set("next", {
+            let api = api.clone();
+            let dmt = date_metatable.clone();
+            self.lua.create_function(move |lua, weekday: String| {
+                let now = api.block.lock().now();
+                let day = time::next_weekday(now, &weekday).ok_or_else(|| {
+                    mlua::Error::runtime(format!("calendar.next: not a weekday: {weekday:?}"))
+                })?;
+                make_date(lua, day, &dmt)
+            })?
+        })?;
+        for (name, per) in [("in_days", 1i64), ("in_weeks", 7)] {
+            let api = api.clone();
+            let dmt = date_metatable.clone();
+            calendar.set(
+                name,
+                self.lua.create_function(move |lua, count: i64| {
+                    let now = api.block.lock().now();
+                    let day = time::add_days(&time::today(now), count.saturating_mul(per))
+                        .ok_or_else(|| mlua::Error::runtime("calendar: date out of range"))?;
+                    make_date(lua, day, &dmt)
+                })?,
+            )?;
+        }
+        calendar.set("date", {
+            let dmt = date_metatable.clone();
+            self.lua.create_function(move |lua, day: String| {
+                if time::civil_date_to_millis(&day).is_none() {
+                    return Err(mlua::Error::runtime(format!(
+                        "calendar.date: not a valid YYYY-MM-DD: {day:?}"
+                    )));
+                }
+                make_date(lua, day, &dmt)
+            })?
+        })?;
         Ok(calendar)
     }
+}
+
+/// The Lua runtime error for date arithmetic applied to a malformed day — only reachable if a date
+/// object's `day` field is corrupted, since the constructors validate before minting one.
+fn date_error(day: &str) -> mlua::Error {
+    mlua::Error::runtime(format!("date: not a valid day: {day}"))
 }

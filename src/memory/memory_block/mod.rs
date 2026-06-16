@@ -446,6 +446,12 @@ impl MemoryBlock {
         Ok(self.engine.graph.lock().class_members(id)?)
     }
 
+    /// The current time off the engine clock — the anchor the `calendar` date constructors build
+    /// relative dates on, so the agent names an operation rather than computing a date.
+    pub fn now(&self) -> Timestamp {
+        self.engine.clock.now()
+    }
+
     /// Memories with a concrete occurrence within `within` of now (e.g. `"7 days"`, `"2 weeks"`;
     /// defaults to 7 days), soonest first (spec §Calendar). A read, so the results are touched.
     pub fn upcoming(&mut self, within: Option<&str>) -> Result<Vec<MemoryId>, MemoryError> {

@@ -278,6 +278,63 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description("Memories with a recurring occurrence.")
         .returns(AT::Handle.list());
 
+    let cal_today = AE::new("calendar.today")
+        .description(
+            "Today's date as a date object — pass it straight to append as occurred_at, or do \
+             arithmetic on it (:add_days, :add_weeks, :add_months, :weekday). Compute dates this way \
+             rather than working one out yourself.",
+        )
+        .returns(AT::Handle);
+
+    let cal_next = AE::new("calendar.next")
+        .description(
+            "The next date on or after today falling on a weekday, as a date object — \
+             calendar.next(\"friday\") is this Friday (today if today is Friday). Use this for \"this \
+             Friday\" instead of computing the date.",
+        )
+        .required("weekday", AT::String, "a weekday name, e.g. \"friday\"")
+        .returns(AT::Handle);
+
+    let cal_in_days = AE::new("calendar.in_days")
+        .description("The date that many days from today, as a date object (negative goes back).")
+        .required("days", AT::Number, "how many days from today")
+        .returns(AT::Handle);
+
+    let cal_in_weeks = AE::new("calendar.in_weeks")
+        .description("The date that many weeks from today, as a date object.")
+        .required("weeks", AT::Number, "how many weeks from today")
+        .returns(AT::Handle);
+
+    let cal_date = AE::new("calendar.date")
+        .description("Parse an explicit \"YYYY-MM-DD\" into a date object.")
+        .required("day", AT::String, "the day as \"YYYY-MM-DD\"")
+        .returns(AT::Handle);
+
+    let date_add_days = AE::new("<date>:add_days")
+        .description("A new date shifted by this many days (negative goes back).")
+        .required("days", AT::Number, "how many days to shift")
+        .returns(AT::Handle);
+
+    let date_add_weeks = AE::new("<date>:add_weeks")
+        .description(
+            "A new date shifted by this many weeks — \"the Friday after next\" is \
+             calendar.next(\"friday\"):add_weeks(1).",
+        )
+        .required("weeks", AT::Number, "how many weeks to shift")
+        .returns(AT::Handle);
+
+    let date_add_months = AE::new("<date>:add_months")
+        .description(
+            "A new date shifted by this many months, keeping the day-of-month where it exists and \
+             clamping where it does not (31 Jan + 1 month is 28/29 Feb).",
+        )
+        .required("months", AT::Number, "how many months to shift")
+        .returns(AT::Handle);
+
+    let date_weekday = AE::new("<date>:weekday")
+        .description("The date's weekday name, e.g. \"Friday\".")
+        .returns(AT::String);
+
     vec![
         create,
         get,
@@ -301,6 +358,15 @@ pub fn api_reference() -> Vec<ApiEntry> {
         upcoming,
         on,
         recurring,
+        cal_today,
+        cal_next,
+        cal_in_days,
+        cal_in_weeks,
+        cal_date,
+        date_add_days,
+        date_add_weeks,
+        date_add_months,
+        date_weekday,
     ]
 }
 

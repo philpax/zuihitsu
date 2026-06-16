@@ -238,6 +238,17 @@ pub(super) fn entry_handle_id(handle: &Table) -> mlua::Result<EntryId> {
         .map_err(|e| mlua::Error::RuntimeError(format!("invalid entry handle id {id:?}: {e}")))
 }
 
+/// Build a date handle `{ day = "YYYY-MM-DD" }` backed by the date metatable, so it renders as its ISO
+/// day, carries calendar arithmetic (`:add_days` …), and — being a `{ day = … }` table — deserializes
+/// straight into a `Day` occurrence when handed to `append` as `occurred_at`. So the agent computes a
+/// date through operations the runtime executes, never as a string it works out in its head.
+pub(super) fn make_date(lua: &Lua, iso: String, date_metatable: &Table) -> mlua::Result<Table> {
+    let handle = lua.create_table()?;
+    handle.set("day", iso)?;
+    handle.set_metatable(Some(date_metatable.clone()))?;
+    Ok(handle)
+}
+
 /// Route a memory operation's error. A teachable violation (a duplicate name, an unknown relation)
 /// becomes the Lua runtime error the agent sees as the block's terminal cause. A graph read failure
 /// is infrastructure, not the agent's doing: it is stashed in the caller's `infra` slot for `execute`

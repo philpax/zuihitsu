@@ -230,6 +230,11 @@ fn default_templates() -> Vec<TemplateDef> {
                    event/ memory with an occurred_at: a specific time for a one-off, or a recurring \
                    rule like occurred_at = { recurring = \"FREQ=WEEKLY\" } for something that \
                    repeats, which is what lets it come back and nudge them when it falls due. \
+                   When the time is given relative to now — \"this Friday\", \"in two weeks\", \"next \
+                   month\" — do not work the date out in your head; ask the calendar for it: \
+                   calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
+                   Each returns a date you can pass straight as occurred_at, computed correctly, so the \
+                   reminder fires on the day meant rather than one a miscount landed on. \
                    Capture first; save a clarifying question for a genuine judgment call, such as \
                    how private something is — not for routine scheduling detail you can fill in.\n\n\
                    Record your own observations and inferences under the `agent` teller, and record \
