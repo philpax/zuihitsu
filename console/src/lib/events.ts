@@ -41,6 +41,8 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "LinkTypeRegistered":
     case "LinkCreated":
     case "LinkRemoved":
+    case "MergeProposed":
+    case "MergeAdjudicated":
       return "link";
     case "ConversationTurn":
     case "ParticipantJoined":
@@ -93,6 +95,8 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
       return payload.memory === memoryId;
     case "LinkCreated":
     case "LinkRemoved":
+    case "MergeProposed":
+    case "MergeAdjudicated":
       return payload.from === memoryId || payload.to === memoryId;
     case "ConversationStarted":
       return payload.context_memory === memoryId;
@@ -142,6 +146,12 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${ref(payload.from)} ${payload.relation} ${ref(payload.to)}`;
     case "LinkRemoved":
       return `${ref(payload.from)} −${payload.relation} ${ref(payload.to)}`;
+    case "MergeProposed":
+      return `${ref(payload.from)} ⇄ ${ref(payload.to)} — merge proposed`;
+    case "MergeAdjudicated":
+      return `${ref(payload.from)} ⇄ ${ref(payload.to)} — ${
+        payload.accepted ? "merged" : "merge refused"
+      }: ${payload.rationale}`;
     case "LinkTypeRegistered":
       return `${payload.name} / ${payload.inverse}`;
     case "ConversationStarted":
