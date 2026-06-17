@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
     Event, EventPayload, Initiation, MemoryId, Teller, TemporalRef, TurnRole, Visibility,
+    Volatility,
 };
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
@@ -95,6 +96,20 @@ pub fn merge_committed(events: &[Event]) -> bool {
             &event.payload,
             EventPayload::LinkCreated { relation, source, .. }
                 if relation.as_str() == "same_as" && source.as_str() == "Adjudicated"
+        )
+    })
+}
+
+/// Whether the run marked any memory `High` volatility — the agent classified a fast-changing memory
+/// so its facts decay and can read as stale (spec §Recency and volatility).
+pub fn volatility_set_high(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::MemoryVolatilitySet {
+                volatility: Volatility::High,
+                ..
+            }
         )
     })
 }
