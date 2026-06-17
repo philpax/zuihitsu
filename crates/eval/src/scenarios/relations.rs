@@ -1,11 +1,13 @@
 //! Structured relationships: recording a typed link between people (`Knows`), and — the read side —
 //! retrieving them back out of the graph with the link readers (`RecallsConnections`,
-//! `DistinguishesMentorDirection`). `Knows` is a gating write oracle; the read scenarios are metrics
-//! judged by whether the reply reflects the stored relationships. `DistinguishesMentorDirection` is the
-//! one the readers are uniquely needed for: it puts the subject on *both* sides of an asymmetric
-//! relation, so only reading the edge's direction (not a semantic search that conflates the two)
-//! answers it — and it exercises the write side too, since the agent must register `mentor_of` and link
-//! it the right way round.
+//! `DistinguishesMentorDirection`, `AttributesRelationshipToTeller`). `Knows` is a gating write oracle;
+//! the read scenarios are metrics judged by whether the reply reflects the stored relationships.
+//! `DistinguishesMentorDirection` is the one the readers are uniquely needed for: it puts the subject on
+//! *both* sides of an asymmetric relation, so only reading the edge's direction (not a semantic search
+//! that conflates the two) answers it — and it exercises the write side too, since the agent must
+//! register `mentor_of` and link it the right way round. `AttributesRelationshipToTeller` checks the
+//! link's `told_by` provenance is legible: the agent must attribute a recorded relationship to who
+//! asserted it, not to whoever is currently asking.
 
 use std::sync::Arc;
 
@@ -27,6 +29,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(Knows),
         Arc::new(RecallsConnections),
         Arc::new(DistinguishesMentorDirection),
+        Arc::new(AttributesRelationshipToTeller),
     ]
 }
 
@@ -167,10 +170,11 @@ impl Scenario for DistinguishesMentorDirection {
         ScenarioMeta {
             name: "distinguishes_mentor_direction".to_owned(),
             category: Category::Relations,
-            description: "Dave mentors two people and is mentored by a third; asked who he mentors, \
+            description:
+                "Dave mentors two people and is mentored by a third; asked who he mentors, \
                           the agent must read the link's direction — naming his mentees, not his \
                           mentor — which a direction-blind search cannot."
-                .to_owned(),
+                    .to_owned(),
             bar: Bar::Metric { threshold: 0.5 },
         }
     }
@@ -230,6 +234,83 @@ impl Scenario for DistinguishesMentorDirection {
 
         vec![Verdict::from_judge_outcome(
             "names Dave's mentees and not his mentor",
+            VerdictKind::Metric,
+            judged,
+        )]
+    }
+}
+
+/// A relationship is relayed by one participant; later, a *different* participant asks who is on
+/// record and who said so. A correct answer attributes it to the original teller (Erin), not to the
+/// one now asking (Phil) — which is what a link's `told_by` provenance carries. Tests that the
+/// provenance is legible when the agent reads the relationship back, rather than collapsing to the
+/// current speaker.
+pub struct AttributesRelationshipToTeller;
+
+#[async_trait]
+impl Scenario for AttributesRelationshipToTeller {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "attributes_a_relationship_to_its_teller".to_owned(),
+            category: Category::Relations,
+            description: "One participant relays a relationship; later a different one asks who said \
+                          so. The agent must attribute it to the original teller, not the asker — the \
+                          link's told_by provenance."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.5 },
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Erin relays a relationship — the agent records it, the edge carrying Erin as its teller.
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "erin",
+            "Heads up for your notes: Dave's taken Grace under his wing — he's been mentoring her \
+             this quarter.",
+        ))
+        .await?;
+        ctx.describe_catch_up().await?;
+        ctx.index_catch_up().await?;
+        // A *different* participant, in another room, asks who is on record and who said so. The teller
+        // (Erin) is not the asker (Phil), so attributing it correctly means reading the provenance, not
+        // defaulting to whoever is speaking now.
+        ctx.turn(Turn::new(
+            "discord",
+            "hallway",
+            "phil",
+            "I think someone mentioned Dave's mentoring a junior — who's he mentoring, and who told \
+             you about it?",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+
+        let evidence = format!(
+            "Earlier, Erin (and only Erin) told the agent that Dave is mentoring Grace. Later, in a \
+             different room, Phil — who did not say it — asked who Dave is mentoring and who told the \
+             agent about it. The agent replied:\n\"{reply}\""
+        );
+        let judged = judge
+            .assess(
+                "The reply both names the mentee (Grace) and attributes the information to Erin — the \
+                 one who actually said it. Crediting Phil (the one now asking), or giving no source \
+                 when asked who told it, fails: the point is that the agent tracks who asserted the \
+                 relationship, not who is currently speaking.",
+                &evidence,
+            )
+            .await;
+
+        vec![Verdict::from_judge_outcome(
+            "attributes the relationship to its teller, not the asker",
             VerdictKind::Metric,
             judged,
         )]
