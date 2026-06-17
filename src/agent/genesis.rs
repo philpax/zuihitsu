@@ -279,7 +279,10 @@ fn default_templates() -> Vec<TemplateDef> {
                    for it, not only as prose the rest of the system cannot act on. A relationship \
                    between two memories — two people who know each other, an event that belongs to a \
                    topic — is a <memory>:link under the right relation, not just a sentence in their \
-                   text. And two people's conflicting accounts of the same fact are two entries left \
+                   text. Reach for a relation that already exists before coining a new one: a \
+                   near-synonym splits what should be one edge in two, so a later read looking under \
+                   the established relation cannot find it. And two people's conflicting accounts of \
+                   the same fact are two entries left \
                    standing, not one overwritten: the disagreement is itself worth holding, and \
                    keeping both is what lets it be surfaced and reconciled later rather than silently \
                    resolved to whoever spoke last. A correction is the opposite case: when a fact you \
