@@ -102,7 +102,9 @@ ContentEntry {
 }
 
 Visibility =
-  | Public                           -- visible to anyone
+  | Public                           -- visible to anyone, distilled into descriptions
+  | Attributed                       -- visible to anyone, but secondhand: carries a provenance
+  |                                  --   marker and is never distilled into a description
   | PrivateToTeller                  -- teller-gated, subject-guarded
   | Exclude(set of ParticipantId)    -- default-allow minus named parties
 ```
@@ -387,6 +389,18 @@ This is the hardest correctness concern in a multi-participant memory, and the p
 
 Every `ContentEntry` carries `told_by` and `visibility`. The filter is applied during brief composition, during search, and on the agent's direct reads of a memory by handle; the agent never relays an entry it shouldn't, through any channel.
 
+### Visibility versus disclosure, and three postures
+
+Two layers are easy to conflate, and keeping them apart is what makes the rest tractable. *Visibility* is what reaches the model — the deterministic `visible(...)` predicate, the property the privacy guarantees rest on. *Disclosure* is what the agent then chooses to say in its reply — a model judgment, as it has always been for every fact. A fact reaching the model is not the same as the agent volunteering it; the predicate governs the first, the agent's judgment the second. Spend the determinism budget on the first, where a guarantee is possible and matters, and let the second be judgment, where it is irreducible.
+
+That split is why a fact about a third party comes in three postures, not two — because "an absent colleague mentioned Dave is a product designer" and "an absent colleague confided Dave is interviewing elsewhere" are not the same kind of thing, and collapsing both to one private default makes the agent useless at the first to stay safe on the second:
+
+- **Confidence** (`PrivateToTeller`, or `Exclude` for a named carve-out) — a genuine secret. Hard-gated at the visibility layer: it reaches the model only when the teller is present and never in front of its subject (the subject-guard). Disclosure to any other co-present third party is a flagged judgment call. This is the tier the deterministic guarantee protects, and the only tier where "the audience isn't cleared" hides the content outright.
+- **Attributed** — an ordinary fact learned secondhand: Dave's role, where he works, a preference a colleague relayed. Visible to anyone (it survives the teller's absence, so the agent can answer "what's Dave's role?" months later in a different room), but it reaches the model carrying a *provenance marker* — `[via Phil]` — and is never distilled into a description, so it always surfaces as "Phil told you this," never laundered into markerless prose. The agent applies ordinary social judgment before volunteering it; nothing about it is hidden, because nothing about it needs to be. `Attributed` is a nullary variant, not `Attributed(teller)`: the provenance it marks is the entry's own `told_by` (and `told_in`), carried by every entry regardless of visibility, exactly as `PrivateToTeller` reads its teller from `told_by` rather than duplicating it. `Exclude` carries a set inline because *that* data — the named third parties — exists nowhere else on the entry; the teller does, so the posture references it rather than copying it.
+- **Public** — self-disclosed ("I'm Dave, a product designer"), announced, or about a thing rather than a person. Freely shareable, distilled into the description, no marker.
+
+The line between **confidence** and **attributed** is the one the agent draws at write time, from the framing — a hushed register, "between us," an asymmetric aside about someone absent, or a `#confidential` room mark all push toward confidence; a neutral "FYI" about a colleague's role is attributed. Crucially, the **conservative default is the floor**: a `person/*` fact a participant relays about someone else, left unclassified, stays `PrivateToTeller`. A missed call fails *closed*, toward privacy, never open — we never flip the default to public, because a confidence silently defaulting shareable is precisely the leak the whole section exists to prevent. The change from the older model is not a looser default; it is giving the agent an explicit posture to *upgrade* an ordinary fact into, so safety no longer costs the agent its memory of everyday things. (A relationship-aware layer — biasing the disclosure call by whether *this* audience is one who should hear about *this* subject's affairs — is a natural future refinement on top of the provenance marker, and is deferred: it needs a model of who-should-know-what that the system does not yet carry, and the provenance marker already gives the agent real consumption-time signal without it.)
+
 ### Superseded entries are not live
 
 Alongside the visibility filter, all live surfaces — `visible(...)`, `recent_facts`, and search — exclude any entry with `superseded_by` set, exactly as they exclude soft-deleted memories. This matters specifically because entries are embedded once on append and never re-touched (see **Storage → Vector store**): a corrected or retracted confidence stays semantically retrievable forever, so without this filter a superseded private aside could resurface through search even though a newer entry replaced it. Superseded entries remain visible only where history is the point — `mem:history()` and the console — which deliberately bypass the *supersession* exclusion. (They do not bypass the audience predicate below: `mem:history()` still withholds a superseded confidence from a present outsider, so "show the old value" never becomes a back door around visibility.)
@@ -420,6 +434,9 @@ visible(entry E on memory M, present set P):
   subject = subject_participant(M)   -- the participant a person-memory is about; null otherwise
   case E.visibility:
     Public          -> true
+    Attributed      -> true   -- visible like Public; the difference is the provenance
+                              --   marker it carries and its exclusion from descriptions,
+                              --   not what the predicate lets through. Disclosure is judged.
     PrivateToTeller -> teller_present(T, P) AND NOT subject_blocks(subject, P, T)
     Exclude(X)      -> teller_present(T, P)
                        AND no_excludee_present(X, P)
@@ -460,9 +477,9 @@ Description regeneration and belief arbitration read the whole class's content �
 
 ### Defaults at write time
 
-The `PrivateToTeller` default exists to guard asides about an absent person; it is not a general default.
+The `PrivateToTeller` default exists to guard asides about an absent person; it is not a general default, and it is now a *floor* the agent classifies up from rather than a verdict.
 
-- A `person/*` memory where a **participant** relays something about someone else (`subject` non-null, `told_by` a participant ≠ `subject`) → `PrivateToTeller`.
+- A `person/*` memory where a **participant** relays something about someone else (`subject` non-null, `told_by` a participant ≠ `subject`) is the classification case (see **Visibility versus disclosure, and three postures**). The agent reads the framing and chooses: `Confidence` (`PrivateToTeller`/`Exclude`) for a genuine secret, `Attributed` for an ordinary secondhand fact, `Public` for something plainly open. Left unclassified, it defaults `PrivateToTeller` — the fail-closed floor, so a missed call errs toward privacy. The default is never `Public`: an unmarked confidence defaulting shareable is the leak this guards. The agent's job is to *upgrade* the everyday majority to `Attributed`, so remembering Dave's role no longer requires Phil in the room.
 - A `person/*` memory written by the **agent itself** (a synthesis or pre-compaction-flush re-recording, `told_by == agent`) has **no default** — it must classify its visibility explicitly, or the write is rejected as a teachable error. The participant-aside mechanism keys on a participant teller, so an agent-authored entry can't inherit it; silently defaulting it `Public` is exactly how a re-recorded confidence leaks (the failure fixture 22 exists to catch). This forces the judgment the agent already understands rather than relying on it to reach for an optional flag.
 - Self-disclosure (`told_by == subject`) → `Public`.
 - Every non-person memory — `project/*`, `topic/*`, `event/*`, `concept/*`, `context/*`, and `self`, all of which have `subject == null` → `Public` (including agent-authored content: only a `person/*` subject triggers the required-classification rule above).
@@ -479,13 +496,20 @@ It surfaces whenever the teller is present, never to the subject, and to other c
 
 Teller-gating is chosen over audience-gating deliberately. Binding each entry to the participant set present when it was recorded would over-suppress, making the agent useless at its core job of building a picture of someone from what others say. The price is that the residual third-party case is governed by agent judgment, not by mechanism. `Exclude` is the lever the agent uses when it knows a specific third party should be carved out.
 
+Teller-gating is the right behavior precisely *because* the entry is a confidence — a secret should resurface only when its owner is around to vouch for it. The cost teller-gating used to carry for ordinary facts — Dave's role vanishing the moment Phil leaves the room — is now paid by classification, not by the predicate: an everyday fact is `Attributed`, which the predicate lets through regardless of who is present, so teller-gating no longer over-suppresses the common case. It is reserved for what it is good at. `Attributed` keeps the provenance teller-gating used to imply (the marker still says "Phil told you this") without binding the fact's *visibility* to Phil's presence; the binding remains only where the content actually warrants it.
+
 ### Sensitivity inference
 
 The agent should bump visibility toward more private on signals like topic class (health, finances, relationships, work struggles), hushed register or explicit markers ("between us," "don't tell"), asymmetric context (talking about someone in their absence), and the confidentiality of the current conversational context (a private channel or DM raises the default — see **Conversations and contexts**). When uncertain, the agent asks before writing: *"That sounds personal — should I keep this between us, or is it okay if it comes up later?"* One question now beats an incident later. This is a model-judgment call and is exactly the kind of thing the validation scenarios must exercise (see **Validation**).
 
-### The teller-private marker, and compartmentalization
+### Provenance markers, and compartmentalization
 
-Even with a filtered brief, the agent can leak by inference, and the residual third-party case is delegated to its judgment by design. So surviving `PrivateToTeller` and `Exclude` entries reach the agent flagged as teller-private, carrying their provenance rather than presented as neutral fact. The marker carries who told it, that it was private, and the room it was told in (`told_in`), and when that room is `#confidential` the marker says so.
+Even with a filtered brief, the agent can leak by inference, and the residual third-party case is delegated to its judgment by design. So a relayed fact reaches the agent flagged with its provenance rather than presented as neutral fact, in one of two registers matching its posture:
+
+- A surviving `PrivateToTeller` or `Exclude` entry carries the **teller-private marker**: who told it, that it was private, the room it was told in (`told_in`), and — when that room is `#confidential` — that it was said in confidence. This is a confidence reaching the model because its teller is present; the marker tells the agent to treat it as a judgment call, not neutral fact.
+- An `Attributed` entry carries a lighter **provenance marker** — `[via Phil]`, or `[via Phil in #general]` — naming the source without the language of confidence. It reaches the model unconditionally (the predicate always lets `Attributed` through), so the marker is the whole signal: this is secondhand, weigh it as such before volunteering it, and remember that a casual relay is not the subject's own account.
+
+Both are built the same way (resolving `told_by` to a display name and `told_in` to its `context/*` room at build time) and differ only in wording, so the agent reads the posture off the marker.
 
 It must render inline in the text the model sees — for example `[teller-private, told by Erin in #leads (confidential)]` — not as out-of-band metadata, because `recent_facts` is plain text frozen into the system prompt. If the marker were attached only at retrieval time, frozen pre-join facts would carry no marker, and the cross-context judgment (this was said in a confidential room, so be careful repeating it elsewhere) would have nothing to act on. The brief composer resolves `told_in` to its `context/*` memory and checks the `#confidential` tag at build time — a deterministic lookup — and bakes the result into the rendered marker.
 
@@ -495,7 +519,7 @@ The system-prompt principle: *an entry marked teller-private was told to you in 
 
 The mechanism enforces what can be stated as an invariant: the subject never sees a private aside about them, named excludees are honored absolutely, and presence is exact because identity is never guessed. Agent judgment handles the irreducibly contextual third-party residual, informed by the marker.
 
-The failure is bounded in system state but not in the world. A judgment lapse leaves no durable artifact — nothing teller-private ever bakes into a description, which the public-only description rule guarantees, and nothing replays into prose — but an aired confidence cannot be retracted from the third party's memory. The marker exists precisely because that consequence is real even though its system footprint is bounded. If the agent's third-party judgment proves unreliable in practice, the escalation lever is to flip the default: make teller-private suppress for non-subject third parties too, with the agent able to opt in to sharing. We start permissive because over-suppression defeats the agent's purpose; the lever is there if needed.
+The failure is bounded in system state but not in the world. A judgment lapse leaves no durable artifact — nothing teller-private ever bakes into a description, which the public-only description rule guarantees, and nothing replays into prose — but an aired confidence cannot be retracted from the third party's memory. The marker exists precisely because that consequence is real even though its system footprint is bounded. If the agent's third-party judgment proves unreliable in practice, the escalation lever is to make a *confidence* suppress for non-subject third parties too — surfacing only to its teller, with the agent able to opt in to sharing. This lever now applies cleanly to confidences alone: ordinary facts ride `Attributed` and never depended on this judgment, so tightening the confidence tier no longer threatens the agent's everyday recall. We start the confidence tier permissive on the co-present third-party case because over-suppression there still costs real usefulness; the lever is there if needed.
 
 ### The acceptable failure mode
 
