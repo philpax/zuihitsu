@@ -22,12 +22,14 @@ export function tellerLabel(teller: Teller, nameById: Map<string, string>): stri
 
 export function visibilityLabel(visibility: Visibility, nameById: Map<string, string>): string {
   if (visibility === "Public") return "public";
+  if (visibility === "Attributed") return "attributed";
   if (visibility === "PrivateToTeller") return "teller-private";
   const names = visibility.Exclude.map((id) => nameById.get(id) ?? id);
   return `excludes ${names.join(", ")}`;
 }
 
-/// Whether a visibility is anything other than public — the cue to mark it.
+/// Whether a visibility is anything other than public — the cue to mark a confidence or an
+/// attributed (secondhand) entry, both of which carry provenance the operator should see.
 export function isPrivate(visibility: Visibility): boolean {
   return visibility !== "Public";
 }

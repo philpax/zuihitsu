@@ -7,6 +7,7 @@ import type { Visibility } from "../types/Visibility.ts";
 
 export type VisibilityDecision =
   | "Public"
+  | "Attributed"
   | "TellerPresent"
   | "NotExcluded"
   | "Superseded"
@@ -40,6 +41,8 @@ export function decisionInfo(decision: VisibilityDecision): { visible: boolean; 
   switch (decision) {
     case "Public":
       return { visible: true, reason: "public" };
+    case "Attributed":
+      return { visible: true, reason: "attributed" };
     case "TellerPresent":
       return { visible: true, reason: "teller present" };
     case "NotExcluded":

@@ -6,4 +6,4 @@ import type { MemoryId } from "./MemoryId";
  * `visible(...)` interprets these against the present set; `PrivateToTeller` additionally never
  * surfaces to the subject of a person memory.
  */
-export type Visibility = "Public" | "PrivateToTeller" | { "Exclude": Array<MemoryId> };
+export type Visibility = "Public" | "Attributed" | "PrivateToTeller" | { "Exclude": Array<MemoryId> };
