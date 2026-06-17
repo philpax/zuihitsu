@@ -157,6 +157,8 @@ async fn adjudicate(
                 to,
                 relation: RelationName::SameAs,
                 source: LinkSource::Adjudicated,
+                // No teller behind it: the adjudication pass authors this, not a participant's turn.
+                told_by: None,
             });
         }
     }

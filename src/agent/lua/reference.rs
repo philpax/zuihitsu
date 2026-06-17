@@ -165,9 +165,10 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description(
             "The memories this one links to under a relation, across its whole merged identity, in the \
              relation's forward direction — <memory>:outgoing(\"mentor_of\") is who it mentors. Each \
-             result is a table { relation, memory, name, direction, source } that prints as \
-             \"relation → name\"; reach the linked memory through result.memory to read or act on it. \
-             Use <memory>:incoming for the reverse direction (who mentors it). For a symmetric \
+             result is a table { relation, memory, name, direction, source, told_by } that prints as \
+             \"relation → name\"; reach the linked memory through result.memory to read or act on it, \
+             and result.told_by names who asserted the relationship (the provenance of a belief-bearing \
+             link). Use <memory>:incoming for the reverse direction (who mentors it). For a symmetric \
              relation, outgoing and incoming return the same neighbours.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"mentor_of\"")

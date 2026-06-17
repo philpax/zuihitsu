@@ -441,14 +441,19 @@ pub enum EventPayload {
         reflexive: bool,
     },
     /// Creates a directed edge. The materializer canonicalizes direction at write time, so a link
-    /// asserted under either label produces the same stored edge. `told_by` (for asymmetric-belief
-    /// relations) arrives with identity at Stage 6/7.
+    /// asserted under either label produces the same stored edge. `told_by` is the teller who asserted
+    /// the relationship — the provenance an asymmetric-belief relation turns on (who claims that the
+    /// edge holds), carried for every link the same way an entry carries its teller. `None` for a link
+    /// with no teller behind it (the adjudicated `same_as`), and for pre-provenance logs that predate
+    /// the field (`#[serde(default)]`).
     LinkCreated {
         from: MemoryId,
         to: MemoryId,
         #[cfg_attr(feature = "ts", ts(type = "string"))]
         relation: RelationName,
         source: LinkSource,
+        #[serde(default)]
+        told_by: Option<Teller>,
     },
     LinkRemoved {
         from: MemoryId,

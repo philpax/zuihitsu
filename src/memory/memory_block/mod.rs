@@ -120,6 +120,10 @@ pub struct LinkRef {
     pub other_name: MemoryName,
     pub direction: LinkDirection,
     pub source: LinkSource,
+    /// Who asserted the relationship, resolved to a readable label ("person/erin", "you"), or `None`
+    /// for a link with no teller behind it (the adjudicated `same_as`) — the provenance a belief-bearing
+    /// relation turns on, the same teller signal a content read carries.
+    pub told_by: Option<String>,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -600,12 +604,26 @@ impl MemoryBlock {
                 let Some(other) = graph.memory_by_id(other_id)? else {
                     continue;
                 };
+                // Resolve the teller's label off the held guard (teller_label re-locks the graph and
+                // would deadlock here); a participant teller is a committed person memory.
+                let told_by = match &edge.told_by {
+                    None => None,
+                    Some(Teller::Agent) => Some("you".to_owned()),
+                    Some(Teller::Bootstrap) => Some("genesis".to_owned()),
+                    Some(Teller::Participant(teller_id)) => Some(
+                        graph
+                            .memory_by_id(*teller_id)?
+                            .map(|memory| memory.name.as_str().to_owned())
+                            .unwrap_or_else(|| "someone".to_owned()),
+                    ),
+                };
                 refs.push(LinkRef {
                     relation: edge.relation,
                     other: other.id,
                     other_name: other.name,
                     direction,
                     source: edge.source,
+                    told_by,
                 });
             }
             (members, refs)
@@ -941,6 +959,9 @@ impl MemoryBlock {
                 to,
                 relation,
                 source,
+                // The relationship's provenance is the turn's teller, the same teller a content append
+                // would carry — so a later read of a belief-bearing link knows who asserted it.
+                told_by: Some(self.teller.clone()),
             }
         } else {
             EventPayload::LinkRemoved { from, to, relation }

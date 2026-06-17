@@ -46,6 +46,7 @@ fn link_canonicalizes_inverse_label_to_one_edge() {
             to: dave,
             relation: RelationName::new("mentored_by"),
             source: LinkSource::Agent,
+            told_by: None,
         },
     ]);
 
@@ -95,6 +96,7 @@ fn symmetric_link_is_order_independent() {
             to: b,
             relation: RelationName::SameAs,
             source: LinkSource::Operator,
+            told_by: None,
         },
         // Asserting the reverse direction is the same edge, not a second one.
         EventPayload::LinkCreated {
@@ -102,6 +104,7 @@ fn symmetric_link_is_order_independent() {
             to: a,
             relation: RelationName::SameAs,
             source: LinkSource::Operator,
+            told_by: None,
         },
     ]);
 
@@ -136,12 +139,14 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
                 to: erin,
                 relation: RelationName::new("mentor_of"),
                 source: LinkSource::Agent,
+                told_by: None,
             },
             EventPayload::LinkCreated {
                 from: dave,
                 to: frank,
                 relation: RelationName::new("mentor_of"),
                 source: LinkSource::Agent,
+                told_by: None,
             },
         ]
     };

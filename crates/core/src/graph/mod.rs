@@ -93,6 +93,9 @@ pub struct ClassLinkView {
     pub to: MemoryId,
     pub relation: RelationName,
     pub source: LinkSource,
+    /// The teller who asserted the relationship, if one is on record — `None` for a link with no
+    /// teller behind it (the adjudicated `same_as`) or one predating link provenance.
+    pub told_by: Option<Teller>,
 }
 
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via
@@ -246,6 +249,7 @@ impl Graph {
                  to_id    TEXT NOT NULL,
                  relation TEXT NOT NULL,
                  source   TEXT NOT NULL,
+                 told_by  TEXT,
                  PRIMARY KEY (from_id, to_id, relation)
              );
              CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_id, relation);

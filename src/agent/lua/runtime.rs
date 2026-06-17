@@ -191,6 +191,11 @@ pub(super) fn make_link_handle(
     table.set("name", link.other_name.as_str())?;
     table.set("direction", link_direction_label(link.direction))?;
     table.set("source", link_source_label(link.source))?;
+    // The teller who asserted the relationship, for a belief-bearing relation; absent (`nil`) for a
+    // link with no teller behind it, like the adjudicated `same_as`.
+    if let Some(told_by) = &link.told_by {
+        table.set("told_by", told_by.as_str())?;
+    }
     table.set_metatable(Some(link_metatable.clone()))?;
     Ok(table)
 }

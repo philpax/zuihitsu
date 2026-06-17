@@ -1041,19 +1041,21 @@ async fn link_readers_traverse_the_merged_identity() {
         "the same_as plumbing must not surface as a relationship: {result}"
     );
 
-    // A script branches on the structured fields, not only the rendered line.
+    // A script branches on the structured fields, not only the rendered line — including `told_by`,
+    // the teller behind the link (here the agent itself, "you", since these were agent-authored).
     let BlockOutcome::Committed { result } = h
         .run(
             r#"
         local out = memory.get("person/dave"):outgoing("mentor_of")
         return out[1].name .. " / " .. out[1].direction .. " / " .. out[1].source
+            .. " / " .. out[1].told_by
         "#,
         )
         .await
     else {
         panic!("expected commit");
     };
-    assert_eq!(result, "person/erin / outgoing / agent");
+    assert_eq!(result, "person/erin / outgoing / agent / you");
 }
 
 #[tokio::test]

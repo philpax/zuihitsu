@@ -38,6 +38,7 @@ fn same_as_merges_stubs_into_one_class() {
             to: b,
             relation: RelationName::SameAs,
             source: LinkSource::Operator,
+            told_by: None,
         },
     ]);
 
@@ -104,6 +105,7 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
             to: b,
             relation: RelationName::SameAs,
             source: LinkSource::Operator,
+            told_by: None,
         },
     ]);
 

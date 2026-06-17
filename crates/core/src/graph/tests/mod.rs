@@ -107,6 +107,7 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
             to: erin,
             relation: RelationName::new("mentor_of"),
             source: LinkSource::Agent,
+            told_by: None,
         },
         // Supersede dave's first entry with his second — it drops from live reads but stays recorded.
         EventPayload::MemorySuperseded {

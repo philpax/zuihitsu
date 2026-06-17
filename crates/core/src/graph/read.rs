@@ -619,7 +619,7 @@ impl Graph {
     /// holding it together.
     pub fn class_links(&self, id: MemoryId) -> Result<Vec<ClassLinkView>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT l.from_id, l.to_id, l.relation, l.source FROM links l
+            "SELECT l.from_id, l.to_id, l.relation, l.source, l.told_by FROM links l
              JOIN memories mf ON mf.id = l.from_id
              JOIN memories mt ON mt.id = l.to_id
              WHERE mf.deleted = 0 AND mt.deleted = 0
@@ -634,7 +634,11 @@ impl Graph {
              ORDER BY l.relation, l.to_id",
         )?;
         query_map_into(stmt, params![id.0.to_string()], |row| {
-            let (from, to, relation, source): (String, String, String, String) = row.try_into()?;
+            let from: String = row.get("from_id")?;
+            let to: String = row.get("to_id")?;
+            let relation: String = row.get("relation")?;
+            let source: String = row.get("source")?;
+            let told_by: Option<String> = row.get("told_by")?;
             Ok(ClassLinkView {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
@@ -642,6 +646,9 @@ impl Graph {
                 source: LinkSource::parse(&source).ok_or_else(|| {
                     GraphError::Malformed(format!("unknown link source {source:?}"))
                 })?,
+                told_by: told_by
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()?,
             })
         })
     }
