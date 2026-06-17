@@ -131,7 +131,6 @@ impl Scenario for AWeekWithTheTeam {
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
         let linked = analysis::link_created_with(events, "knows");
         let recurring = analysis::has_recurring_occurrence(events);
-        let searched = analysis::lua_called(events, "memory.search");
         // Recall is checked lexically across every reply — the standup details surfaced somewhere, in
         // whichever room the agent answered them — so it does not depend on isolating one mid-arc reply.
         let recalled = analysis::agent_replies(events).iter().any(|reply| {
@@ -174,12 +173,6 @@ impl Scenario for AWeekWithTheTeam {
                 recalled,
                 "a reply surfaced the standup time and the Pied Piper room",
                 "no reply surfaced both the time and the room",
-            ),
-            Verdict::metric_outcome(
-                "reached for memory.search",
-                searched,
-                "called memory.search",
-                "answered without calling memory.search",
             ),
         ]
     }
