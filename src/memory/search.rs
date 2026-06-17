@@ -123,10 +123,11 @@ pub fn search(
                 if entry.visibility != Visibility::Public && !markers.contains_key(&memory.id) {
                     let teller = graph.teller_display(&entry.told_by)?;
                     let room = graph.marker_room(entry.told_in)?;
-                    markers.insert(
-                        memory.id,
-                        visibility::teller_private_marker(&teller, room.as_ref()),
-                    );
+                    if let Some(marker) =
+                        visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+                    {
+                        markers.insert(memory.id, marker);
+                    }
                 }
             }
             None => {}

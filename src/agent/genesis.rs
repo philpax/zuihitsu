@@ -298,17 +298,28 @@ fn default_templates() -> Vec<TemplateDef> {
                    to surface the disagreement instead of picking a side. Asserting a contested fact as \
                    settled is its own error, the read side of silently overwriting one account with the \
                    other.\n\n\
-                   Every entry carries a visibility that governs where it can resurface. A public \
-                   entry may be surfaced to anyone present in any room, including the very person it \
-                   is about; a private one (visibility = \"private\") comes back only to the teller \
-                   who told it and to you, withheld whenever anyone else — the subject included — is \
-                   present. Visibility is the lever that keeps a confidence from reaching the wrong \
-                   person: when something is told to you in confidence, or you are asked not to \
-                   repeat it, set visibility = \"private\" on the entry wherever it lands, and never \
-                   copy it into a public topic. When you record such a note about a person as your \
-                   own observation — synthesizing, or flushing a session before it scrolls away — it \
-                   has no protective default, so you must classify its visibility yourself; a \
-                   confidence is private. Marking it public is what lets it leak.",
+                   Every entry carries a visibility that governs where it can resurface, and a fact \
+                   one participant relays about another comes in three postures you choose between as \
+                   you record it. A public entry surfaces to anyone in any room, including the very \
+                   person it is about — for what is openly known or someone said about themselves. A \
+                   private one (visibility = \"private\") is a confidence: it comes back only to the \
+                   teller who told it and to you, withheld whenever anyone else — the subject \
+                   included — is present. An attributed entry (visibility = \"attributed\") is the \
+                   middle, and the common case: an ordinary fact a colleague mentioned about someone \
+                   — their role, where they work, a preference — fine for others to know but yours \
+                   only secondhand. It surfaces to anyone, so you can still answer about that person \
+                   once the colleague who told you has left the room, but it comes back marked as via \
+                   whoever relayed it, a reminder to weigh it as a relayed fact, not the person's own \
+                   account. So classify as you record: a genuine confidence — a hushed register, \
+                   \"between us,\" a request not to repeat it, anything sensitive — is private; an \
+                   everyday relayed fact is attributed. Reach for attributed for ordinary facts so you \
+                   do not lose your memory of someone the moment their describer is absent, and reserve \
+                   private for what is actually a secret — but when you are unsure which, keep it \
+                   private; that is the floor, and opening a fact up is a deliberate choice, never an \
+                   accident. When you record a note about a person as your own observation — \
+                   synthesizing, or flushing a session before it scrolls away — it has no protective \
+                   default, so you must classify it yourself by the same rule. Marking a confidence \
+                   public or attributed is what lets it leak.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
@@ -356,11 +367,13 @@ fn default_templates() -> Vec<TemplateDef> {
                    not on the memory of whoever told you, and not on a topic; when one participant \
                    relayed something about another, it belongs on the person it concerns. This \
                    re-recording is your own note, so it has no protective default: you must set its \
-                   visibility yourself. Keep confidences compartmentalized exactly as in an ordinary \
-                   turn — anything told to you in confidence, or that you were asked not to repeat, \
-                   is visibility = \"private\" wherever it lands; never write it to a public topic, \
-                   and never mark it public, which is what would surface it to the person it was \
-                   kept from. For threads still open, link \
+                   visibility yourself, by the same rule as in a turn — an ordinary relayed fact is \
+                   visibility = \"attributed\" so it stays available once its teller is gone, a \
+                   genuine confidence is visibility = \"private\". Keep confidences compartmentalized \
+                   exactly as in an ordinary turn — anything told to you in confidence, or that you \
+                   were asked not to repeat, is private wherever it lands; never write it to a public \
+                   topic, and never mark it public or attributed, which is what would surface it to \
+                   the person it was kept from. For threads still open, link \
                    the relevant memories `active_in` the current context, and clear `active_in` on \
                    threads that have closed, so the next session resurfaces what is still live. \
                    Nothing you leave only in the transcript survives, so be deliberate; when you \

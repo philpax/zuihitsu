@@ -217,12 +217,13 @@ impl From<GraphError> for MemoryError {
     }
 }
 
-/// The forced visibility a `visibility = "public" | "private"` append opt selects, deserialized from
-/// the Lua opts table.
+/// The forced visibility a `visibility = "public" | "attributed" | "private"` append opt selects,
+/// deserialized from the Lua opts table.
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VisibilityChoice {
     Public,
+    Attributed,
     Private,
 }
 
@@ -808,6 +809,7 @@ impl MemoryBlock {
         if let Some(choice) = explicit {
             return Ok(match choice {
                 VisibilityChoice::Public => Visibility::Public,
+                VisibilityChoice::Attributed => Visibility::Attributed,
                 VisibilityChoice::Private => Visibility::PrivateToTeller,
             });
         }

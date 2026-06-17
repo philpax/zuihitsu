@@ -199,8 +199,12 @@ pub fn compose(
             if entry.visibility != Visibility::Public {
                 let teller = graph.teller_display(&entry.told_by)?;
                 let room = graph.marker_room(entry.told_in)?;
-                line.push(' ');
-                line.push_str(&visibility::teller_private_marker(&teller, room.as_ref()));
+                if let Some(marker) =
+                    visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+                {
+                    line.push(' ');
+                    line.push_str(&marker);
+                }
             }
             lines.push(line);
         }
@@ -413,8 +417,12 @@ fn visible_recent_facts(
         if entry.visibility != Visibility::Public {
             let teller = graph.teller_display(&entry.told_by)?;
             let room = graph.marker_room(entry.told_in)?;
-            line.push(' ');
-            line.push_str(&visibility::teller_private_marker(&teller, room.as_ref()));
+            if let Some(marker) =
+                visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+            {
+                line.push(' ');
+                line.push_str(&marker);
+            }
         }
         facts.push(line);
     }

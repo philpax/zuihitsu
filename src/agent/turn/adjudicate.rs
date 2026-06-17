@@ -232,7 +232,9 @@ fn render_stub(stub: Stub<'_>) -> String {
     }
     for (index, entry) in stub.entries.iter().enumerate() {
         let visibility = match entry.visibility {
-            Visibility::Public => "public",
+            // Attributed is an ordinary secondhand fact, not a confidence — a wrong merge exposing it
+            // is low-stakes, so it weighs with public here, not private.
+            Visibility::Public | Visibility::Attributed => "public",
             Visibility::PrivateToTeller | Visibility::Exclude(_) => "private",
         };
         out.push_str(&format!("\n  {}. [{visibility}] {}", index + 1, entry.text));

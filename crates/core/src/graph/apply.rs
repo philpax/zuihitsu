@@ -157,8 +157,8 @@ impl Graph {
                     .map_err(backend)?;
                 // Only public content enters the lexical index: name and description are already
                 // public-safe, so keeping FTS public-only means a lexical hit needs no visibility
-                // filter. Private content stays retrievable only via its (predicate-filtered) entry
-                // vector.
+                // filter. Non-public content — attributed or private — stays retrievable only via its
+                // entry vector, which carries the provenance marker a lexical hit could not.
                 if *visibility == Visibility::Public {
                     self.conn
                         .execute(

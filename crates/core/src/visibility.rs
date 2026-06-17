@@ -34,6 +34,9 @@ pub type ClassOf<'a> = dyn Fn(MemoryId) -> Result<MemoryId, GraphError> + 'a;
 pub enum VisibilityDecision {
     /// Surfaces to anyone — a public entry.
     Public,
+    /// Surfaces to anyone — an attributed (secondhand-but-ordinary) entry. Visible like `Public`; it
+    /// is told apart so a surface can attach the provenance marker and exclude it from descriptions.
+    Attributed,
     /// Surfaces: teller-private, the teller is present, and the subject-guard does not block.
     TellerPresent,
     /// Surfaces: an `Exclude` entry with the teller present, no named excludee present, and no guard.
@@ -54,6 +57,7 @@ impl VisibilityDecision {
         matches!(
             self,
             VisibilityDecision::Public
+                | VisibilityDecision::Attributed
                 | VisibilityDecision::TellerPresent
                 | VisibilityDecision::NotExcluded
         )
@@ -87,6 +91,7 @@ pub fn explain(
     let subject = subject_participant(memory.name.as_str(), memory.id);
     Ok(match &entry.visibility {
         Visibility::Public => VisibilityDecision::Public,
+        Visibility::Attributed => VisibilityDecision::Attributed,
         Visibility::PrivateToTeller => {
             if !teller_present(&entry.told_by, present_set, class_of)? {
                 VisibilityDecision::TellerAbsent
@@ -159,6 +164,35 @@ pub fn teller_private_marker(teller: &str, room: Option<&MarkerRoom>) -> String 
             confidential: false,
         }) => format!("[teller-private, told by {teller} in {name}]"),
         None => format!("[teller-private, told by {teller}]"),
+    }
+}
+
+/// The inline marker an entry carries when it surfaces, chosen by its posture (spec §Visibility →
+/// provenance markers): none for `Public`, the lighter `[via …]` for `Attributed`, the teller-private
+/// marker for a confidence. The one place a surface (search, the brief) turns a visible non-public
+/// entry into its marker, so the two registers can never be applied to the wrong posture.
+pub fn entry_marker(
+    visibility: &Visibility,
+    teller: &str,
+    room: Option<&MarkerRoom>,
+) -> Option<String> {
+    match visibility {
+        Visibility::Public => None,
+        Visibility::Attributed => Some(attributed_marker(teller, room)),
+        Visibility::PrivateToTeller | Visibility::Exclude(_) => {
+            Some(teller_private_marker(teller, room))
+        }
+    }
+}
+
+/// The inline marker an `Attributed` entry carries when surfaced (spec §Visibility → provenance
+/// markers): the lighter register, naming only the source without the language of confidence, since
+/// the entry is visible to anyone and the marker is the whole signal — secondhand, weigh it as such.
+/// `[via Erin]`, or `[via Erin in #general]` when the room is known.
+pub fn attributed_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
+    match room {
+        Some(MarkerRoom { name, .. }) => format!("[via {teller} in {name}]"),
+        None => format!("[via {teller}]"),
     }
 }
 
@@ -342,6 +376,48 @@ mod tests {
         assert_eq!(
             teller_private_marker("Erin", Some(&leads)),
             "[teller-private, told by Erin in #leads (confidential)]"
+        );
+    }
+
+    #[test]
+    fn attributed_is_visible_regardless_of_who_is_present() {
+        // An ordinary fact Erin relayed about Dave, classified Attributed: it survives Erin's absence
+        // (unlike PrivateToTeller), so the agent can answer about Dave to anyone, later, anywhere.
+        let dave = memory("person/dave");
+        let erin = MemoryId::generate();
+        let stranger = MemoryId::generate();
+        let fact = entry(Teller::Participant(erin), Visibility::Attributed);
+        // Teller absent, a stranger present, no one present: visible in every case.
+        assert!(visible(&fact, &dave, &[stranger], &identity).unwrap());
+        assert!(visible(&fact, &dave, &[], &identity).unwrap());
+        // And visible even to the subject — it is not a confidence to hold from Dave.
+        assert!(visible(&fact, &dave, &[dave.id], &identity).unwrap());
+    }
+
+    #[test]
+    fn entry_marker_picks_the_register_by_posture() {
+        use super::entry_marker;
+        let general = MarkerRoom {
+            name: room_display("context/general"),
+            confidential: false,
+        };
+        // Public carries no marker; attributed the lighter provenance register; a confidence the
+        // teller-private register.
+        assert_eq!(
+            entry_marker(&Visibility::Public, "Erin", Some(&general)),
+            None
+        );
+        assert_eq!(
+            entry_marker(&Visibility::Attributed, "Erin", Some(&general)),
+            Some("[via Erin in #general]".to_owned())
+        );
+        assert_eq!(
+            entry_marker(&Visibility::Attributed, "Erin", None),
+            Some("[via Erin]".to_owned())
+        );
+        assert_eq!(
+            entry_marker(&Visibility::PrivateToTeller, "Erin", None),
+            Some("[teller-private, told by Erin]".to_owned())
         );
     }
 

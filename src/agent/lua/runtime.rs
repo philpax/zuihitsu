@@ -212,11 +212,13 @@ pub(super) fn make_entry_handle(
     Ok(handle)
 }
 
-/// The agent-facing label for an entry's visibility — `public` for freely surfaceable, `private` for a
-/// confidence (`PrivateToTeller`/`Exclude`) that only resurfaces to its teller.
+/// The agent-facing label for an entry's visibility — `public` for freely surfaceable, `attributed`
+/// for an ordinary secondhand fact the agent should weigh as relayed, and `private` for a confidence
+/// (`PrivateToTeller`/`Exclude`) that only resurfaces to its teller.
 pub(super) fn visibility_label(visibility: &Visibility) -> &'static str {
     match visibility {
         Visibility::Public => "public",
+        Visibility::Attributed => "attributed",
         Visibility::PrivateToTeller | Visibility::Exclude(_) => "private",
     }
 }

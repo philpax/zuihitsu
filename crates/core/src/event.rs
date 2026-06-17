@@ -267,8 +267,13 @@ pub enum Teller {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Visibility {
-    /// Surfaces to any present set, including the subject.
+    /// Surfaces to any present set, including the subject. Distilled into the description.
     Public,
+    /// An ordinary fact learned secondhand: surfaces to any present set like `Public`, but is never
+    /// distilled into a description and reaches the agent carrying a provenance marker built from the
+    /// entry's `told_by`, so it always reads as "via <teller>" and the agent judges disclosure. The
+    /// posture an ordinary relayed fact is classified up into, distinct from a confidence.
+    Attributed,
     /// Surfaces only while the teller is present, and never to the memory's subject.
     PrivateToTeller,
     /// As `PrivateToTeller`, additionally suppressed whenever any named party is present.

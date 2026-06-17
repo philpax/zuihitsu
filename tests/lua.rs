@@ -1578,6 +1578,59 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
     );
 }
 
+/// An `Attributed` fact — an ordinary thing a colleague relayed — survives the teller's absence: a
+/// direct read by a present outsider sees it in full (unlike a confidence, which is withheld), so the
+/// agent can still answer "what's Dave's role?" months later in another room. It reads as attributed,
+/// carrying its provenance, never as a confidence.
+#[tokio::test]
+async fn an_attributed_fact_survives_the_teller_absence() {
+    let h = Harness::new();
+    h.run(r#"memory.create("person/dave"); memory.create("person/erin")"#)
+        .await;
+    let id = |name: &str| {
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name(name)
+            .unwrap()
+            .unwrap()
+            .id
+    };
+    let (dave, erin) = (id("person/dave"), id("person/erin"));
+
+    // Erin, present, relays an ordinary fact about Dave (attributed) and a genuine confidence (private).
+    h.run_as(
+        Teller::Participant(erin),
+        vec![erin],
+        r#"
+        memory.get("person/dave"):append("Engineering lead at Hooli", { visibility = "attributed" })
+        memory.get("person/dave"):append("quietly interviewing elsewhere", { visibility = "private" })
+        "#,
+    )
+    .await;
+
+    // A different person (dave himself) present, the teller (erin) absent: the attributed fact stands
+    // in full and reads as attributed; the confidence is withheld.
+    let read = r#"
+        local lines = {}
+        for _, e in ipairs(memory.get("person/dave"):entries()) do
+            lines[#lines + 1] = e.visibility .. "/" .. tostring(e.withheld) .. ":" .. e.text
+        end
+        return table.concat(lines, "|")
+    "#;
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, vec![dave], read).await else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("attributed/false:Engineering lead at Hooli"),
+        "the attributed fact should survive the teller's absence, in full: {result}"
+    );
+    assert!(
+        result.contains("private/true:(withheld") && !result.contains("interviewing elsewhere"),
+        "the confidence should still be withheld from an outsider: {result}"
+    );
+}
+
 /// A direct read withholds a confidence from a present audience that is not cleared to see it — the
 /// same predicate search applies, now on `mem:entries`/`mem:history`. This closes the name-conflation
 /// leak: reading `person/dave` while someone *other* than Dave is present must not hand over Dave's
