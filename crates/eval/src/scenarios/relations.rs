@@ -1,6 +1,11 @@
-//! Linking two people who know each other (migrated from
-//! `real_model_links_two_people_who_know_each_other`). A quality metric: does the agent reach for a
-//! structured `mem:link` (with the seeded `knows` relation) rather than only recording prose?
+//! Structured relationships: recording a typed link between people (`Knows`), and — the read side —
+//! retrieving them back out of the graph with the link readers (`RecallsConnections`,
+//! `DistinguishesMentorDirection`). `Knows` is a gating write oracle; the read scenarios are metrics
+//! judged by whether the reply reflects the stored relationships. `DistinguishesMentorDirection` is the
+//! one the readers are uniquely needed for: it puts the subject on *both* sides of an asymmetric
+//! relation, so only reading the edge's direction (not a semantic search that conflates the two)
+//! answers it — and it exercises the write side too, since the agent must register `mentor_of` and link
+//! it the right way round.
 
 use std::sync::Arc;
 
@@ -12,13 +17,17 @@ use crate::{
     context::{RunContext, Turn},
     error::EvalError,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
 };
 
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
-    vec![Arc::new(Knows)]
+    vec![
+        Arc::new(Knows),
+        Arc::new(RecallsConnections),
+        Arc::new(DistinguishesMentorDirection),
+    ]
 }
 
 pub struct Knows;
@@ -55,6 +64,174 @@ impl Scenario for Knows {
             linked,
             "created a knows link between the two memories",
             "recorded the relationship only as prose, no knows link",
+        )]
+    }
+}
+
+/// A person's connections, recorded as links in one room, are retrieved when asked about them in
+/// another — the read side of the relationship graph. The two `knows` edges are established together,
+/// then a later room with an empty buffer asks who the person knows, so answering means reading the
+/// connections back rather than echoing the live conversation.
+pub struct RecallsConnections;
+
+#[async_trait]
+impl Scenario for RecallsConnections {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "recalls_who_someone_knows".to_owned(),
+            category: Category::Relations,
+            description:
+                "Two of a person's relationships, linked in one room, are recalled when a \
+                          different room asks who they know — the agent reads its connections back."
+                    .to_owned(),
+            bar: Bar::Metric { threshold: 0.5 },
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Turn 1: two of Dave's relationships come up in passing, for the agent to record as links.
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "Dave's bringing a couple of friends along on Friday — Erin, who he's known since \
+             college, and Frank, his buddy from the climbing gym.",
+        ))
+        .await?;
+        // Regenerate descriptions and embed, as the background workers would, before the recall room.
+        ctx.describe_catch_up().await?;
+        ctx.index_catch_up().await?;
+        // Turn 2: a different room, an empty buffer — answering means reading Dave's connections back,
+        // not echoing the live conversation. The asker is Erin, herself one of Dave's connections, so a
+        // good reply recognizes that and may address her as "you" — which the judge credits as naming her.
+        ctx.turn(Turn::new(
+            "discord",
+            "hallway",
+            "erin",
+            "Hey, who does Dave actually know around here? Trying to get a sense of his crowd.",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let read_links = analysis::link_reader_called(events);
+
+        let evidence = format!(
+            "Earlier, in another room, the agent was told that Dave knows two people: Erin (from \
+             college) and Frank (from the climbing gym). Later, in a different room with no prior \
+             conversation, **Erin herself** asked who Dave knows. The agent replied:\n\"{reply}\""
+        );
+        let judged = judge
+            .assess(
+                "The reply identifies both of Dave's connections — Frank, and Erin. Because Erin is \
+                 the one asking, the agent referring to her as \"you\" (e.g. \"Dave knows you and \
+                 Frank\") counts as correctly naming Erin — indeed, recognizing that it is talking \
+                 to one of Dave's connections is good. The reply passes if it conveys that Dave's \
+                 two connections are Frank and Erin (named or addressed as \"you\").",
+                &evidence,
+            )
+            .await;
+
+        vec![
+            Verdict::from_judge_outcome(
+                "recalls both of Dave's connections",
+                VerdictKind::Metric,
+                judged,
+            ),
+            Verdict::metric_outcome(
+                "reached for a link reader",
+                read_links,
+                "traversed the connections with a link reader (outgoing/incoming/links)",
+                "answered without reading the links back",
+            ),
+        ]
+    }
+}
+
+/// Dave sits on *both* sides of a mentorship: he mentors two people and is himself mentored by a
+/// third. Asked who he mentors, only the edge's *direction* answers correctly — a semantic search for
+/// "Dave mentor" conflates the two, so the agent must read outgoing `mentor_of` and exclude the person
+/// who mentors *him*. Also a test of the write side: `mentor_of` is not seeded, so the agent has to
+/// register the relation and link it the right way round for the read to come out right.
+pub struct DistinguishesMentorDirection;
+
+#[async_trait]
+impl Scenario for DistinguishesMentorDirection {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "distinguishes_mentor_direction".to_owned(),
+            category: Category::Relations,
+            description: "Dave mentors two people and is mentored by a third; asked who he mentors, \
+                          the agent must read the link's direction — naming his mentees, not his \
+                          mentor — which a direction-blind search cannot."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.5 },
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Dave as a mentor (outgoing), then Dave as a mentee (incoming) — the same relation, opposite
+        // directions, for the agent to record as directed links.
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "Dave's been mentoring Erin and Grace this year — really showing them the ropes.",
+        ))
+        .await?;
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "Funny thing is, Dave's got a mentor of his own — Frank's been bringing him along.",
+        ))
+        .await?;
+        ctx.describe_catch_up().await?;
+        ctx.index_catch_up().await?;
+        // A different room asks the directional question: who Dave mentors — his mentees, not his mentor.
+        ctx.turn(Turn::new(
+            "discord",
+            "hallway",
+            "sam",
+            "Quick one — who's Dave actually mentoring these days? Thinking of pairing someone with \
+             him.",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+
+        let evidence = format!(
+            "Earlier the agent was told that Dave mentors two people, Erin and Grace, and separately \
+             that Frank mentors Dave — so Dave is Frank's mentee, the opposite direction. Later, in a \
+             different room, someone asked who Dave is mentoring. The agent replied:\n\"{reply}\""
+        );
+        let judged = judge
+            .assess(
+                "The reply correctly identifies who Dave mentors: it names Erin and Grace (his \
+                 mentees) and does NOT present Frank as someone Dave mentors — Frank mentors Dave, \
+                 the other way round. It passes only if the direction is right: listing Frank as one \
+                 of Dave's mentees, or omitting Erin or Grace, fails.",
+                &evidence,
+            )
+            .await;
+
+        vec![Verdict::from_judge_outcome(
+            "names Dave's mentees and not his mentor",
+            VerdictKind::Metric,
+            judged,
         )]
     }
 }

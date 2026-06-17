@@ -79,6 +79,15 @@ pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     })
 }
 
+/// Whether any executed block reached for a link reader — `mem:outgoing`, `mem:incoming`, or
+/// `mem:links` — the structural signal that the agent traversed the relationship graph to answer,
+/// rather than reconstructing the connections from prose. (`links` here is the `:links()` reader; the
+/// `links.*` registry calls are `links.list`/`get`/`register`, which `script_calls` does not match on
+/// the bare `links(`.)
+pub fn link_reader_called(events: &[Event]) -> bool {
+    lua_called(events, "outgoing") || lua_called(events, "incoming") || lua_called(events, "links")
+}
+
 /// Whether the agent proposed a cross-platform merge (a `MergeProposed`) — the agent's judgment that
 /// two stubs may be one person, before any adjudication.
 pub fn merge_proposed(events: &[Event]) -> bool {
