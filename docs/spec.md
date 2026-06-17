@@ -129,8 +129,8 @@ Link {
   to:         MemoryId
   relation:   RelationName
   created_at: timestamp
-  source:     enum {Agent, Operator}
-  told_by:    Option<ParticipantId>  -- for asymmetric-belief relations
+  source:     enum {Agent, Operator, Adjudicated}
+  told_by:    Option<ParticipantId>  -- for asymmetric-belief relations; not yet implemented
 }
 ```
 
@@ -172,7 +172,7 @@ Prefixes make a memory's kind visible at a glance, make prefix-scoped queries ch
 
 Platform-level participant IDs map to `person/*` stubs through an operational lookup table keyed `(platform, platform_user_id) → memory_id`. The mapping is seeded by `ParticipantIdentified` events, so it lives in the log and rebuilds with every other projection, but it is materialized as a table separate from the memory graph's nodes and edges, because these are operational identifiers, not facts about people. `platform` is a short stable key from operational config (`direct`, `discord`, `slack`, and so on), and a stub records its `platform` and `platform_user_id`.
 
-The agent-facing way to name a specific stub is `name@platform` (for example, `person/dave@discord`), used by `memory.get_stub`. The mapping is to a specific stub, never to a class.
+The agent-facing way to name a specific stub is `name@platform` (for example, `person/dave@discord`), passed to `memory.get`, which resolves a stub name to that one stub. The mapping is to a specific stub, never to a class.
 
 ### Stub creation on first contact
 
@@ -211,7 +211,7 @@ Writes are not auto-traversed: `dave@discord:append(...)` writes the Discord stu
 
 The primary is deterministic, not illustrative: the earliest stub in the class by ULID, unless an operator has explicitly designated one through the console, in which case the designation wins. When two multi-stub classes merge, each already has a primary, and the merged class's primary is the operator-designated one if either class has it, otherwise the earliest by ULID across the union. If both classes carry an operator designation, the designated stub with the earliest ULID wins, reusing the ULID order rather than inventing a designation timestamp. The result is therefore independent of merge order, and class-handle writes land predictably regardless of how the class was assembled.
 
-Because synthesis now traverses the whole class (see **Visibility**), which stub such a fact lands on is cosmetic — it surfaces for the entire class either way — so a hard error here would be pure friction. The disambiguation requirement is reserved for the genuinely stub-specific case: attributing to one platform ("Dave said *on Slack*…"), which the agent expresses by naming the stub with `memory.get_stub("person/dave@slack")`. Writing platform-specific provenance to the wrong stub would be a silent error, but that path is always explicitly stub-named, and the class handle's primary-stub default carries the platform-agnostic human-fact, which is the common case.
+Because synthesis now traverses the whole class (see **Visibility**), which stub such a fact lands on is cosmetic — it surfaces for the entire class either way — so a hard error here would be pure friction. The disambiguation requirement is reserved for the genuinely stub-specific case: attributing to one platform ("Dave said *on Slack*…"), which the agent expresses by naming the stub with `memory.get("person/dave@slack")`. Writing platform-specific provenance to the wrong stub would be a silent error, but that path is always explicitly stub-named, and the class handle's primary-stub default carries the platform-agnostic human-fact, which is the common case.
 
 ### Self-merge and the operator's continuity
 
@@ -294,7 +294,7 @@ All state changes are events; graph state is a pure projection.
 - `TagDescriptionChanged { name, new_description }`
 - `LinkTypeRegistered { name, inverse, from_card, to_card, symmetric, reflexive }`
 - `LinkTypeChanged { name, ... }`
-- `LinkCreated { from, to, relation, source, told_by }` — `source` is `Agent`, `Operator`, or `Adjudicated`; the last is a `same_as` authored by the merge-adjudication pass, the only path to a merge without the operator (spec §Cross-platform identity).
+- `LinkCreated { from, to, relation, source }` — `source` is `Agent`, `Operator`, or `Adjudicated`; the last is a `same_as` authored by the merge-adjudication pass, the only path to a merge without the operator (spec §Cross-platform identity). (A `told_by` for asymmetric-belief relations is designed but not yet implemented; see **Link**.)
 - `LinkRemoved { from, to, relation }`
 - `ConversationStarted { id, locator, context_memory }` / `ConversationEnded { id }` — the durable room, keyed by `ConversationLocator`; `ConversationStarted` fires once on first contact, `ConversationEnded` only when a room is permanently retired (rare — conversations are durable and long-lived; a session, below, is the bounded unit that opens and closes routinely). `context_memory` is the `context/*` memory minted eagerly with the room (see **Contexts are first-class memories**), so the locator resolves to it.
 - `SessionStarted { conversation, id, participants, started_at, seeded_from_turn, brief }` / `SessionEnded { conversation, id }` — a bounded activity window; the brief-freeze unit. `brief` is the composed brief block, captured here verbatim so the frozen prompt is faithfully replayable without recomposing against current state (see **System prompt → replay**). `seeded_from_turn` records the extent of raw transcript carried over when this session opened via compaction (null for a fresh/idle-opened session) — the one carryover fact faithful replay needs, recorded rather than recomputed from the character budget.
@@ -307,8 +307,7 @@ All state changes are events; graph state is a pure projection.
 - `ScheduledItemSurfaced { entry_id, memory, session, surfaced_at }` — marks a fired wake-up delivered: the drain raised it as an `Initiated` system turn in `session`, so it is never raised again. Applying it stamps the entry's `surfaced_at`.
 - `PromptTemplateRegistered { name, version, body, source }`
 - `ConfigSet { settings, source }` — a whole behavioral-settings snapshot: one strongly-typed struct grouped into substructs (compaction token budget, idle-gap threshold, flush-gating threshold, carryover character budget, brief and present-set budgets, search weights, `max_steps`, and so on); `source: Operator`, operator-only. The current settings are the latest `ConfigSet`; the default snapshot is seeded at genesis, and an operator change reads-modifies-writes the whole struct. Behavioral config lives in the log precisely so replay reproduces the behavior that the values in force at the time produced (see **Initialization → Configuration**).
-- `EmbeddingModelChanged { from, to }` — records an embedding-model swap. This is not a `ConfigSet`, since it isn't a flat behavioral knob: it is a logged migration that presages a full re-embed under the build-alongside, serve-old, atomic-cutover discipline (see **Storage → Vector store**). The endpoint itself is environmental; this event marks the behaviorally-significant change of which model produced the vectors, and brackets the re-embed so a crash mid-migration is recoverable rather than a silent mixed-space index.
-- `ConversationCompacted { summary, subsumed_turn_range, produced_by }` — reserved, not the primary path. The flush-into-memory mechanism (see **Conversations and contexts → Compaction**) handles continuity without a buffer-resident recap. If a model-authored recap in context is ever wanted beyond raw carryover, it MUST be this logged event, never a summary living only in the live buffer, so faithful replay feeds back the exact summary the agent saw and regenerative replay can redo it. The invariant: no model-authored artifact enters context without an event behind it.
+- `EmbeddingModelChanged { from, to }` *(designed, not yet implemented)* — records an embedding-model swap. This is not a `ConfigSet`, since it isn't a flat behavioral knob: it is a logged migration that presages a full re-embed under the build-alongside, serve-old, atomic-cutover discipline (see **Storage → Vector store**). The endpoint itself is environmental; this event marks the behaviorally-significant change of which model produced the vectors, and brackets the re-embed so a crash mid-migration is recoverable rather than a silent mixed-space index.
 - `GenesisCompleted { manifest_hash, template_versions }`
 
 **`LuaExecuted` records what the agent saw.** The stored `result` is the value rendered back into the next inference step — rendered text, not a live handle — so that faithful replay feeds the model exactly the string it originally saw. A block is a transaction (see **Lua API → Block transactionality**): side-effect events are buffered and emitted atomically at commit, all carrying the block's `turn_id`.
@@ -558,7 +557,7 @@ The typed value is stored as tagged JSON in `occurred_at`, plus three denormaliz
 
 ### "Now"
 
-Available via `now()` in Lua, and declared in the system prompt at conversation start since the model shouldn't infer it from training data. Beyond that anchor, each inbound and injected turn in the buffer is prefixed with the wall-clock time it was recorded, derived from its `recorded_at` — so "now" stays current without a drift heuristic or any rewrite of the frozen prompt. The agent's own turns are left unstamped: its replies are rendered back to it as history, and a stamp there would teach it to emit timestamps into its replies (a time it can't actually know), so only the messages it *reads* carry one. The per-turn stamps live in the buffer suffix: a recorded turn's time is frozen the moment it lands, so it stays part of the cacheable prefix on later turns, and only the live turn's stamp is uncached. They cost no extra events — the time is read off each turn's existing `recorded_at`, so it replays deterministically — and they give the agent a timeline a single session-start time can't: the gap between two messages, how long a participant was quiet.
+Declared in the system prompt at conversation start, since the model shouldn't infer it from training data. Beyond that anchor, each inbound and injected turn in the buffer is prefixed with the wall-clock time it was recorded, derived from its `recorded_at` — so "now" stays current without a drift heuristic or any rewrite of the frozen prompt. The agent's own turns are left unstamped: its replies are rendered back to it as history, and a stamp there would teach it to emit timestamps into its replies (a time it can't actually know), so only the messages it *reads* carry one. The per-turn stamps live in the buffer suffix: a recorded turn's time is frozen the moment it lands, so it stays part of the cacheable prefix on later turns, and only the live turn's stamp is uncached. They cost no extra events — the time is read off each turn's existing `recorded_at`, so it replays deterministically — and they give the agent a timeline a single session-start time can't: the gap between two messages, how long a participant was quiet.
 
 ### Calendar as a view over memory
 
@@ -802,13 +801,13 @@ The VM's internal state is not event-sourced and not reconstructed on replay, an
 
 A `LuaExecuted` block is an atomic transaction over the event log. Side-effect events (`MemoryContentAppended`, `LinkCreated`, `TagAppliedToMemory`, and so on) are buffered during execution and emitted atomically at commit, all sharing the block's `turn_id`. If the block doesn't commit, the buffer is discarded and no side-effect events reach the log. This is what makes the timeout-abort-and-retry backstop safe: a retry isn't re-emitting events, because the first attempt emitted none.
 
-- *Read-your-writes within a block.* Buffered side effects are visible to reads from the same block: `dave:append("X")` then later `dave:get()` sees "X." Other conversations see the writes only at commit, all at once. Mutex scope aligns with transaction scope: other conversations can't see partial writes because they can't acquire the locks, and at commit they see everything atomically.
+- *Read-your-writes within a block.* Buffered side effects are visible to reads from the same block: `dave:append("X")` then later `dave:entries()` sees "X." Other conversations see the writes only at commit, all at once. Mutex scope aligns with transaction scope: other conversations can't see partial writes because they can't acquire the locks, and at commit they see everything atomically.
 - *Commit is per-block, not per-turn.* Multiple blocks in one turn each commit on their own boundary; a later block in the same turn reads an earlier block's writes through the materialized graph, not through buffer isolation.
 - *Explicit abort: `block.abort(reason)`.* A clean lever to discard a block's buffered writes mid-script, better than raising an error. It's an agent-visible terminal outcome (the agent did it deliberately and reasons about it next turn), so it emits a `LuaExecuted` with `result: null` and `terminal_cause: aborted("reason")`. Runtime errors emit similarly. The console conversation view surfaces aborts and errors distinctly from successful blocks.
 
 ### The API description is injected into the system prompt and is deliberately not versioned
 
-The catalogue of functions — signatures, examples, the connected MCP servers' projected tools, the current tag vocabulary, and registered relations — is rendered into the system prompt so the agent always knows what it can call without resorting to `help()` for basics. The MCP tools are runtime-derived, from whichever servers are connected at assembly time, rather than build-derived, but fall under exactly the same not-versioned, additive-only discipline.
+The catalogue of functions — signatures, examples, the connected MCP servers' projected tools, the current tag vocabulary, and registered relations — is rendered into the system prompt so the agent always knows what it can call. The MCP tools are runtime-derived, from whichever servers are connected at assembly time, rather than build-derived, but fall under exactly the same not-versioned, additive-only discipline.
 
 This is an intentional asymmetry with prompt templates, which are versioned in the log: the API description is a function of the running build, reflecting what the binary actually provides, and versioning it in the log would risk drifting from reality. It has no effect on faithful replay, since the frozen prompt the agent saw is captured (see **System prompt**) and replays exactly.
 
@@ -823,24 +822,21 @@ local mem = memory.create("person/dave", "Met at the climbing gym")
 --  the MemoryCreated event — see Event sourcing; one provenance path for all content)
 local dave = memory.get("person/dave")
 local results = memory.search("climbing", { tags = {"hobbies"}, limit = 5 })
-local stub = memory.get_stub("person/dave@discord")   -- disambiguate a class
+local stub = memory.get("person/dave@discord")   -- a stub name resolves to that one stub, not the class
 
 -- Methods on Memory objects
 dave:append("Dave got a new job at Hooli")
 dave:append("Got a new job", { occurred_at = "last week", visibility = "private" })
 dave:tag("colleagues"); dave:untag("strangers")
-dave:link("works_at", memory.get("company/hooli"))
+dave:link("works_at", memory.get("company/hooli"))   -- a One-cardinality relation replaces in place
 dave:supersede(old_entry, new_entry)
+dave:entries(); dave:history()
 
--- Cardinality-aware
-mem_self:replace_link("operator_of", memory.get("person/phil"))  -- emits LinkRemoved + LinkCreated
-
--- Traversal (auto-traverses same_as)
-dave:outgoing("mentor_of"); dave:incoming("mentor_of"); dave:links()
-dave:history()
+-- Link readers (auto-traversing same_as) — designed, not yet implemented:
+--   dave:outgoing("mentor_of"); dave:incoming("mentor_of"); dave:links()
 ```
 
-`same_as` is auto-traversed on reads: `memory.get`, search, and `outgoing`/`incoming`/`links` surface content and links from the whole class, deduplicated, with per-stub provenance preserved. Writes are not traversed, so `dave@discord:append(...)` writes the Discord stub. A write through a class-spanning handle resolves to the class's primary stub, the right home for a platform-agnostic human-fact; to attribute to a specific platform, name the stub with `memory.get_stub(...)`.
+`same_as` is auto-traversed on reads: `memory.get` and search surface content from the whole class, deduplicated, with per-stub provenance preserved; the link readers (`outgoing`/`incoming`/`links`) are designed to traverse the class the same way but are not yet implemented. Writes are not traversed, so `dave@discord:append(...)` writes the Discord stub. A write through a class-spanning handle resolves to the class's primary stub, the right home for a platform-agnostic human-fact; to attribute to a specific platform, name the stub directly, `memory.get("person/dave@slack")`.
 
 Visibility on append is given in the options table. Omit it for the write-time default (`Public` on your own memory, `PrivateToTeller` on someone else's); `visibility = "public"` → `Public`; `visibility = "attributed"` → `Attributed` (visible like public but carrying a `[via teller]` provenance marker — the middle posture for an ordinary relayed fact, see **Visibility versus disclosure, and three postures**); `visibility = "private"` → `PrivateToTeller`; `visibility = { exclude = { "person/dave", erin } }` → `Exclude(set)`, with members named as handles or as Memory or participant objects.
 
@@ -927,14 +923,11 @@ A server can expose far more than a given deployment wants, both for prompt econ
 
 The filter is applied once to the server's advertised surface, and both the Lua projection and the system-prompt catalogue derive from that same filtered set, so the agent is never shown a tool it can't call, nor handed one it isn't shown; a filtered-out tool simply has no `mcp.<server>.*` function. An `allow` or `deny` entry that matches no advertised tool is a hard startup error, not a silent no-op: a server that renamed or dropped a tool must force the operator to reconfirm the policy rather than let the agent's toolset change invisibly underneath a stale list. The same `allow` / `deny` shape governs resources if resource projection is added; this cut projects tools only.
 
-### Conversation, time, discoverability
+### Context and the calendar
 
 ```lua
-conversation.current()      -- { id, locator, session, participants, started_at }
 context.current()           -- the context/* memory for this conversation
-participants.list(); participants.get("phil")
-now(); calendar.upcoming({ within = "7 days" }); calendar.on("2026-06-03"); calendar.recurring()
-help(); help(memory.search)
+calendar.upcoming({ within = "7 days" }); calendar.on("2026-06-03"); calendar.recurring()
 ```
 
 Errors return structured suggestions (`"trvel" not found; did you mean "travel"?`); the agent learns its environment by tripping over it.
