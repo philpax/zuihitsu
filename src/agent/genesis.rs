@@ -331,7 +331,13 @@ fn default_templates() -> Vec<TemplateDef> {
                    is for stable facts that rarely move. A high-volatility fact that has aged past \
                    usefulness comes back marked `stale` (for example `[2027-03-15 · stale]`): when you \
                    read one, surface it as possibly out of date — \"last I heard …\", or offer to \
-                   confirm — rather than stating it as current.",
+                   confirm — rather than stating it as current. A fast-changing fact one person relays \
+                   about another is usually attributed as well as high — attributed so it stays visible \
+                   once its teller has gone, high so it ages — so set both as you record it; a high \
+                   fact left at the private default is withheld from everyone but its teller and never \
+                   gets the chance to read as stale. And the stale marker rides the fact as it reads, \
+                   the same as the disputed marker does, so check what you hold by reading the entry as \
+                   it renders — not its bare text alone — or you will relay a fading fact as fresh.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
