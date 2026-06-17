@@ -832,11 +832,11 @@ dave:link("works_at", memory.get("company/hooli"))   -- a One-cardinality relati
 dave:supersede(old_entry, new_entry)
 dave:entries(); dave:history()
 
--- Link readers (auto-traversing same_as) — designed, not yet implemented:
---   dave:outgoing("mentor_of"); dave:incoming("mentor_of"); dave:links()
+-- Link readers (auto-traverse same_as); each result renders as "relation → name"
+dave:outgoing("mentor_of"); dave:incoming("mentor_of"); dave:links()
 ```
 
-`same_as` is auto-traversed on reads: `memory.get` and search surface content from the whole class, deduplicated, with per-stub provenance preserved; the link readers (`outgoing`/`incoming`/`links`) are designed to traverse the class the same way but are not yet implemented. Writes are not traversed, so `dave@discord:append(...)` writes the Discord stub. A write through a class-spanning handle resolves to the class's primary stub, the right home for a platform-agnostic human-fact; to attribute to a specific platform, name the stub directly, `memory.get("person/dave@slack")`.
+`same_as` is auto-traversed on reads: `memory.get`, search, and the link readers (`outgoing`/`incoming`/`links`) surface content and links from the whole class, deduplicated, with per-stub provenance preserved. A link reader orients every edge against the queried identity — `outgoing` for an edge the identity is the source of, `incoming` for one it is the target of — and surfaces only relationships pointing *out* of the class, never the `same_as` edges holding it together; each result carries the far memory as an actionable handle alongside the relation, direction, and source. Like the relation-registry reads, they reflect committed state, so a link written in the same block is not yet visible to a read in it. Writes are not traversed, so `dave@discord:append(...)` writes the Discord stub. A write through a class-spanning handle resolves to the class's primary stub, the right home for a platform-agnostic human-fact; to attribute to a specific platform, name the stub directly, `memory.get("person/dave@slack")`.
 
 Visibility on append is given in the options table. Omit it for the write-time default (`Public` on your own memory, `PrivateToTeller` on someone else's); `visibility = "public"` → `Public`; `visibility = "attributed"` → `Attributed` (visible like public but carrying a `[via teller]` provenance marker — the middle posture for an ordinary relayed fact, see **Visibility versus disclosure, and three postures**); `visibility = "private"` → `PrivateToTeller`; `visibility = { exclude = { "person/dave", erin } }` → `Exclude(set)`, with members named as handles or as Memory or participant objects.
 

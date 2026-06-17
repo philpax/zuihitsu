@@ -97,6 +97,31 @@ pub struct EntryRef {
     pub stale: bool,
 }
 
+/// Which way a link runs relative to the memory it was read from. A class-traversing read orients
+/// every edge against the queried identity, so the agent reads `mentor_of →` (this identity mentors)
+/// apart from `mentor_of ←` (this identity is mentored), without reasoning about which stub holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkDirection {
+    /// The queried identity is the edge's source: it points outward, at `other`.
+    Outgoing,
+    /// The queried identity is the edge's target: `other` points at it.
+    Incoming,
+}
+
+/// A link handed back to the agent by a link reader (`mem:outgoing`/`incoming`/`links`): the related
+/// memory, the relation under which they are linked, which way the edge runs relative to the queried
+/// identity, and the link's provenance. The far endpoint's name is resolved at read time so the Lua
+/// layer can render the link self-describingly (`relation → name`) without a second lookup.
+pub struct LinkRef {
+    pub relation: RelationName,
+    /// The memory at the other end of the edge — never a member of the queried `same_as` class, since
+    /// a reader surfaces relationships pointing out of the identity, not the `same_as` plumbing within it.
+    pub other: MemoryId,
+    pub other_name: MemoryName,
+    pub direction: LinkDirection,
+    pub source: LinkSource,
+}
+
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
 /// buffered side effects, the memories touched (the lock set, for compaction's working-set), and the
 /// abort reason if [`MemoryBlock::abort`] was called.
@@ -508,6 +533,85 @@ impl MemoryBlock {
     /// the class into the touched set — and the graph guard is released before it returns.
     pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, MemoryError> {
         Ok(self.engine.graph.lock().class_members(id)?)
+    }
+
+    /// Links out of this memory's whole `same_as` class under `relation`, in the relation's canonical
+    /// forward direction — `mem:outgoing("mentor_of")` is who the identity mentors. A traversing read
+    /// (locks the class). The relation may be named by either label, but the *method* picks the
+    /// direction, not the label: use [`MemoryBlock::incoming`] for the reverse. An unregistered relation
+    /// is a teachable error. A symmetric relation has no direction, so `outgoing` and `incoming` return
+    /// the same neighbours under it.
+    pub fn outgoing(&mut self, id: MemoryId, relation: &str) -> Result<Vec<LinkRef>, MemoryError> {
+        self.directed_links(id, relation, LinkDirection::Outgoing)
+    }
+
+    /// Links into this memory's whole `same_as` class under `relation` — `mem:incoming("mentor_of")`
+    /// is who mentors the identity. The reverse of [`MemoryBlock::outgoing`]; see it for the details.
+    pub fn incoming(&mut self, id: MemoryId, relation: &str) -> Result<Vec<LinkRef>, MemoryError> {
+        self.directed_links(id, relation, LinkDirection::Incoming)
+    }
+
+    /// Every link out of this memory's whole `same_as` class, in every relation and both directions —
+    /// `mem:links()`, the relationship overview. A traversing read (locks the class). Like the
+    /// relation-registry reads, and unlike the content reads, this reflects only committed state: a
+    /// link created or removed in this same block is not yet visible here.
+    pub fn links(&mut self, id: MemoryId) -> Result<Vec<LinkRef>, MemoryError> {
+        self.class_link_refs(id)
+    }
+
+    /// Shared body of [`MemoryBlock::outgoing`] and [`MemoryBlock::incoming`]: resolve the relation to
+    /// its canonical label, then keep the class's links under it that run the wanted way (either way for
+    /// a symmetric relation).
+    fn directed_links(
+        &mut self,
+        id: MemoryId,
+        relation: &str,
+        want: LinkDirection,
+    ) -> Result<Vec<LinkRef>, MemoryError> {
+        let view = self
+            .relation(relation)?
+            .ok_or_else(|| MemoryError::UnknownRelation(RelationName::new(relation)))?;
+        Ok(self
+            .class_link_refs(id)?
+            .into_iter()
+            .filter(|link| link.relation == view.name && (view.symmetric || link.direction == want))
+            .collect())
+    }
+
+    /// Every link from `id`'s `same_as` class to a memory *outside* the class, oriented against the
+    /// class and carrying the far memory's name for legible rendering. The shared engine of the three
+    /// link readers. Edges internal to the class — the `same_as` plumbing and any other within-identity
+    /// edge — are dropped: a relationship the agent reasons about points out of the identity. Committed
+    /// state only (see [`MemoryBlock::links`]). A traversing read, so it touches the whole class.
+    fn class_link_refs(&mut self, id: MemoryId) -> Result<Vec<LinkRef>, MemoryError> {
+        let (members, refs) = {
+            let graph = self.engine.graph.lock();
+            let members = graph.class_members(id)?;
+            let class: BTreeSet<MemoryId> = members.iter().copied().collect();
+            let mut refs = Vec::new();
+            for edge in graph.class_links(id)? {
+                let (direction, other_id) =
+                    match (class.contains(&edge.from), class.contains(&edge.to)) {
+                        (true, false) => (LinkDirection::Outgoing, edge.to),
+                        (false, true) => (LinkDirection::Incoming, edge.from),
+                        // Within-class (both ends in the identity) or unrelated: not a relationship.
+                        _ => continue,
+                    };
+                let Some(other) = graph.memory_by_id(other_id)? else {
+                    continue;
+                };
+                refs.push(LinkRef {
+                    relation: edge.relation,
+                    other: other.id,
+                    other_name: other.name,
+                    direction,
+                    source: edge.source,
+                });
+            }
+            (members, refs)
+        };
+        self.touch_class(id, members);
+        Ok(refs)
     }
 
     /// The current time off the engine clock — the anchor the `calendar` date constructors build

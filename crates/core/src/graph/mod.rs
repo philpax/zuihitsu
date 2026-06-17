@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
 use crate::{
-    event::{Cardinality, Teller, Visibility, Volatility},
+    event::{Cardinality, LinkSource, Teller, Visibility, Volatility},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     store::{Store, StoreError},
     time::{TemporalRef, Timestamp},
@@ -82,6 +82,17 @@ pub struct LinkView {
     pub from: MemoryId,
     pub to: MemoryId,
     pub relation: RelationName,
+}
+
+/// A stored edge touching a `same_as` class, carrying its `source` so a class-traversing link read
+/// keeps the per-edge provenance the agent-facing readers surface (spec §Lua API → link readers).
+/// Distinct from [`LinkView`] so the console wire contract over the latter stays untouched.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClassLinkView {
+    pub from: MemoryId,
+    pub to: MemoryId,
+    pub relation: RelationName,
+    pub source: LinkSource,
 }
 
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via

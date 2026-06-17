@@ -922,6 +922,153 @@ async fn a_traversing_read_locks_the_whole_class() {
     assert!(matches!(outcome, BlockOutcome::Committed { .. }));
 }
 
+#[tokio::test]
+async fn link_readers_traverse_the_merged_identity() {
+    // The link readers (spec §Lua API → link readers) auto-traverse the same_as class: an edge on one
+    // stub surfaces when read through any member, oriented against the identity, with the same_as
+    // plumbing itself excluded.
+    let h = Harness::new();
+    // The Harness skips genesis, so register the relations the test links under.
+    h.engine
+        .store
+        .lock()
+        .append(
+            h.clock.now(),
+            vec![
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::new("same_as"),
+                    inverse: RelationName::new("same_as"),
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: true,
+                    reflexive: false,
+                },
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::new("mentor_of"),
+                    inverse: RelationName::new("mentored_by"),
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: false,
+                    reflexive: false,
+                },
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::new("works_at"),
+                    inverse: RelationName::new("employs"),
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::One,
+                    symmetric: false,
+                    reflexive: false,
+                },
+            ],
+        )
+        .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+
+    // A two-stub Dave identity, plus the people and the company it links to.
+    for name in [
+        "person/dave",
+        "person/dave@discord",
+        "person/erin",
+        "person/frank",
+        "company/hooli",
+    ] {
+        h.run(&format!("memory.create({name:?})")).await;
+    }
+
+    // Merge the two Dave stubs — operator-only.
+    let operator = BlockContext {
+        teller: Teller::Agent,
+        authority: Authority::Operator,
+        turn_id: TurnId::generate(),
+        block_timeout: TEST_BLOCK_TIMEOUT,
+        max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        present_set: Vec::new(),
+        dry_run: false,
+    };
+    h.session
+        .execute(
+            &h.engine,
+            &operator,
+            r#"memory.get("person/dave"):link("same_as", memory.get("person/dave@discord"))"#,
+        )
+        .await
+        .unwrap();
+
+    // Links spread across the two stubs: one mentors Erin, Frank mentors the other, and the other
+    // works at Hooli — so a class-blind read of the primary stub would miss two of the three.
+    h.run(r#"memory.get("person/dave"):link("mentor_of", memory.get("person/erin"))"#)
+        .await;
+    h.run(r#"memory.get("person/frank"):link("mentor_of", memory.get("person/dave@discord"))"#)
+        .await;
+    h.run(r#"memory.get("person/dave@discord"):link("works_at", memory.get("company/hooli"))"#)
+        .await;
+
+    // outgoing: who Dave mentors — Erin, reached through the merged identity though queried via the
+    // primary stub. A single edge, so the list renders as the one readable line.
+    let BlockOutcome::Committed { result } = h
+        .run(r#"return memory.get("person/dave"):outgoing("mentor_of")"#)
+        .await
+    else {
+        panic!("expected commit");
+    };
+    assert_eq!(result, "mentor_of → person/erin");
+
+    // incoming: who mentors Dave — Frank, whose edge lands on the *other* stub, surfaced by traversal.
+    let BlockOutcome::Committed { result } = h
+        .run(r#"return memory.get("person/dave"):incoming("mentor_of")"#)
+        .await
+    else {
+        panic!("expected commit");
+    };
+    assert_eq!(result, "mentor_of ← person/frank");
+
+    // links(): the whole relationship set across the identity — both mentor_of edges and works_at —
+    // with the same_as edge holding the identity together excluded as internal plumbing.
+    let BlockOutcome::Committed { result } =
+        h.run(r#"return memory.get("person/dave"):links()"#).await
+    else {
+        panic!("expected commit");
+    };
+    assert!(result.contains("mentor_of → person/erin"), "{result}");
+    assert!(result.contains("mentor_of ← person/frank"), "{result}");
+    assert!(result.contains("works_at → company/hooli"), "{result}");
+    assert!(
+        !result.contains("same_as"),
+        "the same_as plumbing must not surface as a relationship: {result}"
+    );
+
+    // A script branches on the structured fields, not only the rendered line.
+    let BlockOutcome::Committed { result } = h
+        .run(
+            r#"
+        local out = memory.get("person/dave"):outgoing("mentor_of")
+        return out[1].name .. " / " .. out[1].direction .. " / " .. out[1].source
+        "#,
+        )
+        .await
+    else {
+        panic!("expected commit");
+    };
+    assert_eq!(result, "person/erin / outgoing / agent");
+}
+
+#[tokio::test]
+async fn outgoing_under_an_unregistered_relation_is_a_teachable_error() {
+    let h = Harness::new();
+    h.run(r#"memory.create("person/dave")"#).await;
+    let outcome = h
+        .run(r#"return memory.get("person/dave"):outgoing("bogus_rel")"#)
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(message.contains("bogus_rel"), "{message}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_lock_starved_block_gives_up_after_its_attempts() {
     // Abort-and-retry (spec §Concurrency): a block that keeps timing out on a lock-wait, having made no

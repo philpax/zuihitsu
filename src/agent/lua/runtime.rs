@@ -12,11 +12,11 @@ use ulid::Ulid;
 
 use crate::{
     engine::{Engine, MemoryLocks},
-    event::{TerminalCause, Visibility},
+    event::{LinkSource, TerminalCause, Visibility},
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
-        memory_block::{EntryRef, MemoryBlock, MemoryError},
+        memory_block::{EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryError},
         search::{SearchQuery, search},
     },
     settings::Settings,
@@ -174,6 +174,62 @@ pub(super) fn make_handle_list(
         list.set(index + 1, make_handle(lua, id, metatable)?)?;
     }
     Ok(Value::Table(list))
+}
+
+/// Build a link result `{ relation, memory, name, direction, source }` backed by the link metatable,
+/// so a link reader's list prints readably (`relation → name`) while each result keeps the far
+/// memory as an actionable handle (`link.memory:append(...)`) and its provenance for the agent to weigh.
+pub(super) fn make_link_handle(
+    lua: &Lua,
+    link: &LinkRef,
+    memory_metatable: &Table,
+    link_metatable: &Table,
+) -> mlua::Result<Table> {
+    let table = lua.create_table()?;
+    table.set("relation", link.relation.as_str())?;
+    table.set("memory", make_handle(lua, link.other, memory_metatable)?)?;
+    table.set("name", link.other_name.as_str())?;
+    table.set("direction", link_direction_label(link.direction))?;
+    table.set("source", link_source_label(link.source))?;
+    table.set_metatable(Some(link_metatable.clone()))?;
+    Ok(table)
+}
+
+/// Wrap a list of link refs as a Lua sequence of link results, in order — the
+/// `mem:outgoing()`/`incoming()`/`links()` return shape.
+pub(super) fn make_link_handle_list(
+    lua: &Lua,
+    links: Vec<LinkRef>,
+    memory_metatable: &Table,
+    link_metatable: &Table,
+) -> mlua::Result<Value> {
+    let list = lua.create_table()?;
+    for (index, link) in links.into_iter().enumerate() {
+        list.set(
+            index + 1,
+            make_link_handle(lua, &link, memory_metatable, link_metatable)?,
+        )?;
+    }
+    Ok(Value::Table(list))
+}
+
+/// Which way a link runs relative to the memory it was read from, as the agent-facing string a script
+/// branches on — `outgoing` when the identity is the edge's source, `incoming` when its target.
+fn link_direction_label(direction: LinkDirection) -> &'static str {
+    match direction {
+        LinkDirection::Outgoing => "outgoing",
+        LinkDirection::Incoming => "incoming",
+    }
+}
+
+/// A link's provenance, lowercased to match the entry teller register: `agent` for the agent's own
+/// link, `operator` for one asserted from the console, `adjudicated` for a merge-pass `same_as`.
+fn link_source_label(source: LinkSource) -> &'static str {
+    match source {
+        LinkSource::Agent => "agent",
+        LinkSource::Operator => "operator",
+        LinkSource::Adjudicated => "adjudicated",
+    }
 }
 
 pub(super) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {

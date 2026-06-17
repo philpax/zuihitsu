@@ -14,8 +14,8 @@ use super::{
     Session,
     runtime::{
         BlockApi, SearchOpts, entry_handle_id, handle_id, make_date, make_entry_handle,
-        make_entry_handle_list, make_handle, make_handle_list, make_relation_result, render,
-        route_error, run_memory_search, value_text,
+        make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
+        make_relation_result, render, route_error, run_memory_search, value_text,
     },
 };
 
@@ -34,7 +34,8 @@ impl Session {
         metatable: &Table,
         entry_metatable: &Table,
     ) -> mlua::Result<()> {
-        self.install_handle_methods(api, methods, entry_metatable)?;
+        let link_metatable = self.link_result_metatable()?;
+        self.install_handle_methods(api, methods, metatable, entry_metatable, &link_metatable)?;
         // A memory handle reads `handle.name` and `handle.description` lazily from its id, so a handle
         // minted from only an id — a `calendar.*` or relation result — still reads its name, not just
         // one the agent already named via `memory.get`. Any other key dispatches to the methods table
@@ -97,7 +98,9 @@ impl Session {
         &self,
         api: &BlockApi,
         methods: &Table,
+        memory_metatable: &Table,
         entry_metatable: &Table,
+        link_metatable: &Table,
     ) -> mlua::Result<()> {
         // mem:append(text[, opts]) — `opts` is the typed override struct, deserialized from the table.
         // Locks the target memory before writing it. Returns the new entry as an addressable handle.
@@ -240,6 +243,66 @@ impl Session {
                             .lock()
                             .unlink(from, to, RelationName::new(relation))
                             .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
+
+        // mem:outgoing(relation) / mem:incoming(relation) — the memory's links under `relation` out to
+        // other memories, across its merged identity, in the canonical forward (outgoing) or reverse
+        // (incoming) direction. Each result keeps the far memory as an actionable handle and renders as
+        // `relation → name`. A traversing read, so it locks the whole `same_as` class.
+        for (name, incoming) in [("outgoing", false), ("incoming", true)] {
+            methods.set(
+                name,
+                self.lua.create_async_function({
+                    let api = api.clone();
+                    let memory_metatable = memory_metatable.clone();
+                    let link_metatable = link_metatable.clone();
+                    move |lua, (this, relation): (Table, String)| {
+                        let api = api.clone();
+                        let memory_metatable = memory_metatable.clone();
+                        let link_metatable = link_metatable.clone();
+                        async move {
+                            let id = handle_id(&this)?;
+                            api.lock_class(id).await?;
+                            let links = {
+                                let mut block = api.block.lock();
+                                let result = if incoming {
+                                    block.incoming(id, &relation)
+                                } else {
+                                    block.outgoing(id, &relation)
+                                };
+                                result.map_err(|error| route_error(error, &mut api.infra.lock()))?
+                            };
+                            make_link_handle_list(&lua, links, &memory_metatable, &link_metatable)
+                        }
+                    }
+                })?,
+            )?;
+        }
+
+        // mem:links() — every link out of the merged identity, in every relation and both directions:
+        // the relationship overview. A traversing read, so it locks the whole `same_as` class.
+        methods.set(
+            "links",
+            self.lua.create_async_function({
+                let api = api.clone();
+                let memory_metatable = memory_metatable.clone();
+                let link_metatable = link_metatable.clone();
+                move |lua, this: Table| {
+                    let api = api.clone();
+                    let memory_metatable = memory_metatable.clone();
+                    let link_metatable = link_metatable.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock_class(id).await?;
+                        let links = api
+                            .block
+                            .lock()
+                            .links(id)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        make_link_handle_list(&lua, links, &memory_metatable, &link_metatable)
                     }
                 }
             })?,
@@ -483,6 +546,29 @@ impl Session {
                 }
                 line.push_str(&format!(" ({uses})"));
                 Ok(line)
+            })?,
+        )?;
+        Ok(metatable)
+    }
+
+    /// The metatable backing the link results `mem:outgoing`/`incoming`/`links` return: `__tostring`
+    /// renders one as `relation → name` (outgoing) or `relation ← name` (incoming), so a reader's list
+    /// reads back as readable relationships while each result keeps its `relation`, `memory` (the far
+    /// memory as a handle), `name`, `direction`, and `source` fields for the agent to inspect and act on.
+    fn link_result_metatable(&self) -> mlua::Result<Table> {
+        let metatable = self.lua.create_table()?;
+        metatable.set(
+            "__tostring",
+            self.lua.create_function(|_, this: Table| {
+                let relation: String = this.get("relation")?;
+                let name: String = this.get("name")?;
+                let direction: String = this.get("direction")?;
+                let arrow = if direction == "incoming" {
+                    "←"
+                } else {
+                    "→"
+                };
+                Ok(format!("{relation} {arrow} {name}"))
             })?,
         )?;
         Ok(metatable)

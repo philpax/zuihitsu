@@ -161,6 +161,36 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .required("relation", AT::String, "the relation")
         .required("other", AT::Handle, "the memory the link points to");
 
+    let outgoing = AE::new("<memory>:outgoing")
+        .description(
+            "The memories this one links to under a relation, across its whole merged identity, in the \
+             relation's forward direction — <memory>:outgoing(\"mentor_of\") is who it mentors. Each \
+             result is a table { relation, memory, name, direction, source } that prints as \
+             \"relation → name\"; reach the linked memory through result.memory to read or act on it. \
+             Use <memory>:incoming for the reverse direction (who mentors it). For a symmetric \
+             relation, outgoing and incoming return the same neighbours.",
+        )
+        .required("relation", AT::String, "the relation from the registry, e.g. \"mentor_of\"")
+        .returns(AT::Object(Vec::new()).list());
+
+    let incoming = AE::new("<memory>:incoming")
+        .description(
+            "The memories that link to this one under a relation, across its whole merged identity — \
+             <memory>:incoming(\"mentor_of\") is who mentors it. The reverse of <memory>:outgoing; the \
+             result shape is the same.",
+        )
+        .required("relation", AT::String, "the relation from the registry, e.g. \"mentor_of\"")
+        .returns(AT::Object(Vec::new()).list());
+
+    let links = AE::new("<memory>:links")
+        .description(
+            "Every link from this memory's merged identity out to other memories, in every relation \
+             and both directions — the relationship overview. Each result is a table { relation, \
+             memory, name, direction, source } that prints as \"relation → name\" (or \"← name\" for \
+             an incoming link); reach a linked memory through result.memory.",
+        )
+        .returns(AT::Object(Vec::new()).list());
+
     let propose_merge = AE::new("<memory>:propose_merge")
         .description(
             "Record that this person/ stub and another are the same human across platforms, for \
@@ -359,6 +389,9 @@ pub fn api_reference() -> Vec<ApiEntry> {
         supersede,
         link,
         unlink,
+        outgoing,
+        incoming,
+        links,
         propose_merge,
         tag,
         untag,

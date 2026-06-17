@@ -6,12 +6,12 @@ use std::collections::BTreeSet;
 use rusqlite::{OptionalExtension, params};
 
 use super::{
-    EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView,
+    ClassLinkView, EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView,
     TagVocabularyEntry, backend, parse_ulid,
 };
 use crate::{
     db::{query_map_into, query_opt_into},
-    event::{Cardinality, Teller, Volatility},
+    event::{Cardinality, LinkSource, Teller, Volatility},
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -607,6 +607,41 @@ impl Graph {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
                 relation: RelationName::new(relation),
+            })
+        })
+    }
+
+    /// Every canonical edge touching `id`'s whole `same_as` class, with both endpoints live and the
+    /// edge's `source` carried for provenance — the class-traversing read behind the agent-facing
+    /// `mem:outgoing`/`incoming`/`links` link readers (spec §Lua API → link readers). Includes edges
+    /// internal to the class (both endpoints class members); the block layer drops those, since a
+    /// relationship the agent cares about points *out* of the identity, not the `same_as` plumbing
+    /// holding it together.
+    pub fn class_links(&self, id: MemoryId) -> Result<Vec<ClassLinkView>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT l.from_id, l.to_id, l.relation, l.source FROM links l
+             JOIN memories mf ON mf.id = l.from_id
+             JOIN memories mt ON mt.id = l.to_id
+             WHERE mf.deleted = 0 AND mt.deleted = 0
+               AND (l.from_id IN (
+                       SELECT id FROM memories
+                       WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+                         AND deleted = 0)
+                 OR l.to_id IN (
+                       SELECT id FROM memories
+                       WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+                         AND deleted = 0))
+             ORDER BY l.relation, l.to_id",
+        )?;
+        query_map_into(stmt, params![id.0.to_string()], |row| {
+            let (from, to, relation, source): (String, String, String, String) = row.try_into()?;
+            Ok(ClassLinkView {
+                from: MemoryId(parse_ulid(&from)?),
+                to: MemoryId(parse_ulid(&to)?),
+                relation: RelationName::new(relation),
+                source: LinkSource::parse(&source).ok_or_else(|| {
+                    GraphError::Malformed(format!("unknown link source {source:?}"))
+                })?,
             })
         })
     }
