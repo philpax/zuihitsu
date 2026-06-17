@@ -372,8 +372,10 @@ pub enum EventPayload {
     /// Records that the turn-end regeneration found conflicting statements among a memory's entries and
     /// arbitrated between them (spec §Write path → coalesce, then regenerate once). `competing_entries`
     /// is the set of conflicting entries the pass saw; `resolution` is which it credited and the
-    /// reconciling note it wrote. A log-only audit record — it makes "why does the agent believe X"
-    /// replayable rather than buried in a description string, and is not projected into the graph.
+    /// reconciling note it wrote. The reconciling `resolution` stays a log-only audit record — it makes
+    /// "why does the agent believe X" replayable rather than buried in a description string — but an
+    /// *unresolved* arbitration (crediting neither side) projects its competing entries into the graph,
+    /// so a later read renders them `disputed` (see [`crate::graph`] apply, spec §Write path → arbitration).
     BeliefArbitrated {
         memory: MemoryId,
         competing_entries: Vec<EntryId>,
