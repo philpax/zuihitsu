@@ -1578,6 +1578,47 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
     );
 }
 
+/// A fact on a memory the agent marked `high` volatility reads as `[stale]` once it ages past the
+/// staleness horizon, so the agent hedges rather than asserting it as current; a default-volatility
+/// memory's fact never goes stale. Staleness is age-based and independent of who is present.
+#[tokio::test]
+async fn a_high_volatility_fact_reads_stale_after_aging() {
+    let h = Harness::new();
+    h.run(
+        r#"
+        local d = memory.create("person/dave")
+        -- Classify volatility inline on the append (the ergonomic path).
+        d:append("leads the Atlas project", { visibility = "public", volatility = "high" })
+        local p = memory.create("project/atlas")
+        p:append("the Atlas project ships in Q3", { visibility = "public" })
+        "#,
+    )
+    .await;
+    // Age past the 30-day staleness horizon.
+    h.clock.advance_millis(40 * 86_400_000);
+
+    let read = r#"
+        local e = memory.get("MEM"):entries()[1]
+        return tostring(e.stale) .. "|" .. tostring(e)
+    "#;
+    let BlockOutcome::Committed { result } = h.run(&read.replace("MEM", "person/dave")).await
+    else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.starts_with("true|") && result.contains("stale"),
+        "the aged high-volatility fact should read stale: {result}"
+    );
+    let BlockOutcome::Committed { result } = h.run(&read.replace("MEM", "project/atlas")).await
+    else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.starts_with("false|"),
+        "a default-volatility fact never goes stale: {result}"
+    );
+}
+
 /// An `Attributed` fact — an ordinary thing a colleague relayed — survives the teller's absence: a
 /// direct read by a present outsider sees it in full (unlike a confidence, which is withheld), so the
 /// agent can still answer "what's Dave's role?" months later in another room. It reads as attributed,

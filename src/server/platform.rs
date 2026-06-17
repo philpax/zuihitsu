@@ -202,14 +202,15 @@ impl Platform<'_> {
         if !present_set.contains(&joiner) {
             present_set.push(joiner);
         }
+        let now = self.server.engine.clock.now();
         let join_brief = brief::compose_participant(
             &self.server.engine.graph.lock(),
             joiner,
             &present_set,
             &Settings::from_store(self.server.engine.store.lock().as_ref())?.brief,
+            now,
         )?;
 
-        let now = self.server.engine.clock.now();
         let turn_id = TurnId::generate();
         self.server.engine.store.lock().append(
             now,

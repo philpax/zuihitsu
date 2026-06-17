@@ -319,7 +319,19 @@ fn default_templates() -> Vec<TemplateDef> {
                    accident. When you record a note about a person as your own observation — \
                    synthesizing, or flushing a session before it scrolls away — it has no protective \
                    default, so you must classify it yourself by the same rule. Marking a confidence \
-                   public or attributed is what lets it leak.",
+                   public or attributed is what lets it leak.\n\n\
+                   Facts also age at different rates, and a read tells you when one has gone stale. \
+                   Some memories hold fast-changing facts — where someone is right now, what they are \
+                   working on or leading, their current role or team, a temporary arrangement, a mood \
+                   — while others are durable, like a name or a hometown. Whenever you \
+                   record a fact that will not stay true, mark its memory fast-changing as you record \
+                   it: pass volatility = \"high\" to append, or call <memory>:set_volatility(\"high\"). \
+                   Do this as part of recording such a fact, not as an afterthought — it is how the \
+                   fact can later be recognized as out of date. The default is \"medium\", and \"low\" \
+                   is for stable facts that rarely move. A high-volatility fact that has aged past \
+                   usefulness comes back marked `stale` (for example `[2027-03-15 · stale]`): when you \
+                   read one, surface it as possibly out of date — \"last I heard …\", or offer to \
+                   confirm — rather than stating it as current.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,

@@ -13,9 +13,10 @@
 //! surviving private entry attaches the inline teller-private marker. The real sqlite-vec backend
 //! follows.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::{
+    decay,
     event::{Visibility, Volatility},
     graph::{Graph, GraphError, MemoryView},
     ids::MemoryId,
@@ -120,13 +121,25 @@ pub fn search(
                     continue;
                 }
                 raise(&mut cosine, memory.id, score);
-                if entry.visibility != Visibility::Public && !markers.contains_key(&memory.id) {
-                    let teller = graph.teller_display(&entry.told_by)?;
-                    let room = graph.marker_room(entry.told_in)?;
-                    if let Some(marker) =
-                        visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
-                    {
-                        markers.insert(memory.id, marker);
+                // The first surviving hit for a memory sets its marker (visibility register and/or
+                // staleness), via the vacant entry so the work and its `?` compose cleanly.
+                if let Entry::Vacant(slot) = markers.entry(memory.id) {
+                    let mut parts = Vec::new();
+                    if entry.visibility != Visibility::Public {
+                        let teller = graph.teller_display(&entry.told_by)?;
+                        let room = graph.marker_room(entry.told_in)?;
+                        if let Some(marker) =
+                            visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+                        {
+                            parts.push(marker);
+                        }
+                    }
+                    let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
+                    if decay::is_stale(memory.volatility, effective, now) {
+                        parts.push(decay::STALE_MARKER.to_owned());
+                    }
+                    if !parts.is_empty() {
+                        slot.insert(parts.join(" "));
                     }
                 }
             }

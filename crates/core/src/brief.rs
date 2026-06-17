@@ -27,7 +27,10 @@ use crate::{
     vocabulary::TagName,
 };
 
-use crate::visibility::{self, ClassOf, VisibilityDecision};
+use crate::{
+    decay,
+    visibility::{self, ClassOf, VisibilityDecision},
+};
 
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]
@@ -101,6 +104,7 @@ pub fn compose(
             present_set,
             &class_of,
             recent,
+            now,
         )?;
         out.push('\n');
     }
@@ -133,7 +137,15 @@ pub fn compose(
             };
             if index < cap {
                 let _ = writeln!(out, "## {}", memory.name.as_str());
-                render_memory_body(&mut out, graph, &memory, present_set, &class_of, recent)?;
+                render_memory_body(
+                    &mut out,
+                    graph,
+                    &memory,
+                    present_set,
+                    &class_of,
+                    recent,
+                    now,
+                )?;
             } else {
                 // The tail collapses to name-only — still present for the predicate, just not
                 // given a full block (spec §Present-set cap).
@@ -160,7 +172,15 @@ pub fn compose(
                 continue;
             };
             let mut body = String::new();
-            render_memory_body(&mut body, graph, &memory, present_set, &class_of, recent)?;
+            render_memory_body(
+                &mut body,
+                graph,
+                &memory,
+                present_set,
+                &class_of,
+                recent,
+                now,
+            )?;
             if body.trim().is_empty() {
                 continue;
             }
@@ -352,13 +372,22 @@ pub fn compose_participant(
     participant: MemoryId,
     present_set: &[MemoryId],
     settings: &BriefSettings,
+    now: Timestamp,
 ) -> Result<String, BriefError> {
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
     let recent = settings.recent_facts.max(0) as usize;
     let mut out = String::new();
     if let Some(memory) = graph.memory_by_id(participant)? {
         let _ = writeln!(out, "## {}", memory.name.as_str());
-        render_memory_body(&mut out, graph, &memory, present_set, &class_of, recent)?;
+        render_memory_body(
+            &mut out,
+            graph,
+            &memory,
+            present_set,
+            &class_of,
+            recent,
+            now,
+        )?;
     }
     Ok(out)
 }
@@ -372,12 +401,13 @@ fn render_memory_body(
     present_set: &[MemoryId],
     class_of: &ClassOf,
     recent: usize,
+    now: Timestamp,
 ) -> Result<(), BriefError> {
     if !memory.description.is_empty() {
         let _ = writeln!(out, "<summary>{}</summary>", memory.description);
     }
 
-    let facts = visible_recent_facts(graph, memory, present_set, class_of, recent)?;
+    let facts = visible_recent_facts(graph, memory, present_set, class_of, recent, now)?;
     if !facts.is_empty() {
         out.push_str("<recent_facts>\n");
         for fact in &facts {
@@ -407,6 +437,7 @@ fn visible_recent_facts(
     present_set: &[MemoryId],
     class_of: &ClassOf,
     recent: usize,
+    now: Timestamp,
 ) -> Result<Vec<String>, BriefError> {
     let mut facts = Vec::new();
     for entry in graph.class_entries(memory.id)? {
@@ -423,6 +454,11 @@ fn visible_recent_facts(
                 line.push(' ');
                 line.push_str(&marker);
             }
+        }
+        let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
+        if decay::is_stale(memory.volatility, effective, now) {
+            line.push(' ');
+            line.push_str(decay::STALE_MARKER);
         }
         facts.push(line);
     }
@@ -682,12 +718,25 @@ mod tests {
         let settings = Settings::default().brief;
 
         // Before Phil joins (only Erin present): the aside is visible.
-        let before = brief::compose_participant(&graph, phil, &[erin], &settings).unwrap();
+        let before = brief::compose_participant(
+            &graph,
+            phil,
+            &[erin],
+            &settings,
+            Timestamp::from_millis(2_000),
+        )
+        .unwrap();
         assert!(before.contains("is being managed out"));
 
         // Phil's join-brief, built against {Erin, Phil}: the subject-guard suppresses it.
-        let join_brief =
-            brief::compose_participant(&graph, phil, &[erin, phil], &settings).unwrap();
+        let join_brief = brief::compose_participant(
+            &graph,
+            phil,
+            &[erin, phil],
+            &settings,
+            Timestamp::from_millis(2_000),
+        )
+        .unwrap();
         assert!(!join_brief.contains("is being managed out"));
     }
 

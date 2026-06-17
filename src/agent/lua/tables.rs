@@ -303,6 +303,25 @@ impl Session {
                 }
             })?,
         )?;
+        // `mem:set_volatility("high"|"medium"|"low")` — how fast this memory's facts age (spec §Time →
+        // decay). The level is parsed in the block so an unknown level is a teachable error.
+        methods.set(
+            "set_volatility",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (this, level): (Table, String)| {
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock(id).await;
+                        api.block
+                            .lock()
+                            .set_volatility(id, &level)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
 
         Ok(())
     }
@@ -332,6 +351,9 @@ impl Session {
                 }
                 if this.get::<Option<bool>>("disputed")?.unwrap_or(false) {
                     segments.push("disputed".to_owned());
+                }
+                if this.get::<Option<bool>>("stale")?.unwrap_or(false) {
+                    segments.push("stale".to_owned());
                 }
                 if let (Some(visibility), Some(teller)) = (
                     this.get::<Option<String>>("visibility")?,

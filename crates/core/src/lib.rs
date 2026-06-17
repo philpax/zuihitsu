@@ -11,6 +11,7 @@
 
 pub mod brief;
 pub mod db;
+pub mod decay;
 pub mod event;
 pub mod graph;
 pub mod ids;

@@ -205,6 +205,9 @@ pub(super) fn make_entry_handle(
     // When set, `text` is already the withheld stub (the content never leaves the block); the flag
     // lets a script branch and lets the metatable render it as a withheld confidence, not bare text.
     handle.set("withheld", entry.withheld)?;
+    // True when the fact has aged past usefulness on a high-volatility memory; the metatable renders a
+    // `stale` segment so the agent hedges rather than asserting it as current.
+    handle.set("stale", entry.stale)?;
     if let Some(occurred_at) = &entry.occurred_at {
         handle.set("occurred_at", lua.to_value(occurred_at)?)?;
     }

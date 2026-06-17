@@ -14,8 +14,9 @@ use std::{collections::BTreeSet, sync::Arc};
 use serde::Deserialize;
 
 use crate::{
+    decay,
     engine::Engine,
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
     graph::{EntryView, Graph, GraphError, RelationView, TagVocabularyEntry},
     ids::{ConversationId, EntryId, MemoryId, MemoryName},
     time::{self, TemporalRef, Timestamp},
@@ -89,6 +90,11 @@ pub struct EntryRef {
     /// by whom and when, without being handed content it must not relay to who is present. Only ever
     /// set on a direct read with an audience present; a solo read sees everything.
     pub withheld: bool,
+    /// Whether the entry has aged past usefulness: its memory is `High` volatility and the fact is
+    /// older than the staleness horizon (spec §Recency and volatility). A read marks it `[stale]` so the agent
+    /// surfaces it as possibly out of date rather than asserting it as current. Always `false` for the
+    /// default `Medium` and durable `Low` memories, so the marker is opt-in.
+    pub stale: bool,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -131,6 +137,8 @@ pub enum MemoryError {
     /// so it must classify the entry rather than fall silently to public (which is how a re-recorded
     /// confidence leaks).
     VisibilityRequired,
+    /// A `set_volatility` named a level that is not `low`, `medium`, or `high`.
+    UnknownVolatility(String),
     /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
     /// or a non-`YYYY-MM-DD` date.
     BadCalendarArg(String),
@@ -187,6 +195,10 @@ impl std::fmt::Display for MemoryError {
                  {{ visibility = \"private\" }}; an agent-authored note about a person has no safe \
                  default"
             ),
+            MemoryError::UnknownVolatility(level) => write!(
+                f,
+                "unknown volatility {level:?}; use \"low\", \"medium\", or \"high\""
+            ),
             MemoryError::BadCalendarArg(arg) => write!(
                 f,
                 "could not read the calendar argument {arg:?}; use a duration like \"7 days\" or a \
@@ -227,17 +239,40 @@ pub enum VisibilityChoice {
     Private,
 }
 
+/// The forced volatility a `volatility = "low" | "medium" | "high"` opt selects — how fast the
+/// memory's facts age (spec §Recency and volatility). Lets an append classify the memory inline,
+/// rather than a separate `set_volatility` call.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VolatilityChoice {
+    Low,
+    Medium,
+    High,
+}
+
+impl VolatilityChoice {
+    fn into_volatility(self) -> Volatility {
+        match self {
+            VolatilityChoice::Low => Volatility::Low,
+            VolatilityChoice::Medium => Volatility::Medium,
+            VolatilityChoice::High => Volatility::High,
+        }
+    }
+}
+
 /// The overrides an append accepts: `by_agent` records it as the agent's own observation rather than
 /// the speaker's; `visibility` forces the visibility instead of the write-time default; `occurred_at`
-/// records the real-world time the entry is *about*, distinct from when it is recorded (spec §Time).
-/// Deserialized straight from the Lua `opts` table — `occurred_at` is a tagged table (see
-/// [`TemporalRef`]).
+/// records the real-world time the entry is *about*, distinct from when it is recorded (spec §Time);
+/// `volatility` classifies how fast the memory's facts age, set inline rather than via a separate
+/// `set_volatility` call. Deserialized straight from the Lua `opts` table — `occurred_at` is a tagged
+/// table (see [`TemporalRef`]).
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct AppendOptions {
     pub by_agent: bool,
     pub visibility: Option<VisibilityChoice>,
     pub occurred_at: Option<TemporalRef>,
+    pub volatility: Option<VolatilityChoice>,
 }
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities
@@ -375,7 +410,17 @@ impl MemoryBlock {
             &told_by,
             opts.visibility,
         )?;
-        Ok(self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at))
+        let entry_id =
+            self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at);
+        // An inline volatility classification: set the memory's volatility alongside the append, so the
+        // agent can mark a fast-changing fact in one call rather than a separate `set_volatility`.
+        if let Some(volatility) = opts.volatility {
+            self.buffer.push(EventPayload::MemoryVolatilitySet {
+                id,
+                volatility: volatility.into_volatility(),
+            });
+        }
+        Ok(entry_id)
     }
 
     /// Supersede `old` with `new` on `id` — the agent corrected or retracted a fact, recording which
@@ -424,13 +469,13 @@ impl MemoryBlock {
                 .into_iter()
                 .filter(|entry| !pending_superseded.contains(&entry.entry_id))
                 .collect();
-            let annotated = self.annotate_withheld(&graph, id, live)?;
+            let annotated = self.annotate(&graph, id, live)?;
             (members, annotated, disputed)
         };
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|(entry, withheld)| self.entry_ref(entry, &disputed, withheld))
+            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
             .collect();
         refs.extend(self.pending_entries(&members, &pending_superseded));
         Ok(refs)
@@ -445,13 +490,13 @@ impl MemoryBlock {
             let graph = self.engine.graph.lock();
             let members = graph.class_members(id)?;
             let disputed = graph.disputed_entries(id)?;
-            let annotated = self.annotate_withheld(&graph, id, graph.class_history(id)?)?;
+            let annotated = self.annotate(&graph, id, graph.class_history(id)?)?;
             (members, annotated, disputed)
         };
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|(entry, withheld)| self.entry_ref(entry, &disputed, withheld))
+            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
             .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
@@ -680,6 +725,24 @@ impl MemoryBlock {
         Ok(())
     }
 
+    /// Set a memory's volatility — how fast its facts go out of date. `high` for fast-changing status
+    /// (a current location, a mood), `low` for durable facts, `medium` the default. Volatility steepens
+    /// the recency decay in search and, for `high`, lets an aged entry read as stale so the agent hedges
+    /// rather than asserting it as current (spec §Recency and volatility).
+    pub fn set_volatility(&mut self, id: MemoryId, level: &str) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        let volatility = match level {
+            "low" => Volatility::Low,
+            "medium" => Volatility::Medium,
+            "high" => Volatility::High,
+            _ => return Err(MemoryError::UnknownVolatility(level.to_owned())),
+        };
+        self.touched.insert(id);
+        self.buffer
+            .push(EventPayload::MemoryVolatilitySet { id, volatility });
+        Ok(())
+    }
+
     /// The whole tag vocabulary (committed), for `tags.list`. A plain read of the projection; this
     /// block's pending tag creations are not yet reflected, like every other committed read.
     pub fn all_tags(&self) -> Result<Vec<TagVocabularyEntry>, MemoryError> {
@@ -877,6 +940,7 @@ impl MemoryBlock {
                     disputed: false,
                     occurred_at: occurred_at.clone(),
                     withheld: false,
+                    stale: false,
                 }),
                 _ => None,
             })
@@ -902,6 +966,7 @@ impl MemoryBlock {
                 disputed: false,
                 occurred_at: occurred_at.clone(),
                 withheld: false,
+                stale: false,
             }),
             _ => None,
         })
@@ -911,7 +976,13 @@ impl MemoryBlock {
     /// marking it disputed when it is in the memory's set of unresolved-arbitration competing entries,
     /// and — when `withheld` — replacing its content with a stub so the confidence is not handed to a
     /// read whose present audience is not cleared to see it (see [`EntryRef::withheld`]).
-    fn entry_ref(&self, view: EntryView, disputed: &BTreeSet<EntryId>, withheld: bool) -> EntryRef {
+    fn entry_ref(
+        &self,
+        view: EntryView,
+        disputed: &BTreeSet<EntryId>,
+        withheld: bool,
+        stale: bool,
+    ) -> EntryRef {
         EntryRef {
             disputed: disputed.contains(&view.entry_id),
             entry_id: view.entry_id,
@@ -924,35 +995,48 @@ impl MemoryBlock {
             teller: self.teller_label(&view.told_by),
             occurred_at: view.occurred_at,
             withheld,
+            stale,
         }
     }
 
-    /// Mark each entry of a direct read withheld when the present audience is not cleared to see it,
-    /// applying the same [`visible`] predicate search does (resolving identity over the `same_as`
-    /// class). Two deliberate carve-outs keep the agent's reach over its own memory intact: with no one
-    /// present — a solo flush or maintenance pass — nothing is withheld; and the audience check ignores
-    /// supersession (probing with `superseded_by` cleared), so `history` still shows a superseded entry
-    /// yet still withholds one that was a confidence not for who is present.
-    fn annotate_withheld(
+    /// Annotate each entry of a direct read with whether it is `withheld` and whether it is `stale`.
+    ///
+    /// *Withheld* applies the same [`visible`] predicate search does (resolving identity over the
+    /// `same_as` class). Two deliberate carve-outs keep the agent's reach over its own memory intact:
+    /// with no one present — a solo flush or maintenance pass — nothing is withheld; and the audience
+    /// check ignores supersession (probing with `superseded_by` cleared), so `history` still shows a
+    /// superseded entry yet still withholds one that was a confidence not for who is present.
+    ///
+    /// *Stale* is independent of who is present — it is a fact about the entry's age on a `High`
+    /// volatility memory (spec §Recency and volatility) — so it is computed for every read, audience or not.
+    fn annotate(
         &self,
         graph: &Graph,
         id: MemoryId,
         entries: Vec<EntryView>,
-    ) -> Result<Vec<(EntryView, bool)>, MemoryError> {
-        if self.present_set.is_empty() {
-            return Ok(entries.into_iter().map(|entry| (entry, false)).collect());
-        }
-        let Some(memory) = graph.memory_by_id(id)? else {
-            return Ok(entries.into_iter().map(|entry| (entry, false)).collect());
-        };
+    ) -> Result<Vec<(EntryView, bool, bool)>, MemoryError> {
+        let now = self.now();
+        let memory = graph.memory_by_id(id)?;
+        let volatility = memory
+            .as_ref()
+            .map(|memory| memory.volatility)
+            .unwrap_or_default();
+        let audience = !self.present_set.is_empty();
         let class_of = |mid| graph.class_id(mid).map(|class| class.unwrap_or(mid));
         entries
             .into_iter()
             .map(|entry| {
-                let mut probe = entry.clone();
-                probe.superseded_by = None;
-                let withheld = !visible(&probe, &memory, &self.present_set, &class_of)?;
-                Ok((entry, withheld))
+                let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
+                let stale = decay::is_stale(volatility, effective, now);
+                let withheld = match (audience, &memory) {
+                    (true, Some(memory)) => {
+                        let mut probe = entry.clone();
+                        probe.superseded_by = None;
+                        !visible(&probe, memory, &self.present_set, &class_of)?
+                    }
+                    _ => false,
+                };
+                Ok((entry, withheld, stale))
             })
             .collect()
     }
