@@ -333,6 +333,14 @@ fn default_templates() -> Vec<TemplateDef> {
          genuinely new since you last recorded. Re-writing what is already saved piles up \
          duplicates, and a fact you re-record now is attributed to whoever is speaking now rather \
          than to whoever first told it, silently re-keying whose note it is.",
+        "Give a non-person thing one memory, not several. Before creating one, look for the memory it \
+         belongs on — a second memory for the same event or the same topic splits its facts across \
+         both, so a later read finds only half, and a contradicting account lands on one while the \
+         claim it contradicts sits on the other, where nothing can weigh them together. Add to the \
+         memory you already hold; mint a new one only for a genuinely distinct thing. (A person \
+         appearing on another platform is the exception, governed by the merge gate above: their \
+         per-platform stubs stay separate, each holding its own, until an adjudicated merge joins \
+         them — never folded together by writing one onto the other.)",
         "When what you learn is itself structured, record it through the operation built for it, \
          not only as prose the rest of the system cannot act on. A relationship between two \
          memories — two people who know each other, an event that belongs to a topic — is a \
