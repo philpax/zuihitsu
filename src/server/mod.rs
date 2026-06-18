@@ -642,6 +642,62 @@ impl Server {
         Ok(count)
     }
 
+    /// Reconcile the vector index with the configured embedding model, blocking until done. If the
+    /// model that produced the stored vectors differs from the configured one, the index lives in a
+    /// now-incompatible embedding space — cosine across the two is silently wrong — so this logs an
+    /// `EmbeddingModelChanged` migration, clears the index, and re-embeds the whole log under the new
+    /// model before returning. Called at boot *before* the server serves, so requests are refused (the
+    /// server is not yet up) rather than answered from a mixed or stale space. A no-op when retrieval is
+    /// off, the index is empty (nothing to migrate — the indexer will embed fresh), or the model is
+    /// unchanged. Returns whether a re-embed ran.
+    ///
+    /// The simple, downtime-accepting form: the costlier zero-downtime discipline (build the new index
+    /// alongside the old, serve the old until an atomic cutover) is a deferred follow-up (spec §Storage
+    /// → vector store).
+    pub async fn reembed_if_embedding_model_changed(&self) -> Result<bool, ServerError> {
+        let Some(retrieval) = &self.engine.retrieval else {
+            return Ok(false);
+        };
+        let configured = retrieval.embedder.model_id();
+        let recorded = retrieval
+            .vectors
+            .lock()
+            .model_id()
+            .map_err(IndexError::Vector)?;
+        match recorded {
+            Some(recorded) if recorded.as_str() != configured => {
+                tracing::warn!(
+                    from = %recorded,
+                    to = configured,
+                    "embedding model changed; clearing the vector index and re-embedding the log"
+                );
+                let now = self.engine.clock.now();
+                self.engine.store.lock().append(
+                    now,
+                    vec![EventPayload::EmbeddingModelChanged {
+                        from: recorded,
+                        to: configured.into(),
+                    }],
+                )?;
+                // Apply the migration into the graph (a no-op there) so graph-head keeps pace with the
+                // log, then clear the index and re-embed the whole log under the new model.
+                self.engine
+                    .graph
+                    .lock()
+                    .materialize_from(self.engine.store.lock().as_ref())?;
+                retrieval
+                    .vectors
+                    .lock()
+                    .clear()
+                    .map_err(IndexError::Vector)?;
+                let indexed = self.index_catch_up().await?;
+                tracing::info!(indexed, "re-embed complete; serving resumes");
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// The background indexer: on each tick, catch the vector index up to the log (spec §Storage →
     /// vector store — indexing runs off the turn's hot path). Idempotent and cursor-resumed, so an idle
     /// tick is cheap and the first tick rebuilds a fresh index. Stops on the shutdown signal; a failure
@@ -964,5 +1020,232 @@ impl From<TurnError> for ServerError {
 impl From<crate::agent::lua::LuaError> for ServerError {
     fn from(error: crate::agent::lua::LuaError) -> Self {
         ServerError::Lua(error)
+    }
+}
+
+#[cfg(test)]
+mod embedding_swap_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::{
+        clock::ManualClock,
+        graph::Graph,
+        model::{ModelError, embed::Embedding},
+        vector::{InMemoryVectorIndex, VectorId, VectorRecord},
+    };
+
+    /// An embedder whose `model_id` is configurable, so a test can stand for a model swap; its vectors
+    /// are constant and never actually compared, only counted and tagged.
+    struct TaggedEmbedder {
+        id: &'static str,
+        dims: usize,
+    }
+
+    #[async_trait]
+    impl Embedder for TaggedEmbedder {
+        fn dimensions(&self) -> usize {
+            self.dims
+        }
+
+        fn model_id(&self) -> &str {
+            self.id
+        }
+
+        async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError> {
+            Ok(inputs.iter().map(|_| vec![0.1; self.dims]).collect())
+        }
+    }
+
+    fn server_over(
+        store: MemoryStore,
+        vectors: InMemoryVectorIndex,
+        model: &'static str,
+        dims: usize,
+    ) -> Server {
+        Server::with_retrieval(
+            Box::new(store),
+            Graph::open_in_memory().unwrap(),
+            Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
+            Arc::new(TaggedEmbedder { id: model, dims }),
+            Box::new(vectors),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_swap_logs_the_change_and_reembeds_under_the_new_model() {
+        let dims = 8;
+        // A log with one embeddable description.
+        let mut store = MemoryStore::new();
+        let mem = MemoryId::generate();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                vec![EventPayload::MemoryDescriptionRegenerated {
+                    id: mem,
+                    new_text: "an avid climber".to_owned(),
+                    produced_by: None,
+                }],
+            )
+            .unwrap();
+        // An index that a prior model already built over that log.
+        let mut vectors = InMemoryVectorIndex::new();
+        vectors
+            .upsert(VectorRecord {
+                id: VectorId::new("desc:stale"),
+                embedding: vec![0.5; dims],
+                model_id: "old-model".into(),
+            })
+            .unwrap();
+        vectors.set_cursor(store.head().unwrap()).unwrap();
+
+        let server = server_over(store, vectors, "new-model", dims);
+        let reembedded = server.reembed_if_embedding_model_changed().await.unwrap();
+        assert!(reembedded, "a model change must trigger a re-embed");
+
+        // The swap is logged, old → new.
+        let events = server.engine.store.lock().read_from(Seq::ZERO).unwrap();
+        let logged = events.iter().find_map(|event| match &event.payload {
+            EventPayload::EmbeddingModelChanged { from, to } => {
+                Some((from.to_string(), to.to_string()))
+            }
+            _ => None,
+        });
+        assert_eq!(
+            logged,
+            Some(("old-model".to_owned(), "new-model".to_owned()))
+        );
+
+        // The index was cleared of the stale vector and rebuilt under the new model.
+        let vectors = server.engine.retrieval.as_ref().unwrap();
+        assert_eq!(vectors.vectors.lock().len().unwrap(), 1);
+        assert_eq!(
+            vectors.vectors.lock().model_id().unwrap().as_deref(),
+            Some("new-model")
+        );
+
+        // A second boot finds the model unchanged and does nothing.
+        assert!(!server.reembed_if_embedding_model_changed().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_model_is_a_noop_and_an_empty_index_needs_no_migration() {
+        let dims = 8;
+        // Unchanged model over a populated index: no-op.
+        let mut vectors = InMemoryVectorIndex::new();
+        vectors
+            .upsert(VectorRecord {
+                id: VectorId::new("desc:x"),
+                embedding: vec![0.5; dims],
+                model_id: "same-model".into(),
+            })
+            .unwrap();
+        let server = server_over(MemoryStore::new(), vectors, "same-model", dims);
+        assert!(!server.reembed_if_embedding_model_changed().await.unwrap());
+
+        // Empty index (a fresh agent): nothing to migrate, even under a "different" model.
+        let fresh = server_over(
+            MemoryStore::new(),
+            InMemoryVectorIndex::new(),
+            "any-model",
+            dims,
+        );
+        assert!(!fresh.reembed_if_embedding_model_changed().await.unwrap());
+    }
+
+    /// The end-to-end path on the real backends across a restart: a log embedded under one model on
+    /// disk, reopened under another, is detected and re-embedded — exercising the persisted sqlite
+    /// store, graph, and vec0 index, not just the in-memory fakes.
+    #[tokio::test]
+    async fn a_swap_is_detected_and_rebuilt_across_a_real_sqlite_restart() {
+        use crate::{store::SqliteStore, vector::SqliteVectorIndex};
+
+        let dims = 8;
+        let tag = MemoryId::generate().0;
+        let dir = std::env::temp_dir();
+        let log = dir.join(format!("zuihitsu-emc-log-{tag}.sqlite"));
+        let graph_path = dir.join(format!("zuihitsu-emc-graph-{tag}.sqlite"));
+        let vecs = dir.join(format!("zuihitsu-emc-vecs-{tag}.sqlite"));
+
+        // Phase 1 — build a log with one embeddable description and index it under model "old", all on
+        // disk; then drop the server so the file locks release.
+        {
+            let mut store = SqliteStore::open(&log).unwrap();
+            let mem = MemoryId::generate();
+            store
+                .append(
+                    Timestamp::from_millis(1_000),
+                    vec![
+                        EventPayload::MemoryCreated {
+                            id: mem,
+                            name: MemoryName::new("topic/x"),
+                        },
+                        EventPayload::MemoryDescriptionRegenerated {
+                            id: mem,
+                            new_text: "an avid climber".to_owned(),
+                            produced_by: None,
+                        },
+                    ],
+                )
+                .unwrap();
+            let server = Server::with_retrieval(
+                Box::new(store),
+                Graph::open(&graph_path).unwrap(),
+                Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
+                Arc::new(TaggedEmbedder { id: "old", dims }),
+                Box::new(SqliteVectorIndex::open(&vecs, dims).unwrap()),
+            );
+            server.index_catch_up().await.unwrap();
+            let retrieval = server.engine.retrieval.as_ref().unwrap();
+            assert_eq!(
+                retrieval.vectors.lock().model_id().unwrap().as_deref(),
+                Some("old"),
+                "phase 1 should embed under the old model"
+            );
+        }
+
+        // Phase 2 — restart over the same files under model "new": boot, then the blocking re-embed.
+        {
+            let vectors = SqliteVectorIndex::open(&vecs, dims).unwrap();
+            assert_eq!(
+                vectors.model_id().unwrap().as_deref(),
+                Some("old"),
+                "the persisted index should carry the old model across the restart"
+            );
+            let mut server = Server::with_retrieval(
+                Box::new(SqliteStore::open(&log).unwrap()),
+                Graph::open(&graph_path).unwrap(),
+                Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
+                Arc::new(TaggedEmbedder { id: "new", dims }),
+                Box::new(vectors),
+            );
+            server.boot().unwrap();
+            assert!(server.reembed_if_embedding_model_changed().await.unwrap());
+
+            let events = server.engine.store.lock().read_from(Seq::ZERO).unwrap();
+            assert!(
+                events.iter().any(|event| matches!(
+                    &event.payload,
+                    EventPayload::EmbeddingModelChanged { from, to }
+                        if from.as_str() == "old" && to.as_str() == "new"
+                )),
+                "the swap should be logged old → new"
+            );
+            let retrieval = server.engine.retrieval.as_ref().unwrap();
+            assert_eq!(
+                retrieval.vectors.lock().model_id().unwrap().as_deref(),
+                Some("new"),
+                "the index should be rebuilt under the new model"
+            );
+            assert_eq!(retrieval.vectors.lock().len().unwrap(), 1);
+        }
+
+        for path in [&log, &graph_path, &vecs] {
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+            let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        }
     }
 }

@@ -476,6 +476,19 @@ pub enum EventPayload {
         settings: Settings,
         source: EventSource,
     },
+    /// Records an embedding-model swap: the model that produced the existing vectors (`from`) gave way
+    /// to a new one (`to`). The model identity is environmental config, but *changing* it is a
+    /// behaviorally-significant, logged migration, because it invalidates every stored vector — cosine
+    /// across two embedding spaces is silently wrong — so it brackets a full re-embed of the log under
+    /// the new model. Detected at boot and acted on there (the index is cleared and rebuilt before the
+    /// server serves; see spec §Storage → vector store). The graph ignores it; it bears only on the
+    /// vector index.
+    EmbeddingModelChanged {
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
+        from: SmolStr,
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
+        to: SmolStr,
+    },
     /// Records one executed Lua block — what the agent saw. The stored `result` is the value
     /// rendered back into the next inference step (text, not a live handle), so faithful replay
     /// feeds the model exactly the string it saw. `touched` is the set of memories the block read
@@ -601,6 +614,7 @@ impl EventPayload {
             EventPayload::LinkRemoved { .. } => "LinkRemoved",
             EventPayload::PromptTemplateRegistered { .. } => "PromptTemplateRegistered",
             EventPayload::ConfigSet { .. } => "ConfigSet",
+            EventPayload::EmbeddingModelChanged { .. } => "EmbeddingModelChanged",
             EventPayload::LuaExecuted { .. } => "LuaExecuted",
             EventPayload::ModelCalled { .. } => "ModelCalled",
             EventPayload::ConversationTurn { .. } => "ConversationTurn",
@@ -645,8 +659,8 @@ impl EventPayload {
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.as_str().to_owned()),
-            // A whole-settings snapshot, not about a single entity.
-            EventPayload::ConfigSet { .. } => None,
+            // A whole-settings snapshot and a vector-index migration: neither is about a single entity.
+            EventPayload::ConfigSet { .. } | EventPayload::EmbeddingModelChanged { .. } => None,
             // Conversation-keyed events target the conversation, so per-conversation history (the
             // console's conversation view, compaction's read of a session's blocks) is a cheap
             // indexed filter. A `LuaExecuted` touches many memories, but it belongs to one

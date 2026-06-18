@@ -4,6 +4,7 @@
 use std::{path::Path, sync::Once};
 
 use rusqlite::{Connection, OptionalExtension, ffi::sqlite3_auto_extension, params};
+use smol_str::SmolStr;
 use sqlite_vec::sqlite3_vec_init;
 
 use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
@@ -130,6 +131,24 @@ impl VectorIndex for SqliteVectorIndex {
             .map_err(backend)?;
         Ok(())
     }
+
+    fn model_id(&self) -> Result<Option<SmolStr>, VectorError> {
+        let model_id: Option<String> = self
+            .conn
+            .query_row("SELECT model_id FROM vectors LIMIT 1", [], |row| row.get(0))
+            .optional()
+            .map_err(backend)?;
+        Ok(model_id.map(SmolStr::from))
+    }
+
+    fn clear(&mut self) -> Result<(), VectorError> {
+        let tx = self.conn.transaction().map_err(backend)?;
+        tx.execute("DELETE FROM vectors", []).map_err(backend)?;
+        tx.execute("DELETE FROM meta WHERE key = 'cursor'", [])
+            .map_err(backend)?;
+        tx.commit().map_err(backend)?;
+        Ok(())
+    }
 }
 
 /// Register sqlite-vec as an auto-extension so every connection opened afterwards loads it. The
@@ -151,6 +170,7 @@ mod tests {
     //! The sqlite-vec backend: nearest-neighbour ranking, upsert-replaces semantics, and the
     //! dimension-mismatch guard. Uses the deterministic fake embedder so no model is needed.
     use crate::{
+        ids::Seq,
         model::embed::{Embedder, FakeEmbedder},
         vector::{SqliteVectorIndex, VectorError, VectorId, VectorIndex, VectorRecord},
     };
@@ -225,5 +245,46 @@ mod tests {
             index.search(&wrong, 3),
             Err(VectorError::Dimension { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn model_id_reads_back_the_stored_model_and_clear_resets_the_index() {
+        // The boot-time embedding-swap detection turns on these two against the live vec0 backend: the
+        // model the stored vectors carry, and clearing them for a re-embed (spec §Storage → vector store).
+        let embedder = FakeEmbedder::new(DIMS);
+        let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
+
+        // An empty index identifies no model and sits at the start of the log.
+        assert_eq!(index.model_id().unwrap(), None);
+        assert_eq!(index.cursor().unwrap(), Seq::ZERO);
+
+        // Populated under a model, with the cursor advanced: `model_id` reads the tag back off the vec0
+        // partition column, and the cursor persists in the meta table.
+        index
+            .upsert(VectorRecord {
+                id: VectorId::new("entry:a"),
+                embedding: vector(&embedder, "a").await,
+                model_id: "jina-v5".into(),
+            })
+            .unwrap();
+        index.set_cursor(Seq(7)).unwrap();
+        assert_eq!(index.model_id().unwrap().as_deref(), Some("jina-v5"));
+        assert_eq!(index.cursor().unwrap(), Seq(7));
+
+        // `clear` drops every vector and resets the cursor, so a rebuild re-embeds the whole log.
+        index.clear().unwrap();
+        assert!(index.is_empty().unwrap());
+        assert_eq!(index.model_id().unwrap(), None);
+        assert_eq!(index.cursor().unwrap(), Seq::ZERO);
+
+        // And the cleared index repopulates cleanly under a new model.
+        index
+            .upsert(VectorRecord {
+                id: VectorId::new("entry:b"),
+                embedding: vector(&embedder, "b").await,
+                model_id: "bge-small".into(),
+            })
+            .unwrap();
+        assert_eq!(index.model_id().unwrap().as_deref(), Some("bge-small"));
     }
 }

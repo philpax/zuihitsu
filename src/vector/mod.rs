@@ -99,4 +99,16 @@ pub trait VectorIndex: Send {
     /// are durable, so a crash in between re-processes that batch (an idempotent re-embed) rather
     /// than skipping it.
     fn set_cursor(&mut self, seq: Seq) -> Result<(), VectorError>;
+
+    /// The embedding model that produced the stored vectors, or `None` when the index is empty. All
+    /// live vectors share one model in steady state (a swap clears and rebuilds the whole index), so a
+    /// single stored `model_id` identifies the index's embedding space — what boot compares against the
+    /// configured embedder to detect a swap (spec §Storage → vector store).
+    fn model_id(&self) -> Result<Option<SmolStr>, VectorError>;
+
+    /// Drop every vector and reset the cursor to `Seq::ZERO`, so the indexer re-embeds the whole log
+    /// from scratch. Used on an embedding-model swap, where the old vectors live in a now-incompatible
+    /// space and cosine across the two is silently wrong; clearing first keeps the rebuild from passing
+    /// through a mixed-space state.
+    fn clear(&mut self) -> Result<(), VectorError>;
 }

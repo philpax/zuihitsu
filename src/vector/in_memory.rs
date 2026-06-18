@@ -2,6 +2,8 @@
 //! scale. Swapped for [`SqliteVectorIndex`](super::SqliteVectorIndex) when persistence is needed.
 //! Infallible, so every operation returns `Ok`.
 
+use smol_str::SmolStr;
+
 use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
 use crate::ids::Seq;
 
@@ -55,6 +57,16 @@ impl VectorIndex for InMemoryVectorIndex {
 
     fn set_cursor(&mut self, seq: Seq) -> Result<(), VectorError> {
         self.cursor = seq;
+        Ok(())
+    }
+
+    fn model_id(&self) -> Result<Option<SmolStr>, VectorError> {
+        Ok(self.records.first().map(|record| record.model_id.clone()))
+    }
+
+    fn clear(&mut self) -> Result<(), VectorError> {
+        self.records.clear();
+        self.cursor = Seq::ZERO;
         Ok(())
     }
 }

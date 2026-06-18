@@ -149,6 +149,11 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     };
     let status = server.boot()?;
 
+    // If the embedding model changed since the vectors were last built, re-embed the whole log before
+    // serving — blocking here so requests are refused until the index is rebuilt in the new model's
+    // space, rather than answered from a silently-incompatible one (spec §Storage → vector store).
+    server.reembed_if_embedding_model_changed().await?;
+
     // Connect the configured MCP servers once, before the server is shared (`connect_mcp` is `&mut`).
     if !config.mcp.is_empty() {
         server.connect_mcp(Arc::new(StdioHost), config.mcp).await?;

@@ -38,6 +38,9 @@ impl Graph {
             // The model-interaction record is log-only telemetry, read from the log rather than
             // projected (spec §Observability), and replay-inert by construction.
             EventPayload::ModelCalled { .. } => {}
+            // An embedding-model swap bears only on the vector index (a separate projection); it is
+            // acted on at boot, never in the graph materializer.
+            EventPayload::EmbeddingModelChanged { .. } => {}
             // The merge proposal and its adjudication are log-only audit records; neither touches the
             // projection. A proposal is deliberately inert (it leaves both stubs in their own classes,
             // so nothing surfaces across the would-be merge), and an *accepted* adjudication does its
