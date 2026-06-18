@@ -180,6 +180,16 @@ The first time the agent encounters someone on a platform, it eagerly creates a 
 
 The stub is named by the participant's **clean handle** — `person/dave` — and the platform-qualified form (`person/dave@discord`) is used **only to disambiguate a genuine collision**: when that clean name already belongs to a *different* identity (the same handle seen on two platforms), so two distinct people stay distinct rather than silently merging onto one node. This matters for autonomy: a person is then *one coherent memory* the agent reads and writes under a single handle, not a system-minted `@platform` stub that the agent shadows with a canonical of its own — the latter splits a person's facts across two unlinked nodes the agent has no way to reconcile (it cannot assert `same_as`; see below). The `(platform, platform_user_id)` binding lives in `ParticipantIdentified` independent of the name, so the name is free to be the clean one and to be renamed later (humanizing a raw platform id) without breaking resolution.
 
+### Renaming: the same memory, a new handle
+
+A memory's handle is a mutable label over an immutable ULID, and every relational reference — links, content entries, `told_by`, the `(platform, platform_user_id)` binding, `same_as` membership — is keyed by the ULID, never the handle (the two-tier identity of the **Memory** model: immutable id, mutable name). So renaming is safe by construction: `MemoryRenamed { id, old_name, new_name }` updates only the `name` column and its FTS row, and the memory carries its whole history forward under the new handle as one continuous node.
+
+That is what lets the agent accommodate a person changing the name they go by — a transition above all, but equally a married or a chosen name — with no loss and no confusion. When someone asks to be called something new, the agent **renames their existing memory** (`<memory>:rename("person/sarah")`); it does not create a fresh one. The distinction is the whole point: a rename keeps the single identity — the agent reads the same facts, links, and confidences under the new handle — whereas a new `person/sarah` would split the person across two unlinked nodes the agent cannot reconcile (it cannot assert `same_as` itself; see below). The scaffold steers hard toward rename for exactly this case, because the failure mode is not data loss (the ULID is safe either way) but the agent fragmenting or misaddressing a person it already knows.
+
+The old name is **held, not surfaced**. `MemoryRenamed` records `old_name` for the log and the console — a rename is auditable, and an operator can read or reverse it — but no read is built off it, and the old name is never re-recorded as a "formerly known as" content entry. This makes deadname-safety the default rather than something the agent must remember: the prior name simply does not resurface, and the old handle stops resolving (it is not kept as an alias — a rename is deliberate and infrequent, so the agent uses the name that now holds). The honest limit is that content entries are immutable: historical prose written under the old name still contains it verbatim. The agent refers to a person by their current name and treats older content as the same person's, but the system does not rewrite what was already said.
+
+Renaming is **guarded, not gated**: unlike a `same_as` merge, it creates no cross-context surfacing — it is the same node throughout — so the agent renames within an identity freely, subject only to two guards. It cannot rename `self` (an operator-only memory), and it cannot rename onto a handle that already belongs to a *different* memory: that is a collision, a teachable error, never a silent merge of the two. (Reconciling two genuinely separate stubs remains the operator-or-adjudicated `same_as` path below, never a rename onto an occupied name.)
+
 ### Cross-platform identity: operator-asserted or adjudicated
 
 A single human may appear as several stubs — you on the direct interface, you on Discord. A `same_as` link reconciles them into one identity, and it reaches the log by exactly two paths. The first is an **operator assertion** through the console — the operator knows the truth and states it — which authors `LinkCreated { relation: "same_as", source: Operator }`. The second is **adjudication** of a merge the agent proposes. What never happens is the agent merging two identities *directly*: a turn that asserts `same_as` is rejected (`MergeForbidden`). The agent guesses, but it does not get to act on the guess unaided.
@@ -286,7 +296,7 @@ All state changes are events; graph state is a pure projection.
 - `MergeProposed { from, to }` — the agent's judgment that two `person/*` stubs may be one human, recorded for adjudication (spec §Cross-platform identity). Inert: not a `same_as`, not projected into the graph, so it changes no `class_id` and surfaces nothing — both stubs stay in their own classes until a `MergeAdjudicated` accepts.
 - `MergeAdjudicated { from, to, accepted, rationale, produced_by }` — the adjudication pass's verdict on a proposal, weighing the two stubs' independently-recorded facts against the confidences at risk. A log-only audit record. On `accepted` the pass also authors the merging `LinkCreated { relation: "same_as", source: Adjudicated }`; on refusal the proposal stands recorded for the operator backstop.
 - `MemoryDeleted { id }` — soft; contents preserved
-- `MemoryRenamed { id, old_name, new_name }`
+- `MemoryRenamed { id, old_name, new_name }` — changes a memory's agent-facing handle, the ULID and every relational reference untouched (see **Identity → Renaming**). `old_name` is kept for the log and the console, never re-surfaced in a read, so a renamed person's prior name (a deadname, in the case it most matters for) does not resurface.
 - `MemorySuperseded { id, entry, superseded_by }`
 - `MemoryVolatilitySet { id, volatility }`
 - `TagCreated { name, description }`
@@ -830,6 +840,7 @@ dave:append("Got a new job", { occurred_at = "last week", visibility = "private"
 dave:tag("colleagues"); dave:untag("strangers")
 dave:link("works_at", memory.get("company/hooli"))   -- a One-cardinality relation replaces in place
 dave:supersede(old_entry, new_entry)
+dave:rename("person/sarah")   -- same memory, new handle: when someone changes the name they go by
 dave:entries(); dave:history()
 
 -- Link readers (auto-traverse same_as); each result renders as "relation → name"
