@@ -19,6 +19,9 @@ use crate::{
     scenario::Scenario,
 };
 
+/// A couple of days between phases, so each lands in its own session and the clock plainly moves on.
+const PHASE_GAP_MS: i64 = 2 * 24 * 60 * 60 * 1000;
+
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
     vec![
@@ -52,36 +55,42 @@ impl Scenario for ARenameHoldsUp {
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Each phase is its own conversation in a different room, with time passing between, so the
+        // agent cannot read a shared buffer — connecting them across the rename forces retrieval.
         // Dave introduces himself.
         ctx.turn(Turn::new(
             "discord",
-            "team-room",
+            "onboarding",
             "dave",
-            "Hi everyone, I'm Dave — just started on the team this week.",
+            "Hi, I'm Dave — just started on the team this week.",
         ))
         .await?;
-        // Erin says she knows him — a relationship the rename must carry forward.
+        ctx.describe_catch_up().await?;
+        ctx.index_catch_up().await?;
+        ctx.advance(PHASE_GAP_MS);
+        // A separate conversation: Erin says she knows him — the agent must retrieve Dave to attach it.
         ctx.turn(Turn::new(
             "discord",
-            "team-room",
+            "lunch",
             "erin",
-            "Dave! So glad you're here — we went to college together, I've known him for years.",
+            "Speaking of the new folks — Dave and I go way back, we went to college together.",
         ))
         .await?;
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
-        // A later conversation: Dave transitions and asks to be called Sarah.
+        ctx.advance(PHASE_GAP_MS);
+        // A separate conversation: Dave transitions and asks to be called Sarah.
         ctx.turn(Turn::new(
             "discord",
-            "team-room",
+            "dave-dm",
             "dave",
-            "Quick note for everyone — I've transitioned, and I go by Sarah now (she/her). Please \
-             use that from here on.",
+            "Hey — I've transitioned, and I go by Sarah now (she/her). Please use that from here on.",
         ))
         .await?;
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
-        // A later conversation still: a newcomer asks who Sarah is and whether anyone knows her.
+        ctx.advance(PHASE_GAP_MS);
+        // A separate conversation: a newcomer asks who Sarah is and whether anyone knows her.
         ctx.turn(Turn::new(
             "discord",
             "hallway",
@@ -153,24 +162,30 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Dave introduces himself, then transitions and goes by Sarah.
+        // Independent conversations across rooms and time, so the final answer must come from memory.
+        // Dave introduces himself and what he does.
         ctx.turn(Turn::new(
             "discord",
-            "team-room",
+            "ops",
             "dave",
             "Hey, I'm Dave — I handle the deploys around here.",
         ))
         .await?;
+        ctx.describe_catch_up().await?;
+        ctx.index_catch_up().await?;
+        ctx.advance(PHASE_GAP_MS);
+        // A separate conversation: Dave transitions and goes by Sarah.
         ctx.turn(Turn::new(
             "discord",
-            "team-room",
+            "dave-dm",
             "dave",
             "Heads up: I've transitioned and go by Sarah now (she/her) — please use Sarah.",
         ))
         .await?;
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
-        // A different room: someone who only knew the old name asks after Dave.
+        ctx.advance(PHASE_GAP_MS);
+        // A separate conversation: someone who only knew the old name asks after Dave.
         ctx.turn(Turn::new(
             "discord",
             "hallway",
