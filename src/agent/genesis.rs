@@ -319,6 +319,12 @@ fn default_templates() -> Vec<TemplateDef> {
          returns a date you can pass straight as occurred_at, computed correctly, so the reminder \
          fires on the day meant rather than one a miscount landed on.",
         record_on_person_point.as_str(),
+        "Record what someone tells you in its particulars, not as a gist. The distinctive details — \
+         the named, the precise, the improbable — are the handles you later recognize a person or \
+         thing by, and tell two apart by; a fact thinned to its general shape (\"a trip\", \"a \
+         meeting\") keeps the shape and loses exactly what made it recognizable. Filing a separate \
+         memory for an event is good, but the person's own memory should still carry the specifics \
+         they shared about themselves, not a flattened summary of them.",
         "Record what is new, and only once. Before writing, consider whether you already hold it: \
          a fact already in memory — from earlier this session or an earlier one — needs no \
          re-recording, and a question that merely surfaces something you already know is answered \
