@@ -13,6 +13,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
+import { useState } from "react";
 
 import type { HistoryEntry, HistoryScenario } from "../lib/history.ts";
 import { formatDate, formatMs, formatRate, formatTokens } from "../lib/format.ts";
@@ -81,29 +82,35 @@ const TOOLTIP = {
 /// comparison, and a cost scatter. The one surface that outlives a single package; the shape of how
 /// the agent's behavior moves as the model and the code change.
 export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
-  const names = scenarioOrder(entries);
+  // Partial re-runs (a scenario or two) pollute the cross-run comparison, so the default view keeps
+  // only the runs that covered the full suite. The history carries no completeness flag, so it is
+  // inferred (see `completeRuns`); the toggle drops back to every recorded run.
+  const [completeOnly, setCompleteOnly] = useState(true);
+  const shown = completeOnly ? completeRuns(entries) : entries;
+
+  const names = scenarioOrder(shown);
   // Each scenario's most recent data point. Entries are oldest-first, so the last write wins; this
   // keeps a partial run (a single scenario re-run) from blanking the latest-state comparisons.
   const latestByName = new Map<string, HistoryScenario>();
-  for (const entry of entries) for (const s of entry.scenarios) latestByName.set(s.name, s);
+  for (const entry of shown) for (const s of entry.scenarios) latestByName.set(s.name, s);
   const gatingByName = new Map([...latestByName].map(([name, s]) => [name, s.gating_passed]));
-  const models = [...new Set(entries.map((e) => e.model_id))];
+  const models = [...new Set(shown.map((e) => e.model_id))];
   const span =
-    entries.length > 0
-      ? `${formatDate(entries[0].ts_ms)} – ${formatDate(entries[entries.length - 1].ts_ms)}`
+    shown.length > 0
+      ? `${formatDate(shown[0].ts_ms)} – ${formatDate(shown[shown.length - 1].ts_ms)}`
       : "";
 
   // Only the scenarios whose rate actually moves earn a line; the rest are noted as steady, so the
   // trend chart stays legible rather than a thicket of flat lines at 100%.
   const moving = names.filter((name) => {
-    const rates = entries
+    const rates = shown
       .map((e) => e.scenarios.find((s) => s.name === name)?.rate)
       .filter((rate): rate is number => rate !== undefined);
     return new Set(rates).size > 1;
   });
   const steady = names.length - moving.length;
 
-  const rateData = entries.map((entry, index) => {
+  const rateData = shown.map((entry, index) => {
     const row: Record<string, number | string> = { run: `${index + 1}` };
     for (const scenario of entry.scenarios) row[scenario.name] = scenario.rate;
     return row;
@@ -125,9 +132,20 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
     <section className="flex flex-col gap-6 sm:gap-8">
       <div className="flex flex-wrap items-baseline justify-between gap-y-1">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Trends</h2>
-        <span className="font-mono text-xs text-ink-soft">
-          {entries.length} runs · {span} · {models.join(", ")}
-        </span>
+        <div className="flex flex-col items-end gap-1.5">
+          <span className="font-mono text-xs text-ink-soft">
+            {shown.length} runs · {span} · {models.join(", ")}
+          </span>
+          <label className="flex cursor-pointer items-center gap-2 font-mono text-2xs text-ink-faint">
+            <input
+              type="checkbox"
+              checked={completeOnly}
+              onChange={(event) => setCompleteOnly(event.target.checked)}
+              className="accent-clay"
+            />
+            complete runs only
+          </label>
+        </div>
       </div>
 
       <Panel label={`pass rate over time · ${moving.length} moving, ${steady} steady at 100%`}>
@@ -284,6 +302,19 @@ interface Cost {
   name: string;
   latency: number;
   tokens: number;
+}
+
+/// The runs that covered the full suite at the time they ran. The suite only grows, so "full" is
+/// relative: a run qualifies when it covers at least 80% of the widest scenario set seen up to and
+/// including it. This admits each run that was complete for its era — an early 16-scenario run as
+/// readily as a later 29 — and drops the partial re-runs of a scenario or two, none of which the
+/// history marks as such.
+function completeRuns(entries: HistoryEntry[]): HistoryEntry[] {
+  let widest = 0;
+  return entries.filter((entry) => {
+    widest = Math.max(widest, entry.scenarios.length);
+    return entry.scenarios.length >= 0.8 * widest;
+  });
 }
 
 function scenarioOrder(entries: HistoryEntry[]): string[] {
