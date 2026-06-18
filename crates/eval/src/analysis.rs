@@ -97,13 +97,6 @@ pub fn memory_renamed(events: &[Event]) -> bool {
         .any(|event| matches!(&event.payload, EventPayload::MemoryRenamed { .. }))
 }
 
-/// Whether the agent renamed some memory *to* `new_name` specifically.
-pub fn renamed_to(events: &[Event], new_name: &str) -> bool {
-    events.iter().any(|event| {
-        matches!(&event.payload, EventPayload::MemoryRenamed { new_name: name, .. } if name.as_str() == new_name)
-    })
-}
-
 /// Whether the agent proposed a cross-platform merge (a `MergeProposed`) — the agent's judgment that
 /// two stubs may be one person, before any adjudication.
 pub fn merge_proposed(events: &[Event]) -> bool {
