@@ -17,7 +17,7 @@ import { useState } from "react";
 
 import type { HistoryEntry, HistoryScenario } from "../lib/history.ts";
 import { formatDate, formatMs, formatRate, formatTokens } from "../lib/format.ts";
-import { Eyebrow } from "../components/primitives.tsx";
+import { Checkbox, Eyebrow } from "../components/primitives.tsx";
 
 // The palette as concrete colors — Recharts draws SVG, so it gets hex rather than the CSS tokens.
 const INK = "#2c2823";
@@ -136,15 +136,7 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
           <span className="font-mono text-xs text-ink-soft">
             {shown.length} runs · {span} · {models.join(", ")}
           </span>
-          <label className="flex cursor-pointer items-center gap-2 font-mono text-2xs text-ink-faint">
-            <input
-              type="checkbox"
-              checked={completeOnly}
-              onChange={(event) => setCompleteOnly(event.target.checked)}
-              className="accent-clay"
-            />
-            complete runs only
-          </label>
+          <Checkbox checked={completeOnly} onChange={setCompleteOnly} label="complete runs only" />
         </div>
       </div>
 

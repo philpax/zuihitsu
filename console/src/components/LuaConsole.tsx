@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { LiveConnection } from "../lib/live.ts";
 import { type ApiEntry, type LuaOutcome, luaApi, runLua } from "../lib/lua.ts";
-import { Eyebrow } from "./primitives.tsx";
+import { Checkbox, Eyebrow } from "./primitives.tsx";
 import { CodeEditor } from "./CodeEditor.tsx";
 import { ApiReference } from "./ApiReference.tsx";
 
@@ -79,21 +79,21 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
             >
               {pending ? "running…" : "run"}
             </button>
-            <label className="flex items-center gap-2 font-mono text-2xs text-ink-faint">
-              <input
-                type="checkbox"
-                checked={allowMcp}
-                onChange={(event) => setAllowMcp(event.target.checked)}
-                className="accent-clay"
-              />
-              allow MCP
-              <span
-                className="text-ink-faint/60"
-                title="An MCP call reaches external servers for real, even in the sandbox."
-              >
-                (real I/O)
-              </span>
-            </label>
+            <Checkbox
+              checked={allowMcp}
+              onChange={setAllowMcp}
+              label={
+                <>
+                  allow MCP
+                  <span
+                    className="text-ink-faint/60"
+                    title="An MCP call reaches external servers for real, even in the sandbox."
+                  >
+                    (real I/O)
+                  </span>
+                </>
+              }
+            />
           </div>
           <span className="font-mono text-2xs text-ink-faint">⌘/ctrl + ↵ to run</span>
         </div>

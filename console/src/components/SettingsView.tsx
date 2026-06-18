@@ -4,7 +4,7 @@ import type { LiveConnection } from "../lib/live.ts";
 import { type Settings, getSettings, putSettings } from "../lib/settings.ts";
 import { type ConfigTree, type ConfigValue, getConfig } from "../lib/config.ts";
 import { snapshotNow } from "../lib/operator.ts";
-import { Eyebrow } from "./primitives.tsx";
+import { Checkbox, Eyebrow } from "./primitives.tsx";
 
 /// One leaf field's value, and a record of them — the structural shape the generic editor walks. The
 /// public API stays typed against the exported `Settings`; this is only the editor's view of it.
@@ -248,12 +248,7 @@ function Leaf({
         ))}
       </select>
     ) : typeof value === "boolean" ? (
-      <input
-        type="checkbox"
-        checked={value}
-        onChange={(event) => onChange(event.target.checked)}
-        className="accent-clay"
-      />
+      <Checkbox checked={value} onChange={onChange} />
     ) : (
       <input
         type={typeof value === "number" ? "number" : "text"}
