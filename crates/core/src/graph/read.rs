@@ -420,6 +420,41 @@ impl Graph {
         )
     }
 
+    /// The recorded facts of the non-person memories this person *owns* — the `event/`s and the like
+    /// reached by the links off their class — so a merge adjudication can weigh the specifics the agent
+    /// filed on separate event memories, not only the facts written directly on the stub (spec
+    /// §Cross-platform identity → adjudicated merge). Other `person/` memories the person is merely
+    /// linked to (a friend, a mentor) are excluded: those are someone else's facts, not this person's
+    /// identity, and pulling them in would weigh a stranger's confidences in the wrong person's merge.
+    /// Each linked memory contributes once, in link order.
+    pub fn owned_context_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        let members: BTreeSet<MemoryId> = self.class_members(id)?.into_iter().collect();
+        let mut seen = BTreeSet::new();
+        let mut entries = Vec::new();
+        for link in self.class_links(id)? {
+            if link.relation == RelationName::SameAs {
+                continue;
+            }
+            // The endpoint that is not this person's own class is the linked memory.
+            let other = if members.contains(&link.from) {
+                link.to
+            } else {
+                link.from
+            };
+            if members.contains(&other) || !seen.insert(other) {
+                continue;
+            }
+            let Some(memory) = self.memory_by_id(other)? else {
+                continue;
+            };
+            if memory.name.as_str().starts_with("person/") {
+                continue;
+            }
+            entries.extend(self.class_entries(other)?);
+        }
+        Ok(entries)
+    }
+
     /// As [`Graph::class_entries`], but including superseded entries — the class-wide history read
     /// for `mem:history()` and the console (spec §Visibility → superseded entries are not live).
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {

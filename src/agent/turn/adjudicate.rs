@@ -102,11 +102,13 @@ async fn adjudicate(
             (
                 from_memory,
                 graph.class_entries(from)?,
+                graph.owned_context_entries(from)?,
                 to_memory,
                 graph.class_entries(to)?,
+                graph.owned_context_entries(to)?,
             )
         };
-        let (from_memory, from_entries, to_memory, to_entries) = pair;
+        let (from_memory, from_entries, from_context, to_memory, to_entries, to_context) = pair;
 
         let verdict = match adjudicate_pair(
             model,
@@ -116,10 +118,12 @@ async fn adjudicate(
             Stub {
                 memory: &from_memory,
                 entries: &from_entries,
+                context: &from_context,
             },
             Stub {
                 memory: &to_memory,
                 entries: &to_entries,
+                context: &to_context,
             },
         )
         .await
@@ -222,26 +226,51 @@ async fn adjudicate_pair(
 struct Stub<'a> {
     memory: &'a MemoryView,
     entries: &'a [EntryView],
+    /// The facts of the non-person memories this person owns (their events), reached off the stub's
+    /// links — the specifics the agent often files on a separate `event/` memory rather than the stub
+    /// itself, where the improbable coincidence that justifies a merge usually lives.
+    context: &'a [EntryView],
 }
 
 /// One stub rendered for the judge: its handle and its recorded facts, numbered, each marked `public`
-/// or `private` so the model can weigh how much confidence a wrong merge would expose.
+/// or `private` so the model can weigh how much confidence a wrong merge would expose. The person's own
+/// events follow the direct facts, numbered on from them so the rationale can cite any of them.
 fn render_stub(stub: Stub<'_>) -> String {
     let mut out = format!("{} — recorded facts:", stub.memory.name.as_str());
-    if stub.entries.is_empty() {
+    if stub.entries.is_empty() && stub.context.is_empty() {
         out.push_str("\n  (none recorded)");
         return out;
     }
-    for (index, entry) in stub.entries.iter().enumerate() {
-        let visibility = match entry.visibility {
-            // Attributed is an ordinary secondhand fact, not a confidence — a wrong merge exposing it
-            // is low-stakes, so it weighs with public here, not private.
-            Visibility::Public | Visibility::Attributed => "public",
-            Visibility::PrivateToTeller | Visibility::Exclude(_) => "private",
-        };
-        out.push_str(&format!("\n  {}. [{visibility}] {}", index + 1, entry.text));
+    let mut index = 0;
+    for entry in stub.entries {
+        index += 1;
+        out.push_str(&format!(
+            "\n  {index}. [{}] {}",
+            entry_visibility(entry),
+            entry.text
+        ));
+    }
+    if !stub.context.is_empty() {
+        out.push_str("\n  and from events and things they are part of:");
+        for entry in stub.context {
+            index += 1;
+            out.push_str(&format!(
+                "\n  {index}. [{}] {}",
+                entry_visibility(entry),
+                entry.text
+            ));
+        }
     }
     out
+}
+
+/// How a fact weighs in a merge: a confidence (`private`) is what a wrong merge would expose, the
+/// high-stakes side; `Attributed` is an ordinary secondhand fact, low-stakes, weighed with public.
+fn entry_visibility(entry: &EntryView) -> &'static str {
+    match entry.visibility {
+        Visibility::Public | Visibility::Attributed => "public",
+        Visibility::PrivateToTeller | Visibility::Exclude(_) => "private",
+    }
 }
 
 /// The `adjudicate` reply shape; doubles as the schema sent to the model, so prompt and parser cannot
