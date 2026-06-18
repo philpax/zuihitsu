@@ -407,14 +407,52 @@ impl MemoryBlock {
         Ok(id)
     }
 
+    /// Rename a memory's handle: the same node under a new agent-facing name (spec §Identity →
+    /// Renaming). The ULID and every relational reference are untouched — only the `name` and its FTS
+    /// row change — so the memory carries its whole history forward, which is what lets the agent follow
+    /// a person who changes the name they go by (a transition above all) without splitting or
+    /// misaddressing them. Guarded like the agent's other writes, not gated like a merge: `self` is
+    /// operator-only, and the new name must be free — renaming onto a handle that already belongs to a
+    /// *different* memory is a collision (a teachable error), never a silent merge of the two. Renaming
+    /// a memory to the name it already holds is a no-op.
+    pub fn rename(&mut self, id: MemoryId, new_name: &str) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        match self.resolve(new_name)? {
+            Some(existing) if existing == id => return Ok(()),
+            Some(_) => return Err(MemoryError::NameExists(MemoryName::new(new_name))),
+            None => {}
+        }
+        // A rename always reaches here from a live handle, so the old name resolves; a vanished memory
+        // is a defensive no-op (the materializer's update would touch no rows either).
+        let Some(old_name) = self.resolve_name(id)? else {
+            return Ok(());
+        };
+        self.touched.insert(id);
+        self.buffer.push(EventPayload::MemoryRenamed {
+            id,
+            old_name,
+            new_name: MemoryName::new(new_name),
+        });
+        Ok(())
+    }
+
     /// Resolve a name to a memory id, or `None`, for `memory.get` — touches the result so it enters
     /// the lock set.
-    pub fn get(&mut self, name: &str) -> Result<Option<MemoryId>, MemoryError> {
-        let resolved = self.resolve(name)?;
-        if let Some(id) = resolved {
+    /// Resolve a name to a memory for `memory.get`, returning the id and whether it matched a *former*
+    /// name (an alias of a renamed memory) rather than a current one. A current name always wins; only
+    /// when none holds the name does an old name resolve, flagged so the agent answers under the
+    /// current handle and recognizes the person rather than treating the old name as a stranger (spec
+    /// §Identity → Renaming). The looked-up result is touched, like every read.
+    pub fn get(&mut self, name: &str) -> Result<Option<(MemoryId, bool)>, MemoryError> {
+        if let Some(id) = self.resolve(name)? {
             self.touched.insert(id);
+            return Ok(Some((id, false)));
         }
-        Ok(resolved)
+        if let Some(id) = self.engine.graph.lock().memory_id_for_former_name(name)? {
+            self.touched.insert(id);
+            return Ok(Some((id, true)));
+        }
+        Ok(None)
     }
 
     /// Append a content entry to `id`. `opts.by_agent` attributes it to the agent; `opts.visibility`
@@ -537,6 +575,20 @@ impl MemoryBlock {
     /// the class into the touched set — and the graph guard is released before it returns.
     pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, MemoryError> {
         Ok(self.engine.graph.lock().class_members(id)?)
+    }
+
+    /// The handles a memory used to go by, most recent first — empty unless it has been renamed. Surfaced
+    /// on a `memory.get` handle so the agent connects a renamed person's old-name content to the same
+    /// person under their current handle (spec §Identity → Renaming).
+    pub fn former_names(&self, id: MemoryId) -> Result<Vec<String>, MemoryError> {
+        Ok(self
+            .engine
+            .graph
+            .lock()
+            .former_names(id)?
+            .into_iter()
+            .map(|name| name.as_str().to_owned())
+            .collect())
     }
 
     /// Links out of this memory's whole `same_as` class under `relation`, in the relation's canonical

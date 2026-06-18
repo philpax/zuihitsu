@@ -28,6 +28,35 @@ impl Graph {
         self.fetch_memory("id", &id.0.to_string())
     }
 
+    /// The names a memory used to go by, most recent first — the aliases a rename left behind, so a
+    /// read can label a renamed memory ("person/sarah, formerly person/dave") and the agent connects
+    /// its older, old-name content to the same person (spec §Identity → Renaming). Empty for a memory
+    /// that was never renamed.
+    pub fn former_names(&self, id: MemoryId) -> Result<Vec<MemoryName>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT former_name FROM memory_aliases WHERE memory_id = ?1 ORDER BY rowid DESC",
+        )?;
+        query_map_into(stmt, params![id.0.to_string()], |row| {
+            Ok(MemoryName::new(row.get::<_, String>(0)?))
+        })
+    }
+
+    /// Resolve a *former* name to the live memory that now holds it under a different handle — the
+    /// alias fallback behind a renamed person being found by an old name (spec §Identity → Renaming).
+    /// Only consulted after a current-name lookup misses, so a current name always wins; returns `None`
+    /// if no memory shed this name, or the one that did has since been deleted.
+    pub fn memory_id_for_former_name(&self, name: &str) -> Result<Option<MemoryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT a.memory_id FROM memory_aliases a
+             JOIN memories m ON m.id = a.memory_id
+             WHERE a.former_name = ?1 AND m.deleted = 0",
+        )?;
+        let id: Option<String> = query_opt_into(stmt, params![name], |row| {
+            Ok::<String, GraphError>(row.get(0)?)
+        })?;
+        id.map(|id| Ok(MemoryId(parse_ulid(&id)?))).transpose()
+    }
+
     /// The `same_as`-class id of `id` (its class's primary stub), or `None` if the memory is unknown
     /// or soft-deleted. A lone memory is its own class. The denormalized identity key for presence
     /// and membership tests.

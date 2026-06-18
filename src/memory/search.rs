@@ -19,7 +19,7 @@ use crate::{
     decay,
     event::{Visibility, Volatility},
     graph::{Graph, GraphError, MemoryView},
-    ids::MemoryId,
+    ids::{MemoryId, MemoryName},
     model::index::VectorKey,
     settings::SearchSettings,
     time::{self, Timestamp},
@@ -168,15 +168,34 @@ pub fn search(
             + settings.bm25 * bm25.get(&id).copied().unwrap_or(0.0)
             + settings.tag * tag_match(&memory, query.tags)
             + settings.recency.bonus * recency;
+        // A renamed memory carries a "formerly …" marker, so a hit reached by an old name (or whose
+        // older content still uses one) reads as the same person under their current handle, rather
+        // than a second one (spec §Identity → Renaming).
+        let marker = combine_marker(markers.get(&id).cloned(), graph.former_names(id)?);
         hits.push(SearchHit {
             memory,
             score,
-            marker: markers.get(&id).cloned(),
+            marker,
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     hits.truncate(limit);
     Ok(hits)
+}
+
+/// Append a `[formerly …]` note to a hit's marker when the memory has been renamed, so an old-name
+/// match — or a hit whose older content still uses an old name — reads as the same person under their
+/// current handle rather than a second one (spec §Identity → Renaming).
+fn combine_marker(marker: Option<String>, former_names: Vec<MemoryName>) -> Option<String> {
+    if former_names.is_empty() {
+        return marker;
+    }
+    let names: Vec<&str> = former_names.iter().map(MemoryName::as_str).collect();
+    let note = format!("[formerly {}]", names.join(", "));
+    Some(match marker {
+        Some(existing) => format!("{existing} {note}"),
+        None => note,
+    })
 }
 
 /// Keep the best (highest) cosine seen for a memory.

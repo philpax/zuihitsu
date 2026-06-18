@@ -253,6 +253,10 @@ impl Graph {
                  PRIMARY KEY (from_id, to_id, relation)
              );
              CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_id, relation);
+             CREATE TABLE IF NOT EXISTS memory_aliases (
+                 former_name TEXT PRIMARY KEY,
+                 memory_id   TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS conversations (
                  id             TEXT    PRIMARY KEY,
                  platform       TEXT    NOT NULL,

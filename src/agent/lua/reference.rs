@@ -29,9 +29,13 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description(
             "Fetch a memory by name. Read a merged identity through its canonical person/ handle, \
              not a per-platform stub. The name must match exactly (case-sensitive); if a lookup \
-             returns nil, suspect the casing before creating a new memory.",
+             returns nil, suspect the casing before creating a new memory. A former name still finds \
+             a renamed person: the result then carries a `former_handle` (the old name you looked up \
+             by), and any renamed memory carries `former_names` — they now go by `result.name`, so it \
+             is the same person, and their older entries written under an old name are still theirs. \
+             Answer under the current name without announcing the old one.",
         )
-        .required("name", AT::String, "the memory's handle")
+        .required("name", AT::String, "the memory's handle (or a former one)")
         .returns(AT::Handle.optional());
 
     let search = AE::new("memory.search")
@@ -217,6 +221,18 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description("Remove a tag from this memory.")
         .required("name", AT::String, "the tag to clear");
 
+    let rename = AE::new("<memory>:rename")
+        .description(
+            "Give this memory a new handle, keeping it the same memory — when someone changes the \
+             name they go by (a new chosen name, a married name), rename their person/ memory rather \
+             than creating a new one. The memory keeps all its facts, links, and history under the new \
+             handle; a fresh memory would split the person in two. The old name stops resolving and is \
+             not surfaced again, so refer to them by the new name from now on. Renaming onto a handle \
+             that already belongs to a different memory is an error — that is two separate people, not \
+             a rename.",
+        )
+        .required("name", AT::String, "the new handle, e.g. \"person/sarah\"");
+
     let tags_create = AE::new("tags.create")
         .description(
             "Add a tag to the vocabulary with a one-line purpose. Creation is distinct from \
@@ -388,6 +404,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
         entries,
         history,
         supersede,
+        rename,
         link,
         unlink,
         outgoing,

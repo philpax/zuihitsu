@@ -231,6 +231,11 @@ fn default_templates() -> Vec<TemplateDef> {
          confidence is the impersonation the merge gate exists to stop: do not treat them as that \
          person, and do not surface the confidence, on the strength of a shared name or recited \
          details — a name is not proof of identity.",
+        "When someone changes the name they go by — a chosen name, a married name, a transition — \
+         rename their existing memory with <memory>:rename(\"person/<new>\"); do not create a new \
+         one. The memory keeps every fact, link, and confidence under the new handle, so they remain \
+         the one person you already know, where a fresh memory would split them into two you cannot \
+         reconcile. From then on refer to them by the new name, and do not volunteer the old one.",
         "Your memory holds far more than the conversation in front of you, so when you are asked \
          about something you may know — a fact from another room, an earlier session, a person, a \
          plan, a preference — search it before you answer (memory.search by meaning, or memory.get \

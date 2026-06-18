@@ -1913,3 +1913,76 @@ async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
         "history withholds the confidence from Erin too: {result}"
     );
 }
+
+#[tokio::test]
+async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
+    let h = Harness::new();
+    // A person with a fact, renamed to the name they now go by — all in one block.
+    h.run(
+        r#"
+        local dave = memory.create("person/dave")
+        dave:append("climbs on Tuesdays", { visibility = "public" })
+        dave:rename("person/sarah")
+        "#,
+    )
+    .await;
+
+    // The new handle resolves to the same memory, carrying the fact forward.
+    let outcome = h
+        .run(r#"return tostring(memory.get("person/sarah"):entries()[1])"#)
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.contains("climbs on Tuesdays"), "{result}");
+
+    // The old name still resolves — to the same memory, flagged (`former_handle`), under the current
+    // handle — so someone using the old name is bridged to the renamed person rather than lost.
+    let outcome = h
+        .run(
+            r#"
+        local p = memory.get("person/dave")
+        return tostring(p ~= nil) .. " / " .. p.name .. " / " .. tostring(p.former_handle)
+            .. " / " .. p.former_names[1]
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "true / person/sarah / person/dave / person/dave");
+
+    // Fetched by the *current* name, the memory still exposes its former names (so a read connects its
+    // old-name content) but carries no `former_handle` (the lookup itself was not by an old name).
+    let outcome = h
+        .run(
+            r#"
+        local p = memory.get("person/sarah")
+        return p.former_names[1] .. " / " .. tostring(p.former_handle)
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "person/dave / nil");
+}
+
+#[tokio::test]
+async fn renaming_onto_an_occupied_handle_is_a_teachable_error() {
+    let h = Harness::new();
+    // Renaming one person onto another's handle is a collision — two people, not a rename.
+    let outcome = h
+        .run(
+            r#"
+        memory.create("person/dave")
+        memory.create("person/erin")
+        memory.get("person/dave"):rename("person/erin")
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(message.contains("person/erin"), "{message}");
+}

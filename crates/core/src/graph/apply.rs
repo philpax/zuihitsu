@@ -101,7 +101,11 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
-            EventPayload::MemoryRenamed { id, new_name, .. } => {
+            EventPayload::MemoryRenamed {
+                id,
+                old_name,
+                new_name,
+            } => {
                 self.conn
                     .execute(
                         "UPDATE memories SET name = ?1 WHERE id = ?2",
@@ -112,6 +116,16 @@ impl Graph {
                     .execute(
                         "UPDATE memories_fts SET name = ?1 WHERE memory_id = ?2",
                         params![new_name.as_str(), id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+                // Record the vacated name as an alias of this memory, so an exact lookup by an old name
+                // resolves to the renamed memory (flagged as a former name; spec §Identity → Renaming).
+                // Last-writer-wins on the rare collision where two memories shed the same name.
+                self.conn
+                    .execute(
+                        "INSERT OR REPLACE INTO memory_aliases (former_name, memory_id)
+                         VALUES (?1, ?2)",
+                        params![old_name.as_str(), id.0.to_string()],
                     )
                     .map_err(backend)?;
             }

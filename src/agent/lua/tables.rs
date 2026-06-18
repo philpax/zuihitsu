@@ -385,6 +385,26 @@ impl Session {
                 }
             })?,
         )?;
+        // `mem:rename("person/sarah")` — the same memory under a new handle, for when someone changes
+        // the name they go by (spec §Identity → Renaming). Locks the memory; the collision and self
+        // guards live in the block.
+        methods.set(
+            "rename",
+            self.lua.create_async_function({
+                let api = api.clone();
+                move |_, (this, new_name): (Table, String)| {
+                    let api = api.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        api.lock(id).await;
+                        api.block
+                            .lock()
+                            .rename(id, &new_name)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    }
+                }
+            })?,
+        )?;
 
         Ok(())
     }
@@ -791,9 +811,26 @@ impl Session {
                             .get(&name)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                         match resolved {
-                            Some(id) => {
+                            Some((id, via_former)) => {
                                 api.lock(id).await;
-                                Ok(Value::Table(make_handle(&lua, id, &metatable)?))
+                                let handle = make_handle(&lua, id, &metatable)?;
+                                // A renamed memory carries its prior handles in `former_names`, so the
+                                // agent reads it as the same person under their current `name` and
+                                // connects its old-name content rather than splitting them in two.
+                                let former =
+                                    api.block.lock().former_names(id).map_err(|error| {
+                                        route_error(error, &mut api.infra.lock())
+                                    })?;
+                                if !former.is_empty() {
+                                    handle
+                                        .set("former_names", lua.create_sequence_from(former)?)?;
+                                }
+                                // Resolved *by* a former name: also flag which one, the cue that this
+                                // person now goes by `handle.name` and to answer under it.
+                                if via_former {
+                                    handle.set("former_handle", name.as_str())?;
+                                }
+                                Ok(Value::Table(handle))
                             }
                             None => Ok(Value::Nil),
                         }
