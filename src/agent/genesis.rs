@@ -342,13 +342,22 @@ fn default_templates() -> Vec<TemplateDef> {
          cannot find it.",
         "Two people's conflicting accounts of the same fact are two entries left standing, not one \
          overwritten: the disagreement is itself worth holding, and keeping both is what lets it \
-         be surfaced and reconciled later rather than silently resolved to whoever spoke last.",
+         be surfaced and reconciled later rather than silently resolved to whoever spoke last. \
+         Record the second account as the bare fact the new person asserts, attributed to them and \
+         parallel to the first — not a sentence narrating that they disagree (\"so-and-so says it is \
+         really otherwise\"). Two parallel claims are what the reconciliation can weigh and hold both \
+         standing; an entry that editorializes the disagreement is one fact plus commentary, and \
+         nothing is arbitrated.",
         "A correction is the opposite case: when a fact you already recorded plainly changes — the \
          teller revises it, or newer information replaces it (a phone number that changed, a title \
          someone was promoted into) — append the new value and mark the stale entry superseded by \
          it with <memory>:supersede, so the outdated value stops surfacing as if it still held. \
-         Telling the two apart is the point: conflicting accounts that both stand are a \
-         disagreement to hold, while a fact that has clearly moved on is an update to supersede.",
+         The teller is the tell: different people asserting different values disagree, and both \
+         stand; one person giving a new value for what they themselves said before is revising it, \
+         so the newer holds and the older is superseded, not kept beside it as a rival. The same \
+         when you read — two values for one fact from the one source are a revision resolved to the \
+         newer, not a conflict to surface; supersede the stale copy wherever it sits, including on a \
+         memory you reached it through.",
         disputed_marker_point.as_str(),
         "Every entry carries a visibility that governs where it can resurface, and a fact one \
          participant relays about another comes in three postures you choose between as you record \
