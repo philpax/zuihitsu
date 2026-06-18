@@ -21,6 +21,11 @@ pub enum EvalError {
         path: PathBuf,
         source: std::io::Error,
     },
+    /// A `--resume` sidecar could not be folded back (malformed or missing its manifest).
+    ResumeSidecar {
+        path: PathBuf,
+        reason: String,
+    },
     Serialize(serde_json::Error),
 }
 
@@ -42,6 +47,13 @@ impl std::fmt::Display for EvalError {
             EvalError::WriteOutput { path, source } => {
                 write!(f, "eval: could not write {}: {source}", path.display())
             }
+            EvalError::ResumeSidecar { path, reason } => {
+                write!(
+                    f,
+                    "eval: could not resume from {}: {reason}",
+                    path.display()
+                )
+            }
             EvalError::Serialize(source) => {
                 write!(f, "eval: could not serialize the package: {source}")
             }
@@ -59,7 +71,7 @@ impl std::error::Error for EvalError {
             EvalError::Vector(source) => Some(source),
             EvalError::WriteOutput { source, .. } => Some(source),
             EvalError::Serialize(source) => Some(source),
-            EvalError::Judge(_) => None,
+            EvalError::Judge(_) | EvalError::ResumeSidecar { .. } => None,
         }
     }
 }

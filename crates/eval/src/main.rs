@@ -8,6 +8,7 @@ mod context;
 mod error;
 mod harness;
 mod judge;
+mod live;
 mod package;
 mod retry;
 mod scenario;
@@ -28,7 +29,8 @@ use zuihitsu::{Embedder, EnvConfig, ModelClient, OpenAiClient, OpenAiEmbedder};
 use crate::{
     context::RunDeps,
     error::EvalError,
-    package::{EvalPackage, RunMeta},
+    live::EvalSink,
+    package::{EvalPackage, RunMeta, ScenarioMeta},
     retry::{RetryingEmbedder, RetryingModel},
 };
 
@@ -60,6 +62,10 @@ enum Command {
         /// The agent config to load the model/embedding endpoints from.
         #[arg(long, default_value = "config.toml")]
         config: PathBuf,
+        /// Resume an interrupted run from its `.jsonl` sidecar beside `out`, driving only the runs it
+        /// does not already hold. Ignored if no sidecar is present.
+        #[arg(long)]
+        resume: bool,
     },
     /// Export the eval-package and event-log types to TypeScript (the viewer's type contract).
     ExportTypes {
@@ -79,7 +85,17 @@ async fn main() -> ExitCode {
             scenario,
             out,
             config,
-        } => match run(runs, concurrency, scenario.as_deref(), &out, &config).await {
+            resume,
+        } => match run(
+            runs,
+            concurrency,
+            scenario.as_deref(),
+            &out,
+            &config,
+            resume,
+        )
+        .await
+        {
             Ok(all_gates_held) => {
                 if all_gates_held {
                     ExitCode::SUCCESS
@@ -116,6 +132,7 @@ async fn run(
     filter: Option<&str>,
     out: &Path,
     config_path: &Path,
+    resume: bool,
 ) -> Result<bool, EvalError> {
     let config = EnvConfig::load(config_path).map_err(|source| EvalError::LoadConfig {
         path: config_path.to_path_buf(),
@@ -169,12 +186,61 @@ async fn run(
     tracing::info!("warming up the model endpoints");
     harness::warm_up(&deps).await;
 
-    let started_at_ms = now_ms();
-    let reports = harness::run_all(deps, scenarios, runs, concurrency).await;
-    let finished_at_ms = now_ms();
+    // The scenarios that will actually run; the manifest and the live log's scenario indices are over
+    // this list.
+    let active = harness::active_scenarios(scenarios, deps.embedder.is_some());
+    let scenario_metas: Vec<ScenarioMeta> = active.iter().map(|scenario| scenario.meta()).collect();
 
-    let all_gates_held = reports.iter().all(|report| report.aggregate.gating_passed);
-    for report in &reports {
+    let started_at_ms = now_ms();
+    let meta = RunMeta {
+        harness_version: env!("CARGO_PKG_VERSION").to_owned(),
+        git_sha: git_sha(),
+        model_id: config.model.llm.clone(),
+        embedding_model: (!config.embedding.endpoint.is_empty())
+            .then(|| config.embedding.model.clone()),
+        started_at_ms,
+        // Stamped for real on `finish`; the manifest carries the start so the viewer has a clock.
+        finished_at_ms: started_at_ms,
+        runs_per_scenario: runs,
+        concurrency: concurrency as u32,
+    };
+
+    // The resumable, tailable form while the run is in flight: one JSON line per live event, beside the
+    // final package. Its presence (without the package) is itself the "this run is incomplete" signal.
+    let sidecar = out.with_extension("jsonl");
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| EvalError::WriteOutput {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+
+    // Resume continues the existing sidecar (its manifest, its completed runs) and skips them; a fresh
+    // run seeds a new one from the manifest just built.
+    let (sink, done) = if resume && sidecar.exists() {
+        let state = live::read_sidecar(&sidecar)?;
+        tracing::info!(completed = state.completed.len(), path = %sidecar.display(), "resuming from sidecar");
+        let sink = Arc::new(EvalSink::resume(state, &sidecar)?);
+        let done = sink.done_runs();
+        (sink, done)
+    } else {
+        let sink = Arc::new(EvalSink::new(meta, scenario_metas, &sidecar)?);
+        (sink, std::collections::HashSet::new())
+    };
+
+    harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
+    sink.finish(now_ms())?;
+
+    // All run tasks are joined, so the sink is solely owned: take the folded package without a copy.
+    let package = Arc::try_unwrap(sink)
+        .unwrap_or_else(|_| unreachable!("the sink outlived its run tasks"))
+        .into_package();
+
+    let all_gates_held = package
+        .scenarios
+        .iter()
+        .all(|report| report.aggregate.gating_passed);
+    for report in &package.scenarios {
         tracing::info!(
             scenario = %report.meta.name,
             rate = report.aggregate.rate,
@@ -185,23 +251,11 @@ async fn run(
         );
     }
 
-    let package = EvalPackage {
-        meta: RunMeta {
-            harness_version: env!("CARGO_PKG_VERSION").to_owned(),
-            git_sha: git_sha(),
-            model_id: config.model.llm.clone(),
-            embedding_model: (!config.embedding.endpoint.is_empty())
-                .then(|| config.embedding.model.clone()),
-            started_at_ms,
-            finished_at_ms,
-            runs_per_scenario: runs,
-            concurrency: concurrency as u32,
-        },
-        scenarios: reports,
-    };
-
+    // Fold to the canonical package, then drop the sidecar — write fully before unlinking, so a crash
+    // between leaves either a resumable sidecar or a complete package, never neither.
     write_package(&package, out)?;
     append_history(&package)?;
+    std::fs::remove_file(&sidecar).ok();
     Ok(all_gates_held)
 }
 
@@ -212,8 +266,15 @@ fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
             source,
         })?;
     }
+    // Write the temp beside the target, then rename — an atomic swap, so a reader (and the resume
+    // check) never sees a half-written package.
     let json = serde_json::to_vec_pretty(package)?;
-    std::fs::write(out, json).map_err(|source| EvalError::WriteOutput {
+    let tmp = out.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|source| EvalError::WriteOutput {
+        path: tmp.clone(),
+        source,
+    })?;
+    std::fs::rename(&tmp, out).map_err(|source| EvalError::WriteOutput {
         path: out.to_path_buf(),
         source,
     })?;

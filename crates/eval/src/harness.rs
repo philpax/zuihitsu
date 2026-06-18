@@ -1,19 +1,20 @@
-//! The runner, in two phases so assessment never contends with the evals for the model. Phase one
-//! drives every run (agent turns only) and collects each run's event log; phase two judges those
-//! collected logs (judge calls only). Both phases are bounded by the same concurrency. Then metrics
-//! from the `ModelCalled` events and an aggregate per scenario.
+//! The runner: every scenario `runs` times, each run a `drive → assess` pipeline emitted through the
+//! [`EvalSink`] as it completes, all bounded by one concurrency limit. A run's metrics come from its own
+//! `ModelCalled` events; the judge's calls go through a separate client and never enter the run's log,
+//! so interleaving drive and assess leaves per-run metrics intact. The sink folds each completed run
+//! into the growing package and the live log.
 
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 
 use tokio::{sync::Semaphore, task::JoinSet};
 use zuihitsu::{Event, EventPayload, GenerateRequest, Message, ModelPhase};
 
 use crate::{
     context::{RunContext, RunDeps},
+    error::EvalError,
     judge::Judge,
-    package::{
-        Aggregate, RunMetrics, RunRecord, ScenarioReport, Stat, TokenStat, Verdict, VerdictKind,
-    },
+    live::EvalSink,
+    package::{Aggregate, RunMetrics, RunRecord, Stat, TokenStat, Verdict, VerdictKind},
     scenario::Scenario,
 };
 
@@ -44,46 +45,47 @@ pub async fn warm_up(deps: &RunDeps) {
     }
 }
 
-/// Run every scenario `runs` times at most `concurrency` at a time, returning the per-scenario reports
-/// in registry order. A scenario needing retrieval is skipped (with a warning) when `deps.embedder` is
-/// `None`.
-pub async fn run_all(
-    deps: RunDeps,
+/// The scenarios that will actually run, in registry order — every scenario, minus those needing
+/// retrieval when no embedding endpoint is configured (skipped with a warning). The manifest and the
+/// `scenario` indices in the live log are built over this list, so its order is the scoreboard's order.
+pub fn active_scenarios(
     scenarios: Vec<Arc<dyn Scenario>>,
-    runs: u32,
-    concurrency: usize,
-) -> Vec<ScenarioReport> {
-    let permits = Arc::new(Semaphore::new(concurrency.max(1)));
-    let has_retrieval = deps.embedder.is_some();
-
-    // The scenarios that will actually run, in registry order.
-    let mut active: Vec<(usize, Arc<dyn Scenario>)> = Vec::new();
-    for (index, scenario) in scenarios.iter().enumerate() {
-        if scenario.needs_retrieval() && !has_retrieval {
-            tracing::warn!(scenario = %scenario.meta().name, "skipping: needs retrieval, but no embedding endpoint is configured");
-            continue;
-        }
-        active.push((index, scenario.clone()));
-    }
-
-    // Phase one: drive every run, collecting its event log. No judging here — the model serves only
-    // the agent's own turns.
-    let logs = drive_phase(&active, &deps, runs, &permits).await;
-    tracing::info!("phase one complete: all runs driven; assessing");
-
-    // Phase two: judge the collected logs. The model now serves only the judge.
-    assess_phase(active, logs, &deps, &permits).await
+    has_retrieval: bool,
+) -> Vec<Arc<dyn Scenario>> {
+    scenarios
+        .into_iter()
+        .filter(|scenario| {
+            let keep = !scenario.needs_retrieval() || has_retrieval;
+            if !keep {
+                tracing::warn!(scenario = %scenario.meta().name, "skipping: needs retrieval, but no embedding endpoint is configured");
+            }
+            keep
+        })
+        .collect()
 }
 
-async fn drive_phase(
-    active: &[(usize, Arc<dyn Scenario>)],
-    deps: &RunDeps,
+/// Run every `active` scenario `runs` times, at most `concurrency` in flight, each run a
+/// `drive → assess` pipeline emitted through `sink` as it completes — so a run is wholly done (or not)
+/// when it lands, the scoreboard fills in live, and an interrupted run is resumable. `scenario` is the
+/// index into `active`. The first sink error aborts the run.
+pub async fn run_all(
+    deps: RunDeps,
+    active: Vec<Arc<dyn Scenario>>,
     runs: u32,
-    permits: &Arc<Semaphore>,
-) -> BTreeMap<usize, Vec<(u32, DrivenRun)>> {
-    let mut set: JoinSet<(usize, u32, DrivenRun)> = JoinSet::new();
-    for (index, scenario) in active {
+    concurrency: usize,
+    sink: Arc<EvalSink>,
+    done: HashSet<(u32, u32)>,
+) -> Result<(), EvalError> {
+    let permits = Arc::new(Semaphore::new(concurrency.max(1)));
+    let judge = Arc::new(Judge::new(deps.model.clone()));
+
+    let mut set: JoinSet<Result<(), EvalError>> = JoinSet::new();
+    for (scenario_index, scenario) in active.iter().enumerate() {
         for run_index in 0..runs {
+            // Skip a run a resumed sidecar already holds — only the missing runs drive.
+            if done.contains(&(scenario_index as u32, run_index)) {
+                continue;
+            }
             // Acquire before spawning so at most `concurrency` runs are ever in flight.
             let permit = permits
                 .clone()
@@ -92,74 +94,29 @@ async fn drive_phase(
                 .expect("semaphore open");
             let scenario = scenario.clone();
             let deps = deps.clone();
-            let index = *index;
+            let judge = judge.clone();
+            let sink = sink.clone();
+            let scenario_index = scenario_index as u32;
             set.spawn(async move {
                 let _permit = permit;
+                sink.run_started(scenario_index, run_index)?;
                 let started = Instant::now();
                 let log = drive(scenario.as_ref(), &deps)
                     .await
-                    .map_err(|e| e.to_string());
+                    .map_err(|error| error.to_string());
                 let driven = DrivenRun {
                     log,
                     wall_clock_ms: started.elapsed().as_millis() as u64,
                 };
-                (index, run_index, driven)
+                let record = assess(scenario.as_ref(), run_index, driven, &judge).await;
+                sink.run_completed(scenario_index, record)
             });
         }
     }
-    let mut logs: BTreeMap<usize, Vec<(u32, DrivenRun)>> = BTreeMap::new();
     while let Some(joined) = set.join_next().await {
-        let (index, run_index, driven) = joined.expect("an eval drive task panicked");
-        logs.entry(index).or_default().push((run_index, driven));
+        joined.expect("an eval run task panicked")?;
     }
-    logs
-}
-
-async fn assess_phase(
-    active: Vec<(usize, Arc<dyn Scenario>)>,
-    mut logs: BTreeMap<usize, Vec<(u32, DrivenRun)>>,
-    deps: &RunDeps,
-    permits: &Arc<Semaphore>,
-) -> Vec<ScenarioReport> {
-    let judge = Arc::new(Judge::new(deps.model.clone()));
-    let mut set: JoinSet<(usize, RunRecord)> = JoinSet::new();
-    for (index, scenario) in &active {
-        for (run_index, driven) in logs.remove(index).unwrap_or_default() {
-            let permit = permits
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("semaphore open");
-            let scenario = scenario.clone();
-            let judge = judge.clone();
-            let index = *index;
-            set.spawn(async move {
-                let _permit = permit;
-                (
-                    index,
-                    assess(scenario.as_ref(), run_index, driven, &judge).await,
-                )
-            });
-        }
-    }
-    let mut by_scenario: BTreeMap<usize, Vec<RunRecord>> = BTreeMap::new();
-    while let Some(joined) = set.join_next().await {
-        let (index, record) = joined.expect("an eval assess task panicked");
-        by_scenario.entry(index).or_default().push(record);
-    }
-
-    let mut reports = Vec::new();
-    for (index, scenario) in active {
-        let mut runs = by_scenario.remove(&index).unwrap_or_default();
-        runs.sort_by_key(|run| run.index);
-        let aggregate = aggregate(&runs);
-        reports.push(ScenarioReport {
-            meta: scenario.meta(),
-            runs,
-            aggregate,
-        });
-    }
-    reports
+    Ok(())
 }
 
 /// Drive one run: a fresh agent, the scenario's turns, then its event log.
@@ -243,8 +200,9 @@ fn run_metrics(events: &[Event], gating_passed: bool, wall_clock_ms: u64) -> Run
 }
 
 /// Aggregate a scenario's runs: the pass rate (a run passes when every verdict passed), the gating
-/// invariant (no oracle regressed in any run), and the latency/token/step distributions.
-fn aggregate(runs: &[RunRecord]) -> Aggregate {
+/// invariant (no oracle regressed in any run), and the latency/token/step distributions. Recomputed by
+/// the sink after each completed run, so the scoreboard's aggregate is always current.
+pub(crate) fn aggregate(runs: &[RunRecord]) -> Aggregate {
     let n = runs.len().max(1) as f64;
     let passed = runs
         .iter()
