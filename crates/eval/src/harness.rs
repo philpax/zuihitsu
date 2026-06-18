@@ -4,10 +4,18 @@
 //! so interleaving drive and assess leaves per-run metrics intact. The sink folds each completed run
 //! into the growing package and the live log.
 
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use tokio::{sync::Semaphore, task::JoinSet};
-use zuihitsu::{Event, EventPayload, GenerateRequest, Message, ModelPhase};
+use zuihitsu::{Event, EventPayload, GenerateRequest, Message, ModelPhase, Seq};
+
+/// How often a driving run's log is polled for new events to stream live. Short enough that a
+/// deliberation reads as unfolding, and the read is incremental, so it costs only the new events.
+const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 use crate::{
     context::{RunContext, RunDeps},
@@ -101,15 +109,15 @@ pub async fn run_all(
                 let _permit = permit;
                 sink.run_started(scenario_index, run_index)?;
                 let started = Instant::now();
-                let log = drive(scenario.as_ref(), &deps)
-                    .await
-                    .map_err(|error| error.to_string());
+                let log =
+                    drive_streaming(scenario.as_ref(), &deps, &sink, scenario_index, run_index)
+                        .await?;
                 let driven = DrivenRun {
                     log,
                     wall_clock_ms: started.elapsed().as_millis() as u64,
                 };
                 let record = assess(scenario.as_ref(), run_index, driven, &judge).await;
-                sink.run_completed(scenario_index, record)
+                sink.run_finished(scenario_index, record)
             });
         }
     }
@@ -119,14 +127,58 @@ pub async fn run_all(
     Ok(())
 }
 
-/// Drive one run: a fresh agent, the scenario's turns, then its event log.
-async fn drive(
+/// Drive one run while streaming its events live: between turns, poll the run's log and emit each new
+/// event as a `RunEvent`, so a viewer watches the deliberation unfold rather than seeing it appear all
+/// at once on completion. The inner result is the run's full log (or the reason it did not complete, a
+/// metric); the outer result is a sink/IO failure, which aborts the whole run.
+async fn drive_streaming(
     scenario: &dyn Scenario,
     deps: &RunDeps,
-) -> Result<Vec<Event>, crate::error::EvalError> {
-    let ctx = RunContext::new(deps).await?;
-    scenario.run(&ctx).await?;
-    ctx.events()
+    sink: &EvalSink,
+    scenario_index: u32,
+    run_index: u32,
+) -> Result<Result<Vec<Event>, String>, EvalError> {
+    let ctx = match RunContext::new(deps).await {
+        Ok(ctx) => ctx,
+        Err(error) => return Ok(Err(error.to_string())),
+    };
+    let run = scenario.run(&ctx);
+    tokio::pin!(run);
+    let mut cursor = Seq::ZERO;
+    let outcome = loop {
+        tokio::select! {
+            // Bias toward the run: when a turn completes, finish it before polling again.
+            biased;
+            result = &mut run => break result,
+            _ = tokio::time::sleep(POLL_INTERVAL) => {
+                cursor = stream_new_events(&ctx, sink, scenario_index, run_index, cursor)?;
+            }
+        }
+    };
+    // Drain whatever was recorded between the last poll and completion (a final turn, the synthesis
+    // catch-ups) before the run is judged.
+    stream_new_events(&ctx, sink, scenario_index, run_index, cursor)?;
+    match outcome {
+        Ok(()) => Ok(ctx.events().map_err(|error| error.to_string())),
+        Err(error) => Ok(Err(error.to_string())),
+    }
+}
+
+/// Emit every event recorded at or after `cursor` as a `RunEvent`, returning the cursor past the last —
+/// an incremental read, so each poll touches only what is new.
+fn stream_new_events(
+    ctx: &RunContext,
+    sink: &EvalSink,
+    scenario_index: u32,
+    run_index: u32,
+    cursor: Seq,
+) -> Result<Seq, EvalError> {
+    let mut next = cursor;
+    for event in ctx.events_from(cursor)? {
+        next = event.seq.next();
+        sink.run_event(scenario_index, run_index, event)?;
+    }
+    Ok(next)
 }
 
 /// Judge one run's collected log into a record (or, for a run that did not complete, a visible failure).

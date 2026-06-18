@@ -1,11 +1,13 @@
-//! The live eval log: the event stream a run emits, persisted as a `.jsonl` sidecar and (with
-//! `--serve`) broadcast to the console, which folds it into a growing [`EvalPackage`]. One log with two
-//! faces — the durable sidecar resumes an interrupted run and folds into the final package; the stream
-//! drives the live view. The log of a whole run is a `Manifest`, then per run a `RunStarted`, its
-//! `RunEvent`s, and a `RunCompleted`, ended by a `Finished`.
+//! The live eval log: the event stream a run emits, with two faces over one [`LiveEvent`] type. The
+//! durable face is a `.jsonl` sidecar of whole runs — `Manifest`, then per run a `RunStarted` and a
+//! `RunCompleted` (which carries the run's full record), ended by a `Finished`; it resumes an
+//! interrupted run and folds into the final package. The live face (with `--serve`) is the same stream
+//! plus `RunEvent`s broadcast as a run deliberates — these animate the console's deep-dive but are
+//! *not* persisted, because `RunCompleted` carries the authoritative copy, so a viewer who joins
+//! mid-run still folds the exact same package the sidecar would.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     fs::{File, OpenOptions},
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
@@ -13,17 +15,20 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 use ts_rs::TS;
 use zuihitsu::Event;
 
 use crate::{
     error::EvalError,
     harness,
-    package::{
-        Aggregate, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta, ScenarioReport,
-        Verdict,
-    },
+    package::{Aggregate, EvalPackage, RunMeta, RunRecord, ScenarioMeta, ScenarioReport},
 };
+
+/// How many live events the broadcast holds for a subscriber that briefly falls behind. Generous
+/// because `RunEvent`s are frequent; a subscriber that lags past it is caught up by a fresh snapshot
+/// rather than the missed deltas (see `serve`).
+const BROADCAST_CAPACITY: usize = 8192;
 
 /// One event in an eval run's live log. Emitted in order; the console folds the sequence into an
 /// [`EvalPackage`], and the harness persists it as a `.jsonl` sidecar.
@@ -39,19 +44,22 @@ pub enum LiveEvent {
     },
     /// A run began.
     RunStarted { scenario: u32, run: u32 },
-    /// One domain event from a run's deliberation, streamed as it happens.
+    /// One domain event from a run's deliberation, streamed live as it happens. Broadcast-only — it
+    /// drives the deep-dive's unfolding view, but is *not* written to the sidecar: the authoritative
+    /// record arrives in `RunCompleted`, so a client that joined mid-run (and missed some of these) is
+    /// still made whole.
     RunEvent {
         scenario: u32,
         run: u32,
         event: Event,
     },
-    /// A run finished: its verdicts and metrics, and the scenario's aggregate recomputed over its runs
-    /// so far. The run's events arrived as `RunEvent`s.
+    /// A run finished: its whole record (events, verdicts, metrics) and the scenario's aggregate
+    /// recomputed over its runs so far. Authoritative — folding it reproduces the canonical package
+    /// regardless of which live `RunEvent`s a client happened to see.
     RunCompleted {
         scenario: u32,
         run: u32,
-        verdicts: Vec<Verdict>,
-        metrics: RunMetrics,
+        record: RunRecord,
         aggregate: Aggregate,
     },
     /// The whole run completed.
@@ -63,15 +71,20 @@ pub enum LiveEvent {
 
 /// Accumulates a run's [`LiveEvent`]s into a growing [`EvalPackage`] while appending them to a `.jsonl`
 /// sidecar. Shared across the concurrent run tasks; every method serializes behind the lock, so the
-/// sidecar's lines and the in-memory package stay consistent. [`EvalSink::into_package`] yields the
-/// final package to fold and write once the whole run completes.
+/// sidecar's lines and the in-memory package stay consistent. [`EvalSink::package`] yields the folded
+/// package to write once the whole run completes.
 pub struct EvalSink {
     inner: Mutex<Inner>,
+    /// Each emitted event, tagged with its monotonic id, broadcast to live `serve` subscribers. The
+    /// sender lives outside the lock; the id and the write live inside it, so a subscriber that joins
+    /// while holding the lock (see [`EvalSink::subscribe`]) sees a consistent snapshot-then-deltas cut.
+    events: broadcast::Sender<(u64, LiveEvent)>,
 }
 
 struct Inner {
     package: EvalPackage,
     writer: BufWriter<File>,
+    next_id: u64,
 }
 
 impl EvalSink {
@@ -97,11 +110,14 @@ impl EvalSink {
                 })
                 .collect(),
         };
+        let (events, _) = broadcast::channel(BROADCAST_CAPACITY);
         let sink = EvalSink {
             inner: Mutex::new(Inner {
                 package,
                 writer: BufWriter::new(file),
+                next_id: 0,
             }),
+            events,
         };
         sink.emit(LiveEvent::Manifest { meta, scenarios })?;
         Ok(sink)
@@ -112,61 +128,62 @@ impl EvalSink {
         self.emit(LiveEvent::RunStarted { scenario, run })
     }
 
-    /// Fold a finished run in: stream its events as `RunEvent`s, append the record to its scenario,
-    /// recompute the scenario aggregate, and emit the light `RunCompleted`.
-    pub fn run_completed(&self, scenario: u32, record: RunRecord) -> Result<(), EvalError> {
+    /// Broadcast one `RunEvent` live — a single event from a run's deliberation as it is recorded.
+    /// Broadcast-only (not written to the sidecar): it animates the deep-dive, but the authoritative
+    /// copy rides the run's `RunCompleted`, so a viewer who joined mid-run loses nothing.
+    pub fn run_event(&self, scenario: u32, run: u32, event: Event) -> Result<(), EvalError> {
+        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        self.broadcast_locked(
+            &mut inner,
+            LiveEvent::RunEvent {
+                scenario,
+                run,
+                event,
+            },
+        );
+        Ok(())
+    }
+
+    /// Fold a finished run in: append its record to the scenario, recompute the scenario aggregate, and
+    /// emit `RunCompleted` carrying the whole record. This is the authoritative copy a client folds —
+    /// the live `RunEvent`s only animated the deliberation up to here.
+    pub fn run_finished(&self, scenario: u32, record: RunRecord) -> Result<(), EvalError> {
         let mut inner = self.inner.lock().expect("eval sink poisoned");
         let run = record.index;
-        for event in &record.events {
-            write(
-                &mut inner.writer,
-                &LiveEvent::RunEvent {
-                    scenario,
-                    run,
-                    event: event.clone(),
-                },
-            )?;
-        }
-        let verdicts = record.verdicts.clone();
-        let metrics = record.metrics;
         let report = &mut inner.package.scenarios[scenario as usize];
-        report.runs.push(record);
+        report.runs.push(record.clone());
         report.runs.sort_by_key(|run| run.index);
         report.aggregate = harness::aggregate(&report.runs);
         let aggregate = report.aggregate;
-        write(
-            &mut inner.writer,
-            &LiveEvent::RunCompleted {
+        self.emit_locked(
+            &mut inner,
+            LiveEvent::RunCompleted {
                 scenario,
                 run,
-                verdicts,
-                metrics,
+                record,
                 aggregate,
             },
         )?;
         // Flush at the run boundary so a kill never loses a completed run: the sidecar always holds
         // whole runs, and resume re-drives only what genuinely did not finish.
-        inner
-            .writer
-            .flush()
-            .map_err(|source| EvalError::WriteOutput {
-                path: Path::new("<eval sidecar>").to_path_buf(),
-                source,
-            })
+        flush(&mut inner.writer)
     }
 
     /// Emit `Finished`, stamp the package, and flush the sidecar.
     pub fn finish(&self, finished_at_ms: i64) -> Result<(), EvalError> {
         let mut inner = self.inner.lock().expect("eval sink poisoned");
         inner.package.meta.finished_at_ms = finished_at_ms;
-        write(&mut inner.writer, &LiveEvent::Finished { finished_at_ms })?;
-        inner
-            .writer
-            .flush()
-            .map_err(|source| EvalError::WriteOutput {
-                path: Path::new("<eval sidecar>").to_path_buf(),
-                source,
-            })
+        self.emit_locked(&mut inner, LiveEvent::Finished { finished_at_ms })?;
+        flush(&mut inner.writer)
+    }
+
+    /// Snapshot the current package and subscribe to the deltas to come, under the lock — so the
+    /// snapshot reflects exactly the events before the subscription and the receiver gets exactly the
+    /// events after, with no gap or overlap. The basis for `serve`'s snapshot-then-deltas stream.
+    pub fn subscribe(&self) -> (EvalPackage, broadcast::Receiver<(u64, LiveEvent)>) {
+        let inner = self.inner.lock().expect("eval sink poisoned");
+        let receiver = self.events.subscribe();
+        (inner.package.clone(), receiver)
     }
 
     /// Re-open an interrupted run's sidecar to continue it: seed the package with the runs that
@@ -199,11 +216,15 @@ impl EvalSink {
             report.runs.sort_by_key(|run| run.index);
             report.aggregate = harness::aggregate(&report.runs);
         }
+        let (events, _) = broadcast::channel(BROADCAST_CAPACITY);
         Ok(EvalSink {
             inner: Mutex::new(Inner {
                 package,
                 writer: BufWriter::new(file),
+                // Resumed deltas continue the id sequence past what the sidecar already holds.
+                next_id: 0,
             }),
+            events,
         })
     }
 
@@ -225,14 +246,36 @@ impl EvalSink {
             .collect()
     }
 
-    /// The final folded package — every scenario with its runs and aggregate.
-    pub fn into_package(self) -> EvalPackage {
-        self.inner.into_inner().expect("eval sink poisoned").package
+    /// The folded package as it stands — every scenario with its runs and aggregate. Cloned (rather
+    /// than consuming) so the sink lives on to keep serving the final state to viewers.
+    pub fn package(&self) -> EvalPackage {
+        self.inner
+            .lock()
+            .expect("eval sink poisoned")
+            .package
+            .clone()
     }
 
     fn emit(&self, event: LiveEvent) -> Result<(), EvalError> {
         let mut inner = self.inner.lock().expect("eval sink poisoned");
-        write(&mut inner.writer, &event)
+        self.emit_locked(&mut inner, event)
+    }
+
+    /// Write one event to the sidecar, then broadcast it — under the held lock, so the sidecar's line
+    /// order and the broadcast order agree. For the durable events (manifest, run boundaries).
+    fn emit_locked(&self, inner: &mut Inner, event: LiveEvent) -> Result<(), EvalError> {
+        write(&mut inner.writer, &event)?;
+        self.broadcast_locked(inner, event);
+        Ok(())
+    }
+
+    /// Tag an event with the next id and broadcast it to live subscribers, without writing it to the
+    /// sidecar — for the live-only `RunEvent`s. The id sequence is shared with [`EvalSink::emit_locked`]
+    /// so every broadcast event is ordered. A send with no live subscribers is a no-op.
+    fn broadcast_locked(&self, inner: &mut Inner, event: LiveEvent) {
+        let id = inner.next_id;
+        inner.next_id += 1;
+        let _ = self.events.send((id, event));
     }
 }
 
@@ -254,7 +297,6 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
     })?;
     let mut meta: Option<RunMeta> = None;
     let mut scenarios = Vec::new();
-    let mut pending: BTreeMap<(u32, u32), Vec<Event>> = BTreeMap::new();
     let mut completed = Vec::new();
     for line in BufReader::new(file).lines() {
         let line = line.map_err(|source| EvalError::WriteOutput {
@@ -272,30 +314,15 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
                 meta = Some(run_meta);
                 scenarios = metas;
             }
-            LiveEvent::RunEvent {
-                scenario,
-                run,
-                event,
-            } => pending.entry((scenario, run)).or_default().push(event),
+            // The sidecar holds only whole runs: `RunCompleted` carries the full record, so a resume
+            // reads it straight back. A run with a `RunStarted` but no completion died mid-flight and
+            // re-drives clean. `RunEvent`s are broadcast-only and never reach the sidecar.
             LiveEvent::RunCompleted {
-                scenario,
-                run,
-                verdicts,
-                metrics,
-                ..
-            } => {
-                let events = pending.remove(&(scenario, run)).unwrap_or_default();
-                completed.push((
-                    scenario,
-                    RunRecord {
-                        index: run,
-                        events,
-                        verdicts,
-                        metrics,
-                    },
-                ));
-            }
-            LiveEvent::RunStarted { .. } | LiveEvent::Finished { .. } => {}
+                scenario, record, ..
+            } => completed.push((scenario, record)),
+            LiveEvent::RunStarted { .. }
+            | LiveEvent::RunEvent { .. }
+            | LiveEvent::Finished { .. } => {}
         }
     }
     let meta = meta.ok_or_else(|| EvalError::ResumeSidecar {
@@ -314,6 +341,14 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
 fn write(writer: &mut BufWriter<File>, event: &LiveEvent) -> Result<(), EvalError> {
     let line = serde_json::to_string(event)?;
     writeln!(writer, "{line}").map_err(|source| EvalError::WriteOutput {
+        path: Path::new("<eval sidecar>").to_path_buf(),
+        source,
+    })
+}
+
+/// Flush the buffered sidecar to disk — at a run boundary, so durability is per completed run.
+fn flush(writer: &mut BufWriter<File>) -> Result<(), EvalError> {
+    writer.flush().map_err(|source| EvalError::WriteOutput {
         path: Path::new("<eval sidecar>").to_path_buf(),
         source,
     })

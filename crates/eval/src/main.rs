@@ -13,8 +13,10 @@ mod package;
 mod retry;
 mod scenario;
 mod scenarios;
+mod serve;
 
 use std::{
+    net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
@@ -66,6 +68,11 @@ enum Command {
         /// does not already hold. Ignored if no sidecar is present.
         #[arg(long)]
         resume: bool,
+        /// Serve the run live over SSE at this address (e.g. `127.0.0.1:7878`) for the console to
+        /// watch — the scoreboard fills in as runs complete. The process keeps serving the final state
+        /// until Ctrl-C.
+        #[arg(long)]
+        serve: Option<SocketAddr>,
     },
     /// Export the eval-package and event-log types to TypeScript (the viewer's type contract).
     ExportTypes {
@@ -86,6 +93,7 @@ async fn main() -> ExitCode {
             out,
             config,
             resume,
+            serve,
         } => match run(
             runs,
             concurrency,
@@ -93,6 +101,7 @@ async fn main() -> ExitCode {
             &out,
             &config,
             resume,
+            serve,
         )
         .await
         {
@@ -133,6 +142,7 @@ async fn run(
     out: &Path,
     config_path: &Path,
     resume: bool,
+    serve: Option<SocketAddr>,
 ) -> Result<bool, EvalError> {
     let config = EnvConfig::load(config_path).map_err(|source| EvalError::LoadConfig {
         path: config_path.to_path_buf(),
@@ -228,13 +238,14 @@ async fn run(
         (sink, std::collections::HashSet::new())
     };
 
+    // Serve the live stream alongside the run, started before any run so a viewer connecting at launch
+    // sees the whole plan (the manifest) and watches it fill in.
+    let serving = serve.map(|addr| tokio::spawn(serve::serve(addr, sink.clone())));
+
     harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
     sink.finish(now_ms())?;
 
-    // All run tasks are joined, so the sink is solely owned: take the folded package without a copy.
-    let package = Arc::try_unwrap(sink)
-        .unwrap_or_else(|_| unreachable!("the sink outlived its run tasks"))
-        .into_package();
+    let package = sink.package();
 
     let all_gates_held = package
         .scenarios
@@ -256,6 +267,20 @@ async fn run(
     write_package(&package, out)?;
     append_history(&package)?;
     std::fs::remove_file(&sidecar).ok();
+
+    // With --serve, keep the process up after the run so the operator can review the final state live;
+    // the in-memory sink still answers new connections with the complete package. Ctrl-C exits.
+    if let Some(serving) = serving {
+        tracing::info!("run complete; serving the final state — Ctrl-C to exit");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            result = serving => {
+                if let Ok(Err(error)) = result {
+                    tracing::error!(%error, "the live serve ended with an error");
+                }
+            }
+        }
+    }
     Ok(all_gates_held)
 }
 

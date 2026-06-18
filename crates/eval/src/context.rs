@@ -7,7 +7,7 @@ use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
     ConversationLocator, Embedder, Event, Graph, ManualClock, MemoryStore, ModelClient, SeedSelf,
-    Server, SqliteVectorIndex, Timestamp, TurnOutcome,
+    Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
 };
 
 use crate::error::EvalError;
@@ -169,6 +169,12 @@ impl RunContext {
     /// The run's whole event log — the record the harness embeds and assessment reads.
     pub fn events(&self) -> Result<Vec<Event>, EvalError> {
         Ok(self.server.control().events()?)
+    }
+
+    /// The run's events recorded at or after `from` — for streaming a run's deliberation live as it
+    /// drives, reading only what is new since the last poll.
+    pub fn events_from(&self, from: Seq) -> Result<Vec<Event>, EvalError> {
+        Ok(self.server.control().events_from(from)?)
     }
 }
 

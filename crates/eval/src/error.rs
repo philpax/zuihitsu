@@ -26,6 +26,8 @@ pub enum EvalError {
         path: PathBuf,
         reason: String,
     },
+    /// The `--serve` live endpoint could not bind or serve.
+    Serve(std::io::Error),
     Serialize(serde_json::Error),
 }
 
@@ -54,6 +56,7 @@ impl std::fmt::Display for EvalError {
                     path.display()
                 )
             }
+            EvalError::Serve(source) => write!(f, "eval: live serve: {source}"),
             EvalError::Serialize(source) => {
                 write!(f, "eval: could not serialize the package: {source}")
             }
@@ -71,6 +74,7 @@ impl std::error::Error for EvalError {
             EvalError::Vector(source) => Some(source),
             EvalError::WriteOutput { source, .. } => Some(source),
             EvalError::Serialize(source) => Some(source),
+            EvalError::Serve(source) => Some(source),
             EvalError::Judge(_) | EvalError::ResumeSidecar { .. } => None,
         }
     }
