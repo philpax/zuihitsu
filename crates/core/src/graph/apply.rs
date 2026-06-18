@@ -128,6 +128,16 @@ impl Graph {
                         params![old_name.as_str(), id.0.to_string()],
                     )
                     .map_err(backend)?;
+                // Keep the old name searchable (alias-aware search): a renamed person found by an old
+                // name surfaces in `memory.search`, not only `memory.get`. Folded into the FTS content
+                // (ranking only — never displayed), so it never broadcasts; the hit's `[formerly …]`
+                // marker is what the agent reads.
+                self.conn
+                    .execute(
+                        "UPDATE memories_fts SET content = content || ' ' || ?1 WHERE memory_id = ?2",
+                        params![old_name.as_str(), id.0.to_string()],
+                    )
+                    .map_err(backend)?;
             }
             EventPayload::MemoryDeleted { id } => {
                 self.conn

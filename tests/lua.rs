@@ -1485,6 +1485,38 @@ async fn memory_search_recalls_an_indexed_entry() {
 }
 
 #[tokio::test]
+async fn search_finds_a_renamed_person_by_an_old_name() {
+    let h = Harness::with_retrieval();
+    // A public fact that does *not* mention the name, then a rename — so only the alias-aware indexing
+    // (the old name folded into the FTS) can make an old-name search find them.
+    h.run(
+        r#"
+        local dave = memory.create("person/dave")
+        dave:append("Handles the deploys.", { by_agent = true, visibility = "public" })
+        dave:rename("person/sarah")
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    // Searching by the former name surfaces the renamed person, flagged [formerly person/dave].
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.search("Dave")
+        if #results == 0 then return "none" end
+        return results[1].name .. " | " .. tostring(results[1].marker)
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.starts_with("person/sarah"), "{result}");
+    assert!(result.contains("formerly person/dave"), "{result}");
+}
+
+#[tokio::test]
 async fn print_output_is_surfaced_in_the_block_result() {
     // `print(...)` must feed back to the agent: Lua's default print writes to a process stdout the
     // model never reads, so an agent that inspects a value by printing it would see nothing. A block

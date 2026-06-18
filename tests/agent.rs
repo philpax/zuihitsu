@@ -150,6 +150,65 @@ async fn descriptions_regenerate_after_a_turn() {
     assert_eq!(produced_by.template_version, 1);
 }
 
+#[tokio::test]
+async fn a_rename_re_describes_the_memory_under_the_new_name() {
+    // A rename changes no content, but the description is synthesized under the memory's name, so it
+    // must be re-synthesized — otherwise the description (which reaches participants in briefs) keeps
+    // the old name (spec §Identity → Renaming, deadname-safety).
+    let h = Harness::new();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        // Turn 1: a public fact, then its description synthesized under the old name.
+        run_lua_call(
+            r#"local d = memory.create("person/dave")
+               d:append("Handles the deploys.", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(r#"{"description":"Dave handles the deploys.","occurrences":[]}"#),
+        // Turn 2: the rename — no content change.
+        run_lua_call(r#"memory.get("person/dave"):rename("person/sarah")"#),
+        Completion::Reply("Will do.".to_owned()),
+        // The rename re-triggers synthesis, now under the new name — no "Dave".
+        synthesize_call(r#"{"description":"Sarah handles the deploys.","occurrences":[]}"#),
+    ]);
+
+    run_turn(h.as_turn(&model, "Dave handles the deploys", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/dave")
+        .unwrap()
+        .unwrap();
+    assert_eq!(dave.description, "Dave handles the deploys.");
+
+    run_turn(h.as_turn(&model, "I go by Sarah now", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    // The rename alone re-described the memory under the new handle; the old name is gone from the
+    // description, so it no longer rides into a brief.
+    let sarah = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name("person/sarah")
+        .unwrap()
+        .unwrap();
+    assert_eq!(sarah.description, "Sarah handles the deploys.");
+}
+
 /// Day-noon millis for a `YYYY-MM-DD`, the `occurred_sort` a `Day` occurrence denormalizes to.
 fn day_noon(date: &str) -> Timestamp {
     let midnight = CivilDate(date.into()).midnight_millis().unwrap();

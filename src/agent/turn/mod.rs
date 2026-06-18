@@ -813,7 +813,12 @@ fn collect_written_memories(
     for event in store.read_from(cycle_start.next())? {
         let id = match event.payload {
             EventPayload::MemoryCreated { id, .. }
-            | EventPayload::MemoryContentAppended { id, .. } => id,
+            | EventPayload::MemoryContentAppended { id, .. }
+            // A rename changes no content, but the description is synthesized under the memory's name,
+            // so it must be re-synthesized under the new handle — otherwise it keeps the old name and
+            // a renamed person's brief broadcasts a name they no longer go by (spec §Identity →
+            // Renaming, deadname-safety).
+            | EventPayload::MemoryRenamed { id, .. } => id,
             _ => continue,
         };
         if seen.insert(id) {
