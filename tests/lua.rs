@@ -1982,7 +1982,11 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(result, "true / person/sarah / person/dave / person/dave");
+    // (The old-name lookup also emits its rename note ahead of the returned value, hence `contains`.)
+    assert!(
+        result.contains("true / person/sarah / person/dave / person/dave"),
+        "{result}"
+    );
 
     // Fetched by the *current* name, the memory still exposes its former names (so a read connects its
     // old-name content) but carries no `former_handle` (the lookup itself was not by an old name).
@@ -1998,6 +2002,37 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
         panic!("expected commit, got {outcome:?}");
     };
     assert_eq!(result, "person/dave / nil");
+}
+
+#[tokio::test]
+async fn an_old_name_lookup_announces_the_rename_in_the_output() {
+    let h = Harness::new();
+    h.run(
+        r#"
+        local dave = memory.create("person/dave")
+        dave:append("climbs on Tuesdays", { visibility = "public" })
+        dave:rename("person/sarah")
+        "#,
+    )
+    .await;
+
+    // Looking the person up by their old name emits an active note into the agent's own output — so
+    // however it goes on to inspect the handle, it cannot mistake the renamed node for a second person.
+    let outcome = h
+        .run(
+            r#"
+        local p = memory.get("person/dave")
+        print(p:entries()[1])
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.contains(r#"note: "person/dave" now goes by "person/sarah" — the same person"#),
+        "{result}"
+    );
 }
 
 #[tokio::test]

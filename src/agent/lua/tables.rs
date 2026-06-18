@@ -825,10 +825,24 @@ impl Session {
                                     handle
                                         .set("former_names", lua.create_sequence_from(former)?)?;
                                 }
-                                // Resolved *by* a former name: also flag which one, the cue that this
-                                // person now goes by `handle.name` and to answer under it.
+                                // Resolved *by* a former name: flag which one, and — because the passive
+                                // fields are easy for a small model to skip (it reads `e.text` and
+                                // concludes the old and new handle are two people) — emit an active note
+                                // into the agent's own output, so an old-name lookup cannot be mistaken
+                                // for a second person however the handle is inspected. The note rides the
+                                // agent's result only, never a participant, so it stays deadname-safe.
                                 if via_former {
                                     handle.set("former_handle", name.as_str())?;
+                                    let current =
+                                        api.block.lock().handle_field(id, "name").map_err(
+                                            |error| route_error(error, &mut api.infra.lock()),
+                                        )?;
+                                    if let Some(current) = current {
+                                        api.printed.lock().push_str(&format!(
+                                            "note: \"{name}\" now goes by \"{current}\" — the same \
+                                             person, renamed.\n"
+                                        ));
+                                    }
                                 }
                                 Ok(Value::Table(handle))
                             }
