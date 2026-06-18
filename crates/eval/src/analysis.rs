@@ -88,6 +88,22 @@ pub fn link_reader_called(events: &[Event]) -> bool {
     lua_called(events, "outgoing") || lua_called(events, "incoming") || lua_called(events, "links")
 }
 
+/// Whether the agent renamed a memory's handle (a `MemoryRenamed`) — the structural signal that it
+/// followed a name change by renaming the existing memory rather than creating a second one for the
+/// same person (spec §Identity → Renaming).
+pub fn memory_renamed(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(&event.payload, EventPayload::MemoryRenamed { .. }))
+}
+
+/// Whether the agent renamed some memory *to* `new_name` specifically.
+pub fn renamed_to(events: &[Event], new_name: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(&event.payload, EventPayload::MemoryRenamed { new_name: name, .. } if name.as_str() == new_name)
+    })
+}
+
 /// Whether the agent proposed a cross-platform merge (a `MergeProposed`) — the agent's judgment that
 /// two stubs may be one person, before any adjudication.
 pub fn merge_proposed(events: &[Event]) -> bool {

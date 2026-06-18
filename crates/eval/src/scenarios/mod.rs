@@ -11,6 +11,7 @@ mod merge;
 mod privacy;
 mod recall;
 mod relations;
+mod rename;
 mod reuse;
 mod scheduling;
 mod tagging;
@@ -27,6 +28,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         tagging::scenarios(),
         relations::scenarios(),
         merge::scenarios(),
+        rename::scenarios(),
         decay::scenarios(),
         scheduling::scenarios(),
         arbitration::scenarios(),
