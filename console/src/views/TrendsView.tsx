@@ -22,9 +22,50 @@ import { Eyebrow } from "../components/primitives.tsx";
 const INK = "#2c2823";
 const FAINT = "#9c9484";
 const LINE = "#ddd4c3";
-const CLAY = "#af6047";
-const SAGE = "#707a55";
 const PAPER = "#f4efe5";
+
+// A scenario's color is derived from its name, not assigned by position: the hash fixes the hue, so
+// a scenario keeps the same color across every chart and across runs as the set grows or shrinks —
+// no index shift, no palette cycling. Hue rides OKLCH at a fixed lightness and chroma so every hue
+// lands equally muted on the warm paper ground rather than some washing out and others shouting.
+// Gating failure rides a separate channel (dashes and opacity) so it never competes with identity.
+const SWATCH_L = 0.62;
+const SWATCH_C = 0.09;
+
+function colorForName(name: string): string {
+  // FNV-1a over the name, folded to a hue. `Math.imul` keeps the multiply in 32-bit lanes.
+  let hash = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return oklchToHex(SWATCH_L, SWATCH_C, (hash >>> 0) % 360);
+}
+
+/// Convert an OKLCH color to an sRGB hex string. Recharts draws SVG and some browsers still lack
+/// `oklch()` as a paint value, so the conversion happens here rather than handing CSS to the DOM.
+function oklchToHex(l: number, c: number, hueDeg: number): string {
+  const h = (hueDeg * Math.PI) / 180;
+  const a = c * Math.cos(h);
+  const b = c * Math.sin(h);
+
+  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+
+  const r = 4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_;
+  const g = -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_;
+  const bl = -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_;
+
+  return `#${[r, g, bl].map(channel).join("")}`;
+}
+
+/// Linear sRGB to a gamma-encoded, clamped two-digit hex byte.
+function channel(linear: number): string {
+  const encoded = linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055;
+  const byte = Math.max(0, Math.min(255, Math.round(encoded * 255)));
+  return byte.toString(16).padStart(2, "0");
+}
 
 const TICK = { fill: FAINT, fontSize: 10, fontFamily: "var(--font-mono)" } as const;
 const TOOLTIP = {
@@ -77,6 +118,7 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
     name: s.name,
     latency: s.latency_p50_ms,
     tokens: s.total_tokens_mean,
+    ok: s.gating_passed,
   }));
 
   return (
@@ -103,22 +145,28 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
             />
             <Tooltip
               contentStyle={TOOLTIP}
+              wrapperStyle={{ zIndex: 50 }}
               formatter={(value) => formatRate(Number(value))}
               itemStyle={{ color: INK }}
               labelFormatter={(label) => `run ${label}`}
             />
-            {moving.map((name) => (
-              <Line
-                key={name}
-                type="monotone"
-                dataKey={name}
-                stroke={gatingByName.get(name) ? SAGE : CLAY}
-                strokeWidth={1.5}
-                dot={{ r: 2 }}
-                activeDot={{ r: 3 }}
-                connectNulls
-              />
-            ))}
+            {moving.map((name) => {
+              const color = colorForName(name);
+              // Color carries identity; a dashed stroke flags a scenario whose gating is failing.
+              return (
+                <Line
+                  key={name}
+                  type="monotone"
+                  dataKey={name}
+                  stroke={color}
+                  strokeWidth={1.5}
+                  strokeDasharray={gatingByName.get(name) ? undefined : "4 3"}
+                  dot={{ r: 2, fill: color, stroke: color }}
+                  activeDot={{ r: 3 }}
+                  connectNulls
+                />
+              );
+            })}
           </LineChart>
         </ResponsiveContainer>
       </Panel>
@@ -148,12 +196,13 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
             />
             <Tooltip
               contentStyle={TOOLTIP}
+              wrapperStyle={{ zIndex: 50 }}
               cursor={{ fill: "#00000008" }}
               formatter={(value) => formatMs(Number(value))}
             />
             <Bar dataKey="latency" radius={[0, 1, 1, 0]} barSize={11}>
               {latency.map((d) => (
-                <Cell key={d.name} fill={d.ok ? SAGE : CLAY} fillOpacity={0.75} />
+                <Cell key={d.name} fill={colorForName(d.name)} fillOpacity={d.ok ? 0.85 : 0.35} />
               ))}
             </Bar>
           </BarChart>
@@ -184,8 +233,17 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
               width={44}
             />
             <ZAxis range={[36, 36]} />
-            <Tooltip contentStyle={TOOLTIP} cursor={{ stroke: LINE }} content={<CostTooltip />} />
-            <Scatter data={cost} fill={CLAY} fillOpacity={0.55} />
+            <Tooltip
+              contentStyle={TOOLTIP}
+              wrapperStyle={{ zIndex: 50 }}
+              cursor={{ stroke: LINE }}
+              content={<CostTooltip />}
+            />
+            <Scatter data={cost}>
+              {cost.map((d) => (
+                <Cell key={d.name} fill={colorForName(d.name)} fillOpacity={d.ok ? 0.7 : 0.3} />
+              ))}
+            </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
       </Panel>
