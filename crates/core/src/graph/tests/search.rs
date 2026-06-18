@@ -1,7 +1,7 @@
 use super::materialized;
 use crate::{
     event::{EventPayload, Teller, Visibility},
-    ids::{EntryId, MemoryId, MemoryName},
+    ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
 };
 
@@ -12,7 +12,7 @@ fn search_matches_name_description_and_content() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: dave,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryContentAppended {
             id: dave,
@@ -26,7 +26,7 @@ fn search_matches_name_description_and_content() {
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: MemoryName::new("person/erin"),
+            name: Namespace::Person.handle("erin"),
         },
         EventPayload::MemoryDescriptionRegenerated {
             id: erin,
@@ -55,7 +55,7 @@ fn search_excludes_soft_deleted() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new("topic/quantum-knitting"),
+            name: Namespace::Topic.handle("quantum-knitting"),
         },
         EventPayload::MemoryDeleted { id },
     ]);

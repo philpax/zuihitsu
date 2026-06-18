@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, Visibility};
+use zuihitsu::{Event, Namespace, Visibility};
 
 use crate::{
     analysis,
@@ -164,7 +164,8 @@ impl Scenario for FreshSensitiveAside {
         let public_person: Vec<_> = analysis::entries(events)
             .into_iter()
             .filter(|entry| {
-                entry.visibility == Visibility::Public && entry.memory.starts_with("person/")
+                entry.visibility == Visibility::Public
+                    && entry.memory.starts_with(Namespace::Person.prefix())
             })
             .collect();
 
@@ -229,7 +230,8 @@ impl Scenario for SensitiveNonPerson {
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
         let confidential = analysis::tag_applied(events, "confidential");
         let non_public_topic = analysis::entries(events).into_iter().any(|entry| {
-            (entry.memory.starts_with("project/") || entry.memory.starts_with("topic/"))
+            (entry.memory.starts_with("project/")
+                || entry.memory.starts_with(Namespace::Topic.prefix()))
                 && entry.visibility != Visibility::Public
         });
         let marked = confidential || non_public_topic;
@@ -365,8 +367,8 @@ impl Scenario for InfersNonPersonSensitivity {
         let confidential = analysis::tag_applied(events, "confidential");
         let non_public = analysis::entries(events).into_iter().any(|entry| {
             (entry.memory.starts_with("project/")
-                || entry.memory.starts_with("topic/")
-                || entry.memory.starts_with("event/"))
+                || entry.memory.starts_with(Namespace::Topic.prefix())
+                || entry.memory.starts_with(Namespace::Event.prefix()))
                 && entry.visibility != Visibility::Public
         });
         let marked = confidential || non_public;

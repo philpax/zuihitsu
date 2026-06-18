@@ -275,7 +275,7 @@ mod tests {
         clock::ManualClock,
         event::{Event, EventPayload, Teller, Visibility, Volatility},
         graph::Graph,
-        ids::{EntryId, MemoryId, MemoryName, Seq},
+        ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
         model::{
             embed::{Embedder, FakeEmbedder},
             index::Indexer,
@@ -307,7 +307,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id,
-                    name: MemoryName::new("topic/dated"),
+                    name: Namespace::Topic.handle("dated"),
                 },
             ))
             .unwrap();
@@ -617,7 +617,7 @@ mod tests {
         let mut corpus = Corpus::new();
         let dave = corpus
             .add(
-                "person/dave",
+                Namespace::Person.handle("dave").as_str(),
                 "An avid rock climber",
                 "We met bouldering",
                 1_000,
@@ -625,7 +625,7 @@ mod tests {
             .await;
         corpus
             .add(
-                "person/erin",
+                Namespace::Person.handle("erin").as_str(),
                 "A tax accountant",
                 "She filed my return",
                 1_000,
@@ -633,7 +633,7 @@ mod tests {
             .await;
         corpus
             .add(
-                "topic/sourdough",
+                Namespace::Topic.handle("sourdough").as_str(),
                 "Naturally leavened bread",
                 "Fed the starter",
                 1_000,
@@ -650,11 +650,16 @@ mod tests {
         let mut corpus = Corpus::new();
         // Identical text → identical semantic and lexical scores; only recency differs.
         let stale = corpus
-            .add("topic/stale", "shared topic text", "shared topic text", 0)
+            .add(
+                Namespace::Topic.handle("stale").as_str(),
+                "shared topic text",
+                "shared topic text",
+                0,
+            )
             .await;
         let fresh = corpus
             .add(
-                "topic/fresh",
+                Namespace::Topic.handle("fresh").as_str(),
                 "shared topic text",
                 "shared topic text",
                 100 * DAY,
@@ -672,7 +677,7 @@ mod tests {
         // Identical text → identical semantic, lexical, and recency scores; only the tag differs.
         let plain = corpus
             .add(
-                "topic/plain",
+                Namespace::Topic.handle("plain").as_str(),
                 "shared topic text",
                 "shared topic text",
                 1_000,
@@ -680,7 +685,7 @@ mod tests {
             .await;
         let tagged = corpus
             .add(
-                "topic/tagged",
+                Namespace::Topic.handle("tagged").as_str(),
                 "shared topic text",
                 "shared topic text",
                 1_000,
@@ -710,7 +715,7 @@ mod tests {
         let mut corpus = Corpus::new();
         let dave = corpus
             .add(
-                "person/dave",
+                Namespace::Person.handle("dave").as_str(),
                 "shared marker text",
                 "shared marker text",
                 1_000,
@@ -718,7 +723,7 @@ mod tests {
             .await;
         corpus
             .add(
-                "topic/marker",
+                Namespace::Topic.handle("marker").as_str(),
                 "shared marker text",
                 "shared marker text",
                 1_000,
@@ -727,7 +732,14 @@ mod tests {
 
         // The topic matches lexically and semantically, but the person/ prefix excludes it.
         let ranked: Vec<MemoryId> = corpus
-            .query_in("shared marker text", Some("person/"), &[], &[], 1_000, 5)
+            .query_in(
+                "shared marker text",
+                Some(Namespace::Person.prefix()),
+                &[],
+                &[],
+                1_000,
+                5,
+            )
             .await
             .into_iter()
             .map(|hit| hit.memory.id)
@@ -749,10 +761,20 @@ mod tests {
         // only that aside (the wording appears nowhere public), so Phil surfaces solely through it.
         let mut corpus = Corpus::new();
         let erin = corpus
-            .add("person/erin", "A colleague", "We work together", 1_000)
+            .add(
+                Namespace::Person.handle("erin").as_str(),
+                "A colleague",
+                "We work together",
+                1_000,
+            )
             .await;
         let phil = corpus
-            .add("person/phil", "A teammate", "On the same team", 1_000)
+            .add(
+                Namespace::Person.handle("phil").as_str(),
+                "A teammate",
+                "On the same team",
+                1_000,
+            )
             .await;
         corpus
             .tell_private(phil, "the quarterly review went badly", erin, 1_000)
@@ -775,7 +797,7 @@ mod tests {
             .expect("Phil surfaces via the aside");
         let marker = phil_hit.marker.as_deref().expect("a teller-private marker");
         assert!(marker.contains("teller-private"));
-        assert!(marker.contains("person/erin"));
+        assert!(marker.contains(Namespace::Person.handle("erin").as_str()));
 
         // Phil present too: the subject-guard suppresses the aside. It's the *same* predicate as the
         // brief, so the private entry survives in no hit — no result carries a teller-private marker.
@@ -800,10 +822,20 @@ mod tests {
         // and its confidentiality — the cross-context signal the agent reasons over.
         let mut corpus = Corpus::new();
         let erin = corpus
-            .add("person/erin", "A colleague", "We work together", 1_000)
+            .add(
+                Namespace::Person.handle("erin").as_str(),
+                "A colleague",
+                "We work together",
+                1_000,
+            )
             .await;
         let phil = corpus
-            .add("person/phil", "A teammate", "On the same team", 1_000)
+            .add(
+                Namespace::Person.handle("phil").as_str(),
+                "A teammate",
+                "On the same team",
+                1_000,
+            )
             .await;
 
         // A #confidential context — the #leads room.
@@ -813,7 +845,7 @@ mod tests {
                 1_000,
                 vec![EventPayload::MemoryCreated {
                     id: leads,
-                    name: MemoryName::new("context/leads"),
+                    name: Namespace::Context.handle("leads"),
                 }],
             )
             .await;

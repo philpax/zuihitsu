@@ -142,3 +142,55 @@ impl MemoryName {
         self.0 == MemoryName::SELF
     }
 }
+
+/// The kinds of memory, each its own handle namespace (`person/dave`, `event/wedding`, …). The single
+/// home for the prefix strings — like [`MemoryName::SELF`] for the reserved self handle — so adding a
+/// kind or renaming a prefix is one edit here, and every handle is built by concatenating through
+/// [`Namespace::handle`] rather than from a literal scattered across the code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Namespace {
+    Person,
+    Place,
+    Event,
+    Topic,
+    Context,
+}
+
+impl Namespace {
+    /// Every namespace, in the order the scaffold introduces them — so a definition that enumerates the
+    /// kinds (the genesis scaffold, the console legend) iterates this rather than re-listing prefixes.
+    pub const ALL: [Namespace; 5] = [
+        Namespace::Person,
+        Namespace::Place,
+        Namespace::Event,
+        Namespace::Topic,
+        Namespace::Context,
+    ];
+
+    /// The handle prefix, trailing slash included (`person/`).
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            Namespace::Person => "person/",
+            Namespace::Place => "place/",
+            Namespace::Event => "event/",
+            Namespace::Topic => "topic/",
+            Namespace::Context => "context/",
+        }
+    }
+
+    /// Build a handle in this namespace by concatenation: `Namespace::Person.handle("dave")` is
+    /// `person/dave`.
+    pub fn handle(self, subject: impl std::fmt::Display) -> MemoryName {
+        MemoryName::new(format!("{}{subject}", self.prefix()))
+    }
+
+    /// Whether `name` is a handle in this namespace.
+    pub fn contains(self, name: &str) -> bool {
+        name.starts_with(self.prefix())
+    }
+
+    /// The subject after the prefix, if `name` is a handle in this namespace (`person/dave` → `dave`).
+    pub fn subject(self, name: &str) -> Option<&str> {
+        name.strip_prefix(self.prefix())
+    }
+}

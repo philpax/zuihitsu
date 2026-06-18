@@ -109,7 +109,7 @@ pub mod test_support {
     use super::{Seq, Store, Timestamp};
     use crate::{
         event::EventPayload,
-        ids::{MemoryId, MemoryName},
+        ids::{MemoryId, Namespace},
         vocabulary::TagName,
     };
 
@@ -123,12 +123,12 @@ pub mod test_support {
             },
             EventPayload::MemoryCreated {
                 id,
-                name: MemoryName::new("person/dave"),
+                name: Namespace::Person.handle("dave"),
             },
             EventPayload::MemoryRenamed {
                 id,
-                old_name: MemoryName::new("person/dave"),
-                new_name: MemoryName::new("person/dave-chen"),
+                old_name: Namespace::Person.handle("dave"),
+                new_name: Namespace::Person.handle("dave-chen"),
             },
         ]
     }

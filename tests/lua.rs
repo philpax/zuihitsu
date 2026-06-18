@@ -10,8 +10,8 @@ use std::{sync::Arc, time::Duration};
 use common::Harness;
 use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
-    Clock, Completion, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName,
-    MemoryStore, PromptTemplateName, RelationName, ScriptedModel, Seq, Session, Store, TagName,
+    Clock, Completion, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryStore,
+    Namespace, PromptTemplateName, RelationName, ScriptedModel, Seq, Session, Store, TagName,
     Teller, TemporalRef, TerminalCause, TurnId, Visibility,
     event::{ArbitrationResolution, EventPayload, EventSource},
     resolve_or_mint_conversation,
@@ -28,7 +28,7 @@ async fn block_commits_and_projects_with_read_your_writes() {
     let outcome = h
         .run(
             r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("Met at the climbing gym", { visibility = "public" })
         dave:append("Got a new job at Hooli", { visibility = "public" })
         return dave:entries()
@@ -48,7 +48,7 @@ async fn block_commits_and_projects_with_read_your_writes() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -65,7 +65,7 @@ async fn a_disputed_entry_reads_as_disputed() {
     let h = Harness::new();
     h.run(
         r#"
-        local ev = memory.create("event/all-hands")
+        local ev = memory.create(EVENT_ALL_HANDS)
         ev:append("It is in the main auditorium.", { visibility = "public" })
         ev:append("It is on the rooftop terrace.", { visibility = "public" })
         return "ok"
@@ -75,7 +75,10 @@ async fn a_disputed_entry_reads_as_disputed() {
 
     let (memory, competing) = {
         let graph = h.engine.graph.lock();
-        let ev = graph.memory_by_name("event/all-hands").unwrap().unwrap();
+        let ev = graph
+            .memory_by_name(Namespace::Event.handle("all-hands").as_str())
+            .unwrap()
+            .unwrap();
         let competing: Vec<_> = graph
             .entries_local(ev.id)
             .unwrap()
@@ -113,7 +116,7 @@ async fn a_disputed_entry_reads_as_disputed() {
     }
 
     let outcome = h
-        .run(r#"return memory.get("event/all-hands"):entries()"#)
+        .run(r#"return memory.get(EVENT_ALL_HANDS):entries()"#)
         .await;
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit");
@@ -134,7 +137,7 @@ async fn a_dated_entry_reads_with_its_date() {
     let outcome = h
         .run(
             r#"
-        local ev = memory.create("event/product_launch")
+        local ev = memory.create(EVENT_PRODUCT_LAUNCH)
         ev:append("Penciled in by Phil", { visibility = "public", occurred_at = { day = "2027-03-15" } })
         return ev:entries()
         "#,
@@ -158,7 +161,7 @@ async fn an_entry_occurred_at_round_trips_for_supersede() {
     let outcome = h
         .run(
             r#"
-        local ev = memory.create("event/launch")
+        local ev = memory.create(EVENT_LAUNCH)
         ev:append("Launch", { occurred_at = { day = "2027-03-15" }, visibility = "public" })
         local old
         for _, e in ipairs(ev:entries()) do
@@ -188,7 +191,7 @@ async fn calendar_computes_dates_for_occurred_at() {
     let outcome = h
         .run(
             r#"
-        local ev = memory.create("event/board-update")
+        local ev = memory.create(EVENT_BOARD_UPDATE)
         ev:append("Send the board update", { occurred_at = calendar.next("friday"), visibility = "public" })
         return ev:entries()
         "#,
@@ -212,7 +215,7 @@ async fn calendar_upcoming_surfaces_a_recurring_instance() {
     let h = Harness::new(); // clock at Monday 2026-06-08
     h.run(
         r#"
-        local e = memory.create("event/standup", "Team standup")
+        local e = memory.create(EVENT_STANDUP, "Team standup")
         e:append("Recurring every Monday", { occurred_at = { recurring = "FREQ=WEEKLY;BYDAY=MO" }, visibility = "public" })
         return "ok"
         "#,
@@ -236,7 +239,7 @@ async fn calendar_upcoming_surfaces_a_recurring_instance() {
     };
     // The recurring instance surfaces, and the handle reads its name (the bug: m.name was nil).
     assert!(
-        result.contains("event/standup"),
+        result.contains(Namespace::Event.handle("standup").as_str()),
         "the recurring standup should surface in upcoming and read its name, got: {result}"
     );
 }
@@ -268,7 +271,7 @@ async fn append_records_a_structured_occurred_at() {
     let outcome = h
         .run(
             r#"
-        local ev = memory.create("event/cleaning")
+        local ev = memory.create(EVENT_CLEANING)
         ev:append("Scheduled cleaning", { visibility = "public", occurred_at = { day = "2026-06-03" } })
         return "ok"
         "#,
@@ -282,7 +285,7 @@ async fn append_records_a_structured_occurred_at() {
         .engine
         .graph
         .lock()
-        .memory_by_name("event/cleaning")
+        .memory_by_name(Namespace::Event.handle("cleaning").as_str())
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
@@ -301,9 +304,9 @@ async fn calendar_queries_return_matching_memories() {
     // block's own pending buffer, so they run in a later block.
     h.run(
         r#"
-        local d = memory.create("event/cleaning")
+        local d = memory.create(EVENT_CLEANING)
         d:append("dentist", { visibility = "public", occurred_at = { day = "2026-06-03" } })
-        local s = memory.create("event/standup")
+        local s = memory.create(EVENT_STANDUP)
         s:append("standup", { visibility = "public", occurred_at = { recurring = "FREQ=WEEKLY" } })
         "#,
     )
@@ -325,7 +328,7 @@ async fn calendar_upcoming_includes_recurring_instances() {
     // reads it from the materialized graph.
     h.run(
         r#"
-        local s = memory.create("event/standup")
+        local s = memory.create(EVENT_STANDUP)
         s:append("Weekly standup", { visibility = "public", occurred_at = { recurring = "FREQ=WEEKLY" } })
         "#,
     )
@@ -336,7 +339,7 @@ async fn calendar_upcoming_includes_recurring_instances() {
     let outcome = h
         .run(
             r#"
-        local target = memory.get("event/standup")
+        local target = memory.get(EVENT_STANDUP)
         for _, m in ipairs(calendar.upcoming({ within = "14 days" })) do
             if m.id == target.id then return "found" end
         end
@@ -387,11 +390,11 @@ async fn append_carries_teller_context_and_default_visibility() {
             vec![
                 EventPayload::MemoryCreated {
                     id: phil,
-                    name: MemoryName::new("person/phil"),
+                    name: Namespace::Person.handle("phil"),
                 },
                 EventPayload::MemoryCreated {
                     id: erin,
-                    name: MemoryName::new("person/erin"),
+                    name: Namespace::Person.handle("erin"),
                 },
             ],
         )
@@ -418,7 +421,7 @@ async fn append_carries_teller_context_and_default_visibility() {
                     present_set: Vec::new(),
                     dry_run: false,
                 },
-                script,
+                &common::prepare_script(script),
             )
             .await
             .unwrap();
@@ -430,7 +433,7 @@ async fn append_carries_teller_context_and_default_visibility() {
         &session,
         &engine,
         erin,
-        r#"memory.get("person/phil"):append("is being managed out")"#,
+        r#"memory.get(PERSON_PHIL):append("is being managed out")"#,
     )
     .await;
     // `by_agent` records the agent's own observation about a person, which has no protective default
@@ -439,14 +442,14 @@ async fn append_carries_teller_context_and_default_visibility() {
         &session,
         &engine,
         erin,
-        r#"memory.get("person/phil"):append("seems stressed", { by_agent = true, visibility = "public" })"#,
+        r#"memory.get(PERSON_PHIL):append("seems stressed", { by_agent = true, visibility = "public" })"#,
     )
     .await;
     exec(
         &session,
         &engine,
         erin,
-        r#"memory.get("person/phil"):append("got promoted", { visibility = "public" })"#,
+        r#"memory.get(PERSON_PHIL):append("got promoted", { visibility = "public" })"#,
     )
     .await;
 
@@ -502,7 +505,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
                 },
                 EventPayload::MemoryCreated {
                     id: roadmap,
-                    name: MemoryName::new("topic/roadmap"),
+                    name: Namespace::Topic.handle("roadmap"),
                 },
             ],
         )
@@ -530,7 +533,9 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         .execute(
             &engine,
             &context_block(),
-            r#"memory.get("topic/roadmap"):link("active_in", context.current())"#,
+            &common::prepare_script(
+                r#"memory.get(TOPIC_ROADMAP):link("active_in", context.current())"#,
+            ),
         )
         .await
         .unwrap();
@@ -544,7 +549,9 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         .execute(
             &engine,
             &context_block(),
-            r#"memory.get("topic/roadmap"):unlink("active_in", context.current())"#,
+            &common::prepare_script(
+                r#"memory.get(TOPIC_ROADMAP):unlink("active_in", context.current())"#,
+            ),
         )
         .await
         .unwrap();
@@ -611,7 +618,9 @@ async fn a_write_in_a_confidential_room_defaults_private() {
                 present_set: Vec::new(),
                 dry_run: false,
             },
-            r#"memory.create("topic/sensitive", "something said in confidence")"#,
+            &common::prepare_script(
+                r#"memory.create(TOPIC_SENSITIVE, "something said in confidence")"#,
+            ),
         )
         .await
         .unwrap();
@@ -619,7 +628,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
     let topic = engine
         .graph
         .lock()
-        .memory_by_name("topic/sensitive")
+        .memory_by_name(Namespace::Topic.handle("sensitive").as_str())
         .unwrap()
         .unwrap();
     let entries = engine.graph.lock().entries_local(topic.id).unwrap();
@@ -630,10 +639,10 @@ async fn a_write_in_a_confidential_room_defaults_private() {
 #[tokio::test]
 async fn link_with_an_unregistered_relation_is_a_teachable_error() {
     let h = Harness::new();
-    h.run(r#"memory.create("topic/a")"#).await;
+    h.run(r#"memory.create(TOPIC_A)"#).await;
     // No such relation is registered: the block fails with a teachable error and commits nothing.
     let outcome = h
-        .run(r#"memory.get("topic/a"):link("bogus_rel", memory.get("topic/a"))"#)
+        .run(r#"memory.get(TOPIC_A):link("bogus_rel", memory.get(TOPIC_A))"#)
         .await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
@@ -649,10 +658,10 @@ async fn link_with_an_unregistered_relation_is_a_teachable_error() {
 #[tokio::test]
 async fn creating_a_duplicate_name_is_a_teachable_error() {
     let h = Harness::new();
-    h.run(r#"memory.create("topic/plan", "first")"#).await;
+    h.run(r#"memory.create(TOPIC_PLAN, "first")"#).await;
     // Re-creating the same name is a teachable block error, not a fatal unique-constraint failure
     // that would poison the log.
-    let outcome = h.run(r#"memory.create("topic/plan", "second")"#).await;
+    let outcome = h.run(r#"memory.create(TOPIC_PLAN, "second")"#).await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             assert!(message.contains("already exists"), "message was: {message}");
@@ -664,7 +673,7 @@ async fn creating_a_duplicate_name_is_a_teachable_error() {
         .engine
         .graph
         .lock()
-        .memory_by_name("topic/plan")
+        .memory_by_name(Namespace::Topic.handle("plan").as_str())
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -676,10 +685,10 @@ async fn creating_a_duplicate_name_is_a_teachable_error() {
 #[tokio::test]
 async fn committed_memory_is_visible_to_a_later_block() {
     let h = Harness::new();
-    h.run(r#"memory.create("topic/sourdough", "A naturally leavened bread")"#)
+    h.run(r#"memory.create(TOPIC_SOURDOUGH, "A naturally leavened bread")"#)
         .await;
     let outcome = h
-        .run(r#"return memory.get("topic/sourdough"):entries()"#)
+        .run(r#"return memory.get(TOPIC_SOURDOUGH):entries()"#)
         .await;
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit");
@@ -706,7 +715,7 @@ async fn abort_discards_the_buffer() {
     let outcome = h
         .run(
             r#"
-        memory.create("topic/ghost", "should not survive")
+        memory.create(TOPIC_GHOST, "should not survive")
         block.abort("changed my mind")
         "#,
         )
@@ -720,7 +729,7 @@ async fn abort_discards_the_buffer() {
         h.engine
             .graph
             .lock()
-            .memory_by_name("topic/ghost")
+            .memory_by_name(Namespace::Topic.handle("ghost").as_str())
             .unwrap()
             .is_none()
     );
@@ -751,7 +760,7 @@ async fn runtime_error_discards_the_buffer_and_records_the_cause() {
     let outcome = h
         .run(
             r#"
-        memory.create("topic/oops", "should not survive")
+        memory.create(TOPIC_OOPS, "should not survive")
         error("boom")
         "#,
         )
@@ -764,7 +773,7 @@ async fn runtime_error_discards_the_buffer_and_records_the_cause() {
         h.engine
             .graph
             .lock()
-            .memory_by_name("topic/oops")
+            .memory_by_name(Namespace::Topic.handle("oops").as_str())
             .unwrap()
             .is_none()
     );
@@ -773,7 +782,7 @@ async fn runtime_error_discards_the_buffer_and_records_the_cause() {
 #[tokio::test]
 async fn lua_executed_records_the_script_result_and_touched_set() {
     let h = Harness::new();
-    h.run(r#"memory.create("place/sydney", "A harbour city") return "done""#)
+    h.run(r#"memory.create(PLACE_SYDNEY, "A harbour city") return "done""#)
         .await;
 
     let recorded = h
@@ -793,7 +802,10 @@ async fn lua_executed_records_the_script_result_and_touched_set() {
     // The script result is recorded, now trailed by the committed-effects summary the agent also saw.
     let recorded_result = recorded.0.as_deref().expect("a recorded result");
     assert!(recorded_result.starts_with("done"));
-    assert!(recorded_result.contains("Committed: created place/sydney"));
+    assert!(recorded_result.contains(&format!(
+        "Committed: created {}",
+        Namespace::Place.handle("sydney").as_str()
+    )));
     assert_eq!(recorded.1.len(), 1); // touched the one created memory
 }
 
@@ -803,12 +815,12 @@ async fn a_block_waits_on_a_held_memory_lock_then_proceeds() {
     // block holds waits until it is released. The lock is held externally here, standing in for a
     // concurrent block in another conversation.
     let h = Harness::new();
-    h.run(r#"memory.create("topic/shared", "one")"#).await;
+    h.run(r#"memory.create(TOPIC_SHARED, "one")"#).await;
     let id = h
         .engine
         .graph
         .lock()
-        .memory_by_name("topic/shared")
+        .memory_by_name(Namespace::Topic.handle("shared").as_str())
         .unwrap()
         .unwrap()
         .id;
@@ -819,14 +831,14 @@ async fn a_block_waits_on_a_held_memory_lock_then_proceeds() {
     // than this window, so it is genuinely waiting on the lock, not self-aborting).
     let blocked = tokio::time::timeout(
         Duration::from_millis(200),
-        h.run(r#"memory.get("topic/shared"):append("two")"#),
+        h.run(r#"memory.get(TOPIC_SHARED):append("two")"#),
     )
     .await;
     assert!(blocked.is_err(), "the block should wait on the held lock");
 
     // Once the lock frees, a fresh attempt at the same block commits.
     drop(guard);
-    let outcome = h.run(r#"memory.get("topic/shared"):append("two")"#).await;
+    let outcome = h.run(r#"memory.get(TOPIC_SHARED):append("two")"#).await;
     assert!(matches!(outcome, BlockOutcome::Committed { .. }));
 }
 
@@ -858,8 +870,8 @@ async fn a_traversing_read_locks_the_whole_class() {
         .unwrap();
     // Create the two stubs (no content — an agent-authored note about a person would need explicit
     // visibility, and the class lock does not depend on content).
-    h.run(r#"memory.create("person/a")"#).await;
-    h.run(r#"memory.create("person/b@discord")"#).await;
+    h.run(r#"memory.create(PERSON_A)"#).await;
+    h.run(r#"memory.create(PERSON_B_AT_DISCORD)"#).await;
     // A same_as merge needs operator authority (a platform turn may not merge).
     let operator = BlockContext {
         teller: Teller::Agent,
@@ -874,7 +886,9 @@ async fn a_traversing_read_locks_the_whole_class() {
         .execute(
             &h.engine,
             &operator,
-            r#"memory.get("person/a"):link("same_as", memory.get("person/b@discord"))"#,
+            &common::prepare_script(
+                r#"memory.get(PERSON_A):link("same_as", memory.get(PERSON_B_AT_DISCORD))"#,
+            ),
         )
         .await
         .unwrap();
@@ -882,7 +896,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/b@discord")
+        .memory_by_name(Namespace::Person.handle("b@discord").as_str())
         .unwrap()
         .unwrap()
         .id;
@@ -906,7 +920,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         .execute(
             &h.engine,
             &starved,
-            r#"return memory.get("person/a"):entries()"#,
+            &common::prepare_script(r#"return memory.get(PERSON_A):entries()"#),
         )
         .await
         .unwrap();
@@ -918,7 +932,7 @@ async fn a_traversing_read_locks_the_whole_class() {
     // With the sibling free, the same traversing read commits — confirming the sibling's lock was what
     // it waited on.
     drop(guard);
-    let outcome = h.run(r#"return memory.get("person/a"):entries()"#).await;
+    let outcome = h.run(r#"return memory.get(PERSON_A):entries()"#).await;
     assert!(matches!(outcome, BlockOutcome::Committed { .. }));
 }
 
@@ -970,10 +984,10 @@ async fn link_readers_traverse_the_merged_identity() {
 
     // A two-stub Dave identity, plus the people and the company it links to.
     for name in [
-        "person/dave",
-        "person/dave@discord",
-        "person/erin",
-        "person/frank",
+        Namespace::Person.handle("dave").as_str(),
+        Namespace::Person.handle("dave@discord").as_str(),
+        Namespace::Person.handle("erin").as_str(),
+        Namespace::Person.handle("frank").as_str(),
         "company/hooli",
     ] {
         h.run(&format!("memory.create({name:?})")).await;
@@ -993,48 +1007,68 @@ async fn link_readers_traverse_the_merged_identity() {
         .execute(
             &h.engine,
             &operator,
-            r#"memory.get("person/dave"):link("same_as", memory.get("person/dave@discord"))"#,
+            &common::prepare_script(
+                r#"memory.get(PERSON_DAVE):link("same_as", memory.get(PERSON_DAVE_AT_DISCORD))"#,
+            ),
         )
         .await
         .unwrap();
 
     // Links spread across the two stubs: one mentors Erin, Frank mentors the other, and the other
     // works at Hooli — so a class-blind read of the primary stub would miss two of the three.
-    h.run(r#"memory.get("person/dave"):link("mentor_of", memory.get("person/erin"))"#)
+    h.run(r#"memory.get(PERSON_DAVE):link("mentor_of", memory.get(PERSON_ERIN))"#)
         .await;
-    h.run(r#"memory.get("person/frank"):link("mentor_of", memory.get("person/dave@discord"))"#)
+    h.run(r#"memory.get(PERSON_FRANK):link("mentor_of", memory.get(PERSON_DAVE_AT_DISCORD))"#)
         .await;
-    h.run(r#"memory.get("person/dave@discord"):link("works_at", memory.get("company/hooli"))"#)
+    h.run(r#"memory.get(PERSON_DAVE_AT_DISCORD):link("works_at", memory.get("company/hooli"))"#)
         .await;
 
     // outgoing: who Dave mentors — Erin, reached through the merged identity though queried via the
     // primary stub. A single edge, so the list renders as the one readable line.
     let BlockOutcome::Committed { result } = h
-        .run(r#"return memory.get("person/dave"):outgoing("mentor_of")"#)
+        .run(r#"return memory.get(PERSON_DAVE):outgoing("mentor_of")"#)
         .await
     else {
         panic!("expected commit");
     };
-    assert_eq!(result, "mentor_of → person/erin");
+    assert_eq!(
+        result,
+        format!("mentor_of → {}", Namespace::Person.handle("erin").as_str())
+    );
 
     // incoming: who mentors Dave — Frank, whose edge lands on the *other* stub, surfaced by traversal.
     let BlockOutcome::Committed { result } = h
-        .run(r#"return memory.get("person/dave"):incoming("mentor_of")"#)
+        .run(r#"return memory.get(PERSON_DAVE):incoming("mentor_of")"#)
         .await
     else {
         panic!("expected commit");
     };
-    assert_eq!(result, "mentor_of ← person/frank");
+    assert_eq!(
+        result,
+        format!("mentor_of ← {}", Namespace::Person.handle("frank").as_str())
+    );
 
     // links(): the whole relationship set across the identity — both mentor_of edges and works_at —
     // with the same_as edge holding the identity together excluded as internal plumbing.
     let BlockOutcome::Committed { result } =
-        h.run(r#"return memory.get("person/dave"):links()"#).await
+        h.run(r#"return memory.get(PERSON_DAVE):links()"#).await
     else {
         panic!("expected commit");
     };
-    assert!(result.contains("mentor_of → person/erin"), "{result}");
-    assert!(result.contains("mentor_of ← person/frank"), "{result}");
+    assert!(
+        result.contains(&format!(
+            "mentor_of → {}",
+            Namespace::Person.handle("erin").as_str()
+        )),
+        "{result}"
+    );
+    assert!(
+        result.contains(&format!(
+            "mentor_of ← {}",
+            Namespace::Person.handle("frank").as_str()
+        )),
+        "{result}"
+    );
     assert!(result.contains("works_at → company/hooli"), "{result}");
     assert!(
         !result.contains("same_as"),
@@ -1046,7 +1080,7 @@ async fn link_readers_traverse_the_merged_identity() {
     let BlockOutcome::Committed { result } = h
         .run(
             r#"
-        local out = memory.get("person/dave"):outgoing("mentor_of")
+        local out = memory.get(PERSON_DAVE):outgoing("mentor_of")
         return out[1].name .. " / " .. out[1].direction .. " / " .. out[1].source
             .. " / " .. out[1].told_by
         "#,
@@ -1055,15 +1089,21 @@ async fn link_readers_traverse_the_merged_identity() {
     else {
         panic!("expected commit");
     };
-    assert_eq!(result, "person/erin / outgoing / agent / you");
+    assert_eq!(
+        result,
+        format!(
+            "{} / outgoing / agent / you",
+            Namespace::Person.handle("erin").as_str()
+        )
+    );
 }
 
 #[tokio::test]
 async fn outgoing_under_an_unregistered_relation_is_a_teachable_error() {
     let h = Harness::new();
-    h.run(r#"memory.create("person/dave")"#).await;
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
     let outcome = h
-        .run(r#"return memory.get("person/dave"):outgoing("bogus_rel")"#)
+        .run(r#"return memory.get(PERSON_DAVE):outgoing("bogus_rel")"#)
         .await;
     let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
         panic!("expected a teachable error, got {outcome:?}");
@@ -1076,12 +1116,12 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
     // Abort-and-retry (spec §Concurrency): a block that keeps timing out on a lock-wait, having made no
     // MCP call, is retried up to its bound and then gives up with a terminal error naming the count.
     let h = Harness::new();
-    h.run(r#"memory.create("topic/locked", "x")"#).await;
+    h.run(r#"memory.create(TOPIC_LOCKED, "x")"#).await;
     let id = h
         .engine
         .graph
         .lock()
-        .memory_by_name("topic/locked")
+        .memory_by_name(Namespace::Topic.handle("locked").as_str())
         .unwrap()
         .unwrap()
         .id;
@@ -1101,7 +1141,7 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
                 present_set: Vec::new(),
                 dry_run: false,
             },
-            r#"memory.get("topic/locked"):append("y")"#,
+            &common::prepare_script(r#"memory.get(TOPIC_LOCKED):append("y")"#),
         )
         .await
         .unwrap();
@@ -1121,7 +1161,7 @@ async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
     let outcome = h
         .run(
             r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         local old = dave:append("Dave works at Hooli", { visibility = "public" })
         local new = dave:append("Dave works at Pied Piper", { visibility = "public" })
         dave:supersede(old, new)
@@ -1135,7 +1175,10 @@ async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
     };
     // The returned value, now trailed by the committed-effects summary (including the supersession).
     assert!(result.starts_with("live=1 history=2"));
-    assert!(result.contains("superseded an entry on person/dave"));
+    assert!(result.contains(&format!(
+        "superseded an entry on {}",
+        Namespace::Person.handle("dave").as_str()
+    )));
 
     // Committed and projected: the live read shows only the correction; history shows both, with the
     // superseded entry's pointer stamped.
@@ -1143,7 +1186,7 @@ async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     let live: Vec<String> = h
@@ -1172,7 +1215,7 @@ async fn entries_render_as_their_text_and_concatenate() {
     let outcome = h
         .run(
             r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("climbs on Tuesdays", { visibility = "public" })
         local entries = dave:entries()
         return "first: " .. entries[1]
@@ -1210,7 +1253,7 @@ async fn an_undecorated_table_renders_as_its_structure_not_an_opaque_token() {
         "structure should be visible: {result}"
     );
     assert!(
-        result.contains("person/dave"),
+        result.contains(Namespace::Person.handle("dave").as_str()),
         "values should be visible: {result}"
     );
     assert!(
@@ -1227,9 +1270,9 @@ async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
     let outcome = h
         .run(
             r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         local mine = dave:append("a real fact", { visibility = "public" })
-        local erin = memory.create("person/erin")
+        local erin = memory.create(PERSON_ERIN)
         local theirs = erin:append("erin's fact", { visibility = "public" })
         dave:supersede(theirs, mine)
         "#,
@@ -1242,7 +1285,12 @@ async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
         other => panic!("expected a teachable error, got {other:?}"),
     }
     // The rejected supersede committed nothing: both facts are still live.
-    let dave = h.engine.graph.lock().memory_by_name("person/dave").unwrap();
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .unwrap();
     assert!(dave.is_none(), "the whole block was discarded");
 }
 
@@ -1255,7 +1303,7 @@ async fn a_created_tag_can_be_applied_and_listed() {
         .run(
             r#"
         tags.create("hobbies", "Recreational activities and interests")
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:tag("hobbies")
         return "ok"
         "#,
@@ -1268,7 +1316,7 @@ async fn a_created_tag_can_be_applied_and_listed() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     assert!(dave.tags.contains(&TagName::new("hobbies")));
@@ -1294,7 +1342,7 @@ async fn applying_an_uncreated_tag_is_a_teachable_error() {
     let outcome = h
         .run(
             r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:tag("hobbies")
         "#,
         )
@@ -1311,7 +1359,7 @@ async fn applying_an_uncreated_tag_is_a_teachable_error() {
         h.engine
             .graph
             .lock()
-            .memory_by_name("person/dave")
+            .memory_by_name(Namespace::Person.handle("dave").as_str())
             .unwrap()
             .is_none()
     );
@@ -1345,8 +1393,8 @@ async fn a_registered_relation_can_be_linked_and_listed() {
         .run(
             r#"
         links.register({ name = "mentor_of", inverse = "mentored_by", from_card = "many", to_card = "many" })
-        local dave = memory.create("person/dave")
-        local erin = memory.create("person/erin")
+        local dave = memory.create(PERSON_DAVE)
+        local erin = memory.create(PERSON_ERIN)
         dave:link("mentor_of", erin)
         return "ok"
         "#,
@@ -1357,8 +1405,14 @@ async fn a_registered_relation_can_be_linked_and_listed() {
     // The edge committed: Erin is a mentor_of-neighbour of Dave.
     let (dave, erin) = {
         let graph = h.engine.graph.lock();
-        let dave = graph.memory_by_name("person/dave").unwrap().unwrap();
-        let erin = graph.memory_by_name("person/erin").unwrap().unwrap();
+        let dave = graph
+            .memory_by_name(Namespace::Person.handle("dave").as_str())
+            .unwrap()
+            .unwrap();
+        let erin = graph
+            .memory_by_name(Namespace::Person.handle("erin").as_str())
+            .unwrap()
+            .unwrap();
         (dave.id, erin.id)
     };
     let neighbours = h.engine.graph.lock().outgoing(dave, "mentor_of").unwrap();
@@ -1396,8 +1450,8 @@ async fn a_link_can_be_asserted_under_the_inverse_label() {
         .run(
             r#"
         links.register({ name = "mentor_of", inverse = "mentored_by", from_card = "many", to_card = "many" })
-        local dave = memory.create("person/dave")
-        local erin = memory.create("person/erin")
+        local dave = memory.create(PERSON_DAVE)
+        local erin = memory.create(PERSON_ERIN)
         erin:link("mentored_by", dave)
         return "ok"
         "#,
@@ -1409,8 +1463,16 @@ async fn a_link_can_be_asserted_under_the_inverse_label() {
     let (dave, erin) = {
         let graph = h.engine.graph.lock();
         (
-            graph.memory_by_name("person/dave").unwrap().unwrap().id,
-            graph.memory_by_name("person/erin").unwrap().unwrap().id,
+            graph
+                .memory_by_name(Namespace::Person.handle("dave").as_str())
+                .unwrap()
+                .unwrap()
+                .id,
+            graph
+                .memory_by_name(Namespace::Person.handle("erin").as_str())
+                .unwrap()
+                .unwrap()
+                .id,
         )
     };
     let neighbours = h.engine.graph.lock().outgoing(dave, "mentor_of").unwrap();
@@ -1447,7 +1509,7 @@ async fn memory_search_recalls_an_indexed_entry() {
     let seeded = h
         .run(
             r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
         return "ok"
         "#,
@@ -1470,7 +1532,7 @@ async fn memory_search_recalls_an_indexed_entry() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(result, "person/dave");
+    assert_eq!(result, Namespace::Person.handle("dave").as_str());
 
     // Returning the result list renders as readable lines (each result's __tostring), not "<table>",
     // so the agent can read its own search back.
@@ -1480,7 +1542,10 @@ async fn memory_search_recalls_an_indexed_entry() {
     let BlockOutcome::Committed { result } = rendered else {
         panic!("expected commit, got {rendered:?}");
     };
-    assert!(result.contains("person/dave"), "rendered: {result:?}");
+    assert!(
+        result.contains(Namespace::Person.handle("dave").as_str()),
+        "rendered: {result:?}"
+    );
     assert!(!result.contains("<table>"), "rendered: {result:?}");
 }
 
@@ -1491,9 +1556,9 @@ async fn search_finds_a_renamed_person_by_an_old_name() {
     // (the old name folded into the FTS) can make an old-name search find them.
     h.run(
         r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("Handles the deploys.", { by_agent = true, visibility = "public" })
-        dave:rename("person/sarah")
+        dave:rename(PERSON_SARAH)
         "#,
     )
     .await;
@@ -1512,8 +1577,17 @@ async fn search_finds_a_renamed_person_by_an_old_name() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert!(result.starts_with("person/sarah"), "{result}");
-    assert!(result.contains("formerly person/dave"), "{result}");
+    assert!(
+        result.starts_with(Namespace::Person.handle("sarah").as_str()),
+        "{result}"
+    );
+    assert!(
+        result.contains(&format!(
+            "formerly {}",
+            Namespace::Person.handle("dave").as_str()
+        )),
+        "{result}"
+    );
 }
 
 #[tokio::test]
@@ -1543,7 +1617,7 @@ async fn printed_search_results_recall_the_fact() {
     let h = Harness::with_retrieval();
     h.run(
         r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
         return "ok"
         "#,
@@ -1564,7 +1638,10 @@ async fn printed_search_results_recall_the_fact() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert!(result.contains("person/dave"), "result: {result:?}");
+    assert!(
+        result.contains(Namespace::Person.handle("dave").as_str()),
+        "result: {result:?}"
+    );
     assert!(!result.contains("<table>"), "result: {result:?}");
 }
 
@@ -1626,7 +1703,7 @@ async fn a_write_block_reports_what_it_committed() {
     let outcome = h
         .run(
             r#"
-        local plan = memory.create("topic/q3_plan")
+        local plan = memory.create(TOPIC_Q3_PLAN)
         plan:append("Ship the database migration", { visibility = "public" })
         plan:append("Refresh the marketing site", { visibility = "public" })
         "#,
@@ -1636,17 +1713,23 @@ async fn a_write_block_reports_what_it_committed() {
         panic!("expected commit, got {outcome:?}");
     };
     assert!(
-        result.contains("Committed: created topic/q3_plan"),
+        result.contains(&format!(
+            "Committed: created {}",
+            Namespace::Topic.handle("q3_plan").as_str()
+        )),
         "the write block should report its create: {result:?}"
     );
     assert!(
-        result.contains("appended 2 entries to topic/q3_plan"),
+        result.contains(&format!(
+            "appended 2 entries to {}",
+            Namespace::Topic.handle("q3_plan").as_str()
+        )),
         "the write block should report its appends: {result:?}"
     );
 
     // A read-only query in the same session reports its rendered value, with no commit summary.
     let outcome = h
-        .run(r#"return #memory.get("topic/q3_plan"):entries()"#)
+        .run(r#"return #memory.get(TOPIC_Q3_PLAN):entries()"#)
         .await;
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
@@ -1685,9 +1768,9 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
     register_adjudication_template(&h);
     h.run(
         r#"
-        local a = memory.create("person/dave-slack")
+        local a = memory.create(PERSON_DAVE_SLACK)
         a:append("Off sick the first week of March", { visibility = "private" })
-        local b = memory.create("person/dave-discord")
+        local b = memory.create(PERSON_DAVE_DISCORD)
         b:append("Out sick the week of March 3rd", { visibility = "private" })
         a:propose_merge(b)
         return "ok"
@@ -1702,9 +1785,12 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
     h.adjudicate(&model).await;
 
     let graph = h.engine.graph.lock();
-    let a = graph.memory_by_name("person/dave-slack").unwrap().unwrap();
+    let a = graph
+        .memory_by_name(Namespace::Person.handle("dave-slack").as_str())
+        .unwrap()
+        .unwrap();
     let b = graph
-        .memory_by_name("person/dave-discord")
+        .memory_by_name(Namespace::Person.handle("dave-discord").as_str())
         .unwrap()
         .unwrap();
     let members = graph.class_members(a.id).unwrap();
@@ -1722,9 +1808,9 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
     register_adjudication_template(&h);
     h.run(
         r#"
-        local a = memory.create("person/sam-slack")
+        local a = memory.create(PERSON_SAM_SLACK)
         a:append("Is an engineer", { visibility = "public" })
-        local b = memory.create("person/sam-discord")
+        local b = memory.create(PERSON_SAM_DISCORD)
         b:append("Works in engineering", { visibility = "public" })
         a:propose_merge(b)
         return "ok"
@@ -1739,8 +1825,14 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
     h.adjudicate(&model).await;
 
     let graph = h.engine.graph.lock();
-    let a = graph.memory_by_name("person/sam-slack").unwrap().unwrap();
-    let b = graph.memory_by_name("person/sam-discord").unwrap().unwrap();
+    let a = graph
+        .memory_by_name(Namespace::Person.handle("sam-slack").as_str())
+        .unwrap()
+        .unwrap();
+    let b = graph
+        .memory_by_name(Namespace::Person.handle("sam-discord").as_str())
+        .unwrap()
+        .unwrap();
     assert!(
         !graph.class_members(a.id).unwrap().contains(&b.id),
         "a refused merge must leave the stubs in separate classes"
@@ -1767,7 +1859,7 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
     let h = Harness::new();
     h.run(
         r#"
-        local d = memory.create("person/dave")
+        local d = memory.create(PERSON_DAVE)
         -- Classify volatility inline on the append (the ergonomic path).
         d:append("leads the Atlas project", { visibility = "public", volatility = "high" })
         local p = memory.create("project/atlas")
@@ -1782,7 +1874,9 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
         local e = memory.get("MEM"):entries()[1]
         return tostring(e.stale) .. "|" .. tostring(e)
     "#;
-    let BlockOutcome::Committed { result } = h.run(&read.replace("MEM", "person/dave")).await
+    let BlockOutcome::Committed { result } = h
+        .run(&read.replace("MEM", Namespace::Person.handle("dave").as_str()))
+        .await
     else {
         panic!("expected commit");
     };
@@ -1807,7 +1901,7 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
 #[tokio::test]
 async fn an_attributed_fact_survives_the_teller_absence() {
     let h = Harness::new();
-    h.run(r#"memory.create("person/dave"); memory.create("person/erin")"#)
+    h.run(r#"memory.create(PERSON_DAVE); memory.create(PERSON_ERIN)"#)
         .await;
     let id = |name: &str| {
         h.engine
@@ -1818,15 +1912,18 @@ async fn an_attributed_fact_survives_the_teller_absence() {
             .unwrap()
             .id
     };
-    let (dave, erin) = (id("person/dave"), id("person/erin"));
+    let (dave, erin) = (
+        id(Namespace::Person.handle("dave").as_str()),
+        id(Namespace::Person.handle("erin").as_str()),
+    );
 
     // Erin, present, relays an ordinary fact about Dave (attributed) and a genuine confidence (private).
     h.run_as(
         Teller::Participant(erin),
         vec![erin],
         r#"
-        memory.get("person/dave"):append("Engineering lead at Hooli", { visibility = "attributed" })
-        memory.get("person/dave"):append("quietly interviewing elsewhere", { visibility = "private" })
+        memory.get(PERSON_DAVE):append("Engineering lead at Hooli", { visibility = "attributed" })
+        memory.get(PERSON_DAVE):append("quietly interviewing elsewhere", { visibility = "private" })
         "#,
     )
     .await;
@@ -1835,7 +1932,7 @@ async fn an_attributed_fact_survives_the_teller_absence() {
     // in full and reads as attributed; the confidence is withheld.
     let read = r#"
         local lines = {}
-        for _, e in ipairs(memory.get("person/dave"):entries()) do
+        for _, e in ipairs(memory.get(PERSON_DAVE):entries()) do
             lines[#lines + 1] = e.visibility .. "/" .. tostring(e.withheld) .. ":" .. e.text
         end
         return table.concat(lines, "|")
@@ -1860,7 +1957,7 @@ async fn an_attributed_fact_survives_the_teller_absence() {
 #[tokio::test]
 async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
     let h = Harness::new();
-    h.run(r#"memory.create("person/dave"); memory.create("person/erin")"#)
+    h.run(r#"memory.create(PERSON_DAVE); memory.create(PERSON_ERIN)"#)
         .await;
     let id = |name: &str| {
         h.engine
@@ -1871,15 +1968,18 @@ async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
             .unwrap()
             .id
     };
-    let (dave, erin) = (id("person/dave"), id("person/erin"));
+    let (dave, erin) = (
+        id(Namespace::Person.handle("dave").as_str()),
+        id(Namespace::Person.handle("erin").as_str()),
+    );
 
     // Dave, present, confides something private and states a public fact.
     h.run_as(
         Teller::Participant(dave),
         vec![dave],
         r#"
-        memory.get("person/dave"):append("interviewing at a competitor", { visibility = "private" })
-        memory.get("person/dave"):append("runs the Berlin marathon", { visibility = "public" })
+        memory.get(PERSON_DAVE):append("interviewing at a competitor", { visibility = "private" })
+        memory.get(PERSON_DAVE):append("runs the Berlin marathon", { visibility = "public" })
         "#,
     )
     .await;
@@ -1887,7 +1987,7 @@ async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
     // A read script that reports each entry as "<withheld>:<text>", oldest first.
     let read = r#"
         local lines = {}
-        for _, e in ipairs(memory.get("person/dave"):entries()) do
+        for _, e in ipairs(memory.get(PERSON_DAVE):entries()) do
             lines[#lines + 1] = tostring(e.withheld) .. ":" .. e.text
         end
         return table.concat(lines, "|")
@@ -1931,7 +2031,7 @@ async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
     // (d) History redacts on the same rule, even though it shows superseded entries — Erin present.
     let history = r#"
         local lines = {}
-        for _, e in ipairs(memory.get("person/dave"):history()) do
+        for _, e in ipairs(memory.get(PERSON_DAVE):history()) do
             lines[#lines + 1] = tostring(e.withheld) .. ":" .. e.text
         end
         return table.concat(lines, "|")
@@ -1952,16 +2052,16 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     // A person with a fact, renamed to the name they now go by — all in one block.
     h.run(
         r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("climbs on Tuesdays", { visibility = "public" })
-        dave:rename("person/sarah")
+        dave:rename(PERSON_SARAH)
         "#,
     )
     .await;
 
     // The new handle resolves to the same memory, carrying the fact forward.
     let outcome = h
-        .run(r#"return tostring(memory.get("person/sarah"):entries()[1])"#)
+        .run(r#"return tostring(memory.get(PERSON_SARAH):entries()[1])"#)
         .await;
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
@@ -1973,7 +2073,7 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     let outcome = h
         .run(
             r#"
-        local p = memory.get("person/dave")
+        local p = memory.get(PERSON_DAVE)
         return tostring(p ~= nil) .. " / " .. p.name .. " / " .. tostring(p.former_handle)
             .. " / " .. p.former_names[1]
         "#,
@@ -1984,7 +2084,12 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     };
     // (The old-name lookup also emits its rename note ahead of the returned value, hence `contains`.)
     assert!(
-        result.contains("true / person/sarah / person/dave / person/dave"),
+        result.contains(&format!(
+            "true / {} / {} / {}",
+            Namespace::Person.handle("sarah").as_str(),
+            Namespace::Person.handle("dave").as_str(),
+            Namespace::Person.handle("dave").as_str()
+        )),
         "{result}"
     );
 
@@ -1993,7 +2098,7 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     let outcome = h
         .run(
             r#"
-        local p = memory.get("person/sarah")
+        local p = memory.get(PERSON_SARAH)
         return p.former_names[1] .. " / " .. tostring(p.former_handle)
         "#,
         )
@@ -2001,7 +2106,10 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(result, "person/dave / nil");
+    assert_eq!(
+        result,
+        format!("{} / nil", Namespace::Person.handle("dave").as_str())
+    );
 }
 
 #[tokio::test]
@@ -2009,9 +2117,9 @@ async fn an_old_name_lookup_announces_the_rename_in_the_output() {
     let h = Harness::new();
     h.run(
         r#"
-        local dave = memory.create("person/dave")
+        local dave = memory.create(PERSON_DAVE)
         dave:append("climbs on Tuesdays", { visibility = "public" })
-        dave:rename("person/sarah")
+        dave:rename(PERSON_SARAH)
         "#,
     )
     .await;
@@ -2021,7 +2129,7 @@ async fn an_old_name_lookup_announces_the_rename_in_the_output() {
     let outcome = h
         .run(
             r#"
-        local p = memory.get("person/dave")
+        local p = memory.get(PERSON_DAVE)
         print(p:entries()[1])
         "#,
         )
@@ -2030,7 +2138,11 @@ async fn an_old_name_lookup_announces_the_rename_in_the_output() {
         panic!("expected commit, got {outcome:?}");
     };
     assert!(
-        result.contains(r#"note: "person/dave" now goes by "person/sarah" — the same person"#),
+        result.contains(&format!(
+            r#"note: {:?} now goes by {:?} — the same person"#,
+            Namespace::Person.handle("dave").as_str(),
+            Namespace::Person.handle("sarah").as_str()
+        )),
         "{result}"
     );
 }
@@ -2042,14 +2154,17 @@ async fn renaming_onto_an_occupied_handle_is_a_teachable_error() {
     let outcome = h
         .run(
             r#"
-        memory.create("person/dave")
-        memory.create("person/erin")
-        memory.get("person/dave"):rename("person/erin")
+        memory.create(PERSON_DAVE)
+        memory.create(PERSON_ERIN)
+        memory.get(PERSON_DAVE):rename(PERSON_ERIN)
         "#,
         )
         .await;
     let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
         panic!("expected a teachable error, got {outcome:?}");
     };
-    assert!(message.contains("person/erin"), "{message}");
+    assert!(
+        message.contains(Namespace::Person.handle("erin").as_str()),
+        "{message}"
+    );
 }

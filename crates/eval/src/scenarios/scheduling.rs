@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
@@ -67,7 +67,9 @@ impl Scenario for RecurringReminder {
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
         let recurring = analysis::recurring_memory_names(events);
         let recorded = !recurring.is_empty();
-        let on_event = recurring.iter().any(|name| name.starts_with("event/"));
+        let on_event = recurring
+            .iter()
+            .any(|name| name.starts_with(Namespace::Event.prefix()));
         let surfaced = analysis::scheduled_item_surfaced(events);
 
         // The end-to-end check: a week on, asked what's on his plate, did the reply actually tell phil

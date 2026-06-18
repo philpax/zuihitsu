@@ -31,7 +31,7 @@ use crate::{
         Teller, TerminalCause, TurnRole,
     },
     graph::GraphError,
-    ids::{ConversationId, MemoryId, MemoryName, Seq, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, Namespace, Seq, TurnId},
     memory::memory_block::Authority,
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
@@ -577,7 +577,9 @@ fn participant_names(
 /// suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
 /// operational noise irrelevant to who is speaking.
 fn speaker_display(memory_name: &str) -> String {
-    let handle = memory_name.strip_prefix("person/").unwrap_or(memory_name);
+    let handle = Namespace::Person
+        .subject(memory_name)
+        .unwrap_or(memory_name);
     handle.split('@').next().unwrap_or(handle).to_owned()
 }
 

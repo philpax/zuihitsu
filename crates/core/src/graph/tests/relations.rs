@@ -1,7 +1,7 @@
 use super::{materialized, mentor_relation};
 use crate::{
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
-    ids::{EntryId, MemoryId, MemoryName},
+    ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,
 };
@@ -38,15 +38,15 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
         mentor_relation(),
         EventPayload::MemoryCreated {
             id: dave,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryCreated {
             id: trip,
-            name: MemoryName::new("event/reykjavik"),
+            name: Namespace::Event.handle("reykjavik"),
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: MemoryName::new("person/erin"),
+            name: Namespace::Person.handle("erin"),
         },
         appended(
             trip,
@@ -118,11 +118,11 @@ fn link_canonicalizes_inverse_label_to_one_edge() {
         mentor_relation(),
         EventPayload::MemoryCreated {
             id: dave,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: MemoryName::new("person/erin"),
+            name: Namespace::Person.handle("erin"),
         },
         // "erin is mentored_by dave" == "dave is mentor_of erin": same canonical edge.
         EventPayload::LinkCreated {
@@ -169,11 +169,11 @@ fn symmetric_link_is_order_independent() {
         },
         EventPayload::MemoryCreated {
             id: a,
-            name: MemoryName::new("person/phil@direct"),
+            name: Namespace::Person.handle("phil@direct"),
         },
         EventPayload::MemoryCreated {
             id: b,
-            name: MemoryName::new("person/phil@discord"),
+            name: Namespace::Person.handle("phil@discord"),
         },
         EventPayload::LinkCreated {
             from: a,
@@ -208,15 +208,15 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
             mentor_relation(),
             EventPayload::MemoryCreated {
                 id: dave,
-                name: MemoryName::new("person/dave"),
+                name: Namespace::Person.handle("dave"),
             },
             EventPayload::MemoryCreated {
                 id: erin,
-                name: MemoryName::new("person/erin"),
+                name: Namespace::Person.handle("erin"),
             },
             EventPayload::MemoryCreated {
                 id: frank,
-                name: MemoryName::new("person/frank"),
+                name: Namespace::Person.handle("frank"),
             },
             EventPayload::LinkCreated {
                 from: dave,

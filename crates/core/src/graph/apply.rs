@@ -646,7 +646,7 @@ mod tests {
     use super::Graph;
     use crate::{
         event::{ArbitrationResolution, Event, EventPayload, Teller, Visibility},
-        ids::{EntryId, MemoryId, MemoryName, Seq},
+        ids::{EntryId, MemoryId, Namespace, Seq},
         time::{
             BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, MILLIS_PER_DAY, Rrule, TemporalRef,
             Timestamp,
@@ -675,7 +675,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id,
-                    name: MemoryName::new("event/cleaning"),
+                    name: Namespace::Event.handle("cleaning"),
                 },
             ))
             .unwrap();
@@ -733,7 +733,7 @@ mod tests {
         let events = [
             EventPayload::MemoryCreated {
                 id: anchor,
-                name: MemoryName::new("event/wedding"),
+                name: Namespace::Event.handle("wedding"),
             },
             EventPayload::MemoryContentAppended {
                 id: anchor,
@@ -747,7 +747,7 @@ mod tests {
             },
             EventPayload::MemoryCreated {
                 id: dependent,
-                name: MemoryName::new("event/reception"),
+                name: Namespace::Event.handle("reception"),
             },
             untimed(dependent, entry),
         ];
@@ -773,7 +773,7 @@ mod tests {
                     entry_id: entry,
                     occurred_at: TemporalRef::BeforeAfter {
                         dir: Direction::After,
-                        anchor: MemoryName::new("event/wedding"),
+                        anchor: Namespace::Event.handle("wedding"),
                     },
                     produced_by: None,
                 },
@@ -833,7 +833,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id: memory,
-                    name: MemoryName::new("event/all-hands"),
+                    name: Namespace::Event.handle("all-hands"),
                 },
             ))
             .unwrap();
@@ -884,7 +884,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id: memory,
-                    name: MemoryName::new("event/standup"),
+                    name: Namespace::Event.handle("standup"),
                 },
             ))
             .unwrap();

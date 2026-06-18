@@ -5,9 +5,10 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Message, ModelPhase, OpenAiClient,
-    PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store, Timestamp, ToolCall,
-    TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns, event::EventPayload, genesis, run_turn,
+    CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Message, ModelPhase, Namespace,
+    OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store,
+    Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns,
+    event::EventPayload, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -22,7 +23,7 @@ fn run_lua_call(script: &str) -> Completion {
     Completion::ToolCalls(vec![ToolCall {
         id: "1".to_owned(),
         name: "run_lua".to_owned(),
-        arguments: serde_json::json!({ "script": script }).to_string(),
+        arguments: serde_json::json!({ "script": common::prepare_script(script) }).to_string(),
     }])
 }
 
@@ -47,7 +48,7 @@ fn count_agent_turns(store: &dyn Store) -> usize {
 async fn tool_call_then_reply_commits_and_replies() {
     let h = Harness::new();
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create("person/dave", "Met at the climbing gym")"#),
+        run_lua_call(r#"memory.create(PERSON_DAVE, "Met at the climbing gym")"#),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
     ]);
 
@@ -64,7 +65,7 @@ async fn tool_call_then_reply_commits_and_replies() {
         h.engine
             .graph
             .lock()
-            .memory_by_name("person/dave")
+            .memory_by_name(Namespace::Person.handle("dave").as_str())
             .unwrap()
             .is_some()
     );
@@ -100,7 +101,7 @@ async fn descriptions_regenerate_after_a_turn() {
     let model = ScriptedModel::new([
         // A public fact about Dave (the description is synthesized from Public entries only).
         run_lua_call(
-            r#"local d = memory.create("person/dave")
+            r#"local d = memory.create(PERSON_DAVE)
                d:append("Met at the climbing gym", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
@@ -121,7 +122,7 @@ async fn descriptions_regenerate_after_a_turn() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     assert_eq!(dave.description, "Dave, whom I met at the climbing gym.");
@@ -167,13 +168,13 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
     let model = ScriptedModel::new([
         // Turn 1: a public fact, then its description synthesized under the old name.
         run_lua_call(
-            r#"local d = memory.create("person/dave")
+            r#"local d = memory.create(PERSON_DAVE)
                d:append("Handles the deploys.", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(r#"{"description":"Dave handles the deploys.","occurrences":[]}"#),
         // Turn 2: the rename — no content change.
-        run_lua_call(r#"memory.get("person/dave"):rename("person/sarah")"#),
+        run_lua_call(r#"memory.get(PERSON_DAVE):rename(PERSON_SARAH)"#),
         Completion::Reply("Will do.".to_owned()),
         // The rename re-triggers synthesis, now under the new name — no "Dave".
         synthesize_call(r#"{"description":"Sarah handles the deploys.","occurrences":[]}"#),
@@ -187,7 +188,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     assert_eq!(dave.description, "Dave handles the deploys.");
@@ -203,7 +204,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/sarah")
+        .memory_by_name(Namespace::Person.handle("sarah").as_str())
         .unwrap()
         .unwrap();
     assert_eq!(sarah.description, "Sarah handles the deploys.");
@@ -244,7 +245,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
     h.baseline_descriptions();
 
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create("person/dave", "Met Dave last Tuesday")"#),
+        run_lua_call(r#"memory.create(PERSON_DAVE, "Met Dave last Tuesday")"#),
         Completion::Reply("Noted.".to_owned()),
         // The synthesis call resolves statement 1's "last Tuesday" to a concrete day.
         synthesize_call(
@@ -261,7 +262,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -284,7 +285,7 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
 
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"local d = memory.create("person/dave")
+            r#"local d = memory.create(PERSON_DAVE)
                d:append("Met Dave", { occurred_at = { day = "2020-01-01" }, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
@@ -302,7 +303,7 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -333,7 +334,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
 
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"local d = memory.create("person/dave")
+            r#"local d = memory.create(PERSON_DAVE)
                d:append("Dave works at Acme", { by_agent = true, visibility = "public" })
                d:append("Dave works at Hooli", { by_agent = true, visibility = "public" })"#,
         ),
@@ -352,7 +353,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -389,7 +390,7 @@ async fn a_single_sided_arbitration_is_dropped() {
         .unwrap();
 
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create("person/dave", "Met Dave")"#),
+        run_lua_call(r#"memory.create(PERSON_DAVE, "Met Dave")"#),
         Completion::Reply("Noted.".to_owned()),
         // Only one "competing" statement — not a real conflict, so nothing is recorded.
         synthesize_call(
@@ -417,7 +418,7 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     // Dave's memory carries one public fact and one private, future-dated aside.
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"local d = memory.create("person/dave")
+            r#"local d = memory.create(PERSON_DAVE)
                d:append("Dave is a climber", { by_agent = true, visibility = "public" })
                d:append("Dave has a private therapy session next Tuesday", { by_agent = true, visibility = "private" })"#,
         ),
@@ -458,7 +459,7 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
         .engine
         .graph
         .lock()
-        .memory_by_name("person/dave")
+        .memory_by_name(Namespace::Person.handle("dave").as_str())
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -567,8 +568,8 @@ async fn tool_result_feeds_back_across_steps() {
     let h = Harness::new();
     // First create, then a second block reads it back, then reply — exercising multi-step flow.
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create("topic/climbing", "Bouldering and sport climbing")"#),
-        run_lua_call(r#"return memory.get("topic/climbing"):entries()"#),
+        run_lua_call(r#"memory.create(TOPIC_CLIMBING, "Bouldering and sport climbing")"#),
+        run_lua_call(r#"return memory.get(TOPIC_CLIMBING):entries()"#),
         Completion::Reply("done".to_owned()),
     ]);
 
@@ -707,7 +708,7 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
     // Two steps so the delta path runs: a tool call, then a reply, each carrying reasoning.
     let model = ScriptedModel::with_deliberation([
         (
-            run_lua_call(r#"memory.create("person/dave", "Met at the gym")"#),
+            run_lua_call(r#"memory.create(PERSON_DAVE, "Met at the gym")"#),
             "I should record Dave.".to_owned(),
             usage,
         ),

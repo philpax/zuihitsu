@@ -266,7 +266,7 @@ mod tests {
     use super::{Indexer, VectorKey};
     use crate::{
         event::{Event, EventPayload},
-        ids::{MemoryId, MemoryName},
+        ids::{MemoryId, Namespace},
         model::embed::{Embedder, FakeEmbedder},
         store::{MemoryStore, Store},
         time::Timestamp,
@@ -290,7 +290,7 @@ mod tests {
                     // The indexer ignores the create and reacts only to the description.
                     EventPayload::MemoryCreated {
                         id: dave,
-                        name: MemoryName::new("person/dave"),
+                        name: Namespace::Person.handle("dave"),
                     },
                     EventPayload::MemoryDescriptionRegenerated {
                         id: dave,

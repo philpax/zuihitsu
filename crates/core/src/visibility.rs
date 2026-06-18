@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     event::{Teller, Visibility},
     graph::{EntryView, GraphError, MemoryView},
-    ids::MemoryId,
+    ids::{MemoryId, Namespace},
 };
 
 /// Resolves a memory id to its `same_as`-class id (or itself when unmerged). Fallible because the
@@ -201,8 +201,8 @@ pub fn attributed_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
 pub fn room_display(context_name: &str) -> String {
     format!(
         "#{}",
-        context_name
-            .strip_prefix("context/")
+        Namespace::Context
+            .subject(context_name)
             .unwrap_or(context_name)
     )
 }
@@ -212,7 +212,7 @@ pub fn room_display(context_name: &str) -> String {
 /// its class through `class_of`. Public so the write path can ask "does this memory have a subject?"
 /// — the case where an agent-authored entry has no protective default (see the main crate's `memory_block`).
 pub fn subject_participant(name: &str, id: MemoryId) -> Option<MemoryId> {
-    name.starts_with("person/").then_some(id)
+    Namespace::Person.contains(name).then_some(id)
 }
 
 /// Whether `entity` is present — some member of its `same_as` class is in `present_set`.

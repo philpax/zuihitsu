@@ -3,7 +3,8 @@ use crate::{
     event::{EventPayload, Teller, Visibility, Volatility},
     graph::Graph,
     ids::{
-        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
+        SessionId, TurnId,
     },
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -15,7 +16,7 @@ fn a_snapshot_round_trips_the_graph_and_its_head() {
     let (store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryContentAppended {
             id,
@@ -58,7 +59,7 @@ fn fingerprint_equals_for_identical_state_and_differs_on_change() {
     let base = vec![
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryContentAppended {
             id,
@@ -202,7 +203,7 @@ fn conversations_and_sessions_project() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: context,
-            name: MemoryName::new("context/discord:guild/42/chan/leads"),
+            name: Namespace::Context.handle("discord:guild/42/chan/leads"),
         },
         EventPayload::ConversationStarted {
             id: conv,

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
@@ -417,7 +417,7 @@ impl Scenario for GettingToKnowSomeone {
         // Facts landed on a person/ memory (more than the first stub-creating entry).
         let sam_entries = analysis::entries(events)
             .into_iter()
-            .filter(|entry| entry.memory.starts_with("person/"))
+            .filter(|entry| entry.memory.starts_with(Namespace::Person.prefix()))
             .count();
         let accumulated = sam_entries >= 2;
         let superseded = analysis::any_superseded(events);

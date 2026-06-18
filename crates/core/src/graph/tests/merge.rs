@@ -2,7 +2,7 @@ use super::materialized;
 use crate::{
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
     graph::EntryView,
-    ids::{EntryId, MemoryId, MemoryName},
+    ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,
 };
@@ -23,15 +23,15 @@ fn same_as_merges_stubs_into_one_class() {
         },
         EventPayload::MemoryCreated {
             id: a,
-            name: MemoryName::new("person/phil@direct"),
+            name: Namespace::Person.handle("phil@direct"),
         },
         EventPayload::MemoryCreated {
             id: b,
-            name: MemoryName::new("person/phil@discord"),
+            name: Namespace::Person.handle("phil@discord"),
         },
         EventPayload::MemoryCreated {
             id: c,
-            name: MemoryName::new("person/dave@direct"),
+            name: Namespace::Person.handle("dave@direct"),
         },
         EventPayload::LinkCreated {
             from: a,
@@ -84,15 +84,15 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
         },
         EventPayload::MemoryCreated {
             id: a,
-            name: MemoryName::new("person/phil@direct"),
+            name: Namespace::Person.handle("phil@direct"),
         },
         EventPayload::MemoryCreated {
             id: b,
-            name: MemoryName::new("person/phil@discord"),
+            name: Namespace::Person.handle("phil@discord"),
         },
         EventPayload::MemoryCreated {
             id: c,
-            name: MemoryName::new("person/dave@direct"),
+            name: Namespace::Person.handle("dave@direct"),
         },
         // Appended interleaved across the two Phil stubs to prove the union is ordered by global
         // commit order (seq), not grouped by stub.

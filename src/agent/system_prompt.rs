@@ -19,6 +19,7 @@ use std::fmt::Write as _;
 
 use crate::{
     graph::{EntryView, RelationView, TagVocabularyEntry},
+    ids::Namespace,
     time::{self, Timestamp},
 };
 
@@ -26,11 +27,16 @@ use crate::{
 /// calls a handle method as `handle:method(...)` rather than pasting the placeholder literally (the
 /// model otherwise tends to write `dave:<memory>:append(...)`, conflating the placeholder with its
 /// handle). Prepended to the API description.
-const METHOD_NOTATION_LEGEND: &str = "Methods are written `<memory>:method(...)`, where `<memory>` \
-    stands for a memory handle you hold — the result of `memory.create` or `memory.get`. Call the \
-    method directly on that handle: e.g. with `local m = memory.get(\"person/...\")`, write \
-    `m:append(\"...\")` (not `m:<memory>:append(...)`). The `memory.*`, `tags.*`, `links.*`, \
-    `calendar.*`, `context.*`, and `block.*` calls are module functions, called with a dot.";
+fn method_notation_legend() -> String {
+    let person = Namespace::Person.prefix();
+    format!(
+        "Methods are written `<memory>:method(...)`, where `<memory>` \
+         stands for a memory handle you hold — the result of `memory.create` or `memory.get`. Call the \
+         method directly on that handle: e.g. with `local m = memory.get(\"{person}...\")`, write \
+         `m:append(\"...\")` (not `m:<memory>:append(...)`). The `memory.*`, `tags.*`, `links.*`, \
+         `calendar.*`, `context.*`, and `block.*` calls are module functions, called with a dot."
+    )
+}
 
 /// Compose the system prompt from the `scaffold` body, the agent's `identity` (the `self` memory's
 /// content entries, verbatim), the `api_reference` block (the build's callable Lua API, rendered by
@@ -65,7 +71,7 @@ pub fn assemble(
 
     if !api_reference.is_empty() {
         prompt.push_str("\n\n# What you can do\n\n");
-        prompt.push_str(METHOD_NOTATION_LEGEND);
+        prompt.push_str(&method_notation_legend());
         prompt.push_str("\n\n");
         prompt.push_str(api_reference);
     }

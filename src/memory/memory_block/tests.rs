@@ -4,7 +4,7 @@ use crate::{
     engine::Engine,
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
     graph::Graph,
-    ids::{ConversationId, MemoryId, MemoryName},
+    ids::{ConversationId, MemoryId, MemoryName, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,
@@ -68,9 +68,13 @@ fn create_rejects_a_duplicate_name() {
     let graph = Graph::open_in_memory().unwrap();
     let clock = ManualClock::new(Timestamp::from_millis(1_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
-    block.create("topic/plan", None).unwrap();
+    block
+        .create(Namespace::Topic.handle("plan").as_str(), None)
+        .unwrap();
     // Caught against the block's own pending create (read-your-writes), before any commit.
-    let error = block.create("topic/plan", None).unwrap_err();
+    let error = block
+        .create(Namespace::Topic.handle("plan").as_str(), None)
+        .unwrap_err();
     assert!(matches!(error, MemoryError::NameExists(_)));
 }
 
@@ -79,8 +83,12 @@ fn link_rejects_an_unregistered_relation() {
     let graph = Graph::open_in_memory().unwrap();
     let clock = ManualClock::new(Timestamp::from_millis(1_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
-    let a = block.create("topic/a", None).unwrap();
-    let b = block.create("topic/b", None).unwrap();
+    let a = block
+        .create(Namespace::Topic.handle("a").as_str(), None)
+        .unwrap();
+    let b = block
+        .create(Namespace::Topic.handle("b").as_str(), None)
+        .unwrap();
     let error = block
         .link(a, b, RelationName::Other("bogus_relation".into()))
         .unwrap_err();
@@ -99,7 +107,9 @@ fn an_aside_about_another_person_defaults_private() {
         Authority::Platform,
     );
     // The speaker (the teller) is not the subject of person/phil, so the default is private.
-    let phil = block.create("person/phil", None).unwrap();
+    let phil = block
+        .create(Namespace::Person.handle("phil").as_str(), None)
+        .unwrap();
     block
         .append(phil, "is being managed out", AppendOptions::default())
         .unwrap();
@@ -121,7 +131,9 @@ fn platform_authority_cannot_write_self() {
     let (graph, self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
-    let other = block.create("person/phil", None).unwrap();
+    let other = block
+        .create(Namespace::Person.handle("phil").as_str(), None)
+        .unwrap();
 
     // Appending to self, and a link with self at either endpoint, are all barred.
     assert!(matches!(
@@ -155,7 +167,9 @@ fn operator_authority_may_write_self_and_links_carry_operator() {
     let (graph, self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
-    let phil = block.create("person/phil", None).unwrap();
+    let phil = block
+        .create(Namespace::Person.handle("phil").as_str(), None)
+        .unwrap();
 
     // The same writes that platform authority bars all succeed from the console.
     block
@@ -185,8 +199,12 @@ fn platform_authority_cannot_assert_a_same_as_merge() {
     let (graph, _self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
-    let dave = block.create("person/dave", None).unwrap();
-    let dave_discord = block.create("person/dave@discord", None).unwrap();
+    let dave = block
+        .create(Namespace::Person.handle("dave").as_str(), None)
+        .unwrap();
+    let dave_discord = block
+        .create(Namespace::Person.handle("dave@discord").as_str(), None)
+        .unwrap();
 
     // Merging two identities — or splitting one — is operator-only, regardless of the endpoints.
     assert!(matches!(
@@ -208,8 +226,12 @@ fn operator_authority_may_assert_a_same_as_merge() {
     let (graph, _self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
-    let dave = block.create("person/dave", None).unwrap();
-    let dave_discord = block.create("person/dave@discord", None).unwrap();
+    let dave = block
+        .create(Namespace::Person.handle("dave").as_str(), None)
+        .unwrap();
+    let dave_discord = block
+        .create(Namespace::Person.handle("dave@discord").as_str(), None)
+        .unwrap();
 
     block
         .link(dave, dave_discord, RelationName::SameAs)
@@ -226,11 +248,16 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
     // both a create-with-content and a bare append fail teachably without an explicit visibility.
     assert!(matches!(
         block
-            .create("person/erin", Some("may be leaving the team"))
+            .create(
+                Namespace::Person.handle("erin").as_str(),
+                Some("may be leaving the team")
+            )
             .unwrap_err(),
         MemoryError::VisibilityRequired
     ));
-    let erin = block.create("person/erin", None).unwrap();
+    let erin = block
+        .create(Namespace::Person.handle("erin").as_str(), None)
+        .unwrap();
     assert!(matches!(
         block
             .append(erin, "may be leaving the team", AppendOptions::default())
@@ -253,7 +280,10 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
         )
         .unwrap();
     let roadmap = block
-        .create("topic/roadmap", Some("ship on Friday"))
+        .create(
+            Namespace::Topic.handle("roadmap").as_str(),
+            Some("ship on Friday"),
+        )
         .unwrap();
     block
         .append(roadmap, "migration first", AppendOptions::default())

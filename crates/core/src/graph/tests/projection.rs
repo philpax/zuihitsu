@@ -2,7 +2,7 @@ use super::materialized;
 use crate::{
     event::{EventPayload, Teller, Visibility, Volatility},
     graph::EntryView,
-    ids::{EntryId, MemoryId, MemoryName},
+    ids::{EntryId, MemoryId, MemoryName, Namespace},
     time::Timestamp,
     vocabulary::TagName,
 };
@@ -14,7 +14,7 @@ fn projects_create_rename_and_content() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryContentAppended {
             id,
@@ -28,14 +28,22 @@ fn projects_create_rename_and_content() {
         },
         EventPayload::MemoryRenamed {
             id,
-            old_name: MemoryName::new("person/dave"),
-            new_name: MemoryName::new("person/dave-chen"),
+            old_name: Namespace::Person.handle("dave"),
+            new_name: Namespace::Person.handle("dave-chen"),
         },
     ]);
 
     // The old name no longer resolves; the new one does, to the same id.
-    assert!(graph.memory_by_name("person/dave").unwrap().is_none());
-    let memory = graph.memory_by_name("person/dave-chen").unwrap().unwrap();
+    assert!(
+        graph
+            .memory_by_name(Namespace::Person.handle("dave").as_str())
+            .unwrap()
+            .is_none()
+    );
+    let memory = graph
+        .memory_by_name(Namespace::Person.handle("dave-chen").as_str())
+        .unwrap()
+        .unwrap();
     assert_eq!(memory.id, id);
     assert_eq!(memory.volatility, Volatility::Medium); // default
     assert_eq!(memory.description, ""); // no regeneration yet
@@ -52,14 +60,24 @@ fn soft_delete_hides_from_reads() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new("topic/sourdough"),
+            name: Namespace::Topic.handle("sourdough"),
         },
         EventPayload::MemoryDeleted { id },
     ]);
 
-    assert!(graph.memory_by_name("topic/sourdough").unwrap().is_none());
+    assert!(
+        graph
+            .memory_by_name(Namespace::Topic.handle("sourdough").as_str())
+            .unwrap()
+            .is_none()
+    );
     assert!(graph.memory_by_id(id).unwrap().is_none());
-    assert!(graph.memories_in_namespace("topic/").unwrap().is_empty());
+    assert!(
+        graph
+            .memories_in_namespace(Namespace::Topic.prefix())
+            .unwrap()
+            .is_empty()
+    );
     // Contents are preserved for replay/audit even though the memory is hidden.
     // (No entries appended here, so just assert the read path doesn't error.)
     assert!(graph.entries_local(id).unwrap().is_empty());
@@ -103,7 +121,7 @@ fn tag_create_apply_and_remove() {
         },
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new("person/erin"),
+            name: Namespace::Person.handle("erin"),
         },
         EventPayload::TagAppliedToMemory {
             memory: id,
@@ -133,21 +151,29 @@ fn namespace_query_scopes_by_prefix() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: MemoryId::generate(),
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryCreated {
             id: MemoryId::generate(),
-            name: MemoryName::new("person/erin"),
+            name: Namespace::Person.handle("erin"),
         },
         EventPayload::MemoryCreated {
             id: MemoryId::generate(),
-            name: MemoryName::new("place/sydney"),
+            name: Namespace::Place.handle("sydney"),
         },
     ]);
 
-    let people = graph.memories_in_namespace("person/").unwrap();
+    let people = graph
+        .memories_in_namespace(Namespace::Person.prefix())
+        .unwrap();
     let names: Vec<&str> = people.iter().map(|m| m.name.as_str()).collect();
-    assert_eq!(names, vec!["person/dave", "person/erin"]);
+    assert_eq!(
+        names,
+        vec![
+            Namespace::Person.handle("dave").as_str(),
+            Namespace::Person.handle("erin").as_str()
+        ]
+    );
 }
 
 #[test]
@@ -168,7 +194,7 @@ fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: dave,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         appended(old, "Dave works at Hooli"),
         appended(new, "Dave works at Pied Piper"),

@@ -9,6 +9,74 @@ pub mod time;
 
 pub use harness::Harness;
 
+use zuihitsu::{MemoryName, Namespace};
+
+/// Resolve the namespace-token placeholders in a test Lua script to real handles. A script names a
+/// standard persona or thing by token — `PERSON_DAVE`, `EVENT_DENTIST` — and this swaps each for the
+/// quoted handle (`"person/dave"`), sourcing the prefix from [`Namespace`] so no test script spells a
+/// prefix and a renamed prefix is a single edit. A literal handle left in a script has no token to
+/// match, so it passes through untouched and conversion can proceed file by file.
+pub fn prepare_script(script: &str) -> String {
+    // Longest token first, so `PERSON_DAVE_DISCORD` is consumed before `PERSON_DAVE` can corrupt it.
+    let mut entries: Vec<(&str, MemoryName)> = STANDARD_HANDLES
+        .iter()
+        .map(|(token, namespace, subject)| (*token, namespace.handle(subject)))
+        .collect();
+    entries.sort_by_key(|(token, _)| std::cmp::Reverse(token.len()));
+    let mut out = script.to_owned();
+    for (token, handle) in entries {
+        out = out.replace(token, &format!("\"{}\"", handle.as_str()));
+    }
+    out
+}
+
+/// The standard handles the test corpus draws from — the single registry, as `(token, namespace,
+/// subject)`. The token is spelled out (not derived) so a script's `PERSON_DAVE` is greppable straight
+/// to its line here; the prefix is `Namespace`'s, never written out, so renaming a prefix is one edit.
+/// Add a persona or thing with one line and reference it by token in any script.
+const STANDARD_HANDLES: &[(&str, Namespace, &str)] = &[
+    ("PERSON_A", Namespace::Person, "a"),
+    ("PERSON_ALPHA", Namespace::Person, "alpha"),
+    ("PERSON_B_AT_DISCORD", Namespace::Person, "b@discord"),
+    ("PERSON_BETA", Namespace::Person, "beta"),
+    ("PERSON_DAVE", Namespace::Person, "dave"),
+    ("PERSON_DAVE_DISCORD", Namespace::Person, "dave-discord"),
+    ("PERSON_DAVE_AT_DISCORD", Namespace::Person, "dave@discord"),
+    ("PERSON_DAVE_SLACK", Namespace::Person, "dave-slack"),
+    ("PERSON_DAVE_AT_SLACK", Namespace::Person, "dave@slack"),
+    ("PERSON_ERIN", Namespace::Person, "erin"),
+    ("PERSON_FRANK", Namespace::Person, "frank"),
+    ("PERSON_NOBODY", Namespace::Person, "nobody"),
+    ("PERSON_OPERATOR", Namespace::Person, "operator"),
+    ("PERSON_PHIL", Namespace::Person, "phil"),
+    ("PERSON_SAM_DISCORD", Namespace::Person, "sam-discord"),
+    ("PERSON_SAM_SLACK", Namespace::Person, "sam-slack"),
+    ("PERSON_SARAH", Namespace::Person, "sarah"),
+    ("PLACE_SYDNEY", Namespace::Place, "sydney"),
+    ("EVENT_ALL_HANDS", Namespace::Event, "all-hands"),
+    ("EVENT_BOARD_UPDATE", Namespace::Event, "board-update"),
+    ("EVENT_CLEANING", Namespace::Event, "cleaning"),
+    ("EVENT_LAUNCH", Namespace::Event, "launch"),
+    ("EVENT_PRODUCT_LAUNCH", Namespace::Event, "product_launch"),
+    ("EVENT_STANDUP", Namespace::Event, "standup"),
+    ("TOPIC_A", Namespace::Topic, "a"),
+    ("TOPIC_ALPHA", Namespace::Topic, "alpha"),
+    ("TOPIC_BETA", Namespace::Topic, "beta"),
+    ("TOPIC_CLIMBING", Namespace::Topic, "climbing"),
+    ("TOPIC_GHOST", Namespace::Topic, "ghost"),
+    ("TOPIC_LOCKED", Namespace::Topic, "locked"),
+    ("TOPIC_MIGRATION", Namespace::Topic, "migration"),
+    ("TOPIC_OOPS", Namespace::Topic, "oops"),
+    ("TOPIC_PAGE", Namespace::Topic, "page"),
+    ("TOPIC_PLAN", Namespace::Topic, "plan"),
+    ("TOPIC_Q3_PLAN", Namespace::Topic, "q3_plan"),
+    ("TOPIC_ROADMAP", Namespace::Topic, "roadmap"),
+    ("TOPIC_SENSITIVE", Namespace::Topic, "sensitive"),
+    ("TOPIC_SHARED", Namespace::Topic, "shared"),
+    ("TOPIC_SOURDOUGH", Namespace::Topic, "sourdough"),
+    ("CONTEXT_DISCORD_LEADS", Namespace::Context, "discord:leads"),
+];
+
 mod harness {
     use std::{cell::Cell, sync::Arc, time::Duration};
 
@@ -221,7 +289,7 @@ mod harness {
                         block_timeout: TEST_BLOCK_TIMEOUT,
                         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                     },
-                    script,
+                    &super::prepare_script(script),
                 )
                 .await
                 .unwrap()
@@ -247,7 +315,7 @@ mod harness {
                         block_timeout: TEST_BLOCK_TIMEOUT,
                         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                     },
-                    script,
+                    &super::prepare_script(script),
                 )
                 .await
                 .unwrap()

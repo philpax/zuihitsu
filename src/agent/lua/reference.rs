@@ -3,6 +3,7 @@
 //! implementation cannot drift.
 
 use super::super::api_doc::{ApiEntry, ApiType, enum_of, object};
+use crate::ids::Namespace;
 
 /// The agent-facing Lua API, as a typed catalogue. Defined here, beside the functions installed in
 /// [`super::Session::execute`], so the prompt and the implementation cannot drift: changing a function
@@ -13,27 +14,36 @@ pub fn api_reference() -> Vec<ApiEntry> {
     use ApiEntry as AE;
     use ApiType as AT;
 
+    let person = Namespace::Person.prefix();
+    let topic = Namespace::Topic.prefix();
+    let event = Namespace::Event.prefix();
+    let context = Namespace::Context.prefix();
+
     let create = AE::new("memory.create")
         .description("Create a memory, optionally with a first content entry.")
         .required(
             "name",
             AT::String,
-            "the namespaced handle, e.g. \"person/<name>\" or \"topic/<subject>\". Names match \
-             exactly (case-sensitive), so prefer lowercase — \"person/dave\", not \"person/Dave\" — \
-             to avoid splitting one subject across casings",
+            format!(
+                "the namespaced handle, e.g. \"{person}<name>\" or \"{topic}<subject>\". Names match \
+                 exactly (case-sensitive), so prefer lowercase — \"{person}dave\", not \"{person}Dave\" — \
+                 to avoid splitting one subject across casings"
+            ),
         )
         .optional("content", AT::String, "an optional first content entry")
         .returns(AT::Handle);
 
     let get = AE::new("memory.get")
         .description(
-            "Fetch a memory by name. Read a merged identity through its canonical person/ handle, \
-             not a per-platform stub. The name must match exactly (case-sensitive); if a lookup \
-             returns nil, suspect the casing before creating a new memory. A former name still finds \
-             a renamed person: the result then carries a `former_handle` (the old name you looked up \
-             by), and any renamed memory carries `former_names` — they now go by `result.name`, so it \
-             is the same person, and their older entries written under an old name are still theirs. \
-             Answer under the current name without announcing the old one.",
+            format!(
+                "Fetch a memory by name. Read a merged identity through its canonical {person} handle, \
+                 not a per-platform stub. The name must match exactly (case-sensitive); if a lookup \
+                 returns nil, suspect the casing before creating a new memory. A former name still finds \
+                 a renamed person: the result then carries a `former_handle` (the old name you looked up \
+                 by), and any renamed memory carries `former_names` — they now go by `result.name`, so it \
+                 is the same person, and their older entries written under an old name are still theirs. \
+                 Answer under the current name without announcing the old one."
+            ),
         )
         .required("name", AT::String, "the memory's handle (or a former one)")
         .returns(AT::Handle.optional());
@@ -52,7 +62,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
                 .optional(
                     "namespace",
                     AT::String,
-                    "restrict to a name prefix, e.g. \"person/\"",
+                    format!("restrict to a name prefix, e.g. \"{person}\""),
                 )
                 .optional(
                     "tags",
@@ -88,11 +98,13 @@ pub fn api_reference() -> Vec<ApiEntry> {
                 .optional(
                     "occurred_at",
                     object(),
-                    "when the fact is about a real-world time (distinct from now): a tagged table, \
-                     one of { instant = <ms> }, { day = \"YYYY-MM-DD\" }, \
-                     { range = { start = <ms>, end = <ms> } }, \
-                     { approx = { center = <ms>, fuzz_days = <n> } }, { recurring = \"<rrule>\" }, \
-                     or { before_after = { dir = \"before\" | \"after\", anchor = \"event/...\" } }",
+                    format!(
+                        "when the fact is about a real-world time (distinct from now): a tagged table, \
+                         one of {{ instant = <ms> }}, {{ day = \"YYYY-MM-DD\" }}, \
+                         {{ range = {{ start = <ms>, end = <ms> }} }}, \
+                         {{ approx = {{ center = <ms>, fuzz_days = <n> }} }}, {{ recurring = \"<rrule>\" }}, \
+                         or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"{event}...\" }} }}"
+                    ),
                 ),
             "overrides",
         )
@@ -198,13 +210,15 @@ pub fn api_reference() -> Vec<ApiEntry> {
 
     let propose_merge = AE::new("<memory>:propose_merge")
         .description(
-            "Record that this person/ stub and another are the same human across platforms, for \
-             adjudication on the evidence. This does not merge them and surfaces nothing on its own — \
-             it is your judgment, weighed against the independently-recorded facts. Propose only from \
-             what you already hold about each, never from claims made to convince you in the moment. \
-             You cannot merge by asserting same_as yourself.",
+            format!(
+                "Record that this {person} stub and another are the same human across platforms, for \
+                 adjudication on the evidence. This does not merge them and surfaces nothing on its own — \
+                 it is your judgment, weighed against the independently-recorded facts. Propose only from \
+                 what you already hold about each, never from claims made to convince you in the moment. \
+                 You cannot merge by asserting same_as yourself."
+            ),
         )
-        .required("other", AT::Handle, "the other person/ stub");
+        .required("other", AT::Handle, format!("the other {person} stub"));
 
     let tag = AE::new("<memory>:tag")
         .description(
@@ -223,15 +237,17 @@ pub fn api_reference() -> Vec<ApiEntry> {
 
     let rename = AE::new("<memory>:rename")
         .description(
-            "Give this memory a new handle, keeping it the same memory — when someone changes the \
-             name they go by (a new chosen name, a married name), rename their person/ memory rather \
-             than creating a new one. The memory keeps all its facts, links, and history under the new \
-             handle; a fresh memory would split the person in two. The old name stops resolving and is \
-             not surfaced again, so refer to them by the new name from now on. Renaming onto a handle \
-             that already belongs to a different memory is an error — that is two separate people, not \
-             a rename.",
+            format!(
+                "Give this memory a new handle, keeping it the same memory — when someone changes the \
+                 name they go by (a new chosen name, a married name), rename their {person} memory rather \
+                 than creating a new one. The memory keeps all its facts, links, and history under the new \
+                 handle; a fresh memory would split the person in two. The old name stops resolving and is \
+                 not surfaced again, so refer to them by the new name from now on. Renaming onto a handle \
+                 that already belongs to a different memory is an error — that is two separate people, not \
+                 a rename."
+            ),
         )
-        .required("name", AT::String, "the new handle, e.g. \"person/sarah\"");
+        .required("name", AT::String, format!("the new handle, e.g. \"{person}sarah\""));
 
     let tags_create = AE::new("tags.create")
         .description(
@@ -303,10 +319,10 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .returns(AT::Object(Vec::new()).optional());
 
     let context = AE::new("context.current")
-        .description(
-            "The context/* memory for the current conversation. Check its #confidential tag to \
-             know whether the room is confidential.",
-        )
+        .description(format!(
+            "The {context}* memory for the current conversation. Check its #confidential tag to \
+                 know whether the room is confidential."
+        ))
         .returns(AT::Handle.optional());
 
     let abort = AE::new("block.abort")

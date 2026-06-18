@@ -12,7 +12,10 @@ use super::{
 use crate::{
     db::{query_map_into, query_opt_into},
     event::{Cardinality, LinkSource, Teller, Volatility},
-    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
+    ids::{
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, SessionId,
+        TurnId,
+    },
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };
@@ -447,7 +450,7 @@ impl Graph {
             let Some(memory) = self.memory_by_id(other)? else {
                 continue;
             };
-            if memory.name.as_str().starts_with("person/") {
+            if Namespace::Person.contains(memory.name.as_str()) {
                 continue;
             }
             entries.extend(self.class_entries(other)?);

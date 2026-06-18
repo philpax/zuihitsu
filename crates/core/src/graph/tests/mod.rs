@@ -5,7 +5,7 @@
 use super::Graph;
 use crate::{
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
-    ids::{EntryId, MemoryId, MemoryName},
+    ids::{EntryId, MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::{RelationName, TagName},
@@ -66,15 +66,15 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
     vec![
         EventPayload::MemoryCreated {
             id: dave,
-            name: MemoryName::new("person/dave"),
+            name: Namespace::Person.handle("dave"),
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: MemoryName::new("person/erin"),
+            name: Namespace::Person.handle("erin"),
         },
         EventPayload::MemoryCreated {
             id: hooli,
-            name: MemoryName::new("place/hooli"),
+            name: Namespace::Place.handle("hooli"),
         },
         appended(dave, e1, "Met at the climbing gym", Visibility::Public),
         appended(dave, e2, "Now works at Hooli", Visibility::Public),

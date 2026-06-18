@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
@@ -84,7 +84,7 @@ impl Scenario for UpdatesAnExistingEvent {
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
-        let event_memories = analysis::memories_in_namespace(events, "event/");
+        let event_memories = analysis::memories_in_namespace(events, Namespace::Event.prefix());
         let single = event_memories.len() == 1;
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let judged = judge
