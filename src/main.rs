@@ -12,7 +12,9 @@ use std::{
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use tracing_subscriber::{EnvFilter, fmt};
-use zuihitsu::{ConfigError, GenesisStatus, Rollout, SeedSelf, config::EnvConfig};
+use zuihitsu::{
+    ConfigError, GenesisStatus, McpHost, McpTool, Rollout, SeedSelf, StdioHost, config::EnvConfig,
+};
 
 use crate::client::{Client, ClientError};
 
@@ -116,6 +118,9 @@ enum Command {
         #[arg(long)]
         participant: String,
     },
+    /// List the tools each configured MCP server exposes — spawns the servers directly (no running
+    /// agent needed), so you can see a catalogue before narrowing it with `allow`/`deny`.
+    Mcp,
 }
 
 pub fn run() -> ExitCode {
@@ -183,7 +188,54 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             tracing::info!(%platform, %scope, %participant, "noted join");
             Ok(())
         }
+        Command::Mcp => mcp(&config),
     }
+}
+
+/// List the tools each configured MCP server exposes. Spawns the servers directly over stdio (no
+/// running agent needed), snapshots each catalogue, and prints it as a readable listing — a server
+/// that cannot be brought up reports its error and the rest still run, so one missing binary does not
+/// hide the others. The operator reads this to choose an `allow`/`deny` projection.
+fn mcp(config: &EnvConfig) -> Result<(), CliError> {
+    if config.mcp.is_empty() {
+        tracing::info!("no MCP servers configured; add an [mcp.<name>] block to the config");
+        return Ok(());
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|source| CliError::Mcp(format!("could not start the async runtime: {source}")))?;
+    runtime.block_on(async {
+        let host = StdioHost;
+        for (name, server) in &config.mcp {
+            match host.spawn(name, server).await {
+                Ok(instance) => {
+                    print_catalogue(name, instance.tools());
+                    instance.shutdown().await;
+                }
+                Err(error) => println!("{name}\n  could not spawn: {error}\n"),
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Print one server's catalogue: a header with its tool count, then each tool's name (aligned) and
+/// description. Plain text, so it stays legible piped or redirected.
+fn print_catalogue(name: &str, tools: &[McpTool]) {
+    let plural = if tools.len() == 1 { "" } else { "s" };
+    println!("{name} · {} tool{plural}", tools.len());
+    // Align names into a column, but cap the width so one long name does not push every description out.
+    let width = tools
+        .iter()
+        .map(|tool| tool.name.len())
+        .max()
+        .unwrap_or(0)
+        .min(24);
+    for tool in tools {
+        println!("  {:<width$}  {}", tool.name, tool.description);
+    }
+    println!();
 }
 
 /// Boot the long-running HTTP server (the primary operation).
@@ -279,6 +331,8 @@ enum CliError {
         source: serde_json::Error,
     },
     Render(serde_json::Error),
+    /// The `mcp` introspection command could not run (the async runtime failed to start).
+    Mcp(String),
 }
 
 impl From<ClientError> for CliError {
@@ -306,6 +360,7 @@ impl std::fmt::Display for CliError {
                 )
             }
             CliError::Render(source) => write!(f, "could not render the response: {source}"),
+            CliError::Mcp(message) => write!(f, "mcp: {message}"),
         }
     }
 }
@@ -319,6 +374,7 @@ impl std::error::Error for CliError {
             CliError::ReadFile { source, .. } => Some(source),
             CliError::ParseSettings { source, .. } => Some(source),
             CliError::Render(source) => Some(source),
+            CliError::Mcp(_) => None,
         }
     }
 }
