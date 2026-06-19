@@ -3,14 +3,17 @@ import { useState } from "react";
 /// A message composer: a growing input that sends on Enter (Shift+Enter for a newline), with a
 /// pending state while the turn runs and any failure surfaced inline. `onSend` runs the turn — the
 /// caller chooses the endpoint and authority (a participant message or an operator imprint) — and
-/// the reply arrives through the live tail.
+/// the reply arrives through the live tail. `onPendingChange` lets the conversation show that the
+/// agent is working while the turn is in flight.
 export function Composer({
   onSend,
+  onPendingChange,
   placeholder = "Write to the agent…",
   disabled = false,
   disabledHint,
 }: {
   onSend: (text: string) => Promise<void>;
+  onPendingChange?: (pending: boolean) => void;
   placeholder?: string;
   disabled?: boolean;
   disabledHint?: string;
@@ -22,15 +25,20 @@ export function Composer({
   async function send() {
     const text = draft.trim();
     if (!text || pending || disabled) return;
-    setPending(true);
+    // Clear the box at once, so it does not sit showing the sent text while the agent works; a failed
+    // send restores it below, so nothing is lost.
+    setDraft("");
     setError(null);
+    setPending(true);
+    onPendingChange?.(true);
     try {
       await onSend(text);
-      setDraft("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      setDraft(text);
     } finally {
       setPending(false);
+      onPendingChange?.(false);
     }
   }
 
@@ -46,9 +54,11 @@ export function Composer({
           }
         }}
         rows={2}
-        placeholder={disabled ? disabledHint : pending ? "The agent is thinking…" : placeholder}
+        placeholder={
+          disabled ? disabledHint : pending ? "Waiting for the agent's reply…" : placeholder
+        }
         disabled={pending || disabled}
-        className="w-full resize-none bg-transparent font-serif text-base leading-relaxed text-ink placeholder:text-ink-faint/60 focus:outline-none disabled:opacity-60"
+        className="w-full resize-none bg-transparent text-base leading-relaxed text-ink placeholder:text-ink-faint/60 focus:outline-none disabled:opacity-60"
       />
       <div className="mt-2 flex items-center justify-between">
         {error ? (

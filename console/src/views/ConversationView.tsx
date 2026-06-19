@@ -254,6 +254,8 @@ function Room({
 }) {
   const isOperator = channel.authority === "operator";
   const handle = participate?.sender.trim() ?? "";
+  // True while a sent turn is in flight, so the conversation shows the agent at work.
+  const [thinking, setThinking] = useState(false);
 
   async function onSend(text: string) {
     if (!participate) return;
@@ -291,11 +293,14 @@ function Room({
         </p>
       )}
 
+      {thinking && <ThinkingIndicator />}
+
       {participate &&
         (participate.atHead ? (
           <div className="mt-6">
             <Composer
               onSend={onSend}
+              onPendingChange={setThinking}
               disabled={!isOperator && handle.length === 0}
               disabledHint="Set who you are to start."
               placeholder={
@@ -310,6 +315,20 @@ function Room({
             viewing history · return to the head of the timeline to speak
           </p>
         ))}
+    </div>
+  );
+}
+
+/// The agent is composing a reply — a sage pulse where the next turn will land, shown between the
+/// transcript and the composer while a sent turn is in flight.
+function ThinkingIndicator() {
+  return (
+    <div className="mt-5 flex items-center gap-2 text-sage">
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-60" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sage" />
+      </span>
+      <span className="font-mono text-2xs uppercase tracking-widest">the agent is thinking…</span>
     </div>
   );
 }
