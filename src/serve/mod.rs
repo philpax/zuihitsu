@@ -103,25 +103,27 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // Capture the booted config for the read-only config view before its parts are moved out below
     // (the MCP table into `connect_mcp`, the API keys into the auth layers).
     let env_config = Arc::new(config.clone());
-    ensure_parent_dir(&config.storage.event_log)?;
-    ensure_parent_dir(&config.storage.graph)?;
-    let store = SqliteStore::open(&config.storage.event_log).map_err(|source| {
-        ServeError::OpenEventLog {
-            path: config.storage.event_log.clone(),
-            source,
-        }
+    // The three databases share one directory (the storage config); ensuring the event log's parent
+    // creates that directory for all of them.
+    let event_log = config.storage.event_log();
+    let graph_path = config.storage.graph();
+    let vectors_path = config.storage.vectors();
+    ensure_parent_dir(&event_log)?;
+    let store = SqliteStore::open(&event_log).map_err(|source| ServeError::OpenEventLog {
+        path: event_log.clone(),
+        source,
     })?;
     // Restore the graph from the latest snapshot when it leads the on-disk graph (a fresh, deleted, or
     // corrupt graph), before the file is opened — so boot replays only the tail (spec §Snapshots).
-    let snapshot_dir = config.snapshots.effective_dir(&config.storage.graph);
+    let snapshot_dir = config.snapshots.effective_dir(&graph_path);
     if config.snapshots.enabled
-        && let Some(head) = snapshot::restore_if_stale(&config.storage.graph, &snapshot_dir)
-            .map_err(ServeError::Snapshot)?
+        && let Some(head) =
+            snapshot::restore_if_stale(&graph_path, &snapshot_dir).map_err(ServeError::Snapshot)?
     {
         tracing::info!(head = head.0, "restored the graph from a snapshot");
     }
-    let graph = Graph::open(&config.storage.graph).map_err(|source| ServeError::OpenGraph {
-        path: config.storage.graph.clone(),
+    let graph = Graph::open(&graph_path).map_err(|source| ServeError::OpenGraph {
+        path: graph_path.clone(),
         source,
     })?;
     // Semantic retrieval is enabled when an embedding endpoint is configured: build the embedder and
@@ -132,11 +134,12 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         None
     } else {
         let embedder: Arc<dyn Embedder> = Arc::new(OpenAiEmbedder::new(&config.embedding));
-        let vectors = SqliteVectorIndex::open(&config.storage.vectors, config.embedding.dimensions)
-            .map_err(|source| ServeError::OpenVectors {
-                path: config.storage.vectors.clone(),
+        let vectors = SqliteVectorIndex::open(&vectors_path, config.embedding.dimensions).map_err(
+            |source| ServeError::OpenVectors {
+                path: vectors_path.clone(),
                 source,
-            })?;
+            },
+        )?;
         Some((embedder, Box::new(vectors) as Box<dyn VectorIndex>))
     };
     let mut server = match retrieval {

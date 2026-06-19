@@ -98,24 +98,38 @@ pub struct EmbeddingConfig {
     pub dimensions: usize,
 }
 
-/// Where this instance's two databases live. The event log is the source of truth; the graph is a
-/// rebuildable projection.
+/// Where this instance's databases live — one directory holding all three. The event log is the
+/// source of truth; the graph and the vector index are rebuildable projections of it. The directory
+/// *is* the instance selector, and a single field keeps the three from ever scattering.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct StorageConfig {
-    pub event_log: PathBuf,
-    pub graph: PathBuf,
-    /// The sqlite-vec index backing semantic search — a third rebuildable projection of the log,
-    /// populated only when an embedding endpoint is configured (spec §Storage → vector store).
-    pub vectors: PathBuf,
+    /// The directory the databases live in, resolved relative to the config file's directory.
+    pub dir: PathBuf,
+}
+
+impl StorageConfig {
+    /// The event log — the single-writer source of truth.
+    pub fn event_log(&self) -> PathBuf {
+        self.dir.join("events.sqlite")
+    }
+
+    /// The graph projection.
+    pub fn graph(&self) -> PathBuf {
+        self.dir.join("graph.sqlite")
+    }
+
+    /// The sqlite-vec index backing semantic search, populated only when an embedding endpoint is
+    /// configured (spec §Storage → vector store).
+    pub fn vectors(&self) -> PathBuf {
+        self.dir.join("vectors.sqlite")
+    }
 }
 
 impl Default for StorageConfig {
     fn default() -> Self {
         StorageConfig {
-            event_log: PathBuf::from("zuihitsu.events.sqlite"),
-            graph: PathBuf::from("zuihitsu.graph.sqlite"),
-            vectors: PathBuf::from("zuihitsu.vectors.sqlite"),
+            dir: PathBuf::from("data"),
         }
     }
 }
@@ -178,9 +192,7 @@ impl EnvConfig {
             Err(error) => return Err(ConfigError::Io(error)),
         };
         let base = path.parent().unwrap_or_else(|| Path::new("."));
-        config.storage.event_log = base.join(&config.storage.event_log);
-        config.storage.graph = base.join(&config.storage.graph);
-        config.storage.vectors = base.join(&config.storage.vectors);
+        config.storage.dir = base.join(&config.storage.dir);
         if let Some(dir) = &config.snapshots.dir {
             config.snapshots.dir = Some(base.join(dir));
         }
@@ -259,9 +271,10 @@ mod tests {
         let path = dir.join("config.toml"); // does not exist
         let config = EnvConfig::load(&path).unwrap();
 
-        assert_eq!(config.storage.event_log, dir.join("zuihitsu.events.sqlite"));
-        assert_eq!(config.storage.graph, dir.join("zuihitsu.graph.sqlite"));
-        assert_eq!(config.storage.vectors, dir.join("zuihitsu.vectors.sqlite"));
+        assert_eq!(config.storage.dir, dir.join("data"));
+        assert_eq!(config.storage.event_log(), dir.join("data/events.sqlite"));
+        assert_eq!(config.storage.graph(), dir.join("data/graph.sqlite"));
+        assert_eq!(config.storage.vectors(), dir.join("data/vectors.sqlite"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -270,15 +283,13 @@ mod tests {
     fn parses_storage_and_resolves_relative_paths() {
         let dir = temp_dir();
         let path = dir.join("config.toml");
-        std::fs::write(
-            &path,
-            "[storage]\nevent_log = \"db/events.sqlite\"\ngraph = \"db/graph.sqlite\"\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "[storage]\ndir = \"db\"\n").unwrap();
 
         let config = EnvConfig::load(&path).unwrap();
-        assert_eq!(config.storage.event_log, dir.join("db/events.sqlite"));
-        assert_eq!(config.storage.graph, dir.join("db/graph.sqlite"));
+        assert_eq!(config.storage.dir, dir.join("db"));
+        assert_eq!(config.storage.event_log(), dir.join("db/events.sqlite"));
+        assert_eq!(config.storage.graph(), dir.join("db/graph.sqlite"));
+        assert_eq!(config.storage.vectors(), dir.join("db/vectors.sqlite"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -313,7 +324,7 @@ mod tests {
         // An explicit dir is honored and resolved against the config's directory.
         assert_eq!(config.snapshots.dir, Some(dir.join("snaps")));
         assert_eq!(
-            config.snapshots.effective_dir(&config.storage.graph),
+            config.snapshots.effective_dir(&config.storage.graph()),
             dir.join("snaps")
         );
 
@@ -369,7 +380,7 @@ mod tests {
         .unwrap();
 
         let config = EnvConfig::load(&path).unwrap();
-        assert_eq!(config.storage.event_log, dir.join("zuihitsu.events.sqlite"));
+        assert_eq!(config.storage.event_log(), dir.join("data/events.sqlite"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
