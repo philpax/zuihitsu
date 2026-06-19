@@ -13,11 +13,13 @@ export function Landing({
   onOpenPackage,
   onOpenHistory,
   onConnectLive,
+  onWatchEval,
   error,
 }: {
   onOpenPackage: (file: File) => void;
   onOpenHistory: (file: File) => void;
   onConnectLive: () => void;
+  onWatchEval: (baseUrl: string) => void;
   error: string | null;
 }) {
   const [source, setSource] = useState<Source>("agent");
@@ -65,7 +67,11 @@ export function Landing({
             {source === "agent" ? (
               <AgentPanel onConnect={onConnectLive} />
             ) : (
-              <EvalPanel onOpenPackage={onOpenPackage} onOpenHistory={onOpenHistory} />
+              <EvalPanel
+                onOpenPackage={onOpenPackage}
+                onOpenHistory={onOpenHistory}
+                onWatchEval={onWatchEval}
+              />
             )}
           </motion.div>
         </AnimatePresence>
@@ -96,11 +102,14 @@ function AgentPanel({ onConnect }: { onConnect: () => void }) {
 function EvalPanel({
   onOpenPackage,
   onOpenHistory,
+  onWatchEval,
 }: {
   onOpenPackage: (file: File) => void;
   onOpenHistory: (file: File) => void;
+  onWatchEval: (baseUrl: string) => void;
 }) {
   const [hovering, setHovering] = useState(false);
+  const [url, setUrl] = useState("http://localhost:7878");
   return (
     <div className="mt-6">
       <label
@@ -147,6 +156,30 @@ function EvalPanel({
           }}
         />
       </label>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (url.trim()) onWatchEval(url);
+        }}
+        className="mt-4 flex items-baseline justify-center gap-2 font-mono text-2xs text-ink-faint"
+      >
+        <span>or watch a live eval at</span>
+        <input
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          spellCheck={false}
+          aria-label="live eval address"
+          className="w-44 border-b border-line bg-transparent py-0.5 text-ink-soft outline-none transition-colors focus:border-clay"
+        />
+        <button
+          type="submit"
+          title="Watch this live eval"
+          className="transition-colors hover:text-clay"
+        >
+          →
+        </button>
+      </form>
     </div>
   );
 }

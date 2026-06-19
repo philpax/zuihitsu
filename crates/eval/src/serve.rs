@@ -37,10 +37,17 @@ pub async fn serve(addr: SocketAddr, sink: Arc<EvalSink>) -> Result<(), EvalErro
 /// event (carrying the [`LiveEvent`] and its monotonic id). The snapshot-and-subscribe is atomic in the
 /// sink, so no delta is missed or double-counted across the cut.
 async fn stream(State(sink): State<Arc<EvalSink>>) -> impl IntoResponse {
-    let (snapshot, mut receiver) = sink.subscribe();
+    let (snapshot, catch_up, mut receiver) = sink.subscribe();
     let body = async_stream::stream! {
         if let Ok(json) = serde_json::to_string(&snapshot) {
             yield Ok::<_, Infallible>(Event::default().event("snapshot").data(json));
+        }
+        // Replay the in-flight runs' events so far (as live deltas) before the ongoing stream, so a
+        // client joining mid-run folds the deliberation from its start, not from the moment it connected.
+        for event in catch_up {
+            if let Ok(json) = serde_json::to_string(&event) {
+                yield Ok(Event::default().event("live").data(json));
+            }
         }
         loop {
             match receiver.recv().await {

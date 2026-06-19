@@ -7,7 +7,7 @@
 //! mid-run still folds the exact same package the sidecar would.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs::{File, OpenOptions},
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
@@ -85,6 +85,10 @@ struct Inner {
     package: EvalPackage,
     writer: BufWriter<File>,
     next_id: u64,
+    /// The events of the runs currently driving, by `(scenario, run)` — retained only while a run is
+    /// in flight (dropped when it finishes into the package), so a client that connects mid-run can be
+    /// caught up on the deliberation so far rather than seeing it start partway through.
+    in_flight: BTreeMap<(u32, u32), Vec<Event>>,
 }
 
 impl EvalSink {
@@ -116,6 +120,7 @@ impl EvalSink {
                 package,
                 writer: BufWriter::new(file),
                 next_id: 0,
+                in_flight: BTreeMap::new(),
             }),
             events,
         };
@@ -123,16 +128,23 @@ impl EvalSink {
         Ok(sink)
     }
 
-    /// Emit `RunStarted` — a run has begun driving.
+    /// Open a run: record that it is driving (an empty live buffer) and emit `RunStarted`.
     pub fn run_started(&self, scenario: u32, run: u32) -> Result<(), EvalError> {
-        self.emit(LiveEvent::RunStarted { scenario, run })
+        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        inner.in_flight.insert((scenario, run), Vec::new());
+        self.emit_locked(&mut inner, LiveEvent::RunStarted { scenario, run })
     }
 
     /// Broadcast one `RunEvent` live — a single event from a run's deliberation as it is recorded.
-    /// Broadcast-only (not written to the sidecar): it animates the deep-dive, but the authoritative
-    /// copy rides the run's `RunCompleted`, so a viewer who joined mid-run loses nothing.
+    /// Retained in the run's live buffer (to catch up a late-joining client) but not written to the
+    /// sidecar: the authoritative copy rides the run's `RunCompleted`, so a viewer loses nothing.
     pub fn run_event(&self, scenario: u32, run: u32, event: Event) -> Result<(), EvalError> {
         let mut inner = self.inner.lock().expect("eval sink poisoned");
+        inner
+            .in_flight
+            .entry((scenario, run))
+            .or_default()
+            .push(event.clone());
         self.broadcast_locked(
             &mut inner,
             LiveEvent::RunEvent {
@@ -150,6 +162,8 @@ impl EvalSink {
     pub fn run_finished(&self, scenario: u32, record: RunRecord) -> Result<(), EvalError> {
         let mut inner = self.inner.lock().expect("eval sink poisoned");
         let run = record.index;
+        // The run is whole now and lives in the package; retire its live catch-up buffer.
+        inner.in_flight.remove(&(scenario, run));
         let report = &mut inner.package.scenarios[scenario as usize];
         report.runs.push(record.clone());
         report.runs.sort_by_key(|run| run.index);
@@ -177,13 +191,32 @@ impl EvalSink {
         flush(&mut inner.writer)
     }
 
-    /// Snapshot the current package and subscribe to the deltas to come, under the lock — so the
-    /// snapshot reflects exactly the events before the subscription and the receiver gets exactly the
-    /// events after, with no gap or overlap. The basis for `serve`'s snapshot-then-deltas stream.
-    pub fn subscribe(&self) -> (EvalPackage, broadcast::Receiver<(u64, LiveEvent)>) {
+    /// Snapshot the current package, the in-flight runs' events so far, and subscribe to the deltas to
+    /// come — all under the lock, so the cut is consistent: the snapshot and catch-up reflect exactly
+    /// the events before the subscription, and the receiver gets exactly those after, with no gap or
+    /// overlap. The catch-up is replayed as `RunStarted` + `RunEvent`s so a client joining mid-run sees
+    /// the deliberation from its start. The basis for `serve`'s stream.
+    pub fn subscribe(
+        &self,
+    ) -> (
+        EvalPackage,
+        Vec<LiveEvent>,
+        broadcast::Receiver<(u64, LiveEvent)>,
+    ) {
         let inner = self.inner.lock().expect("eval sink poisoned");
+        let mut catch_up = Vec::new();
+        for (&(scenario, run), events) in &inner.in_flight {
+            catch_up.push(LiveEvent::RunStarted { scenario, run });
+            for event in events {
+                catch_up.push(LiveEvent::RunEvent {
+                    scenario,
+                    run,
+                    event: event.clone(),
+                });
+            }
+        }
         let receiver = self.events.subscribe();
-        (inner.package.clone(), receiver)
+        (inner.package.clone(), catch_up, receiver)
     }
 
     /// Re-open an interrupted run's sidecar to continue it: seed the package with the runs that
@@ -223,6 +256,7 @@ impl EvalSink {
                 writer: BufWriter::new(file),
                 // Resumed deltas continue the id sequence past what the sidecar already holds.
                 next_id: 0,
+                in_flight: BTreeMap::new(),
             }),
             events,
         })

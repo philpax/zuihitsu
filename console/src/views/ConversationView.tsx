@@ -1,5 +1,6 @@
 import { createContext, useContext, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
 import type { Message } from "../types/Message.ts";
@@ -322,11 +323,15 @@ function Transcript({
   conversation: ConversationModel;
   cursor: number;
 }) {
+  // Turns already present when this conversation first rendered are the "initial state" and sit still;
+  // turns that arrive afterward — a live run streaming in — fade and slide in to signal the new state.
+  const reduce = useReducedMotion();
+  const [freshAfter] = useState(cursor);
   if (conversation.sessions.length === 0) {
     return (
       <ol className="flex flex-col">
         {conversation.turns.map((turn) => (
-          <TurnItem key={turn.turnId} turn={turn} />
+          <TurnItem key={turn.turnId} turn={turn} fresh={!reduce && turn.seq > freshAfter} />
         ))}
       </ol>
     );
@@ -349,7 +354,7 @@ function Transcript({
             />
             <ol className="mt-2 flex flex-col">
               {turns.map((turn) => (
-                <TurnItem key={turn.turnId} turn={turn} />
+                <TurnItem key={turn.turnId} turn={turn} fresh={!reduce && turn.seq > freshAfter} />
               ))}
             </ol>
           </div>
@@ -558,18 +563,26 @@ function BriefComposition({
   return <BriefTraceView trace={trace} />;
 }
 
-function TurnItem({ turn }: { turn: TurnModel }) {
+function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
+  // A turn that streamed in after the view opened fades and lifts into place; the initial ones do not.
+  const enter = fresh
+    ? {
+        initial: { opacity: 0, y: 6 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.35, ease: [0.32, 0.72, 0, 1] as const },
+      }
+    : {};
   if (turn.role === "System") {
     return (
-      <li className="py-3 text-center">
+      <motion.li className="py-3 text-center" {...enter}>
         <span className="font-mono text-2xs text-ink-faint">{turn.text || "(system)"}</span>
-      </li>
+      </motion.li>
     );
   }
 
   const isAgent = turn.role === "Agent";
   return (
-    <li className="border-b border-line/70 py-4 last:border-b-0 sm:py-5">
+    <motion.li className="border-b border-line/70 py-4 last:border-b-0 sm:py-5" {...enter}>
       {turn.entrance && turn.speaker && (
         <div className="mb-4 flex items-center gap-3 text-ink-faint">
           <span className="h-px flex-1 bg-line" />
@@ -621,7 +634,7 @@ function TurnItem({ turn }: { turn: TurnModel }) {
         </p>
       )}
       {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
-    </li>
+    </motion.li>
   );
 }
 

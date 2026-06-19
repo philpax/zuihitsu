@@ -2,6 +2,8 @@ import { Link, Navigate, useOutletContext, useParams } from "react-router-dom";
 
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
+import type { Event } from "../types/Event.ts";
+import { type EvalContext, liveRunOf, runningKey } from "../lib/liveEval.ts";
 import { type ReplicaState, useReplica } from "../lib/useReplica.ts";
 import { runBase, runPath } from "../lib/routes.ts";
 import { useStreamLocation } from "../lib/useStreamLocation.ts";
@@ -21,44 +23,64 @@ import { VerdictPanel } from "./VerdictPanel.tsx";
 /// The layout reads as a drill-down: the scenario list on the left, then the scenario's summary, the
 /// run picker, this run's verdicts, and finally the run's views — outer scope to inner, top to bottom.
 export function RunFrame() {
-  const pkg = useOutletContext<EvalPackage>();
+  const { pkg, liveRuns } = useOutletContext<EvalContext>();
   const params = useParams();
-  const scenario = pkg.scenarios.find((entry) => entry.meta.name === params.scenario) ?? null;
-  const run = scenario?.runs.find((entry) => String(entry.index) === params.run) ?? null;
-  const replica = useReplica(run?.events ?? null);
+  const scenarioIndex = pkg.scenarios.findIndex((entry) => entry.meta.name === params.scenario);
+  const scenario = scenarioIndex >= 0 ? pkg.scenarios[scenarioIndex] : null;
+  const completed = scenario?.runs.find((entry) => String(entry.index) === params.run) ?? null;
+  // A run still driving has no record yet; its events stream into the live map until it completes, so
+  // a deep-dive opened on it watches the deliberation arrive. Once its `RunCompleted` lands, the record
+  // takes over (verdicts appear, the conversation stays).
+  const live =
+    scenario && params.run !== undefined && !completed
+      ? (liveRuns.get(runningKey(scenarioIndex, Number(params.run))) ?? null)
+      : null;
+  const events = completed?.events ?? live;
+  const replica = useReplica(events);
+  const runIndex = completed
+    ? completed.index
+    : params.run !== undefined
+      ? Number(params.run)
+      : null;
   const { view, seq, selectView, setSeq } = useStreamLocation(
-    scenario && run ? runBase(scenario.meta.name, run.index) : "",
+    scenario && runIndex !== null ? runBase(scenario.meta.name, runIndex) : "",
   );
 
-  if (!scenario || !run) return <Navigate to="/eval" replace />;
+  if (!scenario || runIndex === null || !events) return <Navigate to="/eval" replace />;
   if (!STREAM_VIEWS.some((entry) => entry.id === view)) {
-    return <Navigate to={runPath(scenario.meta.name, run.index)} replace />;
+    return <Navigate to={runPath(scenario.meta.name, runIndex)} replace />;
   }
 
   const ready = replica.status === "ready" ? replica.replica : null;
 
   // Distinct keys per sibling: the panel and the workspace both reset per run, but they must not
   // share a key — duplicate keys among siblings break reconciliation, leaving stale panels mounted.
-  const runKey = `${scenario.meta.name}/${run.index}`;
+  const runKey = `${scenario.meta.name}/${runIndex}`;
 
   return (
     <div className="flex flex-1 gap-6 pt-7">
-      <ScenarioRail pkg={pkg} active={scenario.meta.name} />
+      <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} />
       <div className="flex min-w-0 flex-1 flex-col">
         <ScenarioSummary scenario={scenario} />
-        <RunPicker scenario={scenario} active={run.index} />
-        <VerdictPanel
-          key={`verdict:${runKey}`}
-          run={run}
-          gating={scenario.meta.bar.kind === "gating"}
+        <RunPicker
+          scenario={scenario}
+          active={runIndex}
+          liveRun={liveRunOf(liveRuns, scenarioIndex)}
         />
+        {completed && (
+          <VerdictPanel
+            key={`verdict:${runKey}`}
+            run={completed}
+            gating={scenario.meta.bar.kind === "gating"}
+          />
+        )}
         {!ready ? (
           <Pending state={replica} />
         ) : (
           <StreamWorkspace
             key={`stream:${runKey}`}
             replica={ready}
-            events={run.events}
+            events={events}
             head={ready.headSeq}
             view={view!}
             onSelectView={selectView}
@@ -74,28 +96,60 @@ export function RunFrame() {
 /// The scenario switcher: every scenario in the package as a name, the open one marked, a clay tick
 /// flagging any whose bar did not hold — so the rail doubles as the overview's health at a glance.
 /// Hidden below `lg`, where the views want the width and the header breadcrumb covers navigation.
-function ScenarioRail({ pkg, active }: { pkg: EvalPackage; active: string }) {
+function ScenarioRail({
+  pkg,
+  active,
+  liveRuns,
+}: {
+  pkg: EvalPackage;
+  active: string;
+  liveRuns: ReadonlyMap<string, Event[]>;
+}) {
   return (
     <aside className="hidden w-40 shrink-0 lg:block">
       <div className="sticky top-4 flex flex-col">
         <Eyebrow>scenarios</Eyebrow>
         <nav className="mt-3 flex flex-col gap-0.5">
-          {pkg.scenarios.map((entry) => (
-            <Link
-              key={entry.meta.name}
-              to={runPath(entry.meta.name, entry.runs[0].index)}
-              title={entry.meta.name}
-              className={
-                "-ml-3 flex min-w-0 items-baseline gap-1.5 border-l-2 py-1 pl-2.5 font-mono text-2xs transition-colors " +
-                (entry.meta.name === active
-                  ? "border-clay text-ink"
-                  : "border-transparent text-ink-soft hover:text-ink")
-              }
-            >
-              {!held(entry) && <span className="shrink-0 text-clay">●</span>}
-              <span className="truncate">{entry.meta.name}</span>
-            </Link>
-          ))}
+          {pkg.scenarios.map((entry, index) => {
+            const isActive = entry.meta.name === active;
+            const liveIndex = liveRunOf(liveRuns, index);
+            const first = entry.runs[0];
+            // Open the first completed run, or — if none has landed — the one driving live.
+            const openRun = first ? first.index : liveIndex;
+            const tint = isActive
+              ? "border-clay text-ink"
+              : "border-transparent text-ink-soft hover:text-ink";
+            const rowClass =
+              "-ml-3 flex min-w-0 items-baseline gap-1.5 border-l-2 py-1 pl-2.5 font-mono text-2xs transition-colors " +
+              tint;
+            const marker =
+              liveIndex !== null ? (
+                <span className="shrink-0 text-sage">●</span>
+              ) : first && !held(entry) ? (
+                <span className="shrink-0 text-clay">●</span>
+              ) : null;
+            // Not started and not driving: a quiet, non-clickable row until a run lands or begins.
+            return openRun !== null ? (
+              <Link
+                key={entry.meta.name}
+                to={runPath(entry.meta.name, openRun)}
+                title={entry.meta.name}
+                className={rowClass}
+              >
+                {marker}
+                <span className="truncate">{entry.meta.name}</span>
+              </Link>
+            ) : (
+              <span
+                key={entry.meta.name}
+                title={entry.meta.name}
+                className={rowClass + " opacity-60"}
+              >
+                {marker}
+                <span className="truncate">{entry.meta.name}</span>
+              </span>
+            );
+          })}
         </nav>
       </div>
     </aside>
@@ -142,8 +196,17 @@ function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
 }
 
 /// The runs of the open scenario, laid out as a horizontal row beneath the summary so the drill-down
-/// reads top to bottom. The open run is marked; a run whose gate regressed shows in clay.
-function RunPicker({ scenario, active }: { scenario: ScenarioReport; active: number }) {
+/// reads top to bottom. The open run is marked; a run whose gate regressed shows in clay; the one
+/// driving live (not yet a completed record) shows last, in sage, so any in-flight run is reachable.
+function RunPicker({
+  scenario,
+  active,
+  liveRun,
+}: {
+  scenario: ScenarioReport;
+  active: number;
+  liveRun: number | null;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3">
       <Eyebrow>runs</Eyebrow>
@@ -176,6 +239,24 @@ function RunPicker({ scenario, active }: { scenario: ScenarioReport; active: num
             </Link>
           );
         })}
+        {liveRun !== null && (
+          <Link
+            to={runPath(scenario.meta.name, liveRun)}
+            title={`Run ${liveRun} · streaming live`}
+            className={
+              "flex h-7 min-w-[1.75rem] items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +
+              (liveRun === active
+                ? "border-sage bg-sage/15 text-sage "
+                : "border-sage/50 text-sage hover:border-sage ")
+            }
+          >
+            <span className="relative flex h-1 w-1">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
+              <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
+            </span>
+            {liveRun}
+          </Link>
+        )}
       </nav>
     </div>
   );

@@ -40,5 +40,16 @@ export function useReplica(events: Event[] | null): ReplicaState {
 
   if (!events) return { status: "idle" };
   if (resolved?.events === events) return resolved.state;
+  // A re-fold is in flight. If it is the same run growing — the first event is shared by reference, as
+  // a live run's log only ever appends — keep the last replica on screen so the stream updates smoothly
+  // instead of flashing "loading"; a different selection (navigating runs) shows loading as before.
+  if (
+    resolved?.state.status === "ready" &&
+    resolved.events.length > 0 &&
+    events.length > 0 &&
+    resolved.events[0] === events[0]
+  ) {
+    return resolved.state;
+  }
   return { status: "loading" };
 }

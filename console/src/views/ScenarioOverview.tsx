@@ -1,7 +1,7 @@
 import { Link, useOutletContext } from "react-router-dom";
 
-import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
+import { type EvalContext, activeScenarios, liveRunOf } from "../lib/liveEval.ts";
 import { formatMs, formatRate, formatTokens } from "../lib/format.ts";
 import { runPath } from "../lib/routes.ts";
 import { Dot } from "../components/primitives.tsx";
@@ -10,8 +10,15 @@ import { Dot } from "../components/primitives.tsx";
 /// ran at. The first thing an operator wants — which scenarios held, and which did not — and the
 /// way into a single run for the deeper views. The package arrives as the eval frame's outlet context.
 export function ScenarioOverview() {
-  const pkg = useOutletContext<EvalPackage>();
+  const { pkg, liveRuns } = useOutletContext<EvalContext>();
+  const active = activeScenarios(liveRuns);
+  const runsPlanned = pkg.meta.runs_per_scenario;
   const regressions = pkg.scenarios.filter((s) => !s.aggregate.gating_passed).length;
+  // For a live run, scenarios fill in over time; track how far along, and soften the gates verdict to
+  // "holding" until the plan is complete.
+  const done = pkg.scenarios.reduce((sum, s) => sum + s.runs.length, 0);
+  const total = pkg.scenarios.length * runsPlanned;
+  const complete = done >= total;
 
   return (
     <main className="flex-1 py-7">
@@ -19,8 +26,16 @@ export function ScenarioOverview() {
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Scenarios</h2>
         <span className="font-mono text-xs text-ink-soft">
           {pkg.scenarios.length} scenarios ·{" "}
+          {!complete && (
+            <>
+              <span className="text-ink">
+                {done}/{total} runs
+              </span>{" "}
+              ·{" "}
+            </>
+          )}
           {regressions === 0 ? (
-            <span className="text-sage">all gates held</span>
+            <span className="text-sage">{complete ? "all gates held" : "gates holding"}</span>
           ) : (
             <span className="text-clay">
               {regressions} regression{regressions > 1 ? "s" : ""}
@@ -30,35 +45,72 @@ export function ScenarioOverview() {
       </div>
 
       <ul>
-        {pkg.scenarios.map((scenario) => (
-          <ScenarioRow key={scenario.meta.name} scenario={scenario} />
+        {pkg.scenarios.map((scenario, index) => (
+          <ScenarioRow
+            key={scenario.meta.name}
+            scenario={scenario}
+            runsPlanned={runsPlanned}
+            active={active.has(index)}
+            liveRun={liveRunOf(liveRuns, index)}
+          />
         ))}
       </ul>
     </main>
   );
 }
 
-function ScenarioRow({ scenario }: { scenario: ScenarioReport }) {
+function ScenarioRow({
+  scenario,
+  runsPlanned,
+  active,
+  liveRun,
+}: {
+  scenario: ScenarioReport;
+  runsPlanned: number;
+  active: boolean;
+  liveRun: number | null;
+}) {
   const { meta, aggregate } = scenario;
+  const completed = scenario.runs.length;
+  // `active` = a run is driving right now (the live RunStarted), even before its first result lands.
+  // Pending = not started and not active; running = driving, or part-way through its planned runs.
+  const pending = completed === 0 && !active;
+  const running = active || (completed > 0 && completed < runsPlanned);
   const threshold = meta.bar.kind === "metric" ? meta.bar.threshold : null;
   const held = meta.bar.kind === "gating" ? aggregate.gating_passed : aggregate.rate >= threshold!;
-  const multiRun = scenario.runs.length > 1;
+  // Show per-run links once there is more than one run to pick between — completed runs, plus a run
+  // driving live (which has no completed record yet).
+  const showRuns = completed > 1 || (completed >= 1 && liveRun !== null);
+  const firstRun = scenario.runs[0];
+  // The run to open: the first completed one, or — if none has landed yet — the one driving live.
+  const openRun = firstRun ? firstRun.index : liveRun;
 
   return (
-    <li className="group grid grid-cols-1 items-start gap-x-8 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto]">
+    <li
+      className={
+        "group grid grid-cols-1 items-start gap-x-8 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto] " +
+        (pending ? "opacity-50" : "")
+      }
+    >
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
-          <Link
-            to={runPath(meta.name, scenario.runs[0].index)}
-            className="font-mono text-sm text-ink transition-colors hover:text-clay"
-            title="Inspect this run"
-          >
-            {meta.name}
-          </Link>
+          {active && <ActivityDot />}
+          {openRun !== null ? (
+            <Link
+              to={runPath(meta.name, openRun)}
+              className="font-mono text-sm text-ink transition-colors hover:text-clay"
+              title={firstRun ? "Inspect this run" : "Watch this run live"}
+            >
+              {meta.name}
+            </Link>
+          ) : (
+            // Not started: the name stays put, quietly, until a run lands or one begins driving.
+            <span className="font-mono text-sm text-ink-soft">{meta.name}</span>
+          )}
           <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
             {meta.category}
           </span>
-          {multiRun && (
+          {showRuns && (
             <span className="flex items-baseline gap-1.5">
               {scenario.runs.map((run) => (
                 <Link
@@ -70,6 +122,15 @@ function ScenarioRow({ scenario }: { scenario: ScenarioReport }) {
                   {run.index}
                 </Link>
               ))}
+              {liveRun !== null && (
+                <Link
+                  to={runPath(meta.name, liveRun)}
+                  title={`Run ${liveRun} · streaming live`}
+                  className="font-mono text-2xs text-sage transition-colors hover:text-clay"
+                >
+                  {liveRun}
+                </Link>
+              )}
             </span>
           )}
         </div>
@@ -77,30 +138,63 @@ function ScenarioRow({ scenario }: { scenario: ScenarioReport }) {
       </div>
 
       <div className="flex flex-col items-start gap-2.5 sm:items-end">
-        <div className="flex items-baseline gap-2.5">
-          <span className="font-mono text-lg text-ink">{formatRate(aggregate.rate)}</span>
-          <span className="font-mono text-2xs text-ink-faint">
-            {aggregate.runs} run{aggregate.runs > 1 ? "s" : ""}
-          </span>
-        </div>
+        {completed === 0 ? (
+          active && openRun !== null ? (
+            <Link
+              to={runPath(meta.name, openRun)}
+              title="Watch this run live"
+              className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-sage transition-colors hover:text-clay"
+            >
+              <ActivityDot />
+              running · 0/{runsPlanned}
+            </Link>
+          ) : (
+            <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+              pending · 0/{runsPlanned}
+            </span>
+          )
+        ) : (
+          <>
+            <div className="flex items-baseline gap-2.5">
+              <span className="font-mono text-lg text-ink">{formatRate(aggregate.rate)}</span>
+              <span className="font-mono text-2xs text-ink-faint">
+                {running
+                  ? `${completed}/${runsPlanned} runs`
+                  : `${aggregate.runs} run${aggregate.runs > 1 ? "s" : ""}`}
+              </span>
+            </div>
 
-        <RateBar rate={aggregate.rate} threshold={threshold} held={held} />
+            <RateBar rate={aggregate.rate} threshold={threshold} held={held} />
 
-        <div className="flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
-          <span className={held ? "text-sage" : "text-clay"}>
-            {meta.bar.kind === "gating"
-              ? aggregate.gating_passed
-                ? "gating · held"
-                : "gating · regressed"
-              : `metric ≥ ${formatRate(threshold!)}`}
-          </span>
-          <Dot />
-          <span>p50 {formatMs(aggregate.latency_ms.p50)}</span>
-          <Dot />
-          <span>{formatTokens(aggregate.tokens.total_mean)} tok</span>
-        </div>
+            <div className="flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
+              <span className={held ? "text-sage" : "text-clay"}>
+                {meta.bar.kind === "gating"
+                  ? aggregate.gating_passed
+                    ? running
+                      ? "gating · holding"
+                      : "gating · held"
+                    : "gating · regressed"
+                  : `metric ≥ ${formatRate(threshold!)}`}
+              </span>
+              <Dot />
+              <span>p50 {formatMs(aggregate.latency_ms.p50)}</span>
+              <Dot />
+              <span>{formatTokens(aggregate.tokens.total_mean)} tok</span>
+            </div>
+          </>
+        )}
       </div>
     </li>
+  );
+}
+
+/// A sage pulse marking a scenario whose run is driving right now.
+function ActivityDot() {
+  return (
+    <span className="relative flex h-1.5 w-1.5 self-center">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-60" />
+      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sage" />
+    </span>
   );
 }
 

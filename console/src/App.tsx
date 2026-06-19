@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-route
 
 import type { EvalPackage } from "./types/EvalPackage.ts";
 import type { LiveConnection } from "./lib/live.ts";
+import { type LiveEvalConnection, type LiveEvalStatus, useLiveEval } from "./lib/liveEval.ts";
 import { type HistoryEntry, parseHistory } from "./lib/history.ts";
 import { loadPackageFromFile } from "./lib/package.ts";
 import { ConsoleNavContext } from "./lib/consoleNav.ts";
@@ -42,6 +43,9 @@ function Console() {
   const [pkgName, setPkgName] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [live, setLive] = useState<LiveConnection | null>(null);
+  // Watching a live eval: the harness's address, folded into a growing package by the hook below.
+  const [liveEvalConn, setLiveEvalConn] = useState<LiveEvalConnection | null>(null);
+  const liveEval = useLiveEval(liveEvalConn);
   const [error, setError] = useState<string | null>(null);
   // The file being read, so the wait on a large package shows feedback rather than a frozen page.
   const [reading, setReading] = useState<string | null>(null);
@@ -79,6 +83,13 @@ function Console() {
     navigate("/live");
   }
 
+  function watchEval(baseUrl: string) {
+    // Trim a trailing slash so `${baseUrl}/eval/stream` is well-formed whichever way it was typed.
+    setLiveEvalConn({ baseUrl: baseUrl.trim().replace(/\/$/, "") });
+    setError(null);
+    navigate("/eval");
+  }
+
   const nav = {
     hasPackage: pkg !== null,
     hasHistory: history !== null,
@@ -99,6 +110,7 @@ function Console() {
                 onOpenPackage={openPackage}
                 onOpenHistory={openHistory}
                 onConnectLive={connectLive}
+                onWatchEval={watchEval}
                 error={error}
               />
             }
@@ -107,7 +119,21 @@ function Console() {
           <Route
             path="/eval"
             element={
-              pkg ? (
+              liveEvalConn ? (
+                liveEval.pkg ? (
+                  <EvalFrame
+                    pkg={liveEval.pkg}
+                    live={liveEval.status}
+                    liveRuns={liveEval.liveRuns}
+                    onClose={() => setLiveEvalConn(null)}
+                  />
+                ) : (
+                  <LiveEvalStatusScreen
+                    status={liveEval.status}
+                    onClose={() => setLiveEvalConn(null)}
+                  />
+                )
+              ) : pkg ? (
                 <EvalFrame
                   pkg={pkg}
                   fileName={pkgName}
@@ -173,4 +199,29 @@ function LoadingScreen({ label }: { label: string }) {
 function describe(file: File, cause: unknown): string {
   const message = cause instanceof Error ? cause.message : String(cause);
   return `Could not read ${file.name} — ${message}`;
+}
+
+/// Shown while a live eval is connecting (before its first snapshot) or stalled — once the snapshot
+/// lands, the eval frame takes over. The close returns to the landing.
+function LiveEvalStatusScreen({
+  status,
+  onClose,
+}: {
+  status: LiveEvalStatus;
+  onClose: () => void;
+}) {
+  const message = status.status === "error" ? status.message : "Connecting to the live eval…";
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+      <p className={"text-sm " + (status.status === "error" ? "text-clay" : "text-ink-faint")}>
+        {message}
+      </p>
+      <button
+        onClick={onClose}
+        className="font-mono text-xs text-ink-faint transition-colors hover:text-clay"
+      >
+        ← back
+      </button>
+    </div>
+  );
 }
