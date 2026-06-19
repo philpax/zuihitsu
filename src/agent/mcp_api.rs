@@ -253,11 +253,28 @@ fn tool_function(
 ) -> mlua::Result<Function> {
     let mcp = mcp.clone();
     let server = server.to_owned();
-    lua.create_async_function(move |lua, args: Table| {
+    // Take the argument as a raw value rather than a `Table`, so a positional call (the natural mistake
+    // — the tool takes one table of named arguments) gets a pointed error instead of mlua's opaque
+    // "error converting … to table". A bare call with no arguments is an empty table, so a tool whose
+    // fields are all optional can be invoked plainly.
+    lua.create_async_function(move |lua, args: Value| {
         let mcp = mcp.clone();
         let server = server.clone();
         let tool = tool.clone();
-        async move { mcp.call(&lua, &server, &tool, args).await }
+        async move {
+            let args = match args {
+                Value::Table(table) => table,
+                Value::Nil => lua.create_table()?,
+                other => {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "mcp.{server}.{tool} takes a single table of named arguments, e.g. \
+                         mcp.{server}.{tool}{{ url = \"…\" }} — got a {}",
+                        other.type_name()
+                    )));
+                }
+            };
+            mcp.call(&lua, &server, &tool, args).await
+        }
     })
 }
 
@@ -300,6 +317,9 @@ fn tool_to_api_entry(server: &str, tool: &McpTool) -> ApiEntry {
         doc: tool.description.clone(),
         params: schema.params(),
         returns: ApiType::Nil,
+        // MCP tools take one table of named arguments (the tool's JSON input), so the signature
+        // renders as `mcp.server.tool{ … }`, not positional.
+        table_args: true,
     }
 }
 
@@ -686,6 +706,30 @@ mod tests {
             .map(|entry| entry.call)
             .collect();
         assert_eq!(calls, ["mcp.browser.navigate"]);
+    }
+
+    #[test]
+    fn an_mcp_tool_renders_with_a_braced_table_signature() {
+        // The projection takes one table of named arguments, so the rendered signature must brace it
+        // (`mcp.server.tool{ … }`) — a positional `(…)` signature is what led the agent to call it the
+        // wrong way (passing positional args, which cannot convert to the expected table).
+        let entry = super::tool_to_api_entry(
+            "browser",
+            &tool(
+                "markdown",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "url": { "type": "string" } },
+                    "required": ["url"],
+                }),
+            ),
+        );
+        assert!(entry.table_args);
+        let rendered = crate::agent::api_doc::render(&[entry]);
+        assert!(
+            rendered.contains("mcp.browser.markdown{ url }"),
+            "expected a braced table signature, got:\n{rendered}"
+        );
     }
 
     #[tokio::test]

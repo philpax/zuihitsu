@@ -142,6 +142,10 @@ pub struct ApiEntry {
     pub doc: String,
     pub params: Vec<ApiParam>,
     pub returns: ApiType,
+    /// The params are passed as one table literal (`call{ field = … }`) rather than positional
+    /// arguments — the calling convention of the MCP projection, where the table is the tool's JSON
+    /// input. The signature renders with braces so the convention is unmistakable.
+    pub table_args: bool,
 }
 
 impl ApiEntry {
@@ -151,6 +155,7 @@ impl ApiEntry {
             doc: String::new(),
             params: Vec::new(),
             returns: ApiType::Nil,
+            table_args: false,
         }
     }
 
@@ -217,10 +222,17 @@ pub fn render(entries: &[ApiEntry]) -> String {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        if entry.doc.is_empty() {
-            let _ = writeln!(out, "{}({signature})", entry.call);
+        // MCP tools are called with one table of named arguments; the others take positional arguments.
+        // Brace the signature for the former so the agent passes a table, not positional args.
+        let signature = if entry.table_args {
+            format!("{{ {signature} }}")
         } else {
-            let _ = writeln!(out, "{}({signature}) — {}", entry.call, entry.doc);
+            format!("({signature})")
+        };
+        if entry.doc.is_empty() {
+            let _ = writeln!(out, "{}{signature}", entry.call);
+        } else {
+            let _ = writeln!(out, "{}{signature} — {}", entry.call, entry.doc);
         }
         for param in &entry.params {
             render_param(&mut out, "", param);
