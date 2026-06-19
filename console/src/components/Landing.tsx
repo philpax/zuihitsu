@@ -4,7 +4,7 @@ import { Eyebrow } from "./primitives.tsx";
 
 /// The empty state: a single stacked list of ways into the console. Every entry shares one row shape,
 /// so they read at equal weight and the page never reflows as you look between them — connect to a
-/// running agent, watch a live eval, or open a finished package or a history.
+/// running agent, watch live runs, open saved runs, or see how the recordings trend.
 export function Landing({
   onOpenPackage,
   onOpenHistory,
@@ -14,12 +14,10 @@ export function Landing({
 }: {
   onOpenPackage: (file: File) => void;
   onOpenHistory: (file: File) => void;
-  onConnectLive: () => void;
+  onConnectLive: (baseUrl: string) => void;
   onWatchEval: (baseUrl: string) => void;
   error: string | null;
 }) {
-  const [url, setUrl] = useState("http://localhost:7878");
-
   return (
     <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-8">
       <div className="mb-9 flex flex-col items-center gap-2">
@@ -28,44 +26,29 @@ export function Landing({
       </div>
 
       <div className="border-t border-line">
-        <Choice label="Connect to the agent" hint="Tail a running instance live as it thinks.">
-          <button onClick={onConnectLive} className="transition-colors hover:text-clay">
-            connect →
-          </button>
+        <Choice label="Connect to an agent" hint="Tail a running agent's deliberation, live.">
+          <UrlSubmit
+            initial={window.location.origin}
+            aria="agent address"
+            onSubmit={onConnectLive}
+          />
         </Choice>
 
-        <Choice label="Watch a live eval" hint="Follow a run as the harness drives it.">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (url.trim()) onWatchEval(url);
-            }}
-            className="flex items-baseline gap-2 text-ink-faint"
-          >
-            <input
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              spellCheck={false}
-              aria-label="live eval address"
-              className="w-40 border-b border-line bg-transparent py-0.5 text-right text-ink-soft outline-none transition-colors focus:border-clay"
-            />
-            <button
-              type="submit"
-              title="Watch this live eval"
-              className="transition-colors hover:text-clay"
-            >
-              →
-            </button>
-          </form>
+        <Choice label="Live runs" hint="Watch an eval suite as the harness runs it.">
+          <UrlSubmit
+            initial="http://localhost:7878"
+            aria="live eval address"
+            onSubmit={onWatchEval}
+          />
         </Choice>
 
-        <Choice label="Open a package" hint="Inspect a finished run, scenario by scenario.">
+        <Choice label="Saved runs" hint="Open a finished eval suite from a file.">
           <FileChoose accept="application/json,.json" onFile={onOpenPackage}>
             choose a file →
           </FileChoose>
         </Choice>
 
-        <Choice label="Open history" hint="See metrics trend across many runs over time.">
+        <Choice label="Trends" hint="See how the recordings trend across runs over time.">
           <FileChoose accept=".jsonl,application/json" onFile={onOpenHistory}>
             choose a file →
           </FileChoose>
@@ -88,6 +71,39 @@ function Choice({ label, hint, children }: { label: string; hint: string; childr
       </div>
       <div className="shrink-0 font-mono text-xs text-ink-faint">{children}</div>
     </div>
+  );
+}
+
+/// An address field and a submit arrow, for the choices that connect to a stream by URL.
+function UrlSubmit({
+  initial,
+  aria,
+  onSubmit,
+}: {
+  initial: string;
+  aria: string;
+  onSubmit: (baseUrl: string) => void;
+}) {
+  const [url, setUrl] = useState(initial);
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (url.trim()) onSubmit(url);
+      }}
+      className="flex items-baseline gap-2 text-ink-faint"
+    >
+      <input
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        spellCheck={false}
+        aria-label={aria}
+        className="w-44 border-b border-line bg-transparent py-0.5 text-right text-ink-soft outline-none transition-colors focus:border-clay"
+      />
+      <button type="submit" title="Connect" className="transition-colors hover:text-clay">
+        →
+      </button>
+    </form>
   );
 }
 

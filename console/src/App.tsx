@@ -96,8 +96,10 @@ function Console() {
     }
   }
 
-  function connectLive() {
-    setLive({ baseUrl: "", key: null });
+  function connectLive(baseUrl: string) {
+    // Same origin (the default) talks to the dev proxy or the embedding agent; a trailing slash is
+    // trimmed so `${baseUrl}/control/...` is well-formed. A loopback peer needs no key.
+    setLive({ baseUrl: baseUrl.trim().replace(/\/$/, ""), key: null });
     setError(null);
     navigate("/live");
   }
