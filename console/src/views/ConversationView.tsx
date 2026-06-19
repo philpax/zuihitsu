@@ -274,13 +274,13 @@ function Room({
   return (
     <div className="flex w-full max-w-prose flex-col">
       <header className="mb-5 sm:mb-6">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 className="font-serif text-xl text-ink sm:text-2xl">{channel.label}</h2>
-          {isOperator && <Eyebrow>operator authority · writes self</Eyebrow>}
-        </div>
-        <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
-          {channel.locator.platform} · {channel.locator.scope_path}
-        </p>
+        <h2 className="font-serif text-xl text-ink sm:text-2xl">{channel.label}</h2>
+        {/* The locator addresses a real room; for the operator channel it just echoes the title. */}
+        {!isOperator && (
+          <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            {channel.locator.platform} · {channel.locator.scope_path}
+          </p>
+        )}
       </header>
 
       {channel.conversation ? (
