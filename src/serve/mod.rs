@@ -26,9 +26,11 @@ use std::{
 
 use axum::{
     Router,
-    response::IntoResponse,
+    http::{StatusCode, Uri, header},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
+use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
 use zuihitsu::{
     ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder, Server,
@@ -316,21 +318,38 @@ fn router(state: AppState) -> Router {
             require_platform_key,
         ));
     Router::new()
-        // The reserved web-console root stays ungated for now (a static placeholder); the real UI
-        // will move under the control surface when it lands.
-        .route("/", get(root))
         .nest("/control", control)
         .nest("/platform", platform)
         .with_state(state)
+        // Everything else is the embedded web console: its assets by path, and any client-side route
+        // (no matching asset) served `index.html` so the single-page app can route it. The console is
+        // served from the agent's own origin, so it connects back to `/control` keylessly as a
+        // loopback peer.
+        .fallback(console)
 }
 
-/// The reserved web-console root — a placeholder until the frontend lands.
-async fn root() -> impl IntoResponse {
-    (
-        axum::http::StatusCode::OK,
-        "zuihitsu is serving. The web console will live here; the API is under /control and \
-         /platform.\n",
-    )
+/// The web console, built into the binary at compile time (see `build.rs` and `rust_embed`).
+#[derive(RustEmbed)]
+#[folder = "console/dist"]
+struct Console;
+
+/// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link
+/// or a refresh lands in the app rather than on a 404.
+async fn console(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+    match Console::get(path).or_else(|| Console::get("index.html")) {
+        Some(file) => (
+            [(header::CONTENT_TYPE, file.metadata.mimetype())],
+            file.data,
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "the web console is not built into this binary\n",
+        )
+            .into_response(),
+    }
 }
 
 /// Resolve on the next Ctrl-C. Driving both the HTTP server and the scheduler driver off independent

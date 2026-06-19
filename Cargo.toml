@@ -57,6 +57,7 @@ mlua = { version = "0.11.6", features = ["lua54", "vendored", "serde", "async", 
 parking_lot = "0.12.5"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 rusqlite = { workspace = true }
+rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

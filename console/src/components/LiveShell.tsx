@@ -18,17 +18,23 @@ import { PromptsView } from "./PromptsView.tsx";
 /// an agentless instance is gated behind genesis until it is born.
 export function LiveShell({
   connection,
+  base = "/live",
   onClose,
 }: {
   connection: LiveConnection;
-  onClose: () => void;
+  /// The route the views live under — `/live` in the full console, or the root (`""`) in the embedded
+  /// build, where the agent view is the whole app.
+  base?: string;
+  /// Disconnect and return to the landing. Absent in the embedded build, where there is nowhere to
+  /// return to, so the close affordance is hidden.
+  onClose?: () => void;
 }) {
   // Mirrors the cursor's follow state for the poll loop, which folds a new batch to the head only
   // while followed — a ref so the long-lived interval reads the current value without re-subscribing.
   const following = useRef(true);
   const log = useLiveLog(connection, following);
   // The active view and timeline cursor live in the URL, exactly as in the eval frame.
-  const { view, seq, selectView, setSeq } = useStreamLocation("/live");
+  const { view, seq, selectView, setSeq } = useStreamLocation(base);
   // The handle you converse under as a participant, lifted here so it survives view switches.
   const [sender, setSender] = useState("");
   const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
@@ -58,13 +64,15 @@ export function LiveShell({
               <Dot />
               <span>{log.head} events</span>
             </span>
-            <button
-              onClick={onClose}
-              className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
-              title="Disconnect"
-            >
-              ✕
-            </button>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
+                title="Disconnect"
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
 

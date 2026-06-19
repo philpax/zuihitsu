@@ -22,11 +22,30 @@ const TrendsScreen = lazy(() =>
   import("./components/TrendsScreen.tsx").then((module) => ({ default: module.TrendsScreen })),
 );
 
+// Set when the console is built into the agent binary (see build.rs). The embedded build is a focused
+// single-purpose app — the agent's own live view — so it skips the landing, connects to its own origin,
+// and drops the `/live` prefix (these are the only routes there is).
+const EMBEDDED = import.meta.env.VITE_EMBEDDED === "true";
+
+// The standing connection the embedded build holds: the agent it is served from, same origin, no key
+// (a loopback peer is trusted; see the server's auth).
+const AGENT: LiveConnection = { baseUrl: "", key: null };
+
 export function App() {
+  return <BrowserRouter>{EMBEDDED ? <EmbeddedConsole /> : <Console />}</BrowserRouter>;
+}
+
+/// The embedded console: the agent's live view, served at the agent's root and connected to it
+/// automatically. The live views are the whole app, so they sit at the root with no landing to return
+/// to (and so no close affordance).
+function EmbeddedConsole() {
   return (
-    <BrowserRouter>
-      <Console />
-    </BrowserRouter>
+    <Suspense fallback={<LoadingScreen label="Connecting to the agent…" />}>
+      <Routes>
+        <Route path="/:view" element={<LiveShell connection={AGENT} base="" />} />
+        <Route path="*" element={<Navigate to="/conversation" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
