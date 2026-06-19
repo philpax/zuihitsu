@@ -331,9 +331,11 @@ fn router(state: AppState) -> Router {
         .fallback(console)
 }
 
-/// The web console, built into the binary at compile time (see `build.rs` and `rust_embed`).
+/// The web console, built into the binary at compile time (see `build.rs` and `rust_embed`). The
+/// embedded build lands in its own `dist-embedded` dir, so a plain `npm run build` for the dev checks
+/// never swaps in the standalone (non-embedded) bytes under us.
 #[derive(RustEmbed)]
-#[folder = "console/dist"]
+#[folder = "console/dist-embedded"]
 struct Console;
 
 /// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link

@@ -21,7 +21,10 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=ZUIHITSU_SKIP_CONSOLE");
 
-    let dist = Path::new("console/dist");
+    // The embedded build's own output dir (vite.config keys it off VITE_EMBEDDED), separate from the
+    // `dist` a plain `npm run build` writes, so the two never clobber each other. This is what the
+    // binary embeds (see the `Console` rust-embed in src/serve).
+    let dist = Path::new("console/dist-embedded");
 
     if std::env::var_os("ZUIHITSU_SKIP_CONSOLE").is_some() {
         warn("ZUIHITSU_SKIP_CONSOLE is set; embedding a placeholder console");
