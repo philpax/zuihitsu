@@ -25,6 +25,7 @@ import { OutcomeList } from "../components/OutcomeList.tsx";
 import { BriefSections } from "../components/BriefTrace.tsx";
 import type { BriefTrace } from "../lib/brief.ts";
 import { Composer } from "../components/Composer.tsx";
+import { Markdown } from "../components/Markdown.tsx";
 
 /// The participate capability the agent frame hands the Conversation view (absent in the eval frame,
 /// which is a finished log and so read-only). `atHead` is whether the timeline cursor follows the
@@ -367,7 +368,7 @@ function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
         <span className="font-mono text-2xs uppercase tracking-widest text-clay">{speaker}</span>
         <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">sending…</span>
       </div>
-      <p className="text-base leading-relaxed text-ink">{text}</p>
+      <p className="whitespace-pre-wrap text-base leading-relaxed text-ink">{text}</p>
     </div>
   );
 }
@@ -684,13 +685,22 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
       {/* Deliberation precedes the response — the agent thinks, then speaks. */}
       {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
       {turn.text ? (
-        <p
-          className={
-            "text-base leading-relaxed text-ink" + (turn.deliberation.length > 0 ? " mt-3" : "")
-          }
-        >
-          {turn.text}
-        </p>
+        isAgent ? (
+          // The agent composes its replies as Markdown; render them so. Participant and operator input
+          // stays raw text below — only its line breaks are preserved.
+          <div className={turn.deliberation.length > 0 ? "mt-3" : ""}>
+            <Markdown text={turn.text} />
+          </div>
+        ) : (
+          <p
+            className={
+              "whitespace-pre-wrap text-base leading-relaxed text-ink" +
+              (turn.deliberation.length > 0 ? " mt-3" : "")
+            }
+          >
+            {turn.text}
+          </p>
+        )
       ) : (
         <p
           className={
