@@ -172,18 +172,29 @@ function MemoryList({
                 <li key={memory.id}>
                   <button
                     onClick={() => onSelect(memory.name)}
-                    title={memory.name}
+                    title={
+                      memory.description ? `${memory.name} — ${memory.description}` : memory.name
+                    }
                     className={
-                      "-ml-3 flex w-full min-w-0 items-baseline border-l-2 py-1 pl-2.5 text-left font-mono text-xs transition-colors " +
+                      "-ml-3 flex w-full min-w-0 flex-col border-l-2 py-1 pl-2.5 text-left transition-colors " +
                       (active
                         ? "border-clay text-ink"
                         : "border-transparent text-ink-soft hover:text-ink")
                     }
                   >
-                    <span className="truncate">{leafName(memory.name, namespace)}</span>
-                    {recurring.has(memory.id) && (
-                      <span className="ml-1.5 shrink-0 text-sage" title="recurring">
-                        ↻
+                    <span className="flex w-full min-w-0 items-baseline font-mono text-xs">
+                      <span className="truncate">{leafName(memory.name, namespace)}</span>
+                      {recurring.has(memory.id) && (
+                        <span className="ml-1.5 shrink-0 text-sage" title="recurring">
+                          ↻
+                        </span>
+                      )}
+                    </span>
+                    {/* The synthesized description, clamped, so the list reads as a glanceable index of
+                        what each memory is about rather than a bare list of names. */}
+                    {memory.description && (
+                      <span className="mt-0.5 line-clamp-2 text-2xs leading-snug text-ink-faint">
+                        {memory.description}
                       </span>
                     )}
                   </button>
