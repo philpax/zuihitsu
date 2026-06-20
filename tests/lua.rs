@@ -95,15 +95,15 @@ async fn a_disputed_entry_reads_as_disputed() {
         .as_mut()
         .append(
             h.clock.now(),
-            vec![EventPayload::BeliefArbitrated {
+            vec![EventPayload::belief_arbitrated(
                 memory,
-                competing_entries: competing,
-                resolution: ArbitrationResolution {
+                competing,
+                ArbitrationResolution {
                     credited: Vec::new(),
                     statement: "one says auditorium, another rooftop".to_owned(),
                 },
-                produced_by: None,
-            }],
+                None,
+            )],
         )
         .unwrap();
     {
@@ -388,14 +388,8 @@ async fn append_carries_teller_context_and_default_visibility() {
         .append(
             clock.now(),
             vec![
-                EventPayload::MemoryCreated {
-                    id: phil,
-                    name: Namespace::Person.with_name("phil").into(),
-                },
-                EventPayload::MemoryCreated {
-                    id: erin,
-                    name: Namespace::Person.with_name("erin").into(),
-                },
+                EventPayload::memory_created(phil, Namespace::Person.with_name("phil")),
+                EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
             ],
         )
         .unwrap();
@@ -503,10 +497,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
                     symmetric: false,
                     reflexive: false,
                 },
-                EventPayload::MemoryCreated {
-                    id: roadmap,
-                    name: Namespace::Topic.with_name("roadmap").into(),
-                },
+                EventPayload::memory_created(roadmap, Namespace::Topic.with_name("roadmap")),
             ],
         )
         .unwrap();
@@ -588,14 +579,11 @@ async fn a_write_in_a_confidential_room_defaults_private() {
         .append(
             clock.now(),
             vec![
-                EventPayload::TagCreated {
-                    name: TagName::new("confidential"),
-                    description: "a confidential room".to_owned(),
-                },
-                EventPayload::TagAppliedToMemory {
-                    memory: context,
-                    tag: TagName::new("confidential"),
-                },
+                EventPayload::tag_created(
+                    TagName::new("confidential"),
+                    "a confidential room".to_owned(),
+                ),
+                EventPayload::tag_applied_to_memory(context, TagName::new("confidential")),
             ],
         )
         .unwrap();
@@ -1759,12 +1747,12 @@ fn register_adjudication_template(h: &Harness) {
         .as_mut()
         .append(
             h.clock.now(),
-            vec![EventPayload::PromptTemplateRegistered {
-                name: PromptTemplateName::MergeAdjudication,
-                version: 1,
-                body: "Decide whether two stubs are the same person, on the evidence.".to_owned(),
-                source: EventSource::Orchestration,
-            }],
+            vec![EventPayload::prompt_template_registered(
+                PromptTemplateName::MergeAdjudication,
+                1,
+                "Decide whether two stubs are the same person, on the evidence.".to_owned(),
+                EventSource::Orchestration,
+            )],
         )
         .unwrap();
 }

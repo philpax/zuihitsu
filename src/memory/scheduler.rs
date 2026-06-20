@@ -79,11 +79,7 @@ pub fn fire_due(
     }
     let payloads = due
         .into_iter()
-        .map(|(memory, entry_id)| EventPayload::ScheduledJobFired {
-            entry_id,
-            memory,
-            fired_at: now,
-        })
+        .map(|(memory, entry_id)| EventPayload::scheduled_job_fired(entry_id, memory, now))
         .collect();
     Ok(store.append(now, payloads)?.len())
 }
@@ -175,10 +171,7 @@ mod tests {
     }
 
     fn created(id: MemoryId, name: impl Into<MemoryName>) -> EventPayload {
-        EventPayload::MemoryCreated {
-            id,
-            name: name.into(),
-        }
+        EventPayload::memory_created(id, name)
     }
 
     /// A content entry asserted at `asserted_ms` whose occurrence is `occurred_at`, told by `told_by`.

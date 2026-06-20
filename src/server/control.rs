@@ -224,12 +224,12 @@ impl Control<'_> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
-            vec![EventPayload::PromptTemplateRegistered {
+            vec![EventPayload::prompt_template_registered(
                 name,
                 version,
-                body: body.to_owned(),
-                source: EventSource::Operator,
-            }],
+                body.to_owned(),
+                EventSource::Operator,
+            )],
         )?;
         Ok(())
     }
@@ -396,10 +396,7 @@ impl Control<'_> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
-            vec![EventPayload::ConfigSet {
-                settings,
-                source: EventSource::Operator,
-            }],
+            vec![EventPayload::config_set(settings, EventSource::Operator)],
         )?;
         Ok(())
     }

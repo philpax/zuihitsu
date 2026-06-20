@@ -117,19 +117,16 @@ pub mod test_support {
     pub fn sample_payloads() -> Vec<EventPayload> {
         let id = MemoryId::generate();
         vec![
-            EventPayload::TagCreated {
-                name: TagName::new("hobbies"),
-                description: "Recreational activities and interests".to_owned(),
-            },
-            EventPayload::MemoryCreated {
+            EventPayload::tag_created(
+                TagName::new("hobbies"),
+                "Recreational activities and interests".to_owned(),
+            ),
+            EventPayload::memory_created(id, Namespace::Person.with_name("dave")),
+            EventPayload::memory_renamed(
                 id,
-                name: Namespace::Person.with_name("dave").into(),
-            },
-            EventPayload::MemoryRenamed {
-                id,
-                old_name: Namespace::Person.with_name("dave").into(),
-                new_name: Namespace::Person.with_name("dave-chen").into(),
-            },
+                Namespace::Person.with_name("dave"),
+                Namespace::Person.with_name("dave-chen"),
+            ),
         ]
     }
 
@@ -165,17 +162,13 @@ pub mod test_support {
         store
             .append(
                 Timestamp::from_millis(1),
-                vec![EventPayload::MemoryDeleted {
-                    id: MemoryId::generate(),
-                }],
+                vec![EventPayload::memory_deleted(MemoryId::generate())],
             )
             .unwrap();
         store
             .append(
                 Timestamp::from_millis(2),
-                vec![EventPayload::MemoryDeleted {
-                    id: MemoryId::generate(),
-                }],
+                vec![EventPayload::memory_deleted(MemoryId::generate())],
             )
             .unwrap();
 
@@ -190,10 +183,10 @@ pub mod test_support {
         store
             .append(
                 Timestamp::from_millis(5),
-                vec![EventPayload::TagCreated {
-                    name: TagName::new("colleagues"),
-                    description: "People worked with".to_owned(),
-                }],
+                vec![EventPayload::tag_created(
+                    TagName::new("colleagues"),
+                    "People worked with".to_owned(),
+                )],
             )
             .unwrap();
 

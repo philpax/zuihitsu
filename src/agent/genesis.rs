@@ -110,12 +110,12 @@ pub fn rollout(
 
     for template in &templates {
         if !templates_present.contains(&(template.name, template.version)) {
-            to_emit.push(EventPayload::PromptTemplateRegistered {
-                name: template.name,
-                version: template.version,
-                body: template.body.clone(),
-                source: EventSource::Orchestration,
-            });
+            to_emit.push(EventPayload::prompt_template_registered(
+                template.name,
+                template.version,
+                template.body.clone(),
+                EventSource::Orchestration,
+            ));
         }
     }
 
@@ -134,26 +134,26 @@ pub fn rollout(
 
     for tag in seed_tags() {
         if !tags_present.contains(tag.name) {
-            to_emit.push(EventPayload::TagCreated {
-                name: TagName::new(tag.name),
-                description: tag.description.to_owned(),
-            });
+            to_emit.push(EventPayload::tag_created(
+                TagName::new(tag.name),
+                tag.description,
+            ));
         }
     }
 
     if !config_present {
-        to_emit.push(EventPayload::ConfigSet {
-            settings: Settings::default(),
-            source: EventSource::Bootstrap,
-        });
+        to_emit.push(EventPayload::config_set(
+            Settings::default(),
+            EventSource::Bootstrap,
+        ));
     }
 
     if !self_present {
         let self_id = MemoryId::generate();
-        to_emit.push(EventPayload::MemoryCreated {
-            id: self_id,
-            name: MemoryName::new(MemoryName::SELF),
-        });
+        to_emit.push(EventPayload::memory_created(
+            self_id,
+            MemoryName::new(MemoryName::SELF),
+        ));
         // The persona is the agent's charter: a seed content entry, not a description. Entries are
         // immutable and append-only, so the authored voice never drifts, while the self can still
         // evolve as the agent appends further self-observations. The system prompt draws the
@@ -176,10 +176,10 @@ pub fn rollout(
         .iter()
         .map(|t| (t.name.as_str().to_owned(), t.version))
         .collect();
-    to_emit.push(EventPayload::GenesisCompleted {
-        manifest_hash: manifest_hash(seed, &templates),
+    to_emit.push(EventPayload::genesis_completed(
+        manifest_hash(seed, &templates),
         template_versions,
-    });
+    ));
 
     let events_emitted = to_emit.len();
     store.append(clock.now(), to_emit)?;
@@ -775,19 +775,19 @@ mod tests {
             .append(
                 Timestamp::from_millis(500),
                 vec![
-                    EventPayload::PromptTemplateRegistered {
-                        name: PromptTemplateName::Scaffold,
-                        version: 1,
-                        body: "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
+                    EventPayload::prompt_template_registered(
+                        PromptTemplateName::Scaffold,
+                        1,
+                        "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
                             .to_owned(),
-                        source: EventSource::Orchestration,
-                    },
-                    EventPayload::PromptTemplateRegistered {
-                        name: PromptTemplateName::DescriptionRegen,
-                        version: 1,
-                        body: "<draft description-regeneration template>".to_owned(),
-                        source: EventSource::Orchestration,
-                    },
+                        EventSource::Orchestration,
+                    ),
+                    EventPayload::prompt_template_registered(
+                        PromptTemplateName::DescriptionRegen,
+                        1,
+                        "<draft description-regeneration template>",
+                        EventSource::Orchestration,
+                    ),
                 ],
             )
             .unwrap();
@@ -827,10 +827,10 @@ mod tests {
         resumed
             .append(
                 Timestamp::from_millis(500),
-                vec![EventPayload::ConfigSet {
-                    settings: Settings::default(),
-                    source: EventSource::Bootstrap,
-                }],
+                vec![EventPayload::config_set(
+                    Settings::default(),
+                    EventSource::Bootstrap,
+                )],
             )
             .unwrap();
         genesis::rollout(&mut resumed, &clock(), &seed()).unwrap();

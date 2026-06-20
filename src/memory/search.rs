@@ -305,10 +305,7 @@ mod tests {
         graph
             .apply(&event(
                 1,
-                EventPayload::MemoryCreated {
-                    id,
-                    name: Namespace::Topic.with_name("dated").into(),
-                },
+                EventPayload::memory_created(id, Namespace::Topic.with_name("dated")),
             ))
             .unwrap();
         graph
@@ -383,7 +380,7 @@ mod tests {
             graph
                 .apply(&event(
                     3,
-                    EventPayload::MemoryVolatilitySet { id, volatility },
+                    EventPayload::memory_volatility_set(id, volatility),
                 ))
                 .unwrap();
             bonus(&graph, id, now)
@@ -474,10 +471,7 @@ mod tests {
             self.commit(
                 at_ms,
                 vec![
-                    EventPayload::MemoryCreated {
-                        id,
-                        name: name.into(),
-                    },
+                    EventPayload::memory_created(id, name),
                     EventPayload::MemoryContentAppended {
                         id,
                         entry_id: EntryId::generate(),
@@ -488,11 +482,7 @@ mod tests {
                         told_in: None,
                         visibility: Visibility::Public,
                     },
-                    EventPayload::MemoryDescriptionRegenerated {
-                        id,
-                        new_text: description.to_owned(),
-                        produced_by: None,
-                    },
+                    EventPayload::memory_description_regenerated(id, description, None),
                 ],
             )
             .await;
@@ -556,14 +546,8 @@ mod tests {
                 .append(
                     Timestamp::from_millis(at_ms),
                     vec![
-                        EventPayload::TagCreated {
-                            name: TagName::new(tag),
-                            description: format!("about {tag}"),
-                        },
-                        EventPayload::TagAppliedToMemory {
-                            memory: id,
-                            tag: TagName::new(tag),
-                        },
+                        EventPayload::tag_created(TagName::new(tag), format!("about {tag}")),
+                        EventPayload::tag_applied_to_memory(id, TagName::new(tag)),
                     ],
                 )
                 .unwrap();
@@ -839,10 +823,10 @@ mod tests {
         corpus
             .commit(
                 1_000,
-                vec![EventPayload::MemoryCreated {
-                    id: leads,
-                    name: Namespace::Context.with_name("leads").into(),
-                }],
+                vec![EventPayload::memory_created(
+                    leads,
+                    Namespace::Context.with_name("leads"),
+                )],
             )
             .await;
         corpus.tag(leads, "confidential", 1_000);

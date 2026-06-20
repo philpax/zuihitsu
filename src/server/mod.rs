@@ -412,10 +412,7 @@ impl Server {
         let now = self.engine.clock.now();
         self.engine.store.lock().append(
             now,
-            vec![EventPayload::SessionEnded {
-                conversation,
-                id: open.id,
-            }],
+            vec![EventPayload::session_ended(conversation, open.id)],
         )?;
         Ok(flushed)
     }
@@ -595,12 +592,9 @@ impl Server {
                 produced_by: None,
             }];
             for (entry_id, memory) in drained.entries {
-                payloads.push(EventPayload::ScheduledItemSurfaced {
-                    entry_id,
-                    memory,
-                    session: id,
-                    surfaced_at: now,
-                });
+                payloads.push(EventPayload::scheduled_item_surfaced(
+                    entry_id, memory, id, now,
+                ));
             }
             self.engine.store.lock().append(now, payloads)?;
             self.engine
@@ -622,10 +616,10 @@ impl Server {
         }
         let id = MemoryId::generate();
         let now = self.engine.clock.now();
-        self.engine.store.lock().append(
-            now,
-            vec![EventPayload::MemoryCreated { id, name: operator }],
-        )?;
+        self.engine
+            .store
+            .lock()
+            .append(now, vec![EventPayload::memory_created(id, operator)])?;
         self.engine
             .graph
             .lock()
@@ -790,10 +784,7 @@ impl Server {
                 let now = self.engine.clock.now();
                 self.engine.store.lock().append(
                     now,
-                    vec![EventPayload::EmbeddingModelChanged {
-                        from: recorded,
-                        to: configured.into(),
-                    }],
+                    vec![EventPayload::embedding_model_changed(recorded, configured)],
                 )?;
                 // Apply the migration into the graph (a no-op there) so graph-head keeps pace with the
                 // log, then clear the index and re-embed the whole log under the new model.
@@ -1285,11 +1276,11 @@ mod embedding_swap_tests {
         store
             .append(
                 Timestamp::from_millis(1_000),
-                vec![EventPayload::MemoryDescriptionRegenerated {
-                    id: mem,
-                    new_text: "an avid climber".to_owned(),
-                    produced_by: None,
-                }],
+                vec![EventPayload::memory_description_regenerated(
+                    mem,
+                    "an avid climber".to_owned(),
+                    None,
+                )],
             )
             .unwrap();
         // An index that a prior model already built over that log.
@@ -1380,15 +1371,12 @@ mod embedding_swap_tests {
                 .append(
                     Timestamp::from_millis(1_000),
                     vec![
-                        EventPayload::MemoryCreated {
-                            id: mem,
-                            name: Namespace::Topic.with_name("x").into(),
-                        },
-                        EventPayload::MemoryDescriptionRegenerated {
-                            id: mem,
-                            new_text: "an avid climber".to_owned(),
-                            produced_by: None,
-                        },
+                        EventPayload::memory_created(mem, Namespace::Topic.with_name("x")),
+                        EventPayload::memory_description_regenerated(
+                            mem,
+                            "an avid climber".to_owned(),
+                            None,
+                        ),
                     ],
                 )
                 .unwrap();

@@ -36,18 +36,9 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
     let (_store, graph) = materialized(vec![
         attended,
         mentor_relation(),
-        EventPayload::MemoryCreated {
-            id: dave,
-            name: Namespace::Person.with_name("dave").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: trip,
-            name: Namespace::Event.with_name("reykjavik").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: erin,
-            name: Namespace::Person.with_name("erin").into(),
-        },
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(trip, Namespace::Event.with_name("reykjavik")),
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
         appended(
             trip,
             trip_entry,
@@ -116,14 +107,8 @@ fn link_canonicalizes_inverse_label_to_one_edge() {
     let erin = MemoryId::generate();
     let (_store, graph) = materialized(vec![
         mentor_relation(),
-        EventPayload::MemoryCreated {
-            id: dave,
-            name: Namespace::Person.with_name("dave").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: erin,
-            name: Namespace::Person.with_name("erin").into(),
-        },
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
         // "erin is mentored_by dave" == "dave is mentor_of erin": same canonical edge.
         EventPayload::LinkCreated {
             from: erin,
@@ -167,14 +152,8 @@ fn symmetric_link_is_order_independent() {
             symmetric: true,
             reflexive: false,
         },
-        EventPayload::MemoryCreated {
-            id: a,
-            name: Namespace::Person.with_name("phil@direct").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: b,
-            name: Namespace::Person.with_name("phil@discord").into(),
-        },
+        EventPayload::memory_created(a, Namespace::Person.with_name("phil@direct")),
+        EventPayload::memory_created(b, Namespace::Person.with_name("phil@discord")),
         EventPayload::LinkCreated {
             from: a,
             to: b,
@@ -206,18 +185,9 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
     let setup = || {
         vec![
             mentor_relation(),
-            EventPayload::MemoryCreated {
-                id: dave,
-                name: Namespace::Person.with_name("dave").into(),
-            },
-            EventPayload::MemoryCreated {
-                id: erin,
-                name: Namespace::Person.with_name("erin").into(),
-            },
-            EventPayload::MemoryCreated {
-                id: frank,
-                name: Namespace::Person.with_name("frank").into(),
-            },
+            EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+            EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+            EventPayload::memory_created(frank, Namespace::Person.with_name("frank")),
             EventPayload::LinkCreated {
                 from: dave,
                 to: erin,
@@ -237,11 +207,11 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
 
     // Removing one edge leaves the other.
     let mut removed = setup();
-    removed.push(EventPayload::LinkRemoved {
-        from: dave,
-        to: erin,
-        relation: RelationName::new("mentor_of"),
-    });
+    removed.push(EventPayload::link_removed(
+        dave,
+        erin,
+        RelationName::new("mentor_of"),
+    ));
     let (_s1, graph) = materialized(removed);
     let mentees = graph.outgoing(dave, "mentor_of").unwrap();
     assert_eq!(mentees.len(), 1);
@@ -249,7 +219,7 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
 
     // Soft-deleting a neighbour hides the edge from traversal.
     let mut deleted = setup();
-    deleted.push(EventPayload::MemoryDeleted { id: frank });
+    deleted.push(EventPayload::memory_deleted(frank));
     let (_s2, graph) = materialized(deleted);
     let mentees = graph.outgoing(dave, "mentor_of").unwrap();
     assert_eq!(mentees.len(), 1);

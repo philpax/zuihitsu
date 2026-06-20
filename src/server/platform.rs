@@ -215,12 +215,7 @@ impl Platform<'_> {
         self.server.engine.store.lock().append(
             now,
             vec![
-                EventPayload::ParticipantJoined {
-                    conversation,
-                    session,
-                    participant: joiner,
-                    at_turn: turn_id,
-                },
+                EventPayload::participant_joined(conversation, session, joiner, turn_id),
                 EventPayload::ConversationTurn {
                     conversation,
                     turn_id,

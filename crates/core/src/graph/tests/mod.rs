@@ -64,18 +64,9 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
         visibility,
     };
     vec![
-        EventPayload::MemoryCreated {
-            id: dave,
-            name: Namespace::Person.with_name("dave").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: erin,
-            name: Namespace::Person.with_name("erin").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: hooli,
-            name: Namespace::Place.with_name("hooli").into(),
-        },
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+        EventPayload::memory_created(hooli, Namespace::Place.with_name("hooli")),
         appended(dave, e1, "Met at the climbing gym", Visibility::Public),
         appended(dave, e2, "Now works at Hooli", Visibility::Public),
         appended(
@@ -84,23 +75,14 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
             "An old friend of Dave's",
             Visibility::PrivateToTeller,
         ),
-        EventPayload::MemoryDescriptionRegenerated {
-            id: dave,
-            new_text: "A climber who works at Hooli".to_owned(),
-            produced_by: None,
-        },
-        EventPayload::MemoryVolatilitySet {
-            id: erin,
-            volatility: Volatility::High,
-        },
-        EventPayload::TagCreated {
-            name: TagName::new("colleagues"),
-            description: "People worked with".to_owned(),
-        },
-        EventPayload::TagAppliedToMemory {
-            memory: dave,
-            tag: TagName::new("colleagues"),
-        },
+        EventPayload::memory_description_regenerated(
+            dave,
+            "A climber who works at Hooli".to_owned(),
+            None,
+        ),
+        EventPayload::memory_volatility_set(erin, Volatility::High),
+        EventPayload::tag_created(TagName::new("colleagues"), "People worked with"),
+        EventPayload::tag_applied_to_memory(dave, TagName::new("colleagues")),
         mentor_relation(),
         EventPayload::LinkCreated {
             from: dave,
@@ -110,12 +92,8 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
             told_by: None,
         },
         // Supersede dave's first entry with his second — it drops from live reads but stays recorded.
-        EventPayload::MemorySuperseded {
-            id: dave,
-            entry: e1,
-            superseded_by: e2,
-        },
+        EventPayload::memory_superseded(dave, e1, e2),
         // Soft-delete a memory — filtered from reads, retained in the tables.
-        EventPayload::MemoryDeleted { id: hooli },
+        EventPayload::memory_deleted(hooli),
     ]
 }

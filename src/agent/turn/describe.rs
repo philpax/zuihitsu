@@ -146,15 +146,15 @@ async fn regenerate_descriptions(
             {
                 Ok(Some(synthesis)) => {
                     if !synthesis.description.trim().is_empty() {
-                        events.push(EventPayload::MemoryDescriptionRegenerated {
+                        events.push(EventPayload::memory_description_regenerated(
                             id,
-                            new_text: synthesis.description.trim().to_owned(),
-                            produced_by: Some(ProducedBy {
+                            synthesis.description.trim().to_owned(),
+                            Some(ProducedBy {
                                 model_id: model.model_id().into(),
                                 template_name: PromptTemplateName::DescriptionRegen,
                                 template_version: description_template.version,
                             }),
-                        });
+                        ));
                     }
                     if let Some(event) = arbitration_event(
                         id,
@@ -269,19 +269,19 @@ fn arbitration_event(
         tracing::debug!(memory = %memory.name.as_str(), "dropping a malformed arbitration");
         return None;
     }
-    Some(EventPayload::BeliefArbitrated {
-        memory: memory_id,
+    Some(EventPayload::belief_arbitrated(
+        memory_id,
         competing_entries,
-        resolution: ArbitrationResolution {
+        ArbitrationResolution {
             credited,
             statement: arbitration.statement.trim().to_owned(),
         },
-        produced_by: Some(ProducedBy {
+        Some(ProducedBy {
             model_id: model_id.into(),
             template_name: PromptTemplateName::DescriptionRegen,
             template_version,
         }),
-    })
+    ))
 }
 
 /// Resolve the extracted `occurrences` for the entries `list` (1-based statement numbers), pushing an
@@ -313,12 +313,12 @@ fn resolve_occurrences(
             tracing::debug!(memory = %memory.name.as_str(), "dropping an unparseable extracted occurrence");
             continue;
         };
-        events.push(EventPayload::EntryTemporalResolved {
-            id: entry_memory,
-            entry_id: entry.entry_id,
+        events.push(EventPayload::entry_temporal_resolved(
+            entry_memory,
+            entry.entry_id,
             occurred_at,
-            produced_by: Some(provenance.clone()),
-        });
+            Some(provenance.clone()),
+        ));
     }
 }
 
@@ -545,7 +545,7 @@ mod tests {
     use super::ExtractedTime;
     use crate::{
         ids::MemoryName,
-        time::{self, CivilDate, Direction, TemporalRef, Timestamp},
+        time::{self, CivilDate, TemporalRef, Timestamp},
     };
 
     fn ms(date: &str) -> i64 {
@@ -612,10 +612,7 @@ mod tests {
                 anchor: "event/wedding".to_owned(),
             }
             .into_temporal_ref(),
-            Some(TemporalRef::BeforeAfter {
-                dir: Direction::After,
-                anchor: MemoryName::new("event/wedding"),
-            })
+            Some(TemporalRef::after(MemoryName::new("event/wedding")))
         );
         // An unrecognized direction drops the occurrence rather than guessing.
         assert_eq!(

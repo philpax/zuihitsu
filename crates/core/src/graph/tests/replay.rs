@@ -14,10 +14,7 @@ use crate::{
 fn a_snapshot_round_trips_the_graph_and_its_head() {
     let id = MemoryId::generate();
     let (store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id,
-            name: Namespace::Person.with_name("dave").into(),
-        },
+        EventPayload::memory_created(id, Namespace::Person.with_name("dave")),
         EventPayload::MemoryContentAppended {
             id,
             entry_id: EntryId::generate(),
@@ -57,10 +54,7 @@ fn a_snapshot_round_trips_the_graph_and_its_head() {
 fn fingerprint_equals_for_identical_state_and_differs_on_change() {
     let id = MemoryId::generate();
     let base = vec![
-        EventPayload::MemoryCreated {
-            id,
-            name: Namespace::Person.with_name("dave").into(),
-        },
+        EventPayload::memory_created(id, Namespace::Person.with_name("dave")),
         EventPayload::MemoryContentAppended {
             id,
             entry_id: EntryId::generate(),
@@ -80,10 +74,7 @@ fn fingerprint_equals_for_identical_state_and_differs_on_change() {
 
     // One more event — and the head it advances — diverges the fingerprint.
     let mut more = base;
-    more.push(EventPayload::MemoryVolatilitySet {
-        id,
-        volatility: Volatility::High,
-    });
+    more.push(EventPayload::memory_volatility_set(id, Volatility::High));
     let (_store_c, c) = materialized(more);
     assert_ne!(a.fingerprint().unwrap(), c.fingerprint().unwrap());
 }
@@ -161,10 +152,10 @@ fn materialize_is_incremental() {
     store
         .append(
             Timestamp::from_millis(1),
-            vec![EventPayload::MemoryCreated {
+            vec![EventPayload::memory_created(
                 id,
-                name: MemoryName::new("concept/recursion"),
-            }],
+                MemoryName::new("concept/recursion"),
+            )],
         )
         .unwrap();
     assert_eq!(graph.materialize_from(&store).unwrap(), 1);
@@ -176,11 +167,11 @@ fn materialize_is_incremental() {
     store
         .append(
             Timestamp::from_millis(2),
-            vec![EventPayload::MemoryDescriptionRegenerated {
+            vec![EventPayload::memory_description_regenerated(
                 id,
-                new_text: "A function defined in terms of itself.".to_owned(),
-                produced_by: None,
-            }],
+                "A function defined in terms of itself.".to_owned(),
+                None,
+            )],
         )
         .unwrap();
     assert_eq!(graph.materialize_from(&store).unwrap(), 1);
@@ -201,17 +192,15 @@ fn conversations_and_sessions_project() {
     let carol = MemoryId::generate();
     let join_turn = TurnId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id: context,
-            name: Namespace::Context
-                .with_name("discord:guild/42/chan/leads")
-                .into(),
-        },
-        EventPayload::ConversationStarted {
-            id: conv,
-            locator: ConversationLocator::new("discord", "guild/42/chan/leads"),
-            context_memory: context,
-        },
+        EventPayload::memory_created(
+            context,
+            Namespace::Context.with_name("discord:guild/42/chan/leads"),
+        ),
+        EventPayload::conversation_started(
+            conv,
+            ConversationLocator::new("discord", "guild/42/chan/leads"),
+            context,
+        ),
         EventPayload::SessionStarted {
             conversation: conv,
             id: s1,
@@ -220,16 +209,8 @@ fn conversations_and_sessions_project() {
             seeded_from_turn: None,
             brief: "first brief".to_owned(),
         },
-        EventPayload::ParticipantJoined {
-            conversation: conv,
-            session: s1,
-            participant: carol,
-            at_turn: join_turn,
-        },
-        EventPayload::SessionEnded {
-            conversation: conv,
-            id: s1,
-        },
+        EventPayload::participant_joined(conv, s1, carol, join_turn),
+        EventPayload::session_ended(conv, s1),
         // A second session opened via compaction carries the carryover extent.
         EventPayload::SessionStarted {
             conversation: conv,

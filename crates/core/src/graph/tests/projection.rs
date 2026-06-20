@@ -12,10 +12,7 @@ fn projects_create_rename_and_content() {
     let id = MemoryId::generate();
     let entry = EntryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id,
-            name: Namespace::Person.with_name("dave").into(),
-        },
+        EventPayload::memory_created(id, Namespace::Person.with_name("dave")),
         EventPayload::MemoryContentAppended {
             id,
             entry_id: entry,
@@ -26,11 +23,11 @@ fn projects_create_rename_and_content() {
             told_in: None,
             visibility: Visibility::Public,
         },
-        EventPayload::MemoryRenamed {
+        EventPayload::memory_renamed(
             id,
-            old_name: Namespace::Person.with_name("dave").into(),
-            new_name: Namespace::Person.with_name("dave-chen").into(),
-        },
+            Namespace::Person.with_name("dave"),
+            Namespace::Person.with_name("dave-chen"),
+        ),
     ]);
 
     // The old name no longer resolves; the new one does, to the same id.
@@ -58,11 +55,8 @@ fn projects_create_rename_and_content() {
 fn soft_delete_hides_from_reads() {
     let id = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id,
-            name: Namespace::Topic.with_name("sourdough").into(),
-        },
-        EventPayload::MemoryDeleted { id },
+        EventPayload::memory_created(id, Namespace::Topic.with_name("sourdough")),
+        EventPayload::memory_deleted(id),
     ]);
 
     assert!(
@@ -87,19 +81,13 @@ fn soft_delete_hides_from_reads() {
 fn description_and_volatility_update_in_place() {
     let id = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
+        EventPayload::memory_created(id, MemoryName::new("project/atlas")),
+        EventPayload::memory_description_regenerated(
             id,
-            name: MemoryName::new("project/atlas"),
-        },
-        EventPayload::MemoryDescriptionRegenerated {
-            id,
-            new_text: "An ongoing migration effort.".to_owned(),
-            produced_by: None,
-        },
-        EventPayload::MemoryVolatilitySet {
-            id,
-            volatility: Volatility::High,
-        },
+            "An ongoing migration effort.".to_owned(),
+            None,
+        ),
+        EventPayload::memory_volatility_set(id, Volatility::High),
     ]);
 
     let memory = graph.memory_by_id(id).unwrap().unwrap();
@@ -111,30 +99,15 @@ fn description_and_volatility_update_in_place() {
 fn tag_create_apply_and_remove() {
     let id = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::TagCreated {
-            name: TagName::new("hobbies"),
-            description: "Recreational activities and interests".to_owned(),
-        },
-        EventPayload::TagCreated {
-            name: TagName::new("colleagues"),
-            description: "People worked with".to_owned(),
-        },
-        EventPayload::MemoryCreated {
-            id,
-            name: Namespace::Person.with_name("erin").into(),
-        },
-        EventPayload::TagAppliedToMemory {
-            memory: id,
-            tag: TagName::new("hobbies"),
-        },
-        EventPayload::TagAppliedToMemory {
-            memory: id,
-            tag: TagName::new("colleagues"),
-        },
-        EventPayload::TagRemovedFromMemory {
-            memory: id,
-            tag: TagName::new("hobbies"),
-        },
+        EventPayload::tag_created(
+            TagName::new("hobbies"),
+            "Recreational activities and interests".to_owned(),
+        ),
+        EventPayload::tag_created(TagName::new("colleagues"), "People worked with"),
+        EventPayload::memory_created(id, Namespace::Person.with_name("erin")),
+        EventPayload::tag_applied_to_memory(id, TagName::new("hobbies")),
+        EventPayload::tag_applied_to_memory(id, TagName::new("colleagues")),
+        EventPayload::tag_removed_from_memory(id, TagName::new("hobbies")),
     ]);
 
     // Application never mutates the tag's own description (the create/apply split).
@@ -149,18 +122,9 @@ fn tag_create_apply_and_remove() {
 #[test]
 fn namespace_query_scopes_by_prefix() {
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id: MemoryId::generate(),
-            name: Namespace::Person.with_name("dave").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: MemoryId::generate(),
-            name: Namespace::Person.with_name("erin").into(),
-        },
-        EventPayload::MemoryCreated {
-            id: MemoryId::generate(),
-            name: Namespace::Place.with_name("sydney").into(),
-        },
+        EventPayload::memory_created(MemoryId::generate(), Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(MemoryId::generate(), Namespace::Person.with_name("erin")),
+        EventPayload::memory_created(MemoryId::generate(), Namespace::Place.with_name("sydney")),
     ]);
 
     let people = graph
@@ -192,17 +156,10 @@ fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
         visibility: Visibility::Public,
     };
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id: dave,
-            name: Namespace::Person.with_name("dave").into(),
-        },
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
         appended(old, "Dave works at Hooli"),
         appended(new, "Dave works at Pied Piper"),
-        EventPayload::MemorySuperseded {
-            id: dave,
-            entry: old,
-            superseded_by: new,
-        },
+        EventPayload::memory_superseded(dave, old, new),
     ]);
 
     let texts = |entries: Vec<EntryView>| entries.into_iter().map(|e| e.text).collect::<Vec<_>>();

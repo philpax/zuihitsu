@@ -35,10 +35,7 @@ fn graph_with_self() -> (Graph, MemoryId) {
         .append(
             Timestamp::from_millis(1_000),
             vec![
-                EventPayload::MemoryCreated {
-                    id: self_id,
-                    name: MemoryName::new(MemoryName::SELF),
-                },
+                EventPayload::memory_created(self_id, MemoryName::new(MemoryName::SELF)),
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::CreatedBy,
                     inverse: RelationName::Created,
@@ -164,10 +161,7 @@ fn content_writes_to_the_operator_anchor_are_forbidden_but_links_are_not() {
         .append(
             Timestamp::from_millis(1_000),
             vec![
-                EventPayload::MemoryCreated {
-                    id: operator_id,
-                    name: NamespacedMemoryName::operator().into(),
-                },
+                EventPayload::memory_created(operator_id, NamespacedMemoryName::operator()),
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::SameAs,
                     inverse: RelationName::SameAs,

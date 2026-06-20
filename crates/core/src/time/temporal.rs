@@ -83,6 +83,22 @@ pub struct OccurrenceBounds {
 }
 
 impl TemporalRef {
+    /// A reference anchored before another memory's occurrence (`before event/dave-wedding`).
+    pub fn before(anchor: impl Into<MemoryName>) -> TemporalRef {
+        TemporalRef::BeforeAfter {
+            dir: Direction::Before,
+            anchor: anchor.into(),
+        }
+    }
+
+    /// A reference anchored after another memory's occurrence (`after event/dave-wedding`).
+    pub fn after(anchor: impl Into<MemoryName>) -> TemporalRef {
+        TemporalRef::BeforeAfter {
+            dir: Direction::After,
+            anchor: anchor.into(),
+        }
+    }
+
     /// Derive the denormalized bounds (spec §Time → denormalized columns). Pure for every variant
     /// except [`TemporalRef::BeforeAfter`], whose `anchor` bounds the materializer resolves from the
     /// graph and passes in — `None` when the anchor is unknown or itself untimed, which yields empty
@@ -189,9 +205,7 @@ fn shifted(at: Option<Timestamp>, shift: i64) -> Option<Timestamp> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
-    };
+    use super::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, OccurrenceBounds, Rrule, TemporalRef};
     use crate::{
         ids::MemoryName,
         time::{MILLIS_PER_DAY, Timestamp},
@@ -303,19 +317,11 @@ mod tests {
     #[test]
     fn before_after_shifts_a_point_anchor() {
         let anchor = OccurrenceBounds::point(ts(1_000));
-        let after = TemporalRef::BeforeAfter {
-            dir: Direction::After,
-            anchor: MemoryName::new("event/wedding"),
-        }
-        .bounds(Some(anchor), 10);
+        let after = TemporalRef::after(MemoryName::new("event/wedding")).bounds(Some(anchor), 10);
         assert_eq!(after.sort, Some(ts(1_010)));
         assert_eq!(after.lo, Some(ts(1_010)));
         assert_eq!(after.hi, Some(ts(1_010)));
-        let before = TemporalRef::BeforeAfter {
-            dir: Direction::Before,
-            anchor: MemoryName::new("event/wedding"),
-        }
-        .bounds(Some(anchor), 10);
+        let before = TemporalRef::before(MemoryName::new("event/wedding")).bounds(Some(anchor), 10);
         assert_eq!(before.sort, Some(ts(990)));
     }
 
@@ -326,11 +332,7 @@ mod tests {
             lo: Some(ts(900)),
             hi: Some(ts(1_100)),
         };
-        let bounds = TemporalRef::BeforeAfter {
-            dir: Direction::After,
-            anchor: MemoryName::new("event/move"),
-        }
-        .bounds(Some(vague), 10);
+        let bounds = TemporalRef::after(MemoryName::new("event/move")).bounds(Some(vague), 10);
         assert_eq!(bounds.sort, Some(ts(1_010)));
         assert_eq!(bounds.lo, Some(ts(910)));
         assert_eq!(bounds.hi, Some(ts(1_110)));
@@ -338,18 +340,11 @@ mod tests {
 
     #[test]
     fn before_after_without_a_resolvable_anchor_is_empty() {
-        let unresolved = TemporalRef::BeforeAfter {
-            dir: Direction::After,
-            anchor: MemoryName::new("event/unknown"),
-        }
-        .bounds(None, 10);
+        let unresolved = TemporalRef::after(MemoryName::new("event/unknown")).bounds(None, 10);
         assert_eq!(unresolved, OccurrenceBounds::default());
         // An anchor that resolves but has no representative instant is equally empty.
-        let untimed = TemporalRef::BeforeAfter {
-            dir: Direction::After,
-            anchor: MemoryName::new("event/untimed"),
-        }
-        .bounds(Some(OccurrenceBounds::default()), 10);
+        let untimed = TemporalRef::after(MemoryName::new("event/untimed"))
+            .bounds(Some(OccurrenceBounds::default()), 10);
         assert_eq!(untimed, OccurrenceBounds::default());
     }
 
@@ -380,10 +375,7 @@ mod tests {
                 "{\"recurring\":\"FREQ=WEEKLY\"}",
             ),
             (
-                TemporalRef::BeforeAfter {
-                    dir: Direction::After,
-                    anchor: MemoryName::new("event/wedding"),
-                },
+                TemporalRef::after(MemoryName::new("event/wedding")),
                 "{\"before_after\":{\"dir\":\"after\",\"anchor\":\"event/wedding\"}}",
             ),
         ];

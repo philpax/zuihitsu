@@ -94,15 +94,8 @@ pub fn resolve_or_mint_participant(
     store.append(
         clock.now(),
         vec![
-            EventPayload::MemoryCreated {
-                id,
-                name: name.clone(),
-            },
-            EventPayload::ParticipantIdentified {
-                memory: id,
-                platform: platform.into(),
-                platform_user_id: platform_user_id.into(),
-            },
+            EventPayload::memory_created(id, name.clone()),
+            EventPayload::participant_identified(id, platform, platform_user_id),
         ],
     )?;
     tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
@@ -128,15 +121,8 @@ pub fn resolve_or_mint_conversation(
     store.append(
         clock.now(),
         vec![
-            EventPayload::MemoryCreated {
-                id: context_memory,
-                name: context_name(locator),
-            },
-            EventPayload::ConversationStarted {
-                id,
-                locator: locator.clone(),
-                context_memory,
-            },
+            EventPayload::memory_created(context_memory, context_name(locator)),
+            EventPayload::conversation_started(id, locator.clone(), context_memory),
         ],
     )?;
     tracing::info!(

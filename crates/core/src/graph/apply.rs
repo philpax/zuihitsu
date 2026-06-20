@@ -648,8 +648,7 @@ mod tests {
         event::{ArbitrationResolution, Event, EventPayload, Teller, Visibility},
         ids::{EntryId, MemoryId, Namespace, Seq},
         time::{
-            BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, MILLIS_PER_DAY, Rrule, TemporalRef,
-            Timestamp,
+            BEFORE_AFTER_EPSILON_MILLIS, CivilDate, MILLIS_PER_DAY, Rrule, TemporalRef, Timestamp,
         },
     };
 
@@ -673,10 +672,7 @@ mod tests {
         graph
             .apply(&event(
                 1,
-                EventPayload::MemoryCreated {
-                    id,
-                    name: Namespace::Event.with_name("cleaning").into(),
-                },
+                EventPayload::memory_created(id, Namespace::Event.with_name("cleaning")),
             ))
             .unwrap();
         graph
@@ -731,10 +727,7 @@ mod tests {
             visibility: Visibility::Public,
         };
         let events = [
-            EventPayload::MemoryCreated {
-                id: anchor,
-                name: Namespace::Event.with_name("wedding").into(),
-            },
+            EventPayload::memory_created(anchor, Namespace::Event.with_name("wedding")),
             EventPayload::MemoryContentAppended {
                 id: anchor,
                 entry_id: EntryId::generate(),
@@ -745,10 +738,7 @@ mod tests {
                 told_in: None,
                 visibility: Visibility::Public,
             },
-            EventPayload::MemoryCreated {
-                id: dependent,
-                name: Namespace::Event.with_name("reception").into(),
-            },
+            EventPayload::memory_created(dependent, Namespace::Event.with_name("reception")),
             untimed(dependent, entry),
         ];
         for (seq, payload) in events.into_iter().enumerate() {
@@ -768,15 +758,12 @@ mod tests {
         graph
             .apply(&event(
                 5,
-                EventPayload::EntryTemporalResolved {
-                    id: dependent,
-                    entry_id: entry,
-                    occurred_at: TemporalRef::BeforeAfter {
-                        dir: Direction::After,
-                        anchor: Namespace::Event.with_name("wedding").into(),
-                    },
-                    produced_by: None,
-                },
+                EventPayload::entry_temporal_resolved(
+                    dependent,
+                    entry,
+                    TemporalRef::after(Namespace::Event.with_name("wedding")),
+                    None,
+                ),
             ))
             .unwrap();
         let sort_after: Option<i64> = graph
@@ -817,24 +804,21 @@ mod tests {
         let arbitrate = |seq, credited: Vec<EntryId>| {
             event(
                 seq,
-                EventPayload::BeliefArbitrated {
+                EventPayload::belief_arbitrated(
                     memory,
-                    competing_entries: vec![a, b],
-                    resolution: ArbitrationResolution {
+                    vec![a, b],
+                    ArbitrationResolution {
                         credited,
                         statement: "one says auditorium, another rooftop".to_owned(),
                     },
-                    produced_by: None,
-                },
+                    None,
+                ),
             )
         };
         graph
             .apply(&event(
                 1,
-                EventPayload::MemoryCreated {
-                    id: memory,
-                    name: Namespace::Event.with_name("all-hands").into(),
-                },
+                EventPayload::memory_created(memory, Namespace::Event.with_name("all-hands")),
             ))
             .unwrap();
         graph.apply(&append(2, a, "in the auditorium")).unwrap();
@@ -858,14 +842,7 @@ mod tests {
             .apply(&append(7, c, "confirmed: the rooftop"))
             .unwrap();
         graph
-            .apply(&event(
-                8,
-                EventPayload::MemorySuperseded {
-                    id: memory,
-                    entry: a,
-                    superseded_by: c,
-                },
-            ))
+            .apply(&event(8, EventPayload::memory_superseded(memory, a, c)))
             .unwrap();
         assert!(graph.disputed_entries(memory).unwrap().is_empty());
     }
@@ -882,10 +859,7 @@ mod tests {
         graph
             .apply(&event(
                 1,
-                EventPayload::MemoryCreated {
-                    id: memory,
-                    name: Namespace::Event.with_name("standup").into(),
-                },
+                EventPayload::memory_created(memory, Namespace::Event.with_name("standup")),
             ))
             .unwrap();
         graph

@@ -6,16 +6,13 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, MemoryName, Namespace},
-    time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, Rrule, TemporalRef, Timestamp},
+    time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Rrule, TemporalRef, Timestamp},
 };
 
 const DAY: i64 = 86_400_000;
 
 fn created(id: MemoryId, name: impl Into<MemoryName>) -> EventPayload {
-    EventPayload::MemoryCreated {
-        id,
-        name: name.into(),
-    }
+    EventPayload::memory_created(id, name)
 }
 
 fn appended(id: MemoryId, entry_id: EntryId, occurred_at: Option<TemporalRef>) -> EventPayload {
@@ -83,10 +80,7 @@ fn before_after_resolves_against_its_anchor() {
         appended(
             dependent,
             dep_entry,
-            Some(TemporalRef::BeforeAfter {
-                dir: Direction::After,
-                anchor: Namespace::Event.with_name("wedding").into(),
-            }),
+            Some(TemporalRef::after(Namespace::Event.with_name("wedding"))),
         ),
     ]);
     let entries = graph.entries_local(dependent).unwrap();
@@ -112,15 +106,12 @@ fn before_after_resolves_a_soft_deleted_anchor() {
             EntryId::generate(),
             Some(TemporalRef::Instant(Timestamp::from_millis(anchor_at))),
         ),
-        EventPayload::MemoryDeleted { id: anchor },
+        EventPayload::memory_deleted(anchor),
         created(dependent, Namespace::Event.with_name("housewarming")),
         appended(
             dependent,
             EntryId::generate(),
-            Some(TemporalRef::BeforeAfter {
-                dir: Direction::After,
-                anchor: Namespace::Event.with_name("move").into(),
-            }),
+            Some(TemporalRef::after(Namespace::Event.with_name("move"))),
         ),
     ]);
     let entries = graph.entries_local(dependent).unwrap();
@@ -140,10 +131,9 @@ fn before_after_with_an_unknown_anchor_is_untimed() {
         appended(
             dependent,
             EntryId::generate(),
-            Some(TemporalRef::BeforeAfter {
-                dir: Direction::After,
-                anchor: Namespace::Event.with_name("never-created").into(),
-            }),
+            Some(TemporalRef::after(
+                Namespace::Event.with_name("never-created"),
+            )),
         ),
     ]);
     let entries = graph.entries_local(dependent).unwrap();
@@ -230,7 +220,7 @@ fn occurrences_in_window_excludes_soft_deleted() {
             EntryId::generate(),
             Some(TemporalRef::Instant(Timestamp::from_millis(100))),
         ),
-        EventPayload::MemoryDeleted { id: a },
+        EventPayload::memory_deleted(a),
     ]);
     assert!(
         graph
@@ -264,10 +254,9 @@ fn recurring_memories_lists_only_true_recurrences() {
         appended(
             dangling,
             EntryId::generate(),
-            Some(TemporalRef::BeforeAfter {
-                dir: Direction::After,
-                anchor: Namespace::Event.with_name("never-created").into(),
-            }),
+            Some(TemporalRef::after(
+                Namespace::Event.with_name("never-created"),
+            )),
         ),
     ]);
     let names: Vec<_> = graph

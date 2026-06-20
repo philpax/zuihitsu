@@ -288,15 +288,12 @@ mod tests {
                 at(1),
                 vec![
                     // The indexer ignores the create and reacts only to the description.
-                    EventPayload::MemoryCreated {
-                        id: dave,
-                        name: Namespace::Person.with_name("dave").into(),
-                    },
-                    EventPayload::MemoryDescriptionRegenerated {
-                        id: dave,
-                        new_text: "An avid rock climber".to_owned(),
-                        produced_by: None,
-                    },
+                    EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+                    EventPayload::memory_description_regenerated(
+                        dave,
+                        "An avid rock climber".to_owned(),
+                        None,
+                    ),
                 ],
             )
             .unwrap();
@@ -326,11 +323,11 @@ mod tests {
         store
             .append(
                 at(1),
-                vec![EventPayload::MemoryDescriptionRegenerated {
-                    id: dave,
-                    new_text: "An avid rock climber".to_owned(),
-                    produced_by: None,
-                }],
+                vec![EventPayload::memory_description_regenerated(
+                    dave,
+                    "An avid rock climber".to_owned(),
+                    None,
+                )],
             )
             .unwrap();
 
@@ -361,11 +358,11 @@ mod tests {
         store
             .append(
                 at(2),
-                vec![EventPayload::MemoryDescriptionRegenerated {
-                    id: erin,
-                    new_text: "A tax accountant".to_owned(),
-                    produced_by: None,
-                }],
+                vec![EventPayload::memory_description_regenerated(
+                    erin,
+                    "A tax accountant".to_owned(),
+                    None,
+                )],
             )
             .unwrap();
         assert_eq!(
@@ -387,11 +384,11 @@ mod tests {
         store
             .append(
                 at(1),
-                vec![EventPayload::MemoryDescriptionRegenerated {
-                    id: dave,
-                    new_text: "An avid rock climber".to_owned(),
-                    produced_by: None,
-                }],
+                vec![EventPayload::memory_description_regenerated(
+                    dave,
+                    "An avid rock climber".to_owned(),
+                    None,
+                )],
             )
             .unwrap();
 
@@ -436,7 +433,7 @@ mod tests {
         // A delete drops the vector.
         let mut store = MemoryStore::new();
         let deletion = store
-            .append(at(2), vec![EventPayload::MemoryDeleted { id: dave }])
+            .append(at(2), vec![EventPayload::memory_deleted(dave)])
             .unwrap();
         Indexer::new(&embedder, &mut vectors)
             .index_batch(&deletion)
@@ -462,11 +459,11 @@ mod tests {
         store
             .append(
                 at(1),
-                vec![EventPayload::MemoryDescriptionRegenerated {
-                    id: ghost,
-                    new_text: "   ".to_owned(),
-                    produced_by: None,
-                }],
+                vec![EventPayload::memory_description_regenerated(
+                    ghost,
+                    "   ".to_owned(),
+                    None,
+                )],
             )
             .unwrap();
 
@@ -514,11 +511,11 @@ mod tests {
         store
             .append(
                 at(1),
-                vec![EventPayload::MemoryDescriptionRegenerated {
+                vec![EventPayload::memory_description_regenerated(
                     id,
-                    new_text: description.to_owned(),
-                    produced_by: None,
-                }],
+                    description.to_owned(),
+                    None,
+                )],
             )
             .unwrap()
     }

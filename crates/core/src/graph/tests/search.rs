@@ -10,10 +10,7 @@ fn search_matches_name_description_and_content() {
     let dave = MemoryId::generate();
     let erin = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id: dave,
-            name: Namespace::Person.with_name("dave").into(),
-        },
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
         EventPayload::MemoryContentAppended {
             id: dave,
             entry_id: EntryId::generate(),
@@ -24,15 +21,12 @@ fn search_matches_name_description_and_content() {
             told_in: None,
             visibility: Visibility::Public,
         },
-        EventPayload::MemoryCreated {
-            id: erin,
-            name: Namespace::Person.with_name("erin").into(),
-        },
-        EventPayload::MemoryDescriptionRegenerated {
-            id: erin,
-            new_text: "An avid rock climber.".to_owned(),
-            produced_by: None,
-        },
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+        EventPayload::memory_description_regenerated(
+            erin,
+            "An avid rock climber.".to_owned(),
+            None,
+        ),
     ]);
 
     // Content hit.
@@ -53,11 +47,8 @@ fn search_matches_name_description_and_content() {
 fn search_excludes_soft_deleted() {
     let id = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::MemoryCreated {
-            id,
-            name: Namespace::Topic.with_name("quantum-knitting").into(),
-        },
-        EventPayload::MemoryDeleted { id },
+        EventPayload::memory_created(id, Namespace::Topic.with_name("quantum-knitting")),
+        EventPayload::memory_deleted(id),
     ]);
     assert!(graph.search("quantum-knitting", 10).unwrap().is_empty());
 }

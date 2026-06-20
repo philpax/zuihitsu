@@ -418,7 +418,7 @@ impl MemoryBlock {
             None => None,
         };
         self.touched.insert(id);
-        self.buffer.push(EventPayload::MemoryCreated { id, name });
+        self.buffer.push(EventPayload::memory_created(id, name));
         if let Some((text, teller, visibility)) = first_entry {
             // A created memory's first entry carries no occurrence; `occurred_at` arrives via
             // `mem:append`, matching the spec's `dave:append("...", { occurred_at = ... })` form.
@@ -448,11 +448,11 @@ impl MemoryBlock {
             return Ok(());
         };
         self.touched.insert(id);
-        self.buffer.push(EventPayload::MemoryRenamed {
+        self.buffer.push(EventPayload::memory_renamed(
             id,
             old_name,
-            new_name: MemoryName::new(new_name),
-        });
+            MemoryName::new(new_name),
+        ));
         Ok(())
     }
 
@@ -508,10 +508,10 @@ impl MemoryBlock {
         // An inline volatility classification: set the memory's volatility alongside the append, so the
         // agent can mark a fast-changing fact in one call rather than a separate `set_volatility`.
         if let Some(volatility) = opts.volatility {
-            self.buffer.push(EventPayload::MemoryVolatilitySet {
+            self.buffer.push(EventPayload::memory_volatility_set(
                 id,
-                volatility: volatility.into_volatility(),
-            });
+                volatility.into_volatility(),
+            ));
         }
         Ok(entry_id)
     }
@@ -538,11 +538,8 @@ impl MemoryBlock {
             return Err(MemoryError::UnknownEntry(new));
         }
         self.touched.insert(id);
-        self.buffer.push(EventPayload::MemorySuperseded {
-            id,
-            entry: old,
-            superseded_by: new,
-        });
+        self.buffer
+            .push(EventPayload::memory_superseded(id, old, new));
         Ok(())
     }
 
@@ -822,7 +819,7 @@ impl MemoryBlock {
         }
         self.touched.insert(from);
         self.touched.insert(to);
-        self.buffer.push(EventPayload::MergeProposed { from, to });
+        self.buffer.push(EventPayload::merge_proposed(from, to));
         Ok(())
     }
 
@@ -882,10 +879,8 @@ impl MemoryBlock {
         if self.tag_exists(&name)? {
             return Err(MemoryError::TagExists(name));
         }
-        self.buffer.push(EventPayload::TagCreated {
-            name,
-            description: description.to_owned(),
-        });
+        self.buffer
+            .push(EventPayload::tag_created(name, description));
         Ok(())
     }
 
@@ -895,10 +890,10 @@ impl MemoryBlock {
         if !self.tag_exists(&name)? {
             return Err(MemoryError::UnknownTag(name));
         }
-        self.buffer.push(EventPayload::TagDescriptionChanged {
+        self.buffer.push(EventPayload::tag_description_changed(
             name,
-            new_description: description.to_owned(),
-        });
+            description.to_owned(),
+        ));
         Ok(())
     }
 
@@ -912,7 +907,7 @@ impl MemoryBlock {
         }
         self.touched.insert(id);
         self.buffer
-            .push(EventPayload::TagAppliedToMemory { memory: id, tag });
+            .push(EventPayload::tag_applied_to_memory(id, tag));
         Ok(())
     }
 
@@ -922,7 +917,7 @@ impl MemoryBlock {
         self.guard_self(id)?;
         self.touched.insert(id);
         self.buffer
-            .push(EventPayload::TagRemovedFromMemory { memory: id, tag });
+            .push(EventPayload::tag_removed_from_memory(id, tag));
         Ok(())
     }
 
@@ -940,7 +935,7 @@ impl MemoryBlock {
         };
         self.touched.insert(id);
         self.buffer
-            .push(EventPayload::MemoryVolatilitySet { id, volatility });
+            .push(EventPayload::memory_volatility_set(id, volatility));
         Ok(())
     }
 
@@ -1043,7 +1038,7 @@ impl MemoryBlock {
                 told_by: Some(self.teller.clone()),
             }
         } else {
-            EventPayload::LinkRemoved { from, to, relation }
+            EventPayload::link_removed(from, to, relation)
         });
         Ok(())
     }

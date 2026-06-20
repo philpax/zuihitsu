@@ -606,10 +606,7 @@ mod tests {
     }
 
     fn created(id: MemoryId, name: &str) -> EventPayload {
-        EventPayload::MemoryCreated {
-            id,
-            name: MemoryName::new(name),
-        }
+        EventPayload::memory_created(id, MemoryName::new(name))
     }
 
     fn appended(
@@ -640,14 +637,8 @@ mod tests {
         let dave = MemoryId::generate();
         let (_store, graph) = materialized(vec![
             created(leads, "context/leads"),
-            EventPayload::TagCreated {
-                name: TagName::new("confidential"),
-                description: "confidential room".to_owned(),
-            },
-            EventPayload::TagAppliedToMemory {
-                memory: leads,
-                tag: TagName::new("confidential"),
-            },
+            EventPayload::tag_created(TagName::new("confidential"), "confidential room"),
+            EventPayload::tag_applied_to_memory(leads, TagName::new("confidential")),
             created(phil, "person/phil"),
             created(dave, "person/dave"),
         ]);
