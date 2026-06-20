@@ -70,14 +70,32 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
-        // The minted person/operator stub plus the one profile the imprint created is the whole
-        // operator identity. A third person/* memory is the duplicate this scenario guards against.
+        // The desired move: append the real name as a fact on the existing operator profile — neither
+        // a second stub nor a rename of the handle. Three gates: no duplicate, no rename, name recorded.
         let profiles = analysis::memories_in_namespace(events, "person/");
-        vec![Verdict::oracle_outcome(
-            "recorded the operator's other name on their existing profile, not a new one",
-            profiles.len() <= 2,
-            "the second name landed on the existing operator profile",
-            format!("minted a duplicate operator profile — person/* memories: {profiles:?}"),
-        )]
+        let recorded_name = analysis::entries(events).iter().any(|entry| {
+            entry.memory.starts_with("person/") && entry.text.to_lowercase().contains("tomas")
+        });
+        vec![
+            Verdict::oracle_outcome(
+                "kept a single operator profile, minting no duplicate",
+                // person/operator plus the one profile the imprint created is the whole identity.
+                profiles.len() <= 2,
+                "no duplicate operator profile was created",
+                format!("minted a duplicate operator profile — person/* memories: {profiles:?}"),
+            ),
+            Verdict::oracle_outcome(
+                "recorded the real name without renaming the handle away",
+                !analysis::memory_renamed(events),
+                "kept the established handle and did not rename it",
+                "renamed the operator's handle instead of recording the real name as a fact",
+            ),
+            Verdict::oracle_outcome(
+                "recorded the real name as a fact on the existing profile",
+                recorded_name,
+                "the real name was appended to the operator's profile",
+                "the real name was not recorded as a fact on the operator's profile",
+            ),
+        ]
     }
 }

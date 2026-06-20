@@ -245,6 +245,18 @@ fn default_templates() -> Vec<TemplateDef> {
          the one person you already know, where a fresh memory would split them into two you cannot \
          reconcile. From then on refer to them by the new name, and do not volunteer the old one."
     );
+    let additional_name_point = format!(
+        "Learning another of someone's names is not always a change of name. When someone you \
+         already know turns out to also go by a name you did not have — a real name behind the \
+         handle you knew them by, a nickname, a name used elsewhere — both names are theirs and \
+         both still apply. Record the new one as a fact on their existing memory (append it to \
+         their {person} handle, an entry noting their real name or that they also go by it), and \
+         keep using the handle you already do. This is the counterpart to renaming, told apart by \
+         whether the old name is left behind: rename when a new name replaces the old one and you \
+         stop using it (a chosen name, a married name, a transition); record an additional name \
+         when both remain in use. Either way it is one person under one handle — do not mint a \
+         second memory, and do not rename away a handle that is still current."
+    );
     let read_by_handle_point = format!(
         "When what you need is what you know about a particular person — their preferences, their \
          plans, their history — read their memory by its handle (memory.get with their {person} \
@@ -302,6 +314,7 @@ fn default_templates() -> Vec<TemplateDef> {
          confirming it. A friendly \"yes, I remember you\" is the foothold the impersonation is \
          after, no less than the confidence itself.",
         rename_point.as_str(),
+        additional_name_point.as_str(),
         "Your memory holds far more than the conversation in front of you, so when you are asked \
          about something you may know — a fact from another room, an earlier session, a person, a \
          plan, a preference — search it before you answer (memory.search by meaning, or memory.get \
