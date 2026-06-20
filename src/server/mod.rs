@@ -30,10 +30,10 @@ use tokio::sync::Semaphore;
 
 use crate::{
     agent::{
-        McpCatalogue, Turn, TurnError, TurnReport, TurnView, buffer_turns,
+        Flush, McpCatalogue, Turn, TurnError, TurnReport, TurnView, buffer_turns,
         genesis::{self, GenesisStatus},
         lua::Session,
-        run_adjudicate_catch_up, run_describe_catch_up, run_turn,
+        run_adjudicate_catch_up, run_describe_catch_up, run_flush, run_turn,
     },
     clock::Clock,
     engine::Engine,
@@ -69,9 +69,10 @@ pub struct Server {
     /// The live session per conversation: its id, the VM whose globals persist across the session's
     /// turns, the frozen brief, and the last-activity time the idle-gap is measured from. Pure
     /// runtime state — never logged (the `SessionStarted` / `SessionEnded` events are); an agent
-    /// restart drops it and the next message opens a fresh session. Behind a `Mutex` (and each value
-    /// an `Arc`) so concurrent conversations reach the map through a shared `&Server`; a turn holds
-    /// its session's `Arc` across the turn `.await` without keeping the map guard.
+    /// restart drops the map, but the next message recovers a session still open in the log through
+    /// `ensure_session` (resumed within the idle gap, else closed-with-flush and reopened). Behind a
+    /// `Mutex` (and each value an `Arc`) so concurrent conversations reach the map through a shared
+    /// `&Server`; a turn holds its session's `Arc` across the turn `.await` without keeping the map guard.
     sessions: Mutex<HashMap<ConversationId, Arc<OpenSession>>>,
     /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
     /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
@@ -336,10 +337,81 @@ impl Server {
         Ok((report, buffer))
     }
 
-    /// Ensure a live session for `conversation`: reuse the open one if activity is within the
-    /// idle-gap, otherwise end it (if any) and open a new one — composing and freezing its brief and
-    /// minting a fresh VM. The session boundary is recorded (`SessionStarted` / `SessionEnded`) and
-    /// not recomputed at replay.
+    /// A fresh session VM for a conversation, carrying the MCP projection when servers are connected.
+    fn mint_vm(&self, conversation: ConversationId) -> Session {
+        match &self.mcp {
+            Some(runtime) => Session::with_mcp(
+                conversation,
+                runtime.host.clone(),
+                runtime.catalogue.clone(),
+            ),
+            None => Session::new(conversation),
+        }
+    }
+
+    /// Flush a closing session's working state to memory, then record `SessionEnded`. The budget-gated
+    /// pre-compaction flush gives a substantive session (at least `flush_min_turns`) one turn to write
+    /// durable memory before the cut, so nothing it learned is lost between its last write and the next
+    /// conversation; a light session skips it, so the hot-path model call is paid only when there is
+    /// state worth saving. The flush runs **before** `SessionEnded`, so a flush failure leaves the
+    /// session standing for a retry rather than dropping its state. Shared by the budget-compaction
+    /// close (which then stages a carryover) and the idle/recovery closes (which do not). The caller
+    /// has already removed `open` from the sessions map. Returns whether the flush ran.
+    async fn flush_and_end(
+        &self,
+        conversation: ConversationId,
+        open: &OpenSession,
+        model: &dyn ModelClient,
+    ) -> Result<bool, ServerError> {
+        let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
+        let buffer = buffer_turns(
+            self.engine.store.lock().as_ref(),
+            conversation,
+            open.start_seq,
+        )?;
+        let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
+        if flushed {
+            let present_set = self.engine.graph.lock().session_participants(open.id)?;
+            run_flush(Flush {
+                session: &open.vm,
+                model,
+                engine: self.engine.clone(),
+                brief: &open.brief,
+                session_started_at: open.started_at,
+                buffer: &buffer,
+                present_set: &present_set,
+                max_steps: settings.turn.max_steps as usize,
+                block_timeout: Duration::from_secs(
+                    settings.turn.block_timeout_seconds.max(0) as u64
+                ),
+                max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
+                capture: settings.observability.capture_model_calls,
+            })
+            .await?;
+            self.engine
+                .graph
+                .lock()
+                .materialize_from(self.engine.store.lock().as_ref())?;
+        }
+        open.vm.shutdown_mcp().await;
+        let now = self.engine.clock.now();
+        self.engine.store.lock().append(
+            now,
+            vec![EventPayload::SessionEnded {
+                conversation,
+                id: open.id,
+            }],
+        )?;
+        Ok(flushed)
+    }
+
+    /// Ensure a live session for `conversation`. Reuse the open one if activity is within the idle gap.
+    /// Otherwise, on a cold start (no live session in this process), recover a session still open in the
+    /// log — left by a restart or a passive graceful exit: within the idle gap resume it untouched (an
+    /// identical prompt prefix, so the serving cache survives the restart), past it close-with-flush.
+    /// Then, for a stale live session or after a recovered close, open a fresh one — composing and
+    /// freezing its brief and minting a fresh VM. Boundaries are recorded (`SessionStarted` /
+    /// `SessionEnded`), never recomputed at replay.
     async fn ensure_session(
         &self,
         conversation: ConversationId,
@@ -352,14 +424,59 @@ impl Server {
 
         // Reuse the open session if its last activity is within the idle gap, bumping it. The map
         // guard is released before returning; the returned `Arc` keeps the session alive for the turn.
-        {
+        // A stale live session is noted (`live_present`) so the cold-start recovery below runs only for
+        // a true cold start — a stale live one is closed-and-reopened by the path further down.
+        let live_present = {
             let sessions = self.sessions.lock();
-            if let Some(open) = sessions.get(&conversation)
-                && now.as_millis() - open.last_activity_millis() <= idle_gap_ms
-            {
-                open.touch(now);
-                return Ok(open.clone());
+            match sessions.get(&conversation) {
+                Some(open) if now.as_millis() - open.last_activity_millis() <= idle_gap_ms => {
+                    open.touch(now);
+                    return Ok(open.clone());
+                }
+                other => other.is_some(),
             }
+        };
+
+        // Cold start with a session still open in the log (a restart, or a passive graceful exit that
+        // left it open — resolution is deliberately lazy, on this next message). Recover it: within the
+        // idle gap resume it untouched so the prompt prefix is byte-identical; past it (or a seeded
+        // compaction continuation, not byte-faithfully resumable from its seq alone) close it with a
+        // flush so its working state is consolidated before the fresh session opens below.
+        // Resolve the recovery target before the body, so the graph guard is dropped before the
+        // flush's `.await` below (a guard held across an await would make the turn future non-Send).
+        let recovered = if live_present {
+            None
+        } else {
+            self.engine.graph.lock().last_open_session(conversation)?
+        };
+        if let Some(recovered) = recovered {
+            let buffer = buffer_turns(
+                self.engine.store.lock().as_ref(),
+                conversation,
+                recovered.start_seq,
+            )?;
+            let last_activity = buffer
+                .last()
+                .map_or(recovered.started_at, |turn| turn.recorded_at);
+            let resumable =
+                !recovered.seeded && now.as_millis() - last_activity.as_millis() <= idle_gap_ms;
+            let open = OpenSession {
+                id: recovered.id,
+                vm: self.mint_vm(conversation),
+                brief: recovered.brief,
+                started_at: recovered.started_at,
+                last_activity: AtomicI64::new(last_activity.as_millis()),
+                start_seq: recovered.start_seq,
+            };
+            if resumable {
+                open.touch(now);
+                let open = Arc::new(open);
+                self.sessions.lock().insert(conversation, open.clone());
+                tracing::info!(?conversation, session = ?open.id, "resumed an open session after a cold start");
+                return Ok(open);
+            }
+            self.flush_and_end(conversation, &open, model).await?;
+            tracing::info!(?conversation, session = ?open.id, "flushed and closed a stale recovered session");
         }
 
         // Catch the wake-up scheduler up to now before the session opens, so a just-due item can
@@ -368,19 +485,13 @@ impl Server {
         // stays for immediacy at session open and is idempotent with it.
         self.fire_due_now(now)?;
 
-        // A lapsed session ends before the new one opens: take it out under the map guard, release
-        // the guard, then tear down its MCP instances and record the boundary — no map guard is held
-        // across the `shutdown_mcp().await`.
+        // A lapsed live session ends before the new one opens: take it out under the map guard (so no
+        // guard is held across the flush's `.await`), then flush-and-end it — the idle close now
+        // consolidates its working state too, not only the budget-compaction close.
         let old = self.sessions.lock().remove(&conversation);
         if let Some(old) = old {
-            old.vm.shutdown_mcp().await;
-            self.engine.store.lock().append(
-                now,
-                vec![EventPayload::SessionEnded {
-                    conversation,
-                    id: old.id,
-                }],
-            )?;
+            self.flush_and_end(conversation, old.as_ref(), model)
+                .await?;
         }
 
         // A pending carryover from a just-compacted session seeds the new one: the next buffer read
@@ -436,15 +547,7 @@ impl Server {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
-        // The VM carries the MCP projection when servers are connected; otherwise a plain VM.
-        let vm = match &self.mcp {
-            Some(runtime) => Session::with_mcp(
-                conversation,
-                runtime.host.clone(),
-                runtime.catalogue.clone(),
-            ),
-            None => Session::new(conversation),
-        };
+        let vm = self.mint_vm(conversation);
         let open = Arc::new(OpenSession {
             id,
             vm,

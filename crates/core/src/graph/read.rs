@@ -6,15 +6,15 @@ use std::collections::BTreeSet;
 use rusqlite::{OptionalExtension, params};
 
 use super::{
-    ClassLinkView, EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView,
-    TagVocabularyEntry, backend, parse_ulid,
+    ClassLinkView, EntryView, Graph, GraphError, LinkView, MemoryView, OpenSessionView,
+    RelationView, SessionView, TagVocabularyEntry, backend, parse_ulid,
 };
 use crate::{
     db::{query_map_into, query_opt_into},
     event::{Cardinality, LinkSource, Teller, Volatility},
     ids::{
-        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, SessionId,
-        TurnId,
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
+        SessionId, TurnId,
     },
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -824,6 +824,31 @@ impl Graph {
         let stmt = self.session_stmt("WHERE conversation = ?1 ORDER BY seq")?;
         query_map_into(stmt, params![conversation.0.to_string()], |row| {
             self.assemble_session(row)
+        })
+    }
+
+    /// The most recent unclosed session of a conversation — the live one a restart must recover — or
+    /// `None` if every session has ended. The in-memory session map is process-local, so on boot this
+    /// is how a session still open in the log (left by a restart, or a passive graceful exit) is found
+    /// again, to resume within the idle gap or close-with-flush past it.
+    pub fn last_open_session(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Option<OpenSessionView>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT id, brief, started_at, seq, seeded_from_turn FROM sessions
+             WHERE conversation = ?1 AND ended = 0 ORDER BY seq DESC LIMIT 1",
+        )?;
+        query_opt_into(stmt, params![conversation.0.to_string()], |row| {
+            let id: String = row.get("id")?;
+            let seeded: Option<String> = row.get("seeded_from_turn")?;
+            Ok::<_, GraphError>(OpenSessionView {
+                id: SessionId(parse_ulid(&id)?),
+                brief: row.get("brief")?,
+                started_at: Timestamp::from_millis(row.get("started_at")?),
+                start_seq: Seq(row.get::<_, i64>("seq")? as u64),
+                seeded: seeded.is_some(),
+            })
         })
     }
 

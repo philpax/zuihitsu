@@ -3,11 +3,11 @@
 //! operator surface — the structural absence of those methods is what makes "the operator has no
 //! platform identity" enforceable (spec §Clients and the server boundary).
 
-use std::{collections::BTreeSet, time::Duration};
+use std::collections::BTreeSet;
 
 use super::{Carryover, RoutedTurn, Server, ServerError};
 use crate::{
-    agent::{Flush, TurnOutcome, TurnView, buffer_turns, run_flush, session_touched},
+    agent::{TurnOutcome, TurnView, buffer_turns, session_touched},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
     memory::{
@@ -254,60 +254,13 @@ impl Platform<'_> {
             return Ok(());
         };
         let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
-        // The buffer includes the turn that just crossed the budget; it is both the flush's context
-        // and the source of the carried tail.
-        let buffer = buffer_turns(
-            self.server.engine.store.lock().as_ref(),
-            conversation,
-            open.start_seq,
-        )?;
-
-        // Budget-gated pre-compaction flush: a substantive session gets one turn to write durable
-        // working state to memory before the cut; a low-activity one (below the turn threshold) is
-        // skipped, so the hot-path model call is paid only when there is something to flush.
-        let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
-        if flushed {
-            // The flush's `memory.search` filters against the session's participants — who it was with.
-            let present_set = self
-                .server
-                .engine
-                .graph
-                .lock()
-                .session_participants(open.id)?;
-            run_flush(Flush {
-                session: &open.vm,
-                model,
-                engine: self.server.engine.clone(),
-                brief: &open.brief,
-                session_started_at: open.started_at,
-                buffer: &buffer,
-                present_set: &present_set,
-                max_steps: settings.turn.max_steps as usize,
-                block_timeout: Duration::from_secs(
-                    settings.turn.block_timeout_seconds.max(0) as u64
-                ),
-                max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
-                capture: settings.observability.capture_model_calls,
-            })
+        // Flush the ending session's working state to memory and record `SessionEnded` (shared with the
+        // idle and recovery closes); the buffer the flush reads includes the turn that crossed the
+        // budget. The carried tail and working set are staged below, after the flush turn lands.
+        let flushed = self
+            .server
+            .flush_and_end(conversation, open.as_ref(), model)
             .await?;
-            self.server
-                .engine
-                .graph
-                .lock()
-                .materialize_from(self.server.engine.store.lock().as_ref())?;
-        }
-
-        // The session is ending — tear down its MCP instances (the flush above was its last use).
-        open.vm.shutdown_mcp().await;
-
-        let now = self.server.engine.clock.now();
-        self.server.engine.store.lock().append(
-            now,
-            vec![EventPayload::SessionEnded {
-                conversation,
-                id: open.id,
-            }],
-        )?;
 
         // Re-read the buffer (now including any flush turn) for the carried tail, and assemble the
         // working set (likewise after the flush, so its writes and active_in flags are included).

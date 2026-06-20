@@ -346,6 +346,9 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
     let model = ScriptedModel::new([
         Completion::Reply("one".to_owned()),
         Completion::Reply("two".to_owned()),
+        // The idle reopen flushes the lapsed session's working state before the new one opens (its
+        // 4 turns meet flush_min_turns), so a flush turn falls between the second and third messages.
+        Completion::Reply("flushed".to_owned()),
         Completion::Reply("three".to_owned()),
     ]);
     let leads = ConversationLocator::new("discord", "leads");
@@ -371,6 +374,123 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
+    let path =
+        std::env::temp_dir().join(format!("zuihitsu-resume-{}.sqlite", MemoryId::generate().0));
+    let clock = ManualClock::new(TEST_NOW);
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("one".to_owned()),
+        Completion::Reply("two".to_owned()),
+    ]);
+
+    // First process: a message opens a session.
+    let opened = {
+        let mut server = Server::new(
+            Box::new(SqliteStore::open(&path).unwrap()),
+            Graph::open_in_memory().unwrap(),
+            Box::new(clock.clone()),
+        );
+        server.boot().unwrap();
+        server.control().create_agent(&seed()).unwrap();
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", "hi", &["dave"])
+            .await
+            .unwrap();
+        let sessions = server.control().sessions(&leads).unwrap();
+        assert_eq!(sessions.len(), 1);
+        sessions[0].id
+    }; // the server — and its in-memory session map — drops: a restart
+
+    // Second process: an empty session map, but the log still holds the open session. Within the idle
+    // gap, the next message resumes it rather than opening a new one.
+    let mut server = Server::new(
+        Box::new(SqliteStore::open(&path).unwrap()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.boot().unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .await
+        .unwrap();
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert_eq!(
+        sessions.len(),
+        1,
+        "resumed the open session; no new session opened"
+    );
+    assert_eq!(sessions[0].id, opened, "the resumed session keeps its id");
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+}
+
+#[tokio::test]
+async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
+    let path =
+        std::env::temp_dir().join(format!("zuihitsu-reopen-{}.sqlite", MemoryId::generate().0));
+    let clock = ManualClock::new(TEST_NOW);
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("one".to_owned()),
+        Completion::Reply("two".to_owned()),
+        // The recovery close flushes the lapsed session — its four turns meet flush_min_turns.
+        Completion::Reply("flushed".to_owned()),
+        Completion::Reply("three".to_owned()),
+    ]);
+
+    // First process: two messages — four turns, enough to trigger the flush on close.
+    {
+        let mut server = Server::new(
+            Box::new(SqliteStore::open(&path).unwrap()),
+            Graph::open_in_memory().unwrap(),
+            Box::new(clock.clone()),
+        );
+        server.boot().unwrap();
+        server.control().create_agent(&seed()).unwrap();
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", "hi", &["dave"])
+            .await
+            .unwrap();
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", "still here", &["dave"])
+            .await
+            .unwrap();
+        assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
+    } // restart
+
+    // Second process: past the idle gap, the next message closes the recovered session (flushing its
+    // working state) and opens a fresh one.
+    let mut server = Server::new(
+        Box::new(SqliteStore::open(&path).unwrap()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.boot().unwrap();
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back again", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(
+        server.control().sessions(&leads).unwrap().len(),
+        2,
+        "the stale recovered session closed and a fresh one opened"
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
 
 #[tokio::test]

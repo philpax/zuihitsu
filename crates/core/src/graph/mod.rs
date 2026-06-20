@@ -111,6 +111,19 @@ pub struct SessionView {
     pub participants: Vec<MemoryId>,
 }
 
+/// What reconstructing a live `OpenSession` after a restart needs (see [`Graph::last_open_session`]):
+/// the session's id, the brief frozen at its open, when it opened, and the `SessionStarted` seq the
+/// live buffer reads from. `seeded` flags a compaction-seam continuation, whose true buffer starts at
+/// a carried tail before `start_seq` — so it is not byte-faithfully resumable from the seq alone.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenSessionView {
+    pub id: SessionId,
+    pub brief: String,
+    pub started_at: Timestamp,
+    pub start_seq: Seq,
+    pub seeded: bool,
+}
+
 /// A failure projecting or querying the graph.
 #[derive(Debug)]
 pub enum GraphError {
