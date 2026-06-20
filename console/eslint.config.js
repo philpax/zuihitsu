@@ -5,9 +5,9 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettier from "eslint-config-prettier";
 
-// Generated outputs (the ts-rs bindings and the wasm bundle) and the build dir are not ours to lint.
+// Generated outputs (the ts-rs bindings and the wasm bundle) and the build dirs are not ours to lint.
 export default tseslint.config(
-  { ignores: ["dist", "src/types/**", "src/wasm/**"] },
+  { ignores: ["dist", "dist-embedded", "src/types/**", "src/wasm/**"] },
   js.configs.recommended,
   tseslint.configs.recommended,
   {

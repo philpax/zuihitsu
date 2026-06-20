@@ -1,4 +1,5 @@
 dist
+dist-embedded
 src/types
 src/wasm
 package-lock.json
