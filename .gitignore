@@ -14,10 +14,12 @@ __pycache__/
 *.pyc
 /spike/runs/
 
-# Eval harness: full packages are heavy local artifacts; the metrics history is tracked.
+# Eval harness: full packages (and their resumable .jsonl sidecars) are heavy local artifacts,
+# kept under eval/<name>.json; only the small metrics history is tracked.
 /eval/*.json
+/eval/*.jsonl
+!/eval/history.jsonl
 /eval/*.bak
-/eval/runs/
 
 # Generated wasm-bindgen output for the console bridge (regenerated from the build).
 /crates/console-wasm/pkg/

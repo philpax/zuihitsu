@@ -58,14 +58,16 @@ enum Command {
         /// Only run scenarios whose name contains one of these comma-separated substrings.
         #[arg(long)]
         scenario: Option<String>,
-        /// Where to write the full eval package.
-        #[arg(long, default_value = "eval/latest.json")]
-        out: PathBuf,
+        /// The name this run is filed under: written to `eval/<name>.json` (with its `.jsonl`
+        /// sidecar), so every run is kept in one place rather than scattered to arbitrary paths.
+        /// Required — a bare filename, no path or extension.
+        #[arg(long)]
+        name: String,
         /// The agent config to load the model/embedding endpoints from.
         #[arg(long, default_value = "config.toml")]
         config: PathBuf,
-        /// Resume an interrupted run from its `.jsonl` sidecar beside `out`, driving only the runs it
-        /// does not already hold. Ignored if no sidecar is present.
+        /// Resume an interrupted run from its `.jsonl` sidecar beside the output, driving only the
+        /// runs it does not already hold. Ignored if no sidecar is present.
         #[arg(long)]
         resume: bool,
         /// Serve the run live over SSE at this address (e.g. `127.0.0.1:7878`) for the console to
@@ -90,15 +92,15 @@ async fn main() -> ExitCode {
             runs,
             concurrency,
             scenario,
-            out,
+            name,
             config,
             resume,
             serve,
-        } => match run(
+        } => match run_named(
             runs,
             concurrency,
             scenario.as_deref(),
-            &out,
+            &name,
             &config,
             resume,
             serve,
@@ -137,6 +139,35 @@ fn export_types(dir: &Path) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The directory every eval run is filed under — kept together so runs are findable rather than
+/// scattered to arbitrary paths (or `/tmp`, where they are lost to GC). Gitignored; only the small
+/// `history.jsonl` trend record is tracked.
+const EVAL_DIR: &str = "eval";
+
+/// Resolve a run `name` to `eval/<name>.json`, rejecting anything that is not a bare filename (so a
+/// run cannot escape the eval directory). Then run the suite under it.
+async fn run_named(
+    runs: u32,
+    concurrency: usize,
+    filter: Option<&str>,
+    name: &str,
+    config_path: &Path,
+    resume: bool,
+    serve: Option<SocketAddr>,
+) -> Result<bool, EvalError> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.split('/').any(|part| part == "..")
+        || name == ".."
+        || name == "."
+    {
+        return Err(EvalError::BadName(name.to_owned()));
+    }
+    let out = Path::new(EVAL_DIR).join(format!("{name}.json"));
+    run(runs, concurrency, filter, &out, config_path, resume, serve).await
 }
 
 /// Run the suite; returns whether every gating oracle held (the exit-code signal).

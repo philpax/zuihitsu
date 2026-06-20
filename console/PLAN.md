@@ -99,10 +99,10 @@ Japandi, per the spec — and it will quietly die if expressed as ad-hoc Tailwin
 
 ## Getting data to develop against
 
-Eval packages are large and gitignored (`/eval/*.json`); a corpus already exists in `eval/` (5–6 MB each, real qwen/gemma runs — `latest.json`, `qwen-full.json`, etc.). Generate a fresh one (needs a configured model endpoint — see `config.toml`):
+Eval packages are large and gitignored (`/eval/*.json`); a corpus already exists in `eval/` (5–6 MB each, real qwen/gemma runs — `soak-2026-06-20.json`, `qwen-full.json`, etc.). Generate a fresh one (needs a configured model endpoint — see `config.toml`):
 
 ```
-cargo run -p zuihitsu-eval -- run --runs 1 --scenario tag_room_confidential --out eval/sample.json
+cargo run -p zuihitsu-eval -- run --runs 1 --scenario tag_room_confidential --name sample
 ```
 
 The tracked trend file `eval/history.jsonl` (one deterministic line per run) is the source for the trends page.
@@ -111,7 +111,7 @@ The tracked trend file `eval/history.jsonl` (one deterministic line per run) is 
 
 The harness is the `crates/eval` crate (binary `eval`), a workspace member over the `zuihitsu` library.
 
-- `eval run` — `--runs N` (default 8), `--concurrency N` (default 1; the local endpoint serializes inference), `--scenario <substrings>` (comma-separated OR-filter; no exclude flag), `--out <path>` (default `eval/latest.json`), `--config <path>` (default `config.toml`). Exits non-zero only on a gating regression; skips cleanly when no endpoint is configured.
+- `eval run` — `--runs N` (default 8), `--concurrency N` (default 1; the local endpoint serializes inference), `--scenario <substrings>` (comma-separated OR-filter; no exclude flag), `--name <name>` (required; writes `eval/<name>.json` and its `.jsonl` sidecar — a bare filename, no path), `--config <path>` (default `config.toml`). Exits non-zero only on a gating regression; skips cleanly when no endpoint is configured.
 - `eval export-types <dir>` — writes the TypeScript contract (above).
 
 ## Sequencing summary
