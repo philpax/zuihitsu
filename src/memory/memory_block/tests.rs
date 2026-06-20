@@ -163,6 +163,50 @@ fn platform_authority_cannot_write_self() {
 }
 
 #[test]
+fn content_writes_to_the_operator_anchor_are_forbidden_but_links_are_not() {
+    // A graph holding the person/operator anchor and the same_as relation.
+    let mut store = MemoryStore::new();
+    let operator_id = MemoryId::generate();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            vec![
+                EventPayload::MemoryCreated {
+                    id: operator_id,
+                    name: MemoryName::operator(),
+                },
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::SameAs,
+                    inverse: RelationName::SameAs,
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: true,
+                    reflexive: false,
+                },
+            ],
+        )
+        .unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
+    let real = block
+        .create(Namespace::Person.handle("phil").as_str(), None)
+        .unwrap();
+
+    // Recording content on the anchor is barred — even under operator authority.
+    assert!(matches!(
+        block
+            .append(operator_id, "Real name is Phil", AppendOptions::default())
+            .unwrap_err(),
+        MemoryError::OperatorWriteForbidden
+    ));
+    // The merge link to the anchor is not content, so it is allowed.
+    assert!(block.link(operator_id, real, RelationName::SameAs).is_ok());
+}
+
+#[test]
 fn operator_authority_may_write_self_and_links_carry_operator() {
     let (graph, self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));

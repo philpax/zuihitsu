@@ -51,6 +51,10 @@ pub struct MemoryBlock {
     /// The `self` memory's id, resolved once at open so every write path can guard it with a cheap id
     /// compare. `None` only before genesis seeds `self`.
     self_id: Option<MemoryId>,
+    /// The `person/operator` anchor's id, resolved once at open so content writes to it can be guarded
+    /// with a cheap id compare. `None` before the first imprint mints it (or in a non-operator
+    /// instance). Content belongs on the operator's real profile, not this provisional anchor.
+    operator_id: Option<MemoryId>,
     /// The current conversation's `context/*` memory (where content is told in), if any.
     told_in: Option<MemoryId>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
@@ -155,6 +159,10 @@ pub enum MemoryError {
     /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
     /// Only the console (operator authority) may edit `self`.
     SelfWriteForbidden,
+    /// A write tried to record content on `person/operator`, the operator's provisional identity
+    /// anchor. It holds no content of its own — facts about the operator belong on their real
+    /// `person/<name>` profile, which is merged into it — so the anchor stays a pure merge target.
+    OperatorWriteForbidden,
     /// A platform-authority write tried to assert or retract a `same_as` merge directly. The agent
     /// never authors a `same_as` from a turn — it `propose_merge`s, and the adjudication pass (or the
     /// operator) decides; a retraction is operator-only.
@@ -208,6 +216,14 @@ impl std::fmt::Display for MemoryError {
             }
             MemoryError::SelfWriteForbidden => {
                 write!(f, "self can only be edited from the console")
+            }
+            MemoryError::OperatorWriteForbidden => {
+                write!(
+                    f,
+                    "person/operator is a provisional anchor and holds no content; record what you \
+                     learn about the operator on their real person/<name> profile, which is merged \
+                     into it"
+                )
             }
             MemoryError::MergeProposalInvalid => {
                 write!(
@@ -340,7 +356,7 @@ impl MemoryBlock {
         conversation: ConversationId,
         present_set: Vec<MemoryId>,
     ) -> Result<MemoryBlock, GraphError> {
-        let (told_in, confidential_context, self_id) = {
+        let (told_in, confidential_context, self_id, operator_id) = {
             let graph = engine.graph.lock();
             let told_in = graph.context_for_conversation(conversation)?;
             let confidential_context = match told_in {
@@ -352,13 +368,17 @@ impl MemoryBlock {
             let self_id = graph
                 .memory_by_name(MemoryName::SELF)?
                 .map(|memory| memory.id);
-            (told_in, confidential_context, self_id)
+            let operator_id = graph
+                .memory_by_name(MemoryName::operator().as_str())?
+                .map(|memory| memory.id);
+            (told_in, confidential_context, self_id, operator_id)
         };
         Ok(MemoryBlock {
             engine,
             teller,
             authority,
             self_id,
+            operator_id,
             told_in,
             confidential_context,
             present_set,
@@ -465,6 +485,7 @@ impl MemoryBlock {
         opts: AppendOptions,
     ) -> Result<EntryId, MemoryError> {
         self.guard_self(id)?;
+        self.guard_operator(id)?;
         let told_by = if opts.by_agent {
             Teller::Agent
         } else {
@@ -503,6 +524,7 @@ impl MemoryBlock {
         new: EntryId,
     ) -> Result<(), MemoryError> {
         self.guard_self(id)?;
+        self.guard_operator(id)?;
         let live = self.live_class_entry_ids(id)?;
         if !live.contains(&old) {
             return Err(MemoryError::UnknownEntry(old));
@@ -1028,6 +1050,17 @@ impl MemoryBlock {
     fn guard_self(&self, id: MemoryId) -> Result<(), MemoryError> {
         if self.authority == Authority::Platform && Some(id) == self.self_id {
             return Err(MemoryError::SelfWriteForbidden);
+        }
+        Ok(())
+    }
+
+    /// Reject a content write to the `person/operator` anchor (under any authority). The anchor holds
+    /// no content of its own — facts about the operator belong on their real `person/<name>` profile,
+    /// which is merged into it — so it stays a pure merge target. The merge (`same_as`) and `created_by`
+    /// links to it are not content, so they are unaffected.
+    fn guard_operator(&self, id: MemoryId) -> Result<(), MemoryError> {
+        if Some(id) == self.operator_id {
+            return Err(MemoryError::OperatorWriteForbidden);
         }
         Ok(())
     }

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, MemoryName};
 
 use crate::{
     analysis,
@@ -74,7 +74,10 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
         // a second stub nor a rename of the handle. Three gates: no duplicate, no rename, name recorded.
         let profiles = analysis::memories_in_namespace(events, "person/");
         let recorded_name = analysis::entries(events).iter().any(|entry| {
-            entry.memory.starts_with("person/") && entry.text.to_lowercase().contains("tomas")
+            entry.memory.starts_with("person/")
+                // The real profile, not the provisional person/operator anchor.
+                && entry.memory != MemoryName::operator().as_str()
+                && entry.text.to_lowercase().contains("tomas")
         });
         vec![
             Verdict::oracle_outcome(

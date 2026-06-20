@@ -39,7 +39,7 @@ use crate::{
     engine::Engine,
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     graph::{Graph, GraphError},
-    ids::{ConversationId, MemoryId, Namespace, Seq, SessionId, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     mcp::{McpHost, McpServerConfig},
     memory::{
         brief::{self, BriefError},
@@ -616,7 +616,7 @@ impl Server {
     /// the operator has no platform identity, must never collide with a real participant, and must
     /// resolve identically across imprints — so it is keyed only by its canonical name.
     fn resolve_or_mint_operator(&self) -> Result<MemoryId, ServerError> {
-        let operator = Namespace::Person.handle("operator");
+        let operator = MemoryName::operator();
         if let Some(memory) = self.engine.graph.lock().memory_by_name(operator.as_str())? {
             return Ok(memory.id);
         }
@@ -1362,7 +1362,7 @@ mod embedding_swap_tests {
     /// store, graph, and vec0 index, not just the in-memory fakes.
     #[tokio::test]
     async fn a_swap_is_detected_and_rebuilt_across_a_real_sqlite_restart() {
-        use crate::{store::SqliteStore, vector::SqliteVectorIndex};
+        use crate::{ids::Namespace, store::SqliteStore, vector::SqliteVectorIndex};
 
         let dims = 8;
         let tag = MemoryId::generate().0;

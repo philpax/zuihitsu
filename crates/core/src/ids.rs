@@ -129,6 +129,16 @@ impl MemoryName {
     /// write against it.
     pub const SELF: &'static str = "self";
 
+    /// The reserved handle of the operator's provisional identity anchor (`person/operator`): minted
+    /// on first imprint and merged (`same_as`) into the operator's real `person/<name>` profile. It
+    /// carries no content of its own — facts about the operator belong on their real profile — so a
+    /// write to it is guarded against, leaving it a pure anchor for the merge. Built from
+    /// [`Namespace::Person`] so the one handle has a single home, used wherever the operator is
+    /// resolved or a write is guarded against it.
+    pub fn operator() -> MemoryName {
+        Namespace::Person.handle("operator")
+    }
+
     pub fn new(name: impl Into<SmolStr>) -> MemoryName {
         MemoryName(name.into())
     }

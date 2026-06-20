@@ -509,6 +509,9 @@ fn default_templates() -> Vec<TemplateDef> {
                    The person you are speaking with is held provisionally as `person/operator`; once \
                    you have created their real memory, merge the two so they are one identity, with \
                    memory.get(\"person/operator\"):link(\"same_as\", memory.get(\"person/<name>\")). \
+                   `person/operator` is only that anchor and holds no content — every fact about \
+                   them, now and later, goes on their real `person/<name>` profile, never on \
+                   `person/operator`. \
                    Record that they created you: memory.get(\"self\"):link(\"created_by\", \
                    memory.get(\"person/<name>\")). Record observations about yourself — your purpose, \
                    your disposition — on self with memory.get(\"self\"):append(text, { by_agent = \
