@@ -22,7 +22,8 @@ import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
 import { OutcomeList } from "../components/OutcomeList.tsx";
-import { BriefTraceView } from "../components/BriefTrace.tsx";
+import { BriefSections } from "../components/BriefTrace.tsx";
+import type { BriefTrace } from "../lib/brief.ts";
 import { Composer } from "../components/Composer.tsx";
 
 /// The participate capability the agent frame hands the Conversation view (absent in the eval frame,
@@ -407,7 +408,6 @@ function Transcript({
               replica={replica}
               session={session}
               contextMemory={conversation.contextMemory}
-              cursor={cursor}
             />
             <ol className="mt-2 flex flex-col">
               {turns.map((turn) => (
@@ -570,18 +570,36 @@ function SessionDivider({ session, first }: { session: SessionModel; first: bool
   );
 }
 
+/// The brief the agent saw, frozen at the session's open: the literal text (`session.brief`, captured
+/// on `SessionStarted`) directly, and — one level deeper, behind its own toggle — the composer's trace
+/// (which memories it weighed, and why each entry was surfaced, trimmed, or filtered). The trace is
+/// gated because evaluating it re-folds the replica to the session's seq, so it reflects the frozen
+/// point rather than the cursor; that re-fold is paid only when asked for, and cached once.
 function BriefBlock({
   replica,
   session,
   contextMemory,
-  cursor,
 }: {
   replica: Replica;
   session: SessionModel;
   contextMemory: string | null;
-  cursor: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
+  const [trace, setTrace] = useState<BriefTrace | null>(null);
+
+  function toggleTrace() {
+    // Compose the trace at the session's open seq — re-fold there, read, restore the fold, all
+    // synchronously in this handler so the rest of the view never observes the moved fold.
+    if (trace === null) {
+      const restore = replica.foldedSeq;
+      replica.foldTo(session.seq);
+      setTrace(replica.brief(session.participantIds, contextMemory, session.startedAt));
+      replica.foldTo(restore);
+    }
+    setTraceOpen(!traceOpen);
+  }
+
   return (
     <div className="mb-6 border-b border-line pb-6">
       <button
@@ -590,34 +608,26 @@ function BriefBlock({
       >
         <Eyebrow>{open ? "▾ brief" : "▸ brief"}</Eyebrow>
         <span className="font-mono text-2xs text-ink-faint">
-          how it was composed · {session.participants.join(", ") || "no one present"}
+          {session.participants.join(", ") || "no one present"}
         </span>
       </button>
       {open && (
-        <BriefComposition
-          key={cursor}
-          replica={replica}
-          session={session}
-          contextMemory={contextMemory}
-        />
+        <>
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-4 py-3 font-mono text-2xs leading-relaxed text-ink-soft">
+            {session.brief}
+          </pre>
+          <button
+            onClick={toggleTrace}
+            className="mt-3 font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
+          >
+            {traceOpen ? "▾" : "▸"} composition trace
+            <span className="ml-2 text-ink-faint/70">· re-folds the replica to evaluate</span>
+          </button>
+          {traceOpen && trace && <BriefSections sections={trace.sections} />}
+        </>
       )}
     </div>
   );
-}
-
-/// Re-derives the brief at the current timeline cursor (hence keyed by it in the parent, so a scrub
-/// re-runs the composer) and renders its trace.
-function BriefComposition({
-  replica,
-  session,
-  contextMemory,
-}: {
-  replica: Replica;
-  session: SessionModel;
-  contextMemory: string | null;
-}) {
-  const trace = replica.brief(session.participantIds, contextMemory, session.startedAt);
-  return <BriefTraceView trace={trace} />;
 }
 
 function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {

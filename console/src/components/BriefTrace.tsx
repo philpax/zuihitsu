@@ -1,27 +1,21 @@
-import { useState } from "react";
-
 import {
   type BriefSectionTrace,
-  type BriefTrace,
   type EntryTrace,
   decisionInfo,
   sectionLabel,
 } from "../lib/brief.ts";
 import { Eyebrow } from "./primitives.tsx";
 
-/// Renders a brief composition trace: each memory the composer considered and, per entry, whether it
-/// reached the brief and why — surfaced (sage), passed the predicate but trimmed by recency (faint),
-/// or filtered by a visibility verdict (clay, with the reason). The frozen brief text the agent
-/// actually saw sits below, collapsed.
-export function BriefTraceView({ trace }: { trace: BriefTrace }) {
+/// Renders a brief composition trace's sections: each memory the composer considered and, per entry,
+/// whether it reached the brief and why — surfaced (sage), passed the predicate but trimmed by recency
+/// (faint), or filtered by a visibility verdict (clay, with the reason). The frozen brief text the
+/// agent saw is shown by the caller alongside, so this renders the sections alone.
+export function BriefSections({ sections }: { sections: BriefSectionTrace[] }) {
   return (
-    <div className="mt-4">
-      <div className="flex flex-col gap-5">
-        {trace.sections.map((section, index) => (
-          <Section key={index} section={section} />
-        ))}
-      </div>
-      <FrozenText text={trace.text} />
+    <div className="mt-4 flex flex-col gap-5">
+      {sections.map((section, index) => (
+        <Section key={index} section={section} />
+      ))}
     </div>
   );
 }
@@ -80,24 +74,5 @@ function EntryRow({ entry }: { entry: EntryTrace }) {
         </p>
       </div>
     </li>
-  );
-}
-
-function FrozenText({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mt-5 border-t border-line pt-4">
-      <button
-        onClick={() => setOpen(!open)}
-        className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
-      >
-        {open ? "▾" : "▸"} frozen brief text
-      </button>
-      {open && (
-        <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-4 py-3 font-mono text-2xs leading-relaxed text-ink-soft">
-          {text}
-        </pre>
-      )}
-    </div>
   );
 }
