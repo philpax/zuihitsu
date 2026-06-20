@@ -85,6 +85,11 @@ const DESCRIBE_TICK_SECONDS: u64 = 5;
 /// is cheap (a head check against the cursor).
 const ADJUDICATE_TICK_SECONDS: u64 = 7;
 
+/// How often the background idle sweep closes-with-flush sessions idle past the gap, so a conversation
+/// never messaged again still has its working state consolidated. Coarse — the idle gap is measured in
+/// minutes — and an idle tick is cheap (a query for open sessions, then a per-session activity check).
+const SWEEP_TICK_SECONDS: u64 = 60;
+
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
 pub fn run_blocking(config_path: &Path) -> Result<(), ServeError> {
@@ -229,6 +234,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
+    // The background idle sweep closes-with-flush sessions idle past the gap, so a conversation never
+    // messaged again still has its working state consolidated (spec §Compaction → pre-compaction
+    // flush). Spawned only when a model is configured; the flush turn needs one.
+    let sweeper = model.as_ref().map(|model| {
+        let server = server.clone();
+        let model = model.clone();
+        tokio::spawn(async move {
+            server
+                .run_sweeper(
+                    model,
+                    Duration::from_secs(SWEEP_TICK_SECONDS),
+                    shutdown_signal(),
+                )
+                .await
+        })
+    });
+
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
     // §Snapshots), when enabled. Stops on the same shutdown signal.
     let snapshotter = config.snapshots.enabled.then(|| {
@@ -270,6 +292,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     }
     if let Some(adjudicator) = adjudicator {
         let _ = adjudicator.await;
+    }
+    if let Some(sweeper) = sweeper {
+        let _ = sweeper.await;
     }
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;

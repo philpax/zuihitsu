@@ -377,6 +377,48 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
 }
 
 #[tokio::test]
+async fn the_idle_sweep_closes_and_flushes_a_stale_session() {
+    let (server, clock) = born_agent();
+    let model = ScriptedModel::new([
+        Completion::Reply("one".to_owned()),
+        Completion::Reply("two".to_owned()),
+        // The past-idle sweep flushes the stale session (its four turns meet flush_min_turns).
+        Completion::Reply("flushed".to_owned()),
+        Completion::Reply("back".to_owned()),
+    ]);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // Open a session with enough turns to flush.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
+
+    // Within the idle gap, a sweep leaves the session open.
+    assert_eq!(server.sweep_idle_sessions(&model).await.unwrap(), 0);
+    assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
+
+    // Past the idle gap, the sweep closes-with-flush it without any message arriving.
+    clock.advance_millis(1_801 * 1_000);
+    assert_eq!(server.sweep_idle_sessions(&model).await.unwrap(), 1);
+
+    // The session is now ended, so the next message opens a fresh one — confirming the close.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.control().sessions(&leads).unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
     let path =
         std::env::temp_dir().join(format!("zuihitsu-resume-{}.sqlite", MemoryId::generate().0));

@@ -852,6 +852,36 @@ impl Graph {
         })
     }
 
+    /// Every conversation's current open session (its latest un-ended one), paired with the
+    /// conversation — the idle sweep's input, so it can close-with-flush the stale ones. A conversation
+    /// has one live session, but a pre-fix log may also hold earlier dangling ones (a crash that never
+    /// recorded `SessionEnded`); only the latest per conversation is returned, so the sweep never
+    /// reopens a zombie.
+    pub fn open_sessions(&self) -> Result<Vec<(ConversationId, OpenSessionView)>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT conversation, id, brief, started_at, seq, seeded_from_turn FROM sessions s
+             WHERE ended = 0
+               AND seq = (SELECT MAX(seq) FROM sessions
+                          WHERE conversation = s.conversation AND ended = 0)
+             ORDER BY seq",
+        )?;
+        query_map_into(stmt, [], |row| {
+            let conversation: String = row.get("conversation")?;
+            let id: String = row.get("id")?;
+            let seeded: Option<String> = row.get("seeded_from_turn")?;
+            Ok::<_, GraphError>((
+                ConversationId(parse_ulid(&conversation)?),
+                OpenSessionView {
+                    id: SessionId(parse_ulid(&id)?),
+                    brief: row.get("brief")?,
+                    started_at: Timestamp::from_millis(row.get("started_at")?),
+                    start_seq: Seq(row.get::<_, i64>("seq")? as u64),
+                    seeded: seeded.is_some(),
+                },
+            ))
+        })
+    }
+
     /// Prepare a `sessions` read over the columns [`Graph::assemble_session`] decodes, with `clause`
     /// supplying the differing `WHERE` (and any `ORDER BY`). Sharing the column list keeps the by-id
     /// and by-conversation reads provably returning the same row shape. `clause` is a static fragment,

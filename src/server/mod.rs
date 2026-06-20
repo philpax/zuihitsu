@@ -928,6 +928,92 @@ impl Server {
         tracing::info!("adjudicator stopped");
     }
 
+    /// Close-with-flush every session idle past the gap — the proactive consolidation that bounds how
+    /// long a conversation's working state can sit unflushed: the no-loss guarantee for a conversation
+    /// never messaged again (a passive exit or a restart leaves its session open in the log, and only
+    /// the message path resolves a session that *is* messaged). A live session's touched last-activity
+    /// is authoritative; a log-only one's comes from its last recorded turn. The session is claimed in
+    /// the map (reconstructed if only in the log) and then taken back out with an atomic `remove` — the
+    /// single point that dedupes a concurrent message's own close of the same session, so it is closed
+    /// exactly once. Returns how many sessions it closed. Driven on a timer by [`Server::run_sweeper`];
+    /// also callable directly to sweep once on demand.
+    pub async fn sweep_idle_sessions(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+        let now = self.engine.clock.now();
+        let idle_gap_ms = Settings::from_store(self.engine.store.lock().as_ref())?
+            .compaction
+            .idle_gap_seconds
+            .saturating_mul(1_000);
+        let mut closed = 0;
+        // Bind the list first so the graph guard drops before the per-session flush `.await` below.
+        let open = self.engine.graph.lock().open_sessions()?;
+        for (conversation, recovered) in open {
+            let live_activity = self
+                .sessions
+                .lock()
+                .get(&conversation)
+                .map(|open| open.last_activity_millis());
+            let last_activity_ms = match live_activity {
+                Some(ms) => ms,
+                None => buffer_turns(
+                    self.engine.store.lock().as_ref(),
+                    conversation,
+                    recovered.start_seq,
+                )?
+                .last()
+                .map_or(recovered.started_at, |turn| turn.recorded_at)
+                .as_millis(),
+            };
+            if now.as_millis() - last_activity_ms <= idle_gap_ms {
+                continue;
+            }
+            self.sessions.lock().entry(conversation).or_insert_with(|| {
+                Arc::new(OpenSession {
+                    id: recovered.id,
+                    vm: self.mint_vm(conversation),
+                    brief: recovered.brief,
+                    started_at: recovered.started_at,
+                    last_activity: AtomicI64::new(last_activity_ms),
+                    start_seq: recovered.start_seq,
+                })
+            });
+            let stale = self.sessions.lock().remove(&conversation);
+            if let Some(stale) = stale {
+                self.flush_and_end(conversation, stale.as_ref(), model)
+                    .await?;
+                closed += 1;
+            }
+        }
+        Ok(closed)
+    }
+
+    /// The background idle-sweep driver (the no-loss timer): on each tick, close-with-flush every
+    /// session idle past the gap, so a conversation's working state is consolidated even if it is never
+    /// messaged again. Long-lived; a sweep failure is logged, never propagated.
+    pub async fn run_sweeper(
+        self: Arc<Self>,
+        model: Arc<dyn ModelClient>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match self.sweep_idle_sessions(model.as_ref()).await {
+                        Ok(closed) if closed > 0 => {
+                            tracing::info!(closed, "idle sweep closed stale sessions")
+                        }
+                        Ok(_) => {}
+                        Err(error) => tracing::error!(%error, "idle sweep failed"),
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("idle sweep driver stopped");
+    }
+
     /// Tear down the live sessions at server shutdown: drain the session map and shut each session's
     /// MCP instances down (best-effort). Called by the serving host once the HTTP server has stopped
     /// accepting. Dropping the drained sessions also releases their VMs.
