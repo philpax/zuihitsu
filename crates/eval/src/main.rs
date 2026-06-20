@@ -334,6 +334,8 @@ fn append_history(package: &EvalPackage) -> Result<(), EvalError> {
         wall_clock_p50_ms: u64,
         latency_p50_ms: u64,
         total_tokens_mean: u64,
+        prompt_tokens_mean: u64,
+        completion_tokens_mean: u64,
     }
 
     let line = HistoryLine {
@@ -352,6 +354,8 @@ fn append_history(package: &EvalPackage) -> Result<(), EvalError> {
                 wall_clock_p50_ms: report.aggregate.wall_clock_ms.p50.round() as u64,
                 latency_p50_ms: report.aggregate.latency_ms.p50.round() as u64,
                 total_tokens_mean: report.aggregate.tokens.total_mean.round() as u64,
+                prompt_tokens_mean: report.aggregate.tokens.prompt_mean.round() as u64,
+                completion_tokens_mean: report.aggregate.tokens.completion_mean.round() as u64,
             })
             .collect(),
     };
