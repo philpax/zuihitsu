@@ -40,8 +40,8 @@ pub use event::{
     PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
-    ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq, SessionId,
-    TurnId,
+    ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
+    NamespacedMemoryName, Seq, SessionId, TurnId, UnknownNamespace,
 };
 pub use model::{
     Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,

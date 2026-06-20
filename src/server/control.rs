@@ -262,7 +262,12 @@ impl Control<'_> {
 
     /// Inspect a live memory by name (e.g. `"self"`).
     pub fn memory(&self, name: &str) -> Result<Option<MemoryView>, ServerError> {
-        Ok(self.server.engine.graph.lock().memory_by_name(name)?)
+        Ok(self
+            .server
+            .engine
+            .graph
+            .lock()
+            .memory_by_name(MemoryName::new(name))?)
     }
 
     /// Inspect the live memories in a namespace (e.g. `"person/"`), ordered by name.
@@ -370,7 +375,7 @@ impl Control<'_> {
     pub fn entries(&self, name: &str) -> Result<Vec<EntryView>, ServerError> {
         let graph = self.server.engine.graph.lock();
         Ok(graph
-            .memory_by_name(name)?
+            .memory_by_name(MemoryName::new(name))?
             .map(|m| graph.entries_local(m.id))
             .transpose()?
             .unwrap_or_default())

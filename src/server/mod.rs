@@ -39,7 +39,7 @@ use crate::{
     engine::Engine,
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     graph::{Graph, GraphError},
-    ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, Seq, SessionId, TurnId},
     mcp::{McpHost, McpServerConfig},
     memory::{
         brief::{self, BriefError},
@@ -616,8 +616,8 @@ impl Server {
     /// the operator has no platform identity, must never collide with a real participant, and must
     /// resolve identically across imprints — so it is keyed only by its canonical name.
     fn resolve_or_mint_operator(&self) -> Result<MemoryId, ServerError> {
-        let operator = MemoryName::operator();
-        if let Some(memory) = self.engine.graph.lock().memory_by_name(operator.as_str())? {
+        let operator = MemoryName::from(NamespacedMemoryName::operator());
+        if let Some(memory) = self.engine.graph.lock().memory_by_name(&operator)? {
             return Ok(memory.id);
         }
         let id = MemoryId::generate();
@@ -1382,7 +1382,7 @@ mod embedding_swap_tests {
                     vec![
                         EventPayload::MemoryCreated {
                             id: mem,
-                            name: Namespace::Topic.handle("x"),
+                            name: Namespace::Topic.with_name("x").into(),
                         },
                         EventPayload::MemoryDescriptionRegenerated {
                             id: mem,

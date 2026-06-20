@@ -23,15 +23,15 @@ fn same_as_merges_stubs_into_one_class() {
         },
         EventPayload::MemoryCreated {
             id: a,
-            name: Namespace::Person.handle("phil@direct"),
+            name: Namespace::Person.with_name("phil@direct").into(),
         },
         EventPayload::MemoryCreated {
             id: b,
-            name: Namespace::Person.handle("phil@discord"),
+            name: Namespace::Person.with_name("phil@discord").into(),
         },
         EventPayload::MemoryCreated {
             id: c,
-            name: Namespace::Person.handle("dave@direct"),
+            name: Namespace::Person.with_name("dave@direct").into(),
         },
         EventPayload::LinkCreated {
             from: a,
@@ -84,15 +84,15 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
         },
         EventPayload::MemoryCreated {
             id: a,
-            name: Namespace::Person.handle("phil@direct"),
+            name: Namespace::Person.with_name("phil@direct").into(),
         },
         EventPayload::MemoryCreated {
             id: b,
-            name: Namespace::Person.handle("phil@discord"),
+            name: Namespace::Person.with_name("phil@discord").into(),
         },
         EventPayload::MemoryCreated {
             id: c,
-            name: Namespace::Person.handle("dave@direct"),
+            name: Namespace::Person.with_name("dave@direct").into(),
         },
         // Appended interleaved across the two Phil stubs to prove the union is ordered by global
         // commit order (seq), not grouped by stub.

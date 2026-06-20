@@ -11,10 +11,10 @@ use crate::{
 
 const DAY: i64 = 86_400_000;
 
-fn created(id: MemoryId, name: &str) -> EventPayload {
+fn created(id: MemoryId, name: impl Into<MemoryName>) -> EventPayload {
     EventPayload::MemoryCreated {
         id,
-        name: MemoryName::new(name),
+        name: name.into(),
     }
 }
 
@@ -50,7 +50,7 @@ fn denormalizes_each_variant_to_its_representative_instant() {
         None,
     ];
     let entry_ids: Vec<EntryId> = refs.iter().map(|_| EntryId::generate()).collect();
-    let mut events = vec![created(id, Namespace::Topic.handle("dated").as_str())];
+    let mut events = vec![created(id, Namespace::Topic.with_name("dated"))];
     for (entry_id, reference) in entry_ids.iter().zip(refs.iter()) {
         events.push(appended(id, *entry_id, reference.clone()));
     }
@@ -73,19 +73,19 @@ fn before_after_resolves_against_its_anchor() {
     let anchor_at = 1_000_000;
     let dep_entry = EntryId::generate();
     let (_store, graph) = materialized(vec![
-        created(anchor, Namespace::Event.handle("wedding").as_str()),
+        created(anchor, Namespace::Event.with_name("wedding")),
         appended(
             anchor,
             EntryId::generate(),
             Some(TemporalRef::Instant(Timestamp::from_millis(anchor_at))),
         ),
-        created(dependent, Namespace::Event.handle("reception").as_str()),
+        created(dependent, Namespace::Event.with_name("reception")),
         appended(
             dependent,
             dep_entry,
             Some(TemporalRef::BeforeAfter {
                 dir: Direction::After,
-                anchor: Namespace::Event.handle("wedding"),
+                anchor: Namespace::Event.with_name("wedding").into(),
             }),
         ),
     ]);
@@ -106,20 +106,20 @@ fn before_after_resolves_a_soft_deleted_anchor() {
     let dependent = MemoryId::generate();
     let anchor_at = 2_000_000;
     let (_store, graph) = materialized(vec![
-        created(anchor, Namespace::Event.handle("move").as_str()),
+        created(anchor, Namespace::Event.with_name("move")),
         appended(
             anchor,
             EntryId::generate(),
             Some(TemporalRef::Instant(Timestamp::from_millis(anchor_at))),
         ),
         EventPayload::MemoryDeleted { id: anchor },
-        created(dependent, Namespace::Event.handle("housewarming").as_str()),
+        created(dependent, Namespace::Event.with_name("housewarming")),
         appended(
             dependent,
             EntryId::generate(),
             Some(TemporalRef::BeforeAfter {
                 dir: Direction::After,
-                anchor: Namespace::Event.handle("move"),
+                anchor: Namespace::Event.with_name("move").into(),
             }),
         ),
     ]);
@@ -136,13 +136,13 @@ fn before_after_resolves_a_soft_deleted_anchor() {
 fn before_after_with_an_unknown_anchor_is_untimed() {
     let dependent = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        created(dependent, Namespace::Event.handle("orphan").as_str()),
+        created(dependent, Namespace::Event.with_name("orphan")),
         appended(
             dependent,
             EntryId::generate(),
             Some(TemporalRef::BeforeAfter {
                 dir: Direction::After,
-                anchor: Namespace::Event.handle("never-created"),
+                anchor: Namespace::Event.with_name("never-created").into(),
             }),
         ),
     ]);
@@ -154,7 +154,7 @@ fn before_after_with_an_unknown_anchor_is_untimed() {
 fn occurrence_columns_survive_replay() {
     let id = MemoryId::generate();
     let (store, graph) = materialized(vec![
-        created(id, Namespace::Topic.handle("dated").as_str()),
+        created(id, Namespace::Topic.with_name("dated")),
         appended(
             id,
             EntryId::generate(),
@@ -185,8 +185,10 @@ fn occurrences_in_window_returns_in_window_pairs_soonest_first() {
     let a = MemoryId::generate();
     let b = MemoryId::generate();
     let c = MemoryId::generate();
+    let name_a = Namespace::Event.with_name("a");
+    let name_b = Namespace::Event.with_name("b");
     let (_store, graph) = materialized(vec![
-        created(a, Namespace::Event.handle("a").as_str()),
+        created(a, &name_a),
         appended(
             a,
             EntryId::generate(),
@@ -194,13 +196,13 @@ fn occurrences_in_window_returns_in_window_pairs_soonest_first() {
         ),
         // An untimed entry on the same memory must not pull it in twice.
         appended(a, EntryId::generate(), None),
-        created(b, Namespace::Event.handle("b").as_str()),
+        created(b, &name_b),
         appended(
             b,
             EntryId::generate(),
             Some(TemporalRef::Instant(Timestamp::from_millis(100))),
         ),
-        created(c, Namespace::Event.handle("c").as_str()),
+        created(c, Namespace::Event.with_name("c")),
         appended(
             c,
             EntryId::generate(),
@@ -215,20 +217,14 @@ fn occurrences_in_window_returns_in_window_pairs_soonest_first() {
         .map(|(memory, _)| memory.name.as_str().to_owned())
         .collect();
     // Ordered by occurrence (100 then 300); c at 5_000 is out of the window.
-    assert_eq!(
-        names,
-        vec![
-            Namespace::Event.handle("b").as_str(),
-            Namespace::Event.handle("a").as_str()
-        ]
-    );
+    assert_eq!(names, vec![name_b.to_string(), name_a.to_string()]);
 }
 
 #[test]
 fn occurrences_in_window_excludes_soft_deleted() {
     let a = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        created(a, Namespace::Event.handle("a").as_str()),
+        created(a, Namespace::Event.with_name("a")),
         appended(
             a,
             EntryId::generate(),
@@ -249,27 +245,28 @@ fn recurring_memories_lists_only_true_recurrences() {
     let standup = MemoryId::generate();
     let concrete = MemoryId::generate();
     let dangling = MemoryId::generate();
+    let standup_name = Namespace::Event.with_name("standup");
     let (_store, graph) = materialized(vec![
-        created(standup, Namespace::Event.handle("standup").as_str()),
+        created(standup, &standup_name),
         appended(
             standup,
             EntryId::generate(),
             Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into()))),
         ),
-        created(concrete, Namespace::Event.handle("concrete").as_str()),
+        created(concrete, Namespace::Event.with_name("concrete")),
         appended(
             concrete,
             EntryId::generate(),
             Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
         ),
         // An unresolved BeforeAfter is also sort-null but is not a recurrence.
-        created(dangling, Namespace::Event.handle("dangling").as_str()),
+        created(dangling, Namespace::Event.with_name("dangling")),
         appended(
             dangling,
             EntryId::generate(),
             Some(TemporalRef::BeforeAfter {
                 dir: Direction::After,
-                anchor: Namespace::Event.handle("never-created"),
+                anchor: Namespace::Event.with_name("never-created").into(),
             }),
         ),
     ]);
@@ -279,5 +276,5 @@ fn recurring_memories_lists_only_true_recurrences() {
         .iter()
         .map(|memory| memory.name.as_str().to_owned())
         .collect();
-    assert_eq!(names, vec![Namespace::Event.handle("standup").as_str()]);
+    assert_eq!(names, vec![standup_name.to_string()]);
 }

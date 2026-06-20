@@ -129,18 +129,15 @@ impl MemoryName {
     /// write against it.
     pub const SELF: &'static str = "self";
 
-    /// The reserved handle of the operator's provisional identity anchor (`person/operator`): minted
-    /// on first imprint and merged (`same_as`) into the operator's real `person/<name>` profile. It
-    /// carries no content of its own — facts about the operator belong on their real profile — so a
-    /// write to it is guarded against, leaving it a pure anchor for the merge. Built from
-    /// [`Namespace::Person`] so the one handle has a single home, used wherever the operator is
-    /// resolved or a write is guarded against it.
-    pub fn operator() -> MemoryName {
-        Namespace::Person.handle("operator")
-    }
-
     pub fn new(name: impl Into<SmolStr>) -> MemoryName {
         MemoryName(name.into())
+    }
+
+    /// The reserved self handle as a value — `self` is in no namespace, so it has no
+    /// [`NamespacedMemoryName`] form; this is the typed handle to pass where one is wanted (a lookup),
+    /// distinct from the [`MemoryName::SELF`] string used for comparison.
+    pub fn self_handle() -> MemoryName {
+        MemoryName::new(MemoryName::SELF)
     }
 
     pub fn as_str(&self) -> &str {
@@ -151,12 +148,86 @@ impl MemoryName {
     pub fn is_self(&self) -> bool {
         self.0 == MemoryName::SELF
     }
+
+    /// The typed decomposition of this handle into its namespace and subject, if it is in a known
+    /// namespace. The reserved `self` handle is in none, so it returns [`UnknownNamespace`].
+    pub fn namespaced(&self) -> Result<NamespacedMemoryName, UnknownNamespace> {
+        self.as_str().parse()
+    }
+}
+
+/// The parse error for a handle that is in no known namespace (e.g. the reserved `self`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnknownNamespace;
+
+/// A handle decomposed into its namespace and subject (`person/dave` ⇄ [`Namespace::Person`] +
+/// `"dave"`) — the typed form of a [`MemoryName`]. Construction and parsing route through here so
+/// the prefix concatenation has a single home and handles are never assembled from a literal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamespacedMemoryName {
+    pub namespace: Namespace,
+    pub subject: SmolStr,
+}
+
+impl NamespacedMemoryName {
+    pub fn new(namespace: Namespace, subject: impl Into<SmolStr>) -> NamespacedMemoryName {
+        NamespacedMemoryName {
+            namespace,
+            subject: subject.into(),
+        }
+    }
+
+    /// The operator's reserved identity anchor (`person/operator`): minted on first imprint and
+    /// merged (`same_as`) into the operator's real `person/<name>` profile. It carries no content of
+    /// its own — facts about the operator belong on their real profile — so a write to it is guarded
+    /// against, leaving it a pure anchor for the merge. Built here so the one handle has a single
+    /// home, used wherever the operator is resolved or a write is guarded against it.
+    pub fn operator() -> NamespacedMemoryName {
+        Namespace::Person.with_name("operator")
+    }
+}
+
+impl From<NamespacedMemoryName> for MemoryName {
+    fn from(name: NamespacedMemoryName) -> MemoryName {
+        MemoryName::new(format!("{}{}", name.namespace.prefix(), name.subject))
+    }
+}
+
+impl From<&NamespacedMemoryName> for MemoryName {
+    fn from(name: &NamespacedMemoryName) -> MemoryName {
+        MemoryName::new(format!("{}{}", name.namespace.prefix(), name.subject))
+    }
+}
+
+impl From<&MemoryName> for MemoryName {
+    fn from(name: &MemoryName) -> MemoryName {
+        name.clone()
+    }
+}
+
+impl std::fmt::Display for NamespacedMemoryName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.namespace.prefix(), self.subject)
+    }
+}
+
+impl std::str::FromStr for NamespacedMemoryName {
+    type Err = UnknownNamespace;
+
+    fn from_str(handle: &str) -> Result<NamespacedMemoryName, UnknownNamespace> {
+        for ns in Namespace::ALL {
+            if let Some(subject) = handle.strip_prefix(ns.prefix()) {
+                return Ok(NamespacedMemoryName::new(ns, subject));
+            }
+        }
+        Err(UnknownNamespace)
+    }
 }
 
 /// The kinds of memory, each its own handle namespace (`person/dave`, `event/wedding`, …). The single
 /// home for the prefix strings — like [`MemoryName::SELF`] for the reserved self handle — so adding a
 /// kind or renaming a prefix is one edit here, and every handle is built by concatenating through
-/// [`Namespace::handle`] rather than from a literal scattered across the code.
+/// [`Namespace::with_name`] rather than from a literal scattered across the code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Namespace {
     Person,
@@ -188,19 +259,34 @@ impl Namespace {
         }
     }
 
-    /// Build a handle in this namespace by concatenation: `Namespace::Person.handle("dave")` is
-    /// `person/dave`.
-    pub fn handle(self, subject: impl std::fmt::Display) -> MemoryName {
-        MemoryName::new(format!("{}{subject}", self.prefix()))
+    /// Name a subject in this namespace, yielding the typed form: `Namespace::Person.with_name("dave")`
+    /// is [`Namespace::Person`] + `"dave"`, which converts to the `person/dave` handle.
+    pub fn with_name(self, subject: impl Into<SmolStr>) -> NamespacedMemoryName {
+        NamespacedMemoryName::new(self, subject)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MemoryName, Namespace, NamespacedMemoryName, UnknownNamespace};
+
+    #[test]
+    fn round_trips_through_the_handle() {
+        let typed = Namespace::Person.with_name("dave");
+        let handle = MemoryName::from(&typed);
+        assert_eq!(handle.as_str(), "person/dave");
+
+        let parsed = handle.namespaced().unwrap();
+        assert_eq!(parsed.namespace, Namespace::Person);
+        assert_eq!(parsed.subject.as_str(), "dave");
+        assert_eq!(parsed, typed);
     }
 
-    /// Whether `name` is a handle in this namespace.
-    pub fn contains(self, name: &str) -> bool {
-        name.starts_with(self.prefix())
-    }
-
-    /// The subject after the prefix, if `name` is a handle in this namespace (`person/dave` → `dave`).
-    pub fn subject(self, name: &str) -> Option<&str> {
-        name.strip_prefix(self.prefix())
+    #[test]
+    fn the_self_handle_is_in_no_namespace() {
+        assert_eq!(
+            MemoryName::SELF.parse::<NamespacedMemoryName>(),
+            Err(UnknownNamespace)
+        );
     }
 }

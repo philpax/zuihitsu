@@ -296,7 +296,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let framing_body = framing.map(|t| t.body).unwrap_or_default();
     let (identity, vocabulary) = {
         let graph = engine.graph.lock();
-        let identity = match graph.memory_by_name(MemoryName::SELF)? {
+        let identity = match graph.memory_by_name(MemoryName::self_handle())? {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
         };
@@ -437,7 +437,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
 
     let (identity, vocabulary) = {
         let graph = engine.graph.lock();
-        let identity = match graph.memory_by_name(MemoryName::SELF)? {
+        let identity = match graph.memory_by_name(MemoryName::self_handle())? {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
         };
@@ -577,8 +577,8 @@ fn participant_names(
 /// suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
 /// operational noise irrelevant to who is speaking.
 fn speaker_display(memory_name: &str) -> String {
-    let handle = Namespace::Person
-        .subject(memory_name)
+    let handle = memory_name
+        .strip_prefix(Namespace::Person.prefix())
         .unwrap_or(memory_name);
     handle.split('@').next().unwrap_or(handle).to_owned()
 }

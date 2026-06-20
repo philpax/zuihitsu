@@ -20,7 +20,9 @@ pub fn prepare_script(script: &str) -> String {
     // Longest token first, so `PERSON_DAVE_DISCORD` is consumed before `PERSON_DAVE` can corrupt it.
     let mut entries: Vec<(&str, MemoryName)> = STANDARD_HANDLES
         .iter()
-        .map(|(token, namespace, subject)| (*token, namespace.handle(subject)))
+        .map(|(token, namespace, subject)| {
+            (*token, MemoryName::from(namespace.with_name(*subject)))
+        })
         .collect();
     entries.sort_by_key(|(token, _)| std::cmp::Reverse(token.len()));
     let mut out = script.to_owned();

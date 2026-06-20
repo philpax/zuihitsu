@@ -5,6 +5,7 @@
 use mlua::{LuaSerdeExt, Table, Value};
 
 use crate::{
+    ids::MemoryName,
     memory::memory_block::{AppendOptions, RelationSpec},
     time,
     vocabulary::{RelationName, TagName},
@@ -786,7 +787,7 @@ impl Session {
                         let id = api
                             .block
                             .lock()
-                            .create(&name, content.as_deref())
+                            .create(MemoryName::new(name), content.as_deref())
                             .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                         api.lock(id).await;
                         make_handle(&lua, id, &metatable)

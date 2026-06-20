@@ -16,7 +16,7 @@ fn a_snapshot_round_trips_the_graph_and_its_head() {
     let (store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryContentAppended {
             id,
@@ -59,7 +59,7 @@ fn fingerprint_equals_for_identical_state_and_differs_on_change() {
     let base = vec![
         EventPayload::MemoryCreated {
             id,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryContentAppended {
             id,
@@ -203,7 +203,9 @@ fn conversations_and_sessions_project() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: context,
-            name: Namespace::Context.handle("discord:guild/42/chan/leads"),
+            name: Namespace::Context
+                .with_name("discord:guild/42/chan/leads")
+                .into(),
         },
         EventPayload::ConversationStarted {
             id: conv,

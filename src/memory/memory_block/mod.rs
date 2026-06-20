@@ -18,7 +18,7 @@ use crate::{
     engine::Engine,
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
     graph::{EntryView, Graph, GraphError, RelationView, TagVocabularyEntry},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, NamespacedMemoryName},
     time::{self, TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };
@@ -366,10 +366,10 @@ impl MemoryBlock {
                 None => false,
             };
             let self_id = graph
-                .memory_by_name(MemoryName::SELF)?
+                .memory_by_name(MemoryName::self_handle())?
                 .map(|memory| memory.id);
             let operator_id = graph
-                .memory_by_name(MemoryName::operator().as_str())?
+                .memory_by_name(NamespacedMemoryName::operator())?
                 .map(|memory| memory.id);
             (told_in, confidential_context, self_id, operator_id)
         };
@@ -398,9 +398,14 @@ impl MemoryBlock {
     /// Create a memory, optionally with a first content entry. The name must be free — a collision is
     /// a teachable error rejected before anything is buffered, so a duplicate `MemoryCreated` never
     /// reaches the log (where it would only fail at materialize, poisoning replay).
-    pub fn create(&mut self, name: &str, content: Option<&str>) -> Result<MemoryId, MemoryError> {
-        if self.resolve(name)?.is_some() {
-            return Err(MemoryError::NameExists(MemoryName::new(name)));
+    pub fn create(
+        &mut self,
+        name: impl Into<MemoryName>,
+        content: Option<&str>,
+    ) -> Result<MemoryId, MemoryError> {
+        let name = name.into();
+        if self.resolve(name.as_str())?.is_some() {
+            return Err(MemoryError::NameExists(name));
         }
         let id = MemoryId::generate();
         // A first entry is told like any append: by the turn's teller, classified the same way (an
@@ -409,16 +414,13 @@ impl MemoryBlock {
         let first_entry = match content {
             Some(text) => {
                 let teller = self.teller.clone();
-                let visibility = self.resolve_visibility(Some(name), id, &teller, None)?;
+                let visibility = self.resolve_visibility(Some(name.as_str()), id, &teller, None)?;
                 Some((text.to_owned(), teller, visibility))
             }
             None => None,
         };
         self.touched.insert(id);
-        self.buffer.push(EventPayload::MemoryCreated {
-            id,
-            name: MemoryName::new(name),
-        });
+        self.buffer.push(EventPayload::MemoryCreated { id, name });
         if let Some((text, teller, visibility)) = first_entry {
             // A created memory's first entry carries no occurrence; `occurred_at` arrives via
             // `mem:append`, matching the spec's `dave:append("...", { occurred_at = ... })` form.
@@ -468,7 +470,12 @@ impl MemoryBlock {
             self.touched.insert(id);
             return Ok(Some((id, false)));
         }
-        if let Some(id) = self.engine.graph.lock().memory_id_for_former_name(name)? {
+        if let Some(id) = self
+            .engine
+            .graph
+            .lock()
+            .memory_id_for_former_name(MemoryName::new(name))?
+        {
             self.touched.insert(id);
             return Ok(Some((id, true)));
         }
@@ -1330,7 +1337,7 @@ impl MemoryBlock {
             .engine
             .graph
             .lock()
-            .memory_by_name(name)?
+            .memory_by_name(MemoryName::new(name))?
             .map(|memory| memory.id))
     }
 

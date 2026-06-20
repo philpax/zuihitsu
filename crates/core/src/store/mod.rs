@@ -123,12 +123,12 @@ pub mod test_support {
             },
             EventPayload::MemoryCreated {
                 id,
-                name: Namespace::Person.handle("dave"),
+                name: Namespace::Person.with_name("dave").into(),
             },
             EventPayload::MemoryRenamed {
                 id,
-                old_name: Namespace::Person.handle("dave"),
-                new_name: Namespace::Person.handle("dave-chen"),
+                old_name: Namespace::Person.with_name("dave").into(),
+                new_name: Namespace::Person.with_name("dave-chen").into(),
             },
         ]
     }

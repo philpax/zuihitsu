@@ -14,7 +14,7 @@ fn projects_create_rename_and_content() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryContentAppended {
             id,
@@ -28,20 +28,20 @@ fn projects_create_rename_and_content() {
         },
         EventPayload::MemoryRenamed {
             id,
-            old_name: Namespace::Person.handle("dave"),
-            new_name: Namespace::Person.handle("dave-chen"),
+            old_name: Namespace::Person.with_name("dave").into(),
+            new_name: Namespace::Person.with_name("dave-chen").into(),
         },
     ]);
 
     // The old name no longer resolves; the new one does, to the same id.
     assert!(
         graph
-            .memory_by_name(Namespace::Person.handle("dave").as_str())
+            .memory_by_name(Namespace::Person.with_name("dave"))
             .unwrap()
             .is_none()
     );
     let memory = graph
-        .memory_by_name(Namespace::Person.handle("dave-chen").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave-chen"))
         .unwrap()
         .unwrap();
     assert_eq!(memory.id, id);
@@ -60,14 +60,14 @@ fn soft_delete_hides_from_reads() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: Namespace::Topic.handle("sourdough"),
+            name: Namespace::Topic.with_name("sourdough").into(),
         },
         EventPayload::MemoryDeleted { id },
     ]);
 
     assert!(
         graph
-            .memory_by_name(Namespace::Topic.handle("sourdough").as_str())
+            .memory_by_name(Namespace::Topic.with_name("sourdough"))
             .unwrap()
             .is_none()
     );
@@ -121,7 +121,7 @@ fn tag_create_apply_and_remove() {
         },
         EventPayload::MemoryCreated {
             id,
-            name: Namespace::Person.handle("erin"),
+            name: Namespace::Person.with_name("erin").into(),
         },
         EventPayload::TagAppliedToMemory {
             memory: id,
@@ -151,27 +151,27 @@ fn namespace_query_scopes_by_prefix() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: MemoryId::generate(),
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryCreated {
             id: MemoryId::generate(),
-            name: Namespace::Person.handle("erin"),
+            name: Namespace::Person.with_name("erin").into(),
         },
         EventPayload::MemoryCreated {
             id: MemoryId::generate(),
-            name: Namespace::Place.handle("sydney"),
+            name: Namespace::Place.with_name("sydney").into(),
         },
     ]);
 
     let people = graph
         .memories_in_namespace(Namespace::Person.prefix())
         .unwrap();
-    let names: Vec<&str> = people.iter().map(|m| m.name.as_str()).collect();
+    let names: Vec<&MemoryName> = people.iter().map(|m| &m.name).collect();
     assert_eq!(
         names,
         vec![
-            Namespace::Person.handle("dave").as_str(),
-            Namespace::Person.handle("erin").as_str()
+            &Namespace::Person.with_name("dave").into(),
+            &Namespace::Person.with_name("erin").into(),
         ]
     );
 }
@@ -194,7 +194,7 @@ fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: dave,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         appended(old, "Dave works at Hooli"),
         appended(new, "Dave works at Pied Piper"),

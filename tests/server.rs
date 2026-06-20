@@ -6,9 +6,9 @@ mod common;
 use std::time::Duration;
 use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, Embedder, FakeEmbedder, GenerateRequest,
-    GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryStore, ModelClient,
-    ModelError, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall, TurnOutcome, Usage,
-    VectorIndex,
+    GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore,
+    ModelClient, ModelError, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall,
+    TurnOutcome, Usage, VectorIndex,
     event::EventPayload,
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
@@ -106,7 +106,12 @@ fn a_server_snapshot_captures_the_graph_at_its_head() {
     // The snapshot is a self-describing graph at a real (non-zero) head, with the born agent's state.
     assert!(zuihitsu::snapshot::read_graph_head(&path).unwrap().0 > 0);
     let restored = Graph::open(&path).unwrap();
-    assert!(restored.memory_by_name("self").unwrap().is_some());
+    assert!(
+        restored
+            .memory_by_name(MemoryName::self_handle())
+            .unwrap()
+            .is_some()
+    );
 
     // A second snapshot with no events since is a no-op (already checkpointed at this head).
     assert!(server.snapshot(&dir).unwrap().is_none());

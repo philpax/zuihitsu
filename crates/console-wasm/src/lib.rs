@@ -18,7 +18,7 @@ use zuihitsu_core::{
     brief::{BriefRequest, compose_traced},
     event::{Event, EventPayload},
     graph::{EntryView, Graph, LinkView, MemoryView},
-    ids::{ConversationId, EntryId, MemoryId, Seq, SessionId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId},
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };
@@ -176,7 +176,11 @@ impl Replica {
     /// the current fold horizon. Bundles its live entries, its history, its links, and its `same_as`
     /// class so the frontend opens a memory in a single call.
     pub fn memory(&self, name: &str) -> Result<JsValue, JsError> {
-        let Some(memory) = self.graph.memory_by_name(name).map_err(graph_error)? else {
+        let Some(memory) = self
+            .graph
+            .memory_by_name(MemoryName::new(name))
+            .map_err(graph_error)?
+        else {
             return Ok(JsValue::NULL);
         };
         let entries = self.graph.entries_local(memory.id).map_err(graph_error)?;

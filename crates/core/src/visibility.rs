@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     event::{Teller, Visibility},
     graph::{EntryView, GraphError, MemoryView},
-    ids::{MemoryId, Namespace},
+    ids::{MemoryId, MemoryName, Namespace},
 };
 
 /// Resolves a memory id to its `same_as`-class id (or itself when unmerged). Fallible because the
@@ -199,12 +199,10 @@ pub fn attributed_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
 /// The marker display name of a `context/*` memory: its handle with the namespace stripped and a `#`
 /// prefix (`context/leads` → `#leads`), the room reference the agent sees in a teller-private marker.
 pub fn room_display(context_name: &str) -> String {
-    format!(
-        "#{}",
-        Namespace::Context
-            .subject(context_name)
-            .unwrap_or(context_name)
-    )
+    let subject = context_name
+        .strip_prefix(Namespace::Context.prefix())
+        .unwrap_or(context_name);
+    format!("#{subject}")
 }
 
 /// The participant a memory is *about*: a `person/*` stub, or `None` for every other namespace and
@@ -212,7 +210,9 @@ pub fn room_display(context_name: &str) -> String {
 /// its class through `class_of`. Public so the write path can ask "does this memory have a subject?"
 /// — the case where an agent-authored entry has no protective default (see the main crate's `memory_block`).
 pub fn subject_participant(name: &str, id: MemoryId) -> Option<MemoryId> {
-    Namespace::Person.contains(name).then_some(id)
+    let is_person =
+        MemoryName::new(name).namespaced().map(|n| n.namespace) == Ok(Namespace::Person);
+    is_person.then_some(id)
 }
 
 /// Whether `entity` is present — some member of its `same_as` class is in `present_set`.

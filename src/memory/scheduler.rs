@@ -174,10 +174,10 @@ mod tests {
         (store, graph)
     }
 
-    fn created(id: MemoryId, name: &str) -> EventPayload {
+    fn created(id: MemoryId, name: impl Into<MemoryName>) -> EventPayload {
         EventPayload::MemoryCreated {
             id,
-            name: MemoryName::new(name),
+            name: name.into(),
         }
     }
 
@@ -227,7 +227,7 @@ mod tests {
         let (mut store, mut graph) = world(
             1_000,
             vec![
-                created(id, Namespace::Event.handle("dentist").as_str()),
+                created(id, Namespace::Event.with_name("dentist")),
                 appended(
                     id,
                     entry,
@@ -264,7 +264,7 @@ mod tests {
             5_000,
             vec![
                 // Recorded at 5_000 about an event at 1_000 — a past event, never a wake-up.
-                created(past, Namespace::Event.handle("last-week").as_str()),
+                created(past, Namespace::Event.with_name("last-week")),
                 appended(
                     past,
                     EntryId::generate(),
@@ -274,7 +274,7 @@ mod tests {
                     Visibility::Public,
                 ),
                 // Scheduled for 10_000 — still in the future at now=6_000.
-                created(future, Namespace::Event.handle("next-week").as_str()),
+                created(future, Namespace::Event.with_name("next-week")),
                 appended(
                     future,
                     EntryId::generate(),
@@ -285,7 +285,7 @@ mod tests {
                 ),
                 // Recurring weekly from 5_000 — its first instance is a week out, so not due at 6_000
                 // (it fires later; see `recurring_entry_fires_each_due_instance_and_rearms`).
-                created(recurring, Namespace::Event.handle("standup").as_str()),
+                created(recurring, Namespace::Event.with_name("standup")),
                 appended(
                     recurring,
                     EntryId::generate(),
@@ -311,7 +311,7 @@ mod tests {
         let (mut store, mut graph) = world(
             1_000,
             vec![
-                created(id, Namespace::Event.handle("standup").as_str()),
+                created(id, Namespace::Event.with_name("standup")),
                 appended(
                     id,
                     entry,
@@ -366,9 +366,9 @@ mod tests {
         let (mut store, mut graph) = world(
             1_000,
             vec![
-                created(phil, Namespace::Person.handle("phil").as_str()),
-                created(erin, Namespace::Person.handle("erin").as_str()),
-                created(dentist, Namespace::Event.handle("dentist").as_str()),
+                created(phil, Namespace::Person.with_name("phil")),
+                created(erin, Namespace::Person.with_name("erin")),
+                created(dentist, Namespace::Event.with_name("dentist")),
                 appended(
                     dentist,
                     entry,
@@ -392,7 +392,7 @@ mod tests {
         assert!(
             drained
                 .text
-                .contains(Namespace::Event.handle("dentist").as_str())
+                .contains(&Namespace::Event.with_name("dentist").to_string())
         );
 
         // Only Erin present: Phil is the target and isn't here, so nothing drains.
@@ -408,8 +408,8 @@ mod tests {
         let (mut store, mut graph) = world(
             1_000,
             vec![
-                created(phil, Namespace::Person.handle("phil").as_str()),
-                created(erin, Namespace::Person.handle("erin").as_str()),
+                created(phil, Namespace::Person.with_name("phil")),
+                created(erin, Namespace::Person.with_name("erin")),
                 appended(
                     phil,
                     entry,
@@ -433,13 +433,10 @@ mod tests {
     #[test]
     fn drain_caps_the_number_of_items() {
         let phil = MemoryId::generate();
-        let mut payloads = vec![created(phil, Namespace::Person.handle("phil").as_str())];
+        let mut payloads = vec![created(phil, Namespace::Person.with_name("phil"))];
         for i in 0..4 {
             let id = MemoryId::generate();
-            payloads.push(created(
-                id,
-                Namespace::Event.handle(format!("e{i}")).as_str(),
-            ));
+            payloads.push(created(id, Namespace::Event.with_name(format!("e{i}"))));
             payloads.push(appended(
                 id,
                 EntryId::generate(),

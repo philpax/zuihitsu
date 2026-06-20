@@ -290,7 +290,7 @@ mod tests {
                     // The indexer ignores the create and reacts only to the description.
                     EventPayload::MemoryCreated {
                         id: dave,
-                        name: Namespace::Person.handle("dave"),
+                        name: Namespace::Person.with_name("dave").into(),
                     },
                     EventPayload::MemoryDescriptionRegenerated {
                         id: dave,

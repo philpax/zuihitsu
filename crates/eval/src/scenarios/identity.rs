@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, MemoryName};
+use zuihitsu::{Event, MemoryName, NamespacedMemoryName};
 
 use crate::{
     analysis,
@@ -73,10 +73,11 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
         // The desired move: append the real name as a fact on the existing operator profile — neither
         // a second stub nor a rename of the handle. Three gates: no duplicate, no rename, name recorded.
         let profiles = analysis::memories_in_namespace(events, "person/");
+        let operator = MemoryName::from(NamespacedMemoryName::operator());
         let recorded_name = analysis::entries(events).iter().any(|entry| {
             entry.memory.starts_with("person/")
                 // The real profile, not the provisional person/operator anchor.
-                && entry.memory != MemoryName::operator().as_str()
+                && entry.memory != operator.as_str()
                 && entry.text.to_lowercase().contains("tomas")
         });
         vec![

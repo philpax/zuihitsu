@@ -66,15 +66,15 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
     vec![
         EventPayload::MemoryCreated {
             id: dave,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: Namespace::Person.handle("erin"),
+            name: Namespace::Person.with_name("erin").into(),
         },
         EventPayload::MemoryCreated {
             id: hooli,
-            name: Namespace::Place.handle("hooli"),
+            name: Namespace::Place.with_name("hooli").into(),
         },
         appended(dave, e1, "Met at the climbing gym", Visibility::Public),
         appended(dave, e2, "Now works at Hooli", Visibility::Public),

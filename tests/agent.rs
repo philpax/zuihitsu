@@ -65,7 +65,7 @@ async fn tool_call_then_reply_commits_and_replies() {
         h.engine
             .graph
             .lock()
-            .memory_by_name(Namespace::Person.handle("dave").as_str())
+            .memory_by_name(Namespace::Person.with_name("dave"))
             .unwrap()
             .is_some()
     );
@@ -122,7 +122,7 @@ async fn descriptions_regenerate_after_a_turn() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     assert_eq!(dave.description, "Dave, whom I met at the climbing gym.");
@@ -188,7 +188,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     assert_eq!(dave.description, "Dave handles the deploys.");
@@ -204,7 +204,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("sarah").as_str())
+        .memory_by_name(Namespace::Person.with_name("sarah"))
         .unwrap()
         .unwrap();
     assert_eq!(sarah.description, "Sarah handles the deploys.");
@@ -262,7 +262,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -303,7 +303,7 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -353,7 +353,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
@@ -459,7 +459,7 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();

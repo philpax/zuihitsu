@@ -21,9 +21,14 @@ use crate::{
 };
 
 impl Graph {
-    /// Fetch a live (non-deleted) memory by its agent-facing name.
-    pub fn memory_by_name(&self, name: &str) -> Result<Option<MemoryView>, GraphError> {
-        self.fetch_memory("name", name)
+    /// Fetch a live (non-deleted) memory by its agent-facing name. Takes any handle — a `MemoryName`, a
+    /// `NamespacedMemoryName`, or a boundary string — so callers pass a typed handle rather than its
+    /// `&str`; the conversion to the bare string the SQL needs happens once, here.
+    pub fn memory_by_name(
+        &self,
+        name: impl Into<MemoryName>,
+    ) -> Result<Option<MemoryView>, GraphError> {
+        self.fetch_memory("name", name.into().as_str())
     }
 
     /// Fetch a live (non-deleted) memory by its internal id.
@@ -48,13 +53,17 @@ impl Graph {
     /// alias fallback behind a renamed person being found by an old name (spec §Identity → Renaming).
     /// Only consulted after a current-name lookup misses, so a current name always wins; returns `None`
     /// if no memory shed this name, or the one that did has since been deleted.
-    pub fn memory_id_for_former_name(&self, name: &str) -> Result<Option<MemoryId>, GraphError> {
+    pub fn memory_id_for_former_name(
+        &self,
+        name: impl Into<MemoryName>,
+    ) -> Result<Option<MemoryId>, GraphError> {
+        let name = name.into();
         let stmt = self.conn.prepare(
             "SELECT a.memory_id FROM memory_aliases a
              JOIN memories m ON m.id = a.memory_id
              WHERE a.former_name = ?1 AND m.deleted = 0",
         )?;
-        let id: Option<String> = query_opt_into(stmt, params![name], |row| {
+        let id: Option<String> = query_opt_into(stmt, params![name.as_str()], |row| {
             Ok::<String, GraphError>(row.get(0)?)
         })?;
         id.map(|id| Ok(MemoryId(parse_ulid(&id)?))).transpose()
@@ -450,7 +459,7 @@ impl Graph {
             let Some(memory) = self.memory_by_id(other)? else {
                 continue;
             };
-            if Namespace::Person.contains(memory.name.as_str()) {
+            if memory.name.namespaced().map(|n| n.namespace) == Ok(Namespace::Person) {
                 continue;
             }
             entries.extend(self.class_entries(other)?);

@@ -18,7 +18,9 @@ use crate::{
 /// The provisional name of the `context/*` memory minted for a freshly opened room, derived from its
 /// locator. The agent or operator renames it to a friendly handle (`context/acme-leads`) later.
 fn context_name(locator: &ConversationLocator) -> MemoryName {
-    Namespace::Context.handle(format!("{}:{}", locator.platform, locator.scope_path))
+    Namespace::Context
+        .with_name(format!("{}:{}", locator.platform, locator.scope_path))
+        .into()
 }
 
 /// A failure resolving or minting an identity, delegating to the store or graph beneath it.
@@ -81,11 +83,13 @@ pub fn resolve_or_mint_participant(
         return Ok(id);
     }
     let id = MemoryId::generate();
-    let clean = Namespace::Person.handle(platform_user_id);
-    let name = if graph.memory_by_name(clean.as_str())?.is_some() {
-        Namespace::Person.handle(format!("{platform_user_id}@{platform}"))
+    let clean = Namespace::Person.with_name(platform_user_id);
+    let name: MemoryName = if graph.memory_by_name(&clean)?.is_some() {
+        Namespace::Person
+            .with_name(format!("{platform_user_id}@{platform}"))
+            .into()
     } else {
-        clean
+        clean.into()
     };
     store.append(
         clock.now(),
@@ -153,7 +157,7 @@ mod tests {
     use crate::{
         clock::ManualClock,
         graph::Graph,
-        ids::{ConversationLocator, Namespace, Seq},
+        ids::{ConversationLocator, MemoryName, Namespace, Seq},
         store::{MemoryStore, Store},
         time::Timestamp,
     };
@@ -171,8 +175,8 @@ mod tests {
         assert_eq!(store.head().unwrap(), Seq(2)); // MemoryCreated + ParticipantIdentified
         assert_eq!(graph.participant_for("discord", "12345").unwrap(), Some(id));
         assert_eq!(
-            graph.memory_by_id(id).unwrap().unwrap().name.as_str(),
-            Namespace::Person.handle("12345").as_str()
+            graph.memory_by_id(id).unwrap().unwrap().name,
+            Namespace::Person.with_name("12345").into()
         );
 
         // Second contact resolves to the same memory and mints nothing.
@@ -194,17 +198,12 @@ mod tests {
         assert_ne!(elsewhere, other);
         assert_eq!(store.head().unwrap(), Seq(6)); // two more mints, two events each
         assert_eq!(
-            graph.memory_by_id(other).unwrap().unwrap().name.as_str(),
-            Namespace::Person.handle("67890").as_str()
+            graph.memory_by_id(other).unwrap().unwrap().name,
+            Namespace::Person.with_name("67890").into()
         );
         assert_eq!(
-            graph
-                .memory_by_id(elsewhere)
-                .unwrap()
-                .unwrap()
-                .name
-                .as_str(),
-            Namespace::Person.handle("12345@slack").as_str()
+            graph.memory_by_id(elsewhere).unwrap().unwrap().name,
+            Namespace::Person.with_name("12345@slack").into()
         );
     }
 
@@ -222,11 +221,11 @@ mod tests {
         assert_eq!(graph.conversation_for_locator(&leads).unwrap(), Some(id));
         // The locator resolves to a real, non-person context memory (defaults Public, no subject-guard).
         let context = graph.context_for_conversation(id).unwrap().unwrap();
+        let context_name =
+            MemoryName::from(Namespace::Context.with_name("discord:guild/42/chan/leads"));
         assert_eq!(
             graph.memory_by_id(context).unwrap().unwrap().name.as_str(),
-            Namespace::Context
-                .handle("discord:guild/42/chan/leads")
-                .as_str()
+            context_name.as_str()
         );
 
         // The same locator resolves to the same room and opens nothing new.

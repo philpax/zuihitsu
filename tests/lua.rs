@@ -10,9 +10,9 @@ use std::{sync::Arc, time::Duration};
 use common::Harness;
 use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
-    Clock, Completion, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryStore,
-    Namespace, PromptTemplateName, RelationName, ScriptedModel, Seq, Session, Store, TagName,
-    Teller, TemporalRef, TerminalCause, TurnId, Visibility,
+    Clock, Completion, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName,
+    MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Seq, Session, Store,
+    TagName, Teller, TemporalRef, TerminalCause, TurnId, Visibility,
     event::{ArbitrationResolution, EventPayload, EventSource},
     resolve_or_mint_conversation,
 };
@@ -48,7 +48,7 @@ async fn block_commits_and_projects_with_read_your_writes() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -76,7 +76,7 @@ async fn a_disputed_entry_reads_as_disputed() {
     let (memory, competing) = {
         let graph = h.engine.graph.lock();
         let ev = graph
-            .memory_by_name(Namespace::Event.handle("all-hands").as_str())
+            .memory_by_name(Namespace::Event.with_name("all-hands"))
             .unwrap()
             .unwrap();
         let competing: Vec<_> = graph
@@ -239,7 +239,7 @@ async fn calendar_upcoming_surfaces_a_recurring_instance() {
     };
     // The recurring instance surfaces, and the handle reads its name (the bug: m.name was nil).
     assert!(
-        result.contains(Namespace::Event.handle("standup").as_str()),
+        result.contains(MemoryName::from(Namespace::Event.with_name("standup")).as_str()),
         "the recurring standup should surface in upcoming and read its name, got: {result}"
     );
 }
@@ -285,7 +285,7 @@ async fn append_records_a_structured_occurred_at() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Event.handle("cleaning").as_str())
+        .memory_by_name(Namespace::Event.with_name("cleaning"))
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
@@ -390,11 +390,11 @@ async fn append_carries_teller_context_and_default_visibility() {
             vec![
                 EventPayload::MemoryCreated {
                     id: phil,
-                    name: Namespace::Person.handle("phil"),
+                    name: Namespace::Person.with_name("phil").into(),
                 },
                 EventPayload::MemoryCreated {
                     id: erin,
-                    name: Namespace::Person.handle("erin"),
+                    name: Namespace::Person.with_name("erin").into(),
                 },
             ],
         )
@@ -505,7 +505,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
                 },
                 EventPayload::MemoryCreated {
                     id: roadmap,
-                    name: Namespace::Topic.handle("roadmap"),
+                    name: Namespace::Topic.with_name("roadmap").into(),
                 },
             ],
         )
@@ -628,7 +628,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
     let topic = engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Topic.handle("sensitive").as_str())
+        .memory_by_name(Namespace::Topic.with_name("sensitive"))
         .unwrap()
         .unwrap();
     let entries = engine.graph.lock().entries_local(topic.id).unwrap();
@@ -673,7 +673,7 @@ async fn creating_a_duplicate_name_is_a_teachable_error() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Topic.handle("plan").as_str())
+        .memory_by_name(Namespace::Topic.with_name("plan"))
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -729,7 +729,7 @@ async fn abort_discards_the_buffer() {
         h.engine
             .graph
             .lock()
-            .memory_by_name(Namespace::Topic.handle("ghost").as_str())
+            .memory_by_name(Namespace::Topic.with_name("ghost"))
             .unwrap()
             .is_none()
     );
@@ -773,7 +773,7 @@ async fn runtime_error_discards_the_buffer_and_records_the_cause() {
         h.engine
             .graph
             .lock()
-            .memory_by_name(Namespace::Topic.handle("oops").as_str())
+            .memory_by_name(Namespace::Topic.with_name("oops"))
             .unwrap()
             .is_none()
     );
@@ -804,7 +804,7 @@ async fn lua_executed_records_the_script_result_and_touched_set() {
     assert!(recorded_result.starts_with("done"));
     assert!(recorded_result.contains(&format!(
         "Committed: created {}",
-        Namespace::Place.handle("sydney").as_str()
+        MemoryName::from(Namespace::Place.with_name("sydney")).as_str()
     )));
     assert_eq!(recorded.1.len(), 1); // touched the one created memory
 }
@@ -820,7 +820,7 @@ async fn a_block_waits_on_a_held_memory_lock_then_proceeds() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Topic.handle("shared").as_str())
+        .memory_by_name(Namespace::Topic.with_name("shared"))
         .unwrap()
         .unwrap()
         .id;
@@ -896,7 +896,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("b@discord").as_str())
+        .memory_by_name(Namespace::Person.with_name("b@discord"))
         .unwrap()
         .unwrap()
         .id;
@@ -984,10 +984,10 @@ async fn link_readers_traverse_the_merged_identity() {
 
     // A two-stub Dave identity, plus the people and the company it links to.
     for name in [
-        Namespace::Person.handle("dave").as_str(),
-        Namespace::Person.handle("dave@discord").as_str(),
-        Namespace::Person.handle("erin").as_str(),
-        Namespace::Person.handle("frank").as_str(),
+        MemoryName::from(Namespace::Person.with_name("dave")).as_str(),
+        MemoryName::from(Namespace::Person.with_name("dave@discord")).as_str(),
+        MemoryName::from(Namespace::Person.with_name("erin")).as_str(),
+        MemoryName::from(Namespace::Person.with_name("frank")).as_str(),
         "company/hooli",
     ] {
         h.run(&format!("memory.create({name:?})")).await;
@@ -1033,7 +1033,10 @@ async fn link_readers_traverse_the_merged_identity() {
     };
     assert_eq!(
         result,
-        format!("mentor_of → {}", Namespace::Person.handle("erin").as_str())
+        format!(
+            "mentor_of → {}",
+            MemoryName::from(Namespace::Person.with_name("erin")).as_str()
+        )
     );
 
     // incoming: who mentors Dave — Frank, whose edge lands on the *other* stub, surfaced by traversal.
@@ -1045,7 +1048,10 @@ async fn link_readers_traverse_the_merged_identity() {
     };
     assert_eq!(
         result,
-        format!("mentor_of ← {}", Namespace::Person.handle("frank").as_str())
+        format!(
+            "mentor_of ← {}",
+            MemoryName::from(Namespace::Person.with_name("frank")).as_str()
+        )
     );
 
     // links(): the whole relationship set across the identity — both mentor_of edges and works_at —
@@ -1058,14 +1064,14 @@ async fn link_readers_traverse_the_merged_identity() {
     assert!(
         result.contains(&format!(
             "mentor_of → {}",
-            Namespace::Person.handle("erin").as_str()
+            MemoryName::from(Namespace::Person.with_name("erin")).as_str()
         )),
         "{result}"
     );
     assert!(
         result.contains(&format!(
             "mentor_of ← {}",
-            Namespace::Person.handle("frank").as_str()
+            MemoryName::from(Namespace::Person.with_name("frank")).as_str()
         )),
         "{result}"
     );
@@ -1093,7 +1099,7 @@ async fn link_readers_traverse_the_merged_identity() {
         result,
         format!(
             "{} / outgoing / agent / you",
-            Namespace::Person.handle("erin").as_str()
+            MemoryName::from(Namespace::Person.with_name("erin")).as_str()
         )
     );
 }
@@ -1121,7 +1127,7 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Topic.handle("locked").as_str())
+        .memory_by_name(Namespace::Topic.with_name("locked"))
         .unwrap()
         .unwrap()
         .id;
@@ -1177,7 +1183,7 @@ async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
     assert!(result.starts_with("live=1 history=2"));
     assert!(result.contains(&format!(
         "superseded an entry on {}",
-        Namespace::Person.handle("dave").as_str()
+        MemoryName::from(Namespace::Person.with_name("dave")).as_str()
     )));
 
     // Committed and projected: the live read shows only the correction; history shows both, with the
@@ -1186,7 +1192,7 @@ async fn supersede_drops_an_entry_from_live_reads_but_keeps_it_in_history() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     let live: Vec<String> = h
@@ -1253,7 +1259,7 @@ async fn an_undecorated_table_renders_as_its_structure_not_an_opaque_token() {
         "structure should be visible: {result}"
     );
     assert!(
-        result.contains(Namespace::Person.handle("dave").as_str()),
+        result.contains(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
         "values should be visible: {result}"
     );
     assert!(
@@ -1289,7 +1295,7 @@ async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap();
     assert!(dave.is_none(), "the whole block was discarded");
 }
@@ -1316,7 +1322,7 @@ async fn a_created_tag_can_be_applied_and_listed() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.handle("dave").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave"))
         .unwrap()
         .unwrap();
     assert!(dave.tags.contains(&TagName::new("hobbies")));
@@ -1359,7 +1365,7 @@ async fn applying_an_uncreated_tag_is_a_teachable_error() {
         h.engine
             .graph
             .lock()
-            .memory_by_name(Namespace::Person.handle("dave").as_str())
+            .memory_by_name(Namespace::Person.with_name("dave"))
             .unwrap()
             .is_none()
     );
@@ -1406,11 +1412,11 @@ async fn a_registered_relation_can_be_linked_and_listed() {
     let (dave, erin) = {
         let graph = h.engine.graph.lock();
         let dave = graph
-            .memory_by_name(Namespace::Person.handle("dave").as_str())
+            .memory_by_name(Namespace::Person.with_name("dave"))
             .unwrap()
             .unwrap();
         let erin = graph
-            .memory_by_name(Namespace::Person.handle("erin").as_str())
+            .memory_by_name(Namespace::Person.with_name("erin"))
             .unwrap()
             .unwrap();
         (dave.id, erin.id)
@@ -1464,12 +1470,12 @@ async fn a_link_can_be_asserted_under_the_inverse_label() {
         let graph = h.engine.graph.lock();
         (
             graph
-                .memory_by_name(Namespace::Person.handle("dave").as_str())
+                .memory_by_name(Namespace::Person.with_name("dave"))
                 .unwrap()
                 .unwrap()
                 .id,
             graph
-                .memory_by_name(Namespace::Person.handle("erin").as_str())
+                .memory_by_name(Namespace::Person.with_name("erin"))
                 .unwrap()
                 .unwrap()
                 .id,
@@ -1532,7 +1538,10 @@ async fn memory_search_recalls_an_indexed_entry() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(result, Namespace::Person.handle("dave").as_str());
+    assert_eq!(
+        result,
+        MemoryName::from(Namespace::Person.with_name("dave")).as_str()
+    );
 
     // Returning the result list renders as readable lines (each result's __tostring), not "<table>",
     // so the agent can read its own search back.
@@ -1543,7 +1552,7 @@ async fn memory_search_recalls_an_indexed_entry() {
         panic!("expected commit, got {rendered:?}");
     };
     assert!(
-        result.contains(Namespace::Person.handle("dave").as_str()),
+        result.contains(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
         "rendered: {result:?}"
     );
     assert!(!result.contains("<table>"), "rendered: {result:?}");
@@ -1578,13 +1587,13 @@ async fn search_finds_a_renamed_person_by_an_old_name() {
         panic!("expected commit, got {outcome:?}");
     };
     assert!(
-        result.starts_with(Namespace::Person.handle("sarah").as_str()),
+        result.starts_with(MemoryName::from(Namespace::Person.with_name("sarah")).as_str()),
         "{result}"
     );
     assert!(
         result.contains(&format!(
             "formerly {}",
-            Namespace::Person.handle("dave").as_str()
+            MemoryName::from(Namespace::Person.with_name("dave")).as_str()
         )),
         "{result}"
     );
@@ -1639,7 +1648,7 @@ async fn printed_search_results_recall_the_fact() {
         panic!("expected commit, got {outcome:?}");
     };
     assert!(
-        result.contains(Namespace::Person.handle("dave").as_str()),
+        result.contains(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
         "result: {result:?}"
     );
     assert!(!result.contains("<table>"), "result: {result:?}");
@@ -1715,14 +1724,14 @@ async fn a_write_block_reports_what_it_committed() {
     assert!(
         result.contains(&format!(
             "Committed: created {}",
-            Namespace::Topic.handle("q3_plan").as_str()
+            MemoryName::from(Namespace::Topic.with_name("q3_plan")).as_str()
         )),
         "the write block should report its create: {result:?}"
     );
     assert!(
         result.contains(&format!(
             "appended 2 entries to {}",
-            Namespace::Topic.handle("q3_plan").as_str()
+            MemoryName::from(Namespace::Topic.with_name("q3_plan")).as_str()
         )),
         "the write block should report its appends: {result:?}"
     );
@@ -1786,11 +1795,11 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
 
     let graph = h.engine.graph.lock();
     let a = graph
-        .memory_by_name(Namespace::Person.handle("dave-slack").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave-slack"))
         .unwrap()
         .unwrap();
     let b = graph
-        .memory_by_name(Namespace::Person.handle("dave-discord").as_str())
+        .memory_by_name(Namespace::Person.with_name("dave-discord"))
         .unwrap()
         .unwrap();
     let members = graph.class_members(a.id).unwrap();
@@ -1826,11 +1835,11 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
 
     let graph = h.engine.graph.lock();
     let a = graph
-        .memory_by_name(Namespace::Person.handle("sam-slack").as_str())
+        .memory_by_name(Namespace::Person.with_name("sam-slack"))
         .unwrap()
         .unwrap();
     let b = graph
-        .memory_by_name(Namespace::Person.handle("sam-discord").as_str())
+        .memory_by_name(Namespace::Person.with_name("sam-discord"))
         .unwrap()
         .unwrap();
     assert!(
@@ -1875,7 +1884,10 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
         return tostring(e.stale) .. "|" .. tostring(e)
     "#;
     let BlockOutcome::Committed { result } = h
-        .run(&read.replace("MEM", Namespace::Person.handle("dave").as_str()))
+        .run(&read.replace(
+            "MEM",
+            MemoryName::from(Namespace::Person.with_name("dave")).as_str(),
+        ))
         .await
     else {
         panic!("expected commit");
@@ -1907,14 +1919,14 @@ async fn an_attributed_fact_survives_the_teller_absence() {
         h.engine
             .graph
             .lock()
-            .memory_by_name(name)
+            .memory_by_name(MemoryName::new(name))
             .unwrap()
             .unwrap()
             .id
     };
     let (dave, erin) = (
-        id(Namespace::Person.handle("dave").as_str()),
-        id(Namespace::Person.handle("erin").as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
     );
 
     // Erin, present, relays an ordinary fact about Dave (attributed) and a genuine confidence (private).
@@ -1963,14 +1975,14 @@ async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
         h.engine
             .graph
             .lock()
-            .memory_by_name(name)
+            .memory_by_name(MemoryName::new(name))
             .unwrap()
             .unwrap()
             .id
     };
     let (dave, erin) = (
-        id(Namespace::Person.handle("dave").as_str()),
-        id(Namespace::Person.handle("erin").as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
     );
 
     // Dave, present, confides something private and states a public fact.
@@ -2086,9 +2098,9 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     assert!(
         result.contains(&format!(
             "true / {} / {} / {}",
-            Namespace::Person.handle("sarah").as_str(),
-            Namespace::Person.handle("dave").as_str(),
-            Namespace::Person.handle("dave").as_str()
+            MemoryName::from(Namespace::Person.with_name("sarah")).as_str(),
+            MemoryName::from(Namespace::Person.with_name("dave")).as_str(),
+            MemoryName::from(Namespace::Person.with_name("dave")).as_str()
         )),
         "{result}"
     );
@@ -2108,7 +2120,10 @@ async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {
     };
     assert_eq!(
         result,
-        format!("{} / nil", Namespace::Person.handle("dave").as_str())
+        format!(
+            "{} / nil",
+            MemoryName::from(Namespace::Person.with_name("dave")).as_str()
+        )
     );
 }
 
@@ -2140,8 +2155,8 @@ async fn an_old_name_lookup_announces_the_rename_in_the_output() {
     assert!(
         result.contains(&format!(
             r#"note: {:?} now goes by {:?} — the same person"#,
-            Namespace::Person.handle("dave").as_str(),
-            Namespace::Person.handle("sarah").as_str()
+            MemoryName::from(Namespace::Person.with_name("dave")).as_str(),
+            MemoryName::from(Namespace::Person.with_name("sarah")).as_str()
         )),
         "{result}"
     );
@@ -2164,7 +2179,7 @@ async fn renaming_onto_an_occupied_handle_is_a_teachable_error() {
         panic!("expected a teachable error, got {outcome:?}");
     };
     assert!(
-        message.contains(Namespace::Person.handle("erin").as_str()),
+        message.contains(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
         "{message}"
     );
 }

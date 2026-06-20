@@ -12,7 +12,7 @@ fn search_matches_name_description_and_content() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id: dave,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryContentAppended {
             id: dave,
@@ -26,7 +26,7 @@ fn search_matches_name_description_and_content() {
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: Namespace::Person.handle("erin"),
+            name: Namespace::Person.with_name("erin").into(),
         },
         EventPayload::MemoryDescriptionRegenerated {
             id: erin,
@@ -55,7 +55,7 @@ fn search_excludes_soft_deleted() {
     let (_store, graph) = materialized(vec![
         EventPayload::MemoryCreated {
             id,
-            name: Namespace::Topic.handle("quantum-knitting"),
+            name: Namespace::Topic.with_name("quantum-knitting").into(),
         },
         EventPayload::MemoryDeleted { id },
     ]);

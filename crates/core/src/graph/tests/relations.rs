@@ -38,15 +38,15 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
         mentor_relation(),
         EventPayload::MemoryCreated {
             id: dave,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryCreated {
             id: trip,
-            name: Namespace::Event.handle("reykjavik"),
+            name: Namespace::Event.with_name("reykjavik").into(),
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: Namespace::Person.handle("erin"),
+            name: Namespace::Person.with_name("erin").into(),
         },
         appended(
             trip,
@@ -118,11 +118,11 @@ fn link_canonicalizes_inverse_label_to_one_edge() {
         mentor_relation(),
         EventPayload::MemoryCreated {
             id: dave,
-            name: Namespace::Person.handle("dave"),
+            name: Namespace::Person.with_name("dave").into(),
         },
         EventPayload::MemoryCreated {
             id: erin,
-            name: Namespace::Person.handle("erin"),
+            name: Namespace::Person.with_name("erin").into(),
         },
         // "erin is mentored_by dave" == "dave is mentor_of erin": same canonical edge.
         EventPayload::LinkCreated {
@@ -169,11 +169,11 @@ fn symmetric_link_is_order_independent() {
         },
         EventPayload::MemoryCreated {
             id: a,
-            name: Namespace::Person.handle("phil@direct"),
+            name: Namespace::Person.with_name("phil@direct").into(),
         },
         EventPayload::MemoryCreated {
             id: b,
-            name: Namespace::Person.handle("phil@discord"),
+            name: Namespace::Person.with_name("phil@discord").into(),
         },
         EventPayload::LinkCreated {
             from: a,
@@ -208,15 +208,15 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
             mentor_relation(),
             EventPayload::MemoryCreated {
                 id: dave,
-                name: Namespace::Person.handle("dave"),
+                name: Namespace::Person.with_name("dave").into(),
             },
             EventPayload::MemoryCreated {
                 id: erin,
-                name: Namespace::Person.handle("erin"),
+                name: Namespace::Person.with_name("erin").into(),
             },
             EventPayload::MemoryCreated {
                 id: frank,
-                name: Namespace::Person.handle("frank"),
+                name: Namespace::Person.with_name("frank").into(),
             },
             EventPayload::LinkCreated {
                 from: dave,

@@ -675,7 +675,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id,
-                    name: Namespace::Event.handle("cleaning"),
+                    name: Namespace::Event.with_name("cleaning").into(),
                 },
             ))
             .unwrap();
@@ -733,7 +733,7 @@ mod tests {
         let events = [
             EventPayload::MemoryCreated {
                 id: anchor,
-                name: Namespace::Event.handle("wedding"),
+                name: Namespace::Event.with_name("wedding").into(),
             },
             EventPayload::MemoryContentAppended {
                 id: anchor,
@@ -747,7 +747,7 @@ mod tests {
             },
             EventPayload::MemoryCreated {
                 id: dependent,
-                name: Namespace::Event.handle("reception"),
+                name: Namespace::Event.with_name("reception").into(),
             },
             untimed(dependent, entry),
         ];
@@ -773,7 +773,7 @@ mod tests {
                     entry_id: entry,
                     occurred_at: TemporalRef::BeforeAfter {
                         dir: Direction::After,
-                        anchor: Namespace::Event.handle("wedding"),
+                        anchor: Namespace::Event.with_name("wedding").into(),
                     },
                     produced_by: None,
                 },
@@ -833,7 +833,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id: memory,
-                    name: Namespace::Event.handle("all-hands"),
+                    name: Namespace::Event.with_name("all-hands").into(),
                 },
             ))
             .unwrap();
@@ -884,7 +884,7 @@ mod tests {
                 1,
                 EventPayload::MemoryCreated {
                     id: memory,
-                    name: Namespace::Event.handle("standup"),
+                    name: Namespace::Event.with_name("standup").into(),
                 },
             ))
             .unwrap();
