@@ -24,6 +24,7 @@ const INK = "#2c2823";
 const FAINT = "#9c9484";
 const LINE = "#ddd4c3";
 const PAPER = "#f4efe5";
+const CLAY = "#af6047";
 
 // A scenario's color is derived from its name, not assigned by position: the hash fixes the hue, so
 // a scenario keeps the same color across every chart and across runs as the set grows or shrinks —
@@ -121,6 +122,17 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
     .sort((a, b) => b.latency_p50_ms - a.latency_p50_ms)
     .map((s) => ({ name: s.name, latency: s.latency_p50_ms, ok: s.gating_passed }));
 
+  // Input vs output tokens per scenario (most recent), heaviest first. A row written before the split
+  // was tracked has no breakdown, so its total falls into `input` (output 0) — the bar still reads its
+  // magnitude, and later rows carry the true split.
+  const tokenSplit = [...recent]
+    .map((s) => ({
+      name: s.name,
+      input: s.prompt_tokens_mean ?? s.total_tokens_mean,
+      output: s.completion_tokens_mean ?? 0,
+    }))
+    .sort((a, b) => b.input + b.output - (a.input + a.output));
+
   const cost = recent.map((s) => ({
     name: s.name,
     latency: s.latency_p50_ms,
@@ -215,6 +227,48 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
                 <Cell key={d.name} fill={colorForName(d.name)} fillOpacity={d.ok ? 0.85 : 0.35} />
               ))}
             </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Panel>
+
+      <Panel label="token cost · input (ink) vs output (clay) by scenario · most recent">
+        <ResponsiveContainer width="100%" height={names.length * 24 + 32}>
+          <BarChart
+            data={tokenSplit}
+            layout="vertical"
+            margin={{ top: 0, right: 24, bottom: 0, left: 8 }}
+          >
+            <CartesianGrid horizontal={false} stroke={LINE} />
+            <XAxis
+              type="number"
+              tickFormatter={(v: number) => formatTokens(v)}
+              tick={TICK}
+              tickLine={false}
+              axisLine={{ stroke: LINE }}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={210}
+              tick={TICK}
+              tickLine={false}
+              axisLine={false}
+            />
+            <Tooltip
+              contentStyle={TOOLTIP}
+              wrapperStyle={{ zIndex: 50 }}
+              cursor={{ fill: "#00000008" }}
+              formatter={(value) => formatTokens(Number(value))}
+            />
+            <Bar dataKey="input" stackId="tok" fill={INK} fillOpacity={0.8} barSize={11} />
+            <Bar
+              dataKey="output"
+              stackId="tok"
+              fill={CLAY}
+              fillOpacity={0.85}
+              barSize={11}
+              radius={[0, 1, 1, 0]}
+            />
           </BarChart>
         </ResponsiveContainer>
       </Panel>

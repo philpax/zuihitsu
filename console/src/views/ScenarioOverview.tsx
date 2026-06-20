@@ -2,7 +2,7 @@ import { Link, useOutletContext } from "react-router-dom";
 
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
 import { type EvalContext, activeScenarios, liveRunOf } from "../lib/liveEval.ts";
-import { formatMs, formatRate, formatTokens } from "../lib/format.ts";
+import { formatMs, formatRate, formatTokenSplit } from "../lib/format.ts";
 import { runPath } from "../lib/routes.ts";
 import { Dot } from "../components/primitives.tsx";
 
@@ -179,7 +179,9 @@ function ScenarioRow({
               <Dot />
               <span>p50 {formatMs(aggregate.latency_ms.p50)}</span>
               <Dot />
-              <span>{formatTokens(aggregate.tokens.total_mean)} tok</span>
+              <span>
+                {formatTokenSplit(aggregate.tokens.prompt_mean, aggregate.tokens.completion_mean)}
+              </span>
             </div>
           </>
         )}

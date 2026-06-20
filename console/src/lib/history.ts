@@ -9,6 +9,9 @@ export interface HistoryScenario {
   wall_clock_p50_ms: number;
   latency_p50_ms: number;
   total_tokens_mean: number;
+  // The input/output split, added later — optional so rows written before it still parse.
+  prompt_tokens_mean?: number;
+  completion_tokens_mean?: number;
 }
 
 export interface HistoryEntry {

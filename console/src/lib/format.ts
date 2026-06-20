@@ -20,6 +20,12 @@ export function formatTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
+/// A prompt/completion token split, compact for the dense metric lines: `"22.0k in · 1.2k out"`. The
+/// total is the sum, so the split conveys strictly more than a lone total.
+export function formatTokenSplit(promptTokens: number, completionTokens: number): string {
+  return `${formatTokens(promptTokens)} in · ${formatTokens(completionTokens)} out`;
+}
+
 /// Epoch milliseconds as a short, calm date: `"13 Jun 2026"`.
 export function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString("en-GB", {

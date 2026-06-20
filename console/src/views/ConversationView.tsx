@@ -264,6 +264,19 @@ function Room({
 }) {
   const isOperator = channel.authority === "operator";
   const handle = participate?.sender.trim() ?? "";
+  const { bySeq, budget } = useContext(ModelCalls);
+  // The conversation's running cost, shown in the header: total generated (additive across turns) and
+  // the peak context any turn reached (the high-water mark against the compaction budget — not a sum,
+  // which would double-count the re-sent buffer).
+  const convoTokens = (channel.conversation?.turns ?? []).reduce(
+    (acc, turn) => {
+      const { context, output } = turnTokens(turn, bySeq);
+      return { peakContext: Math.max(acc.peakContext, context), output: acc.output + output };
+    },
+    { peakContext: 0, output: 0 },
+  );
+  const convoTowardCompaction =
+    budget > 0 ? Math.round((convoTokens.peakContext / budget) * 100) : null;
   // True while a sent turn is in flight, so the conversation shows the agent at work.
   const [thinking, setThinking] = useState(false);
   // The just-sent turn, shown optimistically until the live tail folds the real one in — so the
@@ -300,6 +313,13 @@ function Room({
         {!isOperator && (
           <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
             {channel.locator.platform} · {channel.locator.scope_path}
+          </p>
+        )}
+        {convoTokens.peakContext + convoTokens.output > 0 && (
+          <p className="mt-1 font-mono text-2xs text-ink-faint">
+            {formatTokens(convoTokens.output)} generated · peak{" "}
+            {formatTokens(convoTokens.peakContext)}
+            {convoTowardCompaction !== null && <> · {convoTowardCompaction}% to compaction</>}
           </p>
         )}
       </header>
@@ -631,7 +651,32 @@ function BriefBlock({
   );
 }
 
+/// A turn's measured token cost. `context` is the *peak* prompt across its model calls — the largest
+/// context the model read this turn. It is cumulative by nature (each step re-sends the whole growing
+/// buffer, which itself carries every prior turn), and it is exactly what the compaction trigger
+/// weighs against the budget (server/platform.rs: a turn compacts when its peak prompt crosses
+/// `token_budget`). `output` is the *sum* of completions — the tokens the agent generated, which is
+/// additive with no overlap. Both are 0 for a participant or system turn (no model call): a
+/// participant message's own tokens are not measured, only folded into the next agent prompt.
+function turnTokens(
+  turn: TurnModel,
+  bySeq: Map<number, ModelInteraction>,
+): { context: number; output: number } {
+  let context = 0;
+  let output = 0;
+  for (const step of turn.deliberation) {
+    if (step.kind !== "model") continue;
+    const usage = bySeq.get(step.seq)?.usage;
+    context = Math.max(context, usage?.prompt_tokens ?? 0);
+    output += usage?.completion_tokens ?? 0;
+  }
+  return { context, output };
+}
+
 function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
+  const { bySeq, budget } = useContext(ModelCalls);
+  const tokens = turnTokens(turn, bySeq);
+  const towardCompaction = budget > 0 ? Math.round((tokens.context / budget) * 100) : null;
   // A turn that streamed in after the view opened fades and lifts into place; the initial ones do not.
   const enter = fresh
     ? {
@@ -711,6 +756,32 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
         </p>
       )}
       {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
+      {/* The agent turn's cost, footing the turn: the context it read (cumulative — the whole re-sent
+          buffer) as a fill against the compaction budget, and the tokens it generated (additive). */}
+      {tokens.output + tokens.context > 0 && (
+        <div className="mt-3 flex items-center gap-2 font-mono text-2xs text-ink-faint">
+          <span>
+            {formatTokens(tokens.context)} cumulative input · {formatTokens(tokens.output)} out
+            {towardCompaction !== null && " ·"}
+          </span>
+          {towardCompaction !== null && (
+            <>
+              <div
+                className="h-1 w-16 shrink-0 bg-oat"
+                title={`${towardCompaction}% of the compaction budget (${formatTokens(budget)})`}
+              >
+                <div
+                  className={"h-1 " + (towardCompaction >= 80 ? "bg-clay" : "bg-sage")}
+                  style={{ width: `${Math.min(100, towardCompaction)}%` }}
+                />
+              </div>
+              <span>
+                {towardCompaction}% to compaction ({formatTokens(budget)})
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </motion.li>
   );
 }

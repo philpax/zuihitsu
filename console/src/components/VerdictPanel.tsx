@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { RunRecord } from "../types/RunRecord.ts";
 import type { Verdict } from "../types/Verdict.ts";
-import { formatMs, formatTokens } from "../lib/format.ts";
+import { formatMs, formatTokenSplit } from "../lib/format.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The run's verdicts and cost, sitting above the deep views so opening a run answers "did it pass,
@@ -51,7 +51,7 @@ export function VerdictPanel({ run, gating }: { run: RunRecord; gating: boolean 
           <span>·</span>
           <span>{formatMs(metrics.wall_clock_ms)}</span>
           <span>·</span>
-          <span>{formatTokens(metrics.total_tokens)} tok</span>
+          <span>{formatTokenSplit(metrics.prompt_tokens, metrics.completion_tokens)}</span>
         </span>
       </button>
 

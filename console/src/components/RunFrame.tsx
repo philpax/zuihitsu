@@ -8,7 +8,7 @@ import { type ReplicaState, useReplica } from "../lib/useReplica.ts";
 import { runBase, runPath } from "../lib/routes.ts";
 import { useStreamLocation } from "../lib/useStreamLocation.ts";
 import { STREAM_VIEWS } from "../lib/streamViews.ts";
-import { formatMs, formatRate, formatTokens } from "../lib/format.ts";
+import { formatMs, formatRate, formatTokenSplit } from "../lib/format.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
 import { StreamWorkspace } from "./StreamWorkspace.tsx";
 import { VerdictPanel } from "./VerdictPanel.tsx";
@@ -186,7 +186,9 @@ function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
         <Dot />
         <span>p50 {formatMs(aggregate.latency_ms.p50)}</span>
         <Dot />
-        <span>{formatTokens(aggregate.tokens.total_mean)} tok</span>
+        <span>
+          {formatTokenSplit(aggregate.tokens.prompt_mean, aggregate.tokens.completion_mean)}
+        </span>
       </div>
       {meta.description && (
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">{meta.description}</p>
