@@ -8,7 +8,7 @@ import { useConsoleNav } from "../lib/consoleNav.ts";
 export function FrameNav({ current }: { current: "eval" | "trends" }) {
   const nav = useConsoleNav();
   return (
-    <nav className="flex items-baseline gap-4 font-mono text-2xs">
+    <nav className="flex shrink-0 items-baseline gap-4 font-mono text-2xs">
       <Section
         label="scenarios"
         active={current === "eval"}

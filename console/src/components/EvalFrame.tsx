@@ -52,8 +52,8 @@ export function EvalFrame({
               </Link>
             )}
           </div>
-          <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
-            <span className="hidden items-baseline gap-3 sm:flex">
+          <div className="flex shrink-0 items-baseline gap-3 font-mono text-xs text-ink-soft">
+            <span className="hidden items-baseline gap-3 whitespace-nowrap sm:flex">
               {live ? (
                 <>
                   <LiveBadge status={live} />
