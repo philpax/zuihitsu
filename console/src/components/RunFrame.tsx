@@ -59,13 +59,14 @@ export function RunFrame() {
 
   return (
     <div className="flex flex-1 gap-6 pt-7">
-      <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} />
+      <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} view={view!} />
       <div className="flex min-w-0 flex-1 flex-col">
         <ScenarioSummary scenario={scenario} />
         <RunPicker
           scenario={scenario}
           active={runIndex}
           liveRun={liveRunOf(liveRuns, scenarioIndex)}
+          view={view!}
         />
         {completed && (
           <VerdictPanel
@@ -100,10 +101,12 @@ function ScenarioRail({
   pkg,
   active,
   liveRuns,
+  view,
 }: {
   pkg: EvalPackage;
   active: string;
   liveRuns: ReadonlyMap<string, Event[]>;
+  view: string;
 }) {
   return (
     <aside className="hidden w-40 shrink-0 lg:block">
@@ -132,7 +135,7 @@ function ScenarioRail({
             return openRun !== null ? (
               <Link
                 key={entry.meta.name}
-                to={runPath(entry.meta.name, openRun)}
+                to={runPath(entry.meta.name, openRun, view)}
                 title={entry.meta.name}
                 className={rowClass}
               >
@@ -204,10 +207,12 @@ function RunPicker({
   scenario,
   active,
   liveRun,
+  view,
 }: {
   scenario: ScenarioReport;
   active: number;
   liveRun: number | null;
+  view: string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3">
@@ -230,7 +235,7 @@ function RunPicker({
           return (
             <Link
               key={run.index}
-              to={runPath(scenario.meta.name, run.index)}
+              to={runPath(scenario.meta.name, run.index, view)}
               title={`Run ${run.index} · ${passed ? "passed" : "failed"}`}
               className={
                 "flex h-7 min-w-[1.75rem] items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
@@ -243,7 +248,7 @@ function RunPicker({
         })}
         {liveRun !== null && (
           <Link
-            to={runPath(scenario.meta.name, liveRun)}
+            to={runPath(scenario.meta.name, liveRun, view)}
             title={`Run ${liveRun} · streaming live`}
             className={
               "flex h-7 min-w-[1.75rem] items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +
