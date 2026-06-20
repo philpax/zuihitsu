@@ -852,6 +852,28 @@ impl Graph {
         })
     }
 
+    /// Whether `conversation` has a session that opened before `session` — i.e. `session` is not its
+    /// first. The operator imprint reads this to leave imprint mode once onboarding is done (spec
+    /// §Imprint interview): the first operator session runs the imprint template, and every session
+    /// after it the ordinary scaffold, so the channel stops re-running the create-a-profile script.
+    pub fn has_earlier_session(
+        &self,
+        conversation: ConversationId,
+        session: SessionId,
+    ) -> Result<bool, GraphError> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM sessions
+                     WHERE conversation = ?1
+                       AND seq < (SELECT seq FROM sessions WHERE id = ?2)
+                 )",
+                params![conversation.0.to_string(), session.0.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(backend)
+    }
+
     /// Every conversation's current open session (its latest un-ended one), paired with the
     /// conversation — the idle sweep's input, so it can close-with-flush the stale ones. A conversation
     /// has one live session, but a pre-fix log may also hold earlier dangling ones (a crash that never

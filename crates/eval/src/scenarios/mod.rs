@@ -7,6 +7,7 @@ mod compaction;
 mod conversations;
 mod decay;
 mod description;
+mod identity;
 mod merge;
 mod privacy;
 mod recall;
@@ -28,6 +29,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         tagging::scenarios(),
         relations::scenarios(),
         merge::scenarios(),
+        identity::scenarios(),
         rename::scenarios(),
         decay::scenarios(),
         scheduling::scenarios(),

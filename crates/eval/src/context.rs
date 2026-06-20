@@ -122,6 +122,23 @@ impl RunContext {
         Ok(outcome)
     }
 
+    /// Drive one operator imprint-interview turn — the `operator/imprint` channel, under operator
+    /// authority (the only path that may write `self`), distinct from the participant turns `turn`
+    /// drives. Paces the clock like `turn`, so an `advance` between imprint turns crosses the idle gap
+    /// into a fresh session just as it does for participants.
+    pub async fn imprint(&self, text: &str) -> Result<TurnOutcome, EvalError> {
+        self.clock.advance_millis(HUMAN_PAUSE_MS);
+        let started = Instant::now();
+        let outcome = self
+            .server
+            .control()
+            .imprint(self.model.as_ref(), text)
+            .await?;
+        self.clock
+            .advance_millis(started.elapsed().as_millis() as i64);
+        Ok(outcome)
+    }
+
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.
     pub fn advance(&self, delta_ms: i64) {
         self.clock.advance_millis(delta_ms);

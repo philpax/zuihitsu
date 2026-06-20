@@ -1,0 +1,83 @@
+//! Operator identity across the imprint boundary. The imprint interview is one-time onboarding: it
+//! establishes the operator's profile and merges the provisional `person/operator` stub into it. Once
+//! that first session has closed, a later session in which the operator shares another of their names
+//! should record it on the existing profile, not mint a second `person/*`. The bug this guards against
+//! is the operator channel re-running the imprint's create-a-profile script on every turn, so each new
+//! name the operator gives spawns a fresh profile that is then `same_as`-merged.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use zuihitsu::Event;
+
+use crate::{
+    analysis,
+    context::RunContext,
+    error::EvalError,
+    judge::Judge,
+    package::{Bar, Category, ScenarioMeta, Verdict},
+    scenario::Scenario,
+};
+
+/// Just past the default idle gap (1800s), so the next imprint turn opens a fresh session.
+const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
+
+/// This module's scenarios.
+pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
+    vec![Arc::new(OperatorSecondNameLandsOnTheExistingProfile)]
+}
+
+/// The operator imprints, introducing themselves by a handle — the agent records a profile and merges
+/// the provisional `person/operator` stub into it. The session then lapses and a fresh one opens, in
+/// which the operator shares their real name. The agent should append it to the existing profile, not
+/// mint a second `person/*` — the imprint's create-a-profile is a one-time onboarding step, not a
+/// standing instruction the operator channel re-runs each turn.
+pub struct OperatorSecondNameLandsOnTheExistingProfile;
+
+#[async_trait]
+impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "operator_second_name_lands_on_the_existing_profile".to_owned(),
+            category: Category::Relations,
+            description: "After the imprint establishes the operator's profile, a later session in \
+                          which they share another of their names should record it on that profile, \
+                          not mint a second person/* memory."
+                .to_owned(),
+            bar: Bar::Gating,
+        }
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Imprint: the operator introduces themselves by a handle. The agent records a profile and
+        // merges the provisional person/operator stub into it.
+        ctx.imprint(
+            "Hi! I'm rowan. You'll help me run my bakery — keeping track of suppliers, regulars, \
+             and the day-to-day.",
+        )
+        .await?;
+        ctx.imprint("We're a small place, busiest on weekends, known for our sourdough.")
+            .await?;
+        ctx.describe_catch_up().await?;
+
+        // The session lapses; a fresh one opens. The operator shares their real name — it should be
+        // added to the existing profile, not start a new one.
+        ctx.advance(PAST_IDLE_GAP_MS);
+        ctx.imprint("Oh, by the way — my real name is Tomas, in case that's useful to record.")
+            .await?;
+        ctx.describe_catch_up().await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+        // The minted person/operator stub plus the one profile the imprint created is the whole
+        // operator identity. A third person/* memory is the duplicate this scenario guards against.
+        let profiles = analysis::memories_in_namespace(events, "person/");
+        vec![Verdict::oracle_outcome(
+            "recorded the operator's other name on their existing profile, not a new one",
+            profiles.len() <= 2,
+            "the second name landed on the existing operator profile",
+            format!("minted a duplicate operator profile — person/* memories: {profiles:?}"),
+        )]
+    }
+}

@@ -303,6 +303,21 @@ impl Server {
         let open = self
             .ensure_session(routed.conversation, routed.present_set, model)
             .await?;
+        // The operator's first session runs the imprint interview; once that session has been
+        // succeeded by a later one (a lapse, a restart, a compaction), the operator channel uses the
+        // ordinary scaffold template — still under operator authority, so it may still write `self` —
+        // rather than re-running the imprint's one-time create-a-profile script every turn.
+        let template = if matches!(routed.template, PromptTemplateName::Imprint)
+            && self
+                .engine
+                .graph
+                .lock()
+                .has_earlier_session(routed.conversation, open.id)?
+        {
+            PromptTemplateName::Scaffold
+        } else {
+            routed.template
+        };
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
         let turn_settings = settings.turn;
         let max_steps = turn_settings.max_steps as usize;
@@ -325,7 +340,7 @@ impl Server {
             brief: &open.brief,
             session_started_at: open.started_at,
             buffer: &buffer,
-            template: routed.template,
+            template,
             authority: routed.authority,
             present_set: routed.present_set,
             max_steps,
