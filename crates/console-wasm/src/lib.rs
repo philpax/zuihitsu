@@ -50,6 +50,9 @@ struct MemoryDetail {
 #[derive(Serialize)]
 struct AgendaItem {
     when: Timestamp,
+    /// The occurrence is a whole day or fuzzier span, not a precise instant, so the calendar renders
+    /// it without a clock time (a `Day` sorts at noon — not a stated time). See `TemporalRef::is_all_day`.
+    all_day: bool,
     memory: String,
     text: String,
     recurring: bool,
@@ -263,6 +266,7 @@ impl Replica {
         {
             items.push(AgendaItem {
                 when: entry.occurred_sort.unwrap_or(from),
+                all_day: entry.occurred_at.as_ref().is_none_or(|at| at.is_all_day()),
                 memory: memory.name.as_str().to_owned(),
                 text: entry.text,
                 recurring: false,
@@ -274,7 +278,10 @@ impl Replica {
             .map_err(graph_error)?
         {
             items.push(AgendaItem {
+                // The supported rrule subset (FREQ + INTERVAL) carries no time of day, so a recurring
+                // instance is day-granular — its clock time would be the incidental anchor time.
                 when: instant,
+                all_day: true,
                 memory: memory.name.as_str().to_owned(),
                 text,
                 recurring: true,

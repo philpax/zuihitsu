@@ -154,6 +154,15 @@ impl TemporalRef {
             }
         }
     }
+
+    /// Whether this reference denotes a whole day or a coarser, fuzzy span rather than a precise
+    /// instant — so a calendar view renders it without a misleading clock time. Only an `Instant`
+    /// carries a real time of day; a `Day` sorts at noon, a `Range`/`Approx` at a representative
+    /// midpoint, a `Recurring` (the supported `FREQ` + `INTERVAL` subset) and a `BeforeAfter` at a
+    /// derived point — none of which is a time anyone stated.
+    pub fn is_all_day(&self) -> bool {
+        !matches!(self, TemporalRef::Instant(_))
+    }
 }
 
 impl OccurrenceBounds {
@@ -221,6 +230,27 @@ mod tests {
             bounds.hi,
             Some(ts(JUNE_3_2026_MIDNIGHT + MILLIS_PER_DAY - 1))
         );
+    }
+
+    #[test]
+    fn only_an_instant_is_not_all_day() {
+        assert!(!TemporalRef::Instant(ts(1_000)).is_all_day());
+        assert!(TemporalRef::Day(CivilDate("2026-06-03".into())).is_all_day());
+        assert!(
+            TemporalRef::Range {
+                start: ts(1_000),
+                end: ts(2_000),
+            }
+            .is_all_day()
+        );
+        assert!(
+            TemporalRef::Approx {
+                center: ts(1_000),
+                fuzz_days: 2,
+            }
+            .is_all_day()
+        );
+        assert!(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into())).is_all_day());
     }
 
     #[test]

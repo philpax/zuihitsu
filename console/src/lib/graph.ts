@@ -86,6 +86,9 @@ export interface ConversationDetail {
 export interface AgendaItem {
   /// The instant the item next occurs, in epoch milliseconds.
   when: number;
+  /// The occurrence is a whole day or fuzzier span, not a precise instant, so it renders without a
+  /// clock time (a day-level reference sorts at noon — not a stated time).
+  all_day: boolean;
   memory: string;
   text: string;
   recurring: boolean;

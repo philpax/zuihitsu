@@ -79,7 +79,8 @@ function Header({ now }: { now: number }) {
 }
 
 function AgendaRow({ item, base, cursor }: { item: AgendaItem; base: string; cursor: number }) {
-  const at = clockTime(item.when);
+  // A day-granular occurrence (and its noon sort) carries no stated time; only a precise instant does.
+  const at = item.all_day ? null : clockTime(item.when);
   return (
     <li className="flex items-baseline gap-3">
       <span className="w-12 shrink-0 font-mono text-2xs text-ink-faint">{at ?? "—"}</span>
@@ -120,8 +121,9 @@ function weekday(ms: number): string {
   return new Date(ms).toLocaleDateString("en-GB", { weekday: "long" });
 }
 
-/// The wall-clock time, or `null` for a day-granularity occurrence that lands on midnight (shown
-/// without a time rather than a misleading "00:00").
+/// The wall-clock time of a precise instant, or `null` when it lands exactly on local midnight (shown
+/// without a misleading "00:00"). Day-granular occurrences never reach here — the caller gates those
+/// on `all_day`, so a day reference no longer leaks its noon sort as a time.
 function clockTime(ms: number): string | null {
   const date = new Date(ms);
   if (date.getHours() === 0 && date.getMinutes() === 0) return null;
