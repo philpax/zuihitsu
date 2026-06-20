@@ -31,6 +31,13 @@ impl Graph {
         self.fetch_memory("name", name.into().as_str())
     }
 
+    /// The agent's `self` memory, or `None` before genesis seeds it — the reserved self-model handle
+    /// looked up by name. A first-class read because the brief, the system prompt, and the write guard
+    /// all reach for it.
+    pub fn self_memory(&self) -> Result<Option<MemoryView>, GraphError> {
+        self.memory_by_name(MemoryName::self_handle())
+    }
+
     /// Fetch a live (non-deleted) memory by its internal id.
     pub fn memory_by_id(&self, id: MemoryId) -> Result<Option<MemoryView>, GraphError> {
         self.fetch_memory("id", &id.0.to_string())

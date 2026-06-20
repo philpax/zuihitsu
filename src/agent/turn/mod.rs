@@ -31,7 +31,7 @@ use crate::{
         Teller, TerminalCause, TurnRole,
     },
     graph::GraphError,
-    ids::{ConversationId, MemoryId, MemoryName, Namespace, Seq, TurnId},
+    ids::{ConversationId, MemoryId, Namespace, Seq, TurnId},
     memory::memory_block::Authority,
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
@@ -296,7 +296,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let framing_body = framing.map(|t| t.body).unwrap_or_default();
     let (identity, vocabulary) = {
         let graph = engine.graph.lock();
-        let identity = match graph.memory_by_name(MemoryName::self_handle())? {
+        let identity = match graph.self_memory()? {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
         };
@@ -437,7 +437,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
 
     let (identity, vocabulary) = {
         let graph = engine.graph.lock();
-        let identity = match graph.memory_by_name(MemoryName::self_handle())? {
+        let identity = match graph.self_memory()? {
             Some(self_memory) => graph.entries_local(self_memory.id)?,
             None => Vec::new(),
         };

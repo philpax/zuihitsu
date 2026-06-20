@@ -179,7 +179,6 @@ mod tests {
         clock::ManualClock,
         event::PromptTemplateName,
         graph::Graph,
-        ids::MemoryName,
         store::MemoryStore,
         time::Timestamp,
     };
@@ -205,10 +204,7 @@ mod tests {
             .unwrap()
             .unwrap()
             .body;
-        let self_memory = graph
-            .memory_by_name(MemoryName::self_handle())
-            .unwrap()
-            .unwrap();
+        let self_memory = graph.self_memory().unwrap().unwrap();
         let identity = graph.entries_local(self_memory.id).unwrap();
         let api = render_api_reference();
         let vocabulary =

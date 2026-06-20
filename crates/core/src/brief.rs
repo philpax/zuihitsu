@@ -95,7 +95,7 @@ pub fn compose(
     let mut out = String::new();
 
     // 1. Self brief — the agent's own memory in the per-participant shape.
-    if let Some(self_memory) = graph.memory_by_name(MemoryName::self_handle())? {
+    if let Some(self_memory) = graph.self_memory()? {
         out.push_str("# You\n");
         render_memory_body(
             &mut out,
@@ -160,9 +160,7 @@ pub fn compose(
     //    present set (an aside about a now-present subject is suppressed). Self, the current room, and
     //    present participants are already shown above, so they are skipped to avoid duplication.
     if !working_set.is_empty() {
-        let self_id = graph
-            .memory_by_name(MemoryName::self_handle())?
-            .map(|memory| memory.id);
+        let self_id = graph.self_memory()?.map(|memory| memory.id);
         let mut threads = String::new();
         for &id in working_set {
             if Some(id) == self_id || Some(id) == current_context || present_set.contains(&id) {
@@ -298,7 +296,7 @@ pub fn compose_traced(
     let recent = settings.recent_facts.max(0) as usize;
     let mut sections = Vec::new();
 
-    if let Some(self_memory) = graph.memory_by_name(MemoryName::self_handle())? {
+    if let Some(self_memory) = graph.self_memory()? {
         sections.push(section_trace(
             graph,
             &self_memory,
@@ -337,9 +335,7 @@ pub fn compose_traced(
         }
     }
 
-    let self_id = graph
-        .memory_by_name(MemoryName::self_handle())?
-        .map(|memory| memory.id);
+    let self_id = graph.self_memory()?.map(|memory| memory.id);
     for &id in request.working_set {
         if Some(id) == self_id
             || Some(id) == request.current_context

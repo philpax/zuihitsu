@@ -365,9 +365,7 @@ impl MemoryBlock {
                     .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
                 None => false,
             };
-            let self_id = graph
-                .memory_by_name(MemoryName::self_handle())?
-                .map(|memory| memory.id);
+            let self_id = graph.self_memory()?.map(|memory| memory.id);
             let operator_id = graph
                 .memory_by_name(NamespacedMemoryName::operator())?
                 .map(|memory| memory.id);
