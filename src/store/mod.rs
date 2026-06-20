@@ -88,6 +88,25 @@ mod tests {
         cleanup(&path);
     }
 
+    /// A read-only open reads the committed log while another connection still holds the exclusive
+    /// write lock — the property the `events` inspection command relies on to be safe against a
+    /// running agent.
+    #[test]
+    fn read_only_open_reads_while_a_writer_holds_the_lock() {
+        let path = temp_log_path("readonly");
+
+        let mut writer = SqliteStore::open(&path).unwrap();
+        writer
+            .append(Timestamp::from_millis(1_000), sample_payloads())
+            .unwrap();
+
+        // The write lock is still held; a read-only open takes no lock and still sees the committed log.
+        let reader = SqliteStore::open_read_only(&path).unwrap();
+        assert_eq!(reader.read_from(Seq::ZERO).unwrap().len(), 3);
+
+        cleanup(&path);
+    }
+
     /// A crash mid-batch leaves the log clean: an interrupted, uncommitted transaction contributes
     /// nothing, so a reopened log holds exactly the committed events. This is the atomic-batch
     /// guarantee the append path leans on against partial writes (spec §Storage, §Known

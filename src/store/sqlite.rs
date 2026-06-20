@@ -9,7 +9,7 @@ use std::{
 };
 
 use fs2::FileExt;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OpenFlags, params};
 
 use crate::{
     db::query_map_into,
@@ -45,6 +45,22 @@ impl SqliteStore {
             ))
         })?;
         Self::init(conn, Some(lock))
+    }
+
+    /// Open a file-backed log read-only, taking no lock — safe to read while another process holds the
+    /// write lock (an operator inspecting a running agent's log). The connection is read-only and the
+    /// tables it reads already exist, so no `CREATE` runs; an append against it would error.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<SqliteStore, StoreError> {
+        let conn = Connection::open_with_flags(
+            path.as_ref(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(backend)?;
+        Ok(SqliteStore {
+            conn,
+            subscribers: Vec::new(),
+            _lock: None,
+        })
     }
 
     /// Open an ephemeral in-memory log. Used by tests; WAL and locking are not applicable here.

@@ -5,6 +5,7 @@
 //! subcommands print their JSON response to stdout; diagnostics go through `tracing` to stderr.
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -13,7 +14,8 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use tracing_subscriber::{EnvFilter, fmt};
 use zuihitsu::{
-    ConfigError, GenesisStatus, McpHost, McpTool, Rollout, SeedSelf, StdioHost, config::EnvConfig,
+    ConfigError, Event, GenesisStatus, McpHost, McpTool, Rollout, SeedSelf, Seq, SqliteStore,
+    StdioHost, Store, config::EnvConfig, event::EventPayload,
 };
 
 use crate::client::{Client, ClientError};
@@ -121,6 +123,32 @@ enum Command {
     /// List the tools each configured MCP server exposes — spawns the servers directly (no running
     /// agent needed), so you can see a catalogue before narrowing it with `allow`/`deny`.
     Mcp,
+    /// Inspect the event log directly, read-only — safe while the agent is running (it takes no lock).
+    /// Lists events; with `--summary`, counts them by type and lays out the session timeline.
+    Events {
+        /// Show one event by seq, with its full payload pretty-printed (ignores the other filters).
+        #[arg(long)]
+        seq: Option<u64>,
+        /// Only events at or after this seq.
+        #[arg(long)]
+        from: Option<u64>,
+        /// Only events at or before this seq.
+        #[arg(long)]
+        to: Option<u64>,
+        /// Only events of this type (case-insensitive, e.g. `SessionStarted`, `MemoryCreated`).
+        #[arg(long = "type")]
+        type_: Option<String>,
+        /// Only events about this target — a conversation or memory id, or a prefix of one (so you can
+        /// follow one room's turns, or one memory's history).
+        #[arg(long)]
+        target: Option<String>,
+        /// Print each event's full JSON payload instead of a one-line summary.
+        #[arg(long)]
+        json: bool,
+        /// Summarise: counts by type and the session timeline, instead of listing events.
+        #[arg(long)]
+        summary: bool,
+    },
 }
 
 pub fn run() -> ExitCode {
@@ -189,6 +217,161 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             Ok(())
         }
         Command::Mcp => mcp(&config),
+        Command::Events {
+            seq,
+            from,
+            to,
+            type_,
+            target,
+            json,
+            summary,
+        } => events(
+            &config,
+            EventQuery {
+                seq: *seq,
+                from: *from,
+                to: *to,
+                type_,
+                target,
+                json: *json,
+                summary: *summary,
+            },
+        ),
+    }
+}
+
+/// The filters and output mode for the `events` command, bundled so the inspection call stays one
+/// argument rather than a fistful of options.
+struct EventQuery<'a> {
+    /// Show this one event's full payload, pretty-printed (ignores the rest).
+    seq: Option<u64>,
+    from: Option<u64>,
+    to: Option<u64>,
+    type_: &'a Option<String>,
+    target: &'a Option<String>,
+    json: bool,
+    summary: bool,
+}
+
+/// Inspect the event log directly, opening it read-only so it is safe to read while the agent holds
+/// the write lock. With `seq`, pretty-prints that one event's full payload; otherwise lists each event
+/// (seq, type, and its target) or, with `summary`, counts events by type and lays out the session
+/// timeline. `from`/`to` bound the seq range, `type_` filters by event type, `target` by the
+/// conversation or memory the event is about, and `json` prints full payloads in the listing.
+fn events(config: &EnvConfig, query: EventQuery) -> Result<(), CliError> {
+    let EventQuery {
+        seq,
+        from,
+        to,
+        type_,
+        target,
+        json,
+        summary,
+    } = query;
+    let path = config.storage.event_log();
+    let store = SqliteStore::open_read_only(&path).map_err(|source| {
+        CliError::Events(format!(
+            "could not open the event log at {}: {source}",
+            path.display()
+        ))
+    })?;
+    let events = store
+        .read_from(Seq(0))
+        .map_err(|source| CliError::Events(format!("could not read the event log: {source}")))?;
+
+    // A single event by seq: its whole payload, pretty-printed — the zoom-in the listing points at.
+    if let Some(seq) = seq {
+        let event = events
+            .iter()
+            .find(|event| event.seq.0 == seq)
+            .ok_or_else(|| CliError::Events(format!("no event at seq {seq}")))?;
+        let payload = serde_json::to_string_pretty(&event.payload).map_err(|source| {
+            CliError::Events(format!("could not render the payload: {source}"))
+        })?;
+        println!("seq {} · {}\n{payload}", event.seq.0, event.payload.kind());
+        return Ok(());
+    }
+
+    let mut events = events;
+    if let Some(from) = from {
+        events.retain(|event| event.seq.0 >= from);
+    }
+    if let Some(to) = to {
+        events.retain(|event| event.seq.0 <= to);
+    }
+    if let Some(type_) = type_ {
+        events.retain(|event| event.payload.kind().eq_ignore_ascii_case(type_));
+    }
+    if let Some(target) = target {
+        events.retain(|event| {
+            event
+                .payload
+                .target_id()
+                .is_some_and(|id| id.starts_with(target.as_str()))
+        });
+    }
+
+    if summary {
+        print_event_summary(&events);
+    } else {
+        for event in &events {
+            if json {
+                let payload = serde_json::to_string(&event.payload).unwrap_or_default();
+                println!(
+                    "{:>6}  {:<26}  {payload}",
+                    event.seq.0,
+                    event.payload.kind()
+                );
+            } else {
+                let target = event.payload.target_id().unwrap_or_default();
+                println!("{:>6}  {:<26}  {target}", event.seq.0, event.payload.kind());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Counts by event type (commonest first), then every session boundary (`SessionStarted` /
+/// `SessionEnded`) with its conversation — so dangling or duplicated sessions are visible at a glance.
+fn print_event_summary(events: &[Event]) {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for event in events {
+        *counts.entry(event.payload.kind()).or_default() += 1;
+    }
+    let mut by_count: Vec<(&str, usize)> = counts.into_iter().collect();
+    by_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+    println!("{} events", events.len());
+    for (kind, count) in by_count {
+        println!("  {count:>5}  {kind}");
+    }
+
+    println!("\nsessions");
+    let mut any = false;
+    for event in events {
+        match &event.payload {
+            EventPayload::SessionStarted {
+                conversation,
+                brief,
+                ..
+            } => {
+                any = true;
+                println!(
+                    "  seq {:>5}  started  {}  brief {}ch",
+                    event.seq.0,
+                    conversation.0,
+                    brief.len()
+                );
+            }
+            EventPayload::SessionEnded { conversation, .. } => {
+                any = true;
+                println!("  seq {:>5}  ended    {}", event.seq.0, conversation.0);
+            }
+            _ => {}
+        }
+    }
+    if !any {
+        println!("  (none)");
     }
 }
 
@@ -333,6 +516,8 @@ enum CliError {
     Render(serde_json::Error),
     /// The `mcp` introspection command could not run (the async runtime failed to start).
     Mcp(String),
+    /// The `events` inspection command could not open or read the event log.
+    Events(String),
 }
 
 impl From<ClientError> for CliError {
@@ -361,6 +546,7 @@ impl std::fmt::Display for CliError {
             }
             CliError::Render(source) => write!(f, "could not render the response: {source}"),
             CliError::Mcp(message) => write!(f, "mcp: {message}"),
+            CliError::Events(message) => write!(f, "events: {message}"),
         }
     }
 }
@@ -375,6 +561,7 @@ impl std::error::Error for CliError {
             CliError::ParseSettings { source, .. } => Some(source),
             CliError::Render(source) => Some(source),
             CliError::Mcp(_) => None,
+            CliError::Events(_) => None,
         }
     }
 }
