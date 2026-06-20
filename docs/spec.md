@@ -1,6 +1,6 @@
-# Zuihitsu — Design Spec
+# zuihitsu — design spec
 
-A persistent memory system for a conversational agent, named **Zuihitsu**. One instance hosts exactly one agent, whose entire life is a single event log read from `seq 0`. The agent itself is unnamed by the system — each operator names their own agent at creation time.
+**zuihitsu** is an agent system: the software a single conversational agent runs on. One instance hosts exactly one agent, whose entire life is a single event log read from `seq 0`. The agent itself is unnamed by the system — each operator names their own agent at creation time.
 
 The agent meets people across multiple platforms (a private direct interface, Discord, and others over time), remembers what each has said, talks to any of them one-to-one or in a group, and keeps confidences between them. Its whole history is replayable, its schema and logic are designed to evolve, and every consequential decision it makes leaves an auditable trace.
 
@@ -706,7 +706,7 @@ The cap governs who gets a full brief block, nothing else. `presence(...)`, and 
 
 ## Inference and embedding backends
 
-Zuihitsu is bring-your-own backend. Two models sit behind the agent: a **generation model** for conversation replies and the background synthesis work in the next section (description regeneration, temporal extraction, and belief arbitration), and a separate **embedding model** for the entry and description vectors of the vector store. Each is reached as an **OpenAI-compatible endpoint**, configured independently (`[model]` and `[embedding]` in the instance config); they may be one server or two, local or remote. The spec fixes neither the models nor the serving software, and both clients sit behind the model-client seam (see **Testability**), so nothing above the client depends on the choice.
+zuihitsu is bring-your-own backend. Two models sit behind the agent: a **generation model** for conversation replies and the background synthesis work in the next section (description regeneration, temporal extraction, and belief arbitration), and a separate **embedding model** for the entry and description vectors of the vector store. Each is reached as an **OpenAI-compatible endpoint**, configured independently (`[model]` and `[embedding]` in the instance config); they may be one server or two, local or remote. The spec fixes neither the models nor the serving software, and both clients sit behind the model-client seam (see **Testability**), so nothing above the client depends on the choice.
 
 One property is left to the deployment, because it varies by backend: whether the generation endpoint **batches concurrent requests or serializes them on a single slot**. The concurrency and scheduling discipline below is written to hold either way — it governs request *priority* (conversation ahead of background work), not the backend's internal batching.
 
@@ -1007,7 +1007,7 @@ Which model or template produced an inference is already captured per-event in `
 
 ### Build-default changes surface to the operator, never silently apply
 
-The settings snapshot is pinned in the agent's own log, so when a Zuihitsu build ships a new default for a tunable, existing agents keep theirs, exactly as with prompt templates: ship better defaults, only new agents get them. The control interface diffs the agent's logged snapshot against the build defaults field by field and surfaces any difference ("the default compaction budget changed from X to Y; keep yours, or adopt the new default?"); adopting writes a new `ConfigSet`.
+The settings snapshot is pinned in the agent's own log, so when a zuihitsu build ships a new default for a tunable, existing agents keep theirs, exactly as with prompt templates: ship better defaults, only new agents get them. The control interface diffs the agent's logged snapshot against the build defaults field by field and surfaces any difference ("the default compaction budget changed from X to Y; keep yours, or adopt the new default?"); adopting writes a new `ConfigSet`.
 
 The settings are one strongly-typed struct, grouped into substructs, and deliberately not a per-context policy language: per-context variation, if ever wanted, is better done by the agent reasoning over the `context/*` memory than by a config policy language. The struct's schema is append-only: a field is deprecated, never removed, so every snapshot ever logged still loads. This also handles the new-knob asymmetry cleanly — a genuinely new tunable that didn't exist at this agent's genesis is simply absent from the old snapshot and deserializes to its build default, which is the only sensible value, since you can't pin a setting that didn't yet exist. That adoption is silent by construction; optionally, the control interface surfaces it once on the first boot after a build introduces a knob ("this build adds tunable X, default Y") rather than in total silence.
 

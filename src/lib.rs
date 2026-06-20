@@ -1,4 +1,4 @@
-//! Zuihitsu — a persistent memory system for a conversational agent.
+//! zuihitsu — the agent system a single conversational agent runs on.
 //!
 //! One instance hosts exactly one agent whose entire life is a single event log read from `seq 0`
 //! (see `docs/spec.md`). Stage 1 establishes that log — the append-only source of truth — and the

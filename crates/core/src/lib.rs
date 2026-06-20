@@ -1,4 +1,4 @@
-//! Zuihitsu core — the wasm-compatible heart of the agent.
+//! zuihitsu core — the wasm-compatible heart of the agent.
 //!
 //! This crate holds the event-log wire types and the pure projection logic that turns an event log
 //! into queryable state: the same fold the live agent runs, carved out so it can compile to

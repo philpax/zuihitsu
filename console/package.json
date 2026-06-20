@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "The operator's console for the Zuihitsu agent — eval-package viewer first, live debugger later.",
+  "description": "The zuihitsu console.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

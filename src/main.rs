@@ -27,7 +27,7 @@ fn main() -> ExitCode {
     run()
 }
 
-/// Operator client for a Zuihitsu agent (and, with no subcommand, the server itself).
+/// Operator client for a zuihitsu agent (and, with no subcommand, the server itself).
 #[derive(Parser)]
 #[command(name = "zuihitsu", version, about)]
 struct Cli {
