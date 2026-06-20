@@ -226,7 +226,15 @@ export function ConversationView({
           </div>
 
           {selected ? (
-            <Room replica={replica} cursor={cursor} channel={selected} participate={participate} />
+            // Keyed by room, so per-room composer state (the in-flight optimistic turn) resets on a
+            // channel switch rather than leaking the last room's pending message into the next.
+            <Room
+              key={selected.key}
+              replica={replica}
+              cursor={cursor}
+              channel={selected}
+              participate={participate}
+            />
           ) : (
             <div className="py-16 text-center text-sm text-ink-faint">
               {participate ? "Name a conversation to start one." : "No conversations in this run."}
@@ -256,18 +264,29 @@ function Room({
   const handle = participate?.sender.trim() ?? "";
   // True while a sent turn is in flight, so the conversation shows the agent at work.
   const [thinking, setThinking] = useState(false);
+  // The just-sent turn, shown optimistically until the live tail folds the real one in — so the
+  // message appears the instant it is sent rather than after the round-trip, and the thinking pulse
+  // never sits against a conversation that does not yet show what was said. `baseline` is the turn
+  // count at send; once the conversation grows past it, the real turn has landed and this is dropped.
+  const [optimistic, setOptimistic] = useState<{ text: string; baseline: number } | null>(null);
 
   async function onSend(text: string) {
     if (!participate) return;
-    if (isOperator) {
-      await imprint(participate.connection, text);
-    } else {
-      await sendMessage(participate.connection, {
-        locator: channel.locator,
-        sender: handle,
-        text,
-        present: [handle],
-      });
+    setOptimistic({ text, baseline: channel.conversation?.turns.length ?? 0 });
+    try {
+      if (isOperator) {
+        await imprint(participate.connection, text);
+      } else {
+        await sendMessage(participate.connection, {
+          locator: channel.locator,
+          sender: handle,
+          text,
+          present: [handle],
+        });
+      }
+    } catch (error) {
+      setOptimistic(null); // the send failed — drop the optimistic turn (the composer restores the draft).
+      throw error;
     }
   }
 
@@ -291,6 +310,10 @@ function Room({
             ? "Introduce yourself to begin the interview."
             : "No messages yet — say hello."}
         </p>
+      )}
+
+      {optimistic !== null && (channel.conversation?.turns.length ?? 0) <= optimistic.baseline && (
+        <OptimisticTurn speaker={handle || "you"} text={optimistic.text} />
       )}
 
       {thinking && <ThinkingIndicator />}
@@ -329,6 +352,21 @@ function ThinkingIndicator() {
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sage" />
       </span>
       <span className="font-mono text-2xs uppercase tracking-widest">the agent is thinking…</span>
+    </div>
+  );
+}
+
+/// The just-sent turn, echoed at the head of the transcript while it is in flight — dimmed and marked
+/// "sending" so it reads as not-yet-confirmed, matching a participant turn's shape so the live tail's
+/// real turn replaces it without a visible jump.
+function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
+  return (
+    <div className="border-t border-line/70 py-4 opacity-55 sm:py-5">
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="font-mono text-2xs uppercase tracking-widest text-clay">{speaker}</span>
+        <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">sending…</span>
+      </div>
+      <p className="text-base leading-relaxed text-ink">{text}</p>
     </div>
   );
 }
