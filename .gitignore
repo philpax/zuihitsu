@@ -15,11 +15,11 @@ __pycache__/
 /spike/runs/
 
 # Eval harness: full packages (and their resumable .jsonl sidecars) are heavy local artifacts,
-# kept under eval/<name>.json; only the small metrics history is tracked.
-/eval/*.json
-/eval/*.jsonl
+# kept under eval/<name>.json; only the small metrics history is tracked. Ignore everything else in
+# eval/ — packages, sidecars, stray run logs, backups — so no artifact extension can leak into git
+# just because we forgot to list it.
+/eval/*
 !/eval/history.jsonl
-/eval/*.bak
 
 # Generated wasm-bindgen output for the console bridge (regenerated from the build).
 /crates/console-wasm/pkg/
