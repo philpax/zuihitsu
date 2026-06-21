@@ -195,6 +195,7 @@ mod tests {
             &mut store,
             &ManualClock::new(Timestamp::from_millis(1_000)),
             &seed,
+            None,
         )
         .unwrap();
         let mut graph = Graph::open_in_memory().unwrap();

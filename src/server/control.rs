@@ -241,6 +241,7 @@ impl Control<'_> {
             self.server.engine.store.lock().as_mut(),
             self.server.engine.clock.as_ref(),
             seed,
+            self.server.model_context_length,
         )?;
         self.server
             .engine

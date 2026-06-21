@@ -157,6 +157,15 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         ),
         None => Server::new(Box::new(store), graph, Box::new(SystemClock)),
     };
+    // A configured model must declare its context window: the agent's compaction budget derives from
+    // it, and the OpenAI-style API does not report it (see `docs/model_management.md`).
+    if !config.model.endpoint.is_empty() {
+        let context_length = config
+            .model
+            .context_length
+            .ok_or(ServeError::MissingContextLength)?;
+        server.set_model_context_length(context_length);
+    }
     let status = server.boot()?;
 
     // If the embedding model changed since the vectors were last built, re-embed the whole log before
@@ -425,6 +434,9 @@ pub enum ServeError {
     Snapshot(SnapshotError),
     /// A server operation (boot, reading settings, connecting MCP) failed at startup.
     Server(ServerError),
+    /// A model endpoint is configured but `[model] context_length` is not — the API cannot report the
+    /// window, so the operator must state it (the agent's compaction budget derives from it).
+    MissingContextLength,
     Bind(io::Error),
     Serve(io::Error),
 }
@@ -473,6 +485,11 @@ impl std::fmt::Display for ServeError {
                 )
             }
             ServeError::Server(source) => write!(f, "serve: {source}"),
+            ServeError::MissingContextLength => write!(
+                f,
+                "serve: a model endpoint is configured but [model] context_length is not set — \
+                 state your model's context window in tokens (the API does not report it)"
+            ),
             ServeError::Bind(source) => write!(f, "serve: could not bind the listener: {source}"),
             ServeError::Serve(source) => write!(f, "serve: the HTTP server failed: {source}"),
         }
@@ -490,6 +507,7 @@ impl std::error::Error for ServeError {
             ServeError::OpenVectors { source, .. } => Some(source),
             ServeError::Snapshot(source) => Some(source),
             ServeError::Server(source) => Some(source),
+            ServeError::MissingContextLength => None,
             ServeError::Bind(source) | ServeError::Serve(source) => Some(source),
         }
     }

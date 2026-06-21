@@ -17,7 +17,7 @@ use crate::{
     clock::Clock,
     event::{Cardinality, EventPayload, EventSource, PromptTemplateName, Teller, Visibility},
     ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
-    settings::Settings,
+    settings::{Settings, compaction_budget_for},
     store::{Store, StoreError},
     vocabulary::{RelationName, TagName},
 };
@@ -72,6 +72,7 @@ pub fn rollout(
     store: &mut dyn Store,
     clock: &dyn Clock,
     seed: &SeedSelf,
+    context_length: Option<u32>,
 ) -> Result<Rollout, StoreError> {
     let existing = store.read_from(Seq::ZERO)?;
     if existing.iter().any(is_genesis_completed) {
@@ -142,10 +143,13 @@ pub fn rollout(
     }
 
     if !config_present {
-        to_emit.push(EventPayload::config_set(
-            Settings::default(),
-            EventSource::Bootstrap,
-        ));
+        // The compaction budget is derived from the model's context window when one is configured;
+        // without it (an in-memory or model-less instance), the built-in default stands.
+        let mut settings = Settings::default();
+        if let Some(context_length) = context_length {
+            settings.compaction.token_budget = compaction_budget_for(context_length);
+        }
+        to_emit.push(EventPayload::config_set(settings, EventSource::Bootstrap));
     }
 
     if !self_present {
@@ -678,6 +682,35 @@ mod tests {
         ManualClock::new(Timestamp::from_millis(1_000))
     }
 
+    /// The `token_budget` in the `ConfigSet` genesis wrote.
+    fn logged_token_budget(store: &dyn Store) -> i64 {
+        store
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .into_iter()
+            .find_map(|event| match event.payload {
+                EventPayload::ConfigSet { settings, .. } => Some(settings.compaction.token_budget),
+                _ => None,
+            })
+            .expect("genesis writes a ConfigSet")
+    }
+
+    #[test]
+    fn the_compaction_budget_is_derived_from_the_context_window() {
+        // With a model's window, the initial compaction budget is a fraction of it.
+        let mut store = MemoryStore::new();
+        genesis::rollout(&mut store, &clock(), &seed(), Some(100_000)).unwrap();
+        assert_eq!(logged_token_budget(&store), 80_000);
+
+        // Without one (an in-memory or model-less instance), the built-in default stands.
+        let mut store = MemoryStore::new();
+        genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
+        assert_eq!(
+            logged_token_budget(&store),
+            Settings::default().compaction.token_budget
+        );
+    }
+
     #[test]
     fn empty_log_is_empty_status() {
         let store = MemoryStore::new();
@@ -713,7 +746,7 @@ mod tests {
     #[test]
     fn rollout_creates_a_complete_agent() {
         let mut store = MemoryStore::new();
-        let outcome = genesis::rollout(&mut store, &clock(), &seed()).unwrap();
+        let outcome = genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
         assert!(matches!(outcome, Rollout::Created { .. }));
         assert_eq!(genesis::status(&store).unwrap(), GenesisStatus::Complete);
 
@@ -759,10 +792,10 @@ mod tests {
     #[test]
     fn rollout_is_idempotent_when_complete() {
         let mut store = MemoryStore::new();
-        genesis::rollout(&mut store, &clock(), &seed()).unwrap();
+        genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
         let head_after_first = store.head().unwrap();
 
-        let outcome = genesis::rollout(&mut store, &clock(), &seed()).unwrap();
+        let outcome = genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
         assert_eq!(outcome, Rollout::AlreadyComplete);
         assert_eq!(store.head().unwrap(), head_after_first); // nothing appended
     }
@@ -795,7 +828,7 @@ mod tests {
         let head_before = store.head().unwrap();
 
         let Rollout::Created { events_emitted } =
-            genesis::rollout(&mut store, &clock(), &seed()).unwrap()
+            genesis::rollout(&mut store, &clock(), &seed(), None).unwrap()
         else {
             panic!("expected a resuming rollout");
         };
@@ -821,7 +854,7 @@ mod tests {
         // A complete genesis and a resumed one over the same seed agree on the manifest hash, since
         // it is computed over content, not minted ids.
         let mut fresh = MemoryStore::new();
-        genesis::rollout(&mut fresh, &clock(), &seed()).unwrap();
+        genesis::rollout(&mut fresh, &clock(), &seed(), None).unwrap();
 
         let mut resumed = MemoryStore::new();
         resumed
@@ -833,7 +866,7 @@ mod tests {
                 )],
             )
             .unwrap();
-        genesis::rollout(&mut resumed, &clock(), &seed()).unwrap();
+        genesis::rollout(&mut resumed, &clock(), &seed(), None).unwrap();
 
         assert_eq!(genesis_hash(&fresh), genesis_hash(&resumed));
     }

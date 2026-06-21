@@ -90,7 +90,7 @@ async fn tool_call_then_reply_commits_and_replies() {
 async fn descriptions_regenerate_after_a_turn() {
     let h = Harness::new();
     // Genesis registers the description-regen template the write path reads.
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -157,7 +157,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
     // must be re-synthesized — otherwise the description (which reaches participants in briefs) keeps
     // the old name (spec §Identity → Renaming, deadname-safety).
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -236,7 +236,7 @@ fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {
 #[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -276,7 +276,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
 #[tokio::test]
 async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -324,7 +324,7 @@ fn belief_arbitrations(store: &dyn Store) -> Vec<EventPayload> {
 #[tokio::test]
 async fn a_regen_conflict_emits_belief_arbitrated() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -382,7 +382,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
 #[tokio::test]
 async fn a_single_sided_arbitration_is_dropped() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -407,7 +407,7 @@ async fn a_single_sided_arbitration_is_dropped() {
 #[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -474,7 +474,7 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
 async fn agent_turns_record_their_provenance() {
     let h = Harness::new();
     // Genesis registers the scaffold the agent turn runs against.
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -637,7 +637,7 @@ async fn real_model_extracts_temporal_references() {
     }
     let client = OpenAiClient::new(&config.model);
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()
@@ -816,7 +816,7 @@ async fn real_model_supersedes_a_corrected_fact() {
     }
     let client = OpenAiClient::new(&config.model);
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed()).unwrap();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
     h.engine
         .graph
         .lock()

@@ -98,6 +98,10 @@ pub struct Server {
     /// The MCP host and the catalogue probed from it at [`Server::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
     mcp: Option<McpRuntime>,
+    /// The configured model's context window, in tokens, set by the serving host from `[model]`
+    /// config. `None` for an in-memory or model-less instance. Genesis derives the agent's initial
+    /// compaction budget from it (a fraction of the window); see [`Control::create_agent`].
+    model_context_length: Option<u32>,
 }
 
 /// The connected MCP runtime: the host that spawns server instances and the catalogue probed from it
@@ -147,7 +151,15 @@ impl Server {
             adjudicator_cursor: Mutex::new(Seq::ZERO),
             streams,
             mcp: None,
+            model_context_length: None,
         }
+    }
+
+    /// Set the configured model's context window (tokens), from which genesis derives a new agent's
+    /// compaction budget. The serving host calls this from `[model]` config before serving; an
+    /// in-memory or model-less instance leaves it unset.
+    pub fn set_model_context_length(&mut self, context_length: u32) {
+        self.model_context_length = Some(context_length);
     }
 
     /// Connect the configured MCP servers: probe each one's tool catalogue once through `host` (spec

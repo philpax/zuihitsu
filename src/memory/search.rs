@@ -862,6 +862,7 @@ mod tests {
             &mut store,
             &ManualClock::new(Timestamp::from_millis(1)),
             &seed,
+            None,
         )
         .unwrap();
 

@@ -41,6 +41,11 @@ pub struct EnvConfig {
 pub struct ModelConfig {
     pub endpoint: String,
     pub llm: String,
+    /// The model's context window, in tokens. Required whenever an `endpoint` is set: the OpenAI-style
+    /// API does not report it, so the operator states it, and the agent derives its compaction budget
+    /// from it (a fraction of the window). Update it when the context length or the backing model
+    /// changes (see `docs/model_management.md`).
+    pub context_length: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,

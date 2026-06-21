@@ -59,6 +59,18 @@ pub struct CompactionSettings {
     pub flush_min_turns: i64,
 }
 
+/// The fraction of the model's context window the compaction budget defaults to — the headroom left
+/// for the system prefix and the reply when the agent re-segments. The window itself is operator-stated
+/// config (the API does not report it), so the budget is derived from it at agent creation rather than
+/// hardcoded; an explicit settings override still wins (spec §Compaction).
+pub const COMPACTION_BUDGET_FRACTION: f64 = 0.8;
+
+/// The compaction `token_budget` derived from a model's context window — [`COMPACTION_BUDGET_FRACTION`]
+/// of it, in tokens.
+pub fn compaction_budget_for(context_length: u32) -> i64 {
+    (f64::from(context_length) * COMPACTION_BUDGET_FRACTION) as i64
+}
+
 /// Brief composition: what enters each brief, and how many participants get one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
