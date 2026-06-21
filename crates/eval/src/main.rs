@@ -70,11 +70,18 @@ enum Command {
         /// runs it does not already hold. Ignored if no sidecar is present.
         #[arg(long)]
         resume: bool,
-        /// Serve the run live over SSE at this address (e.g. `127.0.0.1:7878`) for the console to
-        /// watch — the scoreboard fills in as runs complete. The process keeps serving the final state
-        /// until Ctrl-C.
-        #[arg(long)]
+        /// Serve the run live over SSE for the console to watch — the scoreboard fills in as runs
+        /// complete. On by default at `127.0.0.1:7878`; pass an address to bind somewhere else.
+        /// Serving stops when the run finishes unless `--serve-after-completion` is set.
+        #[arg(long, value_name = "ADDR", num_args = 0..=1, default_missing_value = DEFAULT_SERVE_ADDR)]
         serve: Option<SocketAddr>,
+        /// Do not serve the run live; run to completion and exit.
+        #[arg(long, conflicts_with = "serve")]
+        no_serve: bool,
+        /// Keep serving the final state after the run completes, until Ctrl-C, for reviewing the
+        /// result live. By default serving stops when the run finishes.
+        #[arg(long, conflicts_with = "no_serve")]
+        serve_after_completion: bool,
     },
     /// Export the eval-package and event-log types to TypeScript (the viewer's type contract).
     ExportTypes {
@@ -96,6 +103,8 @@ async fn main() -> ExitCode {
             config,
             resume,
             serve,
+            no_serve,
+            serve_after_completion,
         } => match run_named(
             runs,
             concurrency,
@@ -103,7 +112,7 @@ async fn main() -> ExitCode {
             &name,
             &config,
             resume,
-            serve,
+            resolve_serve(serve, no_serve, serve_after_completion),
         )
         .await
         {
@@ -146,6 +155,34 @@ fn export_types(dir: &Path) -> ExitCode {
 /// `history.jsonl` trend record is tracked.
 const EVAL_DIR: &str = "eval";
 
+/// The address live serving binds when no override is given.
+const DEFAULT_SERVE_ADDR: &str = "127.0.0.1:7878";
+
+/// How a run serves its live view.
+struct ServeConfig {
+    /// Where to bind the SSE endpoint, or `None` to not serve at all (`--no-serve`).
+    addr: Option<SocketAddr>,
+    /// Keep serving the final state after the run completes (until Ctrl-C) rather than exiting.
+    after_completion: bool,
+}
+
+/// Resolve the live-serving config from the flags. Serving is on by default — `--no-serve` opts out,
+/// and an explicit `--serve` overrides the bind address — and stops when the run finishes unless
+/// `--serve-after-completion` keeps it up for review.
+fn resolve_serve(serve: Option<SocketAddr>, no_serve: bool, after_completion: bool) -> ServeConfig {
+    let addr = (!no_serve).then(|| {
+        serve.unwrap_or_else(|| {
+            DEFAULT_SERVE_ADDR
+                .parse()
+                .expect("a valid default serve address")
+        })
+    });
+    ServeConfig {
+        addr,
+        after_completion,
+    }
+}
+
 /// Resolve a run `name` to `eval/<name>.json`, rejecting anything that is not a bare filename (so a
 /// run cannot escape the eval directory). Then run the suite under it.
 async fn run_named(
@@ -155,7 +192,7 @@ async fn run_named(
     name: &str,
     config_path: &Path,
     resume: bool,
-    serve: Option<SocketAddr>,
+    serve: ServeConfig,
 ) -> Result<bool, EvalError> {
     if name.is_empty()
         || name.contains('/')
@@ -178,7 +215,7 @@ async fn run(
     out: &Path,
     config_path: &Path,
     resume: bool,
-    serve: Option<SocketAddr>,
+    serve: ServeConfig,
 ) -> Result<bool, EvalError> {
     let config = EnvConfig::load(config_path).map_err(|source| EvalError::LoadConfig {
         path: config_path.to_path_buf(),
@@ -276,7 +313,9 @@ async fn run(
 
     // Serve the live stream alongside the run, started before any run so a viewer connecting at launch
     // sees the whole plan (the manifest) and watches it fill in.
-    let serving = serve.map(|addr| tokio::spawn(serve::serve(addr, sink.clone())));
+    let serving = serve
+        .addr
+        .map(|addr| tokio::spawn(serve::serve(addr, sink.clone())));
 
     harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
     sink.finish(now_ms())?;
@@ -304,9 +343,13 @@ async fn run(
     append_history(&package)?;
     std::fs::remove_file(&sidecar).ok();
 
-    // With --serve, keep the process up after the run so the operator can review the final state live;
-    // the in-memory sink still answers new connections with the complete package. Ctrl-C exits.
-    if let Some(serving) = serving {
+    // Only with `--serve-after-completion` does the process stay up after the run, so the operator can
+    // review the final state live; the in-memory sink still answers new connections with the complete
+    // package, and Ctrl-C exits. By default the run drops the serving task and exits with the gating
+    // signal as soon as it finishes, so a background or scripted run never blocks.
+    if serve.after_completion
+        && let Some(serving) = serving
+    {
         tracing::info!("run complete; serving the final state — Ctrl-C to exit");
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
@@ -440,4 +483,32 @@ fn init_tracing() {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_SERVE_ADDR, resolve_serve};
+
+    #[test]
+    fn serving_is_on_by_default_and_stops_at_completion() {
+        let cfg = resolve_serve(None, false, false);
+        assert_eq!(cfg.addr, Some(DEFAULT_SERVE_ADDR.parse().unwrap()));
+        assert!(!cfg.after_completion);
+    }
+
+    #[test]
+    fn no_serve_disables_serving() {
+        assert_eq!(resolve_serve(None, true, false).addr, None);
+    }
+
+    #[test]
+    fn an_explicit_address_overrides_the_default() {
+        let addr = "0.0.0.0:9000".parse().unwrap();
+        assert_eq!(resolve_serve(Some(addr), false, false).addr, Some(addr));
+    }
+
+    #[test]
+    fn serve_after_completion_is_carried_through() {
+        assert!(resolve_serve(None, false, true).after_completion);
+    }
 }
