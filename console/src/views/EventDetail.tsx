@@ -16,6 +16,7 @@ import { formatDateTime, formatMs } from "../lib/format.ts";
 import { rruleLabel } from "../lib/audit.ts";
 import { statePath } from "../lib/routes.ts";
 import { Lua } from "../components/Lua.tsx";
+import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 
 /// The expanded view of a single event, rendered for its kind. Every payload gets a bespoke,
 /// label-and-value layout — a Lua block highlighted, a model call's reasoning and token usage, an
@@ -312,7 +313,9 @@ export function EventDetail({
             <Field label="phase">{payload.phase}</Field>
             {payload.reasoning && (
               <Field label="reasoning">
-                <span className="font-serif italic text-ink-soft">{payload.reasoning}</span>
+                <div className="font-serif">
+                  <ThinkingMarkdown text={payload.reasoning} />
+                </div>
               </Field>
             )}
             <Field label="completion">{completionSummary(payload.completion)}</Field>

@@ -1,10 +1,15 @@
-import ReactMarkdown, { type Components } from "react-markdown";
+import { type Components } from "react-markdown";
 
-/// Element styling for an agent message rendered as Markdown, in the console's tokens (the body type
-/// scale, clay links, and the Lua-block aesthetic — `bg-oat/50`, monospace — for code). Defined once
-/// at the module level so the React Compiler sees a stable object rather than a fresh one each render.
-/// react-markdown ignores raw HTML in the source, so no untrusted markup reaches the DOM.
-const components: Components = {
+// The element styling for agent-authored Markdown, shared by `TurnMarkdown` and `ThinkingMarkdown`.
+// These are styling config (`Components` maps), not React components in their own right, so they live
+// apart from the two component files — which then each export a single component, the shape Fast
+// Refresh wants. react-markdown ignores raw HTML in the source, so no untrusted markup reaches the DOM.
+
+/// Element styling for an agent conversation turn rendered as Markdown, in the console's tokens (the
+/// body type scale, clay links, and the Lua-block aesthetic — `bg-oat/50`, monospace — for code).
+/// Defined once at the module level so the React Compiler sees a stable object rather than a fresh one
+/// each render.
+export const turnComponents: Components = {
   p: ({ children }) => (
     <p className="text-base leading-relaxed text-ink [&:not(:first-child)]:mt-3">{children}</p>
   ),
@@ -66,9 +71,40 @@ const components: Components = {
   ),
 };
 
-/// An agent message rendered as Markdown — paragraphs, emphasis, lists, links, and fenced code blocks
-/// — in the console's tokens. The operator's and participants' own input stays raw text (only its
-/// newlines are preserved); just the agent's prose, which it composes as Markdown, is rendered here.
-export function Markdown({ text }: { text: string }) {
-  return <ReactMarkdown components={components}>{text}</ReactMarkdown>;
-}
+/// The thinking register for the agent's deliberation (reasoning) blocks: the same Markdown structure
+/// as a turn, but rendered quiet, smaller, and italic so thinking reads apart from the agent's actual
+/// replies. Only the prose elements are muted; code stays upright and monospace (italic monospace
+/// reads badly), and the rest fall back to the turn styling.
+export const thinkingComponents: Components = {
+  ...turnComponents,
+  p: ({ children }) => (
+    <p className="text-sm italic leading-relaxed text-ink-soft [&:not(:first-child)]:mt-2">
+      {children}
+    </p>
+  ),
+  ul: ({ children }) => (
+    <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm italic leading-relaxed text-ink-soft">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-sm italic leading-relaxed text-ink-soft">
+      {children}
+    </ol>
+  ),
+  code: ({ className, children }) => {
+    const isBlock = (className ?? "").includes("language-") || String(children).includes("\n");
+    return isBlock ? (
+      <code className="font-mono not-italic">{children}</code>
+    ) : (
+      <code className="rounded bg-oat/50 px-1 py-0.5 font-mono text-[0.9em] not-italic">
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => (
+    <pre className="mt-2 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-2xs not-italic leading-relaxed text-ink-soft">
+      {children}
+    </pre>
+  ),
+};

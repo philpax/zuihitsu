@@ -25,7 +25,8 @@ import { OutcomeList } from "../components/OutcomeList.tsx";
 import { BriefSections } from "../components/BriefTrace.tsx";
 import type { BriefTrace } from "../lib/brief.ts";
 import { Composer } from "../components/Composer.tsx";
-import { Markdown } from "../components/Markdown.tsx";
+import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
+import { TurnMarkdown } from "../components/TurnMarkdown.tsx";
 
 /// The participate capability the agent frame hands the Conversation view (absent in the eval frame,
 /// which is a finished log and so read-only). `atHead` is whether the timeline cursor follows the
@@ -734,7 +735,7 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
           // The agent composes its replies as Markdown; render them so. Participant and operator input
           // stays raw text below — only its line breaks are preserved.
           <div className={turn.deliberation.length > 0 ? "mt-3" : ""}>
-            <Markdown text={turn.text} />
+            <TurnMarkdown text={turn.text} />
           </div>
         ) : (
           <p
@@ -836,9 +837,9 @@ function ModelStep({ step }: { step: Extract<DeliberationStep, { kind: "model" }
       </div>
       {interaction && <ContextBar usage={interaction.usage} budget={budget} />}
       {step.reasoning && (
-        <p className="mt-1 font-serif text-sm italic leading-relaxed text-ink-soft">
-          {step.reasoning}
-        </p>
+        <div className="mt-1 font-serif">
+          <ThinkingMarkdown text={step.reasoning} />
+        </div>
       )}
       {interaction && (interaction.system || interaction.messages.length > 0) && (
         <div className="mt-1.5">
