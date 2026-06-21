@@ -9,13 +9,14 @@ use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 use axum::{
     Router,
     extract::State,
-    http::{HeaderValue, header},
+    http::{HeaderValue, StatusCode, Uri, header},
     response::{
-        IntoResponse,
+        IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
     },
     routing::get,
 };
+use rust_embed::RustEmbed;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::{error::EvalError, live::EvalSink};
@@ -25,12 +26,52 @@ use crate::{error::EvalError, live::EvalSink};
 pub async fn serve(addr: SocketAddr, sink: Arc<EvalSink>) -> Result<(), EvalError> {
     let app = Router::new()
         .route("/eval/stream", get(stream))
+        // Everything else is the embedded console, served in eval mode, so opening the address shows
+        // the live viewer; `/eval/stream` is matched first, before the console fallback.
+        .fallback(console)
         .with_state(sink);
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(EvalError::Serve)?;
-    tracing::info!("serving the live eval at http://{addr}/eval/stream");
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|source| {
+        // Serving is best-effort and runs in a detached task, so a bind failure (typically the port
+        // already held by a concurrent run) is not propagated to the run — warn here, or it vanishes.
+        tracing::warn!(%addr, %source, "could not bind the live-serve address; running without it");
+        EvalError::Serve(source)
+    })?;
+    tracing::info!("serving the live eval console at http://{addr}/");
     axum::serve(listener, app).await.map_err(EvalError::Serve)
+}
+
+/// The web console, the same bundle the agent embeds (built once into `console/dist-embedded`),
+/// served here in `eval` mode so opening the serve address lands on the live eval viewer. Any path
+/// without a matching asset falls back to `index.html` for the single-page app to route.
+#[derive(RustEmbed)]
+#[folder = "../../console/dist-embedded"]
+struct Console;
+
+/// Serve a console asset by path, falling back to `index.html` for client-side routes (a deep link or
+/// a refresh), with the app mode injected into the HTML shell.
+async fn console(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+    match Console::get(path).or_else(|| Console::get("index.html")) {
+        Some(file) => console_asset(file, "eval"),
+        None => (
+            StatusCode::NOT_FOUND,
+            "the web console is not built into this binary\n",
+        )
+            .into_response(),
+    }
+}
+
+/// Inject the app mode into the HTML shell (replacing the `__ZUIHITSU_APP_MODE__` placeholder
+/// `index.html` ships with) so the shared bundle boots into the eval viewer; serve other assets as-is.
+fn console_asset(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
+    let mime = file.metadata.mimetype().to_owned();
+    if mime.starts_with("text/html") {
+        let html = String::from_utf8_lossy(&file.data).replace("__ZUIHITSU_APP_MODE__", mode);
+        ([(header::CONTENT_TYPE, mime)], html).into_response()
+    } else {
+        ([(header::CONTENT_TYPE, mime)], file.data).into_response()
+    }
 }
 
 /// One viewer's stream: the current package as a `snapshot` event, then every later delta as a `live`

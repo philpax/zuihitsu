@@ -13,6 +13,7 @@ async-stream = "0.3"
 async-trait = { workspace = true }
 axum = "0.8"
 clap = { workspace = true }
+rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

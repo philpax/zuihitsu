@@ -373,21 +373,32 @@ fn router(state: AppState) -> Router {
 struct Console;
 
 /// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link
-/// or a refresh lands in the app rather than on a 404.
+/// or a refresh lands in the app rather than on a 404. The HTML shell is served in `agent` mode, so
+/// the one shared bundle boots into the agent's live view — the eval binary serves the same bundle in
+/// `eval` mode (see `console`'s `App`).
 async fn console(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
     match Console::get(path).or_else(|| Console::get("index.html")) {
-        Some(file) => (
-            [(header::CONTENT_TYPE, file.metadata.mimetype())],
-            file.data,
-        )
-            .into_response(),
+        Some(file) => console_asset(file, "agent"),
         None => (
             StatusCode::NOT_FOUND,
             "the web console is not built into this binary\n",
         )
             .into_response(),
+    }
+}
+
+/// Serve an embedded console asset, injecting the app mode into the HTML shell (replacing the
+/// `__ZUIHITSU_APP_MODE__` placeholder `index.html` ships with) so the single shared bundle knows
+/// which view to boot. Non-HTML assets are served byte-for-byte.
+fn console_asset(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
+    let mime = file.metadata.mimetype().to_owned();
+    if mime.starts_with("text/html") {
+        let html = String::from_utf8_lossy(&file.data).replace("__ZUIHITSU_APP_MODE__", mode);
+        ([(header::CONTENT_TYPE, mime)], html).into_response()
+    } else {
+        ([(header::CONTENT_TYPE, mime)], file.data).into_response()
     }
 }
 

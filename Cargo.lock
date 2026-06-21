@@ -3085,6 +3085,7 @@ dependencies = [
  "async-trait",
  "axum",
  "clap",
+ "rust-embed",
  "schemars",
  "serde",
  "serde_json",

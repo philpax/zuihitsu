@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import type { EvalPackage } from "./types/EvalPackage.ts";
@@ -22,17 +22,31 @@ const TrendsScreen = lazy(() =>
   import("./components/TrendsScreen.tsx").then((module) => ({ default: module.TrendsScreen })),
 );
 
-// Set when the console is built into the agent binary (see build.rs). The embedded build is a focused
-// single-purpose app — the agent's own live view — so it skips the landing, connects to its own origin,
-// and drops the `/live` prefix (these are the only routes there is).
-const EMBEDDED = import.meta.env.VITE_EMBEDDED === "true";
+// The serving binary announces its mode at runtime via `window.__APP_MODE__` (the template token in
+// index.html is replaced at serve time), so one built bundle serves every host. The agent serves its
+// own focused live view; the eval binary serves the console pointed at its same-origin live eval;
+// anything else (a standalone build with the token left unreplaced) is the full console.
+declare global {
+  interface Window {
+    __APP_MODE__?: string;
+  }
+}
+type AppMode = "agent" | "eval" | "console";
+const MODE: AppMode =
+  window.__APP_MODE__ === "agent" || window.__APP_MODE__ === "eval"
+    ? window.__APP_MODE__
+    : "console";
 
 // The standing connection the embedded build holds: the agent it is served from, same origin, no key
 // (a loopback peer is trusted; see the server's auth).
 const AGENT: LiveConnection = { baseUrl: "", key: null };
 
 export function App() {
-  return <BrowserRouter>{EMBEDDED ? <EmbeddedConsole /> : <Console />}</BrowserRouter>;
+  return (
+    <BrowserRouter>
+      {MODE === "agent" ? <EmbeddedConsole /> : <Console autoWatchEval={MODE === "eval"} />}
+    </BrowserRouter>
+  );
 }
 
 /// The embedded console: the agent's live view, served at the agent's root and connected to it
@@ -55,19 +69,35 @@ function EmbeddedConsole() {
 /// to a sibling section without returning to the landing. A route whose data is not loaded redirects
 /// to the landing, since the data lives in memory, not at the URL — so a deep URL opened cold lands
 /// somewhere coherent rather than blank.
-function Console() {
+function Console({ autoWatchEval = false }: { autoWatchEval?: boolean }) {
   const navigate = useNavigate();
   const [pkg, setPkg] = useState<EvalPackage | null>(null);
   // The package's file name, kept for the header — the package itself does not carry it.
   const [pkgName, setPkgName] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [live, setLive] = useState<LiveConnection | null>(null);
-  // Watching a live eval: the harness's address, folded into a growing package by the hook below.
-  const [liveEvalConn, setLiveEvalConn] = useState<LiveEvalConnection | null>(null);
+  // Watching a live eval: the harness's address, folded into a growing package by the hook below. In
+  // eval mode the console is served by the eval binary itself, so it starts already pointed at the
+  // same-origin live eval.
+  const [liveEvalConn, setLiveEvalConn] = useState<LiveEvalConnection | null>(
+    autoWatchEval ? { baseUrl: "" } : null,
+  );
   const liveEval = useLiveEval(liveEvalConn);
   const [error, setError] = useState<string | null>(null);
   // The file being read, so the wait on a large package shows feedback rather than a frozen page.
   const [reading, setReading] = useState<string | null>(null);
+
+  // Open the live eval as the initial view in eval mode — once. `navigate`'s identity changes on every
+  // location change, so without this one-shot guard the effect would re-fire on each in-app navigation
+  // and bounce the user back to /eval (e.g. clicking into a scenario would snap straight back). The
+  // landing stays reachable at "/" for opening a past package to compare — only the first screen
+  // changes.
+  const openedInitialView = useRef(false);
+  useEffect(() => {
+    if (openedInitialView.current || !autoWatchEval) return;
+    openedInitialView.current = true;
+    navigate("/eval");
+  }, [autoWatchEval, navigate]);
 
   async function openPackage(file: File) {
     setReading(file.name);
