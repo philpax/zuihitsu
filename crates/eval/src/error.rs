@@ -31,6 +31,16 @@ pub enum EvalError {
     Serialize(serde_json::Error),
     /// The `--name` is not a bare filename (empty, or carries a path separator or `..`).
     BadName(String),
+    /// `analyze`: the package file could not be read.
+    ReadPackage {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    /// `analyze`: the package file is not a valid eval package.
+    LoadPackage {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
 }
 
 impl std::fmt::Display for EvalError {
@@ -68,6 +78,20 @@ impl std::fmt::Display for EvalError {
                     "eval: --name must be a bare filename (no path separators or `..`), got {name:?}"
                 )
             }
+            EvalError::ReadPackage { path, source } => {
+                write!(
+                    f,
+                    "eval: could not read the package at {}: {source}",
+                    path.display()
+                )
+            }
+            EvalError::LoadPackage { path, source } => {
+                write!(
+                    f,
+                    "eval: {} is not a valid eval package: {source}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -83,6 +107,8 @@ impl std::error::Error for EvalError {
             EvalError::WriteOutput { source, .. } => Some(source),
             EvalError::Serialize(source) => Some(source),
             EvalError::Serve(source) => Some(source),
+            EvalError::ReadPackage { source, .. } => Some(source),
+            EvalError::LoadPackage { source, .. } => Some(source),
             EvalError::Judge(_) | EvalError::ResumeSidecar { .. } | EvalError::BadName(_) => None,
         }
     }

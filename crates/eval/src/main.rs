@@ -4,6 +4,7 @@
 //! consumes.
 
 mod analysis;
+mod analyze;
 mod context;
 mod error;
 mod harness;
@@ -88,6 +89,27 @@ enum Command {
         /// The directory to write the `.ts` bindings into.
         dir: PathBuf,
     },
+    /// Read a written eval package: a per-scenario summary (with deltas against a baseline), or the
+    /// complete deliberation traces of the runs that failed.
+    Analyze {
+        /// The package to read, e.g. `eval/scaffold-aggr-v4.json`.
+        package: PathBuf,
+        /// A baseline package to diff the summary against.
+        #[arg(long, short)]
+        baseline: Option<PathBuf>,
+        /// Dump the failed runs' deliberation traces instead of the summary.
+        #[arg(long, short)]
+        failures: bool,
+        /// Restrict to scenarios whose name contains this substring.
+        #[arg(long, short)]
+        scenario: Option<String>,
+        /// Cap the failed runs dumped per scenario (0 = all).
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+        /// Clip long reasoning and scripts to this many characters (0 = full).
+        #[arg(long, default_value_t = 600)]
+        truncate: usize,
+    },
 }
 
 #[tokio::main]
@@ -95,6 +117,27 @@ async fn main() -> ExitCode {
     init_tracing();
     match Cli::parse().command {
         Command::ExportTypes { dir } => export_types(&dir),
+        Command::Analyze {
+            package,
+            baseline,
+            failures,
+            scenario,
+            limit,
+            truncate,
+        } => match analyze::analyze(
+            &package,
+            baseline.as_deref(),
+            failures,
+            scenario.as_deref(),
+            limit,
+            truncate,
+        ) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                tracing::error!("{error}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Run {
             runs,
             concurrency,

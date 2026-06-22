@@ -141,6 +141,46 @@ Within each module, organize code as follows:
 - **libtest-mimic**: For custom test harnesses.
 - **pretty_assertions**: For better assertion output.
 
+## Evaluations
+
+The eval harness (`crates/eval`) is the behavioural validation suite: it drives the agent through a set
+of scenarios against a local model, judges each run against per-scenario oracles, and writes a package
+(`eval/<name>.json`) that the console renders and the `analyze` subcommand reads. Runs hit a local
+inference server, so they need a configured model (`config.toml`) and a GPU — they are deliberately not
+part of `cargo test`.
+
+### Running an eval
+
+```
+cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
+```
+
+- It writes `eval/<name>.json` (plus a resumable `.jsonl` sidecar). The `eval/` directory is gitignored
+  apart from the tracked `history.jsonl` trend record, so name runs descriptively.
+- `--runs N` sets the runs per scenario (the statistical N; default 8), and `--scenario a,b,c` restricts
+  the suite to scenarios whose names contain any of the comma-separated substrings.
+- Serving is on by default: the live console is at http://127.0.0.1:7878/ while the run proceeds, and
+  the process exits once it completes. `--no-serve` opts out, and `--serve-after-completion` keeps it up
+  for review afterward.
+- The exit code is the gating signal — success when every gating oracle held, and failure (logging `a
+  gating safety oracle regressed`) when any slipped. A gating bar is a must-not-surface safety property
+  where a single slip across N runs fails the harness; a metric bar is a should-surface rate reported
+  against a threshold but never failing the run.
+
+### Analyzing an eval
+
+```
+eval analyze eval/<name>.json                      # per-scenario summary (rate, bar, gating)
+eval analyze eval/<name>.json -b eval/<base>.json  # ... with the Δ, regressions, and improvements vs a baseline
+eval analyze eval/<name>.json -f -s <scenario>     # dump the failed runs' complete deliberation traces
+```
+
+The `--failures`/`-f` dump is the tool for deciding the next prompt or code edit: for each failed run it
+prints the missed oracles with their rationale and the full step-by-step deliberation — the agent's
+reasoning, the Lua it emitted, and each result. `--scenario`/`-s` filters by name substring, `--limit`
+caps the runs dumped per scenario, and `--truncate N` clips long reasoning and scripts (`0` for the full
+text).
+
 ## Frontend (the console)
 
 The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React
