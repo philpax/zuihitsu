@@ -117,7 +117,10 @@ pub fn api_reference() -> Vec<ApiEntry> {
              date, visibility, teller, and a disputed marker when contested), and pass the object \
              itself to <memory>:supersede to replace it. entry.occurred_at, when dated, is the same \
              tagged table append takes (e.g. entry.occurred_at.day), so you can match an entry by its \
-             date and reuse it. Hold onto the object if you intend to supersede it.",
+             date and reuse it. Hold onto the object if you intend to supersede it. Capture the list \
+             to see it — `local es = <memory>:entries()`, or iterate/print it; a bare \
+             `<memory>:entries()` whose result you discard returns nothing to you, not an empty \
+             memory.",
         )
         .returns(AT::Entry.list());
 
@@ -152,6 +155,31 @@ pub fn api_reference() -> Vec<ApiEntry> {
             "the entry object that replaces it (from <memory>:append)",
         );
 
+    let revise = AE::new("<memory>:revise")
+        .description(
+            "Correct a fact in one call: append new_text as a new entry and supersede the old entry \
+             with it, returning the new entry. The same intent as append-then-supersede but without \
+             the two-step — and it cannot half-apply: if the old entry is not a live one, the whole \
+             revision (the new entry included) is rejected, so a correction never leaves the stale \
+             value standing. Use it for a genuine change to the same fact (a teller revising their \
+             own earlier statement, newer information replacing older); for two people's conflicting \
+             accounts, record both separately instead and leave the disagreement standing.",
+        )
+        .required(
+            "old",
+            AT::Entry,
+            "the entry being corrected (from <memory>:entries — match it by its occurred_at or text)",
+        )
+        .required("new_text", AT::String, "the corrected fact's text")
+        .optional(
+            "opts",
+            object()
+                .optional("visibility", enum_of(["public", "private"]), "force the visibility")
+                .optional("occurred_at", object(), "the new value's occurrence, if it is dated"),
+            "the same overrides <memory>:append takes",
+        )
+        .returns(AT::Entry);
+
     let link = AE::new("<memory>:link")
         .description(
             "Record a relationship between this memory and another under a registered relation. When \
@@ -167,7 +195,8 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .required(
             "other",
             AT::Handle,
-            "the memory to link to, e.g. context.current()",
+            "the memory to link to — a handle (e.g. context.current()) or its name as a string, \
+             which is looked up",
         );
 
     let unlink = AE::new("<memory>:unlink")
@@ -420,6 +449,7 @@ pub fn api_reference() -> Vec<ApiEntry> {
         entries,
         history,
         supersede,
+        revise,
         rename,
         link,
         unlink,

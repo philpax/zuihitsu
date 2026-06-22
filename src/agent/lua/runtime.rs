@@ -244,6 +244,36 @@ pub(super) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
         .map_err(|e| mlua::Error::RuntimeError(format!("invalid memory handle id {id:?}: {e}")))
 }
 
+/// Resolve a `:link`/`:unlink` target to its memory id. The target is normally a memory handle, but a
+/// name string is accepted and looked up too — so the agent's natural call passing a name in place of
+/// a handle works rather than failing the string-to-handle argument conversion, erroring, and rolling
+/// the whole block back (silently dropping any co-located writes — the cause of lost sensitivity
+/// markings). An unknown name is a clear error, not a silent miss.
+pub(super) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<MemoryId> {
+    match other {
+        Value::Table(handle) => handle_id(&handle),
+        Value::String(name) => {
+            let name = name.to_string_lossy();
+            match api
+                .block
+                .lock()
+                .get(&name)
+                .map_err(|error| route_error(error, &mut api.infra.lock()))?
+            {
+                Some((id, _)) => Ok(id),
+                None => Err(mlua::Error::RuntimeError(format!(
+                    "link target \"{name}\" is not a known memory — pass a handle from memory.get or \
+                     memory.create, or an existing memory's name"
+                ))),
+            }
+        }
+        other => Err(mlua::Error::RuntimeError(format!(
+            "link target must be a memory handle (from memory.get/create) or a memory name, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
 /// Build an entry handle `{ id = "<ulid>", text = "..." }` backed by the entry metatable, so it
 /// renders as its text (`__tostring` / `__concat`) yet stays addressable for `mem:supersede`.
 pub(super) fn make_entry_handle(

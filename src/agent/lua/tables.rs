@@ -14,9 +14,10 @@ use crate::{
 use super::{
     Session,
     runtime::{
-        BlockApi, SearchOpts, entry_handle_id, handle_id, make_date, make_entry_handle,
-        make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
-        make_relation_result, render, route_error, run_memory_search, value_text,
+        BlockApi, SearchOpts, entry_handle_id, handle_id, link_target_id, make_date,
+        make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
+        make_link_handle_list, make_relation_result, render, route_error, run_memory_search,
+        value_text,
     },
 };
 
@@ -92,7 +93,8 @@ impl Session {
         Ok(())
     }
 
-    /// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `link`, `unlink`) on
+    /// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `revise`, `link`,
+    /// `unlink`) on
     /// the metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
     /// backs the entry handles the content reads and `append` return.
     fn install_handle_methods(
@@ -211,6 +213,45 @@ impl Session {
             })?,
         )?;
 
+        // mem:revise(old, new_text[, opts]) — correct a fact in one call: append new_text and supersede
+        // `old` with it, returning the new entry. The find-and-supersede flow without the
+        // append-then-supersede two-step; a failed supersede rolls the append back with it (no
+        // half-applied correction). Locks the class, like supersede.
+        methods.set(
+            "revise",
+            self.lua.create_async_function({
+                let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
+                move |lua, (this, old, text, opts): (Table, Table, String, Value)| {
+                    let api = api.clone();
+                    let entry_metatable = entry_metatable.clone();
+                    async move {
+                        let id = handle_id(&this)?;
+                        let old = entry_handle_id(&old)?;
+                        api.lock_class(id).await?;
+                        let opts: AppendOptions = if opts.is_nil() {
+                            AppendOptions::default()
+                        } else {
+                            lua.from_value(opts)?
+                        };
+                        let entry = {
+                            let mut block = api.block.lock();
+                            let new = block
+                                .revise(id, old, &text, opts)
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                            block.entry_ref_by_id(new)
+                        };
+                        let entry = entry.ok_or_else(|| {
+                            mlua::Error::runtime(
+                                "the revised entry was not found in the block buffer",
+                            )
+                        })?;
+                        make_entry_handle(&lua, &entry, &entry_metatable)
+                    }
+                }
+            })?,
+        )?;
+
         // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation such
         // as `active_in`, locking both endpoints. The script names the relation as a string; it is
         // recognized into its typed [`RelationName`] here, at the wrapper boundary.
@@ -218,10 +259,11 @@ impl Session {
             "link",
             self.lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, relation, other): (Table, String, Table)| {
+                move |_, (this, relation, other): (Table, String, Value)| {
                     let api = api.clone();
                     async move {
-                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                        let from = handle_id(&this)?;
+                        let to = link_target_id(&api, other)?;
                         api.lock_all([from, to]).await;
                         api.block
                             .lock()
@@ -235,10 +277,11 @@ impl Session {
             "unlink",
             self.lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, relation, other): (Table, String, Table)| {
+                move |_, (this, relation, other): (Table, String, Value)| {
                     let api = api.clone();
                     async move {
-                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                        let from = handle_id(&this)?;
+                        let to = link_target_id(&api, other)?;
                         api.lock_all([from, to]).await;
                         api.block
                             .lock()

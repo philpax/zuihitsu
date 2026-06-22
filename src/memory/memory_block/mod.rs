@@ -543,6 +543,23 @@ impl MemoryBlock {
         Ok(())
     }
 
+    /// Revise a fact in one call: append `text` as a new entry on `id`, then supersede `old` with it.
+    /// This is the find-and-supersede flow without the append-then-supersede two-step — and it cannot
+    /// half-apply: if the supersede fails (e.g. `old` is not a live entry), it returns the error and
+    /// the block rolls back the append with it, so a correction never leaves the stale value standing
+    /// beside an orphaned new one. Returns the new entry.
+    pub fn revise(
+        &mut self,
+        id: MemoryId,
+        old: EntryId,
+        text: &str,
+        opts: AppendOptions,
+    ) -> Result<EntryId, MemoryError> {
+        let new = self.append(id, text, opts)?;
+        self.supersede(id, old, new)?;
+        Ok(new)
+    }
+
     /// The memory's live content entries: its whole `same_as` class from the graph plus this block's
     /// pending appends, minus any superseded this block (read-your-writes). A traversing read, so it
     /// touches every class member, not just `id`. Each entry is addressable (by id) so the agent can

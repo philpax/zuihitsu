@@ -183,6 +183,45 @@ async fn an_entry_occurred_at_round_trips_for_supersede() {
 }
 
 #[tokio::test]
+async fn revise_appends_and_supersedes_a_fact_in_one_call() {
+    // m:revise(old, new_text, opts) is append-then-supersede in one call — the find-and-supersede flow
+    // without the two-step (#45). The 15th entry is replaced by the 22nd in a single call; the live
+    // read shows only the new value, and history retains both.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_LAUNCH)
+        ev:append("Launch", { occurred_at = { day = "2027-03-15" }, visibility = "public" })
+        local old
+        for _, e in ipairs(ev:entries()) do
+            if e.occurred_at and e.occurred_at.day == "2027-03-15" then old = e end
+        end
+        ev:revise(old, "Launch", { occurred_at = { day = "2027-03-22" }, visibility = "public" })
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("[2027-03-22") && !result.contains("[2027-03-15"),
+        "revise should have superseded the 15th with the 22nd in one call, got: {result}"
+    );
+    // The superseded value survives in history (it dropped only from the live read).
+    let BlockOutcome::Committed { result: hist } =
+        h.run(r#"return memory.get(EVENT_LAUNCH):history()"#).await
+    else {
+        panic!("expected commit");
+    };
+    assert!(
+        hist.contains("[2027-03-15") && hist.contains("[2027-03-22"),
+        "history should retain both the old and new values, got: {hist}"
+    );
+}
+
+#[tokio::test]
 async fn calendar_computes_dates_for_occurred_at() {
     // The agent names a relative date and the runtime computes it, so the recorded occurrence is
     // correct without the model doing date arithmetic in its head (spec §Calendar → date arithmetic is
@@ -641,6 +680,63 @@ async fn link_with_an_unregistered_relation_is_a_teachable_error() {
         }
         other => panic!("expected a teachable error, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn link_resolves_a_name_string_target() {
+    // A name string in place of a handle is looked up, not rejected with a type error that would roll
+    // the whole block back — the cascade that silently dropped a co-located private write (#43). This
+    // block links via a string *and* appends a confidence in one go; both must survive together.
+    let h = Harness::new();
+    // The Harness skips genesis, so register the `knows` relation the link instantiates.
+    h.engine
+        .store
+        .lock()
+        .append(
+            h.clock.now(),
+            vec![EventPayload::LinkTypeRegistered {
+                name: RelationName::new("knows"),
+                inverse: RelationName::new("knows"),
+                from_card: Cardinality::Many,
+                to_card: Cardinality::Many,
+                symmetric: true,
+                reflexive: false,
+            }],
+        )
+        .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    h.run(r#"memory.create(PERSON_ERIN)"#).await;
+
+    // PERSON_ERIN substitutes to a bare name string, not a handle, so this exercises the string-target
+    // path; the private append in the same block proves it does not error-and-roll-back.
+    let outcome = h
+        .run(
+            r#"local dave = memory.get(PERSON_DAVE)
+               dave:link("knows", PERSON_ERIN)
+               dave:append("a quiet aside", { visibility = "private" })"#,
+        )
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Committed { .. }),
+        "a string-target link must commit (with its co-located write), got {outcome:?}"
+    );
+
+    // The string target resolved to a real edge — an outgoing `knows` link now exists.
+    let BlockOutcome::Committed { result } = h
+        .run(r#"return memory.get(PERSON_DAVE):outgoing("knows")"#)
+        .await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        !result.trim().is_empty(),
+        "a knows edge should exist, got empty: {result:?}"
+    );
 }
 
 #[tokio::test]
