@@ -53,12 +53,7 @@
 - **Type states** encoded in generics when state transitions matter
 - **Lifetimes** used extensively to avoid cloning (e.g., `TestInstance<'a>`)
 - **Restricted visibility**: Use `pub(crate)` and `pub(super)` liberally
-- **Parameter structs over long argument lists**: when a function approaches the
-  `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct (a request
-  struct, or a shared seam like `Engine { store, graph, clock }` that several call shapes pass
-  along) rather than threading more positional arguments. **Never** silence the lint with
-  `#[allow(clippy::too_many_arguments)]`; the lint firing means a struct is wanted. Recognized
-  closed sets of values (relation labels, tags) likewise ride as enums, not bare strings.
+- **Parameter structs over long argument lists**: when a function approaches the `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct (a request struct, or a shared seam like `Engine { store, graph, clock }` that several call shapes pass along) rather than threading more positional arguments. **Never** silence the lint with `#[allow(clippy::too_many_arguments)]`; the lint firing means a struct is wanted. Recognized closed sets of values (relation labels, tags) likewise ride as enums, not bare strings.
 
 ### Error handling
 
@@ -104,32 +99,14 @@ Within each module, organize code as follows:
 
 ### Database access (SQLite)
 
-- Run every `query_map` and multi-column `query_row` through the shared `db::query_map_into` /
-  `query_opt_into` helpers, passing a mapping closure. They own the prepare-iterate-collect plumbing
-  and are generic over the error type, so a mapper that decodes a row and then does serde/ULID work
-  `?`-chains into the layer's own error rather than hand-rolling a closure that returns a tuple plus a
-  second loop that converts it.
-- Each error type that flows through the helpers implements `From<rusqlite::Error>` (so the helper's
-  and the mapper's `?` convert backend failures). That `From` is the conversion path; reserve a
-  `map_err` shim for the few reads that stay on a bare `query_row`.
-- Decode a row's columns with rusqlite's tuple `TryFrom` — `let (seq, recorded_at, payload): (i64,
-  i64, String) = row.try_into()?;` — **only when the unpack stays a single line** (roughly three or
-  four narrow columns). For wider rows, fall back to explicit per-column `row.get("column")?` **by
-  name**: a multi-line tuple-of-types buys nothing over named gets and reads worse, and naming the
-  columns is order-safe where counting positions is not. Reserve positional `row.get(0)` for a lone
-  scalar, where neither a tuple nor a name pays off.
-- Keep the row-decoding mapper **beside its query**, as a local closure (or a small free fn for a
-  genuinely shared shape). Do not hoist decoding into a per-type `TryFrom<&rusqlite::Row>` impl: a
-  single impl presumes every query reads that type identically, which the schema does not guarantee.
+- Run every `query_map` and multi-column `query_row` through the shared `db::query_map_into` / `query_opt_into` helpers, passing a mapping closure. They own the prepare-iterate-collect plumbing and are generic over the error type, so a mapper that decodes a row and then does serde/ULID work `?`-chains into the layer's own error rather than hand-rolling a closure that returns a tuple plus a second loop that converts it.
+- Each error type that flows through the helpers implements `From<rusqlite::Error>` (so the helper's and the mapper's `?` convert backend failures). That `From` is the conversion path; reserve a `map_err` shim for the few reads that stay on a bare `query_row`.
+- Decode a row's columns with rusqlite's tuple `TryFrom` — `let (seq, recorded_at, payload): (i64, i64, String) = row.try_into()?;` — **only when the unpack stays a single line** (roughly three or four narrow columns). For wider rows, fall back to explicit per-column `row.get("column")?` **by name**: a multi-line tuple-of-types buys nothing over named gets and reads worse, and naming the columns is order-safe where counting positions is not. Reserve positional `row.get(0)` for a lone scalar, where neither a tuple nor a name pays off.
+- Keep the row-decoding mapper **beside its query**, as a local closure (or a small free fn for a genuinely shared shape). Do not hoist decoding into a per-type `TryFrom<&rusqlite::Row>` impl: a single impl presumes every query reads that type identically, which the schema does not guarantee.
 
 ### Reaching through smart pointers
 
-- To borrow the value inside a lock guard, a `Box`, or an `Arc`, prefer `.as_ref()` / `.as_mut()`
-  over a manual double-deref: write `engine.store.lock().as_ref()` and
-  `engine.store.lock().as_mut()`, not `&**engine.store.lock()` and `&mut **engine.store.lock()`. The
-  named form reads as "borrow the store" rather than as deref bookkeeping, and it is the form already
-  used throughout (`Settings::from_store(store.lock().as_ref())`, `genesis::rollout(store.lock()
-  .as_mut(), …)`). The same applies to an `Arc<dyn Trait>`: `model.as_ref()`, not `&**model`.
+- To borrow the value inside a lock guard, a `Box`, or an `Arc`, prefer `.as_ref()` / `.as_mut()` over a manual double-deref: write `engine.store.lock().as_ref()` and `engine.store.lock().as_mut()`, not `&**engine.store.lock()` and `&mut **engine.store.lock()`. The named form reads as "borrow the store" rather than as deref bookkeeping, and it is the form already used throughout (`Settings::from_store(store.lock().as_ref())`, `genesis::rollout(store.lock().as_mut(), …)`). The same applies to an `Arc<dyn Trait>`: `model.as_ref()`, not `&**model`.
 
 ## Testing 
 
@@ -143,11 +120,7 @@ Within each module, organize code as follows:
 
 ## Evaluations
 
-The eval harness (`crates/eval`) is the behavioural validation suite: it drives the agent through a set
-of scenarios against a local model, judges each run against per-scenario oracles, and writes a package
-(`eval/<name>.json`) that the console renders and the `analyze` subcommand reads. Runs hit a local
-inference server, so they need a configured model (`config.toml`) and a GPU — they are deliberately not
-part of `cargo test`.
+The eval harness in `crates/eval` runs the agent through a suite of behavioural scenarios against a local model, judges each run against per-scenario oracles, and writes a package (`eval/<name>.json`) that the console renders and the `analyze` subcommand reads. A run drives a local inference server, so it needs a configured model (`config.toml`) and a GPU, and it is kept out of `cargo test`.
 
 ### Running an eval
 
@@ -155,17 +128,10 @@ part of `cargo test`.
 cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
 ```
 
-- It writes `eval/<name>.json` (plus a resumable `.jsonl` sidecar). The `eval/` directory is gitignored
-  apart from the tracked `history.jsonl` trend record, so name runs descriptively.
-- `--runs N` sets the runs per scenario (the statistical N; default 8), and `--scenario a,b,c` restricts
-  the suite to scenarios whose names contain any of the comma-separated substrings.
-- Serving is on by default: the live console is at http://127.0.0.1:7878/ while the run proceeds, and
-  the process exits once it completes. `--no-serve` opts out, and `--serve-after-completion` keeps it up
-  for review afterward.
-- The exit code is the gating signal — success when every gating oracle held, and failure (logging `a
-  gating safety oracle regressed`) when any slipped. A gating bar is a must-not-surface safety property
-  where a single slip across N runs fails the harness; a metric bar is a should-surface rate reported
-  against a threshold but never failing the run.
+- The run writes `eval/<name>.json` and a resumable `.jsonl` sidecar. `eval/` is gitignored apart from the tracked `history.jsonl` trend record, so name runs descriptively.
+- `--runs N` sets the runs per scenario (the statistical N; default 8). `--scenario a,b,c` keeps only scenarios whose names contain one of the comma-separated substrings.
+- Serving is on by default — the live console is at http://127.0.0.1:7878/ while the run proceeds, and the process exits when it finishes. `--no-serve` turns it off; `--serve-after-completion` leaves it up for review.
+- The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar is a must-not-surface safety property, where one slip across N runs fails the harness; a metric bar is a should-surface rate, reported against a threshold but never failing the run.
 
 ### Analyzing an eval
 
@@ -175,39 +141,23 @@ eval analyze eval/<name>.json -b eval/<base>.json  # ... with the Δ, regression
 eval analyze eval/<name>.json -f -s <scenario>     # dump the failed runs' complete deliberation traces
 ```
 
-The `--failures`/`-f` dump is the tool for deciding the next prompt or code edit: for each failed run it
-prints the missed oracles with their rationale and the full step-by-step deliberation — the agent's
-reasoning, the Lua it emitted, and each result. `--scenario`/`-s` filters by name substring, `--limit`
-caps the runs dumped per scenario, and `--truncate N` clips long reasoning and scripts (`0` for the full
-text).
+Reach for the `--failures`/`-f` dump when deciding the next prompt or code edit. For each failed run it prints the missed oracles with their rationale, then the whole deliberation: the agent's reasoning, the Lua it ran, and what came back. `--scenario`/`-s` filters by name substring, `--limit` caps the runs shown per scenario, and `--truncate N` clips long reasoning and scripts (`0` keeps them whole).
 
 ## Frontend (the console)
 
-The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React
-Compiler enabled (so the data-heavy views auto-memoize; prefer plain derivation over hand-written
-`useMemo`/`useCallback`). See `console/PLAN.md` for the architecture and `docs/spec.md` →
-**Observability** for what the views are.
+The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React Compiler enabled (so the data-heavy views auto-memoize; prefer plain derivation over hand-written `useMemo`/`useCallback`). See `console/PLAN.md` for the architecture and `docs/spec.md` → **Observability** for what the views are.
 
 ### Checks
 
 Run these from `console/`; all four must pass, and CI enforces them:
 
 - `npm run typecheck` — `tsc -b` with no errors.
-- `npm run lint` — ESLint, including the `react-hooks` and React Compiler rules (the views must stay
-  within the Rules of React the compiler relies on).
+- `npm run lint` — ESLint, including the `react-hooks` and React Compiler rules (the views must stay within the Rules of React the compiler relies on).
 - `npm run format:check` — Prettier. `npm run format` writes the fixes.
 - `npm run build` — the production build.
 
 ### Conventions
 
-- **Rust is the source of truth for the wire contract.** The TypeScript bindings in
-  `console/src/types/` and the wasm materializer bundle in `console/src/wasm/` are *generated* and
-  checked in — never hand-edit them. Regenerate both with `./console/regen.sh` (which re-execs into
-  the nix-shell for the wasm C toolchain) whenever a wire type or the materializer changes, and
-  commit the result. Linting and formatting skip these directories.
-- **Cast wasm crossings in one place.** The `Replica` wrapper (`src/lib/replica.ts`) is the only
-  place the wasm `JsValue` results are typed; views consume the typed surface.
-- **The aesthetic is Japandi**, expressed as design tokens in `src/app.css` (`@theme`): a warm paper
-  ground, sumi-ink text, clay and sage accents used sparingly, a real type scale, and hairline
-  rules. Reach for the tokens (`text-ink`, `border-line`, `font-serif`, `text-clay`, …) rather than
-  ad-hoc colors, so the system stays coherent. Craft over chrome — calm and legible over dense.
+- **Rust is the source of truth for the wire contract.** The TypeScript bindings in `console/src/types/` and the wasm materializer bundle in `console/src/wasm/` are *generated* and checked in — never hand-edit them. Regenerate both with `./console/regen.sh` (which re-execs into the nix-shell for the wasm C toolchain) whenever a wire type or the materializer changes, and commit the result. Linting and formatting skip these directories.
+- **Cast wasm crossings in one place.** The `Replica` wrapper (`src/lib/replica.ts`) is the only place the wasm `JsValue` results are typed; views consume the typed surface.
+- **The aesthetic is Japandi**, expressed as design tokens in `src/app.css` (`@theme`): a warm paper ground, sumi-ink text, clay and sage accents used sparingly, a real type scale, and hairline rules. Reach for the tokens (`text-ink`, `border-line`, `font-serif`, `text-clay`, …) rather than ad-hoc colors, so the system stays coherent. Craft over chrome — calm and legible over dense.
