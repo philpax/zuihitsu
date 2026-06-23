@@ -529,8 +529,8 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
             clock.now(),
             vec![
                 EventPayload::LinkTypeRegistered {
-                    name: RelationName::new("active_in"),
-                    inverse: RelationName::new("has_active"),
+                    name: RelationName::ActiveIn,
+                    inverse: RelationName::HasActive,
                     from_card: Cardinality::Many,
                     to_card: Cardinality::Many,
                     symmetric: false,
@@ -695,8 +695,8 @@ async fn link_resolves_a_name_string_target() {
         .append(
             h.clock.now(),
             vec![EventPayload::LinkTypeRegistered {
-                name: RelationName::new("knows"),
-                inverse: RelationName::new("knows"),
+                name: RelationName::Knows,
+                inverse: RelationName::Knows,
                 from_card: Cardinality::Many,
                 to_card: Cardinality::Many,
                 symmetric: true,
@@ -938,8 +938,8 @@ async fn a_traversing_read_locks_the_whole_class() {
         .append(
             h.clock.now(),
             vec![EventPayload::LinkTypeRegistered {
-                name: RelationName::new("same_as"),
-                inverse: RelationName::new("same_as"),
+                name: RelationName::SameAs,
+                inverse: RelationName::SameAs,
                 from_card: Cardinality::Many,
                 to_card: Cardinality::Many,
                 symmetric: true,
@@ -1034,8 +1034,8 @@ async fn link_readers_traverse_the_merged_identity() {
             h.clock.now(),
             vec![
                 EventPayload::LinkTypeRegistered {
-                    name: RelationName::new("same_as"),
-                    inverse: RelationName::new("same_as"),
+                    name: RelationName::SameAs,
+                    inverse: RelationName::SameAs,
                     from_card: Cardinality::Many,
                     to_card: Cardinality::Many,
                     symmetric: true,
