@@ -74,6 +74,15 @@ pub struct Server {
     /// `Mutex` (and each value an `Arc`) so concurrent conversations reach the map through a shared
     /// `&Server`; a turn holds its session's `Arc` across the turn `.await` without keeping the map guard.
     sessions: Mutex<HashMap<ConversationId, Arc<OpenSession>>>,
+    /// A per-conversation async lock serializing its session lifecycle: the close-with-flush of one
+    /// session and the open of the next. A close runs a flush — a model call lasting seconds — before it
+    /// records `SessionEnded`, and within that window the idle sweep and the message-driven recovery path
+    /// both reach the close for the same session. Held across `ensure_session` and the sweep's close, it
+    /// makes the message path *wait* for an in-flight sweep close to finish before opening the next
+    /// session — so that session's brief reads the flush's writes — and lets the second closer see the
+    /// session already ended and skip. Locks are minted lazily and kept (one per conversation the agent
+    /// ever holds; negligible).
+    lifecycle: Mutex<HashMap<ConversationId, Arc<tokio::sync::Mutex<()>>>>,
     /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
     /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
     /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
@@ -90,6 +99,12 @@ pub struct Server {
     /// proposals off the hot path (spec §Cross-platform identity → adjudicated merge). Re-seeded to
     /// log-head at boot, like the describer's.
     adjudicator_cursor: Mutex<Seq>,
+    /// Serializes describe-catch-up passes — the force-before-brief one (a new session opening) and the
+    /// background timer one — so two never run concurrently. Without it both read the cursor before
+    /// either advances it, so they re-describe (and re-embed) the same memories for the same change.
+    describe_guard: tokio::sync::Mutex<()>,
+    /// As `describe_guard`, serializing the adjudicator's catch-up.
+    adjudicate_guard: tokio::sync::Mutex<()>,
     /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
     /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
     /// model at once; further streams queue. Sized from settings at construction (a change takes
@@ -146,9 +161,12 @@ impl Server {
         Server {
             engine,
             sessions: Mutex::new(HashMap::new()),
+            lifecycle: Mutex::new(HashMap::new()),
             pending_carryover: Mutex::new(HashMap::new()),
             describer_cursor: Mutex::new(Seq::ZERO),
             adjudicator_cursor: Mutex::new(Seq::ZERO),
+            describe_guard: tokio::sync::Mutex::new(()),
+            adjudicate_guard: tokio::sync::Mutex::new(()),
             streams,
             mcp: None,
             model_context_length: None,
@@ -364,6 +382,17 @@ impl Server {
         Ok((report, buffer))
     }
 
+    /// The lazily-minted async lock serializing `conversation`'s session lifecycle (see [`Server::
+    /// lifecycle`]). Acquired across `ensure_session` and the idle sweep's close, so the close-with-flush
+    /// of one session always finishes before the next session for that conversation opens.
+    fn lifecycle_lock(&self, conversation: ConversationId) -> Arc<tokio::sync::Mutex<()>> {
+        self.lifecycle
+            .lock()
+            .entry(conversation)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
     /// A fresh session VM for a conversation, carrying the MCP projection when servers are connected.
     fn mint_vm(&self, conversation: ConversationId) -> Session {
         match &self.mcp {
@@ -390,6 +419,13 @@ impl Server {
         open: &OpenSession,
         model: &dyn ModelClient,
     ) -> Result<bool, ServerError> {
+        // The caller holds this conversation's lifecycle lock (see [`Server::lifecycle`]), so the
+        // open-check is reliable here — no other path can be closing this session concurrently. Skip if
+        // it is already ended: a path that held the lock before us (the sweep, or the recovery close) has
+        // closed it.
+        if !self.engine.graph.lock().session_is_open(open.id)? {
+            return Ok(false);
+        }
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
         let buffer = buffer_turns(
             self.engine.store.lock().as_ref(),
@@ -426,6 +462,13 @@ impl Server {
             now,
             vec![EventPayload::session_ended(conversation, open.id)],
         )?;
+        // Apply the close to the graph so the session reads as `ended`. Without this the `SessionEnded`
+        // lands in the log but not the projection, so `open_sessions` keeps returning the session and
+        // the idle sweep re-closes it every tick, appending a fresh `SessionEnded` each time.
+        self.engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
         Ok(flushed)
     }
 
@@ -442,6 +485,12 @@ impl Server {
         present_set: &[MemoryId],
         model: &dyn ModelClient,
     ) -> Result<Arc<OpenSession>, ServerError> {
+        // Serialize this conversation's lifecycle: hold its lock across the whole recover/close/open so an
+        // idle-sweep close already in flight for it finishes first — its flush's writes are then in the
+        // graph the new session's brief reads — and so the close and the next open never interleave.
+        let lifecycle = self.lifecycle_lock(conversation);
+        let _lifecycle = lifecycle.lock().await;
+
         let now = self.engine.clock.now();
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
         let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
@@ -856,6 +905,9 @@ impl Server {
     /// explicitly by tests and the eval harness so a caller can force regeneration to a known point and
     /// then read fresh descriptions. Returns how many memories it considered.
     pub async fn describe_catch_up(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+        // Held across the catch-up so a concurrent pass waits, then reads the already-advanced cursor
+        // and no-ops, rather than re-describing the same memories.
+        let _guard = self.describe_guard.lock().await;
         let cursor = *self.describer_cursor.lock();
         let (advanced, count) = run_describe_catch_up(&self.engine, model, cursor).await?;
         *self.describer_cursor.lock() = advanced;
@@ -904,6 +956,7 @@ impl Server {
     /// a timer by the served runtime and explicitly by tests and the eval harness. Returns how many
     /// proposals it considered.
     pub async fn adjudicate_catch_up(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+        let _guard = self.adjudicate_guard.lock().await;
         let cursor = *self.adjudicator_cursor.lock();
         let (advanced, count) = run_adjudicate_catch_up(&self.engine, model, cursor).await?;
         *self.adjudicator_cursor.lock() = advanced;
@@ -984,22 +1037,39 @@ impl Server {
             if now.as_millis() - last_activity_ms <= idle_gap_ms {
                 continue;
             }
-            self.sessions.lock().entry(conversation).or_insert_with(|| {
-                Arc::new(OpenSession {
-                    id: recovered.id,
-                    vm: self.mint_vm(conversation),
-                    brief: recovered.brief,
-                    started_at: recovered.started_at,
-                    last_activity: AtomicI64::new(last_activity_ms),
-                    start_seq: recovered.start_seq,
-                })
-            });
-            let stale = self.sessions.lock().remove(&conversation);
-            if let Some(stale) = stale {
-                self.flush_and_end(conversation, stale.as_ref(), model)
-                    .await?;
-                closed += 1;
+            // Hold the conversation's lifecycle lock across the close, so a message arriving mid-flush
+            // waits in `ensure_session` rather than opening a new session before this flush lands.
+            let lifecycle = self.lifecycle_lock(conversation);
+            let _lifecycle = lifecycle.lock().await;
+            // Re-validate under the lock: a message that arrived since the candidate list was captured may
+            // have closed this session and opened a newer one, which must not be closed here.
+            if !self.engine.graph.lock().session_is_open(recovered.id)? {
+                continue;
             }
+            // Close this specific candidate: reuse the live handle if it is this session, else mint one.
+            let stale = {
+                let mut sessions = self.sessions.lock();
+                if sessions
+                    .get(&conversation)
+                    .is_some_and(|s| s.id == recovered.id)
+                {
+                    sessions
+                        .remove(&conversation)
+                        .expect("present under the lock")
+                } else {
+                    Arc::new(OpenSession {
+                        id: recovered.id,
+                        vm: self.mint_vm(conversation),
+                        brief: recovered.brief,
+                        started_at: recovered.started_at,
+                        last_activity: AtomicI64::new(last_activity_ms),
+                        start_seq: recovered.start_seq,
+                    })
+                }
+            };
+            self.flush_and_end(conversation, stale.as_ref(), model)
+                .await?;
+            closed += 1;
         }
         Ok(closed)
     }
@@ -1333,6 +1403,177 @@ mod embedding_swap_tests {
 
         // A second boot finds the model unchanged and does nothing.
         assert!(!server.reembed_if_embedding_model_changed().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn the_idle_sweep_closes_a_session_once_not_every_tick() {
+        // Regression: `flush_and_end` must apply its `SessionEnded` to the graph, not only append it.
+        // Otherwise `open_sessions` keeps returning the closed session and the sweep re-closes it every
+        // tick — the live-instance "the session ended right after my message" loop.
+        let conversation = ConversationId::generate();
+        let session = SessionId::generate();
+        let mut store = MemoryStore::new();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                vec![EventPayload::SessionStarted {
+                    conversation,
+                    id: session,
+                    participants: vec![],
+                    started_at: Timestamp::from_millis(1_000),
+                    seeded_from_turn: None,
+                    brief: "brief".to_owned(),
+                }],
+            )
+            .unwrap();
+
+        let mut graph = Graph::open_in_memory().unwrap();
+        graph.materialize_from(&store).unwrap();
+        let clock = ManualClock::new(Timestamp::from_millis(2_000));
+        let server = Server::new(Box::new(store), graph, Box::new(clock.clone()));
+        assert_eq!(
+            server.engine.graph.lock().open_sessions().unwrap().len(),
+            1,
+            "the session starts open"
+        );
+
+        // Past the idle gap; the session has no content turns, so the close skips the flush turn and
+        // never calls the model.
+        clock.advance_millis(7_200_000);
+        let model = crate::model::ScriptedModel::new([]);
+
+        assert_eq!(
+            server.sweep_idle_sessions(&model).await.unwrap(),
+            1,
+            "the first sweep closes the idle session"
+        );
+        assert!(
+            server
+                .engine
+                .graph
+                .lock()
+                .open_sessions()
+                .unwrap()
+                .is_empty(),
+            "the close must reach the graph so the session reads as ended"
+        );
+        assert_eq!(
+            server.sweep_idle_sessions(&model).await.unwrap(),
+            0,
+            "a second sweep must not re-close it"
+        );
+
+        // The close is recorded exactly once — no repeated `SessionEnded`.
+        let ends = server
+            .engine
+            .store
+            .lock()
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event.payload, EventPayload::SessionEnded { .. }))
+            .count();
+        assert_eq!(ends, 1, "the session is ended once, never re-closed");
+
+        // And `flush_and_end` itself is idempotent: invoked again on the now-closed session (as a stale
+        // sweep candidate would), it skips rather than appending a second close.
+        let stale = Arc::new(OpenSession {
+            id: session,
+            vm: server.mint_vm(conversation),
+            brief: "brief".to_owned(),
+            started_at: Timestamp::from_millis(1_000),
+            last_activity: AtomicI64::new(1_000),
+            start_seq: Seq(1),
+        });
+        assert!(
+            !server
+                .flush_and_end(conversation, &stale, &model)
+                .await
+                .unwrap(),
+            "flush_and_end on an already-ended session is a no-op"
+        );
+        let ends_after = server
+            .engine
+            .store
+            .lock()
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event.payload, EventPayload::SessionEnded { .. }))
+            .count();
+        assert_eq!(ends_after, 1, "no second close was appended");
+    }
+
+    #[tokio::test]
+    async fn concurrent_closes_of_one_session_record_a_single_end() {
+        // A close runs a flush — a model call lasting seconds — before recording `SessionEnded`. In that
+        // window the idle sweep and the message-driven recovery path both reach the close for one session.
+        // Both hold the conversation's lifecycle lock; serialized through it, the first closes and the
+        // second sees the session already ended and skips — exactly one `SessionEnded`, not two.
+        let conversation = ConversationId::generate();
+        let session = SessionId::generate();
+        let mut store = MemoryStore::new();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                vec![EventPayload::SessionStarted {
+                    conversation,
+                    id: session,
+                    participants: vec![],
+                    started_at: Timestamp::from_millis(1_000),
+                    seeded_from_turn: None,
+                    brief: "brief".to_owned(),
+                }],
+            )
+            .unwrap();
+        let mut graph = Graph::open_in_memory().unwrap();
+        graph.materialize_from(&store).unwrap();
+        let server = Server::new(
+            Box::new(store),
+            graph,
+            Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
+        );
+
+        let open = Arc::new(OpenSession {
+            id: session,
+            vm: server.mint_vm(conversation),
+            brief: "brief".to_owned(),
+            started_at: Timestamp::from_millis(1_000),
+            last_activity: AtomicI64::new(1_000),
+            start_seq: Seq(1),
+        });
+        let model = crate::model::ScriptedModel::new([]);
+        let lifecycle = server.lifecycle_lock(conversation);
+        let (a, b) = tokio::join!(
+            async {
+                let _held = lifecycle.lock().await;
+                server.flush_and_end(conversation, &open, &model).await
+            },
+            async {
+                let _held = lifecycle.lock().await;
+                server.flush_and_end(conversation, &open, &model).await
+            },
+        );
+        a.unwrap();
+        b.unwrap();
+
+        let ends = server
+            .engine
+            .store
+            .lock()
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event.payload, EventPayload::SessionEnded { .. }))
+            .count();
+        assert_eq!(
+            ends, 1,
+            "two concurrent closes record exactly one SessionEnded"
+        );
+        assert!(
+            !server.engine.graph.lock().session_is_open(session).unwrap(),
+            "the session is left ended"
+        );
     }
 
     #[tokio::test]

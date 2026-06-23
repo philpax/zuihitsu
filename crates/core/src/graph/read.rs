@@ -930,6 +930,17 @@ impl Graph {
         ))?)
     }
 
+    /// Whether a session is still open — recorded but not yet `SessionEnded`. The close paths check this
+    /// before flushing and ending, so a session the idle sweep snapshotted as open (its candidate list is
+    /// captured up front) but another path has since closed is not flushed and ended a second time.
+    pub fn session_is_open(&self, session: SessionId) -> Result<bool, GraphError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1 AND ended = 0)",
+            params![session.0.to_string()],
+            |row| row.get(0),
+        )?)
+    }
+
     /// A session's participants — the present set at open plus anyone who joined — ordered by id.
     pub fn session_participants(&self, session: SessionId) -> Result<Vec<MemoryId>, GraphError> {
         let stmt = self.conn.prepare(
