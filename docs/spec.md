@@ -844,13 +844,17 @@ dave:append("Dave got a new job at Hooli")
 dave:append("Got a new job", { occurred_at = "last week", visibility = "private" })
 dave:tag("colleagues"); dave:untag("strangers")
 dave:link("works_at", memory.get("company/hooli"))   -- a One-cardinality relation replaces in place
+dave:link("knows", "person/erin")   -- the target may be a name string as well as a handle
 dave:supersede(old_entry, new_entry)
+dave:revise(old_entry, "Now a staff engineer")   -- append the new value and supersede the old in one atomic call
 dave:rename("person/sarah")   -- same memory, new handle: when someone changes the name they go by
 dave:entries(); dave:history()
 
 -- Link readers (auto-traverse same_as); each result renders as "relation → name"
 dave:outgoing("mentor_of"); dave:incoming("mentor_of"); dave:links()
 ```
+
+`mem:revise(old, new_text[, opts])` collapses the common correction — append the new value, supersede the old — into one atomic call: if the supersede fails because the old entry is not live, the append rolls back with it, so a correction never half-applies into a new value standing beside the stale one. A relation's target on `:link` and `:unlink` may be given as a memory's name string as well as a handle, resolved to its memory like any name.
 
 `same_as` is auto-traversed on reads: `memory.get`, search, and the link readers (`outgoing`/`incoming`/`links`) surface content and links from the whole class, deduplicated, with per-stub provenance preserved. A link reader orients every edge against the queried identity — `outgoing` for an edge the identity is the source of, `incoming` for one it is the target of — and surfaces only relationships pointing *out* of the class, never the `same_as` edges holding it together; each result carries the far memory as an actionable handle alongside the relation, direction, source, and the teller who asserted it (`told_by`). Like the relation-registry reads, they reflect committed state, so a link written in the same block is not yet visible to a read in it. Writes are not traversed, so `dave@discord:append(...)` writes the Discord stub. A write through a class-spanning handle resolves to the class's primary stub, the right home for a platform-agnostic human-fact; to attribute to a specific platform, name the stub directly, `memory.get("person/dave@slack")`.
 
