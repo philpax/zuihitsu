@@ -456,10 +456,21 @@ struct ExtractedArbitration {
 enum ExtractedTime {
     Instant(String),
     Day(String),
-    Range { start: String, end: String },
-    Approx { center: String, fuzz_days: u32 },
+    Range {
+        start: String,
+        end: String,
+    },
+    Approx {
+        center: String,
+        fuzz_days: u32,
+    },
+    /// An RFC 5545 recurrence rule, e.g. `FREQ=WEEKLY;BYDAY=MO`. Only `FREQ` and `INTERVAL` are
+    /// interpreted; bare English cadences like "every Monday" are dropped.
     Recurring(String),
-    BeforeAfter { dir: String, anchor: String },
+    BeforeAfter {
+        dir: String,
+        anchor: String,
+    },
 }
 
 impl ExtractedTime {
@@ -483,7 +494,13 @@ impl ExtractedTime {
                 center: Timestamp::from_millis(time::date_or_datetime_to_millis(&center)?),
                 fuzz_days,
             }),
-            ExtractedTime::Recurring(rule) => Some(TemporalRef::Recurring(Rrule(rule.into()))),
+            ExtractedTime::Recurring(rule) => {
+                // Reject a rule this build cannot interpret (a model free-phrasing such as "every
+                // Monday") rather than committing a Recurring entry that parses to no occurrence and
+                // so silently never fires. Treated as unparseable, so resolve_occurrences drops it.
+                let rule = Rrule(rule.into());
+                time::rrule_is_supported(&rule).then_some(TemporalRef::Recurring(rule))
+            }
             ExtractedTime::BeforeAfter { dir, anchor } => {
                 let dir = match dir.trim().to_ascii_lowercase().as_str() {
                     "before" => Direction::Before,
@@ -545,7 +562,7 @@ mod tests {
     use super::ExtractedTime;
     use crate::{
         ids::MemoryName,
-        time::{self, CivilDate, TemporalRef, Timestamp},
+        time::{self, CivilDate, Rrule, TemporalRef, Timestamp},
     };
 
     fn ms(date: &str) -> i64 {
@@ -642,6 +659,25 @@ mod tests {
                 end: "2020-01-01".to_owned(),
             }
             .into_temporal_ref(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_supported_recurrence_is_kept_and_a_free_phrase_is_dropped() {
+        // A well-formed rule arms a wake-up, so it is committed.
+        assert_eq!(
+            ExtractedTime::Recurring("FREQ=WEEKLY;BYDAY=MO".to_owned()).into_temporal_ref(),
+            Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY;BYDAY=MO".into())))
+        );
+        // A free-phrased cadence ("every Monday") is not an rrule this build interprets: dropping it
+        // here leaves the entry untimed, rather than committing a Recurring that silently never fires.
+        assert_eq!(
+            ExtractedTime::Recurring("every Monday".to_owned()).into_temporal_ref(),
+            None
+        );
+        assert_eq!(
+            ExtractedTime::Recurring("FREQ=HOURLY".to_owned()).into_temporal_ref(),
             None
         );
     }
