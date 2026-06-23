@@ -138,10 +138,10 @@ cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
 ```
 eval analyze eval/<name>.json                      # per-scenario summary (rate, bar, gating)
 eval analyze eval/<name>.json -b eval/<base>.json  # ... with the Δ, regressions, and improvements vs a baseline
-eval analyze eval/<name>.json -f -s <scenario>     # dump the failed runs' complete deliberation traces
+eval analyze eval/<name>.json -f -s <scenario> -e <events>     # dump the failed runs' complete deliberation traces
 ```
 
-Reach for the `--failures`/`-f` dump when deciding the next prompt or code edit. For each failed run it prints the missed oracles with their rationale, then the whole deliberation: the agent's reasoning, the Lua it ran, and what came back. `--scenario`/`-s` filters by name substring, `--limit` caps the runs shown per scenario, and `--truncate N` clips long reasoning and scripts (`0` keeps them whole).
+Reach for the `--failures`/`-f` dump when deciding the next prompt or code edit. It starts with a cross-scenario rollup of every missed verdict, grouping by criterion so a single behavioural thread is visible across scenarios. For each failed run it prints the missed oracles with their rationale, then the whole deliberation: the agent's reasoning, the Lua it ran, and what came back. `--scenario`/`-s` filters by name substring; `--events`/`-e` adds a compact summary of the events whose payload type name contains the substring (for example, `MemoryContentAppended`, `ScheduledJobFired`, or `EntryTemporalResolved`); `--limit` caps the runs shown per scenario; and `--truncate N` clips long reasoning and scripts (`0` keeps them whole).
 
 ## Frontend (the console)
 

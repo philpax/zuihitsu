@@ -103,6 +103,11 @@ enum Command {
         /// Restrict to scenarios whose name contains this substring.
         #[arg(long, short)]
         scenario: Option<String>,
+        /// With `--failures`, also print the events whose payload type contains this substring for
+        /// each dumped run (e.g. `Scheduled`, `ContentAppended`, `TemporalResolved`), to pinpoint why
+        /// a run failed at the event level.
+        #[arg(long, short)]
+        events: Option<String>,
         /// Cap the failed runs dumped per scenario (0 = all).
         #[arg(long, default_value_t = 0)]
         limit: usize,
@@ -122,6 +127,7 @@ async fn main() -> ExitCode {
             baseline,
             failures,
             scenario,
+            events,
             limit,
             truncate,
         } => match analyze::analyze(
@@ -129,6 +135,7 @@ async fn main() -> ExitCode {
             baseline.as_deref(),
             failures,
             scenario.as_deref(),
+            events.as_deref(),
             limit,
             truncate,
         ) {
