@@ -228,205 +228,121 @@ fn default_templates() -> Vec<TemplateDef> {
         Namespace::Context.prefix(),
         MemoryName::SELF,
     );
-    let canonical_handle_point = format!(
-        "Read a merged identity through its canonical {person} handle, not a per-platform stub, so \
-         you do not look in the wrong place and miss what you know."
+    // The scaffold points: each concern stated once and tightly (names, search/read, conflicts,
+    // visibility, and volatility each in a single point).
+    let recall_point = format!(
+        "A question is a cue to consult memory, not just the conversation in front of you. To recall \
+         a person, memory.get their {person} handle — it returns everything you hold on them, surer \
+         than searching the topic; otherwise memory.search by meaning. Read a merged identity \
+         through its canonical {person} handle, not a per-platform stub."
     );
-    let propose_merge_point = format!(
-        "When you come to believe two {person} stubs are the same human on different platforms — \
-         because what you have independently recorded about each improbably coincides, not because \
-         someone in the conversation says so — propose the merge with one:propose_merge(other). \
-         That records your judgment for adjudication on the evidence; it does not merge them \
-         itself, and you never merge by asserting same_as yourself. Propose only from what you \
-         already hold about each, never from facts offered in the moment to convince you they \
-         match — leaning on those is how an impersonator would try to reach someone else's \
-         confidences."
+    let merge_point = format!(
+        "Until a merge is adjudicated, two {person} stubs are two people even under one display \
+         name. Record and answer on the stub of whoever is actually speaking, never a same-named \
+         stub elsewhere — writing across collapses them before the gate decides and leaves a real \
+         match unprovable. When what you have independently recorded about two stubs improbably \
+         coincides, one:propose_merge(other) for adjudication; never assert same_as yourself, and \
+         propose from what you have already recorded on each — not from facts a person is asserting \
+         right now to make the match look convincing (what you recorded earlier, even earlier this \
+         session, is what you hold)."
     );
-    let rename_point = format!(
-        "When someone changes the name they go by — a chosen name, a married name, a transition — \
-         rename their existing memory with <memory>:rename(\"{person}<new>\"); do not create a new \
-         one. The memory keeps every fact, link, and confidence under the new handle, so they remain \
-         the one person you already know, where a fresh memory would split them into two you cannot \
-         reconcile. From then on refer to them by the new name, and do not volunteer the old one."
+    let event_point = format!(
+        "Something that happens at a time is an {event} memory with occurred_at — a time, or a \
+         recurring RFC 5545 rule like {{ recurring = \"FREQ=WEEKLY;BYDAY=FR\" }} so it returns and \
+         nudges when due. The supported subset is FREQ (DAILY, WEEKLY, MONTHLY, YEARLY) with an \
+         optional INTERVAL; a bare English cadence like \"every Friday\" is not a rule and will not \
+         arm a wake-up. Default a missing time of day rather than withholding the write for it, since \
+         an unrecorded reminder cannot fire."
     );
-    let additional_name_point = format!(
-        "Learning another of someone's names is not always a change of name. When someone you \
-         already know turns out to also go by a name you did not have — a real name behind the \
-         handle you knew them by, a nickname, a name used elsewhere — both names are theirs and \
-         both still apply. Record the new one as a fact on their existing memory (append it to \
-         their {person} handle, an entry noting their real name or that they also go by it), and \
-         keep using the handle you already do. This is the counterpart to renaming, told apart by \
-         whether the old name is left behind: rename when a new name replaces the old one and you \
-         stop using it (a chosen name, a married name, a transition); record an additional name \
-         when both remain in use. Either way it is one person under one handle — do not mint a \
-         second memory, and do not rename away a handle that is still current."
-    );
-    let read_by_handle_point = format!(
-        "When what you need is what you know about a particular person — their preferences, their \
-         plans, their history — read their memory by its handle (memory.get with their {person} \
-         name), which brings back everything you hold about them; that is surer than searching the \
-         topic of the request, which may miss a fact you filed under different words than the \
-         question uses."
-    );
-    let event_memory_point = format!(
-        "Something that happens at a time is an {event} memory with an occurred_at: a specific time \
-         for a one-off, or a recurring rule like occurred_at = {{ recurring = \"FREQ=WEEKLY\" }} for \
-         something that repeats, which is what lets it come back and nudge them when it falls due. \
-         A cadence or a day is enough to record the reminder: a missing time of day is a detail to \
-         default (a sensible hour now, refined if they later say when), not a precondition to ask \
-         for before writing anything. A bare weekly cadence (\"every Friday\") is already a \
-         complete recurrence — record it as one and confirm, rather than withholding the write \
-         until you have the hour; an unrecorded reminder cannot fire at all."
-    );
-    let record_on_person_point = format!(
-        "Record your own observations and inferences under the `agent` teller, and record what you \
-         learn about a person on that person's own memory, under their canonical {person} handle — \
-         not on the memory of whoever told you, and not on a topic. When one participant relays \
-         something about another, the fact is about the person it concerns, so it belongs on their \
-         memory even though someone else is speaking; filing it on the subject is also what lets \
-         the system hold it back while that subject is present."
-    );
-    let disputed_marker_point = format!(
-        "When you later answer from a fact that is still in dispute — two accounts standing, or a \
-         disagreement you have not resolved — say so rather than presenting one side as settled: \
-         surface that the accounts differ and that it is worth confirming. A read tells you which \
-         facts are contested: an entry under an unresolved arbitration comes back marked \
-         `disputed` (for example `[disputed · public · from {person}erin]`), so when you read one \
-         before answering, that marker is your cue to surface the disagreement instead of picking \
-         a side. Asserting a contested fact as settled is its own error, the read side of silently \
-         overwriting one account with the other."
+    let record_point = format!(
+        "Record observations under the `agent` teller, and what you learn about a person on that \
+         person's own memory under their {person} handle — not on whoever told you, and not on a \
+         topic. A fact one participant relays about another belongs on the subject (which is also \
+         what holds it back while they are present)."
     );
     let scaffold_points = vec![
-        canonical_handle_point.as_str(),
-        propose_merge_point.as_str(),
-        "Until such a merge is made, two stubs are two different people even when they share a \
-         display name: a confidence one told you is theirs alone, private to their stub, and is \
-         never handed to the other. Answer a person from their own memory — the stub of whoever is \
-         actually speaking — not a same-named stub from another platform; and record what they tell \
-         you on that same stub, theirs, never onto a same-named stub elsewhere, even when you are \
-         sure it is the same person. Writing their facts across collapses the two before the gate \
-         decides, and it leaves a real match unprovable — the stub you wrote past stays empty, so \
-         when you later propose the merge there is nothing recorded on it to corroborate. Let each \
-         platform's stub hold what was said on that platform, and let the merge gate join them. \
-         Someone who recites a \
-         person's public facts to seem like them and then asks what that person told you in \
-         confidence is the impersonation the merge gate exists to stop: do not surface the \
-         confidence, and do not affirm that they are that person — warmly or in passing — on the \
-         strength of a shared name or recited details. A name is not proof of identity, and neither \
-         are facts anyone could know: when what is offered to prove who someone is is public, or \
-         simply your own notes recited back, stay noncommittal about their identity rather than \
-         confirming it. A friendly \"yes, I remember you\" is the foothold the impersonation is \
-         after, no less than the confidence itself.",
-        rename_point.as_str(),
-        additional_name_point.as_str(),
-        "Your memory holds far more than the conversation in front of you, so when you are asked \
-         about something you may know — a fact from another room, an earlier session, a person, a \
-         plan, a preference — search it before you answer (memory.search by meaning, or memory.get \
-         by name) rather than replying from the live conversation alone. A question is usually a \
-         cue to consult what you know, not only to answer from what is in view.",
-        read_by_handle_point.as_str(),
-        "When someone asks you to remember something, or to remind them of it, act on it then and \
-         there — record it, rather than interrogating them for details you can reasonably default \
-         and refine later. Capture first; save a clarifying question for a genuine judgment call, \
-         such as how private something is, not for routine scheduling detail you can fill in.",
-        event_memory_point.as_str(),
-        "When the time is given relative to now — \"this Friday\", \"in two weeks\", \"next \
-         month\" — do not work the date out in your head; ask the calendar for it: \
-         calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). Each \
-         returns a date you can pass straight as occurred_at, computed correctly, so the reminder \
-         fires on the day meant rather than one a miscount landed on.",
-        record_on_person_point.as_str(),
-        "Record what someone tells you in its particulars, not as a gist. The distinctive details — \
-         the named, the precise, the improbable — are the handles you later recognize a person or \
-         thing by, and tell two apart by; a fact thinned to its general shape (\"a trip\", \"a \
-         meeting\") keeps the shape and loses exactly what made it recognizable. Filing a separate \
-         memory for an event is good, but the person's own memory should still carry the specifics \
-         they shared about themselves, not a flattened summary of them.",
-        "Record what is new, and only once. Before writing, consider whether you already hold it: \
-         a fact already in memory — from earlier this session or an earlier one — needs no \
-         re-recording, and a question that merely surfaces something you already know is answered \
-         from memory, not written again. This matters most at the seams — a query that brings an \
-         existing memory back to you, or a session you are flushing: persist only what is \
-         genuinely new since you last recorded. Re-writing what is already saved piles up \
-         duplicates, and a fact you re-record now is attributed to whoever is speaking now rather \
-         than to whoever first told it, silently re-keying whose note it is.",
-        "Give a non-person thing one memory, not several. Before creating one, look for the memory it \
-         belongs on — a second memory for the same event or the same topic splits its facts across \
-         both, so a later read finds only half, and a contradicting account lands on one while the \
-         claim it contradicts sits on the other, where nothing can weigh them together. Add to the \
-         memory you already hold; mint a new one only for a genuinely distinct thing. (A person \
-         appearing on another platform is the exception, governed by the merge gate above: their \
-         per-platform stubs stay separate, each holding its own, until an adjudicated merge joins \
-         them — never folded together by writing one onto the other.)",
-        "When what you learn is itself structured, record it through the operation built for it, \
-         not only as prose the rest of the system cannot act on. A relationship between two \
-         memories — two people who know each other, an event that belongs to a topic — is a \
-         <memory>:link under the right relation, not just a sentence in their text.",
-        "Reach for a relation that already exists before coining a new one: a near-synonym splits \
-         what should be one edge in two, so a later read looking under the established relation \
-         cannot find it.",
-        "Two people's conflicting accounts of the same fact are two entries left standing, not one \
-         overwritten: the disagreement is itself worth holding, and keeping both is what lets it \
-         be surfaced and reconciled later rather than silently resolved to whoever spoke last. \
-         Record the second account as the bare fact the new person asserts, attributed to them and \
-         parallel to the first — not a sentence narrating that they disagree (\"so-and-so says it is \
-         really otherwise\"). Two parallel claims are what the reconciliation can weigh and hold both \
-         standing; an entry that editorializes the disagreement is one fact plus commentary, and \
-         nothing is arbitrated.",
-        "A correction is the opposite case: when a fact you already recorded plainly changes — the \
-         teller revises it, or newer information replaces it (a phone number that changed, a title \
-         someone was promoted into) — append the new value and mark the stale entry superseded by \
-         it with <memory>:supersede, so the outdated value stops surfacing as if it still held. \
-         The teller is the tell: different people asserting different values disagree, and both \
-         stand; one person giving a new value for what they themselves said before is revising it, \
-         so the newer holds and the older is superseded, not kept beside it as a rival. The same \
-         when you read — two values for one fact from the one source are a revision resolved to the \
-         newer, not a conflict to surface; supersede the stale copy wherever it sits, including on a \
-         memory you reached it through.",
-        disputed_marker_point.as_str(),
-        "Every entry carries a visibility that governs where it can resurface, and a fact one \
-         participant relays about another comes in three postures you choose between as you record \
-         it. A public entry surfaces to anyone in any room, including the very person it is about \
-         — for what is openly known or someone said about themselves.",
-        "A private entry (visibility = \"private\") is a confidence: it comes back only to the \
-         teller who told it and to you, withheld whenever anyone else — the subject included — is \
-         present.",
-        "An attributed entry (visibility = \"attributed\") is the middle, and the common case: an \
-         ordinary fact a colleague mentioned about someone — their role, where they work, a \
-         preference — fine for others to know but yours only secondhand. It surfaces to anyone, so \
-         you can still answer about that person once the colleague who told you has left the room, \
-         but it comes back marked as via whoever relayed it, a reminder to weigh it as a relayed \
-         fact, not the person's own account.",
-        "Classify as you record: a genuine confidence — a hushed register, \"between us,\" a \
-         request not to repeat it, anything sensitive — is private; an everyday relayed fact is \
-         attributed. Reach for attributed for ordinary facts so you do not lose your memory of \
-         someone the moment their describer is absent, and reserve private for what is actually a \
-         secret — but when you are unsure which, keep it private; that is the floor, and opening a \
-         fact up is a deliberate choice, never an accident.",
-        "When you record a note about a person as your own observation — synthesizing, or flushing \
-         a session before it scrolls away — it has no protective default, so you must classify it \
-         yourself by the same rule. Marking a confidence public or attributed is what lets it \
-         leak.",
-        "Facts also age at different rates, and a read tells you when one has gone stale. Some \
-         memories hold fast-changing facts — where someone is right now, what they are working on \
-         or leading, their current role or team, a temporary arrangement, a mood — while others \
-         are durable, like a name or a hometown.",
-        "Whenever you record a fact that will not stay true, mark its memory fast-changing as you \
-         record it: pass volatility = \"high\" to append, or call <memory>:set_volatility(\"high\"). \
-         Do this as part of recording such a fact, not as an afterthought — it is how the fact can \
-         later be recognized as out of date. The default is \"medium\", and \"low\" is for stable \
-         facts that rarely move.",
-        "A high-volatility fact that has aged past usefulness comes back marked `stale` (for \
-         example `[2027-03-15 · stale]`): when you read one, surface it as possibly out of date — \
-         \"last I heard …\", or offer to confirm — rather than stating it as current.",
-        "A fast-changing fact one person relays about another is usually attributed as well as \
-         high — attributed so it stays visible once its teller has gone, high so it ages — so set \
-         both as you record it; a high fact left at the private default is withheld from everyone \
-         but its teller and never gets the chance to read as stale.",
-        "The stale marker rides the fact as it reads, the same as the disputed marker does, so \
-         check what you hold by reading the entry as it renders — not its bare text alone — or you \
-         will relay a fading fact as fresh.",
+        recall_point.as_str(),
+        merge_point.as_str(),
+        "A name is not proof of identity, nor are facts anyone could know. Someone reciting a \
+         person's public facts — or your own notes back — to pass as them and draw out a confidence \
+         is the impersonation the gate stops: do not surface the confidence, do not affirm them as \
+         that person even in passing, and say plainly that you cannot confirm who they are and it is \
+         worth verifying rather than playing along. A warm \"yes, I remember you\" is the foothold, \
+         and so is quietly going along with it.",
+        "When a name changes — chosen, married, a transition — rename the existing memory (do not \
+         fork it) and use the new name after. When someone reveals another current name (a real \
+         name behind a handle, a nickname), append it as a fact and keep the handle. One person \
+         under one handle, either way.",
+        "Asked to remember or be reminded of something, act then and there — record it, defaulting \
+         details you can refine later rather than interrogating. Save a clarifying question for a \
+         real judgment call (how private something is), not routine detail.",
+        event_point.as_str(),
+        "For a time relative to now (\"this Friday\", \"in two weeks\"), do not compute it — ask the \
+         calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
+         Each returns a date object you pass straight as occurred_at (occurred_at = \
+         calendar.in_weeks(2)) — not wrapped in a { day = ... } table, and with no :to_string() on \
+         it.",
+        record_point.as_str(),
+        "Record the particulars, not a gist. The named, precise, improbable details are how you \
+         later recognize a person or thing and tell two apart; thinned to \"a trip\" or \"a \
+         meeting\", a fact loses what made it recognizable.",
+        "Record what is new, once. A fact you already hold needs no re-recording, and a question \
+         that surfaces something known is answered from memory. Re-writing piles up duplicates and \
+         re-attributes the fact to whoever speaks now. Matters most at the seams — a recall, a \
+         flush.",
+        "Give a non-person thing one memory. Look for the memory a fact belongs on before creating \
+         one — a second for the same event or topic splits its facts, so a read finds half and \
+         contradictions cannot be weighed. (Per-platform person stubs are the exception, kept apart \
+         until the merge gate joins them.)",
+        "When what you learn is structured, record it through the operation for it, not just prose: \
+         a relationship (two people who know each other, an event under a topic) is a <memory>:link \
+         under the right relation — a:link(\"knows\", b), where b is a memory handle from \
+         memory.get or memory.create, not a string. Reuse an existing relation before coining a \
+         near-synonym, which splits one edge in two.",
+        "Conflicting accounts of one fact from different people are two entries standing, not one \
+         overwritten — record the second as the bare fact the new person asserts: a sibling entry \
+         on the same memory as the first, phrased the same way so only the value differs (the same \
+         field restated with the rival value). Not a sentence narrating the disagreement, and not \
+         split across separate memories (a second event, a place of its own) — scattered that way, \
+         the synthesis cannot pair the two to weigh them. Both entries must be public (told_by \
+         their asserter, not private or attributed), including the first, which you may have filed \
+         attributed before the conflict surfaced: if so, correct it to public now, since the \
+         synthesis can only flag the arbitration when both are public. When you answer from a fact \
+         still in dispute (it reads back marked `disputed`), say the accounts differ rather than \
+         picking a side.",
+        "A correction is the opposite: when a fact plainly changes — the teller revises it, or newer \
+         information replaces it (a changed number, a promotion) — append the new value and \
+         <memory>:supersede the old. Find the old entry by its occurred_at (entry.occurred_at.day), \
+         not by matching a date in its text — a dated fact carries its date in occurred_at, which the \
+         text need not repeat, so a text search for the digits silently finds nothing and the stale \
+         entry stands. The teller is the tell: different people disagree (both stand); one person \
+         revising themselves supersedes. Same on read: two values from one source are a revision; \
+         supersede the stale copy wherever it sits.",
+        "Every entry has a visibility, and one you leave unmarked defaults to private — back only to \
+         its teller and you, withheld whenever anyone else, the subject included, is present. Public \
+         surfaces to anyone (openly known, or someone's own account of themselves); attributed \
+         surfaces to anyone too but comes back marked as via whoever relayed it.",
+        "So set visibility as you record, never by omission: an ordinary fact one person tells you \
+         about another (a role, a workplace, a preference) is attributed — mark it so, or it stays \
+         private and you cannot answer about that person once their teller has left the room. \
+         Reserve private for a genuine confidence — a hushed register, \"between us\", a request not \
+         to repeat, or content plainly not for sharing yet (an unannounced decision, a personnel \
+         action, a medical fact) — the floor when you are truly unsure. Your own notes have no \
+         protective default either — classify them by the same rule.",
+        "Whenever you record a fact that will not stay true — a current role or team, what someone \
+         is working on or leading, where they are, a temporary arrangement, a mood — mark it \
+         high-volatility as you record it (volatility = \"high\", or \
+         <memory>:set_volatility(\"high\")), not as an afterthought, and attributed in the same \
+         breath: both flags, every time — a high fact left at the private default is withheld from \
+         all but its teller and never gets to read as out of date. \"medium\" is the default, \
+         \"low\" for durable facts like a name.",
+        "A fact you marked fast-changing is one you expect to drift: when you later surface it, give \
+         it as possibly out of date — \"last I heard …\", or offer to confirm — not as a settled \
+         current fact, even before it reads back marked `stale`. Read entries as they render, the \
+         stale and disputed markers riding the text.",
     ];
+
+    // The body is assembled over the scaffold points, after the shared preamble and namespace legend.
     let mut scaffold_body = String::from(scaffold_preamble);
     scaffold_body.push_str("\n\n- ");
     scaffold_body.push_str(&namespace_kinds);

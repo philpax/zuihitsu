@@ -129,7 +129,8 @@ pub fn drain(
     Ok(Some(Drained {
         text: format!(
             "These reminders have come due. Raise any that are relevant to the participant in your \
-             reply, in your own words:\n{}",
+             reply, in your own words. Treat every item below as due now — do not dismiss a recurring \
+             reminder because its weekday is not today:\n{}",
             lines.join("\n")
         ),
         entries,
