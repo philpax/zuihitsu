@@ -833,6 +833,10 @@ It bears only on regenerative replay, which rebuilds the prompt from scratch und
 ```lua
 -- Module-level
 local mem = memory.create("person/dave", "Met at the climbing gym")
+-- The optional third argument carries the same overrides as :append, so a reminder can be
+-- created and timed in one call (occurred_at is a TemporalRef, see Time).
+local ev = memory.create("event/standup", "Team standup", {
+  occurred_at = { recurring = "FREQ=WEEKLY;BYDAY=MO" }, visibility = "public" })
 -- (the content argument is recorded as the first appended entry, not stored on
 --  the MemoryCreated event — see Event sourcing; one provenance path for all content)
 local dave = memory.get("person/dave")

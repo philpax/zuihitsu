@@ -247,6 +247,32 @@ async fn calendar_computes_dates_for_occurred_at() {
 }
 
 #[tokio::test]
+async fn memory_create_accepts_occurred_at_in_its_options_table() {
+    // `memory.create` previously only accepted `(name, content)` and silently ignored a third options
+    // table, so reminders created in one call lost their `occurred_at` and never fired. The options table
+    // now flows through to the first entry exactly like `mem:append`.
+    let h = Harness::new(); // clock at Monday 2026-06-08.
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_BOARD_UPDATE, "Send the board update", {
+            occurred_at = calendar.next("friday"),
+            visibility = "public"
+        })
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("[2026-06-12"),
+        "the created entry should carry the computed Friday as its occurrence, got: {result}"
+    );
+}
+
+#[tokio::test]
 async fn calendar_upcoming_surfaces_a_recurring_instance() {
     // A recurring memory whose next virtual instance falls in the window surfaces in calendar.upcoming,
     // so the agent's own calendar query sees a standup it set for "every Monday" rather than coming up

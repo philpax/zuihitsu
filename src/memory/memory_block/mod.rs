@@ -410,6 +410,18 @@ impl MemoryBlock {
         name: impl Into<MemoryName>,
         content: Option<&str>,
     ) -> Result<MemoryId, MemoryError> {
+        self.create_with_opts(name, content, None)
+    }
+
+    /// Create a memory with optional first-entry overrides, mirroring `append`'s option table. This
+    /// keeps `memory.create(name, content, opts)` from silently dropping `occurred_at`, a footgun that
+    /// produced untimed reminders that never fired.
+    pub fn create_with_opts(
+        &mut self,
+        name: impl Into<MemoryName>,
+        content: Option<&str>,
+        opts: Option<AppendOptions>,
+    ) -> Result<MemoryId, MemoryError> {
         let name = name.into();
         if self.resolve(name.as_str())?.is_some() {
             return Err(MemoryError::NameExists(name));
@@ -420,18 +432,37 @@ impl MemoryBlock {
         // buffering anything, so an unclassified write fails without leaving a half-created memory.
         let first_entry = match content {
             Some(text) => {
-                let teller = self.teller.clone();
-                let visibility = self.resolve_visibility(Some(name.as_str()), id, &teller, None)?;
-                Some((text.to_owned(), teller, visibility))
+                let opts = opts.unwrap_or_default();
+                let teller = if opts.by_agent {
+                    Teller::Agent
+                } else {
+                    self.teller.clone()
+                };
+                let visibility =
+                    self.resolve_visibility(Some(name.as_str()), id, &teller, opts.visibility)?;
+                Self::validate_occurred_at(opts.occurred_at.as_ref())?;
+                Some((
+                    text.to_owned(),
+                    teller,
+                    visibility,
+                    opts.occurred_at,
+                    opts.volatility,
+                ))
             }
             None => None,
         };
         self.touched.insert(id);
         self.buffer.push(EventPayload::memory_created(id, name));
-        if let Some((text, teller, visibility)) = first_entry {
-            // A created memory's first entry carries no occurrence; `occurred_at` arrives via
-            // `mem:append`, matching the spec's `dave:append("...", { occurred_at = ... })` form.
-            self.push_content(id, text, teller, visibility, None);
+        if let Some((text, teller, visibility, occurred_at, volatility)) = first_entry {
+            // A created memory's first entry may carry an occurrence and an inline volatility, just like
+            // a standalone `mem:append("...", { occurred_at = ..., volatility = ... })`.
+            self.push_content(id, text, teller, visibility, occurred_at);
+            if let Some(volatility) = volatility {
+                self.buffer.push(EventPayload::memory_volatility_set(
+                    id,
+                    volatility.into_volatility(),
+                ));
+            }
         }
         Ok(id)
     }

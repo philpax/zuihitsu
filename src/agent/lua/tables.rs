@@ -816,21 +816,28 @@ impl Session {
     /// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
     pub(super) fn memory_table(&self, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
         let memory = self.lua.create_table()?;
-        // memory.create(name[, content]) — create a memory and optionally its first entry, then lock
-        // the freshly-minted id (uncontended — no other block knows it yet).
+        // memory.create(name[, content][, opts]) — create a memory and optionally its first entry,
+        // then lock the freshly-minted id (uncontended — no other block knows it yet). `opts` carries
+        // the same overrides as `mem:append` (`occurred_at`, `visibility`, `volatility`), so a reminder
+        // can be created and timed in one call.
         memory.set(
             "create",
             self.lua.create_async_function({
                 let api = api.clone();
                 let metatable = metatable.clone();
-                move |lua, (name, content): (String, Option<String>)| {
+                move |lua, (name, content, opts): (String, Option<String>, Value)| {
                     let api = api.clone();
                     let metatable = metatable.clone();
                     async move {
+                        let opts: Option<AppendOptions> = if opts.is_nil() {
+                            None
+                        } else {
+                            Some(lua.from_value(opts)?)
+                        };
                         let id = api
                             .block
                             .lock()
-                            .create(MemoryName::new(name), content.as_deref())
+                            .create_with_opts(MemoryName::new(name), content.as_deref(), opts)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                         api.lock(id).await;
                         make_handle(&lua, id, &metatable)
