@@ -179,6 +179,10 @@ pub enum MemoryError {
     /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
     /// or a non-`YYYY-MM-DD` date.
     BadCalendarArg(String),
+    /// An `occurred_at` recurrence is not a rule this build can interpret — a free-phrased cadence
+    /// such as "every Monday" rather than an RFC 5545 rule with a supported `FREQ`. Such a rule would
+    /// arm a wake-up no one can derive, so the write is rejected for the agent to reissue correctly.
+    UnsupportedRecurrence(String),
     /// A `supersede` named an entry that is not a live entry of the memory's `same_as` class — an
     /// unknown id, or one already superseded. The agent supersedes entries it read from the same
     /// memory, so this is a teachable misuse.
@@ -248,6 +252,11 @@ impl std::fmt::Display for MemoryError {
                 f,
                 "could not read the calendar argument {arg:?}; use a duration like \"7 days\" or a \
                  date like \"2026-06-03\""
+            ),
+            MemoryError::UnsupportedRecurrence(rule) => write!(
+                f,
+                "the recurrence {rule:?} is not a supported rule; use an RFC 5545 rule with a \
+                 supported FREQ, e.g. {{ recurring = \"FREQ=WEEKLY;BYDAY=MO\" }} for every Monday"
             ),
             MemoryError::UnknownEntry(entry) => write!(
                 f,
@@ -503,6 +512,10 @@ impl MemoryBlock {
             &told_by,
             opts.visibility,
         )?;
+        // Reject a recurrence the scheduler cannot interpret before it is buffered, rather than
+        // committing a Recurring entry that silently never fires. Surfaced as a teachable error so the
+        // agent reissues with a supported rule.
+        Self::validate_occurred_at(opts.occurred_at.as_ref())?;
         let entry_id =
             self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at);
         // An inline volatility classification: set the memory's volatility alongside the append, so the
@@ -1302,6 +1315,19 @@ impl MemoryBlock {
             ids.insert(entry.entry_id);
         }
         Ok(ids)
+    }
+
+    /// A write's `occurred_at` is one this build can interpret, or a teachable error. A `Recurring`
+    /// ref must carry a rule the wake-up scheduler can arm (a supported `FREQ`); a free-phrased cadence
+    /// such as "every Monday" is rejected here rather than becoming a silent dud. The other variants
+    /// carry no rule to misread.
+    fn validate_occurred_at(occurred_at: Option<&TemporalRef>) -> Result<(), MemoryError> {
+        match occurred_at {
+            Some(TemporalRef::Recurring(rule)) if !time::rrule_is_supported(rule) => {
+                Err(MemoryError::UnsupportedRecurrence(rule.0.to_string()))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Buffer a content entry and touch its memory, returning the minted entry id (so a write can be

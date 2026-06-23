@@ -250,6 +250,15 @@ pub fn next_occurrence(rule: &Rrule, dtstart: Timestamp, after: Timestamp) -> Op
     None
 }
 
+/// Whether a recurrence rule is one this build can interpret: it parses to a supported `FREQ` with a
+/// well-formed `INTERVAL`, so [`next_occurrence`] can arm a wake-up from it. The extractor rejects a
+/// rule that fails this (a model free-phrasing such as "every Monday") rather than committing it as a
+/// [`TemporalRef::Recurring`] that parses here as `None` and so silently never fires — a dud entry
+/// whose schedule no one can derive.
+pub fn rrule_is_supported(rule: &Rrule) -> bool {
+    parse_rrule(rule.0.as_str()).is_some()
+}
+
 /// The recurrence frequency this build interprets — the `FREQ` values of the supported subset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Freq {
@@ -368,7 +377,7 @@ mod tests {
     use super::{
         MILLIS_PER_DAY, MILLIS_PER_WEEK, Rrule, Timestamp, add_days, add_months,
         civil_date_to_millis, day_window, next_occurrence, next_weekday, parse_duration_millis,
-        today, weekday,
+        rrule_is_supported, today, weekday,
     };
 
     /// `next_occurrence` against a `dtstart`/`after` given in epoch millis, for brevity.
@@ -484,6 +493,26 @@ mod tests {
         assert_eq!(next("", 0, MILLIS_PER_DAY), None);
         // An uninterpreted key (BYDAY) is ignored, falling back to the FREQ/INTERVAL.
         assert_eq!(next("FREQ=WEEKLY;BYDAY=MO", 0, 0), Some(MILLIS_PER_WEEK));
+    }
+
+    #[test]
+    fn supported_judges_which_rules_can_arm_a_wake_up() {
+        // Anything next_occurrence can interpret — the four frequencies, an interval, an uninterpreted
+        // BYDAY — is supported, and arms a wake-up rather than being dropped at extraction.
+        assert!(supported("FREQ=WEEKLY;BYDAY=MO"));
+        assert!(supported("FREQ=DAILY"));
+        assert!(supported("freq=monthly;interval=3"));
+        assert!(supported("FREQ=YEARLY"));
+        // A free-phrased cadence the model emits in place of an rrule is not, and is rejected at
+        // extraction so it never becomes a silent dud.
+        assert!(!supported("every Monday"));
+        assert!(!supported("FREQ=HOURLY"));
+        assert!(!supported(""));
+    }
+
+    /// `rrule_is_supported` on a literal rule string, for brevity.
+    fn supported(rule: &str) -> bool {
+        rrule_is_supported(&Rrule(rule.into()))
     }
 
     #[test]

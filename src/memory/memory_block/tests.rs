@@ -6,7 +6,7 @@ use crate::{
     graph::Graph,
     ids::{ConversationId, MemoryId, MemoryName, Namespace, NamespacedMemoryName},
     store::{MemoryStore, Store},
-    time::Timestamp,
+    time::{Rrule, TemporalRef, Timestamp},
     vocabulary::RelationName,
 };
 
@@ -314,5 +314,50 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
         .unwrap();
     block
         .append(roadmap, "migration first", AppendOptions::default())
+        .unwrap();
+}
+
+#[test]
+fn append_rejects_an_unsupported_recurrence_with_a_teachable_error() {
+    // A free-phrased cadence the model emits in place of an rrule arms no wake-up, so the write is
+    // rejected for the agent to reissue — surfaced as a teachable error, not swallowed.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let standup = block
+        .create(Namespace::Event.with_name("standup"), None)
+        .unwrap();
+    let err = block
+        .append(
+            standup,
+            "every Monday",
+            AppendOptions {
+                occurred_at: Some(TemporalRef::Recurring(Rrule("every Monday".into()))),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, MemoryError::UnsupportedRecurrence(ref rule) if rule == "every Monday"),
+        "{err:?}"
+    );
+    assert!(
+        err.to_string().contains("FREQ"),
+        "the error should point at a supported rule: {err}"
+    );
+
+    // A supported rule is accepted, and arms a wake-up the scheduler can derive.
+    block
+        .append(
+            standup,
+            "team standup",
+            AppendOptions {
+                occurred_at: Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY;BYDAY=MO".into()))),
+                ..AppendOptions::default()
+            },
+        )
         .unwrap();
 }
