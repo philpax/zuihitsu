@@ -5,18 +5,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    Event, EventPayload, Initiation, MemoryId, Teller, TemporalRef, TurnRole, Visibility,
+    EntryId, Event, EventPayload, Initiation, MemoryId, Teller, TemporalRef, TurnRole, Visibility,
     Volatility,
 };
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
-/// landed on, its text, the visibility it was written with, and who it is attributed to (so an oracle
-/// can catch a relayed fact re-recorded under the wrong teller).
+/// landed on, its text, the visibility it was written with, who it is attributed to (so an oracle can
+/// catch a relayed fact re-recorded under the wrong teller), and the entry id (so an oracle can ignore
+/// entries the agent later superseded).
 pub struct EntryFacts {
     pub memory: String,
     pub text: String,
     pub visibility: Visibility,
     pub told_by: Teller,
+    pub entry_id: EntryId,
 }
 
 /// Every agent reply to a participant, in order. Only `Responding` turns count: an `Initiated` agent
@@ -184,6 +186,7 @@ pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
         .filter_map(|event| match &event.payload {
             EventPayload::MemoryContentAppended {
                 id,
+                entry_id,
                 text,
                 visibility,
                 told_by,
@@ -193,7 +196,19 @@ pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
                 text: text.clone(),
                 visibility: visibility.clone(),
                 told_by: told_by.clone(),
+                entry_id: *entry_id,
             }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The set of entry ids that have been superseded, from `MemorySuperseded` events.
+pub fn superseded_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::MemorySuperseded { entry, .. } => Some(*entry),
             _ => None,
         })
         .collect()

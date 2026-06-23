@@ -91,10 +91,14 @@ impl Scenario for FlushVisibility {
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
         // The visibility column does the first, exact cut: only `Public` durable entries can leak, so a
-        // correctly-private aside is never even a candidate here.
+        // correctly-private aside is never even a candidate here. An entry the agent later superseded is
+        // not live: the agent corrected itself, so the original public entry cannot leak to a participant.
+        let superseded = analysis::superseded_entry_ids(events);
         let publics: Vec<_> = analysis::entries(events)
             .into_iter()
-            .filter(|entry| entry.visibility == Visibility::Public)
+            .filter(|entry| {
+                entry.visibility == Visibility::Public && !superseded.contains(&entry.entry_id)
+            })
             .collect();
 
         let mut verdicts = Vec::new();
