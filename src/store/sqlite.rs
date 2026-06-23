@@ -156,6 +156,14 @@ impl Store for SqliteStore {
         Ok(Seq(seq as u64))
     }
 
+    fn truncate_to(&mut self, to: Seq) -> Result<u64, StoreError> {
+        let removed = self
+            .conn
+            .execute("DELETE FROM events WHERE seq > ?1", params![to.0 as i64])
+            .map_err(backend)?;
+        Ok(removed as u64)
+    }
+
     fn subscribe(&mut self) -> Subscription {
         let (sender, receiver) = channel();
         self.subscribers.push(sender);

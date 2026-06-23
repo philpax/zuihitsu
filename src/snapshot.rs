@@ -103,6 +103,24 @@ pub fn prune(dir: &Path, keep: usize) -> Result<Vec<PathBuf>, SnapshotError> {
     Ok(removed)
 }
 
+/// Delete every snapshot in `dir` whose head is past `to`, returning the paths removed. The revert path
+/// uses this: a checkpoint captured after the revert point describes a state the truncated log no longer
+/// reaches, and `restore_if_stale` would otherwise copy it back over the rebuilt graph and undo the
+/// revert. Checkpoints at or before `to` are kept — they still speed the rebuild to that point.
+pub fn discard_after(dir: &Path, to: Seq) -> Result<Vec<PathBuf>, SnapshotError> {
+    let mut removed = Vec::new();
+    for (path, head) in snapshots(dir)? {
+        if head > to {
+            fs::remove_file(&path).map_err(|source| SnapshotError::Prune {
+                path: path.clone(),
+                source,
+            })?;
+            removed.push(path);
+        }
+    }
+    Ok(removed)
+}
+
 /// The `graph_head` recorded in the graph file at `path`, or `Seq::ZERO` when the file is absent or
 /// has no head yet (an empty or never-materialized graph) — the baseline the restore decision
 /// compares a snapshot against.
@@ -194,8 +212,8 @@ impl std::error::Error for SnapshotError {
 #[cfg(test)]
 mod tests {
     use super::{
-        latest, parse_snapshot_head, prune, read_graph_head, restore_if_stale, snapshot_filename,
-        snapshots,
+        discard_after, latest, parse_snapshot_head, prune, read_graph_head, restore_if_stale,
+        snapshot_filename, snapshots,
     };
     use crate::ids::Seq;
     use rusqlite::Connection;
@@ -307,6 +325,21 @@ mod tests {
         // keep = 0 is treated as 1, so the latest checkpoint is never deleted.
         prune(&dir, 0).unwrap();
         assert_eq!(latest(&dir).unwrap().unwrap().1, Seq(25));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn discard_after_drops_snapshots_past_the_revert_point() {
+        let dir = temp_dir();
+        for head in [5u64, 10, 15, 20, 25] {
+            write_graph_head(&dir.join(snapshot_filename(Seq(head))), head);
+        }
+        // Reverting to seq 12 leaves the snapshots at 15, 20, and 25 describing a state the truncated
+        // log no longer reaches; they are removed, and the 5 and 10 checkpoints are kept.
+        let removed = discard_after(&dir, Seq(12)).unwrap();
+        assert_eq!(removed.len(), 3);
+        let kept: Vec<u64> = snapshots(&dir).unwrap().iter().map(|(_, h)| h.0).collect();
+        assert_eq!(kept, vec![5, 10]);
         fs::remove_dir_all(&dir).unwrap();
     }
 

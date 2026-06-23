@@ -44,6 +44,13 @@ pub trait Store: Send {
     /// The highest committed sequence number, or `Seq::ZERO` if the log is empty.
     fn head(&self) -> Result<Seq, StoreError>;
 
+    /// Remove every event with `seq > to`, leaving `to` as the new head; returns the number removed.
+    /// The inverse of `append`, and the sole exception to the append-only log: it exists only for the
+    /// operator's revert path. The derived stores (the materialized graph, the vector index, and any
+    /// snapshots) sit ahead of the truncated log afterward, and the caller is responsible for resetting
+    /// them so they rebuild from the shortened log on the next boot.
+    fn truncate_to(&mut self, to: Seq) -> Result<u64, StoreError>;
+
     /// Subscribe to events committed from now on. Multiple subscribers are independent.
     fn subscribe(&mut self) -> Subscription;
 }
@@ -177,6 +184,32 @@ pub mod test_support {
         assert_eq!(tail[0].seq, Seq(2));
     }
 
+    /// Truncating to a seq drops every later event, leaves the head at that seq, reports how many it
+    /// removed, and is a no-op once the log is already at or below the target.
+    pub fn truncate_removes_the_tail<S: Store>(store: &mut S) {
+        store
+            .append(
+                Timestamp::from_millis(1),
+                vec![
+                    EventPayload::memory_deleted(MemoryId::generate()),
+                    EventPayload::memory_deleted(MemoryId::generate()),
+                    EventPayload::memory_deleted(MemoryId::generate()),
+                ],
+            )
+            .unwrap();
+        assert_eq!(store.head().unwrap(), Seq(3));
+
+        let removed = store.truncate_to(Seq(1)).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(store.head().unwrap(), Seq(1));
+        assert_eq!(store.read_from(Seq::ZERO).unwrap().len(), 1);
+
+        // Truncating at or past the head removes nothing.
+        assert_eq!(store.truncate_to(Seq(1)).unwrap(), 0);
+        assert_eq!(store.truncate_to(Seq(5)).unwrap(), 0);
+        assert_eq!(store.head().unwrap(), Seq(1));
+    }
+
     /// A subscriber taken before an append receives the committed events.
     pub fn subscriber_sees_appends<S: Store>(store: &mut S) {
         let subscription = store.subscribe();
@@ -204,8 +237,14 @@ mod tests {
         MemoryStore,
         test_support::{
             append_is_ordered_and_faithful, read_from_returns_tail, subscriber_sees_appends,
+            truncate_removes_the_tail,
         },
     };
+
+    #[test]
+    fn memory_truncate_removes_the_tail() {
+        truncate_removes_the_tail(&mut MemoryStore::new());
+    }
 
     #[test]
     fn memory_append_is_ordered_and_faithful() {

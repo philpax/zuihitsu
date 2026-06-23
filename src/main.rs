@@ -6,16 +6,20 @@
 
 use std::{
     collections::BTreeMap,
+    io::Write,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
+use anstyle::{AnsiColor, Style};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use tracing_subscriber::{EnvFilter, fmt};
 use zuihitsu::{
-    ConfigError, Event, GenesisStatus, McpHost, McpTool, Rollout, SeedSelf, Seq, SqliteStore,
-    StdioHost, Store, config::EnvConfig, event::EventPayload,
+    ConfigError, Event, GenesisStatus, McpHost, McpTool, MemoryId, Rollout, SeedSelf, Seq,
+    SqliteStore, StdioHost, Store,
+    config::EnvConfig,
+    event::{EventPayload, Teller, TerminalCause, TurnRole, Visibility, Volatility},
 };
 
 use crate::client::{Client, ClientError};
@@ -149,6 +153,17 @@ enum Command {
         #[arg(long)]
         summary: bool,
     },
+    /// Revert the agent to a prior event: truncate the log past `seq`, then reset the derived stores so
+    /// the next boot rebuilds at that point. Destructive and irreversible. It opens the log read-write,
+    /// so the agent must be stopped first, and it requires `--yes` to proceed.
+    Revert {
+        /// The sequence number to revert to. Every event after it is removed.
+        #[arg(long)]
+        seq: u64,
+        /// Confirm the destructive truncation. Without it, the command only reports what it would do.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 pub fn run() -> ExitCode {
@@ -237,6 +252,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
                 summary: *summary,
             },
         ),
+        Command::Revert { seq, yes } => revert(&config, *seq, *yes),
     }
 }
 
@@ -292,6 +308,11 @@ fn events(config: &EnvConfig, query: EventQuery) -> Result<(), CliError> {
         return Ok(());
     }
 
+    // Resolve memory ids to names from the create/rename events across the WHOLE log, before the
+    // filters narrow the view — so a link or append in a slice still reads in names even when the
+    // memory was created outside the slice. The log is self-describing, so no graph read is needed.
+    let names = name_map(&events);
+
     let mut events = events;
     if let Some(from) = from {
         events.retain(|event| event.seq.0 >= from);
@@ -313,22 +334,304 @@ fn events(config: &EnvConfig, query: EventQuery) -> Result<(), CliError> {
 
     if summary {
         print_event_summary(&events);
-    } else {
+    } else if json {
+        // Clean NDJSON: one whole event per line (seq, recorded_at, payload), no columns, so the
+        // output pipes straight into `jq` or any line-oriented parser.
         for event in &events {
-            if json {
-                let payload = serde_json::to_string(&event.payload).unwrap_or_default();
-                println!(
-                    "{:>6}  {:<26}  {payload}",
-                    event.seq.0,
-                    event.payload.kind()
-                );
-            } else {
-                let target = event.payload.target_id().unwrap_or_default();
-                println!("{:>6}  {:<26}  {target}", event.seq.0, event.payload.kind());
-            }
+            let line = serde_json::to_string(event).map_err(|source| {
+                CliError::Events(format!(
+                    "could not serialize event {}: {source}",
+                    event.seq.0
+                ))
+            })?;
+            println!("{line}");
+        }
+    } else {
+        let mut out = anstream::stdout();
+        for event in &events {
+            let _ = write_event(&mut out, event, &names, false);
         }
     }
     Ok(())
+}
+
+/// Write one event as the two-line listing — a dim seq, the kind in its category color, then the
+/// payload gloss — to `out`. When `faded`, the whole event is dimmed instead of colored. The shared
+/// renderer for the `events` listing (never faded) and the `revert` preview (which fades the events it
+/// would remove). `anstream::stdout` adapts the styling to the destination — colored on a terminal
+/// (including Windows), stripped when piped, off under `NO_COLOR` — so there is no manual terminal
+/// gate; an `anstyle::Style` renders its prefix as `{style}` and its reset as `{style:#}`.
+fn write_event(
+    out: &mut impl Write,
+    event: &Event,
+    names: &BTreeMap<String, String>,
+    faded: bool,
+) -> std::io::Result<()> {
+    let dim = Style::new().dimmed();
+    let kind_style = if faded {
+        dim
+    } else {
+        Style::new().fg_color(Some(category_color(&event.payload).into()))
+    };
+    let kind = event.payload.kind();
+    writeln!(
+        out,
+        "{dim}{:>6}{dim:#}  {kind_style}{kind}{kind_style:#}",
+        event.seq.0
+    )?;
+    let detail = describe_event(&event.payload, names);
+    if !detail.is_empty() {
+        if faded {
+            writeln!(out, "        {dim}{detail}{dim:#}")?;
+        } else {
+            writeln!(out, "        {detail}")?;
+        }
+    }
+    Ok(())
+}
+
+/// The latest name of every memory the log creates or renames, keyed by its id string — the lookup
+/// `describe_event` uses to render an event in names instead of ULIDs.
+fn name_map(events: &[Event]) -> BTreeMap<String, String> {
+    let mut names = BTreeMap::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::MemoryCreated { id, name } => {
+                names.insert(id.0.to_string(), name.as_str().to_owned());
+            }
+            EventPayload::MemoryRenamed { id, new_name, .. } => {
+                names.insert(id.0.to_string(), new_name.as_str().to_owned());
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+/// A human-readable one-line gloss of an event — what happened, with memory ids resolved to names —
+/// so the timeline reads without decoding JSON, the way the console viewer renders it. Falls back to
+/// the bare event kind for the structural events with no salient content to show.
+fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> String {
+    let name = |id: &MemoryId| {
+        names
+            .get(&id.0.to_string())
+            .cloned()
+            .unwrap_or_else(|| short_id(&id.0.to_string()))
+    };
+    match payload {
+        EventPayload::ConversationTurn {
+            role,
+            text,
+            participant,
+            ..
+        } => {
+            let who = match (role, participant) {
+                (TurnRole::Agent, _) => "agent".to_owned(),
+                (TurnRole::System, _) => "system".to_owned(),
+                (TurnRole::Participant, Some(id)) => name(id),
+                (TurnRole::Participant, None) => "participant".to_owned(),
+            };
+            format!("«{who}» {}", oneline(text, 90))
+        }
+        EventPayload::MemoryContentAppended {
+            id,
+            text,
+            visibility,
+            told_by,
+            ..
+        } => format!(
+            "{} ← \"{}\"  [{}, {}]",
+            name(id),
+            oneline(text, 60),
+            visibility_label(visibility),
+            teller_label(told_by, &name),
+        ),
+        EventPayload::LuaExecuted {
+            result,
+            terminal_cause,
+            ..
+        } => match (terminal_cause, result) {
+            (Some(TerminalCause::Error(message)), _) => format!("error: {}", oneline(message, 80)),
+            (Some(TerminalCause::Aborted(reason)), _) => {
+                format!("aborted: {}", oneline(reason, 80))
+            }
+            (None, Some(result)) => oneline(result, 100),
+            (None, None) => String::new(),
+        },
+        EventPayload::MemoryCreated { name: created, .. } => {
+            format!("created {}", created.as_str())
+        }
+        EventPayload::MemoryRenamed {
+            old_name, new_name, ..
+        } => format!("renamed {} → {}", old_name.as_str(), new_name.as_str()),
+        EventPayload::MemoryDeleted { id } => format!("deleted {}", name(id)),
+        EventPayload::MemorySuperseded { id, .. } => format!("{}: superseded an entry", name(id)),
+        EventPayload::MemoryDescriptionRegenerated { id, .. } => {
+            format!("{}: re-described", name(id))
+        }
+        EventPayload::BeliefArbitrated {
+            memory,
+            competing_entries,
+            ..
+        } => format!(
+            "{}: arbitrated ({} competing)",
+            name(memory),
+            competing_entries.len()
+        ),
+        EventPayload::MemoryVolatilitySet { id, volatility } => {
+            format!("{}: volatility {}", name(id), volatility_label(volatility))
+        }
+        EventPayload::LinkCreated {
+            from, to, relation, ..
+        } => format!("{} —{}→ {}", name(from), relation.as_str(), name(to)),
+        EventPayload::LinkRemoved {
+            from, to, relation, ..
+        } => format!("{} —{}✗ {}", name(from), relation.as_str(), name(to)),
+        EventPayload::TagAppliedToMemory { memory, tag } => {
+            format!("{} +#{}", name(memory), tag.as_str())
+        }
+        EventPayload::TagRemovedFromMemory { memory, tag } => {
+            format!("{} −#{}", name(memory), tag.as_str())
+        }
+        EventPayload::TagCreated { name: tag, .. } => format!("created #{}", tag.as_str()),
+        EventPayload::LinkTypeRegistered {
+            name: rel, inverse, ..
+        } => {
+            format!("registered relation {}/{}", rel.as_str(), inverse.as_str())
+        }
+        EventPayload::ScheduledJobFired { memory, .. } => {
+            format!("wake-up fired ({})", name(memory))
+        }
+        EventPayload::ScheduledItemSurfaced { memory, .. } => {
+            format!("wake-up surfaced ({})", name(memory))
+        }
+        EventPayload::EntryTemporalResolved { id, .. } => format!("{}: resolved a date", name(id)),
+        EventPayload::MergeProposed { from, to } => {
+            format!("merge proposed: {} → {}", name(from), name(to))
+        }
+        EventPayload::MergeAdjudicated {
+            from, to, accepted, ..
+        } => format!(
+            "merge {}: {} → {}",
+            if *accepted { "accepted" } else { "refused" },
+            name(from),
+            name(to)
+        ),
+        EventPayload::ModelCalled { phase, .. } => format!("{phase:?}"),
+        EventPayload::EmbeddingModelChanged { from, to } => {
+            format!("embedding model {from} → {to}")
+        }
+        EventPayload::GenesisCompleted {
+            manifest_hash,
+            template_versions,
+        } => format!(
+            "manifest {}…, {} templates",
+            &manifest_hash[..manifest_hash.len().min(10)],
+            template_versions.len()
+        ),
+        EventPayload::PromptTemplateRegistered {
+            name: template,
+            version,
+            ..
+        } => format!("{template:?} v{version}"),
+        EventPayload::TagDescriptionChanged {
+            name: tag,
+            new_description,
+        } => format!("#{}: \"{}\"", tag.as_str(), oneline(new_description, 60)),
+        EventPayload::ConfigSet { .. } => "settings updated".to_owned(),
+        // The remaining events — session and conversation boundaries, soft deletes — are markers whose
+        // kind on the first line is the whole story; they get no second line.
+        _ => String::new(),
+    }
+}
+
+/// Collapse whitespace runs (so a multi-line script or reply stays one line) and clip to `max` chars.
+fn oneline(text: &str, max: usize) -> String {
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() > max {
+        let kept: String = collapsed.chars().take(max).collect();
+        format!("{kept}…")
+    } else {
+        collapsed
+    }
+}
+
+/// The last segment of a ULID, for a memory the log never names (it shows enough to disambiguate).
+fn short_id(id: &str) -> String {
+    format!("…{}", &id[id.len().saturating_sub(6)..])
+}
+
+fn visibility_label(visibility: &Visibility) -> &'static str {
+    match visibility {
+        Visibility::Public => "public",
+        Visibility::Attributed => "attributed",
+        Visibility::PrivateToTeller => "private",
+        Visibility::Exclude(_) => "excluded",
+    }
+}
+
+fn teller_label(teller: &Teller, name: &impl Fn(&MemoryId) -> String) -> String {
+    match teller {
+        Teller::Participant(id) => name(id),
+        Teller::Agent => "agent".to_owned(),
+        Teller::Bootstrap => "seed".to_owned(),
+    }
+}
+
+fn volatility_label(volatility: &Volatility) -> &'static str {
+    match volatility {
+        Volatility::Low => "low",
+        Volatility::Medium => "medium",
+        Volatility::High => "high",
+    }
+}
+
+/// The color an event's kind is rendered in, grouped so a glance separates conversation from writes
+/// from relations from belief from telemetry. Matched on the variant (not its name), so adding an
+/// event kind is a compile error here until it is given a category.
+fn category_color(payload: &EventPayload) -> AnsiColor {
+    match payload {
+        // Conversation and session flow.
+        EventPayload::ConversationTurn { .. }
+        | EventPayload::ConversationStarted { .. }
+        | EventPayload::ConversationEnded { .. }
+        | EventPayload::SessionStarted { .. }
+        | EventPayload::SessionEnded { .. }
+        | EventPayload::ParticipantJoined { .. } => AnsiColor::Cyan,
+        // A recorded fact — the substance of the log.
+        EventPayload::MemoryContentAppended { .. } => AnsiColor::Green,
+        // Memory structure and the entry lifecycle.
+        EventPayload::MemoryCreated { .. }
+        | EventPayload::MemoryRenamed { .. }
+        | EventPayload::MemoryDeleted { .. }
+        | EventPayload::MemorySuperseded { .. }
+        | EventPayload::MemoryDescriptionRegenerated { .. }
+        | EventPayload::MemoryVolatilitySet { .. }
+        | EventPayload::EntryTemporalResolved { .. } => AnsiColor::BrightGreen,
+        // Relations and cross-platform identity.
+        EventPayload::LinkCreated { .. }
+        | EventPayload::LinkRemoved { .. }
+        | EventPayload::LinkTypeRegistered { .. }
+        | EventPayload::ParticipantIdentified { .. } => AnsiColor::Blue,
+        // Tags and scheduling.
+        EventPayload::TagCreated { .. }
+        | EventPayload::TagDescriptionChanged { .. }
+        | EventPayload::TagAppliedToMemory { .. }
+        | EventPayload::TagRemovedFromMemory { .. }
+        | EventPayload::ScheduledJobFired { .. }
+        | EventPayload::ScheduledItemSurfaced { .. } => AnsiColor::Yellow,
+        // Belief arbitration and merges.
+        EventPayload::BeliefArbitrated { .. }
+        | EventPayload::MergeProposed { .. }
+        | EventPayload::MergeAdjudicated { .. } => AnsiColor::Magenta,
+        // Telemetry and structural or config events — the quiet background.
+        EventPayload::ModelCalled { .. }
+        | EventPayload::LuaExecuted { .. }
+        | EventPayload::GenesisCompleted { .. }
+        | EventPayload::ConfigSet { .. }
+        | EventPayload::PromptTemplateRegistered { .. }
+        | EventPayload::EmbeddingModelChanged { .. } => AnsiColor::BrightBlack,
+    }
 }
 
 /// Counts by event type (commonest first), then every session boundary (`SessionStarted` /
@@ -496,6 +799,140 @@ fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Revert the agent to a prior event. Opens the log read-write — which fails if the agent holds the
+/// write lock, so a running agent is refused — and truncates every event past `to`. The materialized
+/// graph and the vector index only roll forward, so they cannot be walked back; instead the graph and
+/// vector files are dropped (the next boot replays and re-embeds from the shortened log) and any
+/// snapshot past `to` is discarded so `restore_if_stale` cannot copy a future state back. Without
+/// `--yes`, it reports what it would do and changes nothing.
+/// Print the window of events around a revert point — up to `CONTEXT` on each side — to stdout, with
+/// the events that would be removed (those after `to`) greyed out, and a marked rule between the kept
+/// head and the removed tail. Sharing `write_event` with the `events` listing, so the preview reads
+/// the same. The total removed count is named even when the window shows only part of the tail.
+fn show_revert_preview(events: &[Event], names: &BTreeMap<String, String>, to: Seq, head: Seq) {
+    const CONTEXT: u64 = 8;
+    let mut out = anstream::stdout();
+    let removed_total = head.0 - to.0;
+    let (lo, hi) = (to.0.saturating_sub(CONTEXT), to.0.saturating_add(CONTEXT));
+
+    let mut rule_printed = false;
+    let mut shown_removed = 0u64;
+    for event in events.iter().filter(|e| e.seq.0 >= lo && e.seq.0 <= hi) {
+        let faded = event.seq.0 > to.0;
+        if faded && !rule_printed {
+            print_revert_rule(&mut out, to, removed_total);
+            rule_printed = true;
+        }
+        let _ = write_event(&mut out, event, names, faded);
+        shown_removed += u64::from(faded);
+    }
+    if !rule_printed {
+        print_revert_rule(&mut out, to, removed_total);
+    }
+    if removed_total > shown_removed {
+        let dim = Style::new().dimmed();
+        let _ = writeln!(
+            out,
+            "        {dim}… and {} more removed{dim:#}",
+            removed_total - shown_removed
+        );
+    }
+}
+
+/// The marked rule between the kept head and the removed tail in the revert preview.
+fn print_revert_rule(out: &mut impl Write, to: Seq, removed_total: u64) {
+    let mark = Style::new().fg_color(Some(AnsiColor::Yellow.into())).bold();
+    let _ = writeln!(
+        out,
+        "{mark}      ── revert here · seq {} becomes the new head · {removed_total} event(s) below are removed ──{mark:#}",
+        to.0,
+    );
+}
+
+fn revert(config: &EnvConfig, to: u64, yes: bool) -> Result<(), CliError> {
+    let to = Seq(to);
+    let log_path = config.storage.event_log();
+    let mut store = SqliteStore::open(&log_path).map_err(|source| {
+        CliError::Revert(format!(
+            "could not open the event log at {} for writing (is the agent running?): {source}",
+            log_path.display()
+        ))
+    })?;
+    let head = store
+        .head()
+        .map_err(|source| CliError::Revert(format!("could not read the log head: {source}")))?;
+    if to >= head {
+        return Err(CliError::Revert(format!(
+            "seq {} is at or past the current head {}; nothing to revert",
+            to.0, head.0
+        )));
+    }
+
+    // Preview the cut: the window of events around the revert point, with everything after it greyed
+    // out and a marked rule between, so it is unmistakable what survives and what is removed — shown
+    // before anything is touched, in both the dry run and the confirmed run.
+    let events = store
+        .read_from(Seq(0))
+        .map_err(|source| CliError::Revert(format!("could not read the log: {source}")))?;
+    let names = name_map(&events);
+    show_revert_preview(&events, &names, to, head);
+
+    if !yes {
+        tracing::warn!(
+            "re-run with --yes to confirm reverting to seq {} (removes {} events and rebuilds the \
+             graph and vector index)",
+            to.0,
+            head.0 - to.0,
+        );
+        return Ok(());
+    }
+
+    let removed = store
+        .truncate_to(to)
+        .map_err(|source| CliError::Revert(format!("could not truncate the log: {source}")))?;
+    drop(store); // release the write lock before touching the derived files.
+
+    let graph_path = config.storage.graph();
+    let vectors_path = config.storage.vectors();
+    let snapshot_dir = config.snapshots.effective_dir(&graph_path);
+    remove_db(&graph_path)?;
+    remove_db(&vectors_path)?;
+    let pruned = zuihitsu::snapshot::discard_after(&snapshot_dir, to).map_err(|source| {
+        CliError::Revert(format!(
+            "could not discard snapshots past the revert point: {source}"
+        ))
+    })?;
+
+    tracing::info!(
+        "reverted to seq {}: removed {removed} event(s) and {} snapshot(s); the next boot rebuilds \
+         the graph and re-embeds the vector index from the shortened log",
+        to.0,
+        pruned.len(),
+    );
+    Ok(())
+}
+
+/// Remove a SQLite database file and its `-wal`/`-shm` sidecars, treating an absent file as success.
+/// Dropping the derived graph and vector stores so the next boot rebuilds them from the log.
+fn remove_db(path: &Path) -> Result<(), CliError> {
+    for suffix in ["", "-wal", "-shm"] {
+        let mut target = path.as_os_str().to_owned();
+        target.push(suffix);
+        let target = PathBuf::from(target);
+        match std::fs::remove_file(&target) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(CliError::Revert(format!(
+                    "could not remove {}: {source}",
+                    target.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A CLI-level failure, naming the operation and the resource it was acting on.
 #[derive(Debug)]
 enum CliError {
@@ -518,6 +955,8 @@ enum CliError {
     Mcp(String),
     /// The `events` inspection command could not open or read the event log.
     Events(String),
+    /// The `revert` command could not truncate the log or reset the derived stores.
+    Revert(String),
 }
 
 impl From<ClientError> for CliError {
@@ -547,6 +986,7 @@ impl std::fmt::Display for CliError {
             CliError::Render(source) => write!(f, "could not render the response: {source}"),
             CliError::Mcp(message) => write!(f, "mcp: {message}"),
             CliError::Events(message) => write!(f, "events: {message}"),
+            CliError::Revert(message) => write!(f, "revert: {message}"),
         }
     }
 }
@@ -561,7 +1001,111 @@ impl std::error::Error for CliError {
             CliError::ParseSettings { source, .. } => Some(source),
             CliError::Render(source) => Some(source),
             CliError::Mcp(_) => None,
-            CliError::Events(_) => None,
+            CliError::Events(_) | CliError::Revert(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zuihitsu::{ids::MemoryName, time::Timestamp, vocabulary::TagName};
+
+    fn ev(seq: u64, payload: EventPayload) -> Event {
+        Event {
+            seq: Seq(seq),
+            recorded_at: Timestamp::from_millis(0),
+            payload,
+        }
+    }
+
+    #[test]
+    fn name_map_resolves_a_create_and_the_latest_rename() {
+        let id = MemoryId::generate();
+        let events = vec![
+            ev(
+                1,
+                EventPayload::memory_created(id, MemoryName::new("person/dave")),
+            ),
+            ev(
+                2,
+                EventPayload::memory_renamed(
+                    id,
+                    MemoryName::new("person/dave"),
+                    MemoryName::new("person/sarah"),
+                ),
+            ),
+        ];
+        let names = name_map(&events);
+        assert_eq!(
+            names.get(&id.0.to_string()).map(String::as_str),
+            Some("person/sarah")
+        );
+    }
+
+    #[test]
+    fn describe_event_glosses_payloads_resolving_ids_to_names() {
+        let id = MemoryId::generate();
+        let names = name_map(&[ev(
+            1,
+            EventPayload::memory_created(id, MemoryName::new("person/dave")),
+        )]);
+
+        assert_eq!(
+            describe_event(
+                &EventPayload::memory_created(id, MemoryName::new("person/dave")),
+                &names
+            ),
+            "created person/dave"
+        );
+        assert_eq!(
+            describe_event(
+                &EventPayload::memory_volatility_set(id, Volatility::High),
+                &names
+            ),
+            "person/dave: volatility high"
+        );
+        assert_eq!(
+            describe_event(
+                &EventPayload::tag_applied_to_memory(id, TagName::new("hobbies")),
+                &names
+            ),
+            "person/dave +#hobbies"
+        );
+        // A memory the log never names falls back to a short id rather than panicking.
+        let other = MemoryId::generate();
+        assert!(
+            describe_event(&EventPayload::memory_deleted(other), &names).starts_with("deleted …")
+        );
+    }
+
+    #[test]
+    fn category_color_groups_by_kind() {
+        let id = MemoryId::generate();
+        assert_eq!(
+            category_color(&EventPayload::memory_created(id, MemoryName::new("self"))),
+            AnsiColor::BrightGreen
+        );
+        assert_eq!(
+            category_color(&EventPayload::tag_created(TagName::new("x"), "d")),
+            AnsiColor::Yellow
+        );
+        assert_eq!(
+            category_color(&EventPayload::memory_deleted(id)),
+            AnsiColor::BrightGreen
+        );
+    }
+
+    #[test]
+    fn json_listing_is_ndjson_that_round_trips() {
+        let event = ev(
+            7,
+            EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/dave")),
+        );
+        let line = serde_json::to_string(&event).unwrap();
+        assert!(!line.contains('\n'), "one event must serialize to one line");
+        let parsed: Event = serde_json::from_str(&line).unwrap();
+        assert_eq!(parsed.seq, Seq(7));
+        assert_eq!(parsed.payload.kind(), "MemoryCreated");
     }
 }

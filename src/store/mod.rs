@@ -26,7 +26,7 @@ mod tests {
             Store,
             test_support::{
                 append_is_ordered_and_faithful, read_from_returns_tail, sample_payloads,
-                subscriber_sees_appends,
+                subscriber_sees_appends, truncate_removes_the_tail,
             },
         },
         time::Timestamp,
@@ -47,6 +47,11 @@ mod tests {
     #[test]
     fn subscriber_sees_appends_sqlite() {
         subscriber_sees_appends(&mut SqliteStore::open_in_memory().unwrap());
+    }
+
+    #[test]
+    fn truncate_removes_the_tail_sqlite() {
+        truncate_removes_the_tail(&mut SqliteStore::open_in_memory().unwrap());
     }
 
     /// The log survives a process boundary: append, drop, reopen, and the events are still there

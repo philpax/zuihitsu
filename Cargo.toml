@@ -42,6 +42,8 @@ path = "src/main.rs"
 ts = ["dep:ts-rs", "zuihitsu-core/ts"]
 
 [dependencies]
+anstream = "1.0"
+anstyle = "1.0"
 async-openai = { version = "0.40.2", default-features = false, features = [
     "byot",
     "rustls",

@@ -64,6 +64,12 @@ impl Store for MemoryStore {
             .unwrap_or(Seq::ZERO))
     }
 
+    fn truncate_to(&mut self, to: Seq) -> Result<u64, StoreError> {
+        let before = self.events.len();
+        self.events.retain(|event| event.seq <= to);
+        Ok((before - self.events.len()) as u64)
+    }
+
     fn subscribe(&mut self) -> Subscription {
         let (sender, receiver) = channel();
         self.subscribers.push(sender);
