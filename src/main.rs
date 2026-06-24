@@ -25,7 +25,7 @@ use zuihitsu::{
 use crate::client::{Client, ClientError};
 
 mod client;
-mod serve;
+mod http_server;
 
 fn main() -> ExitCode {
     run()
@@ -190,7 +190,7 @@ fn init_tracing() {
 
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
     let Some(command) = &cli.command else {
-        return serve(&cli.config);
+        return http_server(&cli.config);
     };
     let config = EnvConfig::load(&cli.config).map_err(|source| CliError::LoadConfig {
         path: cli.config.clone(),
@@ -725,8 +725,8 @@ fn print_catalogue(name: &str, tools: &[McpTool]) {
 }
 
 /// Boot the long-running HTTP server (the primary operation).
-fn serve(config_path: &Path) -> Result<(), CliError> {
-    crate::serve::run_blocking(config_path).map_err(CliError::Serve)
+fn http_server(config_path: &Path) -> Result<(), CliError> {
+    crate::http_server::run_blocking(config_path).map_err(CliError::HttpServer)
 }
 
 fn create(client: &Client, name: &str, persona: &str, seed: &[String]) -> Result<(), CliError> {
@@ -940,7 +940,7 @@ enum CliError {
         path: PathBuf,
         source: ConfigError,
     },
-    Serve(serve::ServeError),
+    HttpServer(http_server::ServeError),
     Client(ClientError),
     ReadFile {
         path: PathBuf,
@@ -971,7 +971,9 @@ impl std::fmt::Display for CliError {
             CliError::LoadConfig { path, source } => {
                 write!(f, "could not load config from {}: {source}", path.display())
             }
-            CliError::Serve(source) => write!(f, "the server exited with an error: {source}"),
+            CliError::HttpServer(source) => {
+                write!(f, "the HTTP server exited with an error: {source}")
+            }
             CliError::Client(source) => write!(f, "{source}"),
             CliError::ReadFile { path, source } => {
                 write!(f, "could not read {}: {source}", path.display())
@@ -995,7 +997,7 @@ impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             CliError::LoadConfig { source, .. } => Some(source),
-            CliError::Serve(source) => Some(source),
+            CliError::HttpServer(source) => Some(source),
             CliError::Client(source) => Some(source),
             CliError::ReadFile { source, .. } => Some(source),
             CliError::ParseSettings { source, .. } => Some(source),

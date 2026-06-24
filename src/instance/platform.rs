@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{Carryover, RoutedTurn, Server, ServerError};
+use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{TurnOutcome, TurnView, buffer_turns, session_touched},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
@@ -22,7 +22,7 @@ use crate::{
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
 /// participants it represents, and cannot reach Control's operator surface.
 pub struct Platform<'a> {
-    pub(super) server: &'a Server,
+    pub(super) server: &'a Instance,
 }
 
 impl Platform<'_> {
@@ -37,7 +37,7 @@ impl Platform<'_> {
         sender: &str,
         text: &str,
         present: &[&str],
-    ) -> Result<TurnOutcome, ServerError> {
+    ) -> Result<TurnOutcome, InstanceError> {
         // Hold a stream permit for this message's whole handling — the turn and any compaction flush
         // it triggers — so no more than `max_concurrent_streams` messages crowd the shared model at
         // once (spec §Concurrency). Released when this scope returns.
@@ -154,7 +154,7 @@ impl Platform<'_> {
         &self,
         locator: &ConversationLocator,
         participant: &str,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), InstanceError> {
         let Some(conversation) = self
             .server
             .engine
@@ -242,7 +242,7 @@ impl Platform<'_> {
         &self,
         conversation: ConversationId,
         model: &dyn ModelClient,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), InstanceError> {
         // Take the session out under the map guard; the `Arc` then carries it across the flush and
         // `shutdown_mcp().await` below without holding the guard.
         let Some(open) = self.server.sessions.lock().remove(&conversation) else {
@@ -291,7 +291,7 @@ impl Platform<'_> {
         &self,
         conversation: ConversationId,
         from_seq: Seq,
-    ) -> Result<Vec<MemoryId>, ServerError> {
+    ) -> Result<Vec<MemoryId>, InstanceError> {
         let mut working_set = Vec::new();
         let mut seen = BTreeSet::new();
         // Resolve the context and its active threads up front, each releasing the graph guard before

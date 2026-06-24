@@ -60,7 +60,7 @@ use crate::{
     vector::VectorIndex,
 };
 
-pub struct Server {
+pub struct Instance {
     // The store, graph, and clock bundled behind one shared [`Engine`], so a turn shares them with a
     // single pointer bump and the Lua block API can hold a `'static` handle across `eval_async`. The
     // server is still the single writer; the engine's mutexes serialize access rather than admit a
@@ -72,7 +72,7 @@ pub struct Server {
     /// restart drops the map, but the next message recovers a session still open in the log through
     /// `ensure_session` (resumed within the idle gap, else closed-with-flush and reopened). Behind a
     /// `Mutex` (and each value an `Arc`) so concurrent conversations reach the map through a shared
-    /// `&Server`; a turn holds its session's `Arc` across the turn `.await` without keeping the map guard.
+    /// `&Instance`; a turn holds its session's `Arc` across the turn `.await` without keeping the map guard.
     sessions: Mutex<HashMap<ConversationId, Arc<OpenSession>>>,
     /// A per-conversation async lock serializing its session lifecycle: the close-with-flush of one
     /// session and the open of the next. A close runs a flush — a model call lasting seconds — before it
@@ -86,7 +86,7 @@ pub struct Server {
     /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
     /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
     /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
-    /// shared-`&Server` reason as `sessions`.
+    /// shared-`&Instance` reason as `sessions`.
     pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
     /// The describer's cursor: the log seq through which descriptions have been regenerated. The
     /// background describer (and the explicit `describe_catch_up`) advances it as it catches synthesized
@@ -110,7 +110,7 @@ pub struct Server {
     /// model at once; further streams queue. Sized from settings at construction (a change takes
     /// effect on restart).
     streams: Semaphore,
-    /// The MCP host and the catalogue probed from it at [`Server::connect_mcp`] — `None` until then.
+    /// The MCP host and the catalogue probed from it at [`Instance::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
     mcp: Option<McpRuntime>,
     /// The configured model's context window, in tokens, set by the serving host from `[model]`
@@ -128,7 +128,7 @@ struct McpRuntime {
 
 /// The background snapshotter's policy (spec §Snapshots): where to write, how often to check, the
 /// activity gate, and retention. Assembled by the serving host from the `[snapshots]` config and
-/// handed to [`Server::run_snapshotter`].
+/// handed to [`Instance::run_snapshotter`].
 pub struct SnapshotSchedule {
     pub dir: PathBuf,
     pub check_interval: Duration,
@@ -136,12 +136,12 @@ pub struct SnapshotSchedule {
     pub keep: usize,
 }
 
-impl Server {
-    pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Server {
-        Server::from_engine(Engine::new(store, graph, clock))
+impl Instance {
+    pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Instance {
+        Instance::from_engine(Engine::new(store, graph, clock))
     }
 
-    /// As [`Server::new`], with the semantic-retrieval backends attached — the live server's
+    /// As [`Instance::new`], with the semantic-retrieval backends attached — the live server's
     /// configuration when an embedding endpoint is set, so `memory.search` and the background indexer
     /// have an embedder and a vector index to work over.
     pub fn with_retrieval(
@@ -150,15 +150,15 @@ impl Server {
         clock: Box<dyn Clock>,
         embedder: Arc<dyn Embedder>,
         vectors: Box<dyn VectorIndex>,
-    ) -> Server {
-        Server::from_engine(Engine::with_retrieval(
+    ) -> Instance {
+        Instance::from_engine(Engine::with_retrieval(
             store, graph, clock, embedder, vectors,
         ))
     }
 
-    fn from_engine(engine: Arc<Engine>) -> Server {
+    fn from_engine(engine: Arc<Engine>) -> Instance {
         let streams = Semaphore::new(initial_stream_permits(&engine));
-        Server {
+        Instance {
             engine,
             sessions: Mutex::new(HashMap::new()),
             lifecycle: Mutex::new(HashMap::new()),
@@ -188,15 +188,15 @@ impl Server {
         &mut self,
         host: Arc<dyn McpHost>,
         configs: BTreeMap<String, McpServerConfig>,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), InstanceError> {
         let catalogue = McpCatalogue::probe(host.as_ref(), &configs).await?;
         self.mcp = Some(McpRuntime { host, catalogue });
         Ok(())
     }
 
     /// A server backed entirely in memory (in-memory store and graph), for tests.
-    pub fn in_memory(clock: Box<dyn Clock>) -> Result<Server, ServerError> {
-        Ok(Server::new(
+    pub fn in_memory(clock: Box<dyn Clock>) -> Result<Instance, InstanceError> {
+        Ok(Instance::new(
             Box::new(MemoryStore::new()),
             Graph::open_in_memory()?,
             clock,
@@ -206,7 +206,7 @@ impl Server {
     /// Catch the graph up to log-head — reconciling a graph left stale or half-applied by a crash
     /// in the commit window — and classify the log for the caller to act on. The single-writer log
     /// lock is acquired when the (file-backed) store is opened, before the server is constructed.
-    pub fn boot(&mut self) -> Result<GenesisStatus, ServerError> {
+    pub fn boot(&mut self) -> Result<GenesisStatus, InstanceError> {
         let applied = self
             .engine
             .graph
@@ -227,11 +227,11 @@ impl Server {
     /// the graph lock across the `VACUUM INTO`, so the capture is at a clean `seq` boundary: a commit,
     /// which takes the same lock, can neither be in flight nor interleave (spec §Snapshots). Creates
     /// `dir` if absent.
-    pub fn snapshot(&self, dir: &Path) -> Result<Option<PathBuf>, ServerError> {
+    pub fn snapshot(&self, dir: &Path) -> Result<Option<PathBuf>, InstanceError> {
         let graph = self.engine.graph.lock();
         let head = graph.head()?;
         std::fs::create_dir_all(dir).map_err(|source| {
-            ServerError::Snapshot(format!(
+            InstanceError::Snapshot(format!(
                 "could not create the snapshot directory {dir:?}: {source}"
             ))
         })?;
@@ -252,7 +252,7 @@ impl Server {
         query: &str,
         present_set: &[MemoryId],
         limit: usize,
-    ) -> Result<Vec<SearchHit>, ServerError> {
+    ) -> Result<Vec<SearchHit>, InstanceError> {
         let Some(retrieval) = &self.engine.retrieval else {
             return Ok(Vec::new());
         };
@@ -260,7 +260,7 @@ impl Server {
             .embedder
             .embed(&[query.to_owned()])
             .await
-            .map_err(|error| ServerError::Index(IndexError::Embed(error)))?
+            .map_err(|error| InstanceError::Index(IndexError::Embed(error)))?
             .into_iter()
             .next()
             .unwrap_or_default();
@@ -287,7 +287,7 @@ impl Server {
         )?)
     }
 
-    /// The operator-authority API facet. Takes `&self` so a shared `Arc<Server>` can hand out a facet
+    /// The operator-authority API facet. Takes `&self` so a shared `Arc<Instance>` can hand out a facet
     /// per caller; the server's mutable runtime state lives behind its own locks.
     pub fn control(&self) -> Control<'_> {
         Control { server: self }
@@ -296,7 +296,7 @@ impl Server {
     /// The platform-authority API facet — delivering participant turns. It structurally lacks
     /// Control's creation and inspection methods, which is what makes "the operator has no platform
     /// identity" enforceable. Takes `&self` so concurrent conversations each obtain one from a shared
-    /// `Arc<Server>`.
+    /// `Arc<Instance>`.
     pub fn platform(&self) -> Platform<'_> {
         Platform { server: self }
     }
@@ -305,7 +305,7 @@ impl Server {
 /// One routed turn's inputs: the `conversation` it lands in, who is `present_set` (for the session
 /// brief), the `participant` it is attributed to, the `inbound` text, and the `template`/`authority`
 /// that frame it — `Scaffold`/`Platform` for an ordinary message, `Imprint`/`Operator` for the
-/// console interview. Bundled so [`Server::run_session_turn`] takes the routed turn as a whole.
+/// console interview. Bundled so [`Instance::run_session_turn`] takes the routed turn as a whole.
 struct RoutedTurn<'a> {
     conversation: ConversationId,
     present_set: &'a [MemoryId],
@@ -316,9 +316,9 @@ struct RoutedTurn<'a> {
 }
 
 /// The session machinery shared by both facets: opening/continuing a session and running one turn.
-/// On `Server` (not a facet) so the platform `route_message` and the operator `imprint` both reach
+/// On `Instance` (not a facet) so the platform `route_message` and the operator `imprint` both reach
 /// it.
-impl Server {
+impl Instance {
     /// Open or continue the session for `conversation`, then run one turn of `inbound` from
     /// `participant` under `template`/`authority`, returning its report and the live buffer it saw
     /// (the buffer the caller's compaction trigger measures). The shared core behind
@@ -327,7 +327,7 @@ impl Server {
         &self,
         model: &dyn ModelClient,
         routed: &RoutedTurn<'_>,
-    ) -> Result<(TurnReport, Vec<TurnView>), ServerError> {
+    ) -> Result<(TurnReport, Vec<TurnView>), InstanceError> {
         // `ensure_session` returns the open session as an `Arc`, so the turn holds it across
         // `run_turn().await` without keeping the `sessions` map guard.
         let open = self
@@ -382,7 +382,7 @@ impl Server {
         Ok((report, buffer))
     }
 
-    /// The lazily-minted async lock serializing `conversation`'s session lifecycle (see [`Server::
+    /// The lazily-minted async lock serializing `conversation`'s session lifecycle (see [`Instance::
     /// lifecycle`]). Acquired across `ensure_session` and the idle sweep's close, so the close-with-flush
     /// of one session always finishes before the next session for that conversation opens.
     fn lifecycle_lock(&self, conversation: ConversationId) -> Arc<tokio::sync::Mutex<()>> {
@@ -418,8 +418,8 @@ impl Server {
         conversation: ConversationId,
         open: &OpenSession,
         model: &dyn ModelClient,
-    ) -> Result<bool, ServerError> {
-        // The caller holds this conversation's lifecycle lock (see [`Server::lifecycle`]), so the
+    ) -> Result<bool, InstanceError> {
+        // The caller holds this conversation's lifecycle lock (see [`Instance::lifecycle`]), so the
         // open-check is reliable here — no other path can be closing this session concurrently. Skip if
         // it is already ended: a path that held the lock before us (the sweep, or the recovery close) has
         // closed it.
@@ -484,7 +484,7 @@ impl Server {
         conversation: ConversationId,
         present_set: &[MemoryId],
         model: &dyn ModelClient,
-    ) -> Result<Arc<OpenSession>, ServerError> {
+    ) -> Result<Arc<OpenSession>, InstanceError> {
         // Serialize this conversation's lifecycle: hold its lock across the whole recover/close/open so an
         // idle-sweep close already in flight for it finishes first — its flush's writes are then in the
         // graph the new session's brief reads — and so the close and the next open never interleave.
@@ -554,7 +554,7 @@ impl Server {
 
         // Catch the wake-up scheduler up to now before the session opens, so a just-due item can
         // surface in this session if it is eligible (the drain below reads the fired surface). The
-        // background driver ([`Server::run_scheduler`]) fires continuously on a timer; this catch-up
+        // background driver ([`Instance::run_scheduler`]) fires continuously on a timer; this catch-up
         // stays for immediacy at session open and is idempotent with it.
         self.fire_due_now(now)?;
 
@@ -670,7 +670,7 @@ impl Server {
     /// first imprint. Unlike a platform participant it carries no `ParticipantIdentified` binding —
     /// the operator has no platform identity, must never collide with a real participant, and must
     /// resolve identically across imprints — so it is keyed only by its canonical name.
-    fn resolve_or_mint_operator(&self) -> Result<MemoryId, ServerError> {
+    fn resolve_or_mint_operator(&self) -> Result<MemoryId, InstanceError> {
         let operator = MemoryName::from(NamespacedMemoryName::operator());
         if let Some(memory) = self.engine.graph.lock().memory_by_name(&operator)? {
             return Ok(memory.id);
@@ -692,7 +692,7 @@ impl Server {
     /// work). Shared by the session-open catch-up and the background driver, so both fire with identical
     /// semantics — it is global (every due trigger, not one conversation's) and idempotent (a fired
     /// trigger is no longer due). Holds the graph guard before the store, per the lock-ordering rule.
-    fn fire_due_now(&self, now: Timestamp) -> Result<usize, ServerError> {
+    fn fire_due_now(&self, now: Timestamp) -> Result<usize, InstanceError> {
         let fired = {
             let graph = self.engine.graph.lock();
             scheduler::fire_due(self.engine.store.lock().as_mut(), &graph, now)?
@@ -710,7 +710,7 @@ impl Server {
     /// continuously, deferred from Stage 9 until the shared-server model existed). Every `tick` it fires
     /// all globally-due wake-ups, so a long-idle agent's reminders fire on time instead of waiting for a
     /// session to open; the eligible subset is still *surfaced* per session by the open-time drain. Runs
-    /// on the shared `Arc<Server>` until `shutdown` resolves.
+    /// on the shared `Arc<Instance>` until `shutdown` resolves.
     ///
     /// A fire failure is logged, never propagated — the driver is long-lived and must outlast a
     /// transient store/graph error. It holds no lock across an `.await` and never touches the per-block
@@ -746,10 +746,10 @@ impl Server {
     /// idle periods from snapshotting (spec §Snapshots). Compares the graph head to the newest existing
     /// snapshot's head; when the gap meets `min_new_events`, writes a snapshot and prunes to `keep`.
     /// Returns whether one was written.
-    fn snapshot_if_due(&self, schedule: &SnapshotSchedule) -> Result<bool, ServerError> {
+    fn snapshot_if_due(&self, schedule: &SnapshotSchedule) -> Result<bool, InstanceError> {
         let head = self.engine.graph.lock().head()?;
         let last = snapshot::latest(&schedule.dir)
-            .map_err(|error| ServerError::Snapshot(error.to_string()))?
+            .map_err(|error| InstanceError::Snapshot(error.to_string()))?
             .map_or(0, |(_, head)| head.0);
         if head.0.saturating_sub(last) < schedule.min_new_events {
             return Ok(false);
@@ -757,13 +757,13 @@ impl Server {
         let wrote = self.snapshot(&schedule.dir)?.is_some();
         if wrote {
             snapshot::prune(&schedule.dir, schedule.keep)
-                .map_err(|error| ServerError::Snapshot(error.to_string()))?;
+                .map_err(|error| InstanceError::Snapshot(error.to_string()))?;
         }
         Ok(wrote)
     }
 
     /// The background snapshotter: on each `check_interval` tick, snapshot the graph if activity has
-    /// accrued ([`Server::snapshot_if_due`]), stopping on the same shutdown signal as the scheduler.
+    /// accrued ([`Instance::snapshot_if_due`]), stopping on the same shutdown signal as the scheduler.
     /// A failure is logged, not fatal — the log is always the source of truth, so a missed snapshot
     /// only slows the next cold boot.
     pub async fn run_snapshotter(
@@ -791,7 +791,7 @@ impl Server {
     /// batch under a brief vector-index lock. So the slow `embed().await` holds no guard at all — not
     /// the store, not the graph, not the index — and a concurrent `memory.search` never waits behind a
     /// batch's embedding. A no-op returning `0` on a graph-only instance (no embedder configured).
-    pub async fn index_catch_up(&self) -> Result<usize, ServerError> {
+    pub async fn index_catch_up(&self) -> Result<usize, InstanceError> {
         let Some(retrieval) = &self.engine.retrieval else {
             return Ok(0);
         };
@@ -825,7 +825,7 @@ impl Server {
     /// The simple, downtime-accepting form: the costlier zero-downtime discipline (build the new index
     /// alongside the old, serve the old until an atomic cutover) is a deferred follow-up (spec §Storage
     /// → vector store).
-    pub async fn reembed_if_embedding_model_changed(&self) -> Result<bool, ServerError> {
+    pub async fn reembed_if_embedding_model_changed(&self) -> Result<bool, InstanceError> {
         let Some(retrieval) = &self.engine.retrieval else {
             return Ok(false);
         };
@@ -904,7 +904,7 @@ impl Server {
     /// counterpart to the background describer — the same dual-mode shape as `index_catch_up` — driven
     /// explicitly by tests and the eval harness so a caller can force regeneration to a known point and
     /// then read fresh descriptions. Returns how many memories it considered.
-    pub async fn describe_catch_up(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+    pub async fn describe_catch_up(&self, model: &dyn ModelClient) -> Result<usize, InstanceError> {
         // Held across the catch-up so a concurrent pass waits, then reads the already-advanced cursor
         // and no-ops, rather than re-describing the same memories.
         let _guard = self.describe_guard.lock().await;
@@ -917,7 +917,7 @@ impl Server {
     /// Seed the describer's cursor to log-head, treating everything written so far as described. Called
     /// at boot and at agent creation so the genesis-seeded `self` (which has no description yet) is not
     /// regenerated by a synchronous catch-up before any real content is written.
-    pub(crate) fn baseline_describer_cursor(&self) -> Result<(), ServerError> {
+    pub(crate) fn baseline_describer_cursor(&self) -> Result<(), InstanceError> {
         *self.describer_cursor.lock() = self.engine.store.lock().head()?;
         Ok(())
     }
@@ -955,7 +955,10 @@ impl Server {
     /// adjudicated merge): weigh every proposed merge written since the cursor, advancing it. Driven on
     /// a timer by the served runtime and explicitly by tests and the eval harness. Returns how many
     /// proposals it considered.
-    pub async fn adjudicate_catch_up(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+    pub async fn adjudicate_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
         let _guard = self.adjudicate_guard.lock().await;
         let cursor = *self.adjudicator_cursor.lock();
         let (advanced, count) = run_adjudicate_catch_up(&self.engine, model, cursor).await?;
@@ -966,7 +969,7 @@ impl Server {
     /// Seed the adjudicator's cursor to log-head, treating every proposal so far as already adjudicated.
     /// Called at boot and at agent creation, like the describer's, so a restart does not re-weigh old
     /// proposals.
-    pub(crate) fn baseline_adjudicator_cursor(&self) -> Result<(), ServerError> {
+    pub(crate) fn baseline_adjudicator_cursor(&self) -> Result<(), InstanceError> {
         *self.adjudicator_cursor.lock() = self.engine.store.lock().head()?;
         Ok(())
     }
@@ -1006,9 +1009,12 @@ impl Server {
     /// is authoritative; a log-only one's comes from its last recorded turn. The session is claimed in
     /// the map (reconstructed if only in the log) and then taken back out with an atomic `remove` — the
     /// single point that dedupes a concurrent message's own close of the same session, so it is closed
-    /// exactly once. Returns how many sessions it closed. Driven on a timer by [`Server::run_sweeper`];
+    /// exactly once. Returns how many sessions it closed. Driven on a timer by [`Instance::run_sweeper`];
     /// also callable directly to sweep once on demand.
-    pub async fn sweep_idle_sessions(&self, model: &dyn ModelClient) -> Result<usize, ServerError> {
+    pub async fn sweep_idle_sessions(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
         let now = self.engine.clock.now();
         let idle_gap_ms = Settings::from_store(self.engine.store.lock().as_ref())?
             .compaction
@@ -1145,7 +1151,7 @@ struct Carryover {
     working_set: Vec<MemoryId>,
 }
 
-/// The live session backing a conversation (runtime state, see [`Server::sessions`]). Held behind an
+/// The live session backing a conversation (runtime state, see [`Instance::sessions`]). Held behind an
 /// `Arc` in the `sessions` map, so a running turn keeps its session alive without the map guard; only
 /// `last_activity` is mutated after open, so it is an atomic the reuse path bumps through `&self`.
 struct OpenSession {
@@ -1180,7 +1186,7 @@ impl OpenSession {
 
 /// A server-side failure, delegating its message to the underlying error.
 #[derive(Debug)]
-pub enum ServerError {
+pub enum InstanceError {
     Store(StoreError),
     Graph(GraphError),
     /// A turn (the agent loop) failed while routing a message.
@@ -1198,103 +1204,103 @@ pub enum ServerError {
     Lua(crate::agent::lua::LuaError),
 }
 
-impl std::fmt::Display for ServerError {
+impl std::fmt::Display for InstanceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ServerError::Store(error) => write!(f, "server (store): {error}"),
-            ServerError::Graph(error) => write!(f, "server (graph): {error}"),
-            ServerError::Turn(error) => write!(f, "server (turn): {error}"),
-            ServerError::Mcp(error) => write!(f, "server (mcp): {error}"),
-            ServerError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
-            ServerError::Index(error) => write!(f, "server (index): {error}"),
-            ServerError::Search(error) => write!(f, "server (search): {error}"),
-            ServerError::Lua(error) => write!(f, "server (lua): {error}"),
+            InstanceError::Store(error) => write!(f, "server (store): {error}"),
+            InstanceError::Graph(error) => write!(f, "server (graph): {error}"),
+            InstanceError::Turn(error) => write!(f, "server (turn): {error}"),
+            InstanceError::Mcp(error) => write!(f, "server (mcp): {error}"),
+            InstanceError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
+            InstanceError::Index(error) => write!(f, "server (index): {error}"),
+            InstanceError::Search(error) => write!(f, "server (search): {error}"),
+            InstanceError::Lua(error) => write!(f, "server (lua): {error}"),
         }
     }
 }
 
-impl std::error::Error for ServerError {
+impl std::error::Error for InstanceError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            ServerError::Store(error) => Some(error),
-            ServerError::Graph(error) => Some(error),
-            ServerError::Turn(error) => Some(error),
-            ServerError::Mcp(error) => Some(error),
-            ServerError::Snapshot(_) => None,
-            ServerError::Index(error) => Some(error),
-            ServerError::Search(error) => Some(error),
-            ServerError::Lua(error) => Some(error),
+            InstanceError::Store(error) => Some(error),
+            InstanceError::Graph(error) => Some(error),
+            InstanceError::Turn(error) => Some(error),
+            InstanceError::Mcp(error) => Some(error),
+            InstanceError::Snapshot(_) => None,
+            InstanceError::Index(error) => Some(error),
+            InstanceError::Search(error) => Some(error),
+            InstanceError::Lua(error) => Some(error),
         }
     }
 }
 
-impl From<SearchError> for ServerError {
+impl From<SearchError> for InstanceError {
     fn from(error: SearchError) -> Self {
-        ServerError::Search(error)
+        InstanceError::Search(error)
     }
 }
 
-impl From<IndexError> for ServerError {
+impl From<IndexError> for InstanceError {
     fn from(error: IndexError) -> Self {
-        ServerError::Index(error)
+        InstanceError::Index(error)
     }
 }
 
-impl From<crate::mcp::McpError> for ServerError {
+impl From<crate::mcp::McpError> for InstanceError {
     fn from(error: crate::mcp::McpError) -> Self {
-        ServerError::Mcp(error)
+        InstanceError::Mcp(error)
     }
 }
 
-impl From<StoreError> for ServerError {
+impl From<StoreError> for InstanceError {
     fn from(error: StoreError) -> Self {
-        ServerError::Store(error)
+        InstanceError::Store(error)
     }
 }
 
-impl From<GraphError> for ServerError {
+impl From<GraphError> for InstanceError {
     fn from(error: GraphError) -> Self {
-        ServerError::Graph(error)
+        InstanceError::Graph(error)
     }
 }
 
 // Identity and brief resolution fail only into store/graph errors, so they map onto the existing
 // variants rather than widening the enum; the agent loop's richer `TurnError` keeps its own.
-impl From<IdentityError> for ServerError {
+impl From<IdentityError> for InstanceError {
     fn from(error: IdentityError) -> Self {
         match error {
-            IdentityError::Store(error) => ServerError::Store(error),
-            IdentityError::Graph(error) => ServerError::Graph(error),
+            IdentityError::Store(error) => InstanceError::Store(error),
+            IdentityError::Graph(error) => InstanceError::Graph(error),
         }
     }
 }
 
-impl From<BriefError> for ServerError {
+impl From<BriefError> for InstanceError {
     fn from(error: BriefError) -> Self {
         match error {
-            BriefError::Graph(error) => ServerError::Graph(error),
+            BriefError::Graph(error) => InstanceError::Graph(error),
         }
     }
 }
 
-impl From<SchedulerError> for ServerError {
+impl From<SchedulerError> for InstanceError {
     fn from(error: SchedulerError) -> Self {
         match error {
-            SchedulerError::Store(error) => ServerError::Store(error),
-            SchedulerError::Graph(error) => ServerError::Graph(error),
+            SchedulerError::Store(error) => InstanceError::Store(error),
+            SchedulerError::Graph(error) => InstanceError::Graph(error),
         }
     }
 }
 
-impl From<TurnError> for ServerError {
+impl From<TurnError> for InstanceError {
     fn from(error: TurnError) -> Self {
-        ServerError::Turn(error)
+        InstanceError::Turn(error)
     }
 }
 
-impl From<crate::agent::lua::LuaError> for ServerError {
+impl From<crate::agent::lua::LuaError> for InstanceError {
     fn from(error: crate::agent::lua::LuaError) -> Self {
-        ServerError::Lua(error)
+        InstanceError::Lua(error)
     }
 }
 
@@ -1339,8 +1345,8 @@ mod embedding_swap_tests {
         vectors: InMemoryVectorIndex,
         model: &'static str,
         dims: usize,
-    ) -> Server {
-        Server::with_retrieval(
+    ) -> Instance {
+        Instance::with_retrieval(
             Box::new(store),
             Graph::open_in_memory().unwrap(),
             Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
@@ -1430,7 +1436,7 @@ mod embedding_swap_tests {
         let mut graph = Graph::open_in_memory().unwrap();
         graph.materialize_from(&store).unwrap();
         let clock = ManualClock::new(Timestamp::from_millis(2_000));
-        let server = Server::new(Box::new(store), graph, Box::new(clock.clone()));
+        let server = Instance::new(Box::new(store), graph, Box::new(clock.clone()));
         assert_eq!(
             server.engine.graph.lock().open_sessions().unwrap().len(),
             1,
@@ -1528,7 +1534,7 @@ mod embedding_swap_tests {
             .unwrap();
         let mut graph = Graph::open_in_memory().unwrap();
         graph.materialize_from(&store).unwrap();
-        let server = Server::new(
+        let server = Instance::new(
             Box::new(store),
             graph,
             Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
@@ -1633,7 +1639,7 @@ mod embedding_swap_tests {
                     ],
                 )
                 .unwrap();
-            let server = Server::with_retrieval(
+            let server = Instance::with_retrieval(
                 Box::new(store),
                 Graph::open(&graph_path).unwrap(),
                 Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
@@ -1657,7 +1663,7 @@ mod embedding_swap_tests {
                 Some("old"),
                 "the persisted index should carry the old model across the restart"
             );
-            let mut server = Server::with_retrieval(
+            let mut server = Instance::with_retrieval(
                 Box::new(SqliteStore::open(&log).unwrap()),
                 Graph::open(&graph_path).unwrap(),
                 Box::new(ManualClock::new(Timestamp::from_millis(2_000))),

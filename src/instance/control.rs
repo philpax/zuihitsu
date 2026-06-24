@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use std::time::Duration;
 
-use super::{RoutedTurn, Server, ServerError};
+use super::{Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{
         BlockContext, TurnOutcome,
@@ -30,7 +30,7 @@ use crate::{
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
 /// never obtain one of these.
 pub struct Control<'a> {
-    pub(super) server: &'a Server,
+    pub(super) server: &'a Instance,
 }
 
 /// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent
@@ -85,7 +85,7 @@ impl Control<'_> {
         &self,
         model: &dyn ModelClient,
         text: &str,
-    ) -> Result<TurnOutcome, ServerError> {
+    ) -> Result<TurnOutcome, InstanceError> {
         // The imprint runs the model too, so it takes a stream permit like any other turn (spec
         // §Concurrency), held across the interview turn below.
         let _stream = self
@@ -138,7 +138,7 @@ impl Control<'_> {
         &self,
         script: &str,
         allow_mcp: bool,
-    ) -> Result<LuaConsoleOutcome, ServerError> {
+    ) -> Result<LuaConsoleOutcome, InstanceError> {
         // The block may embed (`memory.search`) and, with MCP, reach outward, so it takes a stream
         // permit like any model-driving operation (spec §Concurrency), held across the run below.
         let _stream = self
@@ -218,7 +218,11 @@ impl Control<'_> {
     /// edit is a fresh registration at the next version under operator source; old `produced_by`
     /// references keep resolving to the version they named. No projection — templates are not
     /// materialized into the graph.
-    pub fn register_prompt(&self, name: PromptTemplateName, body: &str) -> Result<(), ServerError> {
+    pub fn register_prompt(
+        &self,
+        name: PromptTemplateName,
+        body: &str,
+    ) -> Result<(), InstanceError> {
         let current = templates::latest_template(self.server.engine.store.lock().as_ref(), name)?;
         let version = current.map_or(1, |template| template.version + 1);
         let now = self.server.engine.clock.now();
@@ -236,7 +240,7 @@ impl Control<'_> {
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads
     /// see them. Idempotent: calling it on a born agent is a no-op.
-    pub fn create_agent(&self, seed: &SeedSelf) -> Result<Rollout, ServerError> {
+    pub fn create_agent(&self, seed: &SeedSelf) -> Result<Rollout, InstanceError> {
         let outcome = genesis::rollout(
             self.server.engine.store.lock().as_mut(),
             self.server.engine.clock.as_ref(),
@@ -257,12 +261,12 @@ impl Control<'_> {
         Ok(outcome)
     }
 
-    pub fn genesis_status(&self) -> Result<GenesisStatus, ServerError> {
+    pub fn genesis_status(&self) -> Result<GenesisStatus, InstanceError> {
         Ok(genesis::status(self.server.engine.store.lock().as_ref())?)
     }
 
     /// Inspect a live memory by name (e.g. `"self"`).
-    pub fn memory(&self, name: &str) -> Result<Option<MemoryView>, ServerError> {
+    pub fn memory(&self, name: &str) -> Result<Option<MemoryView>, InstanceError> {
         Ok(self
             .server
             .engine
@@ -272,7 +276,7 @@ impl Control<'_> {
     }
 
     /// Inspect the live memories in a namespace (e.g. `"person/"`), ordered by name.
-    pub fn memories(&self, prefix: &str) -> Result<Vec<MemoryView>, ServerError> {
+    pub fn memories(&self, prefix: &str) -> Result<Vec<MemoryView>, InstanceError> {
         Ok(self
             .server
             .engine
@@ -283,14 +287,14 @@ impl Control<'_> {
 
     /// Inspect the live memories carrying a `Recurring` occurrence — the operator's view of the
     /// agent's recurring calendar, the inspection parallel to the agent-facing `calendar.recurring()`.
-    pub fn recurring(&self) -> Result<Vec<MemoryView>, ServerError> {
+    pub fn recurring(&self) -> Result<Vec<MemoryView>, InstanceError> {
         Ok(self.server.engine.graph.lock().recurring_memories()?)
     }
 
     /// The belief arbitrations the agent has recorded, oldest first — for each, the memory it concerns
     /// and the reconciling statement. The audit surface for "why does it believe X" (spec §Write path);
     /// `BeliefArbitrated` is log-only, so this reads it from the log rather than the graph.
-    pub fn arbitrations(&self) -> Result<Vec<Arbitration>, ServerError> {
+    pub fn arbitrations(&self) -> Result<Vec<Arbitration>, InstanceError> {
         let mut out = Vec::new();
         let events = self.server.engine.store.lock().read_from(Seq::ZERO)?;
         for event in events {
@@ -319,7 +323,7 @@ impl Control<'_> {
     /// deliberation, token usage, and latency. The console's deliberation surface and the answer to
     /// "where did the turn's time go" (spec §Observability); `ModelCalled` is log-only, so this reads
     /// it from the log. Returns nothing under the `Off` capture level, since no events were written.
-    pub fn model_calls(&self) -> Result<Vec<ModelCall>, ServerError> {
+    pub fn model_calls(&self) -> Result<Vec<ModelCall>, InstanceError> {
         let mut out = Vec::new();
         for event in self.server.engine.store.lock().read_from(Seq::ZERO)? {
             let seq = event.seq;
@@ -359,21 +363,21 @@ impl Control<'_> {
     /// The whole event log, oldest first — the raw record everything else is derived from (spec
     /// §Observability → the Events view). The eval harness embeds this per run, and the console
     /// reconstructs its views from it.
-    pub fn events(&self) -> Result<Vec<Event>, ServerError> {
+    pub fn events(&self) -> Result<Vec<Event>, InstanceError> {
         self.events_from(Seq::ZERO)
     }
 
     /// The event log from `from` onward (every event with `seq >= from`), in order. The live
     /// console's catch-up and tail surface (spec §Observability → live phase): an initial
     /// `events_from(ZERO)` seeds the replica, then repeated `events_from(head)` polls the new tail.
-    pub fn events_from(&self, from: Seq) -> Result<Vec<Event>, ServerError> {
+    pub fn events_from(&self, from: Seq) -> Result<Vec<Event>, InstanceError> {
         Ok(self.server.engine.store.lock().read_from(from)?)
     }
 
     /// Inspect a memory's local content entries by name — their text, teller, and visibility — for
     /// auditing what was written and how it is gated (e.g. that a private aside was not stored
     /// `Public`). Empty if the memory is unknown.
-    pub fn entries(&self, name: &str) -> Result<Vec<EntryView>, ServerError> {
+    pub fn entries(&self, name: &str) -> Result<Vec<EntryView>, InstanceError> {
         let graph = self.server.engine.graph.lock();
         Ok(graph
             .memory_by_name(MemoryName::new(name))?
@@ -383,7 +387,7 @@ impl Control<'_> {
     }
 
     /// The agent's current behavioral settings: the latest `ConfigSet` snapshot.
-    pub fn settings(&self) -> Result<Settings, ServerError> {
+    pub fn settings(&self) -> Result<Settings, InstanceError> {
         Ok(Settings::from_store(
             self.server.engine.store.lock().as_ref(),
         )?)
@@ -393,7 +397,7 @@ impl Control<'_> {
     /// `Operator`) — the read-modify-write the configuration design calls for (spec §Initialization →
     /// configuration). The new snapshot is the latest and takes effect on the next read; settings are
     /// read from the log, so no projection is involved.
-    pub fn set_settings(&self, settings: Settings) -> Result<(), ServerError> {
+    pub fn set_settings(&self, settings: Settings) -> Result<(), InstanceError> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
@@ -404,7 +408,10 @@ impl Control<'_> {
 
     /// The sessions of a conversation, addressed by its locator, oldest first — operator inspection
     /// of how the conversation segmented into sessions. Empty if the room has never been seen.
-    pub fn sessions(&self, locator: &ConversationLocator) -> Result<Vec<SessionView>, ServerError> {
+    pub fn sessions(
+        &self,
+        locator: &ConversationLocator,
+    ) -> Result<Vec<SessionView>, InstanceError> {
         let graph = self.server.engine.graph.lock();
         match graph.conversation_for_locator(locator)? {
             Some(conversation) => Ok(graph.sessions_in(conversation)?),

@@ -9,10 +9,10 @@ pub mod agent;
 pub mod clock;
 pub mod config;
 pub mod engine;
+pub mod instance;
 pub mod mcp;
 pub mod memory;
 pub mod model;
-pub mod server;
 pub mod snapshot;
 pub mod store;
 pub mod vector;
@@ -72,6 +72,9 @@ pub use agent::{
 };
 pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};
+pub use instance::{
+    Arbitration, Control, Instance, InstanceError, LuaConsoleOutcome, ModelCall, SnapshotSchedule,
+};
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
     McpServerConfig, McpTool, StdioHost,
@@ -90,8 +93,9 @@ pub use memory::{
     },
 };
 pub use model::openai::{OpenAiClient, OpenAiEmbedder};
-pub use server::{
-    Arbitration, Control, LuaConsoleOutcome, ModelCall, Server, ServerError, SnapshotSchedule,
-};
+
+// Compatibility aliases for the old `Server` naming. New code should prefer `Instance`.
+pub type Server = Instance;
+pub type ServerError = InstanceError;
 pub use store::SqliteStore;
 pub use vector::SqliteVectorIndex;
