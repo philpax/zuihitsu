@@ -187,7 +187,11 @@ impl Control<'_> {
 
         let outcome = session
             .execute(&self.server.engine, &context, script)
-            .await?;
+            .await
+            .map_err(|error| InstanceError::Lua {
+                conversation: Some(conversation),
+                error,
+            })?;
         session.shutdown_mcp().await;
 
         Ok(match outcome {

@@ -378,7 +378,11 @@ impl Instance {
             max_block_attempts,
             capture,
         })
-        .await?;
+        .await
+        .map_err(|error| InstanceError::Turn {
+            conversation: Some(routed.conversation),
+            error,
+        })?;
         Ok((report, buffer))
     }
 
@@ -450,7 +454,11 @@ impl Instance {
                 max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
                 capture: settings.observability.capture_model_calls,
             })
-            .await?;
+            .await
+            .map_err(|error| InstanceError::Turn {
+                conversation: Some(conversation),
+                error,
+            })?;
             self.engine
                 .graph
                 .lock()
@@ -1189,8 +1197,13 @@ impl OpenSession {
 pub enum InstanceError {
     Store(StoreError),
     Graph(GraphError),
-    /// A turn (the agent loop) failed while routing a message.
-    Turn(TurnError),
+    /// A turn (the agent loop) failed while routing a message. `conversation` is `Some` for a
+    /// routed turn or flush (the common case) and `None` for a background catch-up (describe/
+    /// adjudicate), which spans all conversations rather than one.
+    Turn {
+        conversation: Option<ConversationId>,
+        error: TurnError,
+    },
     /// Connecting the MCP servers failed (a probe-level hard error, e.g. a stale `allow`/`deny`).
     Mcp(crate::mcp::McpError),
     /// Writing a graph snapshot failed (creating the directory, or the `VACUUM INTO` itself).
@@ -1200,8 +1213,12 @@ pub enum InstanceError {
     /// A semantic search failed (the graph projection or the vector index).
     Search(SearchError),
     /// An operator Lua console block failed at the VM level (a script error reaches the operator as
-    /// a result, not this; this is an infrastructure failure running the block).
-    Lua(crate::agent::lua::LuaError),
+    /// a result, not this; this is an infrastructure failure running the block). `conversation` is the
+    /// dedicated console conversation, packed at the call boundary.
+    Lua {
+        conversation: Option<ConversationId>,
+        error: crate::agent::lua::LuaError,
+    },
 }
 
 impl std::fmt::Display for InstanceError {
@@ -1209,12 +1226,24 @@ impl std::fmt::Display for InstanceError {
         match self {
             InstanceError::Store(error) => write!(f, "instance (store): {error}"),
             InstanceError::Graph(error) => write!(f, "instance (graph): {error}"),
-            InstanceError::Turn(error) => write!(f, "instance (turn): {error}"),
+            InstanceError::Turn {
+                conversation,
+                error,
+            } => match conversation {
+                Some(id) => write!(f, "instance (turn {}): {error}", id.0),
+                None => write!(f, "instance (turn): {error}"),
+            },
             InstanceError::Mcp(error) => write!(f, "instance (mcp): {error}"),
             InstanceError::Snapshot(message) => write!(f, "instance (snapshot): {message}"),
             InstanceError::Index(error) => write!(f, "instance (index): {error}"),
             InstanceError::Search(error) => write!(f, "instance (search): {error}"),
-            InstanceError::Lua(error) => write!(f, "instance (lua): {error}"),
+            InstanceError::Lua {
+                conversation,
+                error,
+            } => match conversation {
+                Some(id) => write!(f, "instance (lua {}): {error}", id.0),
+                None => write!(f, "instance (lua): {error}"),
+            },
         }
     }
 }
@@ -1224,12 +1253,12 @@ impl std::error::Error for InstanceError {
         match self {
             InstanceError::Store(error) => Some(error),
             InstanceError::Graph(error) => Some(error),
-            InstanceError::Turn(error) => Some(error),
+            InstanceError::Turn { error, .. } => Some(error),
             InstanceError::Mcp(error) => Some(error),
             InstanceError::Snapshot(_) => None,
             InstanceError::Index(error) => Some(error),
             InstanceError::Search(error) => Some(error),
-            InstanceError::Lua(error) => Some(error),
+            InstanceError::Lua { error, .. } => Some(error),
         }
     }
 }
@@ -1269,8 +1298,8 @@ impl From<GraphError> for InstanceError {
 impl From<IdentityError> for InstanceError {
     fn from(error: IdentityError) -> Self {
         match error {
-            IdentityError::Store(error) => InstanceError::Store(error),
-            IdentityError::Graph(error) => InstanceError::Graph(error),
+            IdentityError::Store { source, .. } => InstanceError::Store(source),
+            IdentityError::Graph { source, .. } => InstanceError::Graph(source),
         }
     }
 }
@@ -1294,13 +1323,19 @@ impl From<SchedulerError> for InstanceError {
 
 impl From<TurnError> for InstanceError {
     fn from(error: TurnError) -> Self {
-        InstanceError::Turn(error)
+        InstanceError::Turn {
+            conversation: None,
+            error,
+        }
     }
 }
 
 impl From<crate::agent::lua::LuaError> for InstanceError {
     fn from(error: crate::agent::lua::LuaError) -> Self {
-        InstanceError::Lua(error)
+        InstanceError::Lua {
+            conversation: None,
+            error,
+        }
     }
 }
 

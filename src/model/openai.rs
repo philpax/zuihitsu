@@ -110,13 +110,18 @@ impl ModelClient for OpenAiClient {
     }
 
     async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        let response: ChatResponse = self
-            .client
-            .chat()
-            .create_byot(self.build_request(request)?)
-            .await
-            .map_err(backend)?;
-        into_response(response)
+        let model = &self.config.llm;
+        let result: Result<GenerateResponse, ModelError> = async {
+            let response: ChatResponse = self
+                .client
+                .chat()
+                .create_byot(self.build_request(request)?)
+                .await
+                .map_err(backend)?;
+            into_response(response)
+        }
+        .await;
+        result.map_err(|e| e.with_model(model))
     }
 }
 
@@ -150,22 +155,27 @@ impl Embedder for OpenAiEmbedder {
     }
 
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError> {
-        let request = CreateEmbeddingRequestArgs::default()
-            .model(self.model.clone())
-            .input(EmbeddingInput::StringArray(inputs.to_vec()))
-            .build()
-            .map_err(backend)?;
-        let response = self
-            .client
-            .embeddings()
-            .create(request)
-            .await
-            .map_err(backend)?;
-        Ok(response
-            .data
-            .into_iter()
-            .map(|datum| datum.embedding)
-            .collect())
+        let model = &self.model;
+        let result: Result<Vec<Embedding>, ModelError> = async {
+            let request = CreateEmbeddingRequestArgs::default()
+                .model(self.model.clone())
+                .input(EmbeddingInput::StringArray(inputs.to_vec()))
+                .build()
+                .map_err(backend)?;
+            let response = self
+                .client
+                .embeddings()
+                .create(request)
+                .await
+                .map_err(backend)?;
+            Ok(response
+                .data
+                .into_iter()
+                .map(|datum| datum.embedding)
+                .collect())
+        }
+        .await;
+        result.map_err(|e| e.with_model(model))
     }
 }
 
@@ -348,7 +358,10 @@ fn into_response(response: ChatResponse) -> Result<GenerateResponse, ModelError>
         .choices
         .into_iter()
         .next()
-        .ok_or_else(|| ModelError::Backend("response contained no choices".to_owned()))?;
+        .ok_or_else(|| ModelError::Backend {
+            model: String::new(),
+            message: "response contained no choices".to_owned(),
+        })?;
     let reasoning = message
         .reasoning_content
         .clone()
@@ -382,9 +395,13 @@ fn into_completion(message: ChatMessage) -> Completion {
 }
 
 /// Map any backend error (async-openai's `OpenAIError` from the client or the request builders)
-/// into our model error.
+/// into our model error. The model id is packed in at the `generate`/`embed` boundary via
+/// [`ModelError::with_model`], because this helper is called from free functions that don't hold `self`.
 fn backend(error: impl std::fmt::Display) -> ModelError {
-    ModelError::Backend(error.to_string())
+    ModelError::Backend {
+        model: String::new(),
+        message: error.to_string(),
+    }
 }
 
 #[cfg(test)]

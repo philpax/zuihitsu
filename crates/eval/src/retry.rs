@@ -158,7 +158,10 @@ mod tests {
         ) -> Result<GenerateResponse, ModelError> {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
             if n < self.fail_times {
-                Err(ModelError::Backend("error sending request".to_owned()))
+                Err(ModelError::Backend {
+                    model: String::new(),
+                    message: "error sending request".to_owned(),
+                })
             } else {
                 Ok(reply())
             }
@@ -180,7 +183,10 @@ mod tests {
             let n = attempts.fetch_add(1, Ordering::SeqCst);
             async move {
                 if n < 2 {
-                    Err::<(), _>(ModelError::Backend("transient".to_owned()))
+                    Err::<(), _>(ModelError::Backend {
+                        model: String::new(),
+                        message: "transient".to_owned(),
+                    })
                 } else {
                     Ok(())
                 }
@@ -196,10 +202,15 @@ mod tests {
         let attempts = AtomicUsize::new(0);
         let result: Result<(), _> = with_backoff(tiny(), "test", || {
             attempts.fetch_add(1, Ordering::SeqCst);
-            async { Err(ModelError::Backend("always down".to_owned())) }
+            async {
+                Err(ModelError::Backend {
+                    model: String::new(),
+                    message: "always down".to_owned(),
+                })
+            }
         })
         .await;
-        assert!(matches!(result, Err(ModelError::Backend(_))));
+        assert!(matches!(result, Err(ModelError::Backend { .. })));
         assert!(attempts.load(Ordering::SeqCst) >= 2);
     }
 

@@ -23,18 +23,42 @@ fn context_name(locator: &ConversationLocator) -> MemoryName {
         .into()
 }
 
-/// A failure resolving or minting an identity, delegating to the store or graph beneath it.
+/// A failure resolving or minting an identity, delegating to the store or graph beneath it. `context`
+/// identifies the platform participant or room locator being resolved (e.g. `discord:12345` or
+/// `discord:guild/42/chan/leads`), packed at the resolve-or-mint boundary so an operator seeing the
+/// error knows which identity failed.
 #[derive(Debug)]
 pub enum IdentityError {
-    Store(StoreError),
-    Graph(GraphError),
+    Store { context: String, source: StoreError },
+    Graph { context: String, source: GraphError },
+}
+
+impl IdentityError {
+    fn with_context(self, context: String) -> Self {
+        match self {
+            IdentityError::Store { source, .. } => IdentityError::Store { context, source },
+            IdentityError::Graph { source, .. } => IdentityError::Graph { context, source },
+        }
+    }
 }
 
 impl std::fmt::Display for IdentityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IdentityError::Store(error) => write!(f, "identity (store): {error}"),
-            IdentityError::Graph(error) => write!(f, "identity (graph): {error}"),
+            IdentityError::Store { context, source } => {
+                if context.is_empty() {
+                    write!(f, "identity (store): {source}")
+                } else {
+                    write!(f, "identity: {context} (store): {source}")
+                }
+            }
+            IdentityError::Graph { context, source } => {
+                if context.is_empty() {
+                    write!(f, "identity (graph): {source}")
+                } else {
+                    write!(f, "identity: {context} (graph): {source}")
+                }
+            }
         }
     }
 }
@@ -42,21 +66,27 @@ impl std::fmt::Display for IdentityError {
 impl std::error::Error for IdentityError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            IdentityError::Store(error) => Some(error),
-            IdentityError::Graph(error) => Some(error),
+            IdentityError::Store { source, .. } => Some(source),
+            IdentityError::Graph { source, .. } => Some(source),
         }
     }
 }
 
 impl From<StoreError> for IdentityError {
-    fn from(error: StoreError) -> IdentityError {
-        IdentityError::Store(error)
+    fn from(source: StoreError) -> IdentityError {
+        IdentityError::Store {
+            context: String::new(),
+            source,
+        }
     }
 }
 
 impl From<GraphError> for IdentityError {
-    fn from(error: GraphError) -> IdentityError {
-        IdentityError::Graph(error)
+    fn from(source: GraphError) -> IdentityError {
+        IdentityError::Graph {
+            context: String::new(),
+            source,
+        }
     }
 }
 
@@ -79,27 +109,31 @@ pub fn resolve_or_mint_participant(
     platform: &str,
     platform_user_id: &str,
 ) -> Result<MemoryId, IdentityError> {
-    if let Some(id) = graph.participant_for(platform, platform_user_id)? {
-        return Ok(id);
-    }
-    let id = MemoryId::generate();
-    let clean = Namespace::Person.with_name(platform_user_id);
-    let name: MemoryName = if graph.memory_by_name(&clean)?.is_some() {
-        Namespace::Person
-            .with_name(format!("{platform_user_id}@{platform}"))
-            .into()
-    } else {
-        clean.into()
-    };
-    store.append(
-        clock.now(),
-        vec![
-            EventPayload::memory_created(id, name.clone()),
-            EventPayload::participant_identified(id, platform, platform_user_id),
-        ],
-    )?;
-    tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
-    Ok(id)
+    let context = format!("{platform}:{platform_user_id}");
+    (|| -> Result<MemoryId, IdentityError> {
+        if let Some(id) = graph.participant_for(platform, platform_user_id)? {
+            return Ok(id);
+        }
+        let id = MemoryId::generate();
+        let clean = Namespace::Person.with_name(platform_user_id);
+        let name: MemoryName = if graph.memory_by_name(&clean)?.is_some() {
+            Namespace::Person
+                .with_name(format!("{platform_user_id}@{platform}"))
+                .into()
+        } else {
+            clean.into()
+        };
+        store.append(
+            clock.now(),
+            vec![
+                EventPayload::memory_created(id, name.clone()),
+                EventPayload::participant_identified(id, platform, platform_user_id),
+            ],
+        )?;
+        tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
+        Ok(id)
+    })()
+    .map_err(|e| e.with_context(context))
 }
 
 /// Resolve a room locator to its conversation, opening one on first contact. Returns the
@@ -113,26 +147,30 @@ pub fn resolve_or_mint_conversation(
     graph: &Graph,
     locator: &ConversationLocator,
 ) -> Result<ConversationId, IdentityError> {
-    if let Some(id) = graph.conversation_for_locator(locator)? {
-        return Ok(id);
-    }
-    let id = ConversationId::generate();
-    let context_memory = MemoryId::generate();
-    store.append(
-        clock.now(),
-        vec![
-            EventPayload::memory_created(context_memory, context_name(locator)),
-            EventPayload::conversation_started(id, locator.clone(), context_memory),
-        ],
-    )?;
-    tracing::info!(
-        platform = %locator.platform,
-        scope_path = %locator.scope_path,
-        conversation = %id.0,
-        context = %context_memory.0,
-        "opened conversation"
-    );
-    Ok(id)
+    let context = format!("{}:{}", locator.platform, locator.scope_path);
+    (|| -> Result<ConversationId, IdentityError> {
+        if let Some(id) = graph.conversation_for_locator(locator)? {
+            return Ok(id);
+        }
+        let id = ConversationId::generate();
+        let context_memory = MemoryId::generate();
+        store.append(
+            clock.now(),
+            vec![
+                EventPayload::memory_created(context_memory, context_name(locator)),
+                EventPayload::conversation_started(id, locator.clone(), context_memory),
+            ],
+        )?;
+        tracing::info!(
+            platform = %locator.platform,
+            scope_path = %locator.scope_path,
+            conversation = %id.0,
+            context = %context_memory.0,
+            "opened conversation"
+        );
+        Ok(id)
+    })()
+    .map_err(|e| e.with_context(context))
 }
 
 #[cfg(test)]

@@ -445,8 +445,10 @@ pub enum ServeError {
     },
     /// Restoring the graph from a snapshot at boot failed (spec §Snapshots).
     Snapshot(SnapshotError),
-    /// A server operation (boot, reading settings, connecting MCP) failed at startup.
-    Server(ServerError),
+    /// A server operation (boot, reading settings, connecting MCP) failed at startup. Boxed because
+    /// `ServerError` (= `InstanceError`) transitively owns `TurnError`/`LuaError` and is large enough
+    /// to push `CliError` past the `result_large_err` lint threshold.
+    Server(Box<ServerError>),
     /// A model endpoint is configured but `[model] context_length` is not — the API cannot report the
     /// window, so the operator must state it (the agent's compaction budget derives from it).
     MissingContextLength,
@@ -459,7 +461,7 @@ pub enum ServeError {
 
 impl From<ServerError> for ServeError {
     fn from(error: ServerError) -> Self {
-        ServeError::Server(error)
+        ServeError::Server(Box::new(error))
     }
 }
 
@@ -524,7 +526,7 @@ impl std::error::Error for ServeError {
             ServeError::OpenGraph { source, .. } => Some(source),
             ServeError::OpenVectors { source, .. } => Some(source),
             ServeError::Snapshot(source) => Some(source),
-            ServeError::Server(source) => Some(source),
+            ServeError::Server(source) => Some(source.as_ref()),
             ServeError::MissingContextLength => None,
             ServeError::Bind { source, .. } => Some(source),
             ServeError::Serve(source) => Some(source),

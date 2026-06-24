@@ -138,16 +138,39 @@ pub trait ModelClient: Send + Sync {
 /// A model-inference failure.
 #[derive(Debug)]
 pub enum ModelError {
-    /// The backend (network, inference server) failed.
-    Backend(String),
+    /// The backend (network, inference server) failed. `model` is the model id (`config.llm` or the
+    /// embedder's `model`), packed at the `generate`/`embed` boundary so an operator seeing the error
+    /// knows which endpoint to investigate.
+    Backend { model: String, message: String },
     /// The scripted fake ran out of programmed responses.
     Exhausted,
+}
+
+impl ModelError {
+    /// Pack the model id into a `Backend` error (the only variant that lacks it at construction time,
+    /// because the `backend` helper in `openai.rs` is called from free functions that don't hold `self`).
+    /// Called at the `generate`/`embed` boundary so every propagated `Backend` carries the model id.
+    pub fn with_model(self, model: &str) -> Self {
+        match self {
+            ModelError::Backend { message, .. } => ModelError::Backend {
+                model: model.to_owned(),
+                message,
+            },
+            other => other,
+        }
+    }
 }
 
 impl std::fmt::Display for ModelError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModelError::Backend(message) => write!(f, "model: {message}"),
+            ModelError::Backend { model, message } => {
+                if model.is_empty() {
+                    write!(f, "model: {message}")
+                } else {
+                    write!(f, "model: {model}: {message}")
+                }
+            }
             ModelError::Exhausted => {
                 write!(
                     f,
