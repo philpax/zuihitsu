@@ -506,6 +506,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
             format!("wake-up surfaced ({})", name(memory))
         }
         EventPayload::EntryTemporalResolved { id, .. } => format!("{}: resolved a date", name(id)),
+        EventPayload::EntryTemporalResolveFailed { id, .. } => {
+            format!("{}: failed to resolve a date", name(id))
+        }
         EventPayload::MergeProposed { from, to } => {
             format!("merge proposed: {} → {}", name(from), name(to))
         }
@@ -607,7 +610,8 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         | EventPayload::MemorySuperseded { .. }
         | EventPayload::MemoryDescriptionRegenerated { .. }
         | EventPayload::MemoryVolatilitySet { .. }
-        | EventPayload::EntryTemporalResolved { .. } => AnsiColor::BrightGreen,
+        | EventPayload::EntryTemporalResolved { .. }
+        | EventPayload::EntryTemporalResolveFailed { .. } => AnsiColor::BrightGreen,
         // Relations and cross-platform identity.
         EventPayload::LinkCreated { .. }
         | EventPayload::LinkRemoved { .. }

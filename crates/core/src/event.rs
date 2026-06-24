@@ -342,6 +342,16 @@ pub enum EventPayload {
         occurred_at: TemporalRef,
         produced_by: Option<ProducedBy>,
     },
+    /// Records that the turn-end extraction pass could not parse the model's date string for this
+    /// entry. Log-only: the appended entry remains untimed, and this event surfaces the failure for
+    /// operator review. `raw` is the JSON form of the extracted value for debugging.
+    EntryTemporalResolveFailed {
+        id: MemoryId,
+        entry_id: EntryId,
+        raw: String,
+        reason: String,
+        produced_by: Option<ProducedBy>,
+    },
     /// Fires a calendared entry's wake-up: its occurrence has come due — its `occurred_sort` passed
     /// `now`, having been later than its `asserted_at`, so it was scheduled for the future rather than
     /// recorded after the fact (spec §Scheduled work). Recorded in the log so the wake-up surface is a
@@ -648,6 +658,22 @@ impl EventPayload {
         }
     }
 
+    pub fn entry_temporal_resolve_failed(
+        id: MemoryId,
+        entry_id: EntryId,
+        raw: String,
+        reason: String,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::EntryTemporalResolveFailed {
+            id,
+            entry_id,
+            raw,
+            reason,
+            produced_by,
+        }
+    }
+
     pub fn scheduled_job_fired(
         entry_id: EntryId,
         memory: MemoryId,
@@ -821,6 +847,7 @@ impl EventPayload {
             EventPayload::MemoryContentAppended { .. } => "MemoryContentAppended",
             EventPayload::MemorySuperseded { .. } => "MemorySuperseded",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
+            EventPayload::EntryTemporalResolveFailed { .. } => "EntryTemporalResolveFailed",
             EventPayload::ScheduledJobFired { .. } => "ScheduledJobFired",
             EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
@@ -866,6 +893,7 @@ impl EventPayload {
             | EventPayload::MemoryContentAppended { id, .. }
             | EventPayload::MemorySuperseded { id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
+            | EventPayload::EntryTemporalResolveFailed { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::BeliefArbitrated { memory: id, .. }
             | EventPayload::MergeProposed { from: id, .. }
@@ -969,6 +997,19 @@ mod tests {
             id: MemoryId::generate(),
             entry_id: EntryId::generate(),
             occurred_at: TemporalRef::Day(CivilDate("2026-06-03".into())),
+            produced_by: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn entry_temporal_resolve_failed_round_trips() {
+        let event = EventPayload::EntryTemporalResolveFailed {
+            id: MemoryId::generate(),
+            entry_id: EntryId::generate(),
+            raw: "{\"recurring\":\"every Monday\"}".to_owned(),
+            reason: "unsupported recurrence rule".to_owned(),
             produced_by: None,
         };
         let json = serde_json::to_string(&event).unwrap();

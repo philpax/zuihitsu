@@ -11,7 +11,7 @@
 //! reproduces the same events.
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -309,9 +309,25 @@ fn resolve_occurrences(
         if !resolved.insert(entry.entry_id) {
             continue;
         }
-        let Some(occurred_at) = occurrence.occurred_at.into_temporal_ref() else {
-            tracing::debug!(memory = %memory.name.as_str(), "dropping an unparseable extracted occurrence");
-            continue;
+        let raw_occurred_at = occurrence.occurred_at.clone();
+        let occurred_at = match occurrence.occurred_at.into_temporal_ref() {
+            Some(occurred_at) => occurred_at,
+            None => {
+                let raw = serde_json::to_string(&raw_occurred_at).unwrap_or_default();
+                tracing::warn!(
+                    memory = %memory.name.as_str(),
+                    %raw,
+                    "dropping an unparseable extracted occurrence; the model emitted a temporal reference this build cannot interpret"
+                );
+                events.push(EventPayload::entry_temporal_resolve_failed(
+                    entry_memory,
+                    entry.entry_id,
+                    raw,
+                    "unparseable temporal reference".to_owned(),
+                    Some(provenance.clone()),
+                ));
+                continue;
+            }
         };
         events.push(EventPayload::entry_temporal_resolved(
             entry_memory,
@@ -451,7 +467,7 @@ struct ExtractedArbitration {
 /// The date-string occurrence shape the model produces — it cannot compute epoch milliseconds, so it
 /// emits ISO dates (and occasionally datetimes), which [`ExtractedTime::into_temporal_ref`] maps to
 /// the stored [`TemporalRef`]. Mirrors `TemporalRef`'s tags but with string dates.
-#[derive(Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum ExtractedTime {
     Instant(String),

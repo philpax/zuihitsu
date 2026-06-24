@@ -45,7 +45,9 @@ impl Graph {
             // projection. A proposal is deliberately inert (it leaves both stubs in their own classes,
             // so nothing surfaces across the would-be merge), and an *accepted* adjudication does its
             // merging through a separately-emitted `same_as` link (which recomputes classes), not here.
-            EventPayload::MergeProposed { .. } | EventPayload::MergeAdjudicated { .. } => {}
+            EventPayload::EntryTemporalResolveFailed { .. }
+            | EventPayload::MergeProposed { .. }
+            | EventPayload::MergeAdjudicated { .. } => {}
             // The arbitration's reconciling resolution stays a log-only audit record, but its
             // unresolved competing entries are projected so reads can mark a fact as disputed (spec
             // §Write path → arbitration). Each synthesis cycle replaces the memory's prior dispute
