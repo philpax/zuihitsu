@@ -70,6 +70,7 @@
 - Do not introduce async to a project without async.
 - Use `tokio` for async runtime (multi-threaded).
 - Use async for I/O and concurrency, keep other code synchronous.
+- Use `parking_lot::Mutex` for synchronous locks (the default); its guard is non-poisoning and must never be held across an `.await`. Reserve `tokio::sync::Mutex` for the rare guard that must survive an `.await`, since most locks are acquired, used, and dropped within a synchronous span.
 
 ### Logging
 
