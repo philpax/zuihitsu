@@ -3,7 +3,7 @@ use crate::{
     clock::ManualClock,
     engine::Engine,
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
-    graph::Graph,
+    graph::{Graph, GraphError},
     ids::{ConversationId, MemoryId, MemoryName, Namespace, NamespacedMemoryName},
     store::{MemoryStore, Store},
     time::{Rrule, TemporalRef, Timestamp},
@@ -398,5 +398,18 @@ fn revise_rolls_back_the_append_when_the_supersede_fails() {
         appended.len(),
         1,
         "the failed revise's append should have been rolled back, but found {appended:?}"
+    );
+}
+
+#[test]
+fn graph_error_carries_a_memory_context_prefix() {
+    // The Graph variant is infrastructure — `route_error` intercepts it and surfaces a generic
+    // "internal graph error" to the agent — so its Display follows the error-display convention: a
+    // `memory:` layer prefix nesting the graph error's own `materialized graph (…)` prefix, so a
+    // propagated error reads as nested context (`memory: materialized graph (malformed): …`).
+    let error = MemoryError::Graph(GraphError::Malformed("a corrupt id".to_owned()));
+    assert_eq!(
+        error.to_string(),
+        "memory: materialized graph (malformed): a corrupt id"
     );
 }

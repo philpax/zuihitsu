@@ -174,11 +174,13 @@ fn check_status(response: Response) -> Result<Response, ClientError> {
     if status.is_success() {
         return Ok(response);
     }
+    let url = response.url().to_string();
     let message = response
         .json::<ErrorBody>()
         .map(|body| body.error)
         .unwrap_or_else(|_| status.to_string());
     Err(ClientError::Status {
+        url,
         code: status,
         message,
     })
@@ -215,8 +217,12 @@ pub enum ClientError {
     Connect,
     /// The request could not be sent (a transport error other than a refused connection).
     Send(reqwest::Error),
-    /// The server returned an error status, carrying its message.
-    Status { code: StatusCode, message: String },
+    /// The server returned an error status, carrying the request URL and its message.
+    Status {
+        url: String,
+        code: StatusCode,
+        message: String,
+    },
     /// The response body could not be decoded.
     Decode(reqwest::Error),
 }
@@ -235,14 +241,17 @@ impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientError::Connect => {
-                write!(f, "could not reach the server — is `zuihitsu` running?")
+                write!(
+                    f,
+                    "client: could not reach the server — is `zuihitsu` running?"
+                )
             }
-            ClientError::Send(error) => write!(f, "the request could not be sent: {error}"),
-            ClientError::Status { code, message } => {
-                write!(f, "the server returned {code}: {message}")
+            ClientError::Send(error) => write!(f, "client: the request could not be sent: {error}"),
+            ClientError::Status { url, code, message } => {
+                write!(f, "client: {url} returned {code}: {message}")
             }
             ClientError::Decode(error) => {
-                write!(f, "could not decode the server's response: {error}")
+                write!(f, "client: could not decode the server's response: {error}")
             }
         }
     }

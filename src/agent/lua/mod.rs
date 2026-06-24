@@ -15,6 +15,7 @@
 //! scratchpad globals persist on the VM across blocks within the session; the API is re-installed
 //! each block.
 
+mod error;
 mod reference;
 mod runtime;
 mod tables;

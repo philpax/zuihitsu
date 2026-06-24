@@ -176,12 +176,16 @@ impl McpSession {
         // The projection only installs functions for configured servers, so the catalogue entry exists.
         let catalogue = &self.catalogue.servers[server];
         let raw = catalogue.escaped_to_raw.get(escaped_tool).ok_or_else(|| {
-            mlua::Error::RuntimeError(format!(
-                "mcp: server {server:?} has no tool {escaped_tool:?}"
-            ))
+            mcp_to_lua(McpError::UnknownTool {
+                server: server.to_string(),
+                tool: escaped_tool.to_string(),
+            })
         })?;
         let arguments = lua_args_to_json(lua, args)?;
-        let instance = self.ensure_spawned(server).await.map_err(mcp_to_lua)?;
+        let instance = self
+            .ensure_spawned(server)
+            .await
+            .map_err(|error| mcp_to_lua(error.with_server(server)))?;
         // Latch that this block engaged MCP — an external effect that bars a silent retry on timeout —
         // and mark this server in-flight across the network round-trip. On a clean return the in-flight
         // marker is cleared below; if a block timeout cancels this `await`, it is left set so the
@@ -190,7 +194,7 @@ impl McpSession {
         *self.in_flight.lock() = Some(server.to_owned());
         let result = instance.call(raw, arguments).await;
         self.in_flight.lock().take();
-        let output = result.map_err(mcp_to_lua)?;
+        let output = result.map_err(|error| mcp_to_lua(error.with_call(server, escaped_tool)))?;
         project_output(lua, output)
     }
 
@@ -545,8 +549,8 @@ fn is_lua_keyword(word: &str) -> bool {
     )
 }
 
-/// Render an [`McpError`] as the catchable Lua error the agent sees (its `Display` already leads with
-/// an `mcp:` context prefix).
+/// Render an [`McpError`] as the catchable Lua error the agent sees — its `Display` is the
+/// agent-facing wording (teachable variants are unprefixed prose, infra variants carry `mcp:`).
 fn mcp_to_lua(error: McpError) -> mlua::Error {
     mlua::Error::RuntimeError(error.to_string())
 }

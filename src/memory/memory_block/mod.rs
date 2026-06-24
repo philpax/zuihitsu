@@ -140,8 +140,12 @@ pub struct BlockEffects {
 }
 
 /// A write that violates an invariant, surfaced to the agent as a teachable error, or an underlying
-/// graph read failure. `Display` is the agent-facing message (the Lua layer renders it as the
-/// block's terminal cause), so it is deliberately unprefixed — the agent reads it, not an operator.
+/// graph read failure. The teachable variants' `Display` is the agent-facing message the Lua layer
+/// renders as the block's terminal cause, so they are deliberately unprefixed — the agent reads
+/// them, not an operator. The [`Graph`](MemoryError::Graph) variant is infrastructure (the Lua layer
+/// intercepts it and surfaces a generic "internal graph error" to the agent, stashing the real error
+/// for the operator), so it carries a `memory:` context prefix per the error-display convention,
+/// nesting the graph error's own `materialized graph (…)` prefix.
 #[derive(Debug)]
 pub enum MemoryError {
     /// A `create` collided with an existing name (names are unique).
@@ -201,7 +205,8 @@ impl std::fmt::Display for MemoryError {
             ),
             MemoryError::UnknownRelation(relation) => write!(
                 f,
-                "unknown relation {:?}; it must be a registered link type",
+                "unknown relation {:?}; register it with links.register first, or call links.list \
+                 for the known relations",
                 relation.as_str()
             ),
             MemoryError::TagExists(name) => write!(
@@ -230,10 +235,7 @@ impl std::fmt::Display for MemoryError {
                 )
             }
             MemoryError::MergeProposalInvalid => {
-                write!(
-                    f,
-                    "memory: a merge proposal must name two different memories"
-                )
+                write!(f, "a merge proposal must name two different memories")
             }
             MemoryError::MergeForbidden => {
                 write!(f, "same_as merges can only be asserted from the console")
@@ -263,7 +265,7 @@ impl std::fmt::Display for MemoryError {
                 "no live entry {} on this memory; supersede an entry you read from it",
                 entry.0
             ),
-            MemoryError::Graph(error) => write!(f, "{error}"),
+            MemoryError::Graph(error) => write!(f, "memory: {error}"),
         }
     }
 }

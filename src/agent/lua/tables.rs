@@ -13,6 +13,7 @@ use crate::{
 
 use super::{
     Session,
+    error::{BlockConsistencyError, CalendarError},
     runtime::{
         BlockApi, SearchOpts, entry_handle_id, handle_id, link_target_id, make_date,
         make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
@@ -130,11 +131,7 @@ impl Session {
                                 .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                             block.entry_ref_by_id(entry_id)
                         };
-                        let entry = entry.ok_or_else(|| {
-                            mlua::Error::runtime(
-                                "the appended entry was not found in the block buffer",
-                            )
-                        })?;
+                        let entry = entry.ok_or(BlockConsistencyError::AppendedEntryMissing)?;
                         make_entry_handle(&lua, &entry, &entry_metatable)
                     }
                 }
@@ -241,11 +238,7 @@ impl Session {
                                 .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                             block.entry_ref_by_id(new)
                         };
-                        let entry = entry.ok_or_else(|| {
-                            mlua::Error::runtime(
-                                "the revised entry was not found in the block buffer",
-                            )
-                        })?;
+                        let entry = entry.ok_or(BlockConsistencyError::RevisedEntryMissing)?;
                         make_entry_handle(&lua, &entry, &entry_metatable)
                     }
                 }
@@ -531,7 +524,7 @@ impl Session {
                     .create_function(move |lua, (this, count): (Table, i64)| {
                         let day = this.get::<String>("day")?;
                         let shifted = time::add_days(&day, count.saturating_mul(per))
-                            .ok_or_else(|| date_error(&day))?;
+                            .ok_or_else(|| CalendarError::InvalidDay { input: day.clone() })?;
                         make_date(lua, shifted, &mt)
                     })?,
             )?;
@@ -543,7 +536,8 @@ impl Session {
             self.lua
                 .create_function(move |lua, (this, count): (Table, i64)| {
                     let day = this.get::<String>("day")?;
-                    let shifted = time::add_months(&day, count).ok_or_else(|| date_error(&day))?;
+                    let shifted = time::add_months(&day, count)
+                        .ok_or_else(|| CalendarError::InvalidDay { input: day.clone() })?;
                     make_date(lua, shifted, &mt)
                 })?,
         )?;
@@ -552,7 +546,8 @@ impl Session {
             "weekday",
             self.lua.create_function(|_, this: Table| {
                 let day = this.get::<String>("day")?;
-                time::weekday(&day).ok_or_else(|| date_error(&day))
+                Ok(time::weekday(&day)
+                    .ok_or_else(|| CalendarError::InvalidDay { input: day.clone() })?)
             })?,
         )?;
         metatable.set("__index", methods)?;
@@ -925,9 +920,7 @@ impl Session {
                         } else {
                             lua.from_value(opts)?
                         };
-                        let rows = run_memory_search(&engine, &present_set, &query, &opts)
-                            .await
-                            .map_err(mlua::Error::RuntimeError)?;
+                        let rows = run_memory_search(&engine, &present_set, &query, &opts).await?;
                         let list = lua.create_table()?;
                         for (index, row) in rows.into_iter().enumerate() {
                             let table = lua.create_table()?;
@@ -1083,9 +1076,8 @@ impl Session {
             let dmt = date_metatable.clone();
             self.lua.create_function(move |lua, weekday: String| {
                 let now = api.block.lock().now();
-                let day = time::next_weekday(now, &weekday).ok_or_else(|| {
-                    mlua::Error::runtime(format!("calendar.next: not a weekday: {weekday:?}"))
-                })?;
+                let day = time::next_weekday(now, &weekday)
+                    .ok_or(CalendarError::NotAWeekday { input: weekday })?;
                 make_date(lua, day, &dmt)
             })?
         })?;
@@ -1096,8 +1088,11 @@ impl Session {
                 name,
                 self.lua.create_function(move |lua, count: i64| {
                     let now = api.block.lock().now();
-                    let day = time::add_days(&time::today(now), count.saturating_mul(per))
-                        .ok_or_else(|| mlua::Error::runtime("calendar: date out of range"))?;
+                    let day = time::add_days(&time::today(now), count.saturating_mul(per)).ok_or(
+                        CalendarError::DateOutOfRange {
+                            days: count.saturating_mul(per),
+                        },
+                    )?;
                     make_date(lua, day, &dmt)
                 })?,
             )?;
@@ -1106,19 +1101,11 @@ impl Session {
             let dmt = date_metatable.clone();
             self.lua.create_function(move |lua, day: String| {
                 if time::civil_date_to_millis(&day).is_none() {
-                    return Err(mlua::Error::runtime(format!(
-                        "calendar.date: not a valid YYYY-MM-DD: {day:?}"
-                    )));
+                    return Err(CalendarError::InvalidDate { input: day }.into());
                 }
                 make_date(lua, day, &dmt)
             })?
         })?;
         Ok(calendar)
     }
-}
-
-/// The Lua runtime error for date arithmetic applied to a malformed day — only reachable if a date
-/// object's `day` field is corrupted, since the constructors validate before minting one.
-fn date_error(day: &str) -> mlua::Error {
-    mlua::Error::runtime(format!("date: not a valid day: {day}"))
 }

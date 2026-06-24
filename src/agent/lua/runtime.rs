@@ -23,6 +23,8 @@ use crate::{
     vocabulary::TagName,
 };
 
+use super::error::{HandleError, MemorySearchError};
+
 /// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
 /// infrastructure-error slot (`infra`), the per-block lock set (`lock_set`), and the server-wide lock
 /// registry (`manager`). Bundled so the install helpers pass one seam rather than four parallel
@@ -241,7 +243,7 @@ pub(super) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
     let id: String = handle.get("id")?;
     Ulid::from_string(&id)
         .map(MemoryId)
-        .map_err(|e| mlua::Error::RuntimeError(format!("invalid memory handle id {id:?}: {e}")))
+        .map_err(|source| HandleError::InvalidMemoryHandle { id, source }.into())
 }
 
 /// Resolve a `:link`/`:unlink` target to its memory id. The target is normally a memory handle, but a
@@ -261,16 +263,16 @@ pub(super) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<Memor
                 .map_err(|error| route_error(error, &mut api.infra.lock()))?
             {
                 Some((id, _)) => Ok(id),
-                None => Err(mlua::Error::RuntimeError(format!(
-                    "link target \"{name}\" is not a known memory — pass a handle from memory.get or \
-                     memory.create, or an existing memory's name"
-                ))),
+                None => Err(HandleError::UnknownLinkTarget {
+                    name: name.to_string(),
+                }
+                .into()),
             }
         }
-        other => Err(mlua::Error::RuntimeError(format!(
-            "link target must be a memory handle (from memory.get/create) or a memory name, got {}",
-            other.type_name()
-        ))),
+        other => Err(HandleError::WrongLinkTargetType {
+            type_name: other.type_name(),
+        }
+        .into()),
     }
 }
 
@@ -335,7 +337,7 @@ pub(super) fn entry_handle_id(handle: &Table) -> mlua::Result<EntryId> {
     let id: String = handle.get("id")?;
     Ulid::from_string(&id)
         .map(EntryId)
-        .map_err(|e| mlua::Error::RuntimeError(format!("invalid entry handle id {id:?}: {e}")))
+        .map_err(|source| HandleError::InvalidEntryHandle { id, source }.into())
 }
 
 /// Build a date handle `{ day = "YYYY-MM-DD" }` backed by the date metatable, so it renders as its ISO
@@ -392,23 +394,20 @@ pub(super) async fn run_memory_search(
     present_set: &[MemoryId],
     query: &str,
     opts: &SearchOpts,
-) -> Result<Vec<SearchRow>, String> {
+) -> Result<Vec<SearchRow>, MemorySearchError> {
     let Some(retrieval) = &engine.retrieval else {
-        return Err(
-            "memory.search is unavailable on this instance (no embedding endpoint configured)"
-                .to_owned(),
-        );
+        return Err(MemorySearchError::NoRetrieval);
     };
     let embedding = retrieval
         .embedder
         .embed(&[query.to_owned()])
         .await
-        .map_err(|error| format!("memory.search: embedding the query failed: {error}"))?
+        .map_err(MemorySearchError::Embed)?
         .into_iter()
         .next()
-        .ok_or_else(|| "memory.search: the embedder returned no vector".to_owned())?;
+        .ok_or(MemorySearchError::NoVector)?;
     let settings = Settings::from_store(engine.store.lock().as_ref())
-        .map_err(|error| format!("memory.search: {error}"))?
+        .map_err(MemorySearchError::Settings)?
         .search;
     let now = engine.clock.now();
     let tags: Vec<TagName> = opts.tags.iter().map(TagName::new).collect();
@@ -426,7 +425,7 @@ pub(super) async fn run_memory_search(
         let graph = engine.graph.lock();
         let vectors = retrieval.vectors.lock();
         search(&graph, vectors.as_ref(), &request, &settings, now, limit)
-            .map_err(|error| format!("memory.search: {error}"))?
+            .map_err(MemorySearchError::Search)?
     };
     Ok(hits
         .into_iter()

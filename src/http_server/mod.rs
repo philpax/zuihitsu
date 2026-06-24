@@ -281,7 +281,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         platform_keys: config.serving.platform_keys.into(),
         config: env_config,
     });
-    let listener = TcpListener::bind(bind).await.map_err(ServeError::Bind)?;
+    let listener = TcpListener::bind(bind)
+        .await
+        .map_err(|source| ServeError::Bind { addr: bind, source })?;
     tracing::info!(?status, %bind, "zuihitsu serving");
     // `into_make_service_with_connect_info` surfaces each connection's peer address to the auth
     // middleware (a bare `axum::serve(listener, app)` would not), so a loopback peer can be trusted.
@@ -448,7 +450,10 @@ pub enum ServeError {
     /// A model endpoint is configured but `[model] context_length` is not — the API cannot report the
     /// window, so the operator must state it (the agent's compaction budget derives from it).
     MissingContextLength,
-    Bind(io::Error),
+    Bind {
+        addr: SocketAddr,
+        source: io::Error,
+    },
     Serve(io::Error),
 }
 
@@ -501,7 +506,9 @@ impl std::fmt::Display for ServeError {
                 "serve: a model endpoint is configured but [model] context_length is not set — \
                  state your model's context window in tokens (the API does not report it)"
             ),
-            ServeError::Bind(source) => write!(f, "serve: could not bind the listener: {source}"),
+            ServeError::Bind { addr, source } => {
+                write!(f, "serve: could not bind {addr}: {source}")
+            }
             ServeError::Serve(source) => write!(f, "serve: the HTTP server failed: {source}"),
         }
     }
@@ -519,7 +526,8 @@ impl std::error::Error for ServeError {
             ServeError::Snapshot(source) => Some(source),
             ServeError::Server(source) => Some(source),
             ServeError::MissingContextLength => None,
-            ServeError::Bind(source) | ServeError::Serve(source) => Some(source),
+            ServeError::Bind { source, .. } => Some(source),
+            ServeError::Serve(source) => Some(source),
         }
     }
 }

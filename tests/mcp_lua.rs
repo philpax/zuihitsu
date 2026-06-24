@@ -195,7 +195,7 @@ async fn a_tool_error_is_a_catchable_lua_error() {
         panic!("expected commit, got {outcome:?}");
     };
     assert!(result.starts_with("false: "), "result was {result:?}");
-    assert!(result.contains("mcp:"), "result was {result:?}");
+    assert!(result.contains("browser.boom"), "result was {result:?}");
     assert!(result.contains("kaboom"), "result was {result:?}");
 }
 

@@ -877,12 +877,22 @@ enum ToolError {
 impl std::fmt::Display for ToolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ToolError::UnknownTool(name) => write!(f, "error: no such tool {name:?}"),
+            ToolError::UnknownTool(name) => write!(
+                f,
+                "error: no such tool {name:?}; the only available tool is run_lua"
+            ),
             ToolError::InvalidArguments(message) => {
                 write!(f, "error: invalid run_lua arguments: {message}")
             }
             ToolError::BlockError(message) => write!(f, "error: {message}"),
-            ToolError::BlockAborted(reason) => write!(f, "aborted: {reason}"),
+            ToolError::BlockAborted(reason) => {
+                let reason = if reason.trim().is_empty() {
+                    "(no reason given)"
+                } else {
+                    reason
+                };
+                write!(f, "aborted: {reason}")
+            }
         }
     }
 }

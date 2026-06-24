@@ -192,9 +192,17 @@ impl EnvConfig {
     /// instance still has somewhere to put its databases.
     pub fn load(path: &Path) -> Result<EnvConfig, ConfigError> {
         let mut config = match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).map_err(ConfigError::Parse)?,
+            Ok(text) => toml::from_str(&text).map_err(|source| ConfigError::Parse {
+                path: path.to_path_buf(),
+                source,
+            })?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => EnvConfig::default(),
-            Err(error) => return Err(ConfigError::Io(error)),
+            Err(source) => {
+                return Err(ConfigError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
         };
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         config.storage.dir = base.join(&config.storage.dir);
@@ -225,8 +233,14 @@ fn is_lua_identifier(name: &str) -> bool {
 /// A failure loading the environmental config.
 #[derive(Debug)]
 pub enum ConfigError {
-    Io(std::io::Error),
-    Parse(toml::de::Error),
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Parse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
     /// An `[mcp.<name>]` key that is not a valid Lua identifier (it is the projection prefix).
     InvalidMcpServerName(String),
 }
@@ -234,8 +248,12 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigError::Io(error) => write!(f, "config: could not read the file: {error}"),
-            ConfigError::Parse(error) => write!(f, "config: invalid TOML: {error}"),
+            ConfigError::Io { path, source } => {
+                write!(f, "config: could not read {}: {source}", path.display())
+            }
+            ConfigError::Parse { path, source } => {
+                write!(f, "config: invalid TOML in {}: {source}", path.display())
+            }
             ConfigError::InvalidMcpServerName(name) => write!(
                 f,
                 "config: MCP server name {name:?} is not a valid Lua identifier \
@@ -248,8 +266,8 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            ConfigError::Io(error) => Some(error),
-            ConfigError::Parse(error) => Some(error),
+            ConfigError::Io { source, .. } => Some(source),
+            ConfigError::Parse { source, .. } => Some(source),
             ConfigError::InvalidMcpServerName(_) => None,
         }
     }

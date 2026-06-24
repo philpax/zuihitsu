@@ -116,6 +116,9 @@ pub enum McpError {
     Dead(String),
     /// A call or the initial handshake exceeded its timeout.
     Timeout(String),
+    /// The agent called `mcp.<server>.<tool>` for a tool the server does not advertise. Teachable:
+    /// the agent misaddressed the call, so it is unprefixed prose naming the server and tool.
+    UnknownTool { server: String, tool: String },
 }
 
 impl std::fmt::Display for McpError {
@@ -125,13 +128,45 @@ impl std::fmt::Display for McpError {
             McpError::Protocol { code, message } => {
                 write!(f, "mcp: protocol error {code}: {message}")
             }
-            McpError::Tool(message) => write!(f, "mcp: the tool reported an error: {message}"),
+            // Teachable (the agent can adapt): unprefixed prose. The call's `server.tool` is packed
+            // into `message` by [`McpError::with_call`], so the agent sees exactly which call erred.
+            McpError::Tool(message) => write!(f, "the tool reported an error: {message}"),
             McpError::Dead(message) => {
                 write!(f, "mcp: the server is no longer available: {message}")
             }
             McpError::Timeout(message) => write!(f, "mcp: timed out: {message}"),
+            McpError::UnknownTool { server, tool } => {
+                write!(f, "server {server:?} has no tool {tool:?}")
+            }
         }
     }
 }
 
 impl std::error::Error for McpError {}
+
+impl McpError {
+    /// Pack the server name into a spawn failure, so the agent sees which server could not start.
+    pub(crate) fn with_server(self, server: &str) -> Self {
+        match self {
+            McpError::Spawn(message) => McpError::Spawn(format!("{server}: {message}")),
+            other => other,
+        }
+    }
+
+    /// Pack the `mcp.<server>.<tool>` call into a per-call failure, so the agent sees exactly which
+    /// call erred. `Dead` is server-level (the call merely discovered the server is gone), so it
+    /// carries the server alone; `Spawn` never reaches here (it fails before a call is made).
+    pub(crate) fn with_call(self, server: &str, tool: &str) -> Self {
+        let call = format!("{server}.{tool}");
+        match self {
+            McpError::Tool(message) => McpError::Tool(format!("{call}: {message}")),
+            McpError::Protocol { code, message } => McpError::Protocol {
+                code,
+                message: format!("{call}: {message}"),
+            },
+            McpError::Dead(message) => McpError::Dead(format!("{server}: {message}")),
+            McpError::Timeout(message) => McpError::Timeout(format!("{call}: {message}")),
+            other => other,
+        }
+    }
+}

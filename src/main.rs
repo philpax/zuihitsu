@@ -192,10 +192,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
     let Some(command) = &cli.command else {
         return http_server(&cli.config);
     };
-    let config = EnvConfig::load(&cli.config).map_err(|source| CliError::LoadConfig {
-        path: cli.config.clone(),
-        source,
-    })?;
+    let config = EnvConfig::load(&cli.config).map_err(|source| CliError::LoadConfig { source })?;
     let client = Client::new(config.serving.bind);
     match command {
         Command::Create {
@@ -941,7 +938,6 @@ fn remove_db(path: &Path) -> Result<(), CliError> {
 #[derive(Debug)]
 enum CliError {
     LoadConfig {
-        path: PathBuf,
         source: ConfigError,
     },
     HttpServer(http_server::ServeError),
@@ -972,8 +968,8 @@ impl From<ClientError> for CliError {
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CliError::LoadConfig { path, source } => {
-                write!(f, "could not load config from {}: {source}", path.display())
+            CliError::LoadConfig { source } => {
+                write!(f, "could not load the config: {source}")
             }
             CliError::HttpServer(source) => {
                 write!(f, "the HTTP server exited with an error: {source}")
@@ -1000,7 +996,7 @@ impl std::fmt::Display for CliError {
 impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            CliError::LoadConfig { source, .. } => Some(source),
+            CliError::LoadConfig { source } => Some(source),
             CliError::HttpServer(source) => Some(source),
             CliError::Client(source) => Some(source),
             CliError::ReadFile { source, .. } => Some(source),
