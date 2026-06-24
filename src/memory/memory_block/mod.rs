@@ -415,56 +415,65 @@ impl MemoryBlock {
 
     /// Create a memory with optional first-entry overrides, mirroring `append`'s option table. This
     /// keeps `memory.create(name, content, opts)` from silently dropping `occurred_at`, a footgun that
-    /// produced untimed reminders that never fired.
+    /// produced untimed reminders that never fired. The first entry is resolved before anything is
+    /// buffered, so an unclassified write fails without leaving a half-created memory; the whole
+    /// operation runs as a [`MemoryBlock::transaction`] so a later failure would roll the create back
+    /// too.
     pub fn create_with_opts(
         &mut self,
         name: impl Into<MemoryName>,
         content: Option<&str>,
         opts: Option<AppendOptions>,
     ) -> Result<MemoryId, MemoryError> {
-        let name = name.into();
-        if self.resolve(name.as_str())?.is_some() {
-            return Err(MemoryError::NameExists(name));
-        }
-        let id = MemoryId::generate();
-        // A first entry is told like any append: by the turn's teller, classified the same way (an
-        // agent-authored first entry about a person must set its visibility). Resolve it before
-        // buffering anything, so an unclassified write fails without leaving a half-created memory.
-        let first_entry = match content {
-            Some(text) => {
-                let opts = opts.unwrap_or_default();
-                let teller = if opts.by_agent {
-                    Teller::Agent
-                } else {
-                    self.teller.clone()
-                };
-                let visibility =
-                    self.resolve_visibility(Some(name.as_str()), id, &teller, opts.visibility)?;
-                Self::validate_occurred_at(opts.occurred_at.as_ref())?;
-                Some((
-                    text.to_owned(),
-                    teller,
-                    visibility,
-                    opts.occurred_at,
-                    opts.volatility,
-                ))
+        self.transaction(|block| {
+            let name = name.into();
+            if block.resolve(name.as_str())?.is_some() {
+                return Err(MemoryError::NameExists(name));
             }
-            None => None,
-        };
-        self.touched.insert(id);
-        self.buffer.push(EventPayload::memory_created(id, name));
-        if let Some((text, teller, visibility, occurred_at, volatility)) = first_entry {
-            // A created memory's first entry may carry an occurrence and an inline volatility, just like
-            // a standalone `mem:append("...", { occurred_at = ..., volatility = ... })`.
-            self.push_content(id, text, teller, visibility, occurred_at);
-            if let Some(volatility) = volatility {
-                self.buffer.push(EventPayload::memory_volatility_set(
-                    id,
-                    volatility.into_volatility(),
-                ));
+            let id = MemoryId::generate();
+            // A first entry is told like any append: by the turn's teller, classified the same way (an
+            // agent-authored first entry about a person must set its visibility). Resolve it before
+            // buffering anything, so an unclassified write fails without leaving a half-created memory.
+            let first_entry = match content {
+                Some(text) => {
+                    let opts = opts.unwrap_or_default();
+                    let teller = if opts.by_agent {
+                        Teller::Agent
+                    } else {
+                        block.teller.clone()
+                    };
+                    let visibility = block.resolve_visibility(
+                        Some(name.as_str()),
+                        id,
+                        &teller,
+                        opts.visibility,
+                    )?;
+                    Self::validate_occurred_at(opts.occurred_at.as_ref())?;
+                    Some((
+                        text.to_owned(),
+                        teller,
+                        visibility,
+                        opts.occurred_at,
+                        opts.volatility,
+                    ))
+                }
+                None => None,
+            };
+            block.touched.insert(id);
+            block.buffer.push(EventPayload::memory_created(id, name));
+            if let Some((text, teller, visibility, occurred_at, volatility)) = first_entry {
+                // A created memory's first entry may carry an occurrence and an inline volatility, just
+                // like a standalone `mem:append("...", { occurred_at = ..., volatility = ... })`.
+                block.push_content(id, text, teller, visibility, occurred_at);
+                if let Some(volatility) = volatility {
+                    block.buffer.push(EventPayload::memory_volatility_set(
+                        id,
+                        volatility.into_volatility(),
+                    ));
+                }
             }
-        }
-        Ok(id)
+            Ok(id)
+        })
     }
 
     /// Rename a memory's handle: the same node under a new agent-facing name (spec §Identity →
@@ -589,9 +598,9 @@ impl MemoryBlock {
 
     /// Revise a fact in one call: append `text` as a new entry on `id`, then supersede `old` with it.
     /// This is the find-and-supersede flow without the append-then-supersede two-step — and it cannot
-    /// half-apply: if the supersede fails (e.g. `old` is not a live entry), it returns the error and
-    /// the block rolls back the append with it, so a correction never leaves the stale value standing
-    /// beside an orphaned new one. Returns the new entry.
+    /// half-apply: the append and supersede run as a [`MemoryBlock::transaction`], so if the supersede
+    /// fails (e.g. `old` is not a live entry), the append's buffered event is rolled back and the error
+    /// propagates, leaving no orphaned new entry beside the stale value. Returns the new entry.
     pub fn revise(
         &mut self,
         id: MemoryId,
@@ -599,9 +608,11 @@ impl MemoryBlock {
         text: &str,
         opts: AppendOptions,
     ) -> Result<EntryId, MemoryError> {
-        let new = self.append(id, text, opts)?;
-        self.supersede(id, old, new)?;
-        Ok(new)
+        self.transaction(|block| {
+            let new = block.append(id, text, opts)?;
+            block.supersede(id, old, new)?;
+            Ok(new)
+        })
     }
 
     /// The memory's live content entries: its whole `same_as` class from the graph plus this block's
@@ -1055,6 +1066,27 @@ impl MemoryBlock {
             events: std::mem::take(&mut self.buffer),
             touched: std::mem::take(&mut self.touched).into_iter().collect(),
             aborted: self.aborted.take(),
+        }
+    }
+
+    /// Run a compound operation as a transaction: if `body` returns `Err`, discard every event it
+    /// buffered so a failure partway through a multi-event operation leaves no orphaned writes, then
+    /// propagate the error. The touched set is left intact — reads within the operation genuinely
+    /// touched those memories, and a rolled-back write's target was still interacted with. A
+    /// single-event operation needs no transaction: its one check-then-buffer is already atomic,
+    /// since the check precedes the (infallible) buffer push. Used by [`MemoryBlock::revise`] and
+    /// [`MemoryBlock::create_with_opts`].
+    fn transaction<R>(
+        &mut self,
+        body: impl FnOnce(&mut Self) -> Result<R, MemoryError>,
+    ) -> Result<R, MemoryError> {
+        let savepoint = self.buffer.len();
+        match body(self) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.buffer.truncate(savepoint);
+                Err(error)
+            }
         }
     }
 

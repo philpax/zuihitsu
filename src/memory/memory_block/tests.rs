@@ -361,3 +361,42 @@ fn append_rejects_an_unsupported_recurrence_with_a_teachable_error() {
         )
         .unwrap();
 }
+
+#[test]
+fn revise_rolls_back_the_append_when_the_supersede_fails() {
+    // revise is append-then-supersede; a failed supersede must not leave the append's buffered event
+    // behind. Without the transaction, a caught error (a Lua `pcall`) would commit the orphaned new
+    // entry beside the stale value it was meant to replace. The transaction rolls the buffer back to
+    // before the append.
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+    let a = block.create(Namespace::Topic.with_name("a"), None).unwrap();
+    block
+        .append(a, "original", AppendOptions::default())
+        .unwrap();
+    // A foreign entry (from a different memory) is not a live entry of `a`, so the supersede fails.
+    let b = block.create(Namespace::Topic.with_name("b"), None).unwrap();
+    let foreign = block
+        .append(b, "b content", AppendOptions::default())
+        .unwrap();
+    let error = block
+        .revise(a, foreign, "replacement", AppendOptions::default())
+        .unwrap_err();
+    assert!(
+        matches!(error, MemoryError::UnknownEntry(_)),
+        "revise should fail on a foreign entry, got {error:?}"
+    );
+    // The revise's append was rolled back: only the original append remains on `a`.
+    let effects = block.into_effects();
+    let appended: Vec<&EventPayload> = effects
+        .events
+        .iter()
+        .filter(|event| matches!(event, EventPayload::MemoryContentAppended { id, .. } if *id == a))
+        .collect();
+    assert_eq!(
+        appended.len(),
+        1,
+        "the failed revise's append should have been rolled back, but found {appended:?}"
+    );
+}
