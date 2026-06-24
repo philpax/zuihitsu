@@ -6,13 +6,19 @@
 
 mod common;
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
+use parking_lot::Mutex;
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
-    ConversationLocator, Engine, FakeMcpHost, FakeServer, Graph, ManualClock, McpCatalogue,
-    McpError, McpOutput, McpServerConfig, McpTool, MemoryStore, ScriptedModel, SeedSelf, Server,
-    Session, Teller, TerminalCause, ToolCall, TurnId, TurnOutcome,
+    ConversationLocator, Engine, FakeMcpHost, FakeServer, GenerateRequest, GenerateResponse, Graph,
+    ManualClock, McpCatalogue, McpError, McpOutput, McpServerConfig, McpTool, MemoryStore,
+    ModelClient, ModelError, ScriptedModel, SeedSelf, Server, Session, Teller, TerminalCause,
+    ToolCall, TurnId, TurnOutcome, Usage,
 };
 
 /// A tool advertised under `name` (the catalogue entry the escape map is built from).
@@ -294,6 +300,57 @@ fn run_lua_call(script: &str) -> Completion {
     }])
 }
 
+/// A model that serves a fixed canned reply for structured-output (description-regeneration) calls
+/// and dispatches step calls to a scripted completion queue.
+///
+/// `ensure_session` forces a synchronous `describe_catch_up` using the turn's own model before it
+/// composes the brief (the spec's starvation bound). Under concurrency, one turn's catch-up
+/// regenerates descriptions for memories a *parallel* turn just wrote, which would exhaust a plain
+/// [`ScriptedModel`]'s step completions before the turn's own loop runs (the #8 failure). A real
+/// model serves both synthesis and step calls; this fake mirrors that, so the canned synthesis never
+/// touches the scripted step deque. See #9 for the production narrowing that removes the coupling.
+struct DispatchingModel {
+    steps: Mutex<VecDeque<Completion>>,
+}
+
+impl DispatchingModel {
+    fn new(steps: impl IntoIterator<Item = Completion>) -> Self {
+        Self {
+            steps: Mutex::new(steps.into_iter().collect()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ModelClient for DispatchingModel {
+    fn model_id(&self) -> &str {
+        "dispatching-model"
+    }
+
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        // A description-regeneration call: serve a fixed valid synthesis (a non-empty description so
+        // it parses and exits on the first attempt rather than retrying) without touching the step
+        // deque. Its result is a no-op for the test, which checks writes, not prose.
+        if request.response_format.is_some() {
+            return Ok(GenerateResponse {
+                completion: Completion::Reply(
+                    r#"{"description":"undescribed","occurrences":[]}"#.to_owned(),
+                ),
+                usage: Usage::default(),
+                reasoning: None,
+                finish_reason: None,
+            });
+        }
+        let completion = self.steps.lock().pop_front().ok_or(ModelError::Exhausted)?;
+        Ok(GenerateResponse {
+            completion,
+            usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
+        })
+    }
+}
+
 #[tokio::test]
 async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
     // A born agent over an in-memory store, with a browser server connected.
@@ -421,6 +478,15 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
     // Two conversations run at once against a single shared `Arc<Server>`, each writing its own
     // memory. A smoke test that the `&self` facets admit concurrent turns from a shared server (the
     // per-memory locking that makes *same*-memory contention safe lands in the next commit).
+    //
+    // Each turn uses a [`DispatchingModel`] rather than a plain `ScriptedModel`: `ensure_session`
+    // forces a synchronous pre-brief `describe_catch_up` on the turn's own model, and under
+    // concurrency one turn's catch-up regenerates descriptions for memories the *other* turn just
+    // wrote. A `ScriptedModel` would hand those synthesis calls its scripted step completions and
+    // exhaust before the turn's own loop runs (the #8 failure). The dispatching model serves a
+    // canned synthesis for structured-output calls and reserves the scripted `run_lua`/reply for
+    // step calls, so the turn's writes land regardless of how much the parallel turn wrote (#9
+    // tracks the production narrowing that removes the coupling).
     let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
@@ -439,7 +505,7 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
     let turn = |room: &'static str, topic: &'static str, sender: &'static str| {
         let server = server.clone();
         async move {
-            let model = ScriptedModel::new([
+            let model = DispatchingModel::new([
                 run_lua_call(&format!(r#"memory.create("topic/{topic}", "from {room}")"#)),
                 Completion::Reply("done".to_owned()),
             ]);
