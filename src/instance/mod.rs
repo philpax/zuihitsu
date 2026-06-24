@@ -1,5 +1,5 @@
-//! The agent server: the single writer that owns the event log, the materialized graph, and the
-//! clock, and exposes its API split by client authority (spec §Clients and the server boundary).
+//! The agent instance: the single writer that owns the event log, the materialized graph, and the
+//! clock, and exposes its API split by client authority (spec §Clients and the instance boundary).
 //!
 //! Authority is a property of the client's role, enforced here — never of where the client runs.
 //! The operator-authority surface is [`Control`] (agent creation and read-only inspection; its
@@ -63,7 +63,7 @@ use crate::{
 pub struct Instance {
     // The store, graph, and clock bundled behind one shared [`Engine`], so a turn shares them with a
     // single pointer bump and the Lua block API can hold a `'static` handle across `eval_async`. The
-    // server is still the single writer; the engine's mutexes serialize access rather than admit a
+    // instance is still the single writer; the engine's mutexes serialize access rather than admit a
     // second writer. See [`Engine`] for the graph-before-store lock-ordering rule.
     engine: Arc<Engine>,
     /// The live session per conversation: its id, the VM whose globals persist across the session's
@@ -141,7 +141,7 @@ impl Instance {
         Instance::from_engine(Engine::new(store, graph, clock))
     }
 
-    /// As [`Instance::new`], with the semantic-retrieval backends attached — the live server's
+    /// As [`Instance::new`], with the semantic-retrieval backends attached — the live instance's
     /// configuration when an embedding endpoint is set, so `memory.search` and the background indexer
     /// have an embedder and a vector index to work over.
     pub fn with_retrieval(
@@ -194,7 +194,7 @@ impl Instance {
         Ok(())
     }
 
-    /// A server backed entirely in memory (in-memory store and graph), for tests.
+    /// An instance backed entirely in memory (in-memory store and graph), for tests.
     pub fn in_memory(clock: Box<dyn Clock>) -> Result<Instance, InstanceError> {
         Ok(Instance::new(
             Box::new(MemoryStore::new()),
@@ -205,7 +205,7 @@ impl Instance {
 
     /// Catch the graph up to log-head — reconciling a graph left stale or half-applied by a crash
     /// in the commit window — and classify the log for the caller to act on. The single-writer log
-    /// lock is acquired when the (file-backed) store is opened, before the server is constructed.
+    /// lock is acquired when the (file-backed) store is opened, before the instance is constructed.
     pub fn boot(&mut self) -> Result<GenesisStatus, InstanceError> {
         let applied = self
             .engine
@@ -218,7 +218,7 @@ impl Instance {
         self.baseline_describer_cursor()?;
         self.baseline_adjudicator_cursor()?;
         let status = genesis::status(self.engine.store.lock().as_ref())?;
-        tracing::info!(?status, applied, "server booted");
+        tracing::info!(?status, applied, "instance booted");
         Ok(status)
     }
 
@@ -1184,7 +1184,7 @@ impl OpenSession {
     }
 }
 
-/// A server-side failure, delegating its message to the underlying error.
+/// An instance-side failure, delegating its message to the underlying error.
 #[derive(Debug)]
 pub enum InstanceError {
     Store(StoreError),
@@ -1207,14 +1207,14 @@ pub enum InstanceError {
 impl std::fmt::Display for InstanceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InstanceError::Store(error) => write!(f, "server (store): {error}"),
-            InstanceError::Graph(error) => write!(f, "server (graph): {error}"),
-            InstanceError::Turn(error) => write!(f, "server (turn): {error}"),
-            InstanceError::Mcp(error) => write!(f, "server (mcp): {error}"),
-            InstanceError::Snapshot(message) => write!(f, "server (snapshot): {message}"),
-            InstanceError::Index(error) => write!(f, "server (index): {error}"),
-            InstanceError::Search(error) => write!(f, "server (search): {error}"),
-            InstanceError::Lua(error) => write!(f, "server (lua): {error}"),
+            InstanceError::Store(error) => write!(f, "instance (store): {error}"),
+            InstanceError::Graph(error) => write!(f, "instance (graph): {error}"),
+            InstanceError::Turn(error) => write!(f, "instance (turn): {error}"),
+            InstanceError::Mcp(error) => write!(f, "instance (mcp): {error}"),
+            InstanceError::Snapshot(message) => write!(f, "instance (snapshot): {message}"),
+            InstanceError::Index(error) => write!(f, "instance (index): {error}"),
+            InstanceError::Search(error) => write!(f, "instance (search): {error}"),
+            InstanceError::Lua(error) => write!(f, "instance (lua): {error}"),
         }
     }
 }
