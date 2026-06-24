@@ -11,9 +11,10 @@ pub mod embed;
 pub mod index;
 pub mod openai;
 
-use std::{collections::VecDeque, sync::Mutex};
+use std::collections::VecDeque;
 
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -221,10 +222,7 @@ impl ScriptedModel {
     /// The `messages` of each `generate` call so far, in order — lets a test assert what the model
     /// saw (e.g. that a later turn replayed the prior turns as the prompt suffix).
     pub fn recorded_messages(&self) -> Vec<Vec<Message>> {
-        self.seen
-            .lock()
-            .expect("scripted-model lock poisoned")
-            .clone()
+        self.seen.lock().clone()
     }
 }
 
@@ -235,15 +233,8 @@ impl ModelClient for ScriptedModel {
     }
 
     async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        self.seen
-            .lock()
-            .expect("scripted-model lock poisoned")
-            .push(request.messages.clone());
-        self.steps
-            .lock()
-            .expect("scripted-model lock poisoned")
-            .pop_front()
-            .ok_or(ModelError::Exhausted)
+        self.seen.lock().push(request.messages.clone());
+        self.steps.lock().pop_front().ok_or(ModelError::Exhausted)
     }
 }
 

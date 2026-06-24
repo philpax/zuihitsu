@@ -3087,6 +3087,7 @@ dependencies = [
  "async-trait",
  "axum",
  "clap",
+ "parking_lot",
  "rust-embed",
  "schemars",
  "serde",

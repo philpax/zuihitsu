@@ -11,9 +11,9 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
-    sync::Mutex,
 };
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use ts_rs::TS;
@@ -130,7 +130,7 @@ impl EvalSink {
 
     /// Open a run: record that it is driving (an empty live buffer) and emit `RunStarted`.
     pub fn run_started(&self, scenario: u32, run: u32) -> Result<(), EvalError> {
-        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        let mut inner = self.inner.lock();
         inner.in_flight.insert((scenario, run), Vec::new());
         self.emit_locked(&mut inner, LiveEvent::RunStarted { scenario, run })
     }
@@ -139,7 +139,7 @@ impl EvalSink {
     /// Retained in the run's live buffer (to catch up a late-joining client) but not written to the
     /// sidecar: the authoritative copy rides the run's `RunCompleted`, so a viewer loses nothing.
     pub fn run_event(&self, scenario: u32, run: u32, event: Event) -> Result<(), EvalError> {
-        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        let mut inner = self.inner.lock();
         inner
             .in_flight
             .entry((scenario, run))
@@ -160,7 +160,7 @@ impl EvalSink {
     /// emit `RunCompleted` carrying the whole record. This is the authoritative copy a client folds —
     /// the live `RunEvent`s only animated the deliberation up to here.
     pub fn run_finished(&self, scenario: u32, record: RunRecord) -> Result<(), EvalError> {
-        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        let mut inner = self.inner.lock();
         let run = record.index;
         // The run is whole now and lives in the package; retire its live catch-up buffer.
         inner.in_flight.remove(&(scenario, run));
@@ -185,7 +185,7 @@ impl EvalSink {
 
     /// Emit `Finished`, stamp the package, and flush the sidecar.
     pub fn finish(&self, finished_at_ms: i64) -> Result<(), EvalError> {
-        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        let mut inner = self.inner.lock();
         inner.package.meta.finished_at_ms = finished_at_ms;
         self.emit_locked(&mut inner, LiveEvent::Finished { finished_at_ms })?;
         flush(&mut inner.writer)
@@ -203,7 +203,7 @@ impl EvalSink {
         Vec<LiveEvent>,
         broadcast::Receiver<(u64, LiveEvent)>,
     ) {
-        let inner = self.inner.lock().expect("eval sink poisoned");
+        let inner = self.inner.lock();
         let mut catch_up = Vec::new();
         for (&(scenario, run), events) in &inner.in_flight {
             catch_up.push(LiveEvent::RunStarted { scenario, run });
@@ -265,7 +265,7 @@ impl EvalSink {
     /// The `(scenario, run)` pairs already complete — what a resumed run skips so only the missing runs
     /// drive.
     pub fn done_runs(&self) -> HashSet<(u32, u32)> {
-        let inner = self.inner.lock().expect("eval sink poisoned");
+        let inner = self.inner.lock();
         inner
             .package
             .scenarios
@@ -283,15 +283,11 @@ impl EvalSink {
     /// The folded package as it stands — every scenario with its runs and aggregate. Cloned (rather
     /// than consuming) so the sink lives on to keep serving the final state to viewers.
     pub fn package(&self) -> EvalPackage {
-        self.inner
-            .lock()
-            .expect("eval sink poisoned")
-            .package
-            .clone()
+        self.inner.lock().package.clone()
     }
 
     fn emit(&self, event: LiveEvent) -> Result<(), EvalError> {
-        let mut inner = self.inner.lock().expect("eval sink poisoned");
+        let mut inner = self.inner.lock();
         self.emit_locked(&mut inner, event)
     }
 
