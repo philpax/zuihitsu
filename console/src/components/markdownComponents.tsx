@@ -79,10 +79,7 @@ export const turnComponents: Components = {
   ),
   thead: ({ children }) => <thead className="border-b border-line">{children}</thead>,
   th: ({ children, style }) => (
-    <th
-      className="px-2 py-1 text-left font-semibold text-ink"
-      style={style}
-    >
+    <th className="px-2 py-1 text-left font-semibold text-ink" style={style}>
       {children}
     </th>
   ),
