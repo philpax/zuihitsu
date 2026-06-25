@@ -22,6 +22,7 @@ use crate::{
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationId, ConversationLocator, MemoryName, Seq, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
+    metrics::{set_graph_counts, set_head_seq, set_lag, set_mcp, set_sessions_active},
     model::{Completion, ModelClient, Usage},
     settings::Settings,
     time::Timestamp,
@@ -395,6 +396,51 @@ impl Control<'_> {
         Ok(Settings::from_store(
             self.server.engine.store.lock().as_ref(),
         )?)
+    }
+
+    /// Refresh the derived gauges from instance state, so a `/control/metrics` scrape sees fresh
+    /// agent-state values (spec §Observability → metrics). The process-level gauges (uptime, the
+    /// event-log file size) are set by the serving host, which knows the boot time and the log path;
+    /// everything else — the graph's size, the live session count, the worker lag, the MCP catalogue
+    /// — is derived here from the instance.
+    pub fn refresh_gauges(&self) -> Result<(), InstanceError> {
+        let head = self.server.engine.store.lock().head()?;
+        set_head_seq(head.0);
+        set_sessions_active(self.server.sessions.lock().len() as u64);
+        let graph = self.server.engine.graph.lock();
+        set_graph_counts(
+            graph.memory_count()?,
+            graph.entry_count()?,
+            graph.link_count()?,
+            graph.all_tags()?.len(),
+            graph.all_relations()?.len(),
+        );
+        let describer_lag = head.0.saturating_sub(self.server.describer_cursor.lock().0);
+        let adjudicator_lag = head
+            .0
+            .saturating_sub(self.server.adjudicator_cursor.lock().0);
+        let indexer_lag = self.server.engine.retrieval.as_ref().map(|retrieval| {
+            retrieval
+                .vectors
+                .lock()
+                .cursor()
+                .map(|cursor| head.0.saturating_sub(cursor.0))
+                .unwrap_or(head.0)
+        });
+        set_lag(indexer_lag, describer_lag, adjudicator_lag);
+        let (servers_up, tools_total) = self
+            .server
+            .mcp
+            .as_ref()
+            .map(|runtime| {
+                (
+                    runtime.catalogue.server_count(),
+                    runtime.catalogue.tool_count(),
+                )
+            })
+            .unwrap_or((0, 0));
+        set_mcp(servers_up, tools_total);
+        Ok(())
     }
 
     /// Replace the agent's behavioral settings, logged as an operator `ConfigSet` (source

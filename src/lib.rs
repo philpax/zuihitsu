@@ -12,6 +12,7 @@ pub mod engine;
 pub mod instance;
 pub mod mcp;
 pub mod memory;
+pub mod metrics;
 pub mod model;
 pub mod snapshot;
 pub mod store;

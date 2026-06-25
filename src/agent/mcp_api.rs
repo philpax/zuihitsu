@@ -29,6 +29,7 @@ use serde::Deserialize;
 use crate::{
     agent::api_doc::{ApiEntry, ApiParam, ApiType},
     mcp::{ContentBlock, McpError, McpHost, McpInstance, McpOutput, McpServerConfig, McpTool},
+    metrics::{observe_mcp_call, observe_mcp_call_error},
 };
 
 /// The probed, filtered tool catalogues for the configured MCP servers — the single source both the
@@ -87,6 +88,27 @@ impl McpCatalogue {
             );
         }
         Ok(McpCatalogue { servers })
+    }
+
+    /// How many servers were brought up (the `mcp_servers_up` metric).
+    pub fn server_count(&self) -> usize {
+        self.servers.len()
+    }
+
+    /// The total projected tool count across every server (the `mcp_tools_total` metric).
+    pub fn tool_count(&self) -> usize {
+        self.servers
+            .values()
+            .map(|catalogue| catalogue.tools.len())
+            .sum()
+    }
+
+    /// Each server's name and projected tool count, for the boot log.
+    pub fn server_tool_counts(&self) -> Vec<(String, usize)> {
+        self.servers
+            .iter()
+            .map(|(name, catalogue)| (name.clone(), catalogue.tools.len()))
+            .collect()
     }
 
     /// The projected tools as system-prompt API entries (spec §Projected into the system prompt), one
@@ -192,9 +214,18 @@ impl McpSession {
         // timeout handler can drop the now-undefined instance (see [`drop_in_flight`]).
         self.block_made_a_call.store(true, Ordering::SeqCst);
         *self.in_flight.lock() = Some(server.to_owned());
+        let started = std::time::Instant::now();
         let result = instance.call(raw, arguments).await;
+        let elapsed = started.elapsed();
         self.in_flight.lock().take();
-        let output = result.map_err(|error| mcp_to_lua(error.with_call(server, escaped_tool)))?;
+        // Observe the MCP call's latency/throughput at the chokepoint, so "where did the turn's
+        // time go" separates a slow tool from a slow inference (spec §Observability). A failure is
+        // still a call (counted), and counted again as an error.
+        observe_mcp_call(elapsed);
+        let output = result.map_err(|error| {
+            observe_mcp_call_error();
+            mcp_to_lua(error.with_call(server, escaped_tool))
+        })?;
         project_output(lua, output)
     }
 

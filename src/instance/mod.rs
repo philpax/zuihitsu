@@ -27,10 +27,11 @@ use std::{
 
 use parking_lot::Mutex;
 use tokio::sync::Semaphore;
+use tracing::Instrument;
 
 use crate::{
     agent::{
-        Flush, McpCatalogue, Turn, TurnError, TurnReport, TurnView, buffer_turns,
+        Flush, McpCatalogue, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
         genesis::{self, GenesisStatus},
         lua::Session,
         run_adjudicate_catch_up, run_describe_catch_up, run_flush, run_turn,
@@ -47,6 +48,11 @@ use crate::{
         memory_block::Authority,
         scheduler::{self, SchedulerError},
         search::{SearchError, SearchHit, SearchQuery, search as rank_search},
+    },
+    metrics::{
+        observe_flush_turn, observe_search, observe_session_closed, observe_session_opened,
+        observe_turn, observe_turn_error, observe_wakeups_fired, observe_wakeups_surfaced,
+        observe_worker_error,
     },
     model::{
         ModelClient,
@@ -256,6 +262,7 @@ impl Instance {
         let Some(retrieval) = &self.engine.retrieval else {
             return Ok(Vec::new());
         };
+        let started = std::time::Instant::now();
         let embedding = retrieval
             .embedder
             .embed(&[query.to_owned()])
@@ -277,20 +284,24 @@ impl Instance {
         // the synchronous ranking, never an await.
         let graph = self.engine.graph.lock();
         let vectors = retrieval.vectors.lock();
-        Ok(rank_search(
-            &graph,
-            vectors.as_ref(),
-            &request,
-            &settings,
-            now,
-            limit,
-        )?)
+        let hits = rank_search(&graph, vectors.as_ref(), &request, &settings, now, limit)?;
+        observe_search(started.elapsed());
+        Ok(hits)
     }
 
     /// The operator-authority API facet. Takes `&self` so a shared `Arc<Instance>` can hand out a facet
     /// per caller; the server's mutable runtime state lives behind its own locks.
     pub fn control(&self) -> Control<'_> {
         Control { server: self }
+    }
+
+    /// Each connected MCP server's name and projected tool count, for the boot log. Empty when no
+    /// servers are configured.
+    pub fn mcp_summary(&self) -> Vec<(String, usize)> {
+        self.mcp
+            .as_ref()
+            .map(|runtime| runtime.catalogue.server_tool_counts())
+            .unwrap_or_default()
     }
 
     /// The platform-authority API facet — delivering participant turns. It structurally lacks
@@ -324,6 +335,72 @@ impl Instance {
     /// (the buffer the caller's compaction trigger measures). The shared core behind
     /// `Platform::route_message` and `Control::imprint`.
     async fn run_session_turn(
+        &self,
+        model: &dyn ModelClient,
+        routed: &RoutedTurn<'_>,
+    ) -> Result<(TurnReport, Vec<TurnView>), InstanceError> {
+        // The per-turn observability span (spec §Observability → per-turn spans): wraps the whole
+        // turn — session open, the forced catch-up, and the model step loop — so its close carries
+        // the turn's wall-clock duration. The result fields (outcome, steps, blocks, prompt tokens)
+        // are known only after the turn resolves, so they are recorded into the span below, after
+        // the instrumented future completes. Throughput and latency counters are observed here too,
+        // covering both the success and error paths in one place.
+        let started = std::time::Instant::now();
+        let span = tracing::info_span!(
+            "turn",
+            conversation = ?routed.conversation,
+            template = ?routed.template,
+            turn_id = tracing::field::Empty,
+            outcome = tracing::field::Empty,
+            duration_ms = tracing::field::Empty,
+            steps = tracing::field::Empty,
+            blocks = tracing::field::Empty,
+            prompt_tokens = tracing::field::Empty,
+        );
+        let result = self
+            .run_session_turn_inner(model, routed)
+            .instrument(span.clone())
+            .await;
+        let duration = started.elapsed();
+        match &result {
+            Ok((report, _)) => {
+                observe_turn(duration);
+                // The outcome is a label ("reply"/"silent"/"max_steps"), never the reply text —
+                // traces carry structural identifiers (conversation, turn_id) an operator uses to
+                // find the turn's events in the log, not conversational content.
+                let outcome = match report.outcome {
+                    TurnOutcome::Reply(_) => "reply",
+                    TurnOutcome::Silent => "silent",
+                    TurnOutcome::MaxStepsExceeded => "max_steps",
+                };
+                span.record("turn_id", tracing::field::debug(&report.turn_id));
+                span.record("outcome", outcome);
+                span.record("duration_ms", duration.as_millis() as u64);
+                span.record("steps", report.steps);
+                span.record("blocks", report.blocks);
+                span.record("prompt_tokens", report.prompt_tokens.unwrap_or(0));
+            }
+            Err(error) => {
+                // The cause label distinguishes where the turn failed (model/lua/store/graph); a
+                // non-`TurnError` (e.g. an `ensure_session` failure) is `none`.
+                let cause = match error {
+                    InstanceError::Turn { error, .. } => match error {
+                        TurnError::Model(_) => "model",
+                        TurnError::Lua(_) => "lua",
+                        TurnError::Store(_) => "store",
+                        TurnError::Graph(_) => "graph",
+                    },
+                    _ => "none",
+                };
+                observe_turn_error("turn", cause, duration);
+                span.record("outcome", "error");
+                span.record("duration_ms", duration.as_millis() as u64);
+            }
+        }
+        result
+    }
+
+    async fn run_session_turn_inner(
         &self,
         model: &dyn ModelClient,
         routed: &RoutedTurn<'_>,
@@ -463,6 +540,7 @@ impl Instance {
                 .graph
                 .lock()
                 .materialize_from(self.engine.store.lock().as_ref())?;
+            observe_flush_turn();
         }
         open.vm.shutdown_mcp().await;
         let now = self.engine.clock.now();
@@ -470,6 +548,7 @@ impl Instance {
             now,
             vec![EventPayload::session_ended(conversation, open.id)],
         )?;
+        observe_session_closed();
         // Apply the close to the graph so the session reads as `ended`. Without this the `SessionEnded`
         // lands in the log but not the projection, so `open_sessions` keeps returning the session and
         // the idle sweep re-closes it every tick, appending a fresh `SessionEnded` each time.
@@ -623,6 +702,7 @@ impl Instance {
                 brief: brief.clone(),
             }],
         )?;
+        observe_session_opened();
         let session_start_seq = committed[0].seq;
         self.engine
             .graph
@@ -650,6 +730,7 @@ impl Instance {
         let drained =
             scheduler::drain(&self.engine.graph.lock(), present_set, &settings.scheduler)?;
         if let Some(drained) = drained {
+            let surface_count = drained.entries.len();
             let turn_id = TurnId::generate();
             let mut payloads = vec![EventPayload::ConversationTurn {
                 conversation,
@@ -666,6 +747,7 @@ impl Instance {
                 ));
             }
             self.engine.store.lock().append(now, payloads)?;
+            observe_wakeups_surfaced(surface_count);
             self.engine
                 .graph
                 .lock()
@@ -706,6 +788,7 @@ impl Instance {
             scheduler::fire_due(self.engine.store.lock().as_mut(), &graph, now)?
         };
         if fired > 0 {
+            observe_wakeups_fired(fired);
             self.engine
                 .graph
                 .lock()
@@ -740,6 +823,7 @@ impl Instance {
                         }
                         Ok(_) => {}
                         Err(error) => {
+                            observe_worker_error("scheduler");
                             tracing::error!(%error, "scheduler driver: firing due wake-ups failed")
                         }
                     }
@@ -897,7 +981,10 @@ impl Instance {
                             tracing::debug!(indexed, "indexer caught the vector index up")
                         }
                         Ok(_) => {}
-                        Err(error) => tracing::error!(%error, "indexer: catch-up failed"),
+                        Err(error) => {
+                            observe_worker_error("indexer");
+                            tracing::error!(%error, "indexer: catch-up failed")
+                        }
                     }
                 }
                 _ = &mut shutdown => break,
@@ -950,7 +1037,10 @@ impl Instance {
                             tracing::debug!(regenerated, "describer caught descriptions up")
                         }
                         Ok(_) => {}
-                        Err(error) => tracing::error!(%error, "describer: catch-up failed"),
+                        Err(error) => {
+                            observe_worker_error("describe");
+                            tracing::error!(%error, "describer: catch-up failed")
+                        }
                     }
                 }
                 _ = &mut shutdown => break,
@@ -1001,7 +1091,10 @@ impl Instance {
                             tracing::debug!(considered, "adjudicator weighed merge proposals")
                         }
                         Ok(_) => {}
-                        Err(error) => tracing::error!(%error, "adjudicator: catch-up failed"),
+                        Err(error) => {
+                            observe_worker_error("adjudicate");
+                            tracing::error!(%error, "adjudicator: catch-up failed")
+                        }
                     }
                 }
                 _ = &mut shutdown => break,
@@ -1107,7 +1200,10 @@ impl Instance {
                             tracing::info!(closed, "idle sweep closed stale sessions")
                         }
                         Ok(_) => {}
-                        Err(error) => tracing::error!(%error, "idle sweep failed"),
+                        Err(error) => {
+                            observe_worker_error("sweep");
+                            tracing::error!(%error, "idle sweep failed")
+                        }
                     }
                 }
                 _ = &mut shutdown => break,
@@ -1731,5 +1827,120 @@ mod embedding_swap_tests {
             let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
             let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
         }
+    }
+}
+
+#[cfg(test)]
+mod observability_tests {
+    //! The metrics helpers observe a conversational turn and its model calls (spec §Observability →
+    //! metrics). Driven with a scripted model so no GPU is needed; a thread-local recorder
+    //! (`set_default_local_recorder`) keeps each test isolated — no global recorder, no cross-test
+    //! pollution. The per-turn span's step/block counts are exercised by the `TurnReport` counting
+    //! test in `tests/agent.rs`; the span itself is surfaced by `init_tracing`'s `FmtSpan::CLOSE`.
+    use super::*;
+    use crate::{
+        ConversationLocator,
+        clock::ManualClock,
+        metrics::{LATENCY_BUCKETS, describe},
+        model::{Completion, ScriptedModel},
+        time::Timestamp,
+    };
+
+    fn born_server() -> Instance {
+        let server =
+            Instance::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+        server
+            .control()
+            .create_agent(&crate::SeedSelf {
+                agent_name: "Kestrel".to_owned(),
+                persona: "An assistant.".to_owned(),
+                seed_entries: vec![],
+            })
+            .unwrap();
+        server
+    }
+
+    #[tokio::test]
+    async fn a_turn_observes_its_metrics() {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new()
+            .set_buckets(LATENCY_BUCKETS)
+            .unwrap()
+            .build_recorder();
+        let handle = recorder.handle();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        describe();
+        let server = born_server();
+        let model = ScriptedModel::new([Completion::Reply("Hi there.".to_owned())]);
+        server
+            .platform()
+            .route_message(
+                &model,
+                &ConversationLocator::new("discord", "general"),
+                "dave",
+                "hello",
+                &["dave"],
+            )
+            .await
+            .unwrap();
+        server.control().refresh_gauges().unwrap();
+        let text = handle.render();
+        assert!(
+            text.contains("zuihitsu_turns_total 1\n"),
+            "one turn observed"
+        );
+        assert!(
+            text.contains("zuihitsu_model_calls_total 1\n"),
+            "the turn's step was observed at the chokepoint"
+        );
+        assert!(text.contains("zuihitsu_sessions_opened_total 1\n"));
+        assert!(
+            text.contains("zuihitsu_sessions_active 1\n"),
+            "session stays open"
+        );
+        // The agent-state gauges were refreshed from the graph.
+        assert!(text.contains("zuihitsu_memory_count"));
+        // The describer was caught up to the pre-turn head, so the turn's own writes leave a lag.
+        assert!(
+            text.contains("zuihitsu_describer_lag_seq ")
+                && !text.contains("zuihitsu_describer_lag_seq 0\n"),
+            "the turn's writes lag the describer cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn model_call_tokens_accumulate_from_usage() {
+        // A scripted step that reports token usage feeds the cumulative token counters.
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new()
+            .set_buckets(LATENCY_BUCKETS)
+            .unwrap()
+            .build_recorder();
+        let handle = recorder.handle();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        describe();
+        let server = born_server();
+        let model = ScriptedModel::with_responses([crate::model::GenerateResponse {
+            completion: Completion::Reply("Hi there.".to_owned()),
+            usage: crate::model::Usage {
+                prompt_tokens: Some(120),
+                completion_tokens: Some(30),
+                total_tokens: Some(150),
+            },
+            reasoning: None,
+            finish_reason: Some("stop".to_owned()),
+        }]);
+        server
+            .platform()
+            .route_message(
+                &model,
+                &ConversationLocator::new("discord", "general"),
+                "dave",
+                "hello",
+                &["dave"],
+            )
+            .await
+            .unwrap();
+        let text = handle.render();
+        assert!(text.contains("zuihitsu_model_prompt_tokens_total 120\n"));
+        assert!(text.contains("zuihitsu_model_completion_tokens_total 30\n"));
     }
 }

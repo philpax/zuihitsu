@@ -629,6 +629,35 @@ impl Graph {
         })
     }
 
+    /// The count of live (non-deleted) memories — the agent's knowledge footprint, surfaced as a
+    /// gauge. A `COUNT(*)` rather than materializing the memories, so a metrics scrape stays cheap
+    /// on a large graph.
+    pub fn memory_count(&self) -> Result<u64, GraphError> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM memories WHERE deleted = 0",
+            [],
+            |row| row.get::<_, i64>(0),
+        )? as u64)
+    }
+
+    /// The count of live (non-superseded) content entries — how much has been written into the
+    /// graph, the growth signal a runaway writer would surface first.
+    pub fn entry_count(&self) -> Result<u64, GraphError> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM content_entries WHERE superseded_by IS NULL",
+            [],
+            |row| row.get::<_, i64>(0),
+        )? as u64)
+    }
+
+    /// The count of links in the graph.
+    pub fn link_count(&self) -> Result<u64, GraphError> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, i64>(0))?
+            as u64)
+    }
+
     /// Live neighbours reachable from `id` under `relation` (given as either label). Resolves the
     /// label through the registry, follows the canonical edge in the right direction (both
     /// directions for a symmetric relation), and skips soft-deleted neighbours.

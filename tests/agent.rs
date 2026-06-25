@@ -589,6 +589,33 @@ async fn tool_result_feeds_back_across_steps() {
     assert_eq!(lua_events, 2);
 }
 
+#[tokio::test]
+async fn turn_report_counts_steps_and_blocks() {
+    // The per-turn observability span records `steps` (model calls) and `blocks` (run_lua
+    // executions); the counts live on `TurnReport`, so this verifies the substance the span carries
+    // without depending on `tracing`'s global subscriber state (spec §Observability → per-turn spans).
+
+    // A single reply: one model step, no blocks.
+    let h = Harness::new();
+    let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
+    let report = run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
+    assert_eq!(report.outcome, TurnOutcome::Reply("hi".to_owned()));
+    assert_eq!(report.steps, 1);
+    assert_eq!(report.blocks, 0);
+
+    // A multi-step turn: two run_lua calls then a reply → three steps, two blocks.
+    let h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call("return 1"),
+        run_lua_call("return 2"),
+        Completion::Reply("done".to_owned()),
+    ]);
+    let report = run_turn(h.as_turn(&model, "go", 8)).await.unwrap();
+    assert_eq!(report.outcome, TurnOutcome::Reply("done".to_owned()));
+    assert_eq!(report.steps, 3);
+    assert_eq!(report.blocks, 2);
+}
+
 /// End-to-end against the real model (model-gated, ignored): the live model drives the whole loop
 /// — chat protocol, tool-call threading, block execution — to a terminal without an infra error.
 #[tokio::test]

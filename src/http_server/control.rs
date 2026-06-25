@@ -5,7 +5,8 @@
 use axum::{
     Json,
     extract::{Query, State},
-    http::StatusCode,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
@@ -47,6 +48,41 @@ pub(super) async fn genesis(
 /// Secrets are redacted by the types themselves (API keys as counts, MCP env as its variable names).
 pub(super) async fn env_config(State(state): State<AppState>) -> Json<EnvConfig> {
     Json((*state.config).clone())
+}
+
+/// `?format=` query retained for compatibility; the metrics endpoint renders Prometheus text only.
+/// (The `metrics` crate's exporter is the single source of truth for the rendered shape; a JSON
+/// variant would re-introduce the snapshot duplication the migration removed.)
+#[derive(Deserialize)]
+pub(super) struct MetricsFormatQuery {
+    #[serde(default)]
+    #[allow(dead_code)]
+    format: Option<String>,
+}
+
+/// `GET /control/metrics` — the runtime metrics a Grafana (or any Prometheus scraper) consumes
+/// directly, as Prometheus text-format. The instance-derived gauges (graph size, head, lag,
+/// sessions, MCP) are refreshed from state on each scrape, then the recorder renders. `503` when the
+/// recorder could not be installed at boot.
+pub(super) async fn metrics(
+    State(state): State<AppState>,
+    Query(_): Query<MetricsFormatQuery>,
+) -> Result<Response, ApiError> {
+    let handle = state.metrics.as_ref().ok_or(ApiError::MetricsDisabled)?;
+    state.server.control().refresh_gauges()?;
+    let store_size_bytes = std::fs::metadata(state.config.storage.event_log().as_path())
+        .ok()
+        .map(|metadata| metadata.len());
+    zuihitsu::metrics::set_process_gauges(state.boot.elapsed().as_secs_f64(), store_size_bytes);
+    let body = handle.render();
+    Ok((
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
+        .into_response())
 }
 
 /// A `?name=` query — a memory or entry name (which may contain `/` and `@`, so it rides as a query

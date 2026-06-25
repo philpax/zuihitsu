@@ -279,6 +279,7 @@ impl Platform<'_> {
             flushed,
             "token budget crossed; ended session for compaction",
         );
+        crate::metrics::observe_compaction();
         Ok(())
     }
 

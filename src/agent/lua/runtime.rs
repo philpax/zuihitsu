@@ -398,6 +398,7 @@ pub(super) async fn run_memory_search(
     let Some(retrieval) = &engine.retrieval else {
         return Err(MemorySearchError::NoRetrieval);
     };
+    let started = std::time::Instant::now();
     let embedding = retrieval
         .embedder
         .embed(&[query.to_owned()])
@@ -427,6 +428,7 @@ pub(super) async fn run_memory_search(
         search(&graph, vectors.as_ref(), &request, &settings, now, limit)
             .map_err(MemorySearchError::Search)?
     };
+    crate::metrics::observe_search(started.elapsed());
     Ok(hits
         .into_iter()
         .map(|hit| SearchRow {

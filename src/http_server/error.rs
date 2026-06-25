@@ -15,6 +15,8 @@ pub(super) enum ApiError {
     NoModel,
     /// The snapshot endpoint was called but snapshotting is disabled (`[snapshots] enabled = false`).
     SnapshotsDisabled,
+    /// The metrics endpoint was called but the recorder could not be installed at boot.
+    MetricsDisabled,
 }
 
 impl From<ServerError> for ApiError {
@@ -38,6 +40,10 @@ impl IntoResponse for ApiError {
             ApiError::SnapshotsDisabled => (
                 StatusCode::CONFLICT,
                 "snapshots are disabled ([snapshots] enabled = false)".to_owned(),
+            ),
+            ApiError::MetricsDisabled => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the metrics recorder is not installed".to_owned(),
             ),
         };
         (status, Json(ErrorBody { error: message })).into_response()

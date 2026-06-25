@@ -33,6 +33,7 @@ use crate::{
     graph::GraphError,
     ids::{ConversationId, MemoryId, Namespace, Seq, TurnId},
     memory::memory_block::Authority,
+    metrics::{observe_lua_block, observe_lua_block_error, observe_model_call},
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec, schema_of,
@@ -62,10 +63,20 @@ pub enum TurnOutcome {
 /// `prompt_tokens` observed across the turn's generation steps — the largest the buffer reached, and
 /// what the next turn would build on. `None` when no step reported usage (the platform then falls
 /// back to a deterministic estimate). The platform compares this against the compaction budget.
+/// `steps` and `blocks` carry the per-turn model-call and Lua-block counts the observability span
+/// records (spec §Observability), so an operator reading the log can place a turn's latency without
+/// re-reading the raw event log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnReport {
     pub outcome: TurnOutcome,
     pub prompt_tokens: Option<u32>,
+    /// How many model `generate` steps the turn ran.
+    pub steps: usize,
+    /// How many `run_lua` blocks the turn executed.
+    pub blocks: usize,
+    /// The agent's response-cycle turn id — the durable key an operator uses to find this turn's
+    /// events in the log. (The participant's inbound message carries its own earlier turn id.)
+    pub turn_id: TurnId,
 }
 
 /// One turn replayed into the live buffer — the conversational surface the next turn sees as the
@@ -340,7 +351,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         names.get(&inbound_participant).map(String::as_str),
     )));
 
-    let (outcome, peak_prompt_tokens) = run_steps(Steps {
+    let (outcome, peak_prompt_tokens, steps, blocks) = run_steps(Steps {
         session,
         model,
         engine: engine.clone(),
@@ -370,6 +381,9 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     Ok(TurnReport {
         outcome,
         prompt_tokens: peak_prompt_tokens,
+        steps,
+        blocks,
+        turn_id,
     })
 }
 
@@ -622,7 +636,13 @@ impl Recording {
     ) -> Result<GenerateResponse, ModelError> {
         let started = Instant::now();
         let response = model.generate(request).await?;
-        let duration_ms = started.elapsed().as_millis() as u64;
+        let duration = started.elapsed();
+        // The metrics chokepoint (spec §Observability → metrics): every model call — a turn step, a
+        // flush, or a background describe/adjudicate pass — observes its latency and token usage
+        // here, so the `/control/metrics` saturation counters are complete. Independent of the
+        // `ModelCalled` telemetry event (which is conversation-attributed and capture-gated).
+        observe_model_call(duration, &response.usage);
+        let duration_ms = duration.as_millis() as u64;
         // Off-conversation background work (`conversation` is `None`) records no interaction event:
         // there is no conversation to file it under, and its product carries its own provenance.
         if self.capture != CaptureLevel::Off
@@ -705,7 +725,9 @@ struct Steps<'a> {
     capture: CaptureLevel,
 }
 
-async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnError> {
+async fn run_steps(
+    steps: Steps<'_>,
+) -> Result<(TurnOutcome, Option<u32>, usize, usize), TurnError> {
     let Steps {
         session,
         model,
@@ -744,6 +766,8 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
         };
 
     let mut peak_prompt_tokens: Option<u32> = None;
+    let mut steps = 0;
+    let mut blocks = 0;
     // The message count sent in the prior step, so each step records only the messages appended
     // since (the buffer is append-only within the loop); `None` until the first call.
     let mut prev_sent_len: Option<usize> = None;
@@ -765,12 +789,14 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
             } = recording
                 .generate(&engine, model, &request, ModelPhase::Step, record)
                 .await?;
+            steps += 1;
             peak_prompt_tokens = peak_prompt_tokens.max(usage.prompt_tokens);
             match completion {
                 Completion::ToolCalls(calls) => {
                     messages.push(Message::assistant_tool_calls(calls.clone()));
                     for call in &calls {
                         let result = run_tool_call(session, &engine, &context, call).await?;
+                        blocks += 1;
                         messages.push(Message::tool_result(call.id.clone(), result));
                     }
                 }
@@ -801,7 +827,7 @@ async fn run_steps(steps: Steps<'_>) -> Result<(TurnOutcome, Option<u32>), TurnE
         TurnOutcome::MaxStepsExceeded
     };
 
-    Ok((outcome, peak_prompt_tokens))
+    Ok((outcome, peak_prompt_tokens, steps, blocks))
 }
 
 /// The distinct memories that gained content (a create or an append) since `cycle_start`, in first-
@@ -854,12 +880,15 @@ async fn run_tool_call(
         Ok(args) => args.script,
         Err(error) => return Ok(ToolError::InvalidArguments(error.to_string()).to_string()),
     };
+    observe_lua_block();
     Ok(match session.execute(engine, context, &script).await? {
         BlockOutcome::Committed { result } => result,
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            observe_lua_block_error();
             ToolError::BlockError(message).to_string()
         }
         BlockOutcome::Terminated(TerminalCause::Aborted(reason)) => {
+            observe_lua_block_error();
             ToolError::BlockAborted(reason).to_string()
         }
     })

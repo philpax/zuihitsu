@@ -58,6 +58,8 @@ fs2 = "0.4.3"
 jiff = { workspace = true }
 mlua = { version = "0.11.6", features = ["lua54", "vendored", "serde", "async", "send"] }
 parking_lot = { workspace = true }
+metrics = "0.24.1"
+metrics-exporter-prometheus = { version = "0.17.0", default-features = false }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 rusqlite = { workspace = true }
 rust-embed = { version = "8", features = ["mime-guess"] }

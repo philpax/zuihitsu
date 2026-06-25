@@ -35,15 +35,18 @@ use tokio::net::TcpListener;
 use zuihitsu::{
     ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder, Server,
     ServerError, SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, StoreError,
-    SystemClock, VectorError, VectorIndex, model::embed::Embedder, snapshot,
+    SystemClock, VectorError, VectorIndex,
+    metrics::{LATENCY_BUCKETS, describe},
+    model::embed::Embedder,
+    snapshot,
     snapshot::SnapshotError,
 };
 
 use auth::{require_control_key, require_platform_key};
 use control::{
     arbitrations, create_agent, entries, env_config, events, genesis, health, imprint,
-    interactions, lua_api, memories, memory, recurring, register_prompt, run_lua, sessions,
-    set_settings, settings, snapshot as snapshot_handler,
+    interactions, lua_api, memories, memory, metrics, recurring, register_prompt, run_lua,
+    sessions, set_settings, settings, snapshot as snapshot_handler,
 };
 use platform::{join, message};
 
@@ -58,6 +61,13 @@ struct AppState {
     /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
     /// otherwise (the snapshot endpoint then answers `409`).
     snapshot_dir: Option<PathBuf>,
+    /// The Prometheus metrics handle — `render()` produces the `/control/metrics` text. `None` when
+    /// the recorder could not be installed (a boot failure leaves the server up but the metrics
+    /// endpoint answers `503`); the process-global recorder, once installed, is what the observe
+    /// helpers write to.
+    metrics: Option<metrics_exporter_prometheus::PrometheusHandle>,
+    /// When the server booted, for the `uptime_seconds` gauge.
+    boot: std::time::Instant,
     /// Valid API keys for the operator surface (`/control/*`); a remote peer must present one, a
     /// loopback peer is trusted without one. `Arc<[String]>` so the per-request state clone is a
     /// refcount bump, not a deep copy.
@@ -168,6 +178,30 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     }
     let status = server.boot()?;
 
+    // Install the Prometheus metrics recorder and declare every metric's help/type (spec
+    // §Observability → metrics). The recorder is process-global (one agent per process); the handle
+    // renders the `/control/metrics` text. A failure to install is non-fatal — the server serves on
+    // without the metrics endpoint.
+    let metrics = match metrics_exporter_prometheus::PrometheusBuilder::new()
+        .set_buckets(LATENCY_BUCKETS)
+    {
+        Ok(builder) => match builder.install_recorder() {
+            Ok(handle) => {
+                describe();
+                Some(handle)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not install the metrics recorder; /control/metrics is disabled");
+                None
+            }
+        },
+        Err(error) => {
+            tracing::warn!(%error, "could not configure the metrics recorder; /control/metrics is disabled");
+            None
+        }
+    };
+    let boot = std::time::Instant::now();
+
     // If the embedding model changed since the vectors were last built, re-embed the whole log before
     // serving — blocking here so requests are refused until the index is rebuilt in the new model's
     // space, rather than answered from a silently-incompatible one (spec §Storage → vector store).
@@ -277,6 +311,8 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         server: server.clone(),
         model,
         snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
+        metrics,
+        boot,
         control_keys: config.serving.control_keys.into(),
         platform_keys: config.serving.platform_keys.into(),
         config: env_config,
@@ -284,7 +320,37 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let listener = TcpListener::bind(bind)
         .await
         .map_err(|source| ServeError::Bind { addr: bind, source })?;
-    tracing::info!(?status, %bind, "zuihitsu serving");
+    // A structured boot summary so an operator reading the log sees what this instance is and what it
+    // talks to — the resolved storage directory, the bind, the model and embedding endpoints (host +
+    // model id, no secrets — keys are never logged), the genesis status, and each MCP server's tool
+    // count (spec §Observability → boot log).
+    let storage_dir = config.storage.dir.display().to_string();
+    let model_endpoint = if config.model.endpoint.is_empty() {
+        "(none)".to_owned()
+    } else {
+        format!("{} [{}]", config.model.endpoint, config.model.llm)
+    };
+    let embedding_endpoint = if config.embedding.endpoint.is_empty() {
+        "(none)".to_owned()
+    } else {
+        format!(
+            "{} [{} · {}d]",
+            config.embedding.endpoint, config.embedding.model, config.embedding.dimensions
+        )
+    };
+    let mcp_summary = server.mcp_summary();
+    tracing::info!(
+        %bind,
+        %storage_dir,
+        %model_endpoint,
+        %embedding_endpoint,
+        ?status,
+        mcp_servers = mcp_summary.len(),
+        "zuihitsu serving"
+    );
+    for (name, tools) in mcp_summary {
+        tracing::info!(mcp = %name, tools, "mcp server up");
+    }
     // `into_make_service_with_connect_info` surfaces each connection's peer address to the auth
     // middleware (a bare `axum::serve(listener, app)` would not), so a loopback peer can be trusted.
     axum::serve(
@@ -339,6 +405,7 @@ fn router(state: AppState) -> Router {
         .route("/snapshot", post(snapshot_handler))
         .route("/settings", get(settings).put(set_settings))
         .route("/config", get(env_config))
+        .route("/metrics", get(metrics))
         .route("/imprint", post(imprint))
         .route("/lua", post(run_lua))
         .route("/lua-api", get(lua_api))

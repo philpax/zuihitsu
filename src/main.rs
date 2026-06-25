@@ -179,11 +179,15 @@ pub fn run() -> ExitCode {
 }
 
 /// Diagnostic and operational output goes through `tracing` to stderr, level controlled by
-/// `RUST_LOG` (default `info`). Inspection subcommands print machine-readable JSON to stdout.
+/// `RUST_LOG` (default `info`). Inspection subcommands print machine-readable JSON to stdout. Span
+/// close events are emitted so the per-turn span (which records its outcome, duration, and counts
+/// after the turn resolves) prints a summary line an operator can read off without re-reading the raw
+/// event log (spec §Observability → per-turn spans).
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     fmt()
         .with_env_filter(filter)
+        .with_span_events(fmt::format::FmtSpan::CLOSE)
         .with_writer(std::io::stderr)
         .init();
 }

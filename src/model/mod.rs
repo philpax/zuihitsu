@@ -235,7 +235,7 @@ impl ScriptedModel {
         }))
     }
 
-    fn with_responses(steps: impl IntoIterator<Item = GenerateResponse>) -> ScriptedModel {
+    pub fn with_responses(steps: impl IntoIterator<Item = GenerateResponse>) -> ScriptedModel {
         ScriptedModel {
             steps: Mutex::new(steps.into_iter().collect()),
             seen: Mutex::new(Vec::new()),
