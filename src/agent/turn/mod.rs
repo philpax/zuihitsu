@@ -79,13 +79,21 @@ pub struct TurnReport {
     pub turn_id: TurnId,
 }
 
+/// One tool-call step within an agent turn: the `run_lua` script the model asked to run and the
+/// result it saw back. Reconstructed from `LuaExecuted` events so the next turn's buffer carries the
+/// full tool-interaction history — the model sees what it already fetched, searched, or computed
+/// and does not re-issue the same call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolStep {
+    pub script: String,
+    pub result: String,
+}
+
 /// One turn replayed into the live buffer — the conversational surface the next turn sees as the
-/// prompt suffix. Carries the durable turn text and the durable *effects* the turn committed to memory
-/// (`committed`), but never the within-turn `run_lua` scratch — the script, the query results, the
-/// reasoning. The distinction matters: hiding the scratch keeps the agent from re-seeing ephemeral
-/// working, but the committed effects are part of the durable record, and an agent that cannot see what
-/// it already wrote re-issues the write next turn (the re-record). `seq` and `turn_id` let a compaction
-/// mark the carried tail (`seeded_from_turn` and the next buffer's start).
+/// prompt suffix. Carries the durable turn text and the `run_lua` steps the agent ran this turn
+/// (script + result), so the model re-sees what it already did — what it fetched, searched, or
+/// wrote — and does not re-issue it next turn. `seq` and `turn_id` let a compaction mark the
+/// carried tail (`seeded_from_turn` and the next buffer's start).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnView {
     pub seq: Seq,
@@ -95,10 +103,9 @@ pub struct TurnView {
     pub participant: Option<MemoryId>,
     /// When the turn was recorded — the time it is stamped with when replayed (spec §Time → "Now").
     pub recorded_at: Timestamp,
-    /// The committed-effects summaries of this turn's `run_lua` blocks ("Committed: created …"), so the
-    /// agent re-sees what it durably wrote and does not re-record it. Empty for a participant turn, or
-    /// an agent turn that committed nothing (a pure read or a reply with no block).
-    pub committed: Vec<String>,
+    /// The `run_lua` steps this turn's agent response ran, in order. Empty for participant/system
+    /// turns, and for an agent turn that ran no blocks (a direct reply).
+    pub steps: Vec<ToolStep>,
 }
 
 /// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
@@ -112,23 +119,29 @@ pub fn buffer_turns(
 ) -> Result<Vec<TurnView>, StoreError> {
     let mut turns = Vec::new();
     // A turn's `run_lua` blocks commit (and record their `LuaExecuted`) before the agent's reply turn,
-    // both stamped with the same `turn_id` — so accumulate each turn's committed-effects summaries and
-    // attach them to that turn's agent `TurnView` when it arrives.
-    let mut committed_by_turn: BTreeMap<TurnId, Vec<String>> = BTreeMap::new();
+    // both stamped with the same `turn_id` — so accumulate each turn's tool-call steps and attach them
+    // to that turn's agent `TurnView` when it arrives.
+    let mut steps_by_turn: BTreeMap<TurnId, Vec<ToolStep>> = BTreeMap::new();
     for event in store.read_from(from_seq)? {
         match event.payload {
             EventPayload::LuaExecuted {
                 conversation: turn_conversation,
                 turn_id,
-                result: Some(result),
+                script,
+                result,
+                terminal_cause,
                 ..
             } if turn_conversation == conversation => {
-                if let Some(summary) = committed_summary(&result) {
-                    committed_by_turn
-                        .entry(turn_id)
-                        .or_default()
-                        .push(summary.to_owned());
-                }
+                let result = result.unwrap_or_else(|| {
+                    terminal_cause
+                        .as_ref()
+                        .map(|cause| ToolError::from(cause.clone()).to_string())
+                        .unwrap_or_default()
+                });
+                steps_by_turn
+                    .entry(turn_id)
+                    .or_default()
+                    .push(ToolStep { script, result });
             }
             EventPayload::ConversationTurn {
                 conversation: turn_conversation,
@@ -138,8 +151,8 @@ pub fn buffer_turns(
                 participant,
                 ..
             } if turn_conversation == conversation => {
-                let committed = if role == TurnRole::Agent {
-                    committed_by_turn.remove(&turn_id).unwrap_or_default()
+                let steps = if role == TurnRole::Agent {
+                    steps_by_turn.remove(&turn_id).unwrap_or_default()
                 } else {
                     Vec::new()
                 };
@@ -150,22 +163,13 @@ pub fn buffer_turns(
                     text,
                     participant,
                     recorded_at: event.recorded_at,
-                    committed,
+                    steps,
                 });
             }
             _ => {}
         }
     }
     Ok(turns)
-}
-
-/// The committed-effects summary embedded in a block result by [`crate::agent::lua`] — the
-/// "Committed: …" line a write block trails. `None` for a read-only block (no summary). Used to carry
-/// the durable effects across turns without the scratch script or query result.
-fn committed_summary(result: &str) -> Option<&str> {
-    result.rfind("Committed: ").and_then(|index| {
-        (index == 0 || result.as_bytes()[index - 1] == b'\n').then(|| result[index..].trim_end())
-    })
 }
 
 /// The distinct memory IDs the `conversation`'s blocks touched (read or wrote) from `from_seq`,
@@ -537,11 +541,18 @@ fn buffer_messages(buffer: &[TurnView], names: &BTreeMap<MemoryId, String>) -> V
                 )))
             }
             TurnRole::Agent => {
-                // Re-show the turn's durable writes (in block order, before the reply) so the agent sees
-                // what it already committed and does not re-issue it. A system note, not the agent's
-                // voice — it is a record of what happened, not something the agent said.
-                for summary in &buffered.committed {
-                    messages.push(Message::system(summary.clone()));
+                // Re-play the turn's tool-call steps so the model re-sees what it already ran —
+                // the scripts, the results, the fetched pages and search hits — and does not
+                // re-issue them. Each step is an assistant tool-call message followed by its
+                // tool-result, matching the within-turn message order the model produced.
+                for (i, step) in buffered.steps.iter().enumerate() {
+                    let call_id = format!("call_{}_{}", buffered.seq.0, i);
+                    messages.push(Message::assistant_tool_calls(vec![ToolCall {
+                        id: call_id.clone(),
+                        name: "run_lua".to_owned(),
+                        arguments: serde_json::json!({ "script": step.script }).to_string(),
+                    }]));
+                    messages.push(Message::tool_result(call_id, step.result.clone()));
                 }
                 if !buffered.text.is_empty() {
                     messages.push(Message::assistant(buffered.text.clone()));
@@ -926,6 +937,15 @@ impl std::fmt::Display for ToolError {
     }
 }
 
+impl From<TerminalCause> for ToolError {
+    fn from(cause: TerminalCause) -> Self {
+        match cause {
+            TerminalCause::Error(message) => ToolError::BlockError(message),
+            TerminalCause::Aborted(reason) => ToolError::BlockAborted(reason),
+        }
+    }
+}
+
 /// The `run_lua` argument shape; doubles as the tool's parameter schema, so the schema sent to the
 /// model and the parser can't drift.
 #[derive(Deserialize, JsonSchema)]
@@ -1032,34 +1052,5 @@ impl From<StoreError> for TurnError {
 impl From<GraphError> for TurnError {
     fn from(error: GraphError) -> Self {
         TurnError::Graph(error)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::committed_summary;
-
-    #[test]
-    fn committed_summary_extracts_the_durable_effects_line() {
-        // A write-only block: the whole result is the summary.
-        assert_eq!(
-            committed_summary("Committed: created topic/q3_plan."),
-            Some("Committed: created topic/q3_plan.")
-        );
-        // A block that returned a value and committed: the summary trails after the value.
-        assert_eq!(
-            committed_summary(
-                "first: climbs on Tuesdays\n\nCommitted: appended 1 entry to person/dave."
-            ),
-            Some("Committed: appended 1 entry to person/dave.")
-        );
-        // A read-only block carries no summary.
-        assert_eq!(committed_summary("topic/q3_plan"), None);
-        assert_eq!(committed_summary(""), None);
-        // The marker only counts at the start of a line, not mid-text.
-        assert_eq!(
-            committed_summary("the report said Committed: nothing"),
-            None
-        );
     }
 }

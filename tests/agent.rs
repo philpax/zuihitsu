@@ -590,6 +590,56 @@ async fn tool_result_feeds_back_across_steps() {
 }
 
 #[tokio::test]
+async fn tool_calls_persist_in_the_buffer_across_turns() {
+    // A turn's run_lua blocks (script + result) should survive into the next turn's buffer so the
+    // model sees what it already did — not just the reply text, but the tool interaction itself.
+    let h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call("return 'hello from lua'"),
+        Completion::Reply("done".to_owned()),
+        Completion::Reply("ok".to_owned()),
+    ]);
+    let conversation = h.session.conversation();
+
+    // Turn 1: a run_lua block then a reply.
+    run_turn(h.as_turn(&model, "go", 8)).await.unwrap();
+
+    // Rebuild the buffer from the recorded turns.
+    let buffer = buffer_turns(h.engine.store.lock().as_ref(), conversation, Seq::ZERO).unwrap();
+
+    // The agent's turn view should carry the tool step.
+    let agent_turn = buffer
+        .iter()
+        .find(|t| t.role == TurnRole::Agent)
+        .expect("an agent turn");
+    assert_eq!(
+        agent_turn.steps.len(),
+        1,
+        "the agent turn carries its run_lua step"
+    );
+    assert!(agent_turn.steps[0].result.contains("hello from lua"));
+
+    // Turn 2: the model's first generate call should include the tool-call/result pair in its messages.
+    run_turn(h.as_turn_buffered(&model, "next", 8, &buffer))
+        .await
+        .unwrap();
+
+    let seen = model.recorded_messages();
+    // Turn 1 had 2 generate calls; turn 2's first call is the last recorded.
+    let turn2_messages = seen.last().unwrap();
+    let has_tool_call = turn2_messages.iter().any(|m| !m.tool_calls.is_empty());
+    let has_tool_result = turn2_messages.iter().any(|m| m.tool_call_id.is_some());
+    assert!(
+        has_tool_call,
+        "turn 2 should see turn 1's tool call in the buffer"
+    );
+    assert!(
+        has_tool_result,
+        "turn 2 should see turn 1's tool result in the buffer"
+    );
+}
+
+#[tokio::test]
 async fn turn_report_counts_steps_and_blocks() {
     // The per-turn observability span records `steps` (model calls) and `blocks` (run_lua
     // executions); the counts live on `TurnReport`, so this verifies the substance the span carries

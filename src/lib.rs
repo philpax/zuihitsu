@@ -67,7 +67,8 @@ pub use vector::{
 pub use vocabulary::{RelationName, TagName};
 
 pub use agent::{
-    BlockContext, McpCatalogue, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
+    BlockContext, McpCatalogue, ToolStep, Turn, TurnError, TurnOutcome, TurnReport, TurnView,
+    buffer_turns,
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     run_adjudicate_catch_up, run_describe_catch_up, run_turn, session_touched,
 };
