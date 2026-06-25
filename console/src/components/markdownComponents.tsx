@@ -69,6 +69,28 @@ export const turnComponents: Components = {
       {children}
     </pre>
   ),
+  // GFM tables: wrapped for horizontal scroll (the transcript column is narrow), with a header
+  // row set apart by a border and weight. Cell alignment honors the colon-based markers (`:---`,
+  // `---:`, `:---:`) via the `style` prop react-markdown passes through.
+  table: ({ children }) => (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full border-collapse text-sm">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="border-b border-line">{children}</thead>,
+  th: ({ children, style }) => (
+    <th
+      className="px-2 py-1 text-left font-semibold text-ink"
+      style={style}
+    >
+      {children}
+    </th>
+  ),
+  td: ({ children, style }) => (
+    <td className="border-b border-line/50 px-2 py-1 text-ink" style={style}>
+      {children}
+    </td>
+  ),
 };
 
 /// The thinking register for the agent's deliberation (reasoning) blocks: the same Markdown structure
@@ -106,5 +128,13 @@ export const thinkingComponents: Components = {
     <pre className="mt-2 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-2xs not-italic leading-relaxed text-ink-soft">
       {children}
     </pre>
+  ),
+  td: ({ children, style }) => (
+    <td
+      className="border-b border-line/50 px-2 py-1 text-sm not-italic text-ink-soft"
+      style={style}
+    >
+      {children}
+    </td>
   ),
 };
