@@ -17,6 +17,22 @@ fn no_keys() -> Arc<[String]> {
     Vec::new().into()
 }
 
+/// An [`AppState`] with the fields every test shares (no model, no snapshot dir, no metrics, no
+/// keys, a default config), so a test overrides only what its scenario exercises:
+/// `router(AppState { model: Some(m), ..test_state(server) })`.
+fn test_state(server: Arc<Server>) -> AppState {
+    AppState {
+        server,
+        model: None,
+        snapshot_dir: None,
+        metrics: None,
+        boot: std::time::Instant::now(),
+        control_keys: no_keys(),
+        platform_keys: no_keys(),
+        config: Arc::new(zuihitsu::EnvConfig::default()),
+    }
+}
+
 /// A loopback peer extension to inject into a `oneshot` request (real `axum::serve` sets this from
 /// the socket; `Request::builder()` does not). The auth middleware trusts a loopback peer, so the
 /// existing assertions are unaffected.
@@ -35,16 +51,7 @@ fn remote() -> ConnectInfo<SocketAddr> {
 async fn health_reports_genesis_status() {
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
-    let app = router(AppState {
-        server,
-        model: None,
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
-    });
+    let app = router(test_state(server));
     let response = app
         .oneshot(
             Request::builder()
@@ -67,16 +74,7 @@ async fn health_reports_genesis_status() {
 async fn create_then_inspect_over_the_control_api() {
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
-    let app = router(AppState {
-        server,
-        model: None,
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
-    });
+    let app = router(test_state(server));
 
     // Create the agent through the API.
     let seed = serde_json::json!({
@@ -160,14 +158,8 @@ async fn a_platform_message_runs_a_turn() {
         "Hi there.".to_owned(),
     )]));
     let app = router(AppState {
-        server: Arc::new(server),
         model: Some(model),
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
+        ..test_state(Arc::new(server))
     });
 
     let body = serde_json::json!({
@@ -211,14 +203,8 @@ async fn interactions_surface_the_recorded_model_calls() {
         "Hi there.".to_owned(),
     )]));
     let app = router(AppState {
-        server: Arc::new(server),
         model: Some(model),
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
+        ..test_state(Arc::new(server))
     });
 
     let body = serde_json::json!({
@@ -294,14 +280,8 @@ async fn snapshot_endpoint_writes_a_file_or_409s_when_disabled() {
         zuihitsu::MemoryId::generate().0
     ));
     let app = router(AppState {
-        server: Arc::new(born()),
-        model: None,
         snapshot_dir: Some(dir.clone()),
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
+        ..test_state(Arc::new(born()))
     });
     let response = app.oneshot(post()).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -309,16 +289,7 @@ async fn snapshot_endpoint_writes_a_file_or_409s_when_disabled() {
     std::fs::remove_dir_all(&dir).unwrap();
 
     // Disabled (no snapshot dir): the endpoint answers 409.
-    let app = router(AppState {
-        server: Arc::new(born()),
-        model: None,
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
-    });
+    let app = router(test_state(Arc::new(born())));
     let response = app.oneshot(post()).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
@@ -329,14 +300,9 @@ fn keyed_app(control: &[&str], platform: &[&str]) -> axum::Router {
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
     let keys = |k: &[&str]| -> Arc<[String]> { k.iter().map(|s| s.to_string()).collect() };
     router(AppState {
-        server,
-        model: None,
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
         control_keys: keys(control),
         platform_keys: keys(platform),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
+        ..test_state(server)
     })
 }
 
@@ -450,14 +416,9 @@ async fn app_with_metrics_after_a_turn(
         "Hi there.".to_owned(),
     )]));
     let app = router(AppState {
-        server: Arc::new(server),
         model: Some(model),
-        snapshot_dir: None,
         metrics: Some(recorder.handle()),
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
+        ..test_state(Arc::new(server))
     });
     let body = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
@@ -536,16 +497,7 @@ async fn metrics_endpoint_renders_prometheus_text_after_a_turn() {
 async fn the_metrics_endpoint_is_503_without_a_recorder() {
     // No recorder installed (the AppState carries no handle) → 503, not a panic.
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
-    let app = router(AppState {
-        server: Arc::new(server),
-        model: None,
-        snapshot_dir: None,
-        metrics: None,
-        boot: std::time::Instant::now(),
-        control_keys: no_keys(),
-        platform_keys: no_keys(),
-        config: Arc::new(zuihitsu::EnvConfig::default()),
-    });
+    let app = router(test_state(Arc::new(server)));
     let response = app
         .oneshot(
             Request::builder()
