@@ -124,6 +124,8 @@ Within each module, organize code as follows:
 
 The eval harness in `crates/eval` runs the agent through a suite of behavioural scenarios against a local model, judges each run against per-scenario oracles, and writes a package (`eval/<name>.json`) that the console renders and the `analyze` subcommand reads. A run drives a local inference server, so it needs a configured model (`config.toml`) and a GPU, and it is kept out of `cargo test`.
 
+When you change the agent's behaviour — a prompt, a tool, a planning step, anything the agent does — write an eval that captures that behaviour so a later change can be assessed against it. The new scenario is the regression test for the edit you just made: if a future tweak regresses it, the eval run goes red.
+
 ### Running an eval
 
 ```

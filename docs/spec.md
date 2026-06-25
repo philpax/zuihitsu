@@ -95,7 +95,7 @@ ContentEntry {
   asserted_at:   timestamp           -- when the agent recorded it
   occurred_at:   Option<TemporalRef> -- what real-world time it's about
   text:          string
-  told_by:       ParticipantId
+  told_by:       Teller               -- Participant(MemoryId) | Agent | Bootstrap (pseudo-tellers); who told the agent this
   told_in:       ConversationLocator -- provenance: the room it was said in (not a visibility gate)
   visibility:    Visibility
   superseded_by: Option<EntryId>
@@ -106,7 +106,7 @@ Visibility =
   | Attributed                       -- visible to anyone, but secondhand: carries a provenance
   |                                  --   marker and is never distilled into a description
   | PrivateToTeller                  -- teller-gated, subject-guarded
-  | Exclude(set of ParticipantId)    -- default-allow minus named parties
+  | Exclude(set of MemoryId)        -- default-allow minus named parties (the person/* memories of those excluded)
 ```
 
 The two times matter, and conflating them is a recurring source of bugs. "Phil told me Monday he visited Sydney last year" has `asserted_at = Monday`, `occurred_at = last year`. Search ranks it as a "last year" memory by relevance; the brief's `recent_facts` treats it as a "Monday" entry by recency. `asserted_at` is always set at write time; `occurred_at` is optional and may be vague.
@@ -334,7 +334,7 @@ Whether a `LuaExecuted` event is emitted at all depends on whether the agent obs
 
 The test is whether the agent saw the outcome. If it did, the outcome is recorded; if not, the retry carries it.
 
-**Provenance on inference.** Any event produced with model inference (`MemoryDescriptionRegenerated`, agent `ConversationTurn`s, `MemoryContentAppended` when temporal extraction ran, and any translated entry) carries `produced_by: { model_id, template_name, template_version }`. Purely mechanical events leave it null. This makes "which model and template wrote this" answerable retroactively and lets replay choose to trust or regenerate.
+**Provenance on inference.** Any event produced with model inference (`MemoryDescriptionRegenerated`, agent `ConversationTurn`s, `EntryTemporalResolved` when temporal extraction runs, and any translated entry) carries `produced_by: { model_id, template_name, template_version }`. Purely mechanical events leave it null. This makes "which model and template wrote this" answerable retroactively and lets replay choose to trust or regenerate.
 
 **Per-memory history** is projected on demand by filtering events on target ID; cheap with an index. Exposed to the agent as `mem:history()`.
 
