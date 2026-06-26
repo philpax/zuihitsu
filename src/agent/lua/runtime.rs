@@ -12,7 +12,7 @@ use ulid::Ulid;
 
 use crate::{
     engine::{Engine, MemoryLocks},
-    event::{LinkSource, TerminalCause, Visibility},
+    event::{TerminalCause, Visibility},
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
@@ -192,7 +192,7 @@ pub(super) fn make_link_handle(
     table.set("memory", make_handle(lua, link.other, memory_metatable)?)?;
     table.set("name", link.other_name.as_str())?;
     table.set("direction", link_direction_label(link.direction))?;
-    table.set("source", link_source_label(link.source))?;
+    table.set("source", link.source.as_str_lowercase())?;
     // The teller who asserted the relationship, for a belief-bearing relation; absent (`nil`) for a
     // link with no teller behind it, like the adjudicated `same_as`.
     if let Some(told_by) = &link.told_by {
@@ -226,16 +226,6 @@ fn link_direction_label(direction: LinkDirection) -> &'static str {
     match direction {
         LinkDirection::Outgoing => "outgoing",
         LinkDirection::Incoming => "incoming",
-    }
-}
-
-/// A link's provenance, lowercased to match the entry teller register: `agent` for the agent's own
-/// link, `operator` for one asserted from the console, `adjudicated` for a merge-pass `same_as`.
-fn link_source_label(source: LinkSource) -> &'static str {
-    match source {
-        LinkSource::Agent => "agent",
-        LinkSource::Operator => "operator",
-        LinkSource::Adjudicated => "adjudicated",
     }
 }
 

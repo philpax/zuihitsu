@@ -5,10 +5,10 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Message, ModelPhase, Namespace,
-    OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store,
-    Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns,
-    event::EventPayload, genesis, run_turn,
+    CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, InferredLink, LinkInferenceArgs,
+    Message, ModelPhase, Namespace, NewRelationSpec, OpenAiClient, PromptTemplateName,
+    RequestRecord, ScriptedModel, SeedSelf, Seq, Store, Timestamp, ToolCall, TurnOutcome,
+    TurnReport, TurnRole, Usage, buffer_turns, event::EventPayload, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -1005,4 +1005,249 @@ async fn real_model_supersedes_a_corrected_fact() {
             "  NOTE: both the stale and corrected facts are live — the model appended without retracting."
         );
     }
+}
+
+/// A `Completion::Reply` carrying a serialized [`LinkInferenceArgs`] reply.
+fn link_inference_call(args: LinkInferenceArgs) -> Completion {
+    Completion::Reply(serde_json::to_string(&args).unwrap())
+}
+
+#[tokio::test]
+async fn link_inference_registers_and_links_from_content() {
+    let h = Harness::new();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+    h.baseline_link_inference();
+
+    // The turn creates person/dave and topic/zephyr, appending a public entry about authorship.
+    // The agent does NOT call mem:link — the inference pass should extract the relationship.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.create(PERSON_DAVE, "a person")
+               local zephyr = memory.create("topic/zephyr")
+               zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // The describe catch-up synthesizes both written memories: dave first ("a person"), then
+        // zephyr (the authorship entry). Each gets its own synthesis call.
+        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
+        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        // The link-inference call: register authored_by and link zephyr → dave.
+        link_inference_call(LinkInferenceArgs {
+            new_relations: vec![NewRelationSpec {
+                name: "authored_by".to_owned(),
+                inverse: "authored".to_owned(),
+                from_card: "many".to_owned(),
+                to_card: "one".to_owned(),
+                symmetric: false,
+                reflexive: false,
+            }],
+            links: vec![InferredLink {
+                entry: 1,
+                relation: "authored_by".to_owned(),
+                target: "person/dave".to_owned(),
+                direction: "to".to_owned(),
+            }],
+        }),
+    ]);
+
+    run_turn(h.as_turn(&model, "Working on zephyr, authored by Dave", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+    h.link_inference(&model).await;
+
+    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+
+    // A LinkTypeRegistered for authored_by was committed.
+    let registered = events.iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::LinkTypeRegistered { name, .. } if name.as_str() == "authored_by"
+        )
+    });
+    assert!(
+        registered,
+        "the pass should register the authored_by relation"
+    );
+
+    // An inferred LinkCreated from topic/zephyr to person/dave under authored_by.
+    let dave = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Person.with_name("dave"))
+        .unwrap()
+        .unwrap();
+    let zephyr = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Topic.with_name("zephyr"))
+        .unwrap()
+        .unwrap();
+
+    let linked = events.iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::LinkCreated { from, to, relation, source, .. }
+            if *from == zephyr.id && *to == dave.id
+              && relation.as_str() == "authored_by"
+              && *source == zuihitsu::LinkSource::Inferred
+        )
+    });
+    assert!(
+        linked,
+        "the pass should create an inferred authored_by link"
+    );
+}
+
+#[tokio::test]
+async fn link_inference_is_idempotent() {
+    let h = Harness::new();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    h.baseline_link_inference();
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.create(PERSON_DAVE, "a person")
+               local zephyr = memory.create("topic/zephyr")
+               zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
+        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        link_inference_call(LinkInferenceArgs {
+            new_relations: vec![NewRelationSpec {
+                name: "authored_by".to_owned(),
+                inverse: "authored".to_owned(),
+                from_card: "many".to_owned(),
+                to_card: "one".to_owned(),
+                symmetric: false,
+                reflexive: false,
+            }],
+            links: vec![InferredLink {
+                entry: 1,
+                relation: "authored_by".to_owned(),
+                target: "person/dave".to_owned(),
+                direction: "to".to_owned(),
+            }],
+        }),
+    ]);
+
+    run_turn(h.as_turn(&model, "Working on zephyr, authored by Dave", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+    h.link_inference(&model).await;
+
+    // Count inferred LinkCreated events after the first pass.
+    let first_count = h
+        .engine
+        .store
+        .lock()
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                &e.payload,
+                EventPayload::LinkCreated {
+                    source: zuihitsu::LinkSource::Inferred,
+                    ..
+                }
+            )
+        })
+        .count();
+
+    // Re-run from the same cursor — no new events (the cursor advance prevents re-scanning).
+    h.link_inference(&model).await;
+    let second_count = h
+        .engine
+        .store
+        .lock()
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                &e.payload,
+                EventPayload::LinkCreated {
+                    source: zuihitsu::LinkSource::Inferred,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        first_count, second_count,
+        "re-running should produce no new inferred links"
+    );
+}
+
+#[tokio::test]
+async fn link_inference_degrades_gracefully_with_no_usable_reply() {
+    let h = Harness::new();
+    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+    h.baseline_link_inference();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.create(PERSON_DAVE, "a person")
+               local zephyr = memory.create("topic/zephyr")
+               zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
+        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+    ]);
+
+    run_turn(h.as_turn(&model, "Working on zephyr, authored by Dave", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    // Run the pass with a model that has no more scripted completions — each generate call
+    // returns Exhausted, which the pass logs and skips (graceful degradation: a failed inference
+    // leaves the memory unchanged — no link, no harm).
+    h.link_inference(&ScriptedModel::new([])).await;
+
+    let inferred = h
+        .engine
+        .store
+        .lock()
+        .read_from(Seq::ZERO)
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                &e.payload,
+                EventPayload::LinkCreated {
+                    source: zuihitsu::LinkSource::Inferred,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        inferred, 0,
+        "no inferred links should be created with no usable reply"
+    );
 }

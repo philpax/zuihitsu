@@ -76,16 +76,36 @@ impl Cardinality {
     }
 }
 
-/// Who authored a link: the agent itself, an operator acting through the console, or — for a
-/// cross-platform `same_as` only — the merge-adjudication pass that accepted an agent's proposal on
-/// the evidence. `Adjudicated` is the one path past the operator-only merge gate, distinguishable in
-/// the log so an audit can tell a console merge from an adjudicated one (spec §Cross-platform identity).
+impl std::str::FromStr for Cardinality {
+    type Err = ();
+
+    /// Parse case-insensitively: the graph layer's stored form is capitalized (`"One"`/`"Many"`),
+    /// but a model's reply may emit either casing, and this impl is the lenient path for that.
+    fn from_str(text: &str) -> Result<Cardinality, Self::Err> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "one" => Ok(Cardinality::One),
+            "many" => Ok(Cardinality::Many),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Who authored a link: the agent itself, an operator acting through the console, the
+/// merge-adjudication pass that accepted an agent's cross-platform proposal on the evidence, or the
+/// off-hot-path link-inference pass that extracted a relationship implicit in memory content.
+/// `Adjudicated` is the one path past the operator-only merge gate, distinguishable in the log so an
+/// audit can tell a console merge from an adjudicated one (spec §Cross-platform identity); `Inferred`
+/// marks links the background pass authored without a teller behind them (spec §Write path → link
+/// inference).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
     Agent,
     Operator,
     Adjudicated,
+    /// A link the off-hot-path link-inference pass authored from a relationship implicit in memory
+    /// content (spec §Write path → link inference).
+    Inferred,
 }
 
 impl LinkSource {
@@ -94,6 +114,20 @@ impl LinkSource {
             LinkSource::Agent => "Agent",
             LinkSource::Operator => "Operator",
             LinkSource::Adjudicated => "Adjudicated",
+            LinkSource::Inferred => "Inferred",
+        }
+    }
+
+    /// The lowercase provenance label, matching the entry teller register: `agent` for the agent's
+    /// own link, `operator` for one asserted from the console, `adjudicated` for a merge-pass
+    /// `same_as`, `inferred` for one the link-inference pass authored from content. The wire/audit
+    /// form is [`Self::as_str`] (capitalized); this is the agent-facing Lua label.
+    pub fn as_str_lowercase(self) -> &'static str {
+        match self {
+            LinkSource::Agent => "agent",
+            LinkSource::Operator => "operator",
+            LinkSource::Adjudicated => "adjudicated",
+            LinkSource::Inferred => "inferred",
         }
     }
 
@@ -102,6 +136,7 @@ impl LinkSource {
             "Agent" => Some(LinkSource::Agent),
             "Operator" => Some(LinkSource::Operator),
             "Adjudicated" => Some(LinkSource::Adjudicated),
+            "Inferred" => Some(LinkSource::Inferred),
             _ => None,
         }
     }
@@ -175,6 +210,10 @@ pub enum PromptTemplateName {
     /// Adjudicates a proposed cross-platform merge: weigh the two stubs' independently-recorded facts
     /// against the confidences at risk and accept or refuse.
     MergeAdjudication,
+    /// Extracts relationships implicit in a memory's content and asserts them as links. The
+    /// off-hot-path link-inference catch-up is gated on this template's presence: no template
+    /// registered, no pass (spec §Write path → link inference).
+    LinkInference,
 }
 
 impl PromptTemplateName {
@@ -186,6 +225,7 @@ impl PromptTemplateName {
             PromptTemplateName::Flush => "flush",
             PromptTemplateName::Imprint => "imprint",
             PromptTemplateName::MergeAdjudication => "merge-adjudication",
+            PromptTemplateName::LinkInference => "link-inference",
         }
     }
 }
@@ -1112,5 +1152,16 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn cardinality_from_str_matches_case_insensitively() {
+        use super::Cardinality;
+        assert_eq!("one".parse::<Cardinality>(), Ok(Cardinality::One));
+        assert_eq!("One".parse::<Cardinality>(), Ok(Cardinality::One));
+        assert_eq!("many".parse::<Cardinality>(), Ok(Cardinality::Many));
+        assert_eq!("MANY".parse::<Cardinality>(), Ok(Cardinality::Many));
+        assert!("several".parse::<Cardinality>().is_err());
+        assert!("".parse::<Cardinality>().is_err());
     }
 }

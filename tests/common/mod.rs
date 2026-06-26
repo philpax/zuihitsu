@@ -87,7 +87,7 @@ mod harness {
         FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryStore, ModelClient,
         PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
         model::index::{apply_batch, embed_batch},
-        run_adjudicate_catch_up, run_describe_catch_up,
+        run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
     };
 
     use super::time::TEST_NOW;
@@ -114,6 +114,7 @@ mod harness {
         /// [`Harness::baseline_descriptions`] so a catch-up never reconsiders the seeded `self`.
         describer_cursor: Cell<Seq>,
         adjudicator_cursor: Cell<Seq>,
+        link_inference_cursor: Cell<Seq>,
     }
 
     impl Default for Harness {
@@ -130,6 +131,7 @@ mod harness {
                 participant: MemoryId::generate(),
                 describer_cursor: Cell::new(Seq::ZERO),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
+                link_inference_cursor: Cell::new(Seq::ZERO),
             }
         }
     }
@@ -162,6 +164,7 @@ mod harness {
                 participant: MemoryId::generate(),
                 describer_cursor: Cell::new(Seq::ZERO),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
+                link_inference_cursor: Cell::new(Seq::ZERO),
             }
         }
 
@@ -182,6 +185,14 @@ mod harness {
         /// `self` (whose description genesis already provided).
         pub fn baseline_descriptions(&self) {
             self.describer_cursor
+                .set(self.engine.store.lock().head().unwrap());
+        }
+
+        /// Baseline the link-inference cursor at the current log head — call after `genesis::rollout`
+        /// so a later [`Harness::link_inference`] only infers from what the test itself wrote, not the
+        /// seeded `self` (whose content genesis already provided).
+        pub fn baseline_link_inference(&self) {
+            self.link_inference_cursor
                 .set(self.engine.store.lock().head().unwrap());
         }
 
@@ -206,6 +217,18 @@ mod harness {
                     .await
                     .unwrap();
             self.adjudicator_cursor.set(advanced);
+        }
+
+        /// Run the link-inference catch-up over everything written since its cursor — the off-hot-path
+        /// pass the server's background link-inference worker does, driven explicitly (spec §Write
+        /// path → link inference). Infers relationships from the memories written since the last call,
+        /// advancing the cursor.
+        pub async fn link_inference(&self, model: &dyn ModelClient) {
+            let (advanced, _) =
+                run_link_inference_catch_up(&self.engine, model, self.link_inference_cursor.get())
+                    .await
+                    .unwrap();
+            self.link_inference_cursor.set(advanced);
         }
 
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.

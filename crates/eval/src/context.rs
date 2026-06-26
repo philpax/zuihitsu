@@ -183,6 +183,17 @@ impl RunContext {
         Ok(())
     }
 
+    /// Infer links from the content written so far — the off-hot-path pass the background
+    /// link-inference worker runs, driven explicitly (spec §Write path → link inference). A scenario
+    /// that asserts on an inferred link calls this after the turn that wrote the content, before its
+    /// log is assessed.
+    pub async fn link_inference_catch_up(&self) -> Result<(), EvalError> {
+        self.server
+            .link_inference_catch_up(self.model.as_ref())
+            .await?;
+        Ok(())
+    }
+
     /// The run's whole event log — the record the harness embeds and assessment reads.
     pub fn events(&self) -> Result<Vec<Event>, EvalError> {
         Ok(self.server.control().events()?)

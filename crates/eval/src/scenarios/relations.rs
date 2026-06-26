@@ -30,6 +30,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(RecallsConnections),
         Arc::new(DistinguishesMentorDirection),
         Arc::new(AttributesRelationshipToTeller),
+        Arc::new(InfersLinkFromContent),
     ]
 }
 
@@ -314,5 +315,73 @@ impl Scenario for AttributesRelationshipToTeller {
             VerdictKind::Metric,
             judged,
         )]
+    }
+}
+
+/// The link-inference pass extracts a relationship implicit in content: told that a topic's docs are
+/// authored by Clara (with `person/clara` already existing), the agent records the entry on the topic
+/// without explicitly linking — and the inference pass, driven afterward, registers `authored_by` and
+/// creates the inferred link. The regression test for the link-inference behaviour (spec §Write path
+/// → link inference): a future change that regresses the pass turns this red.
+pub struct InfersLinkFromContent;
+
+#[async_trait]
+impl Scenario for InfersLinkFromContent {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "infers_link_from_content".to_owned(),
+            category: Category::Relations,
+            description: "Told a topic's docs are authored by Clara, the agent records the entry \
+                          without explicitly linking — the link-inference pass should extract the \
+                          relationship and create an inferred authored_by link."
+                .to_owned(),
+            bar: Bar::Gating,
+        }
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // First establish person/clara, so the inference pass can resolve the target.
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "I'd like you to keep track of Clara — she's a writer on the team.",
+        ))
+        .await?;
+        ctx.describe_catch_up().await?;
+        // Now tell the agent about the zephyr project and Clara's authorship. The agent records the
+        // content on topic/zephyr; it does not explicitly call mem:link — the inference pass should
+        // extract the "authored by Clara" relationship and create the link.
+        ctx.turn(Turn::new(
+            "discord",
+            "team-room",
+            "phil",
+            "I've been working on the zephyr project lately. Clara's been authoring most of the \
+             docs for it.",
+        ))
+        .await?;
+        // Drive the link-inference pass — the background worker the served runtime runs, here
+        // explicit so the scenario is deterministic.
+        ctx.link_inference_catch_up().await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+        let inferred = analysis::link_inferred_between(events, "authored_by");
+        let registered = analysis::link_type_registered(events, "authored_by");
+        vec![
+            Verdict::oracle_outcome(
+                "inferred an authored_by link from the content",
+                inferred,
+                "the link-inference pass created an inferred authored_by link",
+                "no inferred authored_by link was created from the content",
+            ),
+            Verdict::oracle_outcome(
+                "registered the authored_by relation",
+                registered,
+                "the authored_by relation was registered",
+                "the authored_by relation was not registered",
+            ),
+        ]
     }
 }

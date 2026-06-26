@@ -263,6 +263,7 @@ impl Control<'_> {
         // must not block on it). The same baseline `boot` performs, here for the born-without-boot path.
         self.server.baseline_describer_cursor()?;
         self.server.baseline_adjudicator_cursor()?;
+        self.server.baseline_link_inference_cursor()?;
         Ok(outcome)
     }
 

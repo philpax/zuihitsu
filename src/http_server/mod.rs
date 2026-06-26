@@ -95,6 +95,11 @@ const DESCRIBE_TICK_SECONDS: u64 = 5;
 /// is cheap (a head check against the cursor).
 const ADJUDICATE_TICK_SECONDS: u64 = 7;
 
+/// How often the background link-inference pass extracts relationships implicit in memory content
+/// (spec §Write path → link inference). Like the adjudicator, it runs off the hot path and an idle
+/// tick is cheap (a head check against the cursor).
+const LINK_INFERENCE_TICK_SECONDS: u64 = 7;
+
 /// How often the background idle sweep closes-with-flush sessions idle past the gap, so a conversation
 /// never messaged again still has its working state consolidated. Coarse — the idle gap is measured in
 /// minutes — and an idle tick is cheap (a query for open sessions, then a per-session activity check).
@@ -277,6 +282,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
+    // The background link-inference pass extracts relationships implicit in memory content off the hot
+    // path (spec §Write path → link inference). Spawned only when a model is configured; without one
+    // there is nothing to run the extraction call.
+    let link_inference = model.as_ref().map(|model| {
+        let server = server.clone();
+        let model = model.clone();
+        tokio::spawn(async move {
+            server
+                .run_link_inference(
+                    model,
+                    Duration::from_secs(LINK_INFERENCE_TICK_SECONDS),
+                    shutdown_signal(),
+                )
+                .await
+        })
+    });
+
     // The background idle sweep closes-with-flush sessions idle past the gap, so a conversation never
     // messaged again still has its working state consolidated (spec §Compaction → pre-compaction
     // flush). Spawned only when a model is configured; the flush turn needs one.
@@ -369,6 +391,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     }
     if let Some(adjudicator) = adjudicator {
         let _ = adjudicator.await;
+    }
+    if let Some(link_inference) = link_inference {
+        let _ = link_inference.await;
     }
     if let Some(sweeper) = sweeper {
         let _ = sweeper.await;

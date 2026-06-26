@@ -34,7 +34,8 @@ use crate::{
         Flush, McpCatalogue, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
         genesis::{self, GenesisStatus},
         lua::Session,
-        run_adjudicate_catch_up, run_describe_catch_up, run_flush, run_turn,
+        run_adjudicate_catch_up, run_describe_catch_up, run_flush, run_link_inference_catch_up,
+        run_turn,
     },
     clock::Clock,
     engine::Engine,
@@ -105,12 +106,19 @@ pub struct Instance {
     /// proposals off the hot path (spec §Cross-platform identity → adjudicated merge). Re-seeded to
     /// log-head at boot, like the describer's.
     adjudicator_cursor: Mutex<Seq>,
+    /// The link-inference pass's cursor: the log seq through which implicit relationships have been
+    /// inferred and linked. Its own background pass (and the explicit `link_inference_catch_up`)
+    /// advances it as it extracts relationships off the hot path (spec §Write path → link inference).
+    /// Re-seeded to log-head at boot, like the describer's and adjudicator's.
+    link_inference_cursor: Mutex<Seq>,
     /// Serializes describe-catch-up passes — the force-before-brief one (a new session opening) and the
     /// background timer one — so two never run concurrently. Without it both read the cursor before
     /// either advances it, so they re-describe (and re-embed) the same memories for the same change.
     describe_guard: tokio::sync::Mutex<()>,
     /// As `describe_guard`, serializing the adjudicator's catch-up.
     adjudicate_guard: tokio::sync::Mutex<()>,
+    /// As `describe_guard`, serializing the link-inference catch-up.
+    link_inference_guard: tokio::sync::Mutex<()>,
     /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
     /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
     /// model at once; further streams queue. Sized from settings at construction (a change takes
@@ -171,8 +179,10 @@ impl Instance {
             pending_carryover: Mutex::new(HashMap::new()),
             describer_cursor: Mutex::new(Seq::ZERO),
             adjudicator_cursor: Mutex::new(Seq::ZERO),
+            link_inference_cursor: Mutex::new(Seq::ZERO),
             describe_guard: tokio::sync::Mutex::new(()),
             adjudicate_guard: tokio::sync::Mutex::new(()),
+            link_inference_guard: tokio::sync::Mutex::new(()),
             streams,
             mcp: None,
             model_context_length: None,
@@ -223,6 +233,7 @@ impl Instance {
         // here are caught up off the hot path.
         self.baseline_describer_cursor()?;
         self.baseline_adjudicator_cursor()?;
+        self.baseline_link_inference_cursor()?;
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "instance booted");
         Ok(status)
@@ -1101,6 +1112,60 @@ impl Instance {
             }
         }
         tracing::info!("adjudicator stopped");
+    }
+
+    /// Catch link inference up to the log off the hot path (spec §Write path → link inference):
+    /// identify relationships implicit in every memory whose content changed since the cursor,
+    /// advancing it. Driven on a timer by the served runtime and explicitly by tests and the eval
+    /// harness. Returns how many memories it considered.
+    pub async fn link_inference_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        let _guard = self.link_inference_guard.lock().await;
+        let cursor = *self.link_inference_cursor.lock();
+        let (advanced, count) = run_link_inference_catch_up(&self.engine, model, cursor).await?;
+        *self.link_inference_cursor.lock() = advanced;
+        Ok(count)
+    }
+
+    /// Seed the link-inference pass's cursor to log-head, treating every relationship so far as
+    /// already inferred. Called at boot and at agent creation, like the describer's and adjudicator's,
+    /// so a restart does not re-infer over old content.
+    pub(crate) fn baseline_link_inference_cursor(&self) -> Result<(), InstanceError> {
+        *self.link_inference_cursor.lock() = self.engine.store.lock().head()?;
+        Ok(())
+    }
+
+    /// The background link-inference pass: on each tick, infer relationships off the hot path.
+    /// Idempotent and cursor-resumed, so an idle tick is cheap; a failure is logged, not fatal — a
+    /// memory stays un-inferred until the next tick.
+    pub async fn run_link_inference(
+        self: Arc<Self>,
+        model: Arc<dyn ModelClient>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match self.link_inference_catch_up(model.as_ref()).await {
+                        Ok(considered) if considered > 0 => {
+                            tracing::debug!(considered, "link inference inferred relationships")
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            observe_worker_error("link_inference");
+                            tracing::error!(%error, "link inference: catch-up failed")
+                        }
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("link inference stopped");
     }
 
     /// Close-with-flush every session idle past the gap — the proactive consolidation that bounds how

@@ -468,6 +468,36 @@ fn default_templates() -> Vec<TemplateDef> {
                    impersonating them. In `rationale`, name the specific facts that decided it."
                 .to_owned(),
         },
+        TemplateDef {
+            name: PromptTemplateName::LinkInference,
+            version: 1,
+            body: "You identify relationships implicit in a memory's content and assert them as links \
+                   to other memories. You are given the memory's numbered statements, its existing \
+                   links, the registered relations, and a list of candidate target memories (by \
+                   handle and one-line description). For each relationship you find that links this \
+                   memory to one of the candidates, return a `links` entry: the `entry` number it \
+                   is grounded in (1-based, as numbered in the prompt), the `relation` label, the \
+                   target memory's `target` handle, and a `direction` of \"to\" (this memory → the \
+                   target) or \"from\" (the target → this memory). \n\n\
+                   Reuse an existing registered relation whenever one fits; coin a new one only when \
+                   none of the registered relations describes the relationship. When you coin a new \
+                   relation, add it to `new_relations` with its `name`, its `inverse` label, and its \
+                   `from_card` and `to_card` (each \"one\" or \"many\"), `symmetric`, and `reflexive`. \
+                   The relation you name on a link must be either a registered relation or one you \
+                   list in `new_relations`. \n\n\
+                   Do not propose a link that duplicates an existing one — the existing links are \
+                   listed, so a relationship already recorded is left alone. Do not propose a \
+                   `same_as` link: identity merges flow through the adjudication gate, not this pass. \
+                   Resolve relationships only to the candidate handles listed, or to other live \
+                   memories whose handles you can name exactly; never invent a handle. \n\n\
+                   Infer only structural or neutral relationships whose surfacing to anyone is safe — \
+                   authorship, membership, participation, mentorship, origin, composition. Do not \
+                   infer sensitive or potentially harmful relationships — dislikes, conflicts, \
+                   grudges, adversarial stances — from public content. This pass has no audience \
+                   gate yet, so a relationship it creates is visible to anyone, including its target; \
+                   steer toward relationships whose public surfacing is safe."
+                .to_owned(),
+        },
     ]
 }
 
@@ -678,12 +708,12 @@ mod tests {
             .any(|e| matches!(&e.payload, EventPayload::MemoryContentAppended { .. }));
         assert!(seed_entry);
 
-        // The six templates and the same_as seed relation are registered.
+        // The seven templates and the same_as seed relation are registered.
         let templates = events
             .iter()
             .filter(|e| matches!(e.payload, EventPayload::PromptTemplateRegistered { .. }))
             .count();
-        assert_eq!(templates, 6);
+        assert_eq!(templates, 7);
         let same_as = events.iter().any(|e| {
             matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. } if name.as_str() == "same_as")
         });

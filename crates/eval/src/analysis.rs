@@ -5,8 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    EntryId, Event, EventPayload, Initiation, MemoryId, Teller, TemporalRef, TurnRole, Visibility,
-    Volatility,
+    EntryId, Event, EventPayload, Initiation, LinkSource, MemoryId, Teller, TemporalRef, TurnRole,
+    Visibility, Volatility,
 };
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
@@ -78,6 +78,27 @@ pub fn tag_applied(events: &[Event], tag: &str) -> bool {
 pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     events.iter().any(|event| {
         matches!(&event.payload, EventPayload::LinkCreated { relation: created, .. } if created.as_str() == relation)
+    })
+}
+
+/// Whether a relation type named `name` was registered — the structural signal that the link-inference
+/// pass (or the agent) introduced a new typed edge into the registry.
+pub fn link_type_registered(events: &[Event], name: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(&event.payload, EventPayload::LinkTypeRegistered { name: registered, .. } if registered.as_str() == name)
+    })
+}
+
+/// Whether an inferred link of the relation named `relation` was created — the structural signal that
+/// the link-inference pass extracted a relationship from content and asserted it as a link (source is
+/// `Inferred`), distinct from a link the agent or an operator created explicitly.
+pub fn link_inferred_between(events: &[Event], relation: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkCreated { relation: created, source: LinkSource::Inferred, .. }
+            if created.as_str() == relation
+        )
     })
 }
 
