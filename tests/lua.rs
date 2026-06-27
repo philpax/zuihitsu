@@ -10,9 +10,9 @@ use std::{sync::Arc, time::Duration};
 use common::Harness;
 use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
-    Clock, Completion, ConversationLocator, Engine, Graph, ManualClock, MemoryId, MemoryName,
-    MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Seq, Session, Store,
-    TagName, Teller, TemporalRef, TerminalCause, TurnId, Visibility,
+    Clock, Completion, ConversationLocator, Engine, Graph, InstanceFeatures, ManualClock, MemoryId,
+    MemoryName, MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Seq,
+    Session, Store, TagName, Teller, TemporalRef, TerminalCause, TurnId, Visibility,
     event::{ArbitrationResolution, EventPayload, EventSource},
     resolve_or_mint_conversation,
 };
@@ -463,7 +463,7 @@ async fn append_carries_teller_context_and_default_visibility() {
         .context_for_conversation(conversation)
         .unwrap()
         .unwrap();
-    let session = Session::new(conversation);
+    let session = Session::new(conversation, InstanceFeatures::default());
 
     // The shared engine the block writes through, read back below via the same handle.
     let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
@@ -571,7 +571,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         .context_for_conversation(conversation)
         .unwrap()
         .unwrap();
-    let session = Session::new(conversation);
+    let session = Session::new(conversation, InstanceFeatures::default());
 
     let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
     let context_block = || BlockContext {
@@ -657,7 +657,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
     // The agent records a topic in the confidential room. A topic write would normally default
     // public, and the agent teller is always present — but the confidential room forces it private,
     // so it cannot silently surface to whoever is around.
-    let session = Session::new(conversation);
+    let session = Session::new(conversation, InstanceFeatures::default());
     let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
     session
         .execute(

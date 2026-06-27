@@ -84,8 +84,9 @@ mod harness {
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
-        FakeEmbedder, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryStore, ModelClient,
-        PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
+        FakeEmbedder, Graph, InMemoryVectorIndex, InstanceFeatures, ManualClock, MemoryId,
+        MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView,
+        VectorIndex,
         model::index::{apply_batch, embed_batch},
         run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -127,7 +128,7 @@ mod harness {
                     Box::new(clock.clone()),
                 ),
                 clock,
-                session: Session::new(ConversationId::generate()),
+                session: Session::new(ConversationId::generate(), InstanceFeatures::default()),
                 participant: MemoryId::generate(),
                 describer_cursor: Cell::new(Seq::ZERO),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
@@ -160,7 +161,27 @@ mod harness {
                     vectors,
                 ),
                 clock,
-                session: Session::new(ConversationId::generate()),
+                session: Session::new(ConversationId::generate(), InstanceFeatures::default()),
+                participant: MemoryId::generate(),
+                describer_cursor: Cell::new(Seq::ZERO),
+                adjudicator_cursor: Cell::new(Seq::ZERO),
+                link_inference_cursor: Cell::new(Seq::ZERO),
+            }
+        }
+
+        /// As [`Harness::default`], but with a narrowed API feature set — for tests that exercise a
+        /// behaviour in isolation (e.g. disabling `linking` to verify the agent cannot call `:link`
+        /// while the link-inference pass still creates the link).
+        pub fn with_features(features: InstanceFeatures) -> Harness {
+            let clock = ManualClock::new(TEST_NOW);
+            Harness {
+                engine: Engine::new(
+                    Box::new(MemoryStore::new()),
+                    Graph::open_in_memory().unwrap(),
+                    Box::new(clock.clone()),
+                ),
+                clock,
+                session: Session::new(ConversationId::generate(), features),
                 participant: MemoryId::generate(),
                 describer_cursor: Cell::new(Seq::ZERO),
                 adjudicator_cursor: Cell::new(Seq::ZERO),

@@ -3,14 +3,18 @@
 //! implementation cannot drift.
 
 use super::super::api_doc::{ApiEntry, ApiType, enum_of, object};
-use crate::ids::Namespace;
+use crate::{InstanceFeatures, ids::Namespace};
 
 /// The agent-facing Lua API, as a typed catalogue. Defined here, beside the functions installed in
 /// [`super::Session::execute`], so the prompt and the implementation cannot drift: changing a function
 /// means changing its entry right next to it. Rendered into the system prompt's API description
 /// through [`crate::agent::api_doc::render`] — the same renderer MCP tools project through (spec §System
 /// prompt → API description).
-pub fn api_reference() -> Vec<ApiEntry> {
+///
+/// The catalogue is filtered by `features`: a disabled feature's entries are omitted, so the prompt's
+/// "What you can do" section never describes a function the runtime rejects. This is the second of the
+/// three gates (Lua registration, API reference, scaffold) that must stay in lockstep.
+pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     use ApiEntry as AE;
     use ApiType as AT;
 
@@ -278,6 +282,19 @@ pub fn api_reference() -> Vec<ApiEntry> {
         )
         .required("name", AT::String, format!("the new handle, e.g. \"{person}sarah\""));
 
+    let set_volatility = AE::new("<memory>:set_volatility")
+        .description(
+            "Set a memory's volatility — how fast its facts drift. \"high\" for fast-changing facts \
+             (a current role, where someone is, what they are working on), \"medium\" the default, \
+             \"low\" for durable facts like a name. A high-volatility memory surfaces later flagged as \
+             possibly out of date.",
+        )
+        .required(
+            "level",
+            enum_of(["low", "medium", "high"]),
+            "the volatility level",
+        );
+
     let tags_create = AE::new("tags.create")
         .description(
             "Add a tag to the vocabulary with a one-line purpose. Creation is distinct from \
@@ -441,7 +458,12 @@ pub fn api_reference() -> Vec<ApiEntry> {
         .description("The date's weekday name, e.g. \"Friday\".")
         .returns(AT::String);
 
-    vec![
+    // Assemble the catalogue, gating each feature group on its flag. The memory group (create,
+    // append, supersede, …) is always on — an agent without memory is not an agent — and includes
+    // `set_volatility`, which the scaffold references (fixing the pre-existing drift where it was
+    // installed and scaffold-referenced but absent from this catalogue). `context` and `block.abort`
+    // are infrastructure, always on.
+    let mut entries = vec![
         create,
         get,
         search,
@@ -451,38 +473,105 @@ pub fn api_reference() -> Vec<ApiEntry> {
         supersede,
         revise,
         rename,
-        link,
-        unlink,
-        outgoing,
-        incoming,
-        links,
-        propose_merge,
-        tag,
-        untag,
-        tags_create,
-        tags_describe,
-        tags_list,
-        links_register,
-        links_list,
-        links_get,
-        context,
-        abort,
-        upcoming,
-        on,
-        recurring,
-        cal_today,
-        cal_next,
-        cal_in_days,
-        cal_in_weeks,
-        cal_date,
-        date_add_days,
-        date_add_weeks,
-        date_add_months,
-        date_weekday,
-    ]
+        set_volatility,
+    ];
+    if features.linking {
+        entries.extend([link, unlink, outgoing, incoming, links]);
+    }
+    if features.merging {
+        entries.push(propose_merge);
+    }
+    if features.tagging {
+        entries.extend([tag, untag, tags_create, tags_describe, tags_list]);
+    }
+    if features.linking {
+        entries.extend([links_register, links_list, links_get]);
+    }
+    entries.push(context);
+    if features.calendar {
+        entries.extend([
+            upcoming,
+            on,
+            recurring,
+            cal_today,
+            cal_next,
+            cal_in_days,
+            cal_in_weeks,
+            cal_date,
+            date_add_days,
+            date_add_weeks,
+            date_add_months,
+            date_weekday,
+        ]);
+    }
+    entries.push(abort);
+    entries
 }
 
-/// Render [`api_reference`] as the system prompt's API-description block.
-pub fn render_api_reference() -> String {
-    super::super::api_doc::render(&api_reference())
+/// Render [`api_reference`] as the system prompt's API-description block, filtered by `features`.
+pub fn render_api_reference(features: &InstanceFeatures) -> String {
+    super::super::api_doc::render(&api_reference(features))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::api_reference;
+    use crate::InstanceFeatures;
+
+    /// The call names of a feature's entries, in order, for a readable diff on failure.
+    fn names(features: &InstanceFeatures) -> Vec<String> {
+        api_reference(features)
+            .iter()
+            .map(|entry| entry.call.clone())
+            .collect()
+    }
+
+    #[test]
+    fn disabling_linking_omits_every_link_entry() {
+        let features = InstanceFeatures {
+            linking: false,
+            ..Default::default()
+        };
+        let entries = names(&features);
+        // The write and read sides of linking both vanish.
+        for name in [
+            "<memory>:link",
+            "<memory>:unlink",
+            "<memory>:outgoing",
+            "<memory>:incoming",
+            "<memory>:links",
+            "links.register",
+            "links.list",
+            "links.get",
+        ] {
+            assert!(
+                !entries.contains(&name.to_owned()),
+                "{name:?} should be absent"
+            );
+        }
+        // Memory and context remain.
+        assert!(entries.contains(&"memory.create".to_owned()));
+        assert!(entries.contains(&"context.current".to_owned()));
+    }
+
+    #[test]
+    fn disabling_merging_omits_propose_merge() {
+        let features = InstanceFeatures {
+            merging: false,
+            ..Default::default()
+        };
+        let entries = names(&features);
+        assert!(!entries.contains(&"<memory>:propose_merge".to_owned()));
+    }
+
+    #[test]
+    fn disabling_calendar_omits_every_calendar_entry() {
+        let features = InstanceFeatures {
+            calendar: false,
+            ..Default::default()
+        };
+        let entries = names(&features);
+        assert!(!entries.contains(&"calendar.today".to_owned()));
+        assert!(!entries.contains(&"<date>:add_days".to_owned()));
+    }
 }

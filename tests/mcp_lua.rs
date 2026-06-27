@@ -16,9 +16,9 @@ use parking_lot::Mutex;
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
     ConversationLocator, Engine, FakeMcpHost, FakeServer, GenerateRequest, GenerateResponse, Graph,
-    ManualClock, McpCatalogue, McpError, McpOutput, McpServerConfig, McpTool, MemoryStore,
-    ModelClient, ModelError, ScriptedModel, SeedSelf, Server, Session, Teller, TerminalCause,
-    ToolCall, TurnId, TurnOutcome, Usage,
+    InstanceFeatures, ManualClock, McpCatalogue, McpError, McpOutput, McpServerConfig, McpTool,
+    MemoryStore, ModelClient, ModelError, ScriptedModel, SeedSelf, Server, Session, Teller,
+    TerminalCause, ToolCall, TurnId, TurnOutcome, Usage,
 };
 
 /// A tool advertised under `name` (the catalogue entry the escape map is built from).
@@ -69,7 +69,12 @@ async fn run_bounded(
         .collect();
     let host = Arc::new(host);
     let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
-    let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
+    let session = Session::with_mcp(
+        ConversationId::generate(),
+        host,
+        catalogue,
+        InstanceFeatures::default(),
+    );
     session
         .execute(
             &engine,
@@ -278,7 +283,12 @@ async fn the_catalogue_renders_callable_entries_for_the_prompt() {
     let configs = BTreeMap::from([("browser".to_owned(), McpServerConfig::default())]);
     let host = Arc::new(host);
     let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
-    let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
+    let session = Session::with_mcp(
+        ConversationId::generate(),
+        host,
+        catalogue,
+        InstanceFeatures::default(),
+    );
     let calls: Vec<String> = session
         .mcp_api_entries()
         .into_iter()

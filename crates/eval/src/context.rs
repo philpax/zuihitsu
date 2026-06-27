@@ -6,8 +6,8 @@
 use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
-    ConversationLocator, Embedder, Event, Graph, ManualClock, MemoryStore, ModelClient, SeedSelf,
-    Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
+    ConversationLocator, Embedder, Event, Graph, InstanceFeatures, ManualClock, MemoryStore,
+    ModelClient, SeedSelf, Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
 };
 
 use crate::error::EvalError;
@@ -72,21 +72,25 @@ pub struct RunContext {
 }
 
 impl RunContext {
-    /// Build, boot, and birth a fresh agent for one run.
-    pub async fn new(deps: &RunDeps) -> Result<RunContext, EvalError> {
+    /// Build, boot, and birth a fresh agent for one run, with the scenario's feature set narrowing the
+    /// agent's API surface (so a scenario like `InfersLinkFromContent` can disable `linking` and test
+    /// the inference pass as the sole path to a link).
+    pub async fn new(deps: &RunDeps, features: InstanceFeatures) -> Result<RunContext, EvalError> {
         let clock = ManualClock::new(Timestamp::from_millis(RUN_START_MS));
         let mut server = match &deps.embedder {
-            Some(embedder) => Server::with_retrieval(
+            Some(embedder) => Server::with_retrieval_features(
                 Box::new(MemoryStore::new()),
                 Graph::open_in_memory()?,
                 Box::new(clock.clone()),
                 embedder.clone(),
                 Box::new(SqliteVectorIndex::open_in_memory(deps.dimensions)?),
+                features,
             ),
-            None => Server::new(
+            None => Server::with_features(
                 Box::new(MemoryStore::new()),
                 Graph::open_in_memory()?,
                 Box::new(clock.clone()),
+                features,
             ),
         };
         server.boot()?;

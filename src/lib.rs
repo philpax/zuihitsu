@@ -23,7 +23,9 @@ pub mod vector;
 // is re-exported privately, since it is internal infrastructure rather than public API; `visibility`
 // is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
-pub use zuihitsu_core::{decay, event, graph, ids, settings, time, vocabulary};
+pub use zuihitsu_core::{
+    decay, event, graph, ids, instance_features::InstanceFeatures, settings, time, vocabulary,
+};
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
 // as `zuihitsu::genesis::{rollout, status}` without reaching through the `agent` subsystem.

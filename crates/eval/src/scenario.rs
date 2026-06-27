@@ -3,7 +3,7 @@
 //! package can be re-assessed without re-running the model (spec §Validation).
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, InstanceFeatures};
 
 use crate::{
     context::RunContext,
@@ -21,6 +21,13 @@ pub trait Scenario: Send + Sync {
     /// when no embedding endpoint is configured, rather than running them blind.
     fn needs_retrieval(&self) -> bool {
         false
+    }
+
+    /// Which API features the scenario's instance enables — narrows the agent's Lua surface so a
+    /// scenario can test a behaviour in isolation (e.g. disable `linking` to test the link-inference
+    /// pass as the sole path to a link). Defaults to all-on; a scenario overrides this to narrow.
+    fn features(&self) -> InstanceFeatures {
+        InstanceFeatures::default()
     }
 
     /// Drive the conversation. The run's event log (read from `ctx` afterwards) is the product.

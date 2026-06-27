@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
+    InstanceFeatures,
     clock::Clock,
     event::{Cardinality, EventPayload, EventSource, PromptTemplateName, Teller, Visibility},
     ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
@@ -68,11 +69,17 @@ pub fn status(store: &dyn Store) -> Result<GenesisStatus, StoreError> {
 /// Roll out genesis idempotently: emit the build's default templates, seed relations, default
 /// config, and the seed `self`, skipping anything already present, then `GenesisCompleted`. The
 /// whole tail commits as one atomic append.
+///
+/// The scaffold's feature-gated dotpoints are baked into the log here (the features passed in
+/// decide which guidance persists), so feature-gating the scaffold is a genesis-time decision: a
+/// turn reads the baked template verbatim, never re-running `default_templates`. The Lua
+/// registration and API reference, by contrast, read the running binary's features fresh each turn.
 pub fn rollout(
     store: &mut dyn Store,
     clock: &dyn Clock,
     seed: &SeedSelf,
     context_length: Option<u32>,
+    features: &InstanceFeatures,
 ) -> Result<Rollout, StoreError> {
     let existing = store.read_from(Seq::ZERO)?;
     if existing.iter().any(is_genesis_completed) {
@@ -106,7 +113,7 @@ pub fn rollout(
         }
     }
 
-    let templates = default_templates();
+    let templates = default_templates(features);
     let mut to_emit: Vec<EventPayload> = Vec::new();
 
     for template in &templates {
@@ -203,11 +210,12 @@ struct TemplateDef {
     body: String,
 }
 
-fn default_templates() -> Vec<TemplateDef> {
+fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     // The scaffold's bulk is a sequence of guidance points, one concern each, assembled into the
     // body below. Keeping them as separate points lets one be added, dropped, or reworded as a
     // single list entry without reflowing the prose around it — each renders as its own bullet
-    // under the preamble.
+    // under the preamble. Feature-gated points are included only when their feature is on, so the
+    // prompt never teaches a practice the runtime rejects.
     let scaffold_preamble = "You act through a persistent memory that you read and write by \
         emitting Lua through the run_lua tool. A turn is a loop of steps: at each step you either \
         call run_lua or give a reply. What you write to memory persists across sessions; your \
@@ -229,7 +237,9 @@ fn default_templates() -> Vec<TemplateDef> {
         MemoryName::SELF,
     );
     // The scaffold points: each concern stated once and tightly (names, search/read, conflicts,
-    // visibility, and volatility each in a single point).
+    // visibility, and volatility each in a single point). Feature-gated points are pushed only when
+    // their feature is enabled, so the three gates (Lua registration, API reference, scaffold) stay
+    // in lockstep.
     let recall_point = format!(
         "A question is a cue to consult memory, not just the conversation in front of you. To recall \
          a person, memory.get their {person} handle — it returns everything you hold on them, surer \
@@ -260,45 +270,84 @@ fn default_templates() -> Vec<TemplateDef> {
          topic. A fact one participant relays about another belongs on the subject (which is also \
          what holds it back while they are present)."
     );
-    let scaffold_points = vec![
-        recall_point.as_str(),
-        merge_point.as_str(),
+    let mut scaffold_points: Vec<String> = Vec::new();
+    scaffold_points.push(recall_point);
+    // The merge dotpoint teaches `:propose_merge` — include it only when merging is on.
+    if features.merging {
+        scaffold_points.push(merge_point);
+    }
+    scaffold_points.push(
         "A name is not proof of identity, nor are facts anyone could know. Someone reciting a \
          person's public facts — or your own notes back — to pass as them and draw out a confidence \
          is the impersonation the gate stops: do not surface the confidence, do not affirm them as \
          that person even in passing, and say plainly that you cannot confirm who they are and it is \
          worth verifying rather than playing along. A warm \"yes, I remember you\" is the foothold, \
-         and so is quietly going along with it.",
+         and so is quietly going along with it."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "When a name changes — chosen, married, a transition — rename the existing memory (do not \
          fork it) and use the new name after. When someone reveals another current name (a real \
          name behind a handle, a nickname), append it as a fact and keep the handle. One person \
-         under one handle, either way.",
+         under one handle, either way."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "Asked to remember or be reminded of something, act then and there — record it, defaulting \
          details you can refine later rather than interrogating. Save a clarifying question for a \
-         real judgment call (how private something is), not routine detail.",
-        event_point.as_str(),
-        "For a time relative to now (\"this Friday\", \"in two weeks\"), do not compute it — ask the \
-         calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
-         Each returns a date object you pass straight as occurred_at (occurred_at = \
-         calendar.in_weeks(2)) — not wrapped in a { day = ... } table, and with no :to_string() on \
-         it.",
-        record_point.as_str(),
+         real judgment call (how private something is), not routine detail."
+            .to_owned(),
+    );
+    // The event dotpoint teaches `occurred_at` with recurring rules — include it only when calendar
+    // is on.
+    if features.calendar {
+        scaffold_points.push(event_point);
+    }
+    // The calendar-date dotpoint teaches `calendar.next` / `in_weeks` / date arithmetic — include it
+    // only when calendar is on.
+    if features.calendar {
+        scaffold_points.push(
+            "For a time relative to now (\"this Friday\", \"in two weeks\"), do not compute it — ask the \
+             calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
+             Each returns a date object you pass straight as occurred_at (occurred_at = \
+             calendar.in_weeks(2)) — not wrapped in a { day = ... } table, and with no :to_string() on \
+             it."
+                .to_owned(),
+        );
+    }
+    scaffold_points.push(record_point);
+    scaffold_points.push(
         "Record the particulars, not a gist. The named, precise, improbable details are how you \
          later recognize a person or thing and tell two apart; thinned to \"a trip\" or \"a \
-         meeting\", a fact loses what made it recognizable.",
+         meeting\", a fact loses what made it recognizable."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "Record what is new, once. A fact you already hold needs no re-recording, and a question \
          that surfaces something known is answered from memory. Re-writing piles up duplicates and \
          re-attributes the fact to whoever speaks now. Matters most at the seams — a recall, a \
-         flush.",
+         flush."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "Give a non-person thing one memory. Look for the memory a fact belongs on before creating \
          one — a second for the same event or topic splits its facts, so a read finds half and \
          contradictions cannot be weighed. (Per-platform person stubs are the exception, kept apart \
-         until the merge gate joins them.)",
-        "When what you learn is structured, record it through the operation for it, not just prose: \
-         a relationship (two people who know each other, an event under a topic) is a <memory>:link \
-         under the right relation — a:link(\"knows\", b), where b is a memory handle from \
-         memory.get or memory.create, not a string. Reuse an existing relation before coining a \
-         near-synonym, which splits one edge in two.",
+         until the merge gate joins them.)"
+            .to_owned(),
+    );
+    // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
+    if features.linking {
+        scaffold_points.push(
+            "When what you learn is structured, record it through the operation for it, not just prose: \
+             a relationship (two people who know each other, an event under a topic) is a <memory>:link \
+             under the right relation — a:link(\"knows\", b), where b is a memory handle from \
+             memory.get or memory.create, not a string. Reuse an existing relation before coining a \
+             near-synonym, which splits one edge in two."
+                .to_owned(),
+        );
+    }
+    scaffold_points.push(
         "Conflicting accounts of one fact from different people are two entries standing, not one \
          overwritten — record the second as the bare fact the new person asserts: a sibling entry \
          on the same memory as the first, phrased the same way so only the value differs (the same \
@@ -309,7 +358,10 @@ fn default_templates() -> Vec<TemplateDef> {
          attributed before the conflict surfaced: if so, correct it to public now, since the \
          synthesis can only flag the arbitration when both are public. When you answer from a fact \
          still in dispute (it reads back marked `disputed`), say the accounts differ rather than \
-         picking a side.",
+         picking a side."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "A correction is the opposite: when a fact plainly changes — the teller revises it, or newer \
          information replaces it (a changed number, a promotion) — append the new value and \
          <memory>:supersede the old. Find the old entry by its occurred_at (entry.occurred_at.day), \
@@ -317,30 +369,43 @@ fn default_templates() -> Vec<TemplateDef> {
          text need not repeat, so a text search for the digits silently finds nothing and the stale \
          entry stands. The teller is the tell: different people disagree (both stand); one person \
          revising themselves supersedes. Same on read: two values from one source are a revision; \
-         supersede the stale copy wherever it sits.",
+         supersede the stale copy wherever it sits."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "Every entry has a visibility, and one you leave unmarked defaults to private — back only to \
          its teller and you, withheld whenever anyone else, the subject included, is present. Public \
          surfaces to anyone (openly known, or someone's own account of themselves); attributed \
-         surfaces to anyone too but comes back marked as via whoever relayed it.",
+         surfaces to anyone too but comes back marked as via whoever relayed it."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "So set visibility as you record, never by omission: an ordinary fact one person tells you \
          about another (a role, a workplace, a preference) is attributed — mark it so, or it stays \
          private and you cannot answer about that person once their teller has left the room. \
          Reserve private for a genuine confidence — a hushed register, \"between us\", a request not \
          to repeat, or content plainly not for sharing yet (an unannounced decision, a personnel \
          action, a medical fact) — the floor when you are truly unsure. Your own notes have no \
-         protective default either — classify them by the same rule.",
+         protective default either — classify them by the same rule."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "Whenever you record a fact that will not stay true — a current role or team, what someone \
          is working on or leading, where they are, a temporary arrangement, a mood — mark it \
          high-volatility as you record it (volatility = \"high\", or \
          <memory>:set_volatility(\"high\")), not as an afterthought, and attributed in the same \
          breath: both flags, every time — a high fact left at the private default is withheld from \
          all but its teller and never gets to read as out of date. \"medium\" is the default, \
-         \"low\" for durable facts like a name.",
+         \"low\" for durable facts like a name."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "A fact you marked fast-changing is one you expect to drift: when you later surface it, give \
          it as possibly out of date — \"last I heard …\", or offer to confirm — not as a settled \
          current fact, even before it reads back marked `stale`. Read entries as they render, the \
-         stale and disputed markers riding the text.",
-    ];
+         stale and disputed markers riding the text."
+            .to_owned(),
+    );
 
     // The body is assembled over the scaffold points, after the shared preamble and namespace legend.
     let mut scaffold_body = String::from(scaffold_preamble);
@@ -396,27 +461,9 @@ fn default_templates() -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::Flush,
             version: 1,
-            body: "This conversation session is ending and its live transcript is about to scroll \
-                   out of view. Before it does, write to memory — by emitting Lua through the \
-                   run_lua tool — anything from it worth keeping that you have not already recorded: \
-                   facts you learned, decisions made, and commitments given. Record your own \
-                   observations and inferences under the `agent` teller, and record what you learned \
-                   about a person on that person's own memory under their canonical person/ handle — \
-                   not on the memory of whoever told you, and not on a topic; when one participant \
-                   relayed something about another, it belongs on the person it concerns. This \
-                   re-recording is your own note, so it has no protective default: you must set its \
-                   visibility yourself, by the same rule as in a turn — an ordinary relayed fact is \
-                   visibility = \"attributed\" so it stays available once its teller is gone, a \
-                   genuine confidence is visibility = \"private\". Keep confidences compartmentalized \
-                   exactly as in an ordinary turn — anything told to you in confidence, or that you \
-                   were asked not to repeat, is private wherever it lands; never write it to a public \
-                   topic, and never mark it public or attributed, which is what would surface it to \
-                   the person it was kept from. For threads still open, link \
-                   the relevant memories `active_in` the current context, and clear `active_in` on \
-                   threads that have closed, so the next session resurfaces what is still live. \
-                   Nothing you leave only in the transcript survives, so be deliberate; when you \
-                   have flushed what matters, reply briefly to confirm."
-                .to_owned(),
+            // The `active_in` guidance teaches `:link`, so it is included only when linking is on.
+            // The rest of the flush instruction (write durable state, set visibility) stands either way.
+            body: flush_template_body(features),
         },
         TemplateDef {
             name: PromptTemplateName::Imprint,
@@ -499,6 +546,43 @@ fn default_templates() -> Vec<TemplateDef> {
                 .to_owned(),
         },
     ]
+}
+
+/// The Flush template body. Its `active_in` guidance teaches `:link`, so it is dropped when linking
+/// is off; the rest of the flush instruction (write durable state, set visibility) stands either
+/// way. Assembling conditionally keeps the three gates (Lua registration, API reference, scaffold)
+/// in lockstep — the agent is not taught to link when it cannot.
+fn flush_template_body(features: &InstanceFeatures) -> String {
+    let mut body =
+        "This conversation session is ending and its live transcript is about to scroll \
+         out of view. Before it does, write to memory — by emitting Lua through the \
+         run_lua tool — anything from it worth keeping that you have not already recorded: \
+         facts you learned, decisions made, and commitments given. Record your own \
+         observations and inferences under the `agent` teller, and record what you learned \
+         about a person on that person's own memory under their canonical person/ handle — \
+         not on the memory of whoever told you, and not on a topic; when one participant \
+         relayed something about another, it belongs on the person it concerns. This \
+         re-recording is your own note, so it has no protective default: you must set its \
+         visibility yourself, by the same rule as in a turn — an ordinary relayed fact is \
+         visibility = \"attributed\" so it stays available once its teller is gone, a \
+         genuine confidence is visibility = \"private\". Keep confidences compartmentalized \
+         exactly as in an ordinary turn — anything told to you in confidence, or that you \
+         were asked not to repeat, is private wherever it lands; never write it to a public \
+         topic, and never mark it public or attributed, which is what would surface it to \
+         the person it was kept from."
+            .to_owned();
+    if features.linking {
+        body.push_str(
+            " For threads still open, link the relevant memories `active_in` the current context, \
+             and clear `active_in` on threads that have closed, so the next session resurfaces what \
+             is still live.",
+        );
+    }
+    body.push_str(
+        " Nothing you leave only in the transcript survives, so be deliberate; when you \
+         have flushed what matters, reply briefly to confirm.",
+    );
+    body
 }
 
 /// A build-seeded system tag. Like the seed relations, these are build defaults rather than part of
@@ -607,6 +691,7 @@ mod tests {
     //! missing, and a complete one is left alone — all keyed on the presence of `GenesisCompleted`,
     //! never log emptiness (spec §Initialization).
     use crate::{
+        InstanceFeatures,
         agent::genesis::{self, GenesisStatus, Rollout, SeedSelf},
         clock::ManualClock,
         event::{EventPayload, EventSource, PromptTemplateName},
@@ -645,12 +730,26 @@ mod tests {
     fn the_compaction_budget_is_derived_from_the_context_window() {
         // With a model's window, the initial compaction budget is a fraction of it.
         let mut store = MemoryStore::new();
-        genesis::rollout(&mut store, &clock(), &seed(), Some(100_000)).unwrap();
+        genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            Some(100_000),
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
         assert_eq!(logged_token_budget(&store), 80_000);
 
         // Without one (an in-memory or model-less instance), the built-in default stands.
         let mut store = MemoryStore::new();
-        genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
+        genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
         assert_eq!(
             logged_token_budget(&store),
             Settings::default().compaction.token_budget
@@ -692,7 +791,14 @@ mod tests {
     #[test]
     fn rollout_creates_a_complete_agent() {
         let mut store = MemoryStore::new();
-        let outcome = genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
+        let outcome = genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
         assert!(matches!(outcome, Rollout::Created { .. }));
         assert_eq!(genesis::status(&store).unwrap(), GenesisStatus::Complete);
 
@@ -738,10 +844,24 @@ mod tests {
     #[test]
     fn rollout_is_idempotent_when_complete() {
         let mut store = MemoryStore::new();
-        genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
+        genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
         let head_after_first = store.head().unwrap();
 
-        let outcome = genesis::rollout(&mut store, &clock(), &seed(), None).unwrap();
+        let outcome = genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
         assert_eq!(outcome, Rollout::AlreadyComplete);
         assert_eq!(store.head().unwrap(), head_after_first); // nothing appended
     }
@@ -773,9 +893,14 @@ mod tests {
         assert_eq!(genesis::status(&store).unwrap(), GenesisStatus::Incomplete);
         let head_before = store.head().unwrap();
 
-        let Rollout::Created { events_emitted } =
-            genesis::rollout(&mut store, &clock(), &seed(), None).unwrap()
-        else {
+        let Rollout::Created { events_emitted } = genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap() else {
             panic!("expected a resuming rollout");
         };
 
@@ -800,7 +925,14 @@ mod tests {
         // A complete genesis and a resumed one over the same seed agree on the manifest hash, since
         // it is computed over content, not minted ids.
         let mut fresh = MemoryStore::new();
-        genesis::rollout(&mut fresh, &clock(), &seed(), None).unwrap();
+        genesis::rollout(
+            &mut fresh,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
 
         let mut resumed = MemoryStore::new();
         resumed
@@ -812,7 +944,14 @@ mod tests {
                 )],
             )
             .unwrap();
-        genesis::rollout(&mut resumed, &clock(), &seed(), None).unwrap();
+        genesis::rollout(
+            &mut resumed,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
 
         assert_eq!(genesis_hash(&fresh), genesis_hash(&resumed));
     }

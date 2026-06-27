@@ -9,8 +9,8 @@ use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, ContentBlock, ConversationId, Engine, Graph,
-    ManualClock, McpCatalogue, McpHost, McpServerConfig, MemoryStore, Session, StdioHost, Teller,
-    TurnId,
+    InstanceFeatures, ManualClock, McpCatalogue, McpHost, McpServerConfig, MemoryStore, Session,
+    StdioHost, Teller, TurnId,
 };
 
 /// The lightpanda MCP server config: the repo binary run as `lightpanda mcp` over stdio.
@@ -101,7 +101,12 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
     let catalogue = McpCatalogue::probe(&*host, &configs)
         .await
         .expect("probe lightpanda");
-    let session = Session::with_mcp(ConversationId::generate(), host, catalogue);
+    let session = Session::with_mcp(
+        ConversationId::generate(),
+        host,
+        catalogue,
+        InstanceFeatures::default(),
+    );
 
     // Navigate, then extract the loaded page's markdown — both through the Lua projection.
     let outcome = session

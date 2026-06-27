@@ -5,6 +5,7 @@
 use mlua::{LuaSerdeExt, Table, Value};
 
 use crate::{
+    InstanceFeatures,
     ids::MemoryName,
     memory::memory_block::{AppendOptions, RelationSpec},
     time,
@@ -30,15 +31,28 @@ impl Session {
     /// (infrastructure, bubbled up); a teachable violation becomes the Lua runtime error the agent sees.
     /// The handle `metatable`/`methods` tables back every minted memory handle. The registration is
     /// split table by table so each group stays legible.
+    ///
+    /// `features` gates which functions are installed: a disabled feature's methods and module tables
+    /// are simply not installed, so calling them yields the standard Lua "attempt to call a nil value"
+    /// error — a teachable failure the agent sees and adapts to. This is the first of the three gates
+    /// (Lua registration, API reference, scaffold) that must stay in lockstep.
     pub(super) fn install_block_api(
         &self,
         api: &BlockApi,
         methods: &Table,
         metatable: &Table,
         entry_metatable: &Table,
+        features: &InstanceFeatures,
     ) -> mlua::Result<()> {
         let link_metatable = self.link_result_metatable()?;
-        self.install_handle_methods(api, methods, metatable, entry_metatable, &link_metatable)?;
+        self.install_handle_methods(
+            api,
+            methods,
+            metatable,
+            entry_metatable,
+            &link_metatable,
+            features,
+        )?;
         // A memory handle reads `handle.name` and `handle.description` lazily from its id, so a handle
         // minted from only an id — a `calendar.*` or relation result — still reads its name, not just
         // one the agent already named via `memory.get`. Any other key dispatches to the methods table
@@ -88,9 +102,18 @@ impl Session {
         globals.set("memory", self.memory_table(api, metatable)?)?;
         globals.set("block", self.block_table(api)?)?;
         globals.set("context", self.context_table(api, metatable)?)?;
-        globals.set("calendar", self.calendar_table(api, metatable)?)?;
-        globals.set("tags", self.tags_table(api)?)?;
-        globals.set("links", self.links_table(api)?)?;
+        // The calendar, tags, and links module tables are installed only when their feature is on;
+        // a disabled module is simply absent (nil), so calling through it is a teachable nil-call
+        // error rather than a silent no-op.
+        if features.calendar {
+            globals.set("calendar", self.calendar_table(api, metatable)?)?;
+        }
+        if features.tagging {
+            globals.set("tags", self.tags_table(api)?)?;
+        }
+        if features.linking {
+            globals.set("links", self.links_table(api)?)?;
+        }
         Ok(())
     }
 
@@ -98,6 +121,10 @@ impl Session {
     /// `unlink`) on
     /// the metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
     /// backs the entry handles the content reads and `append` return.
+    ///
+    /// `features` gates the linking (`:link`, `:unlink`, `:outgoing`, `:incoming`, `:links`),
+    /// merging (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods
+    /// (`:append`, `:supersede`, `:revise`, `:set_volatility`, `:rename`) are always installed.
     fn install_handle_methods(
         &self,
         api: &BlockApi,
@@ -105,6 +132,7 @@ impl Session {
         memory_metatable: &Table,
         entry_metatable: &Table,
         link_metatable: &Table,
+        features: &InstanceFeatures,
     ) -> mlua::Result<()> {
         // mem:append(text[, opts]) — `opts` is the typed override struct, deserialized from the table.
         // Locks the target memory before writing it. Returns the new entry as an addressable handle.
@@ -248,70 +276,105 @@ impl Session {
         // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation such
         // as `active_in`, locking both endpoints. The script names the relation as a string; it is
         // recognized into its typed [`RelationName`] here, at the wrapper boundary.
-        methods.set(
-            "link",
-            self.lua.create_async_function({
-                let api = api.clone();
-                move |_, (this, relation, other): (Table, String, Value)| {
-                    let api = api.clone();
-                    async move {
-                        let from = handle_id(&this)?;
-                        let to = link_target_id(&api, other)?;
-                        api.lock_all([from, to]).await;
-                        api.block
-                            .lock()
-                            .link(from, to, RelationName::new(relation))
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
-                    }
-                }
-            })?,
-        )?;
-        methods.set(
-            "unlink",
-            self.lua.create_async_function({
-                let api = api.clone();
-                move |_, (this, relation, other): (Table, String, Value)| {
-                    let api = api.clone();
-                    async move {
-                        let from = handle_id(&this)?;
-                        let to = link_target_id(&api, other)?;
-                        api.lock_all([from, to]).await;
-                        api.block
-                            .lock()
-                            .unlink(from, to, RelationName::new(relation))
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
-                    }
-                }
-            })?,
-        )?;
-
-        // mem:outgoing(relation) / mem:incoming(relation) — the memory's links under `relation` out to
-        // other memories, across its merged identity, in the canonical forward (outgoing) or reverse
-        // (incoming) direction. Each result keeps the far memory as an actionable handle and renders as
-        // `relation → name`. A traversing read, so it locks the whole `same_as` class.
-        for (name, incoming) in [("outgoing", false), ("incoming", true)] {
+        if features.linking {
             methods.set(
-                name,
+                "link",
+                self.lua.create_async_function({
+                    let api = api.clone();
+                    move |_, (this, relation, other): (Table, String, Value)| {
+                        let api = api.clone();
+                        async move {
+                            let from = handle_id(&this)?;
+                            let to = link_target_id(&api, other)?;
+                            api.lock_all([from, to]).await;
+                            api.block
+                                .lock()
+                                .link(from, to, RelationName::new(relation))
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))
+                        }
+                    }
+                })?,
+            )?;
+            methods.set(
+                "unlink",
+                self.lua.create_async_function({
+                    let api = api.clone();
+                    move |_, (this, relation, other): (Table, String, Value)| {
+                        let api = api.clone();
+                        async move {
+                            let from = handle_id(&this)?;
+                            let to = link_target_id(&api, other)?;
+                            api.lock_all([from, to]).await;
+                            api.block
+                                .lock()
+                                .unlink(from, to, RelationName::new(relation))
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))
+                        }
+                    }
+                })?,
+            )?;
+
+            // mem:outgoing(relation) / mem:incoming(relation) — the memory's links under `relation` out to
+            // other memories, across its merged identity, in the canonical forward (outgoing) or reverse
+            // (incoming) direction. Each result keeps the far memory as an actionable handle and renders as
+            // `relation → name`. A traversing read, so it locks the whole `same_as` class.
+            for (name, incoming) in [("outgoing", false), ("incoming", true)] {
+                methods.set(
+                    name,
+                    self.lua.create_async_function({
+                        let api = api.clone();
+                        let memory_metatable = memory_metatable.clone();
+                        let link_metatable = link_metatable.clone();
+                        move |lua, (this, relation): (Table, String)| {
+                            let api = api.clone();
+                            let memory_metatable = memory_metatable.clone();
+                            let link_metatable = link_metatable.clone();
+                            async move {
+                                let id = handle_id(&this)?;
+                                api.lock_class(id).await?;
+                                let links = {
+                                    let mut block = api.block.lock();
+                                    let result = if incoming {
+                                        block.incoming(id, &relation)
+                                    } else {
+                                        block.outgoing(id, &relation)
+                                    };
+                                    result.map_err(|error| {
+                                        route_error(error, &mut api.infra.lock())
+                                    })?
+                                };
+                                make_link_handle_list(
+                                    &lua,
+                                    links,
+                                    &memory_metatable,
+                                    &link_metatable,
+                                )
+                            }
+                        }
+                    })?,
+                )?;
+            }
+
+            // mem:links() — every link out of the merged identity, in every relation and both directions:
+            // the relationship overview. A traversing read, so it locks the whole `same_as` class.
+            methods.set(
+                "links",
                 self.lua.create_async_function({
                     let api = api.clone();
                     let memory_metatable = memory_metatable.clone();
                     let link_metatable = link_metatable.clone();
-                    move |lua, (this, relation): (Table, String)| {
+                    move |lua, this: Table| {
                         let api = api.clone();
                         let memory_metatable = memory_metatable.clone();
                         let link_metatable = link_metatable.clone();
                         async move {
                             let id = handle_id(&this)?;
                             api.lock_class(id).await?;
-                            let links = {
-                                let mut block = api.block.lock();
-                                let result = if incoming {
-                                    block.incoming(id, &relation)
-                                } else {
-                                    block.outgoing(id, &relation)
-                                };
-                                result.map_err(|error| route_error(error, &mut api.infra.lock()))?
-                            };
+                            let links = api
+                                .block
+                                .lock()
+                                .links(id)
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                             make_link_handle_list(&lua, links, &memory_metatable, &link_metatable)
                         }
                     }
@@ -319,90 +382,68 @@ impl Session {
             )?;
         }
 
-        // mem:links() — every link out of the merged identity, in every relation and both directions:
-        // the relationship overview. A traversing read, so it locks the whole `same_as` class.
-        methods.set(
-            "links",
-            self.lua.create_async_function({
-                let api = api.clone();
-                let memory_metatable = memory_metatable.clone();
-                let link_metatable = link_metatable.clone();
-                move |lua, this: Table| {
-                    let api = api.clone();
-                    let memory_metatable = memory_metatable.clone();
-                    let link_metatable = link_metatable.clone();
-                    async move {
-                        let id = handle_id(&this)?;
-                        api.lock_class(id).await?;
-                        let links = api
-                            .block
-                            .lock()
-                            .links(id)
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                        make_link_handle_list(&lua, links, &memory_metatable, &link_metatable)
-                    }
-                }
-            })?,
-        )?;
-
         // mem:propose_merge(other) — record that this memory and `other` may be the same person across
         // platforms, for the adjudication pass to weigh on the evidence. Not a merge: it surfaces nothing
         // until adjudicated. Locks both endpoints.
-        methods.set(
-            "propose_merge",
-            self.lua.create_async_function({
-                let api = api.clone();
-                move |_, (this, other): (Table, Table)| {
+        if features.merging {
+            methods.set(
+                "propose_merge",
+                self.lua.create_async_function({
                     let api = api.clone();
-                    async move {
-                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
-                        api.lock_all([from, to]).await;
-                        api.block
-                            .lock()
-                            .propose_merge(from, to)
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    move |_, (this, other): (Table, Table)| {
+                        let api = api.clone();
+                        async move {
+                            let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                            api.lock_all([from, to]).await;
+                            api.block
+                                .lock()
+                                .propose_merge(from, to)
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))
+                        }
                     }
-                }
-            })?,
-        )?;
+                })?,
+            )?;
+        }
 
         // mem:tag(name) / mem:untag(name) — apply or clear a vocabulary tag on this memory, locking it
         // first. The tag must have been created (`tags.create`); the name is recognized into its typed
         // [`TagName`] here, at the wrapper boundary.
-        methods.set(
-            "tag",
-            self.lua.create_async_function({
-                let api = api.clone();
-                move |_, (this, name): (Table, String)| {
+        if features.tagging {
+            methods.set(
+                "tag",
+                self.lua.create_async_function({
                     let api = api.clone();
-                    async move {
-                        let id = handle_id(&this)?;
-                        api.lock(id).await;
-                        api.block
-                            .lock()
-                            .tag(id, TagName::new(name))
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    move |_, (this, name): (Table, String)| {
+                        let api = api.clone();
+                        async move {
+                            let id = handle_id(&this)?;
+                            api.lock(id).await;
+                            api.block
+                                .lock()
+                                .tag(id, TagName::new(name))
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))
+                        }
                     }
-                }
-            })?,
-        )?;
-        methods.set(
-            "untag",
-            self.lua.create_async_function({
-                let api = api.clone();
-                move |_, (this, name): (Table, String)| {
+                })?,
+            )?;
+            methods.set(
+                "untag",
+                self.lua.create_async_function({
                     let api = api.clone();
-                    async move {
-                        let id = handle_id(&this)?;
-                        api.lock(id).await;
-                        api.block
-                            .lock()
-                            .untag(id, TagName::new(name))
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
+                    move |_, (this, name): (Table, String)| {
+                        let api = api.clone();
+                        async move {
+                            let id = handle_id(&this)?;
+                            api.lock(id).await;
+                            api.block
+                                .lock()
+                                .untag(id, TagName::new(name))
+                                .map_err(|error| route_error(error, &mut api.infra.lock()))
+                        }
                     }
-                }
-            })?,
-        )?;
+                })?,
+            )?;
+        }
         // `mem:set_volatility("high"|"medium"|"low")` — how fast this memory's facts age (spec §Time →
         // decay). The level is parsed in the block so an unknown level is a teachable error.
         methods.set(

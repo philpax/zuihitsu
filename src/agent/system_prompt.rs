@@ -171,6 +171,7 @@ mod tests {
     //! genesis), and the declared current time are composed into one prompt.
     use super::{assemble, render_vocabulary};
     use crate::{
+        InstanceFeatures,
         agent::{
             genesis::{self, SeedSelf},
             lua::render_api_reference,
@@ -196,6 +197,7 @@ mod tests {
             &ManualClock::new(Timestamp::from_millis(1_000)),
             &seed,
             None,
+            &InstanceFeatures::default(),
         )
         .unwrap();
         let mut graph = Graph::open_in_memory().unwrap();
@@ -207,7 +209,7 @@ mod tests {
             .body;
         let self_memory = graph.self_memory().unwrap().unwrap();
         let identity = graph.entries_local(self_memory.id).unwrap();
-        let api = render_api_reference();
+        let api = render_api_reference(&InstanceFeatures::default());
         let vocabulary =
             render_vocabulary(&graph.all_tags().unwrap(), &graph.all_relations().unwrap());
         let brief = "<participant name=\"phil\">a friend</participant>";

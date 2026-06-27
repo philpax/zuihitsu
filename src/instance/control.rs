@@ -171,8 +171,9 @@ impl Control<'_> {
                 conversation,
                 runtime.host.clone(),
                 runtime.catalogue.clone(),
+                self.server.features,
             ),
-            _ => Session::new(conversation),
+            _ => Session::new(conversation, self.server.features),
         };
 
         let turn = Settings::from_store(self.server.engine.store.lock().as_ref())?.turn;
@@ -215,7 +216,7 @@ impl Control<'_> {
     /// build-derived entries projected into the agent's system prompt (spec §What you can do). Static,
     /// so it needs no engine access. MCP tools are excluded; they appear only when actually connected.
     pub fn lua_api(&self) -> Vec<ApiEntry> {
-        lua::api_reference()
+        lua::api_reference(&self.server.features)
     }
 
     /// Register a new version of a prompt template — the operator edit path (spec §Initialization →
@@ -251,6 +252,7 @@ impl Control<'_> {
             self.server.engine.clock.as_ref(),
             seed,
             self.server.model_context_length,
+            &self.server.features,
         )?;
         self.server
             .engine

@@ -834,6 +834,8 @@ This is an intentional asymmetry with prompt templates, which are versioned in t
 
 It bears only on regenerative replay, which rebuilds the prompt from scratch under the current build. There the build's current API description is used, which is sound only so long as API changes stay additive and backwards-compatible. The discipline is to keep them so, but it cannot be enforced for the MCP slice, which is derived from whichever third-party servers happen to be connected at replay time: a server that was removed, or that changed its tools, makes that slice differ from what the agent originally saw. The MCP catalogue is therefore doubly non-faithful under regenerative replay (build drift plus external-server drift); faithful replay is unaffected, since it feeds back the captured frozen prompt.
 
+The API surface is per-instance configurable via `InstanceFeatures` — a bitfield (`linking`, `tagging`, `merging`, `calendar`, plus always-on `memory` and `context`) set at construction. A disabled feature is dropped from three gates in lockstep: the Lua functions are not installed (calling them is a nil-call error), the API-description entries are omitted, and the scaffold dotpoints that teach the practice are dropped from the baked template. The scaffold is baked at genesis, so feature-gating it is a genesis-time decision; the Lua registration and API description read the running binary's features fresh each turn. See `CONTRIBUTING.md` → Instance features.
+
 ### Memory operations
 
 ```lua

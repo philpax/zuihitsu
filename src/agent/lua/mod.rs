@@ -26,6 +26,7 @@ use mlua::{Lua, LuaOptions, StdLib, Value};
 use parking_lot::Mutex;
 
 use crate::{
+    InstanceFeatures,
     engine::Engine,
     event::{EventPayload, TerminalCause},
     graph::GraphError,
@@ -50,6 +51,10 @@ pub struct Session {
     /// The session's MCP state — the host, configured servers, and lazily-spawned instances backing the
     /// `mcp.<server>.*` projection — or `None` when no host is configured.
     mcp: Option<std::sync::Arc<super::mcp_api::McpSession>>,
+    /// Which API features this session enables — gates the Lua functions installed per block, the API
+    /// reference rendered into the system prompt, and (at genesis) the scaffold dotpoints. Read fresh
+    /// each block so it always reflects the instance's current features.
+    features: InstanceFeatures,
 }
 
 /// The result of executing one block.
@@ -62,12 +67,13 @@ pub enum BlockOutcome {
 }
 
 impl Session {
-    pub fn new(conversation: ConversationId) -> Session {
+    pub fn new(conversation: ConversationId, features: InstanceFeatures) -> Session {
         let lua = sandboxed_lua();
         Session {
             lua,
             conversation,
             mcp: None,
+            features,
         }
     }
 
@@ -80,6 +86,7 @@ impl Session {
         conversation: ConversationId,
         host: std::sync::Arc<dyn crate::mcp::McpHost>,
         catalogue: super::mcp_api::McpCatalogue,
+        features: InstanceFeatures,
     ) -> Session {
         let lua = sandboxed_lua();
         let mcp = std::sync::Arc::new(super::mcp_api::McpSession::new(host, catalogue));
@@ -88,7 +95,14 @@ impl Session {
             lua,
             conversation,
             mcp: Some(mcp),
+            features,
         }
+    }
+
+    /// The features this session enables — the gate the block API registration and the API reference
+    /// both read, so the runtime surface and the prompt's description stay in lockstep.
+    pub fn features(&self) -> InstanceFeatures {
+        self.features
     }
 
     /// The configured MCP tools as system-prompt API entries — empty when no host is configured. The
@@ -189,7 +203,7 @@ impl Session {
 
             // Installing the API is our-side setup: a failure here is a bug, not an agent-visible
             // outcome.
-            self.install_block_api(&api, &methods, &metatable, &entry_metatable)
+            self.install_block_api(&api, &methods, &metatable, &entry_metatable, &self.features)
                 .map_err(LuaError::Vm)?;
 
             // The agent-visible outcome: the rendered final value, or the runtime error/abort that

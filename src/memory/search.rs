@@ -271,6 +271,7 @@ fn recency_bonus(
 mod tests {
     use super::{SearchHit, SearchQuery, recency_bonus, search};
     use crate::{
+        InstanceFeatures,
         agent::genesis::{self, SeedSelf},
         clock::ManualClock,
         event::{Event, EventPayload, Teller, Visibility, Volatility},
@@ -863,6 +864,7 @@ mod tests {
             &ManualClock::new(Timestamp::from_millis(1)),
             &seed,
             None,
+            &InstanceFeatures::default(),
         )
         .unwrap();
 

@@ -110,6 +110,18 @@ Within each module, organize code as follows:
 
 - To borrow the value inside a lock guard, a `Box`, or an `Arc`, prefer `.as_ref()` / `.as_mut()` over a manual double-deref: write `engine.store.lock().as_ref()` and `engine.store.lock().as_mut()`, not `&**engine.store.lock()` and `&mut **engine.store.lock()`. The named form reads as "borrow the store" rather than as deref bookkeeping, and it is the form already used throughout (`Settings::from_store(store.lock().as_ref())`, `genesis::rollout(store.lock().as_mut(), …)`). The same applies to an `Arc<dyn Trait>`: `model.as_ref()`, not `&**model`.
 
+### Instance features
+
+An `InstanceFeatures` bitfield (`crates/core/src/instance_features.rs`) controls which Lua API features an instance enables — `linking`, `tagging`, `merging`, `calendar`, plus always-on `memory` and `context`. A disabled feature is dropped from **three gates in lockstep**:
+
+1. **Lua registration** (`tables.rs`): the feature's methods and module tables are not installed, so calling them yields the standard Lua "attempt to call a nil value" error — a teachable failure, not a silent no-op.
+2. **API reference** (`reference.rs`): `api_reference(&features)` omits the feature's entries, so the system prompt's "What you can do" section does not describe them.
+3. **Scaffold dotpoints** (`genesis.rs`): `default_templates(&features)` drops the dotpoints that teach the practice, so the prompt does not teach the agent to use something it cannot.
+
+The scaffold is **baked into the event log at genesis** and read back verbatim at turn time, so feature-gating it is a genesis-time decision: the features set at `genesis::rollout` decide which dotpoints persist, and a later turn reads exactly that. The Lua registration and API reference, by contrast, read the running binary's `InstanceFeatures` fresh each turn. This is fine for the eval use case (each run is a fresh instance born with the scenario's features) and for a live deployment (features are set at construction, before genesis).
+
+**When adding a new Lua API function**, ensure it fits under an existing feature group, or add a new feature flag and wire all three gates. A function installed but not documented is undiscoverable; one documented but not installed is a confusing error. The three-gate invariant is aspirational, not enforced by the compiler — code review is the guard against drift. Features are coarse-grained (a practice + its functions), not per-function, because the scaffold's dotpoints teach practices that span several calls.
+
 ## Testing 
 
 ### Testing tools
@@ -134,7 +146,7 @@ cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
 
 - The run writes `eval/<name>.json` and a resumable `.jsonl` sidecar. `eval/` is gitignored apart from the tracked `history.jsonl` trend record, so name runs descriptively.
 - `--runs N` sets the runs per scenario (the statistical N; default 8). `--scenario a,b,c` keeps only scenarios whose names contain one of the comma-separated substrings.
-- Serving is on by default — the live console is at http://127.0.0.1:7878/ while the run proceeds, and the process exits when it finishes. `--no-serve` turns it off; `--serve-after-completion` leaves it up for review.
+- Serving is on by default — the live console is at http://127.0.0.1:7878/ while the run proceeds, and the process exits when it finishes. Keep it on: watching the deliberation unfold live is the point of running an eval, not just the pass/fail at the end. `--no-serve` is for CI or headless machines only; `--serve-after-completion` leaves it up for review.
 - The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar is a must-not-surface safety property, where one slip across N runs fails the harness; a metric bar is a should-surface rate, reported against a threshold but never failing the run.
 
 ### Analyzing an eval

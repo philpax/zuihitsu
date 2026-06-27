@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, InstanceFeatures};
 
 use crate::{
     analysis,
@@ -336,6 +336,15 @@ impl Scenario for InfersLinkFromContent {
                           relationship and create an inferred authored_by link."
                 .to_owned(),
             bar: Bar::Gating,
+        }
+    }
+
+    /// Disable `linking` so the agent cannot call `:link` — the inference pass is the sole path to a
+    /// link, which is what this scenario tests in isolation.
+    fn features(&self) -> InstanceFeatures {
+        InstanceFeatures {
+            linking: false,
+            ..Default::default()
         }
     }
 

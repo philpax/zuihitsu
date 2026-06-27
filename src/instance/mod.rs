@@ -30,6 +30,7 @@ use tokio::sync::Semaphore;
 use tracing::Instrument;
 
 use crate::{
+    InstanceFeatures,
     agent::{
         Flush, McpCatalogue, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
         genesis::{self, GenesisStatus},
@@ -127,6 +128,10 @@ pub struct Instance {
     /// The MCP host and the catalogue probed from it at [`Instance::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
     mcp: Option<McpRuntime>,
+    /// Which API features this instance enables — gates the Lua functions installed per block, the
+    /// API reference rendered into the system prompt, and (at genesis) the scaffold dotpoints. Set
+    /// at construction, before genesis, so the baked scaffold reflects it; defaults to all-on.
+    features: InstanceFeatures,
     /// The configured model's context window, in tokens, set by the serving host from `[model]`
     /// config. `None` for an in-memory or model-less instance. Genesis derives the agent's initial
     /// compaction budget from it (a fraction of the window); see [`Control::create_agent`].
@@ -152,7 +157,18 @@ pub struct SnapshotSchedule {
 
 impl Instance {
     pub fn new(store: Box<dyn Store>, graph: Graph, clock: Box<dyn Clock>) -> Instance {
-        Instance::from_engine(Engine::new(store, graph, clock))
+        Instance::with_features(store, graph, clock, InstanceFeatures::default())
+    }
+
+    /// As [`Instance::new`], but with an explicit feature set — the gate that controls which Lua API
+    /// features the agent sees. Set before genesis so the baked scaffold reflects it.
+    pub fn with_features(
+        store: Box<dyn Store>,
+        graph: Graph,
+        clock: Box<dyn Clock>,
+        features: InstanceFeatures,
+    ) -> Instance {
+        Instance::from_engine(Engine::new(store, graph, clock), features)
     }
 
     /// As [`Instance::new`], with the semantic-retrieval backends attached — the live instance's
@@ -165,12 +181,32 @@ impl Instance {
         embedder: Arc<dyn Embedder>,
         vectors: Box<dyn VectorIndex>,
     ) -> Instance {
-        Instance::from_engine(Engine::with_retrieval(
-            store, graph, clock, embedder, vectors,
-        ))
+        Instance::with_retrieval_features(
+            store,
+            graph,
+            clock,
+            embedder,
+            vectors,
+            InstanceFeatures::default(),
+        )
     }
 
-    fn from_engine(engine: Arc<Engine>) -> Instance {
+    /// As [`Instance::with_retrieval`], but with an explicit feature set.
+    pub fn with_retrieval_features(
+        store: Box<dyn Store>,
+        graph: Graph,
+        clock: Box<dyn Clock>,
+        embedder: Arc<dyn Embedder>,
+        vectors: Box<dyn VectorIndex>,
+        features: InstanceFeatures,
+    ) -> Instance {
+        Instance::from_engine(
+            Engine::with_retrieval(store, graph, clock, embedder, vectors),
+            features,
+        )
+    }
+
+    fn from_engine(engine: Arc<Engine>, features: InstanceFeatures) -> Instance {
         let streams = Semaphore::new(initial_stream_permits(&engine));
         Instance {
             engine,
@@ -185,6 +221,7 @@ impl Instance {
             link_inference_guard: tokio::sync::Mutex::new(()),
             streams,
             mcp: None,
+            features,
             model_context_length: None,
         }
     }
@@ -485,6 +522,13 @@ impl Instance {
             .clone()
     }
 
+    /// The features this instance enables — the gate the Lua registration, the API reference, and the
+    /// scaffold all read, so the runtime surface, the prompt's description, and the baked guidance
+    /// stay in lockstep.
+    pub fn features(&self) -> InstanceFeatures {
+        self.features
+    }
+
     /// A fresh session VM for a conversation, carrying the MCP projection when servers are connected.
     fn mint_vm(&self, conversation: ConversationId) -> Session {
         match &self.mcp {
@@ -492,8 +536,9 @@ impl Instance {
                 conversation,
                 runtime.host.clone(),
                 runtime.catalogue.clone(),
+                self.features,
             ),
-            None => Session::new(conversation),
+            None => Session::new(conversation, self.features),
         }
     }
 

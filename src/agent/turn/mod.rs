@@ -875,7 +875,7 @@ fn collect_written_memories(
 /// MCP servers' projected tools (runtime-derived from the session's probed catalogue). Both render
 /// through the same [`super::api_doc::render`] so the description is one consistent catalogue.
 fn full_api_reference(session: &Session) -> String {
-    let mut entries = lua::api_reference();
+    let mut entries = lua::api_reference(&session.features());
     entries.extend(session.mcp_api_entries());
     super::api_doc::render(&entries)
 }

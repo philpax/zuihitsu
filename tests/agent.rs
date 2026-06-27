@@ -5,10 +5,11 @@ mod common;
 
 use common::Harness;
 use zuihitsu::{
-    CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, InferredLink, LinkInferenceArgs,
-    Message, ModelPhase, Namespace, NewRelationSpec, OpenAiClient, PromptTemplateName,
-    RequestRecord, ScriptedModel, SeedSelf, Seq, Store, Timestamp, ToolCall, TurnOutcome,
-    TurnReport, TurnRole, Usage, buffer_turns, event::EventPayload, genesis, run_turn,
+    BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, InferredLink,
+    InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace, NewRelationSpec,
+    OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store,
+    TerminalCause, Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns,
+    event::EventPayload, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -90,7 +91,14 @@ async fn tool_call_then_reply_commits_and_replies() {
 async fn descriptions_regenerate_after_a_turn() {
     let h = Harness::new();
     // Genesis registers the description-regen template the write path reads.
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -157,7 +165,14 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
     // must be re-synthesized — otherwise the description (which reaches participants in briefs) keeps
     // the old name (spec §Identity → Renaming, deadname-safety).
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -236,7 +251,14 @@ fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {
 #[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -276,7 +298,14 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
 #[tokio::test]
 async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -324,7 +353,14 @@ fn belief_arbitrations(store: &dyn Store) -> Vec<EventPayload> {
 #[tokio::test]
 async fn a_regen_conflict_emits_belief_arbitrated() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -382,7 +418,14 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
 #[tokio::test]
 async fn a_single_sided_arbitration_is_dropped() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -407,7 +450,14 @@ async fn a_single_sided_arbitration_is_dropped() {
 #[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -474,7 +524,14 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
 async fn agent_turns_record_their_provenance() {
     let h = Harness::new();
     // Genesis registers the scaffold the agent turn runs against.
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -714,7 +771,14 @@ async fn real_model_extracts_temporal_references() {
     }
     let client = OpenAiClient::new(&config.model);
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -893,7 +957,14 @@ async fn real_model_supersedes_a_corrected_fact() {
     }
     let client = OpenAiClient::new(&config.model);
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -1015,7 +1086,14 @@ fn link_inference_call(args: LinkInferenceArgs) -> Completion {
 #[tokio::test]
 async fn link_inference_registers_and_links_from_content() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -1110,7 +1188,14 @@ async fn link_inference_registers_and_links_from_content() {
 #[tokio::test]
 async fn link_inference_is_idempotent() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -1199,7 +1284,14 @@ async fn link_inference_is_idempotent() {
 #[tokio::test]
 async fn link_inference_degrades_gracefully_with_no_usable_reply() {
     let h = Harness::new();
-    genesis::rollout(h.engine.store.lock().as_mut(), &h.clock, &seed(), None).unwrap();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
     h.engine
         .graph
         .lock()
@@ -1249,5 +1341,101 @@ async fn link_inference_degrades_gracefully_with_no_usable_reply() {
     assert_eq!(
         inferred, 0,
         "no inferred links should be created with no usable reply"
+    );
+}
+
+/// With `linking` disabled, calling `:link` from Lua yields a nil-call error (the method is not
+/// installed), while the link-inference pass — which runs as a model call, not through the agent's
+/// Lua — still creates the link. This is the AC.9 contract: the three gates (Lua registration, API
+/// reference, scaffold) all drop linking, so the inference pass is the sole path to a link.
+#[tokio::test]
+async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
+    let disabled = InstanceFeatures {
+        linking: false,
+        ..Default::default()
+    };
+    let h = Harness::with_features(disabled);
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &disabled,
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+    h.baseline_link_inference();
+
+    // Create the two memories through a turn (the agent-authored path that sets visibility
+    // correctly), appending the authorship entry to topic/zephyr — but NOT calling mem:link.
+    let create_model = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.create(PERSON_DAVE, "a person")
+               local zephyr = memory.create("topic/zephyr")
+               zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+    ]);
+    run_turn(h.as_turn(&create_model, "Working on zephyr, authored by Dave", 8))
+        .await
+        .unwrap();
+
+    // Now attempt a `:link` call directly — it must fail because `:link` is not installed when
+    // linking is disabled. The block terminates with the standard Lua nil-call error.
+    let link_outcome = h
+        .run(r#"memory.get("topic/zephyr"):link("authored_by", memory.get(PERSON_DAVE))"#)
+        .await;
+    match link_outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("nil"),
+                "a disabled :link should surface a nil-call error, got: {message}"
+            );
+        }
+        other => panic!("expected the :link call to terminate, got {other:?}"),
+    }
+
+    // The link was not created by the agent (the block terminated before it). Now drive the
+    // link-inference pass, which runs as a model call — it should still create the authored_by link.
+    let inference_model = ScriptedModel::new([
+        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
+        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        link_inference_call(LinkInferenceArgs {
+            new_relations: vec![NewRelationSpec {
+                name: "authored_by".to_owned(),
+                inverse: "authored".to_owned(),
+                from_card: "many".to_owned(),
+                to_card: "one".to_owned(),
+                symmetric: false,
+                reflexive: false,
+            }],
+            links: vec![InferredLink {
+                entry: 1,
+                relation: "authored_by".to_owned(),
+                target: "person/dave".to_owned(),
+                direction: "to".to_owned(),
+            }],
+        }),
+    ]);
+    h.describe(&inference_model).await;
+    h.link_inference(&inference_model).await;
+
+    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    let linked = events.iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::LinkCreated { relation, source, .. }
+            if relation.as_str() == "authored_by"
+              && *source == zuihitsu::LinkSource::Inferred
+        )
+    });
+    assert!(
+        linked,
+        "the inference pass should still create the authored_by link when linking is disabled"
     );
 }
