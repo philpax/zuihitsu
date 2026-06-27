@@ -31,11 +31,13 @@ export interface LiveEval {
 
 const IDLE: LiveEval = { pkg: null, status: { status: "connecting" }, liveRuns: new Map() };
 
-/// What the eval frame hands its nested routes: the package, and the runs currently driving (keyed
-/// `scenario:run`, with their events-so-far). Empty for a static, file-loaded package.
+/// What the eval frame hands its nested routes: the package, the runs currently driving (keyed
+/// `scenario:run`, with their events-so-far), and the live status (when watching a running eval).
+/// Empty for a static, file-loaded package.
 export interface EvalContext {
   pkg: EvalPackage;
   liveRuns: ReadonlyMap<string, Event[]>;
+  live: LiveEvalStatus | null;
 }
 
 /// No run is driving — the live map a static package carries.

@@ -10,7 +10,7 @@ import { Dot } from "../components/primitives.tsx";
 /// ran at. The first thing an operator wants — which scenarios held, and which did not — and the
 /// way into a single run for the deeper views. The package arrives as the eval frame's outlet context.
 export function ScenarioOverview() {
-  const { pkg, liveRuns } = useOutletContext<EvalContext>();
+  const { pkg, liveRuns, live } = useOutletContext<EvalContext>();
   const active = activeScenarios(liveRuns);
   const runsPlanned = pkg.meta.runs_per_scenario;
   const regressions = pkg.scenarios.filter((s) => !s.aggregate.gating_passed).length;
@@ -19,9 +19,18 @@ export function ScenarioOverview() {
   const done = pkg.scenarios.reduce((sum, s) => sum + s.runs.length, 0);
   const total = pkg.scenarios.length * runsPlanned;
   const complete = done >= total;
+  // When watching a live eval that hasn't started any runs yet, show a "waiting" banner so the
+  // viewer knows the eval is live, not dead — the first run is pending the model's response.
+  const isLive = live !== null && live.status !== "finished";
+  const waiting = isLive && done === 0 && liveRuns.size === 0;
 
   return (
     <main className="flex-1 py-7">
+      {waiting && (
+        <p className="mb-4 font-mono text-2xs text-ink-faint">
+          <span className="animate-pulse">waiting for the first run to start…</span>
+        </p>
+      )}
       <div className="mb-6 flex items-baseline justify-between sm:mb-7">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">Scenarios</h2>
         <span className="font-mono text-xs text-ink-soft">
@@ -52,6 +61,7 @@ export function ScenarioOverview() {
             runsPlanned={runsPlanned}
             active={active.has(index)}
             liveRun={liveRunOf(liveRuns, index)}
+            isLive={isLive}
           />
         ))}
       </ul>
@@ -64,11 +74,13 @@ function ScenarioRow({
   runsPlanned,
   active,
   liveRun,
+  isLive,
 }: {
   scenario: ScenarioReport;
   runsPlanned: number;
   active: boolean;
   liveRun: number | null;
+  isLive: boolean;
 }) {
   const { meta, aggregate } = scenario;
   const completed = scenario.runs.length;
@@ -84,12 +96,15 @@ function ScenarioRow({
   const firstRun = scenario.runs[0];
   // The run to open: the first completed one, or — if none has landed yet — the one driving live.
   const openRun = firstRun ? firstRun.index : liveRun;
+  // A pending scenario dims on a static package (nothing is coming), but stays at full opacity on a
+  // live eval (the first run is queued, not absent).
+  const dim = pending && !isLive;
 
   return (
     <li
       className={
         "group grid grid-cols-1 items-start gap-x-8 gap-y-3 border-b border-line py-6 first:border-t sm:grid-cols-[1fr_auto] " +
-        (pending ? "opacity-50" : "")
+        (dim ? "opacity-50" : "")
       }
     >
       <div>

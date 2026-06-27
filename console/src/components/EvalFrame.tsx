@@ -26,7 +26,7 @@ export function EvalFrame({
   liveRuns?: ReadonlyMap<string, Event[]>;
   onClose: () => void;
 }) {
-  const context: EvalContext = { pkg, liveRuns: liveRuns ?? NO_LIVE_RUNS };
+  const context: EvalContext = { pkg, liveRuns: liveRuns ?? NO_LIVE_RUNS, live: live ?? null };
   // The active run, if any, drives the breadcrumb. `:run` is the run index; `:scenario` its name.
   const runMatch = useMatch("/eval/:scenario/:run/:view");
   const crumb = runMatch

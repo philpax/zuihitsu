@@ -315,10 +315,6 @@ async fn run(
         "running the eval suite"
     );
 
-    // Warm the endpoints before the clock starts, so the first run isn't charged for cold-start.
-    tracing::info!("warming up the model endpoints");
-    harness::warm_up(&deps).await;
-
     // The scenarios that will actually run; the manifest and the live log's scenario indices are over
     // this list.
     let active = harness::active_scenarios(scenarios, deps.embedder.is_some());
@@ -361,11 +357,15 @@ async fn run(
         (sink, std::collections::HashSet::new())
     };
 
-    // Serve the live stream alongside the run, started before any run so a viewer connecting at launch
-    // sees the whole plan (the manifest) and watches it fill in.
+    // Serve the live stream before warming up the model endpoints, so a viewer connecting at launch
+    // sees the scoreboard (the plan) immediately — not a dead page while the inference server warms.
     let serving = serve
         .addr
         .map(|addr| tokio::spawn(serve::serve(addr, sink.clone())));
+
+    // Warm the endpoints before the clock starts, so the first run isn't charged for cold-start.
+    tracing::info!("warming up the model endpoints");
+    harness::warm_up(&deps).await;
 
     harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
     sink.finish(now_ms())?;
