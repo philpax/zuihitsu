@@ -182,6 +182,40 @@ export function EventDetail({
           </Fields>
         );
 
+      case "LinksInferred":
+        return (
+          <Fields>
+            <Field label="memory">{ref(payload.memory)}</Field>
+            {payload.result.new_relations.length > 0 && (
+              <Field label="coined relations">
+                {payload.result.new_relations.map((r) => (
+                  <div key={r.name}>
+                    {r.name} / {r.inverse} ({r.from_card} → {r.to_card}
+                    {r.symmetric && ", symmetric"}
+                    {r.reflexive && ", reflexive"})
+                  </div>
+                ))}
+              </Field>
+            )}
+            {payload.result.links.length > 0 && (
+              <Field label="inferred links">
+                {payload.result.links.map((l, i) => (
+                  <div key={i}>
+                    {l.direction === "to" ? "→" : "←"} {l.relation} {l.target}
+                    <span className="text-ink-faint"> (entry {l.entry})</span>
+                  </div>
+                ))}
+              </Field>
+            )}
+            {payload.result.new_relations.length === 0 && payload.result.links.length === 0 && (
+              <Field label="result">no relationships found</Field>
+            )}
+            {payload.produced_by && (
+              <Field label="by">{producedByLabel(payload.produced_by)}</Field>
+            )}
+          </Fields>
+        );
+
       case "MemoryVolatilitySet":
         return (
           <Fields>

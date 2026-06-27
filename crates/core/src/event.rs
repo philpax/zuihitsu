@@ -252,6 +252,45 @@ pub struct ArbitrationResolution {
     pub statement: String,
 }
 
+/// A relation the link-inference pass coins for a relationship no registered relation fits, recorded
+/// on the `LinksInferred` audit event so the model's reasoning is replayable. Mirrors the agent
+/// crate's `NewRelationSpec`, defined here so the core event type does not depend on the agent crate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct InferredRelationSpec {
+    pub name: String,
+    pub inverse: String,
+    pub from_card: String,
+    pub to_card: String,
+    pub symmetric: bool,
+    pub reflexive: bool,
+}
+
+/// A relationship the link-inference pass identified, recorded on the `LinksInferred` audit event.
+/// Mirrors the agent crate's `InferredLink`, defined here so the core event type does not depend on
+/// the agent crate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct InferredLinkSpec {
+    /// The statement number (1-based) the model cited as grounding this relationship.
+    pub entry: usize,
+    pub relation: String,
+    pub target: String,
+    /// "to" (subject → target) or "from" (target → subject).
+    pub direction: String,
+}
+
+/// The link-inference pass's parsed result for one memory: the new relations it proposed and the
+/// links it identified, carried on the `LinksInferred` event so the model's deliberation is visible
+/// in the log (spec §Write path → link inference). An empty result is recorded too — a pass that
+/// found no relationships is as diagnostic as one that found the wrong ones.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct LinkInferenceResult {
+    pub new_relations: Vec<InferredRelationSpec>,
+    pub links: Vec<InferredLinkSpec>,
+}
+
 /// Which model call within a turn a [`EventPayload::ModelCalled`] records: a step of the agent loop,
 /// or the post-turn description synthesis (spec §Observability). Paired with `turn_id`, it groups a
 /// phase's calls so the prompt can be reconstructed from the [`RequestRecord`] deltas.
@@ -450,6 +489,19 @@ pub enum EventPayload {
         to: MemoryId,
         accepted: bool,
         rationale: String,
+        produced_by: Option<ProducedBy>,
+    },
+    /// The link-inference pass's parsed result for one memory (spec §Write path → link inference):
+    /// the new relations the model proposed and the links it identified, whether or not any were
+    /// committed (a pass that found no relationships is as diagnostic as one that found the wrong
+    /// ones). Log-only audit record — the materializer ignores it, since the actual links and
+    /// registrations are committed as separate `LinkCreated` / `LinkTypeRegistered` events. The
+    /// pass's model-call deliberation (the prompt and completion) is recorded by the `ModelCalled`
+    /// events the pass emits at `CaptureLevel::Full`; this event carries the structured outcome so
+    /// the log shows what the model decided without reconstructing it from the raw completion.
+    LinksInferred {
+        memory: MemoryId,
+        result: LinkInferenceResult,
         produced_by: Option<ProducedBy>,
     },
     MemoryVolatilitySet {
@@ -894,6 +946,7 @@ impl EventPayload {
             EventPayload::BeliefArbitrated { .. } => "BeliefArbitrated",
             EventPayload::MergeProposed { .. } => "MergeProposed",
             EventPayload::MergeAdjudicated { .. } => "MergeAdjudicated",
+            EventPayload::LinksInferred { .. } => "LinksInferred",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
@@ -938,6 +991,7 @@ impl EventPayload {
             | EventPayload::BeliefArbitrated { memory: id, .. }
             | EventPayload::MergeProposed { from: id, .. }
             | EventPayload::MergeAdjudicated { from: id, .. }
+            | EventPayload::LinksInferred { memory: id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
             | EventPayload::ScheduledJobFired { memory: id, .. }
             | EventPayload::ScheduledItemSurfaced { memory: id, .. }

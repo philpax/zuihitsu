@@ -47,7 +47,8 @@ impl Graph {
             // merging through a separately-emitted `same_as` link (which recomputes classes), not here.
             EventPayload::EntryTemporalResolveFailed { .. }
             | EventPayload::MergeProposed { .. }
-            | EventPayload::MergeAdjudicated { .. } => {}
+            | EventPayload::MergeAdjudicated { .. }
+            | EventPayload::LinksInferred { .. } => {}
             // The arbitration's reconciling resolution stays a log-only audit record, but its
             // unresolved competing entries are projected so reads can mark a fact as disputed (spec
             // §Write path → arbitration). Each synthesis cycle replaces the memory's prior dispute

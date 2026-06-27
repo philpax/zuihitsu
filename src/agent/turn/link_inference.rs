@@ -19,7 +19,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     engine::Engine,
-    event::{Cardinality, EventPayload, LinkSource, ModelPhase, PromptTemplateName, Visibility},
+    event::{
+        Cardinality, EventPayload, InferredLinkSpec, InferredRelationSpec, LinkInferenceResult,
+        LinkSource, ModelPhase, ProducedBy, PromptTemplateName, Visibility,
+    },
     graph::{EntryView, MemoryView, RelationView},
     ids::{MemoryId, MemoryName, Seq, TurnId},
     model::{
@@ -62,6 +65,9 @@ pub async fn run_link_inference_catch_up(
         Recording {
             conversation: None,
             turn_id: TurnId::generate(),
+            // `None` conversation means no `ModelCalled` telemetry is emitted (there is no
+            // conversation to attribute it to), but the pass's own `LinksInferred` events carry the
+            // structured outcome — which memory was processed and what the model returned.
             capture: CaptureLevel::Off,
         },
     )
@@ -143,6 +149,12 @@ async fn infer_links(
             }
         };
 
+        let produced_by = ProducedBy {
+            model_id: model.model_id().into(),
+            template_name: PromptTemplateName::LinkInference,
+            template_version: template.version,
+        };
+
         let result = match infer_relationships(
             model,
             engine,
@@ -154,16 +166,58 @@ async fn infer_links(
         .await
         {
             Ok(Some(result)) => result,
-            Ok(None) => continue,
+            Ok(None) => {
+                // The model gave no usable reply after retries — record the empty result so the log
+                // shows the pass considered this memory and drew a blank.
+                events.push(EventPayload::LinksInferred {
+                    memory: id,
+                    result: LinkInferenceResult::default(),
+                    produced_by: Some(produced_by),
+                });
+                continue;
+            }
             Err(error) => {
                 tracing::warn!(
                     memory = %context.memory.name.as_str(),
                     %error,
                     "link inference failed; leaving the memory's links unchanged"
                 );
+                // A model failure is not the model's deliberation, so no `LinksInferred` event —
+                // the `ModelCalled` records the attempt, and the warn log carries the failure.
                 continue;
             }
         };
+
+        // Record the pass's parsed outcome — the structured deliberation, alongside the
+        // `ModelCalled` events that carry the raw prompt and completion.
+        events.push(EventPayload::LinksInferred {
+            memory: id,
+            result: LinkInferenceResult {
+                new_relations: result
+                    .new_relations
+                    .iter()
+                    .map(|spec| InferredRelationSpec {
+                        name: spec.name.clone(),
+                        inverse: spec.inverse.clone(),
+                        from_card: spec.from_card.clone(),
+                        to_card: spec.to_card.clone(),
+                        symmetric: spec.symmetric,
+                        reflexive: spec.reflexive,
+                    })
+                    .collect(),
+                links: result
+                    .links
+                    .iter()
+                    .map(|link| InferredLinkSpec {
+                        entry: link.entry,
+                        relation: link.relation.clone(),
+                        target: link.target.clone(),
+                        direction: link.direction.clone(),
+                    })
+                    .collect(),
+            },
+            produced_by: Some(produced_by),
+        });
 
         // The set of relation labels the model can validly use on a link: those already registered,
         // plus those it just registered. A link whose relation is neither is dropped rather than

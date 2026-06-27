@@ -39,8 +39,9 @@ pub use agent::{
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, SnapshotConfig};
 pub use event::{
-    Cardinality, Event, EventPayload, EventSource, Initiation, LinkSource, ModelPhase, ProducedBy,
-    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    Cardinality, Event, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
+    Initiation, LinkInferenceResult, LinkSource, ModelPhase, ProducedBy, PromptTemplateName,
+    RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
