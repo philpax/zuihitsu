@@ -146,8 +146,7 @@ impl Instance {
         for (conversation, recovered) in open {
             let live_activity = self
                 .sessions
-                .lock()
-                .get(&conversation)
+                .get(conversation)
                 .map(|open| open.last_activity_millis());
             let last_activity_ms = match live_activity {
                 Some(ms) => ms,
@@ -173,25 +172,16 @@ impl Instance {
                 continue;
             }
             // Close this specific candidate: reuse the live handle if it is this session, else mint one.
-            let stale = {
-                let mut sessions = self.sessions.lock();
-                if sessions
-                    .get(&conversation)
-                    .is_some_and(|s| s.id == recovered.id)
-                {
-                    sessions
-                        .remove(&conversation)
-                        .expect("present under the lock")
-                } else {
-                    Arc::new(OpenSession {
-                        id: recovered.id,
-                        vm: self.mint_vm(conversation),
-                        brief: recovered.brief,
-                        started_at: recovered.started_at,
-                        last_activity: AtomicI64::new(last_activity_ms),
-                        start_seq: recovered.start_seq,
-                    })
-                }
+            let stale = match self.sessions.remove_if_matches(conversation, recovered.id) {
+                Some(open) => open,
+                None => Arc::new(OpenSession {
+                    id: recovered.id,
+                    vm: self.mint_vm(conversation),
+                    brief: recovered.brief,
+                    started_at: recovered.started_at,
+                    last_activity: AtomicI64::new(last_activity_ms),
+                    start_seq: recovered.start_seq,
+                }),
             };
             self.flush_and_end(conversation, stale.as_ref(), model)
                 .await?;

@@ -37,7 +37,7 @@ use super::{Instance, InstanceError};
 /// raw-transcript carryover). The oldest carried turn is both the `seeded_from_turn` boundary
 /// recorded on the new `SessionStarted` and the `from_seq` the new session's buffer is read from, so
 /// the carried tail plus the new turns reconstruct the post-cut buffer.
-pub(super) struct Carryover {
+pub(crate) struct Carryover {
     pub seeded_from_turn: TurnId,
     pub from_seq: Seq,
     /// The memories the ending session touched (read or wrote), re-surfaced in the new session's
@@ -50,7 +50,7 @@ pub(super) struct Carryover {
 /// behind an `Arc` in the `sessions` map, so a running turn keeps its session alive without the map
 /// guard; only `last_activity` is mutated after open, so it is an atomic the reuse path bumps through
 /// `&self`.
-pub(super) struct OpenSession {
+pub(crate) struct OpenSession {
     pub id: SessionId,
     pub vm: Session,
     pub brief: String,
@@ -226,20 +226,6 @@ impl Instance {
         Ok((report, buffer))
     }
 
-    /// The lazily-minted async lock serializing `conversation`'s session lifecycle (see [`Instance::
-    /// lifecycle`]). Acquired across `ensure_session` and the idle sweep's close, so the close-with-flush
-    /// of one session always finishes before the next session for that conversation opens.
-    pub(super) fn lifecycle_lock(
-        &self,
-        conversation: ConversationId,
-    ) -> Arc<tokio::sync::Mutex<()>> {
-        self.lifecycle
-            .lock()
-            .entry(conversation)
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone()
-    }
-
     /// The features this instance enables — the gate the Lua registration, the API reference, and the
     /// scaffold all read, so the runtime surface, the prompt's description, and the baked guidance
     /// stay in lockstep.
@@ -361,11 +347,10 @@ impl Instance {
         // A stale live session is noted (`live_present`) so the cold-start recovery below runs only for
         // a true cold start — a stale live one is closed-and-reopened by the path further down.
         let live_present = {
-            let sessions = self.sessions.lock();
-            match sessions.get(&conversation) {
+            match self.sessions.get(conversation) {
                 Some(open) if now.as_millis() - open.last_activity_millis() <= idle_gap_ms => {
                     open.touch(now);
-                    return Ok(open.clone());
+                    return Ok(open);
                 }
                 other => other.is_some(),
             }
@@ -405,7 +390,7 @@ impl Instance {
             if resumable {
                 open.touch(now);
                 let open = Arc::new(open);
-                self.sessions.lock().insert(conversation, open.clone());
+                self.sessions.insert(conversation, open.clone());
                 tracing::info!(?conversation, session = ?open.id, "resumed an open session after a cold start");
                 return Ok(open);
             }
@@ -422,7 +407,7 @@ impl Instance {
         // A lapsed live session ends before the new one opens: take it out under the map guard (so no
         // guard is held across the flush's `.await`), then flush-and-end it — the idle close now
         // consolidates its working state too, not only the budget-compaction close.
-        let old = self.sessions.lock().remove(&conversation);
+        let old = self.sessions.remove(conversation);
         if let Some(old) = old {
             self.flush_and_end(conversation, old.as_ref(), model)
                 .await?;
@@ -432,7 +417,7 @@ impl Instance {
         // starts at the carried tail (not this `SessionStarted`), the boundary is recorded as
         // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
         // brief as active threads (spec §Compaction → carryover).
-        let carryover = self.pending_carryover.lock().remove(&conversation);
+        let carryover = self.sessions.take_carryover(conversation);
         let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
         let working_set: &[MemoryId] = carryover
             .as_ref()
@@ -493,7 +478,7 @@ impl Instance {
                 .map(|carry| carry.from_seq)
                 .unwrap_or(session_start_seq),
         });
-        self.sessions.lock().insert(conversation, open.clone());
+        self.sessions.insert(conversation, open.clone());
 
         // Drain the wake-up surface into the opening session: fired items that are both visible to and
         // targeted at this present set are raised as one `Initiated` system turn the agent sees in its
@@ -556,12 +541,7 @@ impl Instance {
     /// MCP instances down (best-effort). Called by the serving host once the HTTP server has stopped
     /// accepting. Dropping the drained sessions also releases their VMs.
     pub async fn shutdown(&self) {
-        let sessions: Vec<Arc<OpenSession>> = self
-            .sessions
-            .lock()
-            .drain()
-            .map(|(_, session)| session)
-            .collect();
+        let sessions: Vec<Arc<OpenSession>> = self.sessions.drain();
         for session in &sessions {
             session.vm.shutdown_mcp().await;
         }

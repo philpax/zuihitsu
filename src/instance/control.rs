@@ -409,7 +409,7 @@ impl Control<'_> {
     pub fn refresh_gauges(&self) -> Result<(), InstanceError> {
         let head = self.server.engine.store.lock().head()?;
         set_head_seq(head.0);
-        set_sessions_active(self.server.sessions.lock().len() as u64);
+        set_sessions_active(self.server.sessions.active_count() as u64);
         let graph = self.server.engine.graph.lock();
         set_graph_counts(
             graph.memory_count()?,

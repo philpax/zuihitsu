@@ -164,13 +164,7 @@ impl Platform<'_> {
         else {
             return Ok(());
         };
-        let Some(session) = self
-            .server
-            .sessions
-            .lock()
-            .get(&conversation)
-            .map(|open| open.id)
-        else {
+        let Some(session) = self.server.sessions.get(conversation).map(|open| open.id) else {
             return Ok(());
         };
 
@@ -245,7 +239,7 @@ impl Platform<'_> {
     ) -> Result<(), InstanceError> {
         // Take the session out under the map guard; the `Arc` then carries it across the flush and
         // `shutdown_mcp().await` below without holding the guard.
-        let Some(open) = self.server.sessions.lock().remove(&conversation) else {
+        let Some(open) = self.server.sessions.remove(conversation) else {
             return Ok(());
         };
         let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
@@ -268,10 +262,7 @@ impl Platform<'_> {
         if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
         {
             carry.working_set = working_set;
-            self.server
-                .pending_carryover
-                .lock()
-                .insert(conversation, carry);
+            self.server.sessions.insert_carryover(conversation, carry);
         }
         tracing::info!(
             ?conversation,
