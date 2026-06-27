@@ -526,12 +526,12 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
                    is grounded in (1-based, as numbered in the prompt), the `relation` label, the \
                    target memory's `target` handle, and a `direction` of \"to\" (this memory → the \
                    target) or \"from\" (the target → this memory). \n\n\
-                   Reuse an existing registered relation whenever one fits; coin a new one only when \
-                   none of the registered relations describes the relationship. When you coin a new \
-                   relation, add it to `new_relations` with its `name`, its `inverse` label, and its \
-                   `from_card` and `to_card` (each \"one\" or \"many\"), `symmetric`, and `reflexive`. \
-                   The relation you name on a link must be either a registered relation or one you \
-                   list in `new_relations`. \n\n\
+                   Reuse an existing registered relation when one genuinely matches — do not stretch \
+                   a relation to cover a relationship it does not name. If none of the registered \
+                   relations describes the relationship, coin a new one: add it to `new_relations` \
+                   with its `name`, its `inverse` label, and its `from_card` and `to_card` (each \
+                   \"one\" or \"many\"), `symmetric`, and `reflexive`. The relation you name on a link \
+                   must be either a registered relation or one you list in `new_relations`. \n\n\
                    Do not propose a link that duplicates an existing one — the existing links are \
                    listed, so a relationship already recorded is left alone. Do not propose a \
                    `same_as` link: identity merges flow through the adjudication gate, not this pass. \

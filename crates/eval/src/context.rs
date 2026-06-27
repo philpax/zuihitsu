@@ -6,15 +6,15 @@
 use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
-    ConversationLocator, Embedder, Event, Graph, InstanceFeatures, ManualClock, MemoryStore,
-    ModelClient, SeedSelf, Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
+    ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, ManualClock,
+    MemoryStore, ModelClient, SeedSelf, Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
 };
 
 use crate::error::EvalError;
 
 /// The fixed clock anchor every run starts at (2026-06-08T00:00:00Z), so scenario timing is
 /// reproducible; scenarios advance from here.
-const RUN_START_MS: i64 = 1_780_876_800_000;
+pub(crate) const RUN_START_MS: i64 = 1_780_876_800_000;
 
 /// A human's pause before sending a message — applied before each inbound turn so consecutive turns in
 /// a busy room are spaced apart, not stacked at one instant. Small against the day-scale advances a
@@ -141,6 +141,14 @@ impl RunContext {
         self.clock
             .advance_millis(started.elapsed().as_millis() as i64);
         Ok(outcome)
+    }
+
+    /// Append raw events to the store and materialize the graph, for scenarios that set up
+    /// deterministic state directly — no agent or Lua in the loop. The caller constructs the exact
+    /// events, so a scenario controls precisely what state exists.
+    pub fn seed_events(&self, events: Vec<EventPayload>) -> Result<(), EvalError> {
+        self.server.control().seed_events(events)?;
+        Ok(())
     }
 
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.

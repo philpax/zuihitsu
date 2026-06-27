@@ -471,4 +471,18 @@ impl Control<'_> {
             None => Ok(Vec::new()),
         }
     }
+
+    /// Append raw events to the store and materialize the graph, for scenarios that set up
+    /// deterministic state directly rather than driving the agent through a conversation. The events
+    /// are appended as-is (the caller constructs them), so a scenario controls exactly what state
+    /// exists — no agent or Lua in the loop. The clock advances to the store head afterward, so a
+    /// subsequent catch-up pass sees the seeded state.
+    pub fn seed_events(&self, events: Vec<EventPayload>) -> Result<(), InstanceError> {
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(now, events)?;
+        // Graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(())
+    }
 }

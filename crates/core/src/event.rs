@@ -899,6 +899,64 @@ impl EventPayload {
         EventPayload::ConversationEnded { id }
     }
 
+    pub fn session_started(
+        conversation: ConversationId,
+        id: SessionId,
+        participants: Vec<MemoryId>,
+        started_at: Timestamp,
+        seeded_from_turn: Option<TurnId>,
+        brief: impl Into<String>,
+    ) -> EventPayload {
+        EventPayload::SessionStarted {
+            conversation,
+            id,
+            participants,
+            started_at,
+            seeded_from_turn,
+            brief: brief.into(),
+        }
+    }
+
+    pub fn conversation_turn(
+        conversation: ConversationId,
+        turn_id: TurnId,
+        role: TurnRole,
+        text: impl Into<String>,
+        participant: Option<MemoryId>,
+        initiation: Initiation,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::ConversationTurn {
+            conversation,
+            turn_id,
+            role,
+            text: text.into(),
+            participant,
+            initiation,
+            produced_by,
+        }
+    }
+
+    pub fn lua_executed(
+        conversation: ConversationId,
+        turn_id: TurnId,
+        script: impl Into<String>,
+        result: Option<String>,
+        touched: Vec<MemoryId>,
+        terminal_cause: Option<TerminalCause>,
+        duration_ms: u64,
+    ) -> EventPayload {
+        EventPayload::LuaExecuted {
+            conversation,
+            turn_id,
+            script: script.into(),
+            result,
+            touched,
+            terminal_cause,
+            duration_ms,
+        }
+    }
+
     pub fn session_ended(conversation: ConversationId, id: SessionId) -> EventPayload {
         EventPayload::SessionEnded { conversation, id }
     }

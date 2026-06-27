@@ -12,11 +12,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, InstanceFeatures};
+use zuihitsu::{
+    ConversationId, ConversationLocator, EntryId, Event, EventPayload, Initiation, MemoryId,
+    MemoryName, SessionId, Teller, Timestamp, TurnId, TurnRole, Visibility,
+};
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{RUN_START_MS, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -318,11 +321,18 @@ impl Scenario for AttributesRelationshipToTeller {
     }
 }
 
-/// The link-inference pass extracts a relationship implicit in content: told that a topic's docs are
-/// authored by Clara (with `person/clara` already existing), the agent records the entry on the topic
-/// without explicitly linking — and the inference pass, driven afterward, registers `authored_by` and
-/// creates the inferred link. The regression test for the link-inference behaviour (spec §Write path
+/// The link-inference pass extracts a relationship implicit in content: a topic whose project was
+/// mentored by Clara (with `person/clara` already existing) has an entry describing the mentoring
+/// but no explicit link — and the inference pass, driven afterward, coins `mentored_by` and creates
+/// the inferred link. The regression test for the link-inference behaviour (spec §Write path
 /// → link inference): a future change that regresses the pass turns this red.
+///
+/// The state is set up directly via `seed_events` (a synthetic event log) rather than driving the
+/// agent through a conversation, so the test is deterministic: the content is exactly where the
+/// inference pass expects it (on the topic), and the only variable is whether the inference prompt
+/// extracts the relationship. This isolates the inference pass from the agent's content-placement
+/// decisions. `mentored_by` is chosen because none of the seed relations (knows, created_by,
+/// active_in, same_as) covers it, so the pass must coin a new relation rather than reusing one.
 pub struct InfersLinkFromContent;
 
 #[async_trait]
@@ -331,44 +341,96 @@ impl Scenario for InfersLinkFromContent {
         ScenarioMeta {
             name: "infers_link_from_content".to_owned(),
             category: Category::Relations,
-            description: "Told a topic's docs are authored by Clara, the agent records the entry \
-                          without explicitly linking — the link-inference pass should extract the \
-                          relationship and create an inferred authored_by link."
-                .to_owned(),
+            description:
+                "A topic's project was mentored by Clara — the topic has an entry describing \
+                          the mentoring but no explicit link. The link-inference pass should coin \
+                          mentored_by and create an inferred link."
+                    .to_owned(),
             bar: Bar::Gating,
         }
     }
 
-    /// Disable `linking` so the agent cannot call `:link` — the inference pass is the sole path to a
-    /// link, which is what this scenario tests in isolation.
-    fn features(&self) -> InstanceFeatures {
-        InstanceFeatures {
-            linking: false,
-            ..Default::default()
-        }
-    }
-
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // First establish person/clara, so the inference pass can resolve the target.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "phil",
-            "I'd like you to keep track of Clara — she's a writer on the team.",
-        ))
-        .await?;
-        ctx.describe_catch_up().await?;
-        // Now tell the agent about the zephyr project and Clara's authorship. The agent records the
-        // content on topic/zephyr; it does not explicitly call mem:link — the inference pass should
-        // extract the "authored by Clara" relationship and create the link.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "phil",
-            "I've been working on the zephyr project lately. Clara's been authoring most of the \
-             docs for it.",
-        ))
-        .await?;
+        // Set up the state directly as a synthetic event log: create person/clara, then topic/zephyr
+        // with a public entry describing a mentoring relationship that no registered relation covers.
+        // The seed relations are knows, created_by/operator_of, active_in/has_active, same_as — none
+        // fits "mentored by," so the inference pass must coin `mentored_by` and create the link.
+        //
+        // A minimal conversation (room + session + one participant turn) is seeded too, so the
+        // console has a room to render the events in — without driving the agent, which would make
+        // content placement a variable. The turn is a participant message; the agent never responds.
+        let clara = MemoryId::generate();
+        let zephyr = MemoryId::generate();
+        let context = MemoryId::generate();
+        let phil = MemoryId::generate();
+        let conversation = ConversationId::generate();
+        let session = SessionId::generate();
+        let participant_turn = TurnId::generate();
+        let agent_turn = TurnId::generate();
+        let now = Timestamp::from_millis(RUN_START_MS);
+        ctx.seed_events(vec![
+            EventPayload::memory_created(context, MemoryName::new("context/discord:team-room")),
+            EventPayload::conversation_started(
+                conversation,
+                ConversationLocator::new("discord", "team-room"),
+                context,
+            ),
+            EventPayload::memory_created(phil, MemoryName::new("person/phil")),
+            EventPayload::participant_identified(phil, "discord", "phil"),
+            EventPayload::session_started(conversation, session, vec![phil], now, None, ""),
+            EventPayload::conversation_turn(
+                conversation,
+                participant_turn,
+                TurnRole::Participant,
+                "This project was mentored by Clara",
+                Some(phil),
+                Initiation::Responding,
+                None,
+            ),
+            // A synthetic agent turn + Lua block that "created" the memories, so the console's
+            // conversation view attributes the outcome events (MemoryCreated, LinkCreated, etc.) to
+            // this turn. The script is illustrative; the block never actually ran.
+            EventPayload::conversation_turn(
+                conversation,
+                agent_turn,
+                TurnRole::Agent,
+                "Noted — I'll record that.",
+                None,
+                Initiation::Responding,
+                None,
+            ),
+            EventPayload::lua_executed(
+                conversation,
+                agent_turn,
+                "memory.create(\"person/clara\")\nlocal zephyr = memory.create(\"topic/zephyr\")\nzephyr:append(\"This project was mentored by Clara\", { by_agent = true, visibility = \"public\" })",
+                None,
+                vec![clara, zephyr],
+                None,
+                0,
+            ),
+            EventPayload::memory_created(clara, MemoryName::new("person/clara")),
+            EventPayload::MemoryContentAppended {
+                id: clara,
+                entry_id: EntryId::generate(),
+                asserted_at: now,
+                occurred_at: None,
+                text: "a senior engineer on the team".to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+            EventPayload::memory_created(zephyr, MemoryName::new("topic/zephyr")),
+            EventPayload::MemoryContentAppended {
+                id: zephyr,
+                entry_id: EntryId::generate(),
+                asserted_at: now,
+                occurred_at: None,
+                text: "This project was mentored by Clara".to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ])?;
         // Drive the link-inference pass — the background worker the served runtime runs, here
         // explicit so the scenario is deterministic.
         ctx.link_inference_catch_up().await?;
@@ -376,20 +438,20 @@ impl Scenario for InfersLinkFromContent {
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
-        let inferred = analysis::link_inferred_between(events, "authored_by");
-        let registered = analysis::link_type_registered(events, "authored_by");
+        let inferred = analysis::link_inferred_between(events, "mentored_by");
+        let registered = analysis::link_type_registered(events, "mentored_by");
         vec![
             Verdict::oracle_outcome(
-                "inferred an authored_by link from the content",
+                "inferred a mentored_by link from the content",
                 inferred,
-                "the link-inference pass created an inferred authored_by link",
-                "no inferred authored_by link was created from the content",
+                "the link-inference pass created an inferred mentored_by link",
+                "no inferred mentored_by link was created from the content",
             ),
             Verdict::oracle_outcome(
-                "registered the authored_by relation",
+                "registered the mentored_by relation",
                 registered,
-                "the authored_by relation was registered",
-                "the authored_by relation was not registered",
+                "the mentored_by relation was registered",
+                "the mentored_by relation was not registered",
             ),
         ]
     }
