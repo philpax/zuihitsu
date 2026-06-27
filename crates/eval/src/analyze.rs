@@ -46,7 +46,7 @@ fn load(path: &Path) -> Result<EvalPackage, EvalError> {
     })?;
     serde_json::from_str(&text).map_err(|source| EvalError::LoadPackage {
         path: path.to_path_buf(),
-        source,
+        source: Box::new(source),
     })
 }
 
@@ -204,7 +204,7 @@ fn print_rollup(pkg: &EvalPackage, scenario: Option<&str>) {
         }
     }
     let mut rows: Vec<Miss> = misses.into_values().collect();
-    rows.sort_by(|a, b| b.count.cmp(&a.count));
+    rows.sort_by_key(|m| std::cmp::Reverse(m.count));
 
     let total: usize = rows.iter().map(|m| m.count).sum();
     println!(

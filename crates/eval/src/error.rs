@@ -9,12 +9,12 @@ use zuihitsu::{ConfigError, GraphError, ModelError, ServerError, VectorError};
 pub enum EvalError {
     LoadConfig {
         path: PathBuf,
-        source: ConfigError,
+        source: Box<ConfigError>,
     },
-    Graph(GraphError),
-    Server(ServerError),
-    Model(ModelError),
-    Vector(VectorError),
+    Graph(Box<GraphError>),
+    Server(Box<ServerError>),
+    Model(Box<ModelError>),
+    Vector(Box<VectorError>),
     /// The judge model did not return a parseable verdict.
     Judge(String),
     WriteOutput {
@@ -28,7 +28,7 @@ pub enum EvalError {
     },
     /// The `--serve` live endpoint could not bind or serve.
     Serve(std::io::Error),
-    Serialize(serde_json::Error),
+    Serialize(Box<serde_json::Error>),
     /// The `--name` is not a bare filename (empty, or carries a path separator or `..`).
     BadName(String),
     /// `analyze`: the package file could not be read.
@@ -39,7 +39,7 @@ pub enum EvalError {
     /// `analyze`: the package file is not a valid eval package.
     LoadPackage {
         path: PathBuf,
-        source: serde_json::Error,
+        source: Box<serde_json::Error>,
     },
 }
 
@@ -99,16 +99,16 @@ impl std::fmt::Display for EvalError {
 impl std::error::Error for EvalError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            EvalError::LoadConfig { source, .. } => Some(source),
-            EvalError::Graph(source) => Some(source),
-            EvalError::Server(source) => Some(source),
-            EvalError::Model(source) => Some(source),
-            EvalError::Vector(source) => Some(source),
+            EvalError::LoadConfig { source, .. } => Some(source.as_ref()),
+            EvalError::Graph(source) => Some(source.as_ref()),
+            EvalError::Server(source) => Some(source.as_ref()),
+            EvalError::Model(source) => Some(source.as_ref()),
+            EvalError::Vector(source) => Some(source.as_ref()),
             EvalError::WriteOutput { source, .. } => Some(source),
-            EvalError::Serialize(source) => Some(source),
+            EvalError::Serialize(source) => Some(source.as_ref()),
             EvalError::Serve(source) => Some(source),
             EvalError::ReadPackage { source, .. } => Some(source),
-            EvalError::LoadPackage { source, .. } => Some(source),
+            EvalError::LoadPackage { source, .. } => Some(source.as_ref()),
             EvalError::Judge(_) | EvalError::ResumeSidecar { .. } | EvalError::BadName(_) => None,
         }
     }
@@ -116,30 +116,30 @@ impl std::error::Error for EvalError {
 
 impl From<GraphError> for EvalError {
     fn from(source: GraphError) -> EvalError {
-        EvalError::Graph(source)
+        EvalError::Graph(Box::new(source))
     }
 }
 
 impl From<ServerError> for EvalError {
     fn from(source: ServerError) -> EvalError {
-        EvalError::Server(source)
+        EvalError::Server(Box::new(source))
     }
 }
 
 impl From<ModelError> for EvalError {
     fn from(source: ModelError) -> EvalError {
-        EvalError::Model(source)
+        EvalError::Model(Box::new(source))
     }
 }
 
 impl From<VectorError> for EvalError {
     fn from(source: VectorError) -> EvalError {
-        EvalError::Vector(source)
+        EvalError::Vector(Box::new(source))
     }
 }
 
 impl From<serde_json::Error> for EvalError {
     fn from(source: serde_json::Error) -> EvalError {
-        EvalError::Serialize(source)
+        EvalError::Serialize(Box::new(source))
     }
 }

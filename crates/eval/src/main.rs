@@ -269,7 +269,7 @@ async fn run(
 ) -> Result<bool, EvalError> {
     let config = EnvConfig::load(config_path).map_err(|source| EvalError::LoadConfig {
         path: config_path.to_path_buf(),
-        source,
+        source: Box::new(source),
     })?;
     if config.model.endpoint.is_empty() {
         // Skip with a clear signal rather than fail (spec §Validation → the model-gated lane).
