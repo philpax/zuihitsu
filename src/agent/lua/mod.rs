@@ -195,7 +195,7 @@ impl Session {
             let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
             // `__index` is wired in `install_block_api`: it resolves `handle.name` / `handle.description`
             // lazily from the id and otherwise dispatches to `methods`.
-            let entry_metatable = self.entry_metatable().map_err(LuaError::Vm)?;
+            let entry_metatable = tables::entry_metatable(&self.lua).map_err(LuaError::Vm)?;
 
             // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects
             // this attempt only.
@@ -203,8 +203,15 @@ impl Session {
 
             // Installing the API is our-side setup: a failure here is a bug, not an agent-visible
             // outcome.
-            self.install_block_api(&api, &methods, &metatable, &entry_metatable, &self.features)
-                .map_err(LuaError::Vm)?;
+            tables::install_block_api(
+                &self.lua,
+                &api,
+                &methods,
+                &metatable,
+                &entry_metatable,
+                &self.features,
+            )
+            .map_err(LuaError::Vm)?;
 
             // The agent-visible outcome: the rendered final value, or the runtime error/abort that
             // ended the script, bounded by the block's time budget. The block's memory functions only
