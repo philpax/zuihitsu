@@ -46,7 +46,7 @@ use crate::{
     mcp::{McpHost, McpServerConfig},
     memory::search::{SearchHit, SearchQuery, search as rank_search},
     metrics::observe_search,
-    model::{embed::Embedder, index::IndexError},
+    model::{ModelClient, embed::Embedder, index::IndexError},
     settings::{ConcurrencySettings, Settings},
     snapshot,
     store::{MemoryStore, Store},
@@ -81,6 +81,33 @@ pub struct Instance {
     /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
     /// shared-`&Instance` reason as `sessions`.
     pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
+    /// The off-hot-path synthesis cursors and their serialization guards, grouped as
+    /// [`BackgroundPasses`]. Each cursor tracks how far a background pass has progressed; its guard
+    /// serializes that pass against the explicit catch-up.
+    passes: BackgroundPasses,
+    /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
+    /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
+    /// model at once; further streams queue. Sized from settings at construction (a change takes
+    /// effect on restart).
+    streams: Semaphore,
+    /// The MCP host and the catalogue probed from it at [`Instance::connect_mcp`] — `None` until then.
+    /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
+    mcp: Option<McpRuntime>,
+    /// Which API features this instance enables — gates the Lua functions installed per block, the
+    /// API reference rendered into the system prompt, and (at genesis) the scaffold dotpoints. Set
+    /// at construction, before genesis, so the baked scaffold reflects it; defaults to all-on.
+    features: InstanceFeatures,
+    /// The configured model's context window, in tokens, set by the serving host from `[model]`
+    /// config. `None` for an in-memory or model-less instance. Genesis derives the agent's initial
+    /// compaction budget from it (a fraction of the window); see [`Control::create_agent`].
+    model_context_length: Option<u32>,
+}
+
+/// The off-hot-path synthesis cursors and their serialization guards. Each cursor tracks how far
+/// a background pass has progressed; its guard serializes that pass against the explicit catch-up.
+/// All three pass pairs are re-seeded to log-head at boot, treating already-written state as
+/// processed so a restart does not re-run old passes.
+pub(crate) struct BackgroundPasses {
     /// The describer's cursor: the log seq through which descriptions have been regenerated. The
     /// background describer (and the explicit `describe_catch_up`) advances it as it catches synthesized
     /// descriptions up to the log off the hot path (spec §Write path → regenerate off the hot path).
@@ -105,22 +132,6 @@ pub struct Instance {
     adjudicate_guard: tokio::sync::Mutex<()>,
     /// As `describe_guard`, serializing the link-inference catch-up.
     link_inference_guard: tokio::sync::Mutex<()>,
-    /// The concurrent-stream limit (spec §Concurrency): a permit is held for each in-flight inbound
-    /// message's whole handling, so no more than `max_concurrent_streams` turns crowd the shared
-    /// model at once; further streams queue. Sized from settings at construction (a change takes
-    /// effect on restart).
-    streams: Semaphore,
-    /// The MCP host and the catalogue probed from it at [`Instance::connect_mcp`] — `None` until then.
-    /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
-    mcp: Option<McpRuntime>,
-    /// Which API features this instance enables — gates the Lua functions installed per block, the
-    /// API reference rendered into the system prompt, and (at genesis) the scaffold dotpoints. Set
-    /// at construction, before genesis, so the baked scaffold reflects it; defaults to all-on.
-    features: InstanceFeatures,
-    /// The configured model's context window, in tokens, set by the serving host from `[model]`
-    /// config. `None` for an in-memory or model-less instance. Genesis derives the agent's initial
-    /// compaction budget from it (a fraction of the window); see [`Control::create_agent`].
-    model_context_length: Option<u32>,
 }
 
 /// The connected MCP runtime: the host that spawns server instances and the catalogue probed from it
@@ -198,12 +209,7 @@ impl Instance {
             sessions: Mutex::new(HashMap::new()),
             lifecycle: Mutex::new(HashMap::new()),
             pending_carryover: Mutex::new(HashMap::new()),
-            describer_cursor: Mutex::new(Seq::ZERO),
-            adjudicator_cursor: Mutex::new(Seq::ZERO),
-            link_inference_cursor: Mutex::new(Seq::ZERO),
-            describe_guard: tokio::sync::Mutex::new(()),
-            adjudicate_guard: tokio::sync::Mutex::new(()),
-            link_inference_guard: tokio::sync::Mutex::new(()),
+            passes: BackgroundPasses::new(Seq::ZERO),
             streams,
             mcp: None,
             features,
@@ -250,12 +256,10 @@ impl Instance {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
-        // Seed the describer's cursor to log-head: state written before this boot is treated as already
-        // described, so a restart does not re-describe the whole log (spec §Write path). New writes from
-        // here are caught up off the hot path.
-        self.baseline_describer_cursor()?;
-        self.baseline_adjudicator_cursor()?;
-        self.baseline_link_inference_cursor()?;
+        // Seed the synthesis cursors to log-head: state written before this boot is treated as already
+        // processed, so a restart does not re-run old passes (spec §Write path). New writes from here are
+        // caught up off the hot path.
+        self.passes.reseed(self.engine.store.lock().head()?);
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "instance booted");
         Ok(status)
@@ -343,6 +347,61 @@ impl Instance {
     /// `Arc<Instance>`.
     pub fn platform(&self) -> Platform<'_> {
         Platform { server: self }
+    }
+
+    // Background-pass facade methods: delegate to `self.passes` with `&self.engine`. These preserve
+    // the public API consumed by the eval crate, the http server, tests, and the control facet.
+
+    pub async fn index_catch_up(&self) -> Result<usize, InstanceError> {
+        self.passes.index_catch_up(&self.engine).await
+    }
+
+    pub async fn reembed_if_embedding_model_changed(&self) -> Result<bool, InstanceError> {
+        self.passes
+            .reembed_if_embedding_model_changed(&self.engine)
+            .await
+    }
+
+    pub async fn describe_catch_up(&self, model: &dyn ModelClient) -> Result<usize, InstanceError> {
+        self.passes.describe_catch_up(&self.engine, model).await
+    }
+
+    pub(crate) fn baseline_describer_cursor(&self) -> Result<(), InstanceError> {
+        self.passes.baseline_describer_cursor(&self.engine)
+    }
+
+    pub async fn adjudicate_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes.adjudicate_catch_up(&self.engine, model).await
+    }
+
+    pub(crate) fn baseline_adjudicator_cursor(&self) -> Result<(), InstanceError> {
+        self.passes.baseline_adjudicator_cursor(&self.engine)
+    }
+
+    pub async fn link_inference_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes
+            .link_inference_catch_up(&self.engine, model)
+            .await
+    }
+
+    pub(crate) fn baseline_link_inference_cursor(&self) -> Result<(), InstanceError> {
+        self.passes.baseline_link_inference_cursor(&self.engine)
+    }
+
+    /// The current describer cursor value, for lag reporting in [`Control::refresh_gauges`].
+    pub(crate) fn describer_cursor_value(&self) -> Seq {
+        self.passes.describer_cursor_value()
+    }
+
+    /// The current adjudicator cursor value, for lag reporting in [`Control::refresh_gauges`].
+    pub(crate) fn adjudicator_cursor_value(&self) -> Seq {
+        self.passes.adjudicator_cursor_value()
     }
 }
 

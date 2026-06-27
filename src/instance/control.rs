@@ -418,10 +418,12 @@ impl Control<'_> {
             graph.all_tags()?.len(),
             graph.all_relations()?.len(),
         );
-        let describer_lag = head.0.saturating_sub(self.server.describer_cursor.lock().0);
+        let describer_lag = head
+            .0
+            .saturating_sub(self.server.describer_cursor_value().0);
         let adjudicator_lag = head
             .0
-            .saturating_sub(self.server.adjudicator_cursor.lock().0);
+            .saturating_sub(self.server.adjudicator_cursor_value().0);
         let indexer_lag = self.server.engine.retrieval.as_ref().map(|retrieval| {
             retrieval
                 .vectors
