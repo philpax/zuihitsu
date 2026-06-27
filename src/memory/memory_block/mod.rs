@@ -213,11 +213,9 @@ pub struct RelationSpec {
 /// case-insensitively. A `Cardinality` serializes as `One`/`Many` on the wire, but the agent-facing
 /// API speaks lowercase, so the two are reconciled here rather than by widening the wire format.
 pub(super) fn parse_cardinality(value: &str) -> Result<Cardinality, MemoryError> {
-    match value.to_ascii_lowercase().as_str() {
-        "one" => Ok(Cardinality::One),
-        "many" => Ok(Cardinality::Many),
-        _ => Err(MemoryError::BadCardinality(value.to_owned())),
-    }
+    value
+        .parse()
+        .map_err(|()| MemoryError::BadCardinality(value.to_owned()))
 }
 
 /// The text a withheld entry carries in place of its content (see [`EntryRef::withheld`]). It names

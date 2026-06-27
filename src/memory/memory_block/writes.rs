@@ -1,7 +1,7 @@
 //! Content write operations: create, rename, append, supersede, revise, and set volatility.
 
 use crate::{
-    event::{EventPayload, Teller, Volatility},
+    event::{EventPayload, Teller},
     ids::{EntryId, MemoryId, MemoryName},
 };
 
@@ -203,12 +203,9 @@ impl MemoryBlock {
     /// rather than asserting it as current (spec §Recency and volatility).
     pub fn set_volatility(&mut self, id: MemoryId, level: &str) -> Result<(), MemoryError> {
         self.guard_self(id)?;
-        let volatility = match level {
-            "low" => Volatility::Low,
-            "medium" => Volatility::Medium,
-            "high" => Volatility::High,
-            _ => return Err(MemoryError::UnknownVolatility(level.to_owned())),
-        };
+        let volatility = level
+            .parse()
+            .map_err(|()| MemoryError::UnknownVolatility(level.to_owned()))?;
         self.touched.insert(id);
         self.buffer
             .push(EventPayload::memory_volatility_set(id, volatility));

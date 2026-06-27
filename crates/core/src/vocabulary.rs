@@ -19,12 +19,12 @@ pub enum TagName {
 
 impl TagName {
     /// Recognize a tag name, mapping a build-meaningful tag to its variant and anything else (an
-    /// agent- or operator-created tag) to [`TagName::Other`].
-    pub fn new(name: impl Into<SmolStr>) -> TagName {
-        let name = name.into();
-        match name.as_str() {
+    /// agent- or operator-created tag) to [`TagName::Other`]. Takes `&str` so a known variant is
+    /// matched without allocating — only `Other` owns its `SmolStr`.
+    pub fn new(name: &str) -> TagName {
+        match name {
             "confidential" => TagName::Confidential,
-            _ => TagName::Other(name),
+            _ => TagName::Other(SmolStr::new(name)),
         }
     }
 
@@ -44,7 +44,19 @@ impl Serialize for TagName {
 
 impl<'de> Deserialize<'de> for TagName {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<TagName, D::Error> {
-        Ok(TagName::new(SmolStr::deserialize(deserializer)?))
+        let name = SmolStr::deserialize(deserializer)?;
+        Ok(TagName::new(&name))
+    }
+}
+
+impl std::str::FromStr for TagName {
+    type Err = std::convert::Infallible;
+
+    /// Recognize a tag name from a string, mapping a build-meaningful tag to its variant and anything
+    /// else to [`TagName::Other`]. Never fails — the `Infallible` error communicates that every string
+    /// is a valid tag name.
+    fn from_str(name: &str) -> Result<TagName, Self::Err> {
+        Ok(TagName::new(name))
     }
 }
 
@@ -74,10 +86,10 @@ pub enum RelationName {
 impl RelationName {
     /// Recognize a label, mapping a seed relation — or its inverse — to its variant and anything
     /// else (a runtime-registered relation) to [`RelationName::Other`]. [`RelationName::SameAs`] is
-    /// its own inverse, so it has no separate variant.
-    pub fn new(name: impl Into<SmolStr>) -> RelationName {
-        let name = name.into();
-        match name.as_str() {
+    /// its own inverse, so it has no separate variant. Takes `&str` so a known variant is matched
+    /// without allocating — only `Other` owns its `SmolStr`.
+    pub fn new(name: &str) -> RelationName {
+        match name {
             "created_by" => RelationName::CreatedBy,
             "operator_of" => RelationName::OperatorOf,
             "knows" => RelationName::Knows,
@@ -87,7 +99,7 @@ impl RelationName {
             "operates" => RelationName::Operates,
             "known_by" => RelationName::KnownBy,
             "has_active" => RelationName::HasActive,
-            _ => RelationName::Other(name),
+            _ => RelationName::Other(SmolStr::new(name)),
         }
     }
 
@@ -115,6 +127,18 @@ impl Serialize for RelationName {
 
 impl<'de> Deserialize<'de> for RelationName {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<RelationName, D::Error> {
-        Ok(RelationName::new(SmolStr::deserialize(deserializer)?))
+        let name = SmolStr::deserialize(deserializer)?;
+        Ok(RelationName::new(&name))
+    }
+}
+
+impl std::str::FromStr for RelationName {
+    type Err = std::convert::Infallible;
+
+    /// Recognize a relation label from a string, mapping a seed relation — or its inverse — to its
+    /// variant and anything else to [`RelationName::Other`]. Never fails — the `Infallible` error
+    /// communicates that every string is a valid relation label.
+    fn from_str(name: &str) -> Result<RelationName, Self::Err> {
+        Ok(RelationName::new(name))
     }
 }

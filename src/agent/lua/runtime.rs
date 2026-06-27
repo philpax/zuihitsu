@@ -401,7 +401,7 @@ pub(super) async fn run_memory_search(
         .map_err(MemorySearchError::Settings)?
         .search;
     let now = engine.clock.now();
-    let tags: Vec<TagName> = opts.tags.iter().map(TagName::new).collect();
+    let tags: Vec<TagName> = opts.tags.iter().map(|t| TagName::new(t)).collect();
     let request = SearchQuery {
         text: query,
         embedding: &embedding,

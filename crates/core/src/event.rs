@@ -39,13 +39,41 @@ impl Volatility {
             Volatility::High => "High",
         }
     }
+}
 
-    pub fn parse(text: &str) -> Option<Volatility> {
-        match text {
-            "Low" => Some(Volatility::Low),
-            "Medium" => Some(Volatility::Medium),
-            "High" => Some(Volatility::High),
-            _ => None,
+impl std::str::FromStr for Volatility {
+    type Err = ();
+
+    /// Parse case-insensitively: the stored form is capitalized (`"Low"`/`"Medium"`/`"High"`), but the
+    /// agent-facing Lua API and model replies may emit either casing.
+    fn from_str(text: &str) -> Result<Volatility, Self::Err> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("low") {
+            Ok(Volatility::Low)
+        } else if text.eq_ignore_ascii_case("medium") {
+            Ok(Volatility::Medium)
+        } else if text.eq_ignore_ascii_case("high") {
+            Ok(Volatility::High)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl std::fmt::Display for Volatility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str_lowercase())
+    }
+}
+
+impl Volatility {
+    /// The lowercase label the agent-facing API speaks (`"low"`/`"medium"`/`"high"`), distinct from
+    /// the wire form [`Self::as_str`] (capitalized).
+    pub fn as_str_lowercase(self) -> &'static str {
+        match self {
+            Volatility::Low => "low",
+            Volatility::Medium => "medium",
+            Volatility::High => "high",
         }
     }
 }
@@ -66,26 +94,22 @@ impl Cardinality {
             Cardinality::Many => "Many",
         }
     }
-
-    pub fn parse(text: &str) -> Option<Cardinality> {
-        match text {
-            "One" => Some(Cardinality::One),
-            "Many" => Some(Cardinality::Many),
-            _ => None,
-        }
-    }
 }
 
 impl std::str::FromStr for Cardinality {
     type Err = ();
 
     /// Parse case-insensitively: the graph layer's stored form is capitalized (`"One"`/`"Many"`),
-    /// but a model's reply may emit either casing, and this impl is the lenient path for that.
+    /// but the agent-facing Lua API speaks lowercase (`"one"`/`"many"`) and a model's reply may emit
+    /// either casing.
     fn from_str(text: &str) -> Result<Cardinality, Self::Err> {
-        match text.trim().to_ascii_lowercase().as_str() {
-            "one" => Ok(Cardinality::One),
-            "many" => Ok(Cardinality::Many),
-            _ => Err(()),
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("one") {
+            Ok(Cardinality::One)
+        } else if text.eq_ignore_ascii_case("many") {
+            Ok(Cardinality::Many)
+        } else {
+            Err(())
         }
     }
 }
@@ -130,14 +154,25 @@ impl LinkSource {
             LinkSource::Inferred => "inferred",
         }
     }
+}
 
-    pub fn parse(text: &str) -> Option<LinkSource> {
-        match text {
-            "Agent" => Some(LinkSource::Agent),
-            "Operator" => Some(LinkSource::Operator),
-            "Adjudicated" => Some(LinkSource::Adjudicated),
-            "Inferred" => Some(LinkSource::Inferred),
-            _ => None,
+impl std::str::FromStr for LinkSource {
+    type Err = ();
+
+    /// Parse case-insensitively: the stored form is capitalized (`"Agent"`/`"Operator"`/…), but the
+    /// agent-facing Lua label and model replies may emit either casing.
+    fn from_str(text: &str) -> Result<LinkSource, Self::Err> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("agent") {
+            Ok(LinkSource::Agent)
+        } else if text.eq_ignore_ascii_case("operator") {
+            Ok(LinkSource::Operator)
+        } else if text.eq_ignore_ascii_case("adjudicated") {
+            Ok(LinkSource::Adjudicated)
+        } else if text.eq_ignore_ascii_case("inferred") {
+            Ok(LinkSource::Inferred)
+        } else {
+            Err(())
         }
     }
 }

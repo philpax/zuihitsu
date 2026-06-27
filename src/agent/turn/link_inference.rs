@@ -267,8 +267,8 @@ async fn infer_links(
                 }
             };
             events.push(EventPayload::LinkTypeRegistered {
-                name: RelationName::new(label.clone()),
-                inverse: RelationName::new(spec.inverse.to_ascii_lowercase()),
+                name: RelationName::new(&label),
+                inverse: RelationName::new(&spec.inverse.to_ascii_lowercase()),
                 from_card,
                 to_card,
                 symmetric: spec.symmetric,

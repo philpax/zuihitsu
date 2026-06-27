@@ -15,11 +15,13 @@ use anstyle::{AnsiColor, Style};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use tracing_subscriber::{EnvFilter, fmt};
+#[cfg(test)]
+use zuihitsu::Volatility;
 use zuihitsu::{
     ConfigError, Event, GenesisStatus, McpHost, McpTool, MemoryId, Rollout, SeedSelf, Seq,
     SqliteStore, StdioHost, Store,
     config::EnvConfig,
-    event::{EventPayload, Teller, TerminalCause, TurnRole, Visibility, Volatility},
+    event::{EventPayload, Teller, TerminalCause, TurnRole, Visibility},
 };
 
 use crate::client::{Client, ClientError};
@@ -480,7 +482,7 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
             competing_entries.len()
         ),
         EventPayload::MemoryVolatilitySet { id, volatility } => {
-            format!("{}: volatility {}", name(id), volatility_label(volatility))
+            format!("{}: volatility {}", name(id), volatility)
         }
         EventPayload::LinkCreated {
             from, to, relation, ..
@@ -579,14 +581,6 @@ fn teller_label(teller: &Teller, name: &impl Fn(&MemoryId) -> String) -> String 
         Teller::Participant(id) => name(id),
         Teller::Agent => "agent".to_owned(),
         Teller::Bootstrap => "seed".to_owned(),
-    }
-}
-
-fn volatility_label(volatility: &Volatility) -> &'static str {
-    match volatility {
-        Volatility::Low => "low",
-        Volatility::Medium => "medium",
-        Volatility::High => "high",
     }
 }
 

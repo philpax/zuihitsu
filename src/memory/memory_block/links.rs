@@ -81,8 +81,8 @@ impl MemoryBlock {
         let from_card = parse_cardinality(&spec.from_card)?;
         let to_card = parse_cardinality(&spec.to_card)?;
         self.buffer.push(EventPayload::LinkTypeRegistered {
-            name: RelationName::new(spec.name),
-            inverse: RelationName::new(spec.inverse),
+            name: RelationName::new(&spec.name),
+            inverse: RelationName::new(&spec.inverse),
             from_card,
             to_card,
             symmetric: spec.symmetric,

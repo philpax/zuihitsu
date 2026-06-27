@@ -289,7 +289,7 @@ impl Session {
                             api.lock_all([from, to]).await;
                             api.block
                                 .lock()
-                                .link(from, to, RelationName::new(relation))
+                                .link(from, to, RelationName::new(&relation))
                                 .map_err(|error| route_error(error, &mut api.infra.lock()))
                         }
                     }
@@ -307,7 +307,7 @@ impl Session {
                             api.lock_all([from, to]).await;
                             api.block
                                 .lock()
-                                .unlink(from, to, RelationName::new(relation))
+                                .unlink(from, to, RelationName::new(&relation))
                                 .map_err(|error| route_error(error, &mut api.infra.lock()))
                         }
                     }
@@ -420,7 +420,7 @@ impl Session {
                             api.lock(id).await;
                             api.block
                                 .lock()
-                                .tag(id, TagName::new(name))
+                                .tag(id, TagName::new(&name))
                                 .map_err(|error| route_error(error, &mut api.infra.lock()))
                         }
                     }
@@ -437,7 +437,7 @@ impl Session {
                             api.lock(id).await;
                             api.block
                                 .lock()
-                                .untag(id, TagName::new(name))
+                                .untag(id, TagName::new(&name))
                                 .map_err(|error| route_error(error, &mut api.infra.lock()))
                         }
                     }
@@ -689,7 +689,7 @@ impl Session {
                     async move {
                         api.block
                             .lock()
-                            .create_tag(TagName::new(name), &description)
+                            .create_tag(TagName::new(&name), &description)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))
                     }
                 }
@@ -705,7 +705,7 @@ impl Session {
                     async move {
                         api.block
                             .lock()
-                            .describe_tag(TagName::new(name), &description)
+                            .describe_tag(TagName::new(&name), &description)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))
                     }
                 }

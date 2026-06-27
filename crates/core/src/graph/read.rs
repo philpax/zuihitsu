@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     db::{query_map_into, query_opt_into},
-    event::{Cardinality, LinkSource, Teller, Volatility},
+    event::{Cardinality, Teller},
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
         SessionId, TurnId,
@@ -570,7 +570,7 @@ impl Graph {
             let description: String = row.get("description")?;
             let count: i64 = row.get("count")?;
             Ok(TagVocabularyEntry {
-                name: TagName::new(name),
+                name: TagName::new(&name),
                 description,
                 count: count as usize,
             })
@@ -594,8 +594,8 @@ impl Graph {
             let symmetric: i64 = row.get("symmetric")?;
             let reflexive: i64 = row.get("reflexive")?;
             Ok(RelationView {
-                name: RelationName::new(name),
-                inverse: RelationName::new(inverse),
+                name: RelationName::new(&name),
+                inverse: RelationName::new(&inverse),
                 from_card: parse_cardinality(&from_card)?,
                 to_card: parse_cardinality(&to_card)?,
                 symmetric: symmetric != 0,
@@ -619,8 +619,8 @@ impl Graph {
             let symmetric: i64 = row.get("symmetric")?;
             let reflexive: i64 = row.get("reflexive")?;
             Ok(RelationView {
-                name: RelationName::new(name),
-                inverse: RelationName::new(inverse),
+                name: RelationName::new(&name),
+                inverse: RelationName::new(&inverse),
                 from_card: parse_cardinality(&from_card)?,
                 to_card: parse_cardinality(&to_card)?,
                 symmetric: symmetric != 0,
@@ -718,7 +718,7 @@ impl Graph {
             Ok(LinkView {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
-                relation: RelationName::new(relation),
+                relation: RelationName::new(&relation),
             })
         })
     }
@@ -754,8 +754,8 @@ impl Graph {
             Ok(ClassLinkView {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
-                relation: RelationName::new(relation),
-                source: LinkSource::parse(&source).ok_or_else(|| {
+                relation: RelationName::new(&relation),
+                source: source.parse().map_err(|()| {
                     GraphError::Malformed(format!("unknown link source {source:?}"))
                 })?,
                 told_by: told_by
@@ -1050,7 +1050,7 @@ impl Graph {
             id: MemoryId(parse_ulid(&id)?),
             name: MemoryName::new(name),
             description,
-            volatility: Volatility::parse(&volatility).ok_or_else(|| {
+            volatility: volatility.parse().map_err(|()| {
                 GraphError::Malformed(format!("unknown volatility {volatility:?}"))
             })?,
             created_at: Timestamp::from_millis(created_at),
@@ -1100,7 +1100,7 @@ impl Graph {
             .prepare("SELECT tag FROM memory_tags WHERE memory_id = ?1 ORDER BY tag")?;
         query_map_into(stmt, params![memory_id], |row| {
             let tag: String = row.get(0)?;
-            Ok(TagName::new(tag))
+            Ok(TagName::new(&tag))
         })
     }
 
@@ -1154,8 +1154,8 @@ fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, GraphError> {
 }
 
 fn parse_cardinality(text: &str) -> Result<Cardinality, GraphError> {
-    Cardinality::parse(text)
-        .ok_or_else(|| GraphError::Malformed(format!("unknown cardinality {text:?}")))
+    text.parse()
+        .map_err(|()| GraphError::Malformed(format!("unknown cardinality {text:?}")))
 }
 
 /// Build an FTS5 MATCH expression from free text: each whitespace-separated term becomes a quoted
