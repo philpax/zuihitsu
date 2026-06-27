@@ -2,7 +2,9 @@
 //!
 //! Derived state — it can be dropped and rebuilt from the log at any time without data loss (spec
 //! §Storage). This root holds the schema, the open/boot path, and the shared types and helpers; the
-//! [`Graph::apply`] materializer lives in [`apply`], and the agent-facing query methods in [`read`].
+//! [`Graph::apply`] materializer lives in [`apply`], and the agent-facing query methods are split by
+//! sub-domain across [`memories`], [`occurrences`], [`entries`], [`vocabulary`], [`links`],
+//! [`sessions`], and [`search`].
 
 use rusqlite::{Connection, OptionalExtension, params, types::ValueRef};
 use serde::{Deserialize, Serialize};
@@ -10,6 +12,7 @@ use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
 use crate::{
+    db::query_map_into,
     event::{Cardinality, LinkSource, Teller, Visibility, Volatility},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     store::{Store, StoreError},
@@ -18,9 +21,15 @@ use crate::{
 };
 
 mod apply;
-mod read;
+mod entries;
+mod links;
+mod memories;
+mod occurrences;
+mod search;
+mod sessions;
 #[cfg(test)]
 mod tests;
+mod vocabulary;
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -404,6 +413,38 @@ impl Graph {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect())
+    }
+}
+
+/// The raw memory columns the `memories` SELECT yields; consumed by [`Graph::assemble_memory`].
+pub(super) type MemoryColumns = (String, String, String, String, i64);
+
+/// Shared memory-decoding and tag reads used across the sub-domain query modules.
+impl Graph {
+    /// Assemble a [`MemoryView`] from its raw column tuple, decoding the id and volatility and loading
+    /// the memory's tags. Shared by every memory query that selects the standard `memories` columns.
+    fn assemble_memory(&self, columns: MemoryColumns) -> Result<MemoryView, GraphError> {
+        let (id, name, description, volatility, created_at) = columns;
+        Ok(MemoryView {
+            id: MemoryId(parse_ulid(&id)?),
+            name: MemoryName::new(name),
+            description,
+            volatility: volatility.parse().map_err(|()| {
+                GraphError::Malformed(format!("unknown volatility {volatility:?}"))
+            })?,
+            created_at: Timestamp::from_millis(created_at),
+            tags: self.tags_of(&id)?,
+        })
+    }
+
+    fn tags_of(&self, memory_id: &str) -> Result<Vec<TagName>, GraphError> {
+        let stmt = self
+            .conn
+            .prepare("SELECT tag FROM memory_tags WHERE memory_id = ?1 ORDER BY tag")?;
+        query_map_into(stmt, params![memory_id], |row| {
+            let tag: String = row.get(0)?;
+            Ok(TagName::new(&tag))
+        })
     }
 }
 
