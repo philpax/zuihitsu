@@ -3,6 +3,8 @@
 
 mod common;
 
+use serde::Serialize;
+
 use common::Harness;
 use zuihitsu::{
     BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, InferredLink,
@@ -115,9 +117,9 @@ async fn descriptions_regenerate_after_a_turn() {
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
         // The post-turn synthesis call: a `response_format`-constrained reply carries the description
         // as clean JSON (the entry has no temporal phrase, so no occurrences).
-        synthesize_call(
-            r#"{"description":"Dave, whom I met at the climbing gym.","occurrences":[]}"#,
-        ),
+        synthesize_call(SynthesizeReply::description(
+            "Dave, whom I met at the climbing gym.",
+        )),
     ]);
 
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -187,12 +189,12 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
                d:append("Handles the deploys.", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
-        synthesize_call(r#"{"description":"Dave handles the deploys.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("Dave handles the deploys.")),
         // Turn 2: the rename — no content change.
         run_lua_call(r#"memory.get(PERSON_DAVE):rename(PERSON_SARAH)"#),
         Completion::Reply("Will do.".to_owned()),
         // The rename re-triggers synthesis, now under the new name — no "Dave".
-        synthesize_call(r#"{"description":"Sarah handles the deploys.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("Sarah handles the deploys.")),
     ]);
 
     run_turn(h.as_turn(&model, "Dave handles the deploys", 8))
@@ -234,8 +236,75 @@ fn day_noon(date: &str) -> Timestamp {
 /// The post-turn synthesis is now a `response_format`-constrained call: the model returns the
 /// `SynthesizeArgs` JSON as its reply (the schema may arrive fenced; the parser locates the object), so
 /// a scripted synthesis is a `Reply` carrying that JSON rather than a forced tool call.
-fn synthesize_call(arguments: &str) -> Completion {
-    Completion::Reply(arguments.to_owned())
+fn synthesize_call(reply: SynthesizeReply) -> Completion {
+    Completion::Reply(serde_json::to_string(&reply).unwrap())
+}
+
+/// The description-synthesis reply shape the test scripts as JSON, now typed so a call site reads
+/// as what it is rather than a raw string. Mirrors the `SynthesizeArgs` the describe pass sends to
+/// the model (see `src/agent/turn/describe.rs`).
+#[derive(Debug, Clone, Serialize)]
+struct SynthesizeReply {
+    description: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    occurrences: Vec<SynthesizeOccurrence>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    arbitration: Option<SynthesizeArbitration>,
+}
+
+impl SynthesizeReply {
+    fn description(text: impl Into<String>) -> Self {
+        SynthesizeReply {
+            description: text.into(),
+            occurrences: Vec::new(),
+            arbitration: None,
+        }
+    }
+
+    fn with_occurrence(mut self, occurrence: SynthesizeOccurrence) -> Self {
+        self.occurrences.push(occurrence);
+        self
+    }
+
+    fn with_arbitration(mut self, arbitration: SynthesizeArbitration) -> Self {
+        self.arbitration = Some(arbitration);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SynthesizeOccurrence {
+    entry: usize,
+    occurred_at: SynthesizeTime,
+}
+
+impl SynthesizeOccurrence {
+    /// An occurrence on a specific day (the common case in tests).
+    fn day(entry: usize, day: impl Into<String>) -> Self {
+        SynthesizeOccurrence {
+            entry,
+            occurred_at: SynthesizeTime::day(day),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum SynthesizeTime {
+    Day { day: String },
+}
+
+impl SynthesizeTime {
+    fn day(day: impl Into<String>) -> Self {
+        SynthesizeTime::Day { day: day.into() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SynthesizeArbitration {
+    competing: Vec<usize>,
+    credited: Vec<usize>,
+    statement: String,
 }
 
 fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {
@@ -271,7 +340,8 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         Completion::Reply("Noted.".to_owned()),
         // The synthesis call resolves statement 1's "last Tuesday" to a concrete day.
         synthesize_call(
-            r#"{"description":"Dave, met recently.","occurrences":[{"entry":1,"occurred_at":{"day":"2026-06-02"}}]}"#,
+            SynthesizeReply::description("Dave, met recently.")
+                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-02")),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -320,7 +390,8 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         Completion::Reply("Noted.".to_owned()),
         // The model tries to time statement 1, but the agent already set it explicitly.
         synthesize_call(
-            r#"{"description":"Dave.","occurrences":[{"entry":1,"occurred_at":{"day":"2026-06-02"}}]}"#,
+            SynthesizeReply::description("Dave.")
+                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-02")),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -377,7 +448,13 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         Completion::Reply("Noted.".to_owned()),
         // Statements 1 and 2 conflict; the synthesis credits the second.
         synthesize_call(
-            r#"{"description":"Dave works at Hooli.","arbitration":{"competing":[1,2],"credited":[2],"statement":"Credited the more recent: Dave works at Hooli."}}"#,
+            SynthesizeReply::description("Dave works at Hooli.").with_arbitration(
+                SynthesizeArbitration {
+                    competing: vec![1, 2],
+                    credited: vec![2],
+                    statement: "Credited the more recent: Dave works at Hooli.".to_owned(),
+                },
+            ),
         ),
     ]);
     run_turn(h.as_turn(&model, "Where does Dave work?", 8))
@@ -436,9 +513,13 @@ async fn a_single_sided_arbitration_is_dropped() {
         run_lua_call(r#"memory.create(PERSON_DAVE, "Met Dave")"#),
         Completion::Reply("Noted.".to_owned()),
         // Only one "competing" statement — not a real conflict, so nothing is recorded.
-        synthesize_call(
-            r#"{"description":"Dave.","arbitration":{"competing":[1],"credited":[1],"statement":"only one side"}}"#,
-        ),
+        synthesize_call(SynthesizeReply::description("Dave.").with_arbitration(
+            SynthesizeArbitration {
+                competing: vec![1],
+                credited: vec![1],
+                statement: "only one side".to_owned(),
+            },
+        )),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
         .await
@@ -474,10 +555,11 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
         ),
         Completion::Reply("Noted.".to_owned()),
         // The description pass sees only the public entry.
-        synthesize_call(r#"{"description":"Dave is a climber.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("Dave is a climber.")),
         // The focused extraction pass over the private untimed entry resolves its occurrence.
         synthesize_call(
-            r#"{"description":"(discarded)","occurrences":[{"entry":1,"occurred_at":{"day":"2026-06-16"}}]}"#,
+            SynthesizeReply::description("(discarded)")
+                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-16")),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -1113,8 +1195,8 @@ async fn link_inference_registers_and_links_from_content() {
         Completion::Reply("Noted.".to_owned()),
         // The describe catch-up synthesizes both written memories: dave first ("a person"), then
         // zephyr (the authorship entry). Each gets its own synthesis call.
-        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
-        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("A person.")),
+        synthesize_call(SynthesizeReply::description("The zephyr project.")),
         // The link-inference call: register authored_by and link zephyr → dave.
         link_inference_call(LinkInferenceArgs {
             new_relations: vec![NewRelationSpec {
@@ -1211,8 +1293,8 @@ async fn link_inference_is_idempotent() {
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
-        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
-        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("A person.")),
+        synthesize_call(SynthesizeReply::description("The zephyr project.")),
         link_inference_call(LinkInferenceArgs {
             new_relations: vec![NewRelationSpec {
                 name: "authored_by".to_owned(),
@@ -1307,8 +1389,8 @@ async fn link_inference_degrades_gracefully_with_no_usable_reply() {
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
-        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
-        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("A person.")),
+        synthesize_call(SynthesizeReply::description("The zephyr project.")),
     ]);
 
     run_turn(h.as_turn(&model, "Working on zephyr, authored by Dave", 8))
@@ -1403,8 +1485,8 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
     // The link was not created by the agent (the block terminated before it). Now drive the
     // link-inference pass, which runs as a model call — it should still create the authored_by link.
     let inference_model = ScriptedModel::new([
-        synthesize_call(r#"{"description":"A person.","occurrences":[]}"#),
-        synthesize_call(r#"{"description":"The zephyr project.","occurrences":[]}"#),
+        synthesize_call(SynthesizeReply::description("A person.")),
+        synthesize_call(SynthesizeReply::description("The zephyr project.")),
         link_inference_call(LinkInferenceArgs {
             new_relations: vec![NewRelationSpec {
                 name: "authored_by".to_owned(),
