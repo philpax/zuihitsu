@@ -17,15 +17,20 @@ use crate::{
     decay,
     engine::Engine,
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
-    graph::{EntryView, Graph, GraphError, RelationView, TagVocabularyEntry},
+    graph::{EntryView, Graph, GraphError},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, NamespacedMemoryName},
-    time::{self, TemporalRef, Timestamp},
+    time::TemporalRef,
     vocabulary::{RelationName, TagName},
 };
 
 use super::visibility::{default_visibility_named, subject_participant, visible};
 
+mod calendar;
 mod error;
+mod links;
+mod reads;
+mod tags;
+mod writes;
 
 pub use error::MemoryError;
 
@@ -165,7 +170,7 @@ pub enum VolatilityChoice {
 }
 
 impl VolatilityChoice {
-    fn into_volatility(self) -> Volatility {
+    pub(super) fn into_volatility(self) -> Volatility {
         match self {
             VolatilityChoice::Low => Volatility::Low,
             VolatilityChoice::Medium => Volatility::Medium,
@@ -207,13 +212,22 @@ pub struct RelationSpec {
 /// Parse a cardinality from the lowercase string `links.register` advertises (`"one"` / `"many"`),
 /// case-insensitively. A `Cardinality` serializes as `One`/`Many` on the wire, but the agent-facing
 /// API speaks lowercase, so the two are reconciled here rather than by widening the wire format.
-fn parse_cardinality(value: &str) -> Result<Cardinality, MemoryError> {
+pub(super) fn parse_cardinality(value: &str) -> Result<Cardinality, MemoryError> {
     match value.to_ascii_lowercase().as_str() {
         "one" => Ok(Cardinality::One),
         "many" => Ok(Cardinality::Many),
         _ => Err(MemoryError::BadCardinality(value.to_owned())),
     }
 }
+
+/// The text a withheld entry carries in place of its content (see [`EntryRef::withheld`]). It names
+/// only that something was confided — the date and teller ride the entry's own marker — so the agent
+/// can acknowledge a confidence exists and decline to share it, without ever holding the words.
+const WITHHELD_STUB: &str = "(withheld — a confidence not for the present audience)";
+
+/// Memories with a concrete occurrence within this many days of now, when `upcoming` is called with
+/// no explicit window.
+const DEFAULT_UPCOMING_DAYS: i64 = 7;
 
 impl MemoryBlock {
     /// Open a block for `conversation`: resolve the context it writes in and whether that room is
@@ -262,639 +276,6 @@ impl MemoryBlock {
         (self.engine.clone(), self.present_set.clone())
     }
 
-    /// Create a memory, optionally with a first content entry. The name must be free — a collision is
-    /// a teachable error rejected before anything is buffered, so a duplicate `MemoryCreated` never
-    /// reaches the log (where it would only fail at materialize, poisoning replay).
-    pub fn create(
-        &mut self,
-        name: impl Into<MemoryName>,
-        content: Option<&str>,
-    ) -> Result<MemoryId, MemoryError> {
-        self.create_with_opts(name, content, None)
-    }
-
-    /// Create a memory with optional first-entry overrides, mirroring `append`'s option table. This
-    /// keeps `memory.create(name, content, opts)` from silently dropping `occurred_at`, a footgun that
-    /// produced untimed reminders that never fired. The first entry is resolved before anything is
-    /// buffered, so an unclassified write fails without leaving a half-created memory; the whole
-    /// operation runs as a [`MemoryBlock::transaction`] so a later failure would roll the create back
-    /// too.
-    pub fn create_with_opts(
-        &mut self,
-        name: impl Into<MemoryName>,
-        content: Option<&str>,
-        opts: Option<AppendOptions>,
-    ) -> Result<MemoryId, MemoryError> {
-        self.transaction(|block| {
-            let name = name.into();
-            if block.resolve(name.as_str())?.is_some() {
-                return Err(MemoryError::NameExists(name));
-            }
-            let id = MemoryId::generate();
-            // A first entry is told like any append: by the turn's teller, classified the same way (an
-            // agent-authored first entry about a person must set its visibility). Resolve it before
-            // buffering anything, so an unclassified write fails without leaving a half-created memory.
-            let first_entry = match content {
-                Some(text) => {
-                    let opts = opts.unwrap_or_default();
-                    let teller = if opts.by_agent {
-                        Teller::Agent
-                    } else {
-                        block.teller.clone()
-                    };
-                    let visibility = block.resolve_visibility(
-                        Some(name.as_str()),
-                        id,
-                        &teller,
-                        opts.visibility,
-                    )?;
-                    Self::validate_occurred_at(opts.occurred_at.as_ref())?;
-                    Some((
-                        text.to_owned(),
-                        teller,
-                        visibility,
-                        opts.occurred_at,
-                        opts.volatility,
-                    ))
-                }
-                None => None,
-            };
-            block.touched.insert(id);
-            block.buffer.push(EventPayload::memory_created(id, name));
-            if let Some((text, teller, visibility, occurred_at, volatility)) = first_entry {
-                // A created memory's first entry may carry an occurrence and an inline volatility, just
-                // like a standalone `mem:append("...", { occurred_at = ..., volatility = ... })`.
-                block.push_content(id, text, teller, visibility, occurred_at);
-                if let Some(volatility) = volatility {
-                    block.buffer.push(EventPayload::memory_volatility_set(
-                        id,
-                        volatility.into_volatility(),
-                    ));
-                }
-            }
-            Ok(id)
-        })
-    }
-
-    /// Rename a memory's handle: the same node under a new agent-facing name (spec §Identity →
-    /// Renaming). The ULID and every relational reference are untouched — only the `name` and its FTS
-    /// row change — so the memory carries its whole history forward, which is what lets the agent follow
-    /// a person who changes the name they go by (a transition above all) without splitting or
-    /// misaddressing them. Guarded like the agent's other writes, not gated like a merge: `self` is
-    /// operator-only, and the new name must be free — renaming onto a handle that already belongs to a
-    /// *different* memory is a collision (a teachable error), never a silent merge of the two. Renaming
-    /// a memory to the name it already holds is a no-op.
-    pub fn rename(&mut self, id: MemoryId, new_name: &str) -> Result<(), MemoryError> {
-        self.guard_self(id)?;
-        match self.resolve(new_name)? {
-            Some(existing) if existing == id => return Ok(()),
-            Some(_) => return Err(MemoryError::NameExists(MemoryName::new(new_name))),
-            None => {}
-        }
-        // A rename always reaches here from a live handle, so the old name resolves; a vanished memory
-        // is a defensive no-op (the materializer's update would touch no rows either).
-        let Some(old_name) = self.resolve_name(id)? else {
-            return Ok(());
-        };
-        self.touched.insert(id);
-        self.buffer.push(EventPayload::memory_renamed(
-            id,
-            old_name,
-            MemoryName::new(new_name),
-        ));
-        Ok(())
-    }
-
-    /// Resolve a name to a memory id, or `None`, for `memory.get` — touches the result so it enters
-    /// the lock set.
-    /// Resolve a name to a memory for `memory.get`, returning the id and whether it matched a *former*
-    /// name (an alias of a renamed memory) rather than a current one. A current name always wins; only
-    /// when none holds the name does an old name resolve, flagged so the agent answers under the
-    /// current handle and recognizes the person rather than treating the old name as a stranger (spec
-    /// §Identity → Renaming). The looked-up result is touched, like every read.
-    pub fn get(&mut self, name: &str) -> Result<Option<(MemoryId, bool)>, MemoryError> {
-        if let Some(id) = self.resolve(name)? {
-            self.touched.insert(id);
-            return Ok(Some((id, false)));
-        }
-        if let Some(id) = self
-            .engine
-            .graph
-            .lock()
-            .memory_id_for_former_name(MemoryName::new(name))?
-        {
-            self.touched.insert(id);
-            return Ok(Some((id, true)));
-        }
-        Ok(None)
-    }
-
-    /// Append a content entry to `id`. `opts.by_agent` attributes it to the agent; `opts.visibility`
-    /// forces the visibility; otherwise the write-time default applies (a `#confidential` room, or an
-    /// aside about an absent third party, defaults private to the teller).
-    pub fn append(
-        &mut self,
-        id: MemoryId,
-        text: &str,
-        opts: AppendOptions,
-    ) -> Result<EntryId, MemoryError> {
-        self.guard_self(id)?;
-        self.guard_operator(id)?;
-        let told_by = if opts.by_agent {
-            Teller::Agent
-        } else {
-            self.teller.clone()
-        };
-        let name = self.resolve_name(id)?;
-        let visibility = self.resolve_visibility(
-            name.as_ref().map(MemoryName::as_str),
-            id,
-            &told_by,
-            opts.visibility,
-        )?;
-        // Reject a recurrence the scheduler cannot interpret before it is buffered, rather than
-        // committing a Recurring entry that silently never fires. Surfaced as a teachable error so the
-        // agent reissues with a supported rule.
-        Self::validate_occurred_at(opts.occurred_at.as_ref())?;
-        let entry_id =
-            self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at);
-        // An inline volatility classification: set the memory's volatility alongside the append, so the
-        // agent can mark a fast-changing fact in one call rather than a separate `set_volatility`.
-        if let Some(volatility) = opts.volatility {
-            self.buffer.push(EventPayload::memory_volatility_set(
-                id,
-                volatility.into_volatility(),
-            ));
-        }
-        Ok(entry_id)
-    }
-
-    /// Supersede `old` with `new` on `id` — the agent corrected or retracted a fact, recording which
-    /// entry replaces it (spec §Visibility → superseded entries are not live). Both must be live
-    /// entries of `id`'s `same_as` class (a live read, so the lock layer holds the class). Buffers a
-    /// `MemorySuperseded`; the superseded entry then drops from every live surface while remaining in
-    /// history. Like an append, it is a write to `id`, so platform authority may not supersede a
-    /// `self` entry.
-    pub fn supersede(
-        &mut self,
-        id: MemoryId,
-        old: EntryId,
-        new: EntryId,
-    ) -> Result<(), MemoryError> {
-        self.guard_self(id)?;
-        self.guard_operator(id)?;
-        let live = self.live_class_entry_ids(id)?;
-        if !live.contains(&old) {
-            return Err(MemoryError::UnknownEntry(old));
-        }
-        if !live.contains(&new) {
-            return Err(MemoryError::UnknownEntry(new));
-        }
-        self.touched.insert(id);
-        self.buffer
-            .push(EventPayload::memory_superseded(id, old, new));
-        Ok(())
-    }
-
-    /// Revise a fact in one call: append `text` as a new entry on `id`, then supersede `old` with it.
-    /// This is the find-and-supersede flow without the append-then-supersede two-step — and it cannot
-    /// half-apply: the append and supersede run as a [`MemoryBlock::transaction`], so if the supersede
-    /// fails (e.g. `old` is not a live entry), the append's buffered event is rolled back and the error
-    /// propagates, leaving no orphaned new entry beside the stale value. Returns the new entry.
-    pub fn revise(
-        &mut self,
-        id: MemoryId,
-        old: EntryId,
-        text: &str,
-        opts: AppendOptions,
-    ) -> Result<EntryId, MemoryError> {
-        self.transaction(|block| {
-            let new = block.append(id, text, opts)?;
-            block.supersede(id, old, new)?;
-            Ok(new)
-        })
-    }
-
-    /// The memory's live content entries: its whole `same_as` class from the graph plus this block's
-    /// pending appends, minus any superseded this block (read-your-writes). A traversing read, so it
-    /// touches every class member, not just `id`. Each entry is addressable (by id) so the agent can
-    /// hand one to [`MemoryBlock::supersede`].
-    pub fn entries(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
-        // A supersession buffered this block (not yet committed) must hide its target from this live
-        // read too, so the agent sees the effect of a correction it just made.
-        let pending_superseded = self.pending_superseded();
-        let (members, annotated, disputed) = {
-            let graph = self.engine.graph.lock();
-            let members = graph.class_members(id)?;
-            let disputed = graph.disputed_entries(id)?;
-            let live: Vec<EntryView> = graph
-                .class_entries(id)?
-                .into_iter()
-                .filter(|entry| !pending_superseded.contains(&entry.entry_id))
-                .collect();
-            let annotated = self.annotate(&graph, id, live)?;
-            (members, annotated, disputed)
-        };
-        let members = self.touch_class(id, members);
-        let mut refs: Vec<EntryRef> = annotated
-            .into_iter()
-            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
-            .collect();
-        refs.extend(self.pending_entries(&members, &pending_superseded));
-        Ok(refs)
-    }
-
-    /// The memory's entries including superseded ones, oldest first — the agent's `mem:history()` view
-    /// (spec §Per-memory history), the read where history is the point and the live filter is bypassed.
-    /// Like [`MemoryBlock::entries`], a class-traversing read over the graph plus this block's pending
-    /// appends; pending supersessions are *not* applied, since history keeps the superseded entries.
-    pub fn history(&mut self, id: MemoryId) -> Result<Vec<EntryRef>, MemoryError> {
-        let (members, annotated, disputed) = {
-            let graph = self.engine.graph.lock();
-            let members = graph.class_members(id)?;
-            let disputed = graph.disputed_entries(id)?;
-            let annotated = self.annotate(&graph, id, graph.class_history(id)?)?;
-            (members, annotated, disputed)
-        };
-        let members = self.touch_class(id, members);
-        let mut refs: Vec<EntryRef> = annotated
-            .into_iter()
-            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
-            .collect();
-        refs.extend(self.pending_entries(&members, &BTreeSet::new()));
-        Ok(refs)
-    }
-
-    /// The live members of `id`'s `same_as` class (including `id`), for the Lua lock layer to acquire
-    /// the whole class before a traversing read (spec §Concurrency → class-wide locking). A lock-free
-    /// read returning an owned list: it touches nothing itself — the traversing read it precedes records
-    /// the class into the touched set — and the graph guard is released before it returns.
-    pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, MemoryError> {
-        Ok(self.engine.graph.lock().class_members(id)?)
-    }
-
-    /// The handles a memory used to go by, most recent first — empty unless it has been renamed. Surfaced
-    /// on a `memory.get` handle so the agent connects a renamed person's old-name content to the same
-    /// person under their current handle (spec §Identity → Renaming).
-    pub fn former_names(&self, id: MemoryId) -> Result<Vec<String>, MemoryError> {
-        Ok(self
-            .engine
-            .graph
-            .lock()
-            .former_names(id)?
-            .into_iter()
-            .map(|name| name.as_str().to_owned())
-            .collect())
-    }
-
-    /// Links out of this memory's whole `same_as` class under `relation`, in the relation's canonical
-    /// forward direction — `mem:outgoing("mentor_of")` is who the identity mentors. A traversing read
-    /// (locks the class). The relation may be named by either label, but the *method* picks the
-    /// direction, not the label: use [`MemoryBlock::incoming`] for the reverse. An unregistered relation
-    /// is a teachable error. A symmetric relation has no direction, so `outgoing` and `incoming` return
-    /// the same neighbours under it.
-    pub fn outgoing(&mut self, id: MemoryId, relation: &str) -> Result<Vec<LinkRef>, MemoryError> {
-        self.directed_links(id, relation, LinkDirection::Outgoing)
-    }
-
-    /// Links into this memory's whole `same_as` class under `relation` — `mem:incoming("mentor_of")`
-    /// is who mentors the identity. The reverse of [`MemoryBlock::outgoing`]; see it for the details.
-    pub fn incoming(&mut self, id: MemoryId, relation: &str) -> Result<Vec<LinkRef>, MemoryError> {
-        self.directed_links(id, relation, LinkDirection::Incoming)
-    }
-
-    /// Every link out of this memory's whole `same_as` class, in every relation and both directions —
-    /// `mem:links()`, the relationship overview. A traversing read (locks the class). Like the
-    /// relation-registry reads, and unlike the content reads, this reflects only committed state: a
-    /// link created or removed in this same block is not yet visible here.
-    pub fn links(&mut self, id: MemoryId) -> Result<Vec<LinkRef>, MemoryError> {
-        self.class_link_refs(id)
-    }
-
-    /// Shared body of [`MemoryBlock::outgoing`] and [`MemoryBlock::incoming`]: resolve the relation to
-    /// its canonical label, then keep the class's links under it that run the wanted way (either way for
-    /// a symmetric relation).
-    fn directed_links(
-        &mut self,
-        id: MemoryId,
-        relation: &str,
-        want: LinkDirection,
-    ) -> Result<Vec<LinkRef>, MemoryError> {
-        let view = self
-            .relation(relation)?
-            .ok_or_else(|| MemoryError::UnknownRelation(RelationName::new(relation)))?;
-        Ok(self
-            .class_link_refs(id)?
-            .into_iter()
-            .filter(|link| link.relation == view.name && (view.symmetric || link.direction == want))
-            .collect())
-    }
-
-    /// Every link from `id`'s `same_as` class to a memory *outside* the class, oriented against the
-    /// class and carrying the far memory's name for legible rendering. The shared engine of the three
-    /// link readers. Edges internal to the class — the `same_as` plumbing and any other within-identity
-    /// edge — are dropped: a relationship the agent reasons about points out of the identity. Committed
-    /// state only (see [`MemoryBlock::links`]). A traversing read, so it touches the whole class.
-    fn class_link_refs(&mut self, id: MemoryId) -> Result<Vec<LinkRef>, MemoryError> {
-        let (members, refs) = {
-            let graph = self.engine.graph.lock();
-            let members = graph.class_members(id)?;
-            let class: BTreeSet<MemoryId> = members.iter().copied().collect();
-            let mut refs = Vec::new();
-            for edge in graph.class_links(id)? {
-                let (direction, other_id) =
-                    match (class.contains(&edge.from), class.contains(&edge.to)) {
-                        (true, false) => (LinkDirection::Outgoing, edge.to),
-                        (false, true) => (LinkDirection::Incoming, edge.from),
-                        // Within-class (both ends in the identity) or unrelated: not a relationship.
-                        _ => continue,
-                    };
-                let Some(other) = graph.memory_by_id(other_id)? else {
-                    continue;
-                };
-                // Resolve the teller's label off the held guard (teller_label re-locks the graph and
-                // would deadlock here); a participant teller is a committed person memory.
-                let told_by = match &edge.told_by {
-                    None => None,
-                    Some(Teller::Agent) => Some("you".to_owned()),
-                    Some(Teller::Bootstrap) => Some("genesis".to_owned()),
-                    Some(Teller::Participant(teller_id)) => Some(
-                        graph
-                            .memory_by_id(*teller_id)?
-                            .map(|memory| memory.name.as_str().to_owned())
-                            .unwrap_or_else(|| "someone".to_owned()),
-                    ),
-                };
-                refs.push(LinkRef {
-                    relation: edge.relation,
-                    other: other.id,
-                    other_name: other.name,
-                    direction,
-                    source: edge.source,
-                    told_by,
-                });
-            }
-            (members, refs)
-        };
-        self.touch_class(id, members);
-        Ok(refs)
-    }
-
-    /// The current time off the engine clock — the anchor the `calendar` date constructors build
-    /// relative dates on, so the agent names an operation rather than computing a date.
-    pub fn now(&self) -> Timestamp {
-        self.engine.clock.now()
-    }
-
-    /// Memories with a concrete occurrence within `within` of now (e.g. `"7 days"`, `"2 weeks"`;
-    /// defaults to 7 days), soonest first (spec §Calendar). A read, so the results are touched.
-    pub fn upcoming(&mut self, within: Option<&str>) -> Result<Vec<MemoryId>, MemoryError> {
-        let within_millis = match within {
-            Some(text) => time::parse_duration_millis(text)
-                .ok_or_else(|| MemoryError::BadCalendarArg(text.to_owned()))?,
-            None => DEFAULT_UPCOMING_DAYS * time::MILLIS_PER_DAY,
-        };
-        let now = self.engine.clock.now().as_millis();
-        self.occurrence_memories(
-            Timestamp::from_millis(now),
-            Timestamp::from_millis(now.saturating_add(within_millis)),
-        )
-    }
-
-    /// Memories with a concrete occurrence on the civil day `date` (`YYYY-MM-DD`).
-    pub fn on(&mut self, date: &str) -> Result<Vec<MemoryId>, MemoryError> {
-        let (from, to) =
-            time::day_window(date).ok_or_else(|| MemoryError::BadCalendarArg(date.to_owned()))?;
-        self.occurrence_memories(Timestamp::from_millis(from), Timestamp::from_millis(to))
-    }
-
-    /// Memories that carry a recurring occurrence — a listing; instances are not expanded yet.
-    pub fn recurring(&mut self) -> Result<Vec<MemoryId>, MemoryError> {
-        let ids: Vec<MemoryId> = self
-            .engine
-            .graph
-            .lock()
-            .recurring_memories()?
-            .into_iter()
-            .map(|memory| memory.id)
-            .collect();
-        for id in &ids {
-            self.touched.insert(*id);
-        }
-        Ok(ids)
-    }
-
-    /// The distinct memories with an occurrence in `[from, to]`, soonest first, touched as reads —
-    /// both concrete occurrences and the next in-window instance of a recurring entry (spec §Recurring
-    /// materialization), merged and ordered by instant so a weekly standup interleaves with one-offs.
-    fn occurrence_memories(
-        &mut self,
-        from: Timestamp,
-        to: Timestamp,
-    ) -> Result<Vec<MemoryId>, MemoryError> {
-        let mut items: Vec<(Timestamp, MemoryId)> = Vec::new();
-        {
-            let graph = self.engine.graph.lock();
-            for (memory, entry) in graph.occurrences_in_window(from, to)? {
-                if let Some(sort) = entry.occurred_sort {
-                    items.push((sort, memory.id));
-                }
-            }
-            for (instant, memory) in graph.recurring_in_window(from, to)? {
-                items.push((instant, memory.id));
-            }
-        }
-        items.sort_by_key(|(instant, _)| *instant);
-
-        let mut seen = BTreeSet::new();
-        let mut ordered = Vec::new();
-        for (_, id) in items {
-            if seen.insert(id) {
-                ordered.push(id);
-            }
-        }
-        for id in &ordered {
-            self.touched.insert(*id);
-        }
-        Ok(ordered)
-    }
-
-    /// Link `from` to `to` under a registered relation (e.g. flag a thread `active_in` the context).
-    pub fn link(
-        &mut self,
-        from: MemoryId,
-        to: MemoryId,
-        relation: RelationName,
-    ) -> Result<(), MemoryError> {
-        self.change_link(from, to, relation, true)
-    }
-
-    /// Remove such a link.
-    pub fn unlink(
-        &mut self,
-        from: MemoryId,
-        to: MemoryId,
-        relation: RelationName,
-    ) -> Result<(), MemoryError> {
-        self.change_link(from, to, relation, false)
-    }
-
-    /// Propose that two stubs are the same human across platforms, for the adjudication pass to weigh
-    /// (spec §Cross-platform identity → adjudicated merge). This is *not* a merge: it buffers an inert
-    /// `MergeProposed` — no `same_as`, no class change, nothing surfaces across the would-be merge — so
-    /// the agent records its judgment without itself collapsing two identities' visibility. A proposal
-    /// naming one memory twice is rejected as a teachable error; everything else (whether the two are
-    /// truly the same) is the adjudicator's call, on the evidence.
-    pub fn propose_merge(&mut self, from: MemoryId, to: MemoryId) -> Result<(), MemoryError> {
-        if from == to {
-            return Err(MemoryError::MergeProposalInvalid);
-        }
-        self.touched.insert(from);
-        self.touched.insert(to);
-        self.buffer.push(EventPayload::merge_proposed(from, to));
-        Ok(())
-    }
-
-    /// Register a link relation, accessible thereafter under either label; re-registering an existing
-    /// name updates it in place (the materializer upserts). The cardinality strings are parsed here, at
-    /// the block boundary, so a bad value is a teachable error rather than a silent mis-store.
-    pub fn register_relation(&mut self, spec: RelationSpec) -> Result<(), MemoryError> {
-        let from_card = parse_cardinality(&spec.from_card)?;
-        let to_card = parse_cardinality(&spec.to_card)?;
-        self.buffer.push(EventPayload::LinkTypeRegistered {
-            name: RelationName::new(spec.name),
-            inverse: RelationName::new(spec.inverse),
-            from_card,
-            to_card,
-            symmetric: spec.symmetric,
-            reflexive: spec.reflexive,
-        });
-        Ok(())
-    }
-
-    /// Every registered relation (committed), for `links.list`. A plain read of the projection; this
-    /// block's pending registrations are not yet reflected, like every other committed read.
-    pub fn all_relations(&self) -> Result<Vec<RelationView>, MemoryError> {
-        Ok(self.engine.graph.lock().all_relations()?)
-    }
-
-    /// A single registered relation by either label (committed), for `links.get`, or `None`.
-    pub fn relation(&self, name: &str) -> Result<Option<RelationView>, MemoryError> {
-        Ok(self.engine.graph.lock().relation(name)?)
-    }
-
-    /// Whether `relation` is registered under either label — checking this block's pending
-    /// `LinkTypeRegistered`s (read-your-writes) before the committed registry, so a relation registered
-    /// and linked within the same block is recognized (spec §Read-your-writes within a block).
-    fn relation_registered(&self, relation: &RelationName) -> Result<bool, MemoryError> {
-        let pending = self.buffer.iter().any(|event| {
-            matches!(
-                event,
-                EventPayload::LinkTypeRegistered { name, inverse, .. }
-                    if name == relation || inverse == relation
-            )
-        });
-        if pending {
-            return Ok(true);
-        }
-        Ok(self
-            .engine
-            .graph
-            .lock()
-            .relation(relation.as_str())?
-            .is_some())
-    }
-
-    /// Create a tag with a one-line purpose. A tag's description is set only at creation; applying it
-    /// never mutates it (spec §Tag operations). A name already in the vocabulary is a teachable error.
-    pub fn create_tag(&mut self, name: TagName, description: &str) -> Result<(), MemoryError> {
-        if self.tag_exists(&name)? {
-            return Err(MemoryError::TagExists(name));
-        }
-        self.buffer
-            .push(EventPayload::tag_created(name, description));
-        Ok(())
-    }
-
-    /// Change an existing tag's one-line purpose. The tag must already exist — re-describing an
-    /// unknown tag is a teachable error (create it first).
-    pub fn describe_tag(&mut self, name: TagName, description: &str) -> Result<(), MemoryError> {
-        if !self.tag_exists(&name)? {
-            return Err(MemoryError::UnknownTag(name));
-        }
-        self.buffer.push(EventPayload::tag_description_changed(
-            name,
-            description.to_owned(),
-        ));
-        Ok(())
-    }
-
-    /// Apply a tag to a memory. The tag must be in the vocabulary (`tags.create` first) — applying an
-    /// unknown tag is a teachable error, since a tag is a shared, described vocabulary rather than an
-    /// ad-hoc label. Tagging is idempotent at the projection (`INSERT OR IGNORE`).
-    pub fn tag(&mut self, id: MemoryId, tag: TagName) -> Result<(), MemoryError> {
-        self.guard_self(id)?;
-        if !self.tag_exists(&tag)? {
-            return Err(MemoryError::UnknownTag(tag));
-        }
-        self.touched.insert(id);
-        self.buffer
-            .push(EventPayload::tag_applied_to_memory(id, tag));
-        Ok(())
-    }
-
-    /// Remove a tag from a memory. Idempotent — removing a tag the memory does not carry is a no-op
-    /// at the projection — so it needs no vocabulary check.
-    pub fn untag(&mut self, id: MemoryId, tag: TagName) -> Result<(), MemoryError> {
-        self.guard_self(id)?;
-        self.touched.insert(id);
-        self.buffer
-            .push(EventPayload::tag_removed_from_memory(id, tag));
-        Ok(())
-    }
-
-    /// Set a memory's volatility — how fast its facts go out of date. `high` for fast-changing status
-    /// (a current location, a mood), `low` for durable facts, `medium` the default. Volatility steepens
-    /// the recency decay in search and, for `high`, lets an aged entry read as stale so the agent hedges
-    /// rather than asserting it as current (spec §Recency and volatility).
-    pub fn set_volatility(&mut self, id: MemoryId, level: &str) -> Result<(), MemoryError> {
-        self.guard_self(id)?;
-        let volatility = match level {
-            "low" => Volatility::Low,
-            "medium" => Volatility::Medium,
-            "high" => Volatility::High,
-            _ => return Err(MemoryError::UnknownVolatility(level.to_owned())),
-        };
-        self.touched.insert(id);
-        self.buffer
-            .push(EventPayload::memory_volatility_set(id, volatility));
-        Ok(())
-    }
-
-    /// The whole tag vocabulary (committed), for `tags.list`. A plain read of the projection; this
-    /// block's pending tag creations are not yet reflected, like every other committed read.
-    pub fn all_tags(&self) -> Result<Vec<TagVocabularyEntry>, MemoryError> {
-        Ok(self.engine.graph.lock().all_tags()?)
-    }
-
-    /// Whether `name` is a created tag — checking this block's pending `TagCreated`s (read-your-writes)
-    /// before the committed vocabulary, so a tag created and applied within the same block is
-    /// recognized.
-    fn tag_exists(&self, name: &TagName) -> Result<bool, MemoryError> {
-        let pending = self.buffer.iter().any(|event| {
-            matches!(event, EventPayload::TagCreated { name: created, .. } if created == name)
-        });
-        if pending {
-            return Ok(true);
-        }
-        Ok(self
-            .engine
-            .graph
-            .lock()
-            .tag_description(name.as_str())?
-            .is_some())
-    }
-
     /// The current conversation's context memory, or `None` — touches it so it enters the lock set.
     pub fn current_context(&mut self) -> Option<MemoryId> {
         if let Some(id) = self.told_in {
@@ -936,7 +317,7 @@ impl MemoryBlock {
     /// single-event operation needs no transaction: its one check-then-buffer is already atomic,
     /// since the check precedes the (infallible) buffer push. Used by [`MemoryBlock::revise`] and
     /// [`MemoryBlock::create_with_opts`].
-    fn transaction<R>(
+    pub(super) fn transaction<R>(
         &mut self,
         body: impl FnOnce(&mut Self) -> Result<R, MemoryError>,
     ) -> Result<R, MemoryError> {
@@ -950,57 +331,11 @@ impl MemoryBlock {
         }
     }
 
-    /// Enforce that `relation` is registered — the graph stores an unregistered relation as given, so
-    /// the contract is checked here — then buffer the create/remove and touch both endpoints.
-    fn change_link(
-        &mut self,
-        from: MemoryId,
-        to: MemoryId,
-        relation: RelationName,
-        create: bool,
-    ) -> Result<(), MemoryError> {
-        if !self.relation_registered(&relation)? {
-            return Err(MemoryError::UnknownRelation(relation));
-        }
-        // Cross-platform identity is operator-asserted only: a participant must not be able to steer
-        // the agent into merging (or splitting) two identities, which would collapse their visibility
-        // classes (spec §Cross-platform identity is operator-asserted only).
-        if relation == RelationName::SameAs && self.authority == Authority::Platform {
-            return Err(MemoryError::MergeForbidden);
-        }
-        // A link from or to `self` modifies the self model — barred outside the console.
-        self.guard_self(from)?;
-        self.guard_self(to)?;
-        // Operator-authored links carry operator provenance; the agent's own carry `Agent`. (The
-        // adjudicated `same_as` is authored by the merge-adjudication pass directly, not through a block,
-        // so it never reaches this seam — see `LinkSource::Adjudicated`.)
-        let source = match self.authority {
-            Authority::Operator => LinkSource::Operator,
-            Authority::Platform => LinkSource::Agent,
-        };
-        self.touched.insert(from);
-        self.touched.insert(to);
-        self.buffer.push(if create {
-            EventPayload::LinkCreated {
-                from,
-                to,
-                relation,
-                source,
-                // The relationship's provenance is the turn's teller, the same teller a content append
-                // would carry — so a later read of a belief-bearing link knows who asserted it.
-                told_by: Some(self.teller.clone()),
-            }
-        } else {
-            EventPayload::link_removed(from, to, relation)
-        });
-        Ok(())
-    }
-
     /// Reject a platform-authority write that touches `self`. The console (operator authority)
     /// is the only path permitted to edit `self`, so the self model cannot be forged from a
     /// conversation (spec §Imprint interview). `create("self")` needs no guard — it is already blocked
     /// by `NameExists`, since `self` is seeded at genesis.
-    fn guard_self(&self, id: MemoryId) -> Result<(), MemoryError> {
+    pub(super) fn guard_self(&self, id: MemoryId) -> Result<(), MemoryError> {
         if self.authority == Authority::Platform && Some(id) == self.self_id {
             return Err(MemoryError::SelfWriteForbidden);
         }
@@ -1011,7 +346,7 @@ impl MemoryBlock {
     /// no content of its own — facts about the operator belong on their real `person/<name>` profile,
     /// which is merged into it — so it stays a pure merge target. The merge (`same_as`) and `created_by`
     /// links to it are not content, so they are unaffected.
-    fn guard_operator(&self, id: MemoryId) -> Result<(), MemoryError> {
+    pub(super) fn guard_operator(&self, id: MemoryId) -> Result<(), MemoryError> {
         if Some(id) == self.operator_id {
             return Err(MemoryError::OperatorWriteForbidden);
         }
@@ -1025,7 +360,7 @@ impl MemoryBlock {
     /// defaulting to public is how a re-recorded confidence leaks — and must be classified. Any other
     /// write (a participant teller, or a non-subject memory like `self`/`topic/*`) takes the
     /// namespace/subject default.
-    fn resolve_visibility(
+    pub(super) fn resolve_visibility(
         &self,
         name: Option<&str>,
         id: MemoryId,
@@ -1054,7 +389,11 @@ impl MemoryBlock {
 
     /// Record `id` and its `same_as` class as touched (a traversing read locks the whole class), and
     /// return the class as a set for membership tests against the pending buffer.
-    fn touch_class(&mut self, id: MemoryId, members: Vec<MemoryId>) -> BTreeSet<MemoryId> {
+    pub(super) fn touch_class(
+        &mut self,
+        id: MemoryId,
+        members: Vec<MemoryId>,
+    ) -> BTreeSet<MemoryId> {
         self.touched.insert(id);
         let mut set = BTreeSet::new();
         for member in members {
@@ -1067,7 +406,7 @@ impl MemoryBlock {
 
     /// The entries this block has superseded but not yet committed — applied to the live reads so a
     /// correction's effect is visible within the block (read-your-writes).
-    fn pending_superseded(&self) -> BTreeSet<EntryId> {
+    pub(super) fn pending_superseded(&self) -> BTreeSet<EntryId> {
         self.buffer
             .iter()
             .filter_map(|event| match event {
@@ -1079,7 +418,7 @@ impl MemoryBlock {
 
     /// This block's pending content appends to any member of `members`, as entry refs, skipping any in
     /// `exclude` — the read-your-writes tail of a live or history entry read.
-    fn pending_entries(
+    pub(super) fn pending_entries(
         &self,
         members: &BTreeSet<MemoryId>,
         exclude: &BTreeSet<EntryId>,
@@ -1110,36 +449,11 @@ impl MemoryBlock {
             .collect()
     }
 
-    /// The [`EntryRef`] for an entry just appended this block (found in the buffer) — so `mem:append`
-    /// can hand back a handle that renders with the same visibility and teller a read would show.
-    pub fn entry_ref_by_id(&self, entry_id: EntryId) -> Option<EntryRef> {
-        self.buffer.iter().find_map(|event| match event {
-            EventPayload::MemoryContentAppended {
-                entry_id: appended,
-                text,
-                told_by,
-                visibility,
-                occurred_at,
-                ..
-            } if *appended == entry_id => Some(EntryRef {
-                entry_id: *appended,
-                text: text.clone(),
-                visibility: visibility.clone(),
-                teller: self.teller_label(told_by),
-                disputed: false,
-                occurred_at: occurred_at.clone(),
-                withheld: false,
-                stale: false,
-            }),
-            _ => None,
-        })
-    }
-
     /// Project an [`EntryView`] into an [`EntryRef`], resolving its teller to a readable label,
     /// marking it disputed when it is in the memory's set of unresolved-arbitration competing entries,
     /// and — when `withheld` — replacing its content with a stub so the confidence is not handed to a
     /// read whose present audience is not cleared to see it (see [`EntryRef::withheld`]).
-    fn entry_ref(
+    pub(super) fn entry_ref(
         &self,
         view: EntryView,
         disputed: &BTreeSet<EntryId>,
@@ -1172,7 +486,7 @@ impl MemoryBlock {
     ///
     /// *Stale* is independent of who is present — it is a fact about the entry's age on a `High`
     /// volatility memory (spec §Recency and volatility) — so it is computed for every read, audience or not.
-    fn annotate(
+    pub(super) fn annotate(
         &self,
         graph: &Graph,
         id: MemoryId,
@@ -1206,7 +520,7 @@ impl MemoryBlock {
 
     /// A readable label for who an entry is attributed to: the participant's canonical handle, `you`
     /// for the agent's own observations, or `genesis` for seeded content.
-    fn teller_label(&self, teller: &Teller) -> String {
+    pub(super) fn teller_label(&self, teller: &Teller) -> String {
         match teller {
             Teller::Participant(id) => self
                 .resolve_name(*id)
@@ -1222,7 +536,10 @@ impl MemoryBlock {
     /// The live entry ids of `id`'s `same_as` class: committed-live (the graph already excludes
     /// committed supersessions) plus this block's pending appends, minus what it has superseded —
     /// the set [`MemoryBlock::supersede`] validates its arguments against.
-    fn live_class_entry_ids(&self, id: MemoryId) -> Result<BTreeSet<EntryId>, MemoryError> {
+    pub(super) fn live_class_entry_ids(
+        &self,
+        id: MemoryId,
+    ) -> Result<BTreeSet<EntryId>, MemoryError> {
         let (members, committed) = {
             let graph = self.engine.graph.lock();
             (graph.class_members(id)?, graph.class_entries(id)?)
@@ -1240,22 +557,9 @@ impl MemoryBlock {
         Ok(ids)
     }
 
-    /// A write's `occurred_at` is one this build can interpret, or a teachable error. A `Recurring`
-    /// ref must carry a rule the wake-up scheduler can arm (a supported `FREQ`); a free-phrased cadence
-    /// such as "every Monday" is rejected here rather than becoming a silent dud. The other variants
-    /// carry no rule to misread.
-    fn validate_occurred_at(occurred_at: Option<&TemporalRef>) -> Result<(), MemoryError> {
-        match occurred_at {
-            Some(TemporalRef::Recurring(rule)) if !time::rrule_is_supported(rule) => {
-                Err(MemoryError::UnsupportedRecurrence(rule.0.to_string()))
-            }
-            _ => Ok(()),
-        }
-    }
-
     /// Buffer a content entry and touch its memory, returning the minted entry id (so a write can be
     /// handed back to the agent as an addressable entry — see [`MemoryBlock::append`]).
-    fn push_content(
+    pub(super) fn push_content(
         &mut self,
         id: MemoryId,
         text: String,
@@ -1280,7 +584,7 @@ impl MemoryBlock {
 
     /// Resolve a name to a memory id, consulting this block's pending creates/renames before the
     /// graph (read-your-writes).
-    fn resolve(&self, name: &str) -> Result<Option<MemoryId>, GraphError> {
+    pub(super) fn resolve(&self, name: &str) -> Result<Option<MemoryId>, GraphError> {
         for event in &self.buffer {
             match event {
                 EventPayload::MemoryCreated { id, name: created } if created.as_str() == name => {
@@ -1325,7 +629,7 @@ impl MemoryBlock {
     /// Resolve a memory's name, honoring a pending `MemoryCreated` not yet projected — so a handle to a
     /// memory created this block reads its name (and the teller label for an entry attributed within the
     /// same block).
-    fn resolve_name(&self, id: MemoryId) -> Result<Option<MemoryName>, GraphError> {
+    pub(super) fn resolve_name(&self, id: MemoryId) -> Result<Option<MemoryName>, GraphError> {
         let pending = self.buffer.iter().find_map(|event| match event {
             EventPayload::MemoryCreated { id: created, name } if *created == id => {
                 Some(name.clone())
@@ -1343,13 +647,6 @@ impl MemoryBlock {
         }
     }
 }
-
-const DEFAULT_UPCOMING_DAYS: i64 = 7;
-
-/// The text a withheld entry carries in place of its content (see [`EntryRef::withheld`]). It names
-/// only that something was confided — the date and teller ride the entry's own marker — so the agent
-/// can acknowledge a confidence exists and decline to share it, without ever holding the words.
-const WITHHELD_STUB: &str = "(withheld — a confidence not for the present audience)";
 
 #[cfg(test)]
 mod tests;
