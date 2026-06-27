@@ -84,7 +84,7 @@ mod harness {
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
-        FakeEmbedder, Graph, InMemoryVectorIndex, InstanceFeatures, ManualClock, MemoryId,
+        Event, FakeEmbedder, Graph, InMemoryVectorIndex, InstanceFeatures, ManualClock, MemoryId,
         MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView,
         VectorIndex,
         model::index::{apply_batch, embed_batch},
@@ -365,6 +365,12 @@ mod harness {
                 )
                 .await
                 .unwrap()
+        }
+
+        /// The whole event log from seq zero, in order — the common test read after a turn or
+        /// catch-up pass. Saves the `store.lock().read_from(Seq::ZERO).unwrap()` boilerplate.
+        pub fn events(&self) -> Vec<Event> {
+            self.engine.store.lock().read_from(Seq::ZERO).unwrap()
         }
     }
 }

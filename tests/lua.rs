@@ -11,8 +11,8 @@ use common::Harness;
 use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
     Clock, Completion, ConversationLocator, Engine, Graph, InstanceFeatures, ManualClock, MemoryId,
-    MemoryName, MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Seq,
-    Session, Store, TagName, Teller, TemporalRef, TerminalCause, TurnId, Visibility,
+    MemoryName, MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Session,
+    Store, TagName, Teller, TemporalRef, TerminalCause, TurnId, Visibility,
     event::{ArbitrationResolution, EventPayload, EventSource},
     resolve_or_mint_conversation,
 };
@@ -845,22 +845,15 @@ async fn abort_discards_the_buffer() {
     );
 
     // A LuaExecuted recording the abort is still in the log (the agent saw the outcome).
-    let aborted = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
-        .into_iter()
-        .any(|e| {
-            matches!(
-                e.payload,
-                EventPayload::LuaExecuted {
-                    terminal_cause: Some(TerminalCause::Aborted(_)),
-                    ..
-                }
-            )
-        });
+    let aborted = h.events().into_iter().any(|e| {
+        matches!(
+            e.payload,
+            EventPayload::LuaExecuted {
+                terminal_cause: Some(TerminalCause::Aborted(_)),
+                ..
+            }
+        )
+    });
     assert!(aborted);
 }
 
@@ -896,11 +889,7 @@ async fn lua_executed_records_the_script_result_and_touched_set() {
         .await;
 
     let recorded = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .find_map(|e| match e.payload {
             EventPayload::LuaExecuted {
@@ -1957,7 +1946,7 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
         "a refused merge must leave the stubs in separate classes"
     );
     drop(graph);
-    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    let events = h.events();
     assert!(
         events.iter().any(|e| matches!(
             &e.payload,

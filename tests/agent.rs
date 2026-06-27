@@ -7,11 +7,11 @@ use serde::Serialize;
 
 use common::Harness;
 use zuihitsu::{
-    BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, InferredLink,
-    InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace, NewRelationSpec,
-    OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, Store,
+    BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Event, EventPayload,
+    InferredLink, InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace,
+    NewRelationSpec, OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq,
     TerminalCause, Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns,
-    event::EventPayload, genesis, run_turn,
+    genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -30,11 +30,9 @@ fn run_lua_call(script: &str) -> Completion {
     }])
 }
 
-fn count_agent_turns(store: &dyn Store) -> usize {
-    store
-        .read_from(Seq::ZERO)
-        .unwrap()
-        .into_iter()
+fn count_agent_turns(events: &[Event]) -> usize {
+    events
+        .iter()
         .filter(|e| {
             matches!(
                 &e.payload,
@@ -73,8 +71,8 @@ async fn tool_call_then_reply_commits_and_replies() {
             .is_some()
     );
     // Exactly one agent turn for the cycle, plus the inbound participant turn and a LuaExecuted.
-    assert_eq!(count_agent_turns(h.engine.store.lock().as_ref()), 1);
-    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    let events = h.events();
     assert!(events.iter().any(|e| matches!(
         &e.payload,
         EventPayload::ConversationTurn {
@@ -139,11 +137,7 @@ async fn descriptions_regenerate_after_a_turn() {
     // It carries provenance: which model and template produced it. (Genesis also seeds self's
     // description, with null provenance, so match Dave's specifically.)
     let produced_by = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .find_map(|e| match e.payload {
             EventPayload::MemoryDescriptionRegenerated {
@@ -307,13 +301,12 @@ struct SynthesizeArbitration {
     statement: String,
 }
 
-fn temporal_resolutions(store: &dyn Store) -> Vec<EventPayload> {
-    store
-        .read_from(Seq::ZERO)
-        .unwrap()
-        .into_iter()
-        .map(|e| e.payload)
+fn temporal_resolutions(events: &[Event]) -> Vec<EventPayload> {
+    events
+        .iter()
+        .map(|e| &e.payload)
         .filter(|p| matches!(p, EventPayload::EntryTemporalResolved { .. }))
+        .cloned()
         .collect()
 }
 
@@ -359,10 +352,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     assert_eq!(entries[0].occurred_sort, Some(day_noon("2026-06-02")));
-    assert_eq!(
-        temporal_resolutions(h.engine.store.lock().as_ref()).len(),
-        1
-    );
+    assert_eq!(temporal_resolutions(&h.events()).len(), 1);
 }
 
 #[tokio::test]
@@ -408,16 +398,15 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
     assert_eq!(entries[0].occurred_sort, Some(day_noon("2020-01-01")));
-    assert!(temporal_resolutions(h.engine.store.lock().as_ref()).is_empty());
+    assert!(temporal_resolutions(&h.events()).is_empty());
 }
 
-fn belief_arbitrations(store: &dyn Store) -> Vec<EventPayload> {
-    store
-        .read_from(Seq::ZERO)
-        .unwrap()
-        .into_iter()
-        .map(|e| e.payload)
+fn belief_arbitrations(events: &[Event]) -> Vec<EventPayload> {
+    events
+        .iter()
+        .map(|e| &e.payload)
         .filter(|p| matches!(p, EventPayload::BeliefArbitrated { .. }))
+        .cloned()
         .collect()
 }
 
@@ -470,7 +459,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
         .unwrap()
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(dave.id).unwrap();
-    let arbitrations = belief_arbitrations(h.engine.store.lock().as_ref());
+    let arbitrations = belief_arbitrations(&h.events());
     assert_eq!(arbitrations.len(), 1);
     let EventPayload::BeliefArbitrated {
         memory,
@@ -525,7 +514,7 @@ async fn a_single_sided_arbitration_is_dropped() {
         .await
         .unwrap();
 
-    assert!(belief_arbitrations(h.engine.store.lock().as_ref()).is_empty());
+    assert!(belief_arbitrations(&h.events()).is_empty());
 }
 
 #[tokio::test]
@@ -624,11 +613,7 @@ async fn agent_turns_record_their_provenance() {
     run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
 
     let turns: Vec<(TurnRole, Option<_>)> = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .filter_map(|e| match e.payload {
             EventPayload::ConversationTurn {
@@ -667,7 +652,7 @@ async fn stay_silent_terminal_posts_nothing() {
 
     assert_eq!(outcome, TurnOutcome::Silent);
     // Auditable silence: an agent turn is still recorded, with empty text.
-    let silent_recorded = h.engine.store.lock().read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
+    let silent_recorded = h.events().into_iter().any(|e| {
         matches!(
             &e.payload,
             EventPayload::ConversationTurn { role: TurnRole::Agent, text, .. } if text.is_empty()
@@ -692,8 +677,8 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
 
     assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
     // The cycle still records exactly one agent turn, carrying the surfaced error.
-    assert_eq!(count_agent_turns(h.engine.store.lock().as_ref()), 1);
-    let surfaced = h.engine.store.lock().read_from(Seq::ZERO).unwrap().into_iter().any(|e| {
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    let surfaced = h.events().into_iter().any(|e| {
         matches!(
             &e.payload,
             EventPayload::ConversationTurn { role: TurnRole::Agent, text, .. } if text.contains("max steps")
@@ -717,11 +702,7 @@ async fn tool_result_feeds_back_across_steps() {
 
     // Two LuaExecuted events (two blocks), both committed.
     let lua_events = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .filter(|e| matches!(e.payload, EventPayload::LuaExecuted { .. }))
         .count();
@@ -830,7 +811,7 @@ async fn real_model_drives_a_turn() {
     match outcome {
         Ok(outcome) => {
             // The loop completed against the real model. Exactly one agent turn was recorded.
-            assert_eq!(count_agent_turns(h.engine.store.lock().as_ref()), 1);
+            assert_eq!(count_agent_turns(&h.events()), 1);
             eprintln!("real-model turn outcome: {outcome:?}");
         }
         Err(error) => eprintln!("skipping: {error}"),
@@ -901,20 +882,23 @@ async fn real_model_extracts_temporal_references() {
 
 /// The `ModelCalled` events of a run, in `seq` order, projected to the fields the tests assert over.
 fn model_calls(
-    store: &dyn Store,
+    events: &[Event],
 ) -> Vec<(ModelPhase, Option<RequestRecord>, Option<String>, String)> {
-    store
-        .read_from(Seq::ZERO)
-        .unwrap()
-        .into_iter()
-        .filter_map(|e| match e.payload {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
             EventPayload::ModelCalled {
                 phase,
                 request,
                 reasoning,
                 request_digest,
                 ..
-            } => Some((phase, request, reasoning, request_digest)),
+            } => Some((
+                *phase,
+                request.clone(),
+                reasoning.clone(),
+                request_digest.clone(),
+            )),
             _ => None,
         })
         .collect()
@@ -946,7 +930,7 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
         .await
         .unwrap();
 
-    let calls = model_calls(h.engine.store.lock().as_ref());
+    let calls = model_calls(&h.events());
     // No description-regen template is registered (no genesis), so synthesis never runs: exactly the
     // two step calls are recorded.
     assert_eq!(calls.len(), 2, "one ModelCalled per step");
@@ -982,7 +966,7 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
     assert_eq!(reconstructed, seen[1]);
 
     // Block timing rides on the LuaExecuted (the field is recorded; it cannot be negative).
-    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    let events = h.events();
     assert!(events.iter().any(|e| matches!(
         &e.payload,
         EventPayload::LuaExecuted { duration_ms, .. } if *duration_ms < u64::MAX
@@ -998,7 +982,7 @@ async fn digest_capture_keeps_the_digest_but_drops_the_request() {
         .await
         .unwrap();
 
-    let calls = model_calls(h.engine.store.lock().as_ref());
+    let calls = model_calls(&h.events());
     assert_eq!(calls.len(), 1);
     // The request is dropped, but the digest survives for an integrity check.
     assert!(calls[0].1.is_none(), "Digest drops the request payload");
@@ -1015,7 +999,7 @@ async fn off_capture_records_no_model_interaction() {
         .unwrap();
 
     assert!(
-        model_calls(h.engine.store.lock().as_ref()).is_empty(),
+        model_calls(&h.events()).is_empty(),
         "Off emits no ModelCalled events"
     );
 }
@@ -1081,11 +1065,7 @@ async fn real_model_supersedes_a_corrected_fact() {
 
     // What the model actually did, step by step — the deliberation surface.
     let superseded_ids: std::collections::BTreeSet<EntryId> = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .filter_map(|event| match event.payload {
             EventPayload::LuaExecuted {
@@ -1222,7 +1202,7 @@ async fn link_inference_registers_and_links_from_content() {
     h.describe(&model).await;
     h.link_inference(&model).await;
 
-    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    let events = h.events();
 
     // A LinkTypeRegistered for authored_by was committed.
     let registered = events.iter().any(|e| {
@@ -1321,11 +1301,7 @@ async fn link_inference_is_idempotent() {
 
     // Count inferred LinkCreated events after the first pass.
     let first_count = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .filter(|e| {
             matches!(
@@ -1341,11 +1317,7 @@ async fn link_inference_is_idempotent() {
     // Re-run from the same cursor — no new events (the cursor advance prevents re-scanning).
     h.link_inference(&model).await;
     let second_count = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .filter(|e| {
             matches!(
@@ -1404,11 +1376,7 @@ async fn link_inference_degrades_gracefully_with_no_usable_reply() {
     h.link_inference(&ScriptedModel::new([])).await;
 
     let inferred = h
-        .engine
-        .store
-        .lock()
-        .read_from(Seq::ZERO)
-        .unwrap()
+        .events()
         .into_iter()
         .filter(|e| {
             matches!(
@@ -1507,7 +1475,7 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
     h.describe(&inference_model).await;
     h.link_inference(&inference_model).await;
 
-    let events = h.engine.store.lock().read_from(Seq::ZERO).unwrap();
+    let events = h.events();
     let linked = events.iter().any(|e| {
         matches!(
             &e.payload,
