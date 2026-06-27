@@ -9,10 +9,12 @@
 
 mod adjudicate;
 mod describe;
+mod error;
 mod link_inference;
 
 pub use adjudicate::run_adjudicate_catch_up;
 pub use describe::run_describe_catch_up;
+pub use error::TurnError;
 pub use link_inference::{
     InferredLink, LinkInferenceArgs, NewRelationSpec, run_link_inference_catch_up,
 };
@@ -34,7 +36,6 @@ use crate::{
         EventPayload, Initiation, ModelPhase, ProducedBy, PromptTemplateName, RequestRecord,
         Teller, TerminalCause, TurnRole,
     },
-    graph::GraphError,
     ids::{ConversationId, MemoryId, Namespace, Seq, TurnId},
     memory::memory_block::Authority,
     metrics::{observe_lua_block, observe_lua_block_error, observe_model_call},
@@ -48,7 +49,7 @@ use crate::{
 };
 
 use super::{
-    lua::{self, BlockOutcome, LuaError, Session},
+    lua::{self, BlockOutcome, Session},
     system_prompt, templates,
 };
 
@@ -1002,59 +1003,4 @@ fn append_turn(
         }],
     )?;
     Ok(())
-}
-
-/// A failure running a turn.
-#[derive(Debug)]
-pub enum TurnError {
-    Model(ModelError),
-    Lua(LuaError),
-    Store(StoreError),
-    Graph(GraphError),
-}
-
-impl std::fmt::Display for TurnError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TurnError::Model(error) => write!(f, "turn (model): {error}"),
-            TurnError::Lua(error) => write!(f, "turn (lua): {error}"),
-            TurnError::Store(error) => write!(f, "turn (store): {error}"),
-            TurnError::Graph(error) => write!(f, "turn (graph): {error}"),
-        }
-    }
-}
-
-impl std::error::Error for TurnError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            TurnError::Model(error) => Some(error),
-            TurnError::Lua(error) => Some(error),
-            TurnError::Store(error) => Some(error),
-            TurnError::Graph(error) => Some(error),
-        }
-    }
-}
-
-impl From<ModelError> for TurnError {
-    fn from(error: ModelError) -> Self {
-        TurnError::Model(error)
-    }
-}
-
-impl From<LuaError> for TurnError {
-    fn from(error: LuaError) -> Self {
-        TurnError::Lua(error)
-    }
-}
-
-impl From<StoreError> for TurnError {
-    fn from(error: StoreError) -> Self {
-        TurnError::Store(error)
-    }
-}
-
-impl From<GraphError> for TurnError {
-    fn from(error: GraphError) -> Self {
-        TurnError::Graph(error)
-    }
 }

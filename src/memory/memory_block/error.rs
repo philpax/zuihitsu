@@ -1,0 +1,154 @@
+//! The memory-block error type — the teachable violations and infrastructure failures a block
+//! operation surfaces, delegating its message to the underlying cause.
+
+use crate::{
+    graph::GraphError,
+    ids::{EntryId, MemoryName},
+    vocabulary::{RelationName, TagName},
+};
+
+/// A write that violates an invariant, surfaced to the agent as a teachable error, or an underlying
+/// graph read failure. The teachable variants' `Display` is the agent-facing message the Lua layer
+/// renders as the block's terminal cause, so they are deliberately unprefixed — the agent reads
+/// them, not an operator. The [`Graph`](MemoryError::Graph) variant is infrastructure (the Lua layer
+/// intercepts it and surfaces a generic "internal graph error" to the agent, stashing the real error
+/// for the operator), so it carries a `memory:` context prefix per the error-display convention,
+/// nesting the graph error's own `materialized graph (…)` prefix.
+#[derive(Debug)]
+pub enum MemoryError {
+    /// A `create` collided with an existing name (names are unique).
+    NameExists(MemoryName),
+    /// A `link`/`unlink` named a relation that is not a registered link type.
+    UnknownRelation(RelationName),
+    /// A `tags.create` named a tag already in the vocabulary — creation forces a fresh purpose, so a
+    /// collision is a teachable error (apply it, or change its purpose with `tags.describe`).
+    TagExists(TagName),
+    /// A `mem:tag`/`tags.describe` named a tag that was never created. Tags are a described, shared
+    /// vocabulary, so they must be created (`tags.create`) before they are applied or re-described.
+    UnknownTag(TagName),
+    /// A `links.register` gave a cardinality that is neither "one" nor "many".
+    BadCardinality(String),
+    /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
+    /// Only the console (operator authority) may edit `self`.
+    SelfWriteForbidden,
+    /// A write tried to record content on `person/operator`, the operator's provisional identity
+    /// anchor. It holds no content of its own — facts about the operator belong on their real
+    /// `person/<name>` profile, which is merged into it — so the anchor stays a pure merge target.
+    OperatorWriteForbidden,
+    /// A platform-authority write tried to assert or retract a `same_as` merge directly. The agent
+    /// never authors a `same_as` from a turn — it `propose_merge`s, and the adjudication pass (or the
+    /// operator) decides; a retraction is operator-only.
+    MergeForbidden,
+    /// A merge proposal named the same memory twice — there is nothing to merge.
+    MergeProposalInvalid,
+    /// An agent-authored entry about a person was written with no explicit visibility. Such a write
+    /// has no protective default — the aside mechanism keys on a participant teller, not the agent —
+    /// so it must classify the entry rather than fall silently to public (which is how a re-recorded
+    /// confidence leaks).
+    VisibilityRequired,
+    /// A `set_volatility` named a level that is not `low`, `medium`, or `high`.
+    UnknownVolatility(String),
+    /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
+    /// or a non-`YYYY-MM-DD` date.
+    BadCalendarArg(String),
+    /// An `occurred_at` recurrence is not a rule this build can interpret — a free-phrased cadence
+    /// such as "every Monday" rather than an RFC 5545 rule with a supported `FREQ`. Such a rule would
+    /// arm a wake-up no one can derive, so the write is rejected for the agent to reissue correctly.
+    UnsupportedRecurrence(String),
+    /// A `supersede` named an entry that is not a live entry of the memory's `same_as` class — an
+    /// unknown id, or one already superseded. The agent supersedes entries it read from the same
+    /// memory, so this is a teachable misuse.
+    UnknownEntry(EntryId),
+    /// A graph read failed — infrastructure, not the agent's doing.
+    Graph(GraphError),
+}
+
+impl std::fmt::Display for MemoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemoryError::NameExists(name) => write!(
+                f,
+                "a memory named {:?} already exists; fetch it with memory.get",
+                name.as_str()
+            ),
+            MemoryError::UnknownRelation(relation) => write!(
+                f,
+                "unknown relation {:?}; register it with links.register first, or call links.list \
+                 for the known relations",
+                relation.as_str()
+            ),
+            MemoryError::TagExists(name) => write!(
+                f,
+                "a tag named {:?} already exists; apply it with mem:tag, or change its purpose with \
+                 tags.describe",
+                name.as_str()
+            ),
+            MemoryError::UnknownTag(name) => write!(
+                f,
+                "unknown tag {:?}; create it first with tags.create(name, purpose)",
+                name.as_str()
+            ),
+            MemoryError::BadCardinality(value) => {
+                write!(f, "cardinality {value:?} must be \"one\" or \"many\"")
+            }
+            MemoryError::SelfWriteForbidden => {
+                write!(f, "self can only be edited from the console")
+            }
+            MemoryError::OperatorWriteForbidden => {
+                write!(
+                    f,
+                    "person/operator is a provisional anchor and holds no content; record what you \
+                     learn about the operator on their real person/<name> profile, which is merged \
+                     into it"
+                )
+            }
+            MemoryError::MergeProposalInvalid => {
+                write!(f, "a merge proposal must name two different memories")
+            }
+            MemoryError::MergeForbidden => {
+                write!(f, "same_as merges can only be asserted from the console")
+            }
+            MemoryError::VisibilityRequired => write!(
+                f,
+                "set this entry's visibility explicitly — pass {{ visibility = \"public\" }} or \
+                 {{ visibility = \"private\" }}; an agent-authored note about a person has no safe \
+                 default"
+            ),
+            MemoryError::UnknownVolatility(level) => write!(
+                f,
+                "unknown volatility {level:?}; use \"low\", \"medium\", or \"high\""
+            ),
+            MemoryError::BadCalendarArg(arg) => write!(
+                f,
+                "could not read the calendar argument {arg:?}; use a duration like \"7 days\" or a \
+                 date like \"2026-06-03\""
+            ),
+            MemoryError::UnsupportedRecurrence(rule) => write!(
+                f,
+                "the recurrence {rule:?} is not a supported rule; use an RFC 5545 rule with a \
+                 supported FREQ, e.g. {{ recurring = \"FREQ=WEEKLY;BYDAY=MO\" }} for every Monday"
+            ),
+            MemoryError::UnknownEntry(entry) => write!(
+                f,
+                "no live entry {} on this memory; supersede an entry you read from it",
+                entry.0
+            ),
+            MemoryError::Graph(error) => write!(f, "memory: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for MemoryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            MemoryError::Graph(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<GraphError> for MemoryError {
+    fn from(error: GraphError) -> MemoryError {
+        MemoryError::Graph(error)
+    }
+}
