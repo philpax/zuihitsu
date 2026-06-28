@@ -615,7 +615,8 @@ struct RelationDef {
 fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        ActiveIn, Created, CreatedBy, HasActive, KnownBy, Knows, Operates, OperatorOf, SameAs,
+        ActiveIn, Created, CreatedBy, HasActive, HasParticipant, KnownBy, Knows, Operates,
+        OperatorOf, ParticipatesIn, SameAs,
     };
     vec![
         // created_by is historical origin (one creator); distinct from current operatorship.
@@ -668,6 +669,19 @@ fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "A memory is live in a context — used by flush to carry open threads into \
                 the next session. Not for attendance or general association.",
+        },
+        // A person's involvement in an event: person/ --participates_in--> event/, inverse
+        // event/ --has_participant--> person/. Distinct from active_in (compaction plumbing) and
+        // knows (person-to-person): the people at an event are participants, not attendees of a
+        // context or acquaintances of the event.
+        RelationDef {
+            name: ParticipatesIn,
+            inverse: HasParticipant,
+            from_card: Many,
+            to_card: Many,
+            symmetric: false,
+            reflexive: false,
+            description: "A person is in an event — someone who will be there or took part.",
         },
     ]
 }
