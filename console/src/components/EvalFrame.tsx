@@ -3,7 +3,6 @@ import { Link, Outlet, useMatch } from "react-router-dom";
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { Event } from "../types/Event.ts";
 import { type EvalContext, type LiveEvalStatus, NO_LIVE_RUNS } from "../lib/liveEval.ts";
-import { formatDate } from "../lib/format.ts";
 import { Dot } from "./primitives.tsx";
 import { FrameNav } from "./FrameNav.tsx";
 
@@ -80,7 +79,7 @@ export function EvalFrame({
               {live ? (
                 <LiveProgress pkg={pkg} />
               ) : (
-                <span>{formatDate(pkg.meta.finished_at_ms)}</span>
+                <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
               )}
             </span>
             <button
