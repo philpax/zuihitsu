@@ -114,7 +114,8 @@ impl Scenario for RecallsConnections {
         ctx.index_catch_up().await?;
         // Turn 2: a different room, an empty buffer — answering means reading Dave's connections back,
         // not echoing the live conversation. The asker is Erin, herself one of Dave's connections, so a
-        // good reply recognizes that and may address her as "you" — which the judge credits as naming her.
+        // reasonable reply may only name Frank (the other connection) and omit Erin, assuming she
+        // already knows she is one of Dave's connections.
         ctx.turn(Turn::new(
             "discord",
             "hallway",
@@ -136,18 +137,18 @@ impl Scenario for RecallsConnections {
         );
         let judged = judge
             .assess(
-                "The reply identifies both of Dave's connections — Frank, and Erin. Because Erin is \
-                 the one asking, the agent referring to her as \"you\" (e.g. \"Dave knows you and \
-                 Frank\") counts as correctly naming Erin — indeed, recognizing that it is talking \
-                 to one of Dave's connections is good. The reply passes if it conveys that Dave's \
-                 two connections are Frank and Erin (named or addressed as \"you\").",
+                "The reply identifies Dave's connections: it names Frank. Erin is also one of Dave's \
+                 connections, but since Erin is the one asking, the agent may reasonably omit her — \
+                 she already knows. Addressing Erin as \"you\" (e.g. \"Dave knows you and Frank\") is \
+                 fine but not required. The reply passes if it conveys that Frank is one of Dave's \
+                 connections; omitting Erin alone does not fail it.",
                 &evidence,
             )
             .await;
 
         vec![
             Verdict::from_judge_outcome(
-                "recalls both of Dave's connections",
+                "recalls Dave's connections",
                 VerdictKind::Metric,
                 judged,
             ),
