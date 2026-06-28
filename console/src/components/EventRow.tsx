@@ -1,0 +1,112 @@
+import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+
+import type { EventPayload } from "../types/EventPayload.ts";
+import type { EventCategory } from "../lib/events.ts";
+import { CATEGORY_COLOR } from "../lib/events.ts";
+import { useStreamBase } from "../lib/useStreamLocation.ts";
+import { EventDetail } from "../views/EventDetail.tsx";
+
+/// The shared shape of an expandable event row — the fields both [`TurnOutcome`] and
+/// [`BackgroundEvent`] carry. Extracting it keeps the Conversation view's turn outcomes and the
+/// Background view's rows in sync as the [`EventDetail`] rendering evolves.
+export interface EventRowData {
+  seq: number;
+  recordedAt: number;
+  type: EventPayload["type"];
+  category: EventCategory;
+  summary: string;
+  payload: EventPayload;
+}
+
+/// A one-line event summary that expands, in place, into the same specialized viewer the Events
+/// tab uses. Shared by the Conversation view's turn outcomes and the Background view's rows. When
+/// `triggeredBy` is present, a dim annotation renders below the summary line linking back to the
+/// conversation turn that triggered the background pass.
+export function EventRow({
+  row,
+  nameById,
+  triggeredBy,
+}: {
+  row: EventRowData;
+  nameById: Map<string, string>;
+  triggeredBy?: {
+    speaker: string | null;
+    text: string;
+    platform: string;
+    scopePath: string;
+  } | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const base = useStreamBase();
+  return (
+    <li className="font-mono text-2xs">
+      <button
+        onClick={() => setOpen(!open)}
+        className="group flex w-full items-baseline gap-2 text-left"
+        title={open ? "Collapse" : "Expand the event"}
+      >
+        <span className="text-ink-faint">↳</span>
+        <span className={CATEGORY_COLOR[row.category]}>{row.type}</span>
+        <span
+          className={
+            "truncate transition-colors " +
+            (open ? "text-ink" : "text-ink-soft group-hover:text-ink")
+          }
+        >
+          {row.summary}
+        </span>
+      </button>
+      {triggeredBy && <TriggeredBy {...triggeredBy} base={base} />}
+      {open && (
+        <div className="mb-1 ml-4 mt-1 border-l-2 border-line py-1 pl-3">
+          <EventDetail
+            payload={row.payload}
+            nameById={nameById}
+            base={base}
+            seq={row.seq}
+            recordedAt={row.recordedAt}
+          />
+        </div>
+      )}
+    </li>
+  );
+}
+
+/// A dim, clickable annotation below a background-pass row linking back to the conversation turn
+/// that last touched its memory before the pass ran. The annotation shows the triggering turn's
+/// speaker and a truncated snippet of its text. Clicking navigates to the Conversation view with
+/// the triggering room selected (turn-level focus is future work).
+function TriggeredBy({
+  speaker,
+  text,
+  platform,
+  scopePath,
+  base,
+}: {
+  speaker: string | null;
+  text: string;
+  platform: string;
+  scopePath: string;
+  base: string;
+}): ReactNode {
+  const room = `${platform} · ${scopePath}`;
+  const snippet = text.replace(/\s+/g, " ").trim();
+  const label = speaker ? `after ${speaker}'s turn` : "after the agent's turn";
+  const to = `${base}/conversation?room=${encodeURIComponent(room)}`;
+  return (
+    <div className="ml-4 mt-0.5">
+      <Link
+        to={to}
+        className="text-ink-faint transition-colors hover:text-clay"
+        title={`Open the conversation in ${room}`}
+      >
+        {label}
+        {" · "}
+        <span className="italic">
+          {snippet.length > 60 ? `“${snippet.slice(0, 60)}…”` : `“${snippet}”`}
+        </span>
+      </Link>
+    </div>
+  );
+}

@@ -10,6 +10,7 @@ import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
+import { BackgroundView } from "../views/BackgroundView.tsx";
 import { DiffView } from "../views/DiffView.tsx";
 
 // The graph view pulls a force-graph/canvas library, so it loads only when the Graph tab is opened.
@@ -154,6 +155,9 @@ export function StreamWorkspace({
               />
             )}
             {view === "agenda" && <AgendaView replica={replica} events={events} cursor={cursor} />}
+            {view === "background" && (
+              <BackgroundView replica={replica} events={events} cursor={cursor} />
+            )}
             {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
             {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
             {extra?.node}

@@ -64,6 +64,21 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
   }
 }
 
+/// The event types the background passes emit — log-only audit records with no conversation or
+/// turn attribution. They surface in the Background view rather than the Conversation transcript.
+export const BACKGROUND_TYPES = new Set<EventPayload["type"]>([
+  "MemoryDescriptionRegenerated",
+  "BeliefArbitrated",
+  "LinksInferred",
+  "MergeAdjudicated",
+]);
+
+/// Whether an event type is produced by a background pass (the describer, adjudicator,
+/// link-inference, or merge-adjudicator), and so belongs in the Background view.
+export function isBackgroundEvent(type: EventPayload["type"]): boolean {
+  return BACKGROUND_TYPES.has(type);
+}
+
 /// Resolve a memory id to its handle, falling back to an abbreviated id when it is not in the map —
 /// how the Events log and the per-event detail name the ids they reference.
 export function refName(id: string, nameById: Map<string, string>): string {

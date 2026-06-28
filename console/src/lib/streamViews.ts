@@ -3,6 +3,7 @@
 /// workspace component so both can import it without dragging a component across a module boundary.
 export const STREAM_VIEWS = [
   { id: "conversation", label: "Conversation" },
+  { id: "background", label: "Background" },
   { id: "state", label: "State" },
   { id: "graph", label: "Graph" },
   { id: "agenda", label: "Agenda" },
