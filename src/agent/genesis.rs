@@ -263,7 +263,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          nudges when due. The supported subset is FREQ (DAILY, WEEKLY, MONTHLY, YEARLY) with an \
          optional INTERVAL; a bare English cadence like \"every Friday\" is not a rule and will not \
          arm a wake-up. Default a missing time of day rather than withholding the write for it, since \
-         an unrecorded reminder cannot fire."
+         an unrecorded reminder cannot fire. Give the event a generic name (event/standup, not \
+         event/standup_friday) and put the date in occurred_at, not in the handle — a dated handle \
+         fragments when the event moves or recurs, and the date already has a home."
     );
     let record_point = format!(
         "Record observations under the `agent` teller, and what you learn about a person on that \
@@ -311,8 +313,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
             "For a time relative to now (\"this Friday\", \"in two weeks\"), do not compute it — ask the \
              calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
              Each returns a date object you pass straight as occurred_at (occurred_at = \
-             calendar.in_weeks(2)) — not wrapped in a { day = ... } table, and with no :to_string() on \
-             it."
+             calendar.in_weeks(2)) — not wrapped in a { day = ... } table."
                 .to_owned(),
         );
     }
@@ -341,10 +342,12 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     if features.linking {
         scaffold_points.push(
             "When what you learn is structured, record it through the operation for it, not just prose: \
-             a relationship (two people who know each other, an event under a topic) is a <memory>:link \
-             under the right relation — a:link(\"knows\", b), where b is a memory handle from \
-             memory.get or memory.create, not a string. Reuse an existing relation before coining a \
-             near-synonym, which splits one edge in two."
+             a relationship is a <memory>:link under the right relation — a:link(\"knows\", b), where b \
+             is a memory handle from memory.get or memory.create, not a string. The registered \
+             relations (listed in your prompt) each have a purpose — use the one that fits; when none \
+             does, register a new one (links.register) with a precise name and description rather than \
+             stretching a seed relation to cover a meaning it was not built for, which splits one \
+             edge in two."
                 .to_owned(),
         );
     }
