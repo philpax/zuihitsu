@@ -5,4 +5,4 @@
  * on the `LinksInferred` audit event so the model's reasoning is replayable. Mirrors the agent
  * crate's `NewRelationSpec`, defined here so the core event type does not depend on the agent crate.
  */
-export type InferredRelationSpec = { name: string, inverse: string, from_card: string, to_card: string, symmetric: boolean, reflexive: boolean, };
+export type InferredRelationSpec = { name: string, inverse: string, from_card: string, to_card: string, symmetric: boolean, reflexive: boolean, description: string, };
