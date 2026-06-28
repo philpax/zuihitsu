@@ -917,7 +917,7 @@ async fn the_working_set_carries_into_the_next_session_brief() {
 }
 
 #[tokio::test]
-async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
+async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouched() {
     let (server, clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
@@ -925,10 +925,10 @@ async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
 
     let leads = ConversationLocator::new("discord", "leads");
     let model = ScriptedModel::with_usage([
-        // Session 1: flag a thread active_in the room (an ordinary turn, under budget).
+        // Session 1: flag a thread _session_carryover the room (an ordinary turn, under budget).
         (
             run_lua_call(
-                r#"local t = memory.create("topic/migration", "Plan the DB migration"); t:link("active_in", context.current())"#,
+                r#"local t = memory.create("topic/migration", "Plan the DB migration"); t:link("_session_carryover", context.current())"#,
             ),
             10,
         ),
@@ -960,7 +960,7 @@ async fn an_active_in_thread_carries_across_a_compaction_even_when_untouched() {
         .unwrap();
 
     // Session 2 never touched the migration thread, yet it carries into session 3's brief — proving
-    // active_in is a distinct, persistent working-set source, not just an alias for touch-derivation.
+    // _session_carryover is a distinct, persistent working-set source, not just an alias for touch-derivation.
     let sessions = server.control().sessions(&leads).unwrap();
     let latest = sessions.last().unwrap();
     assert!(

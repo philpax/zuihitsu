@@ -190,7 +190,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              you learn that two memories relate — two people who know each other, an event that \
              belongs to a topic — capture it with link rather than only describing it in their text, \
              so the connection is queryable and can be traversed (pick the fitting relation from the \
-             registry). One such use is flagging a still-open thread active_in the current context, \
+             registry). One such use is flagging a still-open thread _session_carryover the current context, \
              so it carries into the next session across a compaction. For a symmetric relation (shown \
              in the registry), link once — the reverse direction is implied, so linking both ways is \
              redundant.",
@@ -205,7 +205,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
     let unlink = AE::new("<memory>:unlink")
         .description(
-            "Remove a link made with <memory>:link, e.g. clear active_in on a thread that has closed.",
+            "Remove a link made with <memory>:link, e.g. clear _session_carryover on a thread that
+             has closed.",
         )
         .required("relation", AT::String, "the relation")
         .required("other", AT::Handle, "the memory the link points to");

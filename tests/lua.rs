@@ -536,12 +536,12 @@ async fn append_carries_teller_context_and_default_visibility() {
 }
 
 #[tokio::test]
-async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
+async fn link_flags_a_memory_session_carryover_the_context_and_unlink_clears_it() {
     let mut store = MemoryStore::new();
     let clock = ManualClock::new(common::time::EARLY);
     let mut graph = Graph::open_in_memory().unwrap();
 
-    // A room (with its context memory), the active_in relation, and a thread memory.
+    // A room (with its context memory), the _session_carryover relation, and a thread memory.
     let conversation = resolve_or_mint_conversation(
         &mut store,
         &clock,
@@ -555,8 +555,8 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
             clock.now(),
             vec![
                 EventPayload::LinkTypeRegistered {
-                    name: RelationName::ActiveIn,
-                    inverse: RelationName::HasActive,
+                    name: RelationName::SessionCarryover,
+                    inverse: RelationName::SessionCarries,
                     from_card: Cardinality::Many,
                     to_card: Cardinality::Many,
                     symmetric: false,
@@ -585,20 +585,24 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         dry_run: false,
     };
 
-    // The agent flags the thread active_in the current context.
+    // The agent flags the thread _session_carryover the current context.
     let outcome = session
         .execute(
             &engine,
             &context_block(),
             &common::prepare_script(
-                r#"memory.get(TOPIC_ROADMAP):link("active_in", context.current())"#,
+                r#"memory.get(TOPIC_ROADMAP):link("_session_carryover", context.current())"#,
             ),
         )
         .await
         .unwrap();
     assert!(matches!(outcome, BlockOutcome::Committed { .. }));
-    // Read back through the has_active inverse: the context now carries the thread.
-    let active = engine.graph.lock().outgoing(context, "has_active").unwrap();
+    // Read back through the _session_carries inverse: the context now carries the thread.
+    let active = engine
+        .graph
+        .lock()
+        .outgoing(context, RelationName::SessionCarries.as_str())
+        .unwrap();
     assert!(active.iter().any(|memory| memory.id == roadmap));
 
     // Unlinking clears it.
@@ -607,7 +611,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
             &engine,
             &context_block(),
             &common::prepare_script(
-                r#"memory.get(TOPIC_ROADMAP):unlink("active_in", context.current())"#,
+                r#"memory.get(TOPIC_ROADMAP):unlink("_session_carryover", context.current())"#,
             ),
         )
         .await
@@ -616,7 +620,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
         engine
             .graph
             .lock()
-            .outgoing(context, "has_active")
+            .outgoing(context, RelationName::SessionCarries.as_str())
             .unwrap()
             .is_empty()
     );

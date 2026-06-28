@@ -17,6 +17,7 @@ use crate::{
     },
     model::ModelClient,
     settings::Settings,
+    vocabulary::RelationName,
 };
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
@@ -252,7 +253,7 @@ impl Platform<'_> {
             .await?;
 
         // Re-read the buffer (now including any flush turn) for the carried tail, and assemble the
-        // working set (likewise after the flush, so its writes and active_in flags are included).
+        // working set (likewise after the flush, so its writes and _session_carryover flags are included).
         let buffer = buffer_turns(
             self.server.engine.store.lock().as_ref(),
             conversation,
@@ -275,10 +276,10 @@ impl Platform<'_> {
     }
 
     /// The working set carried across a compaction seam (spec §Compaction → working-set carryover):
-    /// the context's `active_in`-flagged threads first — deliberate "keep this live" signals,
+    /// the context's `_session_carryover`-flagged threads first — deliberate "keep this live" signals,
     /// promoted to first-class survivors — then the touch-derived set, deduped. (The third source,
     /// the brief's recent facts, the brief adds itself.) Read after the flush, which is what sets the
-    /// `active_in` flags and records the touches.
+    /// `_session_carryover` flags and records the touches.
     fn compaction_working_set(
         &self,
         conversation: ConversationId,
@@ -300,7 +301,7 @@ impl Platform<'_> {
                 .engine
                 .graph
                 .lock()
-                .outgoing(context, "has_active")?;
+                .outgoing(context, RelationName::SessionCarries.as_str())?;
             for memory in actives {
                 if seen.insert(memory.id) {
                     working_set.push(memory.id);

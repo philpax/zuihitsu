@@ -462,7 +462,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::Flush,
             version: 1,
-            // The `active_in` guidance teaches `:link`, so it is included only when linking is on.
+            // The `_session_carryover` guidance teaches `:link`, so it is included only when linking is on.
             // The rest of the flush instruction (write durable state, set visibility) stands either way.
             body: flush_template_body(features),
         },
@@ -549,7 +549,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     ]
 }
 
-/// The Flush template body. Its `active_in` guidance teaches `:link`, so it is dropped when linking
+/// The Flush template body. Its `_session_carryover` guidance teaches `:link`, so it is dropped when linking
 /// is off; the rest of the flush instruction (write durable state, set visibility) stands either
 /// way. Assembling conditionally keeps the three gates (Lua registration, API reference, scaffold)
 /// in lockstep — the agent is not taught to link when it cannot.
@@ -574,8 +574,8 @@ fn flush_template_body(features: &InstanceFeatures) -> String {
             .to_owned();
     if features.linking {
         body.push_str(
-            " For threads still open, link the relevant memories `active_in` the current context, \
-             and clear `active_in` on threads that have closed, so the next session resurfaces what \
+            " For threads still open, link the relevant memories `_session_carryover` the current context, \
+             and clear `_session_carryover` on threads that have closed, so the next session resurfaces what \
              is still live.",
         );
     }
@@ -615,8 +615,8 @@ struct RelationDef {
 fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        ActiveIn, Created, CreatedBy, HasActive, HasParticipant, KnownBy, Knows, Operates,
-        OperatorOf, ParticipatesIn, SameAs,
+        Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, ParticipatesIn,
+        SameAs, SessionCarries, SessionCarryover,
     };
     vec![
         // created_by is historical origin (one creator); distinct from current operatorship.
@@ -659,19 +659,21 @@ fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "Two platform stubs are the same person — cross-platform identity.",
         },
-        // A memory flagged live in a context; used by compaction carryover.
+        // A memory flagged for carryover across a compaction seam: the agent links it
+        // `_session_carryover` the current context during flush, so the next session resurfaces it.
+        // System plumbing, not a semantic relationship — the leading underscore signals this..
         RelationDef {
-            name: ActiveIn,
-            inverse: HasActive,
+            name: SessionCarryover,
+            inverse: SessionCarries,
             from_card: Many,
             to_card: Many,
             symmetric: false,
             reflexive: false,
-            description: "A memory is live in a context — used by flush to carry open threads into \
-                the next session. Not for attendance or general association.",
+            description: "A memory is carried into the next session from this context — set during \
+                flush, cleared when the thread closes. System plumbing, not a semantic relationship.",
         },
         // A person's involvement in an event: person/ --participates_in--> event/, inverse
-        // event/ --has_participant--> person/. Distinct from active_in (compaction plumbing) and
+        // event/ --has_participant--> person/. Distinct from _session_carryover (compaction plumbing) and
         // knows (person-to-person): the people at an event are participants, not attendees of a
         // context or acquaintances of the event.
         RelationDef {

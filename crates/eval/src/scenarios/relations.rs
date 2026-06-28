@@ -329,7 +329,7 @@ impl Scenario for AttributesRelationshipToTeller {
 /// inference pass expects it (on the topic), and the only variable is whether the inference prompt
 /// extracts the relationship. This isolates the inference pass from the agent's content-placement
 /// decisions. `mentored_by` is chosen because none of the seed relations (knows, created_by,
-/// active_in, same_as) covers it, so the pass must coin a new relation rather than reusing one.
+/// _session_carryover, same_as) covers it, so the pass must coin a new relation rather than reusing one.
 pub struct InfersLinkFromContent;
 
 #[async_trait]
@@ -350,7 +350,7 @@ impl Scenario for InfersLinkFromContent {
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
         // Set up the state directly as a synthetic event log: create person/clara, then topic/zephyr
         // with a public entry describing a mentoring relationship that no registered relation covers.
-        // The seed relations are knows, created_by/operator_of, active_in/has_active, same_as — none
+        // The seed relations are knows, created_by/operator_of, _session_carryover/_session_carries, same_as — none
         // fits "mentored by," so the inference pass must coin `mentored_by` and create the link.
         //
         // A minimal conversation (room + session + one participant turn) is seeded too, so the
