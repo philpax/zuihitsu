@@ -17,6 +17,7 @@ mod scenarios;
 mod serve;
 
 use std::{
+    io::Write,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -84,6 +85,9 @@ enum Command {
         #[arg(long, conflicts_with = "no_serve")]
         serve_after_completion: bool,
     },
+    /// List every scenario the harness knows, with its category, bar, and whether it needs
+    /// retrieval. Use this to pick `--scenario` substrings or decide which domain to run.
+    List,
     /// Export the eval-package and event-log types to TypeScript (the viewer's type contract).
     ExportTypes {
         /// The directory to write the `.ts` bindings into.
@@ -121,6 +125,7 @@ enum Command {
 async fn main() -> ExitCode {
     init_tracing();
     match Cli::parse().command {
+        Command::List => list_scenarios(),
         Command::ExportTypes { dir } => export_types(&dir),
         Command::Analyze {
             package,
@@ -180,6 +185,49 @@ async fn main() -> ExitCode {
             }
         },
     }
+}
+
+fn list_scenarios() -> ExitCode {
+    use anstyle::{AnsiColor, Style};
+
+    let mut scenarios = scenarios::all();
+    scenarios.sort_by(|a, b| {
+        let (ma, mb) = (a.meta(), b.meta());
+        format!("{:?}", ma.category)
+            .cmp(&format!("{:?}", mb.category))
+            .then_with(|| ma.name.cmp(&mb.name))
+    });
+
+    let mut out = anstream::stdout();
+    let cat_style = Style::new().fg_color(Some(AnsiColor::Cyan.into())).bold();
+    let name_style = Style::new().fg_color(Some(AnsiColor::Blue.into()));
+    let bar_gating = Style::new().fg_color(Some(AnsiColor::Red.into()));
+    let bar_metric = Style::new().fg_color(Some(AnsiColor::Yellow.into()));
+    let dim = Style::new().dimmed();
+
+    let _ = writeln!(out);
+    let mut prev_category: Option<package::Category> = None;
+    for scenario in &scenarios {
+        let meta = scenario.meta();
+        if prev_category != Some(meta.category) {
+            if prev_category.is_some() {
+                let _ = writeln!(out);
+            }
+            let category = format!("{:?}", meta.category).to_lowercase();
+            let _ = writeln!(out, "{cat_style}{category}:{cat_style:#}");
+            prev_category = Some(meta.category);
+        }
+        let bar = match meta.bar {
+            package::Bar::Gating => format!("{bar_gating}gating{bar_gating:#}"),
+            package::Bar::Metric { threshold } => {
+                format!("{bar_metric}metric (≥{threshold:.1}){bar_metric:#}")
+            }
+        };
+        let _ = writeln!(out, "    {name_style}{}{name_style:#}: {}", meta.name, bar,);
+        let _ = writeln!(out, "        {dim}{}{dim:#}", meta.description);
+    }
+    let _ = writeln!(out, "\n{} scenarios", scenarios.len());
+    ExitCode::SUCCESS
 }
 
 fn export_types(dir: &Path) -> ExitCode {

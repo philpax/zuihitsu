@@ -3189,6 +3189,8 @@ dependencies = [
 name = "zuihitsu-eval"
 version = "0.1.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "async-stream",
  "async-trait",
  "axum",
