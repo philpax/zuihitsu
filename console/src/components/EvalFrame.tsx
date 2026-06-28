@@ -3,6 +3,7 @@ import { Link, Outlet, useMatch } from "react-router-dom";
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { Event } from "../types/Event.ts";
 import { type EvalContext, type LiveEvalStatus, NO_LIVE_RUNS } from "../lib/liveEval.ts";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { Dot } from "./primitives.tsx";
 import { FrameNav } from "./FrameNav.tsx";
 
@@ -31,6 +32,7 @@ export function EvalFrame({
   const crumb = runMatch
     ? { scenario: runMatch.params.scenario ?? "", run: runMatch.params.run ?? "" }
     : null;
+  useDocumentTitle("eval", runMatch?.params.view);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-4 sm:px-8">

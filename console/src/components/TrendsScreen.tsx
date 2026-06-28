@@ -1,4 +1,5 @@
 import type { HistoryEntry } from "../lib/history.ts";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { TrendsView } from "../views/TrendsView.tsx";
 import { FrameNav } from "./FrameNav.tsx";
 
@@ -11,6 +12,7 @@ export function TrendsScreen({
   entries: HistoryEntry[];
   onClose: () => void;
 }) {
+  useDocumentTitle("trends");
   return (
     <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-4 sm:px-8">
       <header className="flex items-baseline justify-between border-b border-line py-6">

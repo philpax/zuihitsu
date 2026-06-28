@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from "react";
 
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { Eyebrow } from "./primitives.tsx";
 
 /// The empty state: a single stacked list of ways into the console. Every entry shares one row shape,
@@ -18,6 +19,7 @@ export function Landing({
   onWatchEval: (baseUrl: string) => void;
   error: string | null;
 }) {
+  useDocumentTitle("console");
   return (
     <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-8">
       <div className="mb-9 flex flex-col items-center gap-2">
