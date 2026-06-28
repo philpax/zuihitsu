@@ -50,6 +50,7 @@ export interface RelationView {
   to_card: Cardinality;
   symmetric: boolean;
   reflexive: boolean;
+  description: string;
 }
 
 export interface TagVocabularyEntry {

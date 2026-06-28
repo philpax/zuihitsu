@@ -5,7 +5,7 @@ export const STREAM_VIEWS = [
   { id: "conversation", label: "Conversation" },
   { id: "background", label: "Background" },
   { id: "state", label: "State" },
-  { id: "graph", label: "Graph" },
+  { id: "relations", label: "Relations" },
   { id: "agenda", label: "Agenda" },
   { id: "events", label: "Events" },
   { id: "compare", label: "Time-travel" },

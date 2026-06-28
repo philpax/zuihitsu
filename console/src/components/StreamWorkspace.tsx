@@ -13,9 +13,9 @@ import { AgendaView } from "../views/AgendaView.tsx";
 import { BackgroundView } from "../views/BackgroundView.tsx";
 import { DiffView } from "../views/DiffView.tsx";
 
-// The graph view pulls a force-graph/canvas library, so it loads only when the Graph tab is opened.
-const MemoryGraphView = lazy(() =>
-  import("../views/MemoryGraphView.tsx").then((module) => ({ default: module.MemoryGraphView })),
+// The relations view pulls a force-graph/canvas library, so it loads only when the Relations tab is opened.
+const RelationsView = lazy(() =>
+  import("../views/RelationsView.tsx").then((module) => ({ default: module.RelationsView })),
 );
 
 /// The views over a single event stream — the debugging surface shared by the eval and agent
@@ -137,13 +137,13 @@ export function StreamWorkspace({
             transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
           >
             {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
-            {view === "graph" && (
+            {view === "relations" && (
               <Suspense
                 fallback={
-                  <div className="py-16 text-center text-sm text-ink-faint">Loading the graph…</div>
+                  <div className="py-16 text-center text-sm text-ink-faint">Loading relations…</div>
                 }
               >
-                <MemoryGraphView key={cursor} replica={replica} cursor={cursor} />
+                <RelationsView key={cursor} replica={replica} cursor={cursor} />
               </Suspense>
             )}
             {view === "conversation" && (
