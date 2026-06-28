@@ -329,15 +329,16 @@ impl Graph {
                 to_card,
                 symmetric,
                 reflexive,
+                description,
             } => {
                 self.conn
                     .execute(
-                        "INSERT INTO relations (name, inverse, from_card, to_card, symmetric, reflexive)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                        "INSERT INTO relations (name, inverse, from_card, to_card, symmetric, reflexive, description)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                          ON CONFLICT(name) DO UPDATE SET
                              inverse = excluded.inverse, from_card = excluded.from_card,
                              to_card = excluded.to_card, symmetric = excluded.symmetric,
-                             reflexive = excluded.reflexive",
+                             reflexive = excluded.reflexive, description = excluded.description",
                         params![
                             name.as_str(),
                             inverse.as_str(),
@@ -345,6 +346,7 @@ impl Graph {
                             to_card.as_str(),
                             i64::from(*symmetric),
                             i64::from(*reflexive),
+                            description,
                         ],
                     )
                     .map_err(backend)?;

@@ -146,9 +146,9 @@ pub(super) fn make_handle(lua: &Lua, id: MemoryId, metatable: &Table) -> mlua::R
     Ok(handle)
 }
 
-/// Build a relation result `{ name, inverse, from_card, to_card, symmetric, reflexive }` backed by the
-/// relation metatable, so it prints readably. Cardinalities render lowercase, matching the casing
-/// `links.register` accepts.
+/// Build a relation result `{ name, inverse, from_card, to_card, symmetric, reflexive, description }`
+/// backed by the relation metatable, so it prints readably. Cardinalities render lowercase, matching
+/// the casing `links.register` accepts.
 pub(super) fn make_relation_result(
     lua: &Lua,
     view: &RelationView,
@@ -161,6 +161,7 @@ pub(super) fn make_relation_result(
     table.set("to_card", view.to_card.as_str().to_lowercase())?;
     table.set("symmetric", view.symmetric)?;
     table.set("reflexive", view.reflexive)?;
+    table.set("description", view.description.as_str())?;
     table.set_metatable(Some(metatable.clone()))?;
     Ok(table)
 }

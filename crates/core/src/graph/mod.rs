@@ -74,6 +74,8 @@ pub struct RelationView {
     pub to_card: Cardinality,
     pub symmetric: bool,
     pub reflexive: bool,
+    /// The relation's one-line purpose, surfaced in the prompt and `links.list`/`get`.
+    pub description: String,
 }
 
 /// A tag in the vocabulary as projected: its name, its one-line purpose, and how many live memories
@@ -259,12 +261,13 @@ impl Graph {
                  PRIMARY KEY (memory_id, tag)
              );
              CREATE TABLE IF NOT EXISTS relations (
-                 name      TEXT    PRIMARY KEY,
-                 inverse   TEXT    NOT NULL,
-                 from_card TEXT    NOT NULL,
-                 to_card   TEXT    NOT NULL,
-                 symmetric INTEGER NOT NULL,
-                 reflexive INTEGER NOT NULL
+                 name        TEXT    PRIMARY KEY,
+                 inverse     TEXT    NOT NULL,
+                 from_card   TEXT    NOT NULL,
+                 to_card     TEXT    NOT NULL,
+                 symmetric   INTEGER NOT NULL,
+                 reflexive   INTEGER NOT NULL,
+                 description TEXT    NOT NULL DEFAULT ''
              );
              CREATE TABLE IF NOT EXISTS links (
                  from_id  TEXT NOT NULL,

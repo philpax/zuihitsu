@@ -43,6 +43,7 @@ fn graph_with_self() -> (Graph, MemoryId) {
                     to_card: Cardinality::Many,
                     symmetric: false,
                     reflexive: false,
+                    description: String::new(),
                 },
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::SameAs,
@@ -51,6 +52,7 @@ fn graph_with_self() -> (Graph, MemoryId) {
                     to_card: Cardinality::Many,
                     symmetric: true,
                     reflexive: false,
+                    description: String::new(),
                 },
             ],
         )
@@ -169,6 +171,7 @@ fn content_writes_to_the_operator_anchor_are_forbidden_but_links_are_not() {
                     to_card: Cardinality::Many,
                     symmetric: true,
                     reflexive: false,
+                    description: String::new(),
                 },
             ],
         )

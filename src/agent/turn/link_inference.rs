@@ -203,6 +203,7 @@ async fn infer_links(
                         to_card: spec.to_card.clone(),
                         symmetric: spec.symmetric,
                         reflexive: spec.reflexive,
+                        description: spec.description.clone(),
                     })
                     .collect(),
                 links: result
@@ -273,6 +274,7 @@ async fn infer_links(
                 to_card,
                 symmetric: spec.symmetric,
                 reflexive: spec.reflexive,
+                description: spec.description.clone(),
             });
         }
 
@@ -449,13 +451,14 @@ fn render_prompt(
     } else {
         for relation in relations {
             prompt.push_str(&format!(
-                "- {}/{} (from: {}, to: {}, symmetric: {}, reflexive: {})\n",
+                "- {}/{} (from: {}, to: {}, symmetric: {}, reflexive: {}): {}\n",
                 relation.name.as_str(),
                 relation.inverse.as_str(),
                 relation.from_card.as_str(),
                 relation.to_card.as_str(),
                 relation.symmetric,
                 relation.reflexive,
+                relation.description,
             ));
         }
     }
@@ -492,6 +495,9 @@ pub struct NewRelationSpec {
     pub to_card: String,
     pub symmetric: bool,
     pub reflexive: bool,
+    /// A one-line purpose so the agent knows when to use the relation.
+    #[serde(default)]
+    pub description: String,
 }
 
 /// A relationship the model identifies, grounded in a numbered statement.

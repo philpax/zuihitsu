@@ -196,7 +196,8 @@ pub struct AppendOptions {
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities
 /// arrive as the lowercase strings the spec advertises (`"one"` / `"many"`) and are parsed at the
-/// block boundary; `symmetric` and `reflexive` default to `false`.
+/// block boundary; `symmetric` and `reflexive` default to `false`; `description` defaults to empty
+/// for a relation registered without one (the seed relations always carry one).
 #[derive(Debug, Deserialize)]
 pub struct RelationSpec {
     pub name: String,
@@ -207,6 +208,8 @@ pub struct RelationSpec {
     pub symmetric: bool,
     #[serde(default)]
     pub reflexive: bool,
+    #[serde(default)]
+    pub description: String,
 }
 
 /// Parse a cardinality from the lowercase string `links.register` advertises (`"one"` / `"many"`),

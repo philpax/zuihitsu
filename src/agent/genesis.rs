@@ -136,6 +136,7 @@ pub fn rollout(
                 to_card: relation.to_card,
                 symmetric: relation.symmetric,
                 reflexive: relation.reflexive,
+                description: relation.description.to_owned(),
             });
         }
     }
@@ -608,6 +609,7 @@ struct RelationDef {
     to_card: Cardinality,
     symmetric: bool,
     reflexive: bool,
+    description: &'static str,
 }
 
 fn seed_relations() -> Vec<RelationDef> {
@@ -624,6 +626,8 @@ fn seed_relations() -> Vec<RelationDef> {
             to_card: Many,
             symmetric: false,
             reflexive: false,
+            description: "A thing's historical origin — who created it. Distinct from current \
+                operatorship.",
         },
         RelationDef {
             name: OperatorOf,
@@ -632,6 +636,8 @@ fn seed_relations() -> Vec<RelationDef> {
             to_card: Many,
             symmetric: false,
             reflexive: false,
+            description: "Who currently operates or runs a thing — the present operator, not the \
+                originator.",
         },
         RelationDef {
             name: Knows,
@@ -640,6 +646,7 @@ fn seed_relations() -> Vec<RelationDef> {
             to_card: Many,
             symmetric: false,
             reflexive: false,
+            description: "One person knows another — a person-to-person relationship.",
         },
         // Cross-platform identity: symmetric, and its own inverse.
         RelationDef {
@@ -649,6 +656,7 @@ fn seed_relations() -> Vec<RelationDef> {
             to_card: Many,
             symmetric: true,
             reflexive: false,
+            description: "Two platform stubs are the same person — cross-platform identity.",
         },
         // A memory flagged live in a context; used by compaction carryover.
         RelationDef {
@@ -658,6 +666,8 @@ fn seed_relations() -> Vec<RelationDef> {
             to_card: Many,
             symmetric: false,
             reflexive: false,
+            description: "A memory is live in a context — used by flush to carry open threads into \
+                the next session. Not for attendance or general association.",
         },
     ]
 }

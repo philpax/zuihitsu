@@ -27,6 +27,7 @@ pub(super) fn mentor_relation() -> EventPayload {
         to_card: Cardinality::Many,
         symmetric: false,
         reflexive: false,
+        description: String::new(),
     }
 }
 

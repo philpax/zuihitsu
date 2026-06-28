@@ -134,8 +134,9 @@ pub fn render_tag_vocabulary(tags: &[TagVocabularyEntry]) -> String {
 }
 
 /// Render the registered link relations as a prompt section, or the empty string when none exist.
-/// Each line is `name / inverse — from-to[, symmetric][, reflexive]`, so the agent knows which
-/// relations `mem:link` accepts (register new ones with `links.register`).
+/// Each line is `name / inverse — from-to[, symmetric][, reflexive]: description`, so the agent
+/// knows which relations `mem:link` accepts and what each is for (register new ones with
+/// `links.register`).
 pub fn render_relation_registry(relations: &[RelationView]) -> String {
     if relations.is_empty() {
         return String::new();
@@ -153,11 +154,12 @@ pub fn render_relation_registry(relations: &[RelationView]) -> String {
         }
         let _ = write!(
             out,
-            "\n- {} / {} — {}-to-{}{traits}",
+            "\n- {} / {} — {}-to-{}{traits}: {}",
             relation.name.as_str(),
             relation.inverse.as_str(),
             relation.from_card.as_str().to_lowercase(),
             relation.to_card.as_str().to_lowercase(),
+            relation.description,
         );
     }
     out

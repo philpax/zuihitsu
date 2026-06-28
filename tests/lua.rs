@@ -561,6 +561,7 @@ async fn link_flags_a_memory_active_in_the_context_and_unlink_clears_it() {
                     to_card: Cardinality::Many,
                     symmetric: false,
                     reflexive: false,
+                    description: String::new(),
                 },
                 EventPayload::memory_created(roadmap, Namespace::Topic.with_name("roadmap")),
             ],
@@ -727,6 +728,7 @@ async fn link_resolves_a_name_string_target() {
                 to_card: Cardinality::Many,
                 symmetric: true,
                 reflexive: false,
+                description: String::new(),
             }],
         )
         .unwrap();
@@ -959,6 +961,7 @@ async fn a_traversing_read_locks_the_whole_class() {
                 to_card: Cardinality::Many,
                 symmetric: true,
                 reflexive: false,
+                description: String::new(),
             }],
         )
         .unwrap();
@@ -1055,6 +1058,7 @@ async fn link_readers_traverse_the_merged_identity() {
                     to_card: Cardinality::Many,
                     symmetric: true,
                     reflexive: false,
+                    description: String::new(),
                 },
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::new("mentor_of"),
@@ -1063,6 +1067,7 @@ async fn link_readers_traverse_the_merged_identity() {
                     to_card: Cardinality::Many,
                     symmetric: false,
                     reflexive: false,
+                    description: String::new(),
                 },
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::new("works_at"),
@@ -1071,6 +1076,7 @@ async fn link_readers_traverse_the_merged_identity() {
                     to_card: Cardinality::One,
                     symmetric: false,
                     reflexive: false,
+                    description: String::new(),
                 },
             ],
         )

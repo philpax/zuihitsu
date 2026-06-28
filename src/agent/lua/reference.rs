@@ -347,6 +347,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                     "reflexive",
                     AT::Boolean,
                     "whether a memory may hold this relation to itself (default false)",
+                )
+                .optional(
+                    "description",
+                    AT::String,
+                    "a one-line purpose so the agent knows when to use the relation",
                 ),
             "the relation to register",
         );
@@ -354,8 +359,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let links_list = AE::new("links.list")
         .description(
             "The whole relation registry, each a table { name, inverse, from_card, to_card, \
-             symmetric, reflexive } that prints as a readable line — the relations <memory>:link \
-             accepts.",
+             symmetric, reflexive, description } that prints as a readable line — the relations \
+             <memory>:link accepts.",
         )
         .returns(AT::Object(Vec::new()).list());
 

@@ -38,7 +38,7 @@ impl MemoryBlock {
         self.class_link_refs(id)
     }
 
-    /// Link `from` to `to` under a registered relation (e.g. flag a thread `active_in` the context).
+    /// Link `from` to `to` under a registered relation (e.g. flag a thread `_session_carryover` the context).
     pub fn link(
         &mut self,
         from: MemoryId,
@@ -87,6 +87,7 @@ impl MemoryBlock {
             to_card,
             symmetric: spec.symmetric,
             reflexive: spec.reflexive,
+            description: spec.description,
         });
         Ok(())
     }

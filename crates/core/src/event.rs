@@ -299,6 +299,8 @@ pub struct InferredRelationSpec {
     pub to_card: String,
     pub symmetric: bool,
     pub reflexive: bool,
+    #[serde(default)]
+    pub description: String,
 }
 
 /// A relationship the link-inference pass identified, recorded on the `LinksInferred` audit event.
@@ -566,7 +568,9 @@ pub enum EventPayload {
         tag: TagName,
     },
     /// Registers a relation in the schema, accessible under either label; the inverse view's
-    /// cardinality is computed (spec §Data model: the registry lives in data, not code).
+    /// cardinality is computed (spec §Data model: the registry lives in data, not code). The
+    /// description is the relation's one-line purpose, surfaced in the system prompt's relation
+    /// registry and in `links.list`/`get` so the agent knows which relation fits which situation.
     LinkTypeRegistered {
         #[cfg_attr(feature = "ts", ts(type = "string"))]
         name: RelationName,
@@ -576,6 +580,7 @@ pub enum EventPayload {
         to_card: Cardinality,
         symmetric: bool,
         reflexive: bool,
+        description: String,
     },
     /// Creates a directed edge. The materializer canonicalizes direction at write time, so a link
     /// asserted under either label produces the same stored edge. `told_by` is the teller who asserted

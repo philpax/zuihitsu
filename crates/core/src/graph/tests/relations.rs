@@ -32,6 +32,7 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
         to_card: Cardinality::Many,
         symmetric: false,
         reflexive: false,
+        description: String::new(),
     };
     let (_store, graph) = materialized(vec![
         attended,
@@ -151,6 +152,7 @@ fn symmetric_link_is_order_independent() {
             to_card: Cardinality::Many,
             symmetric: true,
             reflexive: false,
+            description: String::new(),
         },
         EventPayload::memory_created(a, Namespace::Person.with_name("phil@direct")),
         EventPayload::memory_created(b, Namespace::Person.with_name("phil@discord")),

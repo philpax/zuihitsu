@@ -1186,6 +1186,7 @@ async fn link_inference_registers_and_links_from_content() {
                 to_card: "one".to_owned(),
                 symmetric: false,
                 reflexive: false,
+                description: String::new(),
             }],
             links: vec![InferredLink {
                 entry: 1,
@@ -1283,6 +1284,7 @@ async fn link_inference_is_idempotent() {
                 to_card: "one".to_owned(),
                 symmetric: false,
                 reflexive: false,
+                description: String::new(),
             }],
             links: vec![InferredLink {
                 entry: 1,
@@ -1463,6 +1465,7 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
                 to_card: "one".to_owned(),
                 symmetric: false,
                 reflexive: false,
+                description: String::new(),
             }],
             links: vec![InferredLink {
                 entry: 1,

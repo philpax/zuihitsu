@@ -272,7 +272,7 @@ fn install_handle_methods(
     )?;
 
     // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation such
-    // as `active_in`, locking both endpoints. The script names the relation as a string; it is
+    // as `_session_carryover`, locking both endpoints. The script names the relation as a string; it is
     // recognized into its typed [`RelationName`] here, at the wrapper boundary.
     if features.linking {
         methods.set(
@@ -745,6 +745,7 @@ fn relation_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             let to_card: String = this.get("to_card")?;
             let symmetric: bool = this.get("symmetric")?;
             let reflexive: bool = this.get("reflexive")?;
+            let description: String = this.get("description")?;
             let mut line = format!("{name} / {inverse} — {from_card}-to-{to_card}");
             if symmetric {
                 line.push_str(", symmetric");
@@ -752,6 +753,7 @@ fn relation_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             if reflexive {
                 line.push_str(", reflexive");
             }
+            line.push_str(&format!(": {description}"));
             Ok(line)
         })?,
     )?;

@@ -53,7 +53,7 @@ impl Graph {
     /// inverse label.
     pub fn relation(&self, name: &str) -> Result<Option<RelationView>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT name, inverse, from_card, to_card, symmetric, reflexive
+            "SELECT name, inverse, from_card, to_card, symmetric, reflexive, description
              FROM relations WHERE name = ?1 OR inverse = ?1",
         )?;
         query_opt_into(stmt, params![name], |row| {
@@ -63,6 +63,7 @@ impl Graph {
             let to_card: String = row.get("to_card")?;
             let symmetric: i64 = row.get("symmetric")?;
             let reflexive: i64 = row.get("reflexive")?;
+            let description: String = row.get("description")?;
             Ok(RelationView {
                 name: RelationName::new(&name),
                 inverse: RelationName::new(&inverse),
@@ -70,6 +71,7 @@ impl Graph {
                 to_card: parse_cardinality(&to_card)?,
                 symmetric: symmetric != 0,
                 reflexive: reflexive != 0,
+                description,
             })
         })
     }
@@ -78,7 +80,7 @@ impl Graph {
     /// prompt's relation-registry block.
     pub fn all_relations(&self) -> Result<Vec<RelationView>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT name, inverse, from_card, to_card, symmetric, reflexive
+            "SELECT name, inverse, from_card, to_card, symmetric, reflexive, description
              FROM relations ORDER BY name",
         )?;
         query_map_into(stmt, [], |row| {
@@ -88,6 +90,7 @@ impl Graph {
             let to_card: String = row.get("to_card")?;
             let symmetric: i64 = row.get("symmetric")?;
             let reflexive: i64 = row.get("reflexive")?;
+            let description: String = row.get("description")?;
             Ok(RelationView {
                 name: RelationName::new(&name),
                 inverse: RelationName::new(&inverse),
@@ -95,6 +98,7 @@ impl Graph {
                 to_card: parse_cardinality(&to_card)?,
                 symmetric: symmetric != 0,
                 reflexive: reflexive != 0,
+                description,
             })
         })
     }
