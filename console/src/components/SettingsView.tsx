@@ -108,14 +108,11 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
 
   const dirty = JSON.stringify(tree) !== original;
   return (
-    <div className="mx-auto max-w-prose">
-      <header className="mb-6">
-        <h2 className="font-serif text-xl text-ink sm:text-2xl">Settings</h2>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
-          The agent's behavioral settings. A save logs an operator <code>ConfigSet</code> and takes
-          effect on the next read.
-        </p>
-      </header>
+    <div>
+      <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-soft">
+        The agent's behavioral settings. A save logs an operator <code>ConfigSet</code> and takes
+        effect on the next read.
+      </p>
 
       <div className="flex flex-col gap-6">
         {Object.entries(tree as unknown as FieldRecord).map(([section, value]) => (
@@ -143,8 +140,8 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
       </div>
 
       <section className="mt-8 border-t border-line pt-6">
-        <h3 className="font-serif text-lg text-ink">Maintenance</h3>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
+        <Eyebrow>Maintenance</Eyebrow>
+        <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">
           Write a graph snapshot now — the take-one-before-an-experiment trigger. Boot restores from
           the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
         </p>
@@ -167,8 +164,8 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
 
       {config && (
         <section className="mt-8 border-t border-line pt-6">
-          <h3 className="font-serif text-lg text-ink">Environment</h3>
-          <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
+          <Eyebrow>Environment</Eyebrow>
+          <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">
             The TOML config this instance booted from — read-only here (it is read at startup, not
             from the log). Secrets are redacted: API keys show as counts, MCP env as its variable
             names.

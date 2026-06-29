@@ -30,14 +30,11 @@ export function PromptsView({
 
   const active = templates.find((template) => template.name === selected) ?? templates[0];
   return (
-    <div className="mx-auto max-w-prose">
-      <header className="mb-6">
-        <h2 className="font-serif text-xl text-ink sm:text-2xl">Prompts</h2>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
-          The templates the agent acts through. A save registers a new version under operator
-          authority and takes effect on the next read.
-        </p>
-      </header>
+    <div>
+      <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-soft">
+        The templates the agent acts through. A save registers a new version under operator
+        authority and takes effect on the next read.
+      </p>
 
       <div className="mb-6 flex flex-wrap gap-x-5 gap-y-2 text-sm">
         {templates.map((template) => (

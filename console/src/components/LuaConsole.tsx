@@ -58,15 +58,12 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
   }
 
   return (
-    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
       <div>
-        <header className="mb-6">
-          <h2 className="font-serif text-xl text-ink sm:text-2xl">Console</h2>
-          <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
-            Run Lua against the agent's live graph in a no-commit sandbox — reads see real memory,
-            nothing written persists. The same API the agent acts through.
-          </p>
-        </header>
+        <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-soft">
+          Run Lua against the agent's live graph in a no-commit sandbox — reads see real memory,
+          nothing written persists. The same API the agent acts through.
+        </p>
 
         <CodeEditor value={script} onChange={setScript} onSubmit={run} disabled={pending} />
 

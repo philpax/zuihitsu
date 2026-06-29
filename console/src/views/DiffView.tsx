@@ -64,14 +64,11 @@ export function DiffView({
   const bridging = events.filter((event) => event.seq > lo && event.seq <= hi);
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <header className="mb-6">
-        <h2 className="font-serif text-xl text-ink sm:text-2xl">Time-travel</h2>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
-          How the graph changed between two points in the log. The timeline scrubber sets one end;
-          the baseline below sets the other.
-        </p>
-      </header>
+    <div>
+      <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-soft">
+        How the graph changed between two points in the log. The timeline scrubber sets one end; the
+        baseline below sets the other.
+      </p>
 
       <div className="mb-6">
         <div className="mb-1.5 flex items-baseline justify-between gap-4">

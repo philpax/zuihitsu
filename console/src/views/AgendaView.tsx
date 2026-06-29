@@ -35,17 +35,25 @@ export function AgendaView({
 
   if (items.length === 0) {
     return (
-      <div className="mx-auto max-w-prose">
-        <Header now={now} />
-        <p className="py-12 text-center text-sm text-ink-faint">Nothing scheduled ahead.</p>
+      <div>
+        <div className="mb-6">
+          <Eyebrow>{now > 0 ? "no events ahead" : "no events yet"}</Eyebrow>
+        </div>
+        <p className="mx-auto max-w-prose py-12 text-center text-sm text-ink-faint">
+          Nothing scheduled ahead.
+        </p>
       </div>
     );
   }
 
   const days = groupByDay(items);
   return (
-    <div className="mx-auto max-w-prose">
-      <Header now={now} />
+    <div>
+      <div className="mb-6">
+        <Eyebrow>
+          {`as of ${formatDate(now)} · all dated events · recurring ${HORIZON_DAYS} days out`}
+        </Eyebrow>
+      </div>
       <ol className="flex flex-col gap-6">
         {days.map(([day, dayItems]) => (
           <li key={day} className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[9rem_1fr]">
@@ -62,19 +70,6 @@ export function AgendaView({
         ))}
       </ol>
     </div>
-  );
-}
-
-function Header({ now }: { now: number }) {
-  return (
-    <header className="mb-6">
-      <h2 className="font-serif text-xl text-ink sm:text-2xl">Agenda</h2>
-      <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
-        {now > 0
-          ? `as of ${formatDate(now)} · all dated events · recurring ${HORIZON_DAYS} days out`
-          : "no events yet"}
-      </p>
-    </header>
   );
 }
 
