@@ -40,11 +40,25 @@ jobs:
         working-directory: console
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli@0.2.117
+      - name: Install wasm-opt (binaryen)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - name: Install Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: console/package-lock.json
+      - name: Generate artifacts (ts-rs types, settings metadata, wasm bundle)
+        env:
+          CC_wasm32_unknown_unknown: clang
+        run: ./regen.sh
       - name: Install
         run: npm ci
       - name: Typecheck

@@ -23,3 +23,9 @@ __pycache__/
 
 # Generated wasm-bindgen output for the console bridge (regenerated from the build).
 /crates/console-wasm/pkg/
+
+# Generated console artifacts — the ts-rs TypeScript bindings, the settings metadata, and the
+# wasm materializer bundle. All are produced by `./console/regen.sh` (Rust source is the truth) and
+# built fresh by CI, so they are never committed.
+/console/src/types/
+/console/src/wasm/

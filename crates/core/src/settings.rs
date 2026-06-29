@@ -22,6 +22,10 @@ use crate::{
     store::{Store, StoreError},
 };
 
+/// One minute in seconds — so a duration default reads as `30 * MINUTE` rather than `1_800`. The
+/// wire format stays `i64` seconds; this only names the unit at the definition site.
+const MINUTE: i64 = crate::time::SECONDS_PER_MINUTE;
+
 /// The agent's behavioral tunables, grouped by the subsystem each shapes. [`Default`] is the spec's
 /// starting values (each substruct carries its own).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -76,10 +80,13 @@ pub fn compaction_budget_for(context_length: u32) -> i64 {
 #[serde(default)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefSettings {
+    /// Token budget for composing each brief.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub token_budget: i64,
+    /// How many recent facts the brief includes.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub recent_facts: i64,
+    /// The most entries in the brief's present set.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub present_set_cap: i64,
     /// How far ahead the `<upcoming/>` block looks, in days.
@@ -168,8 +175,11 @@ pub enum CaptureLevel {
 #[serde(default)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SearchSettings {
+    /// Weight of cosine (semantic vector) similarity in the search blend.
     pub cosine: f32,
+    /// Weight of BM25 (lexical) similarity in the search blend.
     pub bm25: f32,
+    /// Weight of tag overlap in the search blend.
     pub tag: f32,
     pub recency: RecencySettings,
 }
@@ -190,8 +200,11 @@ pub struct RecencySettings {
 #[serde(default)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TauDays {
+    /// Recency decay constant for high-volatility memories, in days.
     pub high: f32,
+    /// Recency decay constant for medium-volatility memories, in days.
     pub medium: f32,
+    /// Recency decay constant for low-volatility memories, in days.
     pub low: f32,
 }
 
@@ -199,7 +212,7 @@ impl Default for CompactionSettings {
     fn default() -> Self {
         CompactionSettings {
             token_budget: 24_000,
-            idle_gap_seconds: 1_800,
+            idle_gap_seconds: 30 * MINUTE,
             carryover_char_budget: 4_000,
             flush_min_turns: 4,
         }
@@ -222,7 +235,7 @@ impl Default for SchedulerSettings {
     fn default() -> Self {
         SchedulerSettings {
             max_wakeups_per_session: 5,
-            tick_seconds: 60,
+            tick_seconds: MINUTE,
         }
     }
 }
@@ -231,7 +244,7 @@ impl Default for TurnSettings {
     fn default() -> Self {
         TurnSettings {
             max_steps: 12,
-            block_timeout_seconds: 180,
+            block_timeout_seconds: 3 * MINUTE,
             max_block_attempts: 3,
         }
     }

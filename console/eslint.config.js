@@ -28,5 +28,15 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
     },
   },
+  {
+    // The regen.sh-adjacent Node scripts (e.g. the settings-metadata extractor) run on Node, not the
+    // browser, so they get the Node globals rather than the browser set.
+    files: ["scripts/**/*.{js,mjs}"],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: "module",
+      globals: globals.node,
+    },
+  },
   prettier,
 );

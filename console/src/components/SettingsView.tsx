@@ -4,6 +4,7 @@ import type { LiveConnection } from "../lib/live.ts";
 import { type Settings, getSettings, putSettings } from "../lib/settings.ts";
 import { type ConfigTree, type ConfigValue, getConfig } from "../lib/config.ts";
 import { snapshotNow } from "../lib/operator.ts";
+import { settingsMetadata } from "../types/settings-metadata.ts";
 import { Checkbox, Eyebrow } from "./primitives.tsx";
 
 /// One leaf field's value, and a record of them — the structural shape the generic editor walks. The
@@ -213,7 +214,13 @@ function Fields({
           );
         }
         return (
-          <Leaf key={key} name={key} value={value} onChange={(next) => onChange(here, next)} />
+          <Leaf
+            key={key}
+            name={key}
+            path={here}
+            value={value}
+            onChange={(next) => onChange(here, next)}
+          />
         );
       })}
     </div>
@@ -224,13 +231,25 @@ const CAPTURE_LEVELS = ["Full", "Digest", "Off"];
 
 function Leaf({
   name,
+  path,
   value,
   onChange,
 }: {
   name: string;
+  path: string[];
   value: number | string | boolean;
   onChange: (value: FieldValue) => void;
 }) {
+  const meta = settingsMetadata[path.join(".")];
+  const isMinutes = meta?.display === "min" && meta?.unit === "seconds";
+  // The wire value is seconds; the editor shows minutes. Round the display to two decimals so a
+  // non-multiple-of-60 (e.g. 100s) shows `1.67` rather than a float soup; `Math.round` on save
+  // recovers the nearest whole second.
+  const shownValue =
+    isMinutes && typeof value === "number"
+      ? String(Number((value / 60).toFixed(2)))
+      : String(value);
+
   const input =
     name === "capture_model_calls" ? (
       <select
@@ -249,17 +268,31 @@ function Leaf({
     ) : (
       <input
         type={typeof value === "number" ? "number" : "text"}
-        value={String(value)}
-        onChange={(event) =>
-          onChange(typeof value === "number" ? Number(event.target.value) : event.target.value)
-        }
+        value={shownValue}
+        onChange={(event) => {
+          if (isMinutes && typeof value === "number") {
+            onChange(Math.round(Number(event.target.value) * 60));
+          } else {
+            onChange(typeof value === "number" ? Number(event.target.value) : event.target.value);
+          }
+        }}
         className="w-32 border-b border-line bg-transparent pb-1 text-right font-mono text-xs text-ink focus:border-ink-faint focus:outline-none"
       />
     );
   return (
     <label className="flex items-baseline justify-between gap-4">
-      <span className="font-mono text-2xs text-ink-soft">{label(name)}</span>
-      {input}
+      <span className="flex flex-col gap-0.5">
+        <span className="font-mono text-2xs text-ink-soft">{label(name)}</span>
+        {meta?.description && (
+          <span className="text-2xs leading-snug text-ink-faint">{meta.description}</span>
+        )}
+      </span>
+      <span className="flex items-baseline gap-1.5">
+        {input}
+        {meta?.display && (
+          <span className="w-12 text-left font-mono text-2xs text-ink-faint">{meta.display}</span>
+        )}
+      </span>
     </label>
   );
 }

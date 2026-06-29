@@ -14,7 +14,10 @@
 
 pkgs.mkShell {
   packages = [
+    # The unwrapped clang for the wasm C toolchain (see header comment).
     pkgs.llvmPackages.clang-unwrapped
+    # Node runs console/scripts/extract-settings-metadata.mjs during `./console/regen.sh`.
+    pkgs.nodejs
   ];
 
   # cc-rs reads CC_<target> (target with dashes as underscores). Scoping the override to
