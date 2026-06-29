@@ -28,7 +28,7 @@ export function Landing({
       </div>
 
       <div className="border-t border-line">
-        <Choice label="Connect to an agent" hint="Tail a running agent's deliberation, live.">
+        <Choice label="Connect to an agent" hint="Interact with and manage a running agent.">
           <UrlSubmit
             initial={window.location.origin}
             aria="agent address"
