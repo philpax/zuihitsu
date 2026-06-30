@@ -87,32 +87,26 @@ export function ConversationView({
   // into a key, so it survives until its first message creates it on the log.
   const [pendingRoom, setPendingRoom] = useState<ConversationLocator | null>(null);
 
-  // Participant rooms (most recent first) and the operator/imprint room, kept apart so the latter
-  // pins to the bottom and is marked — live, it is offered even before its first message.
-  const participants = conversations
-    .filter((conversation) => conversation.platform !== "operator")
-    .map(toChannel)
-    .sort((a, b) => lastActivity(b.conversation) - lastActivity(a.conversation));
+  // Every channel — participant rooms and the operator/imprint room alike — collected and grouped by
+  // context. The operator/imprint room is offered live even before its first message; once the real
+  // conversation exists on the log it is already in `known`, so the placeholder is only added then.
   const operator = conversations.find((conversation) => conversation.platform === "operator");
-  const operatorChannel: Channel | null = operator
-    ? toChannel(operator)
-    : participate
-      ? imprintChannel()
-      : null;
+  const operatorPlaceholder: Channel | null = !operator && participate ? imprintChannel() : null;
 
   // The pending room shows until a real conversation of the same locator appears on the log.
-  const known = [...participants, operatorChannel].filter((channel) => channel !== null);
+  const known = conversations.map(toChannel);
   const pending =
     pendingRoom && !known.some((channel) => channel.key === localKey(pendingRoom))
       ? newRoomChannel(pendingRoom)
       : null;
-  const listed = pending ? [pending, ...participants] : participants;
+  const all = [
+    ...(pending ? [pending] : []),
+    ...known,
+    ...(operatorPlaceholder ? [operatorPlaceholder] : []),
+  ];
+  const groups = groupChannels(all);
   const selected =
-    known.find((channel) => channel.key === selectedKey) ??
-    pending ??
-    participants[0] ??
-    operatorChannel ??
-    null;
+    all.find((channel) => channel.key === selectedKey) ?? pending ?? groups[0]?.channels[0] ?? null;
 
   function selectRoom(key: string) {
     setSearchParams(
@@ -137,93 +131,57 @@ export function ConversationView({
   return (
     <ModelCalls.Provider value={modelCalls}>
       <Names.Provider value={names}>
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-[11rem_1fr] md:gap-6">
+        <div className="grid grid-cols-1 gap-1 md:grid-cols-[11rem_1fr] md:gap-6">
           <div className="md:sticky md:top-4 md:self-start">
-            <aside className="hidden flex-col gap-5 md:flex">
+            <aside className="hidden flex-col gap-4 md:flex">
               {participate && (
-                <div className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
-                  <span className="text-line-strong">+</span>
-                  <input
-                    value={draftRoom}
-                    onChange={(event) => setDraftRoom(event.target.value)}
-                    onKeyDown={(event) => event.key === "Enter" && startRoom()}
-                    placeholder="new conversation"
-                    className="flex-1 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
-                  />
-                </div>
+                <RoomControls
+                  sender={participate.sender}
+                  onSenderChange={participate.setSender}
+                  draftRoom={draftRoom}
+                  onDraftRoomChange={setDraftRoom}
+                  onCreateRoom={startRoom}
+                />
               )}
 
-              {listed.length === 0 && !operatorChannel ? (
+              {groups.length === 0 ? (
                 <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
               ) : (
-                <nav className="flex flex-col gap-1">
-                  {listed.map((channel) => (
-                    <ChannelLink
-                      key={channel.key}
-                      channel={channel}
-                      active={channel.key === selected?.key}
-                      onSelect={() => selectRoom(channel.key)}
-                    />
+                <div className="flex flex-col gap-4 border-t border-line pt-4">
+                  {groups.map((group) => (
+                    <div key={group.key} className="flex flex-col gap-1.5">
+                      <Eyebrow>{group.key}</Eyebrow>
+                      <nav className="flex flex-col gap-0.5">
+                        {group.channels.map((channel) => (
+                          <ChannelLink
+                            key={channel.key}
+                            channel={channel}
+                            active={channel.key === selected?.key}
+                            onSelect={() => selectRoom(channel.key)}
+                          />
+                        ))}
+                      </nav>
+                    </div>
                   ))}
-                </nav>
-              )}
-
-              {operatorChannel && (
-                <div className="border-t border-line pt-4">
-                  <Eyebrow>operator</Eyebrow>
-                  <nav className="mt-2">
-                    <ChannelLink
-                      channel={operatorChannel}
-                      active={operatorChannel.key === selected?.key}
-                      onSelect={() => selectRoom(operatorChannel.key)}
-                    />
-                  </nav>
                 </div>
-              )}
-
-              {participate && (
-                <label className="mt-2 flex flex-col gap-1.5 border-t border-line pt-4">
-                  <Eyebrow>you are</Eyebrow>
-                  <input
-                    value={participate.sender}
-                    onChange={(event) => participate.setSender(event.target.value)}
-                    placeholder="a handle"
-                    className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
-                  />
-                </label>
               )}
             </aside>
 
             {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
             <div className="flex flex-col gap-3 md:hidden">
               <ChannelSelect
-                listed={listed}
-                operatorChannel={operatorChannel}
+                groups={groups}
                 selectedKey={selected?.key ?? null}
                 onSelect={selectRoom}
               />
               {participate && (
-                <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 font-mono text-2xs text-ink-faint">
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-line-strong">+</span>
-                    <input
-                      value={draftRoom}
-                      onChange={(event) => setDraftRoom(event.target.value)}
-                      onKeyDown={(event) => event.key === "Enter" && startRoom()}
-                      placeholder="new conversation"
-                      className="w-36 bg-transparent placeholder:text-ink-faint/60 focus:outline-none"
-                    />
-                  </span>
-                  <span className="flex items-baseline gap-2">
-                    <Eyebrow>you are</Eyebrow>
-                    <input
-                      value={participate.sender}
-                      onChange={(event) => participate.setSender(event.target.value)}
-                      placeholder="a handle"
-                      className="w-24 bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none"
-                    />
-                  </span>
-                </div>
+                <RoomControls
+                  sender={participate.sender}
+                  onSenderChange={participate.setSender}
+                  draftRoom={draftRoom}
+                  onDraftRoomChange={setDraftRoom}
+                  onCreateRoom={startRoom}
+                />
               )}
             </div>
           </div>
@@ -308,14 +266,18 @@ function Room({
 
   return (
     <div className="flex w-full max-w-prose flex-col">
-      <header className="mb-6">
-        <Eyebrow>{channel.label}</Eyebrow>
+      <header className="mb-4">
+        <Eyebrow>
+          {channel.label}
+          {!isOperator && (
+            <span className=" text-ink-faint">
+              {" "}
+              ({channel.locator.platform} · {channel.locator.scope_path})
+            </span>
+          )}
+        </Eyebrow>
         {/* The locator addresses a real room; for the operator channel it just echoes the title. */}
-        {!isOperator && (
-          <p className="mt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
-            {channel.locator.platform} · {channel.locator.scope_path}
-          </p>
-        )}
+
         {convoTokens.peakContext + convoTokens.output > 0 && (
           <p className="mt-1 font-mono text-2xs text-ink-faint">
             {formatTokens(convoTokens.output)} generated · peak{" "}
@@ -454,16 +416,58 @@ interface Channel {
   conversation: ConversationModel | null;
 }
 
-/// The mobile face of the conversation list: a native dropdown (participant rooms, then the operator
-/// room as its own group) so the transcript owns the screen. Hidden once the sidebar fits (`md`).
+/// The context a room belongs to — the platform segment of its `context/*` memory name
+/// (`context/operator:imprint` → `operator`), falling back to the locator's platform when no context
+/// memory exists yet (a pending room). This is the grouping key for the sidebar: rooms under the same
+/// context — `operator`, `console`, `discord` — cluster together rather than the prior split that
+/// singled out `operator` and left the rest in one flat list.
+function contextGroup(channel: Channel): string {
+  const name = channel.conversation?.contextName;
+  if (name) {
+    const stripped = name.startsWith("context/") ? name.slice("context/".length) : name;
+    const colon = stripped.indexOf(":");
+    return colon === -1 ? stripped : stripped.slice(0, colon);
+  }
+  return channel.locator.platform;
+}
+
+/// Channels grouped by context, sorted most-recently-used first within each group, and the groups
+/// themselves ordered by their most active channel — so the room with the freshest activity and its
+/// siblings surface to the top.
+interface ChannelGroup {
+  key: string;
+  channels: Channel[];
+}
+
+function groupChannels(channels: Channel[]): ChannelGroup[] {
+  const byGroup = new Map<string, Channel[]>();
+  for (const channel of channels) {
+    const key = contextGroup(channel);
+    const list = byGroup.get(key);
+    if (list) list.push(channel);
+    else byGroup.set(key, [channel]);
+  }
+  const groups = [...byGroup.entries()].map(([key, list]) => ({
+    key,
+    channels: list.sort((a, b) => lastActivity(b.conversation) - lastActivity(a.conversation)),
+  }));
+  // Groups ordered by their most active channel, so the freshest context sits at the top.
+  return groups.sort(
+    (a, b) =>
+      Math.max(...b.channels.map((c) => lastActivity(c.conversation))) -
+      Math.max(...a.channels.map((c) => lastActivity(c.conversation))),
+  );
+}
+
+/// The mobile face of the conversation list: a native dropdown grouped by context (one optgroup per
+/// context, its channels most-recently-used first) so the transcript owns the screen. Hidden once the
+/// sidebar fits (`md`).
 function ChannelSelect({
-  listed,
-  operatorChannel,
+  groups,
   selectedKey,
   onSelect,
 }: {
-  listed: Channel[];
-  operatorChannel: Channel | null;
+  groups: ChannelGroup[];
   selectedKey: string | null;
   onSelect: (key: string) => void;
 }) {
@@ -474,21 +478,62 @@ function ChannelSelect({
       className="w-full border border-line bg-paper px-3 py-2 text-sm text-ink focus:border-ink-faint focus:outline-none"
       aria-label="Choose a conversation"
     >
-      {listed.length > 0 && (
-        <optgroup label="conversations">
-          {listed.map((channel) => (
+      {groups.map((group) => (
+        <optgroup key={group.key} label={group.key}>
+          {group.channels.map((channel) => (
             <option key={channel.key} value={channel.key}>
               {channel.label}
             </option>
           ))}
         </optgroup>
-      )}
-      {operatorChannel && (
-        <optgroup label="operator">
-          <option value={operatorChannel.key}>{operatorChannel.label}</option>
-        </optgroup>
-      )}
+      ))}
     </select>
+  );
+}
+
+/// The sidebar's live controls — the handle you speak under and the field to open a new conversation —
+/// shared by the desktop sidebar and the mobile stack so they stay in sync. Enter on the room name
+/// opens the conversation.
+function RoomControls({
+  sender,
+  onSenderChange,
+  draftRoom,
+  onDraftRoomChange,
+  onCreateRoom,
+}: {
+  sender: string;
+  onSenderChange: (value: string) => void;
+  draftRoom: string;
+  onDraftRoomChange: (value: string) => void;
+  onCreateRoom: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <label className="flex flex-col gap-1.5">
+        <Eyebrow>you are</Eyebrow>
+        <input
+          value={sender}
+          onChange={(event) => onSenderChange(event.target.value)}
+          placeholder="a handle"
+          className="w-full border border-line bg-transparent px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+        />
+        <span className="font-mono text-2xs text-ink-faint">person · a name, not a memory id</span>
+      </label>
+
+      <label className="flex flex-col gap-1.5">
+        <Eyebrow>new conversation</Eyebrow>
+        <input
+          value={draftRoom}
+          onChange={(event) => onDraftRoomChange(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && onCreateRoom()}
+          placeholder="a room name"
+          className="w-full border border-line bg-transparent px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+        />
+        <span className="font-mono text-2xs text-ink-faint">
+          direct · a name, not a context path
+        </span>
+      </label>
+    </div>
   );
 }
 
@@ -506,7 +551,7 @@ function ChannelLink({
       onClick={onSelect}
       title={channel.label}
       className={
-        "-ml-3 flex w-full min-w-0 items-baseline border-l-2 py-1 pl-2.5 text-left text-sm transition-colors " +
+        "flex w-full min-w-0 items-baseline border-l-2 py-1.5 pl-2.5 text-left text-sm transition-colors " +
         (active ? "border-clay text-ink" : "border-transparent text-ink-soft hover:text-ink") +
         (channel.conversation ? "" : " italic text-ink-faint")
       }
@@ -576,7 +621,7 @@ function SessionDivider({ session, first }: { session: SessionModel; first: bool
     <div
       className={
         "flex items-center gap-3 " +
-        (first ? "mb-4 " : "mb-4 mt-7 ") +
+        (first ? "mb-4 " : "my-4 ") +
         (session.compaction ? "text-clay" : "text-ink-soft")
       }
     >
@@ -623,7 +668,7 @@ function BriefBlock({
   }
 
   return (
-    <div className="mb-6 border-b border-line pb-6">
+    <div className="mb-2 border-b border-line pb-6">
       <button
         onClick={() => setOpen(!open)}
         className="flex items-baseline gap-3 text-left transition-colors hover:text-ink"
