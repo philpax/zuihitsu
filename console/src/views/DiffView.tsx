@@ -65,11 +65,6 @@ export function DiffView({
 
   return (
     <div>
-      <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-soft">
-        How the graph changed between two points in the log. The timeline scrubber sets one end; the
-        baseline below sets the other.
-      </p>
-
       <div className="mb-6">
         <div className="mb-1.5 flex items-baseline justify-between gap-4">
           <Eyebrow>baseline</Eyebrow>

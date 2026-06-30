@@ -126,7 +126,7 @@ export function StreamWorkspace({
         ))}
       </nav>
 
-      <main className="relative flex-1 overflow-x-clip py-6 sm:py-7">
+      <main className="relative flex-1 overflow-x-clip py-4">
         <AnimatePresence mode="popLayout" custom={direction} initial={false}>
           <motion.div
             key={view}

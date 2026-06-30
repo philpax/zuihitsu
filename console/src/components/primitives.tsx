@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 /// the quiet structural device used throughout, in place of heavier headings.
 export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <span className={`font-mono text-2xs uppercase tracking-widest text-ink-faint ${className}`}>
+    <span className={`font-mono text-2xs uppercase tracking-widest text-ink-soft ${className}`}>
       {children}
     </span>
   );

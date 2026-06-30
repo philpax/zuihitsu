@@ -110,11 +110,6 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
   const dirty = JSON.stringify(tree) !== original;
   return (
     <div>
-      <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-soft">
-        The agent's behavioral settings. A save logs an operator <code>ConfigSet</code> and takes
-        effect on the next read.
-      </p>
-
       <div className="flex flex-col gap-6">
         {Object.entries(tree as unknown as FieldRecord).map(([section, value]) => (
           <section key={section}>
