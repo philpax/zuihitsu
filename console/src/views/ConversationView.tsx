@@ -70,6 +70,11 @@ export function ConversationView({
   participate?: Participation;
 }) {
   const names = nameById(replica.memories(""));
+  // Person handles for the "you are" autocomplete — the bare subject after `person/`.
+  const personHandles = replica
+    .memories("person/")
+    .map((memory) => memory.name.replace(/^person\//, ""))
+    .filter((name) => name.length > 0);
   const conversations = buildConversations(
     events.filter((event) => event.seq <= cursor),
     names,
@@ -141,6 +146,7 @@ export function ConversationView({
                   draftRoom={draftRoom}
                   onDraftRoomChange={setDraftRoom}
                   onCreateRoom={startRoom}
+                  personHandles={personHandles}
                 />
               )}
 
@@ -181,6 +187,7 @@ export function ConversationView({
                   draftRoom={draftRoom}
                   onDraftRoomChange={setDraftRoom}
                   onCreateRoom={startRoom}
+                  personHandles={personHandles}
                 />
               )}
             </div>
@@ -493,19 +500,23 @@ function ChannelSelect({
 
 /// The sidebar's live controls — the handle you speak under and the field to open a new conversation —
 /// shared by the desktop sidebar and the mobile stack so they stay in sync. Enter on the room name
-/// opens the conversation.
+/// opens the conversation. The handle input offers a native autocomplete from the agent's known
+/// `person/*` memories, so a returning participant can pick an existing handle rather than typing it
+/// from scratch (and risking a new stub).
 function RoomControls({
   sender,
   onSenderChange,
   draftRoom,
   onDraftRoomChange,
   onCreateRoom,
+  personHandles,
 }: {
   sender: string;
   onSenderChange: (value: string) => void;
   draftRoom: string;
   onDraftRoomChange: (value: string) => void;
   onCreateRoom: () => void;
+  personHandles: string[];
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -514,9 +525,15 @@ function RoomControls({
         <input
           value={sender}
           onChange={(event) => onSenderChange(event.target.value)}
+          list="person-handles"
           placeholder="a handle"
           className="w-full border border-line bg-transparent px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
         />
+        <datalist id="person-handles">
+          {personHandles.map((handle) => (
+            <option key={handle} value={handle} />
+          ))}
+        </datalist>
         <span className="font-mono text-2xs text-ink-faint">person · a name, not a memory id</span>
       </label>
 
