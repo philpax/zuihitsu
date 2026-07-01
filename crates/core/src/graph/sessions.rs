@@ -4,7 +4,10 @@ use super::{Graph, GraphError, OpenSessionView, SessionView, backend, parse_ulid
 use crate::{
     db::{query_map_into, query_opt_into},
     event::Teller,
-    ids::{ConversationId, ConversationLocator, MemoryId, Seq, SessionId, TurnId},
+    ids::{
+        ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId,
+        TurnId,
+    },
     time::Timestamp,
     vocabulary::TagName,
 };
@@ -47,6 +50,39 @@ impl Graph {
             .optional()
             .map_err(backend)?;
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
+    }
+
+    /// The memory name a freshly minted `person/*` participant would receive, given their platform
+    /// handle and the platform they arrived on. The clean `person/<handle>` is used unless it already
+    /// belongs to a different identity — in which case the platform-qualified
+    /// `person/<handle>@<platform>` disambiguates two distinct people who share a handle across
+    /// platforms (spec §Identity → cross-platform-explicit). Shared by the server's mint path and
+    /// the console's optimistic preview, so the name the console shows before the event lands is the
+    /// same name the server will assign.
+    pub fn participant_name(
+        &self,
+        platform: &str,
+        platform_user_id: &str,
+    ) -> Result<MemoryName, GraphError> {
+        let clean = Namespace::Person.with_name(platform_user_id);
+        if self.memory_by_name(&clean)?.is_some() {
+            Ok(Namespace::Person
+                .with_name(format!("{platform_user_id}@{platform}"))
+                .into())
+        } else {
+            Ok(clean.into())
+        }
+    }
+
+    /// The platform user ids seen on a given platform — the bare handles a user can type in the
+    /// "you are" field, sourced from the `participant_identities` table rather than memory subjects,
+    /// so the `@platform` disambiguation suffix never surfaces as a separate entry.
+    pub fn participant_ids_for(&self, platform: &str) -> Result<Vec<String>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT DISTINCT platform_user_id FROM participant_identities
+             WHERE platform = ?1 ORDER BY platform_user_id",
+        )?;
+        Ok(query_map_into(stmt, params![platform], |row| row.get(0))?)
     }
 
     /// The `context/*` memory minted with a conversation, or `None` if the conversation is unknown.

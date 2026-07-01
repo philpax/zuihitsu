@@ -115,14 +115,7 @@ pub fn resolve_or_mint_participant(
             return Ok(id);
         }
         let id = MemoryId::generate();
-        let clean = Namespace::Person.with_name(platform_user_id);
-        let name: MemoryName = if graph.memory_by_name(&clean)?.is_some() {
-            Namespace::Person
-                .with_name(format!("{platform_user_id}@{platform}"))
-                .into()
-        } else {
-            clean.into()
-        };
+        let name = graph.participant_name(platform, platform_user_id)?;
         store.append(
             clock.now(),
             vec![

@@ -18,7 +18,7 @@ use zuihitsu_core::{
     brief::{BriefRequest, compose_traced},
     event::{Event, EventPayload},
     graph::{EntryView, Graph, LinkView, MemoryView},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Namespace, Seq, SessionId},
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };
@@ -340,6 +340,54 @@ impl Replica {
             });
         }
         to_js(&conversations)
+    }
+
+    /// The memory name a freshly minted `person/*` participant would receive, given their platform
+    /// handle and the platform they arrived on. Delegates to the graph's own name-resolution logic
+    /// (the same path the server's mint uses), so the optimistic preview shows the exact name the
+    /// real turn will resolve to — including the `@platform` disambiguation on collision.
+    pub fn participant_name(
+        &self,
+        platform: &str,
+        platform_user_id: &str,
+    ) -> Result<JsValue, JsError> {
+        let name = self
+            .graph
+            .participant_name(platform, platform_user_id)
+            .map_err(graph_error)?;
+        to_js(&name)
+    }
+
+    /// All live `person/*` memories at the current fold horizon — the namespace prefix is owned by
+    /// Rust ([`Namespace::Person`]), so the frontend never hardcodes `person/` to scope the query.
+    pub fn person_memories(&self) -> Result<JsValue, JsError> {
+        let mut memories = self
+            .graph
+            .memories_in_namespace(Namespace::Person.prefix())
+            .map_err(graph_error)?;
+        memories.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
+        to_js(&memories)
+    }
+
+    /// The platform user ids seen on a given platform — the bare handles a user can type in the "you
+    /// are" field, sourced from `participant_identities` so the `@platform` disambiguation suffix
+    /// never surfaces as a separate entry.
+    pub fn participant_ids(&self, platform: &str) -> Result<JsValue, JsError> {
+        let ids = self
+            .graph
+            .participant_ids_for(platform)
+            .map_err(graph_error)?;
+        to_js(&ids)
+    }
+
+    /// Decompose a memory name into its namespace and subject (e.g. `person/dave` → `Person` +
+    /// `"dave"`), or `null` if the name is in no known namespace (e.g. `self`). The parse uses
+    /// [`Namespace`] internally, so the frontend never hardcodes the prefix strings.
+    pub fn parse_name(&self, name: &str) -> Result<JsValue, JsError> {
+        match MemoryName::new(name).namespaced() {
+            Ok(namespaced) => to_js(&namespaced),
+            Err(_) => Ok(JsValue::NULL),
+        }
     }
 }
 

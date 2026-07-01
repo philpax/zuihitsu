@@ -2,6 +2,7 @@ import initWasm, { Replica as WasmReplica } from "../wasm/console_wasm.js";
 import wasmUrl from "../wasm/console_wasm_bg.wasm?url";
 
 import type { Event } from "../types/Event.ts";
+import type { NamespacedMemoryName } from "../types/NamespacedMemoryName.ts";
 import type { BriefTrace } from "./brief.ts";
 import type {
   AgendaItem,
@@ -101,5 +102,26 @@ export class Replica {
   /// current fold. `present` and `context` are memory ids; `nowMs` is the session start time.
   brief(present: string[], context: string | null, nowMs: number): BriefTrace {
     return this.#inner.brief(present, context, nowMs) as BriefTrace;
+  }
+
+  /// The memory name a freshly minted `person/*` participant would receive — delegates to the
+  /// graph's own name-resolution logic, so the optimistic preview matches the real turn.
+  participantName(platform: string, platformUserId: string): string {
+    return this.#inner.participant_name(platform, platformUserId) as string;
+  }
+
+  /// The platform user ids seen on a given platform — the bare handles a user can type in the "you
+  /// are" field, sourced from `participant_identities` so the `@platform` disambiguation suffix
+  /// never surfaces as a separate entry.
+  participantIds(platform: string): string[] {
+    return this.#inner.participant_ids(platform) as string[];
+  }
+
+  /// Decompose a memory name into its namespace and subject, or `null` if the name is in no known
+  /// namespace (e.g. `self`). The parse runs in Rust, so the frontend never hardcodes the prefix
+  /// strings.
+  parseName(name: string): NamespacedMemoryName | null {
+    const result = this.#inner.parse_name(name);
+    return (result ?? null) as NamespacedMemoryName | null;
   }
 }

@@ -70,11 +70,9 @@ export function ConversationView({
   participate?: Participation;
 }) {
   const names = nameById(replica.memories(""));
-  // Person handles for the "you are" autocomplete — the bare subject after `person/`.
-  const personHandles = replica
-    .memories("person/")
-    .map((memory) => memory.name.replace(/^person\//, ""))
-    .filter((name) => name.length > 0);
+  // The bare handles a user can type in the "you are" field, sourced from `participant_identities`
+  // so the `@platform` disambiguation suffix never surfaces as a separate entry.
+  const personHandles = replica.participantIds(DIRECT_PLATFORM);
   const conversations = buildConversations(
     events.filter((event) => event.seq <= cursor),
     names,
@@ -306,7 +304,10 @@ function Room({
       )}
 
       {optimistic !== null && (channel.conversation?.turns.length ?? 0) <= optimistic.baseline && (
-        <OptimisticTurn speaker={handle || "you"} text={optimistic.text} />
+        <OptimisticTurn
+          speaker={replica.participantName(channel.locator.platform, handle)}
+          text={optimistic.text}
+        />
       )}
 
       {thinking && <ThinkingIndicator />}
@@ -603,7 +604,10 @@ function ChannelLink({
 function toChannel(conversation: ConversationModel): Channel {
   return {
     key: channelKey(conversation.platform, conversation.scopePath),
-    label: conversation.contextName ?? `${conversation.platform}:${conversation.scopePath}`,
+    // The bare scope path, not the context memory name — the group header already names the context,
+    // so the label should stay as what the user typed (e.g. "blah"), not jump to "context/direct:blah"
+    // once the context memory is minted.
+    label: conversation.scopePath,
     locator: { platform: conversation.platform, scope_path: conversation.scopePath },
     authority: conversation.platform === "operator" ? "operator" : "participant",
     conversation,

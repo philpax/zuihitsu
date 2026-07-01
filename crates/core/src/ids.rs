@@ -163,9 +163,11 @@ pub struct UnknownNamespace;
 /// A handle decomposed into its namespace and subject (`person/dave` ⇄ [`Namespace::Person`] +
 /// `"dave"`) — the typed form of a [`MemoryName`]. Construction and parsing route through here so
 /// the prefix concatenation has a single home and handles are never assembled from a literal.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NamespacedMemoryName {
     pub namespace: Namespace,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub subject: SmolStr,
 }
 
@@ -228,7 +230,8 @@ impl std::str::FromStr for NamespacedMemoryName {
 /// home for the prefix strings — like [`MemoryName::SELF`] for the reserved self handle — so adding a
 /// kind or renaming a prefix is one edit here, and every handle is built by concatenating through
 /// [`Namespace::with_name`] rather than from a literal scattered across the code.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Namespace {
     Person,
     Place,

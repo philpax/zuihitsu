@@ -232,8 +232,15 @@ fn list_scenarios() -> ExitCode {
 
 fn export_types(dir: &Path) -> ExitCode {
     // The static package contract and the live stream's `LiveEvent` (its dependency trees overlap, so
-    // the shared types regenerate identically); the console consumes both.
-    match EvalPackage::export_all_to(dir).and_then(|()| LiveEvent::export_all_to(dir)) {
+    // the shared types regenerate identically); the console consumes both. The namespace types are
+    // not transitively referenced by any event payload, so they are exported explicitly — the console
+    // uses them to construct and decompose memory names without hardcoding the `person/` prefix.
+    use zuihitsu::ids::{Namespace, NamespacedMemoryName};
+    match EvalPackage::export_all_to(dir)
+        .and_then(|()| LiveEvent::export_all_to(dir))
+        .and_then(|()| Namespace::export_all_to(dir))
+        .and_then(|()| NamespacedMemoryName::export_all_to(dir))
+    {
         Ok(()) => {
             println!(
                 "exported the eval-package and live-event types to {}",
