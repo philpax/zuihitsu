@@ -19,7 +19,16 @@ import { type ModelInteraction, buildInteractions, tokenBudgetAt } from "../lib/
 import { formatDateTime, formatMs, formatTime, formatTokens } from "../lib/format.ts";
 import { imprint } from "../lib/operator.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
-import { Disclosure, Eyebrow, Hint, TextInput } from "../components/primitives.tsx";
+import {
+  Disclosure,
+  Excerpt,
+  Eyebrow,
+  Hint,
+  LabeledDivider,
+  Meter,
+  Select,
+  TextInput,
+} from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
 import { OutcomeList } from "../components/OutcomeList.tsx";
 import { BriefSections } from "../components/BriefTrace.tsx";
@@ -485,10 +494,9 @@ function ChannelSelect({
   onSelect: (key: string) => void;
 }) {
   return (
-    <select
+    <Select
       value={selectedKey ?? ""}
       onChange={(event) => onSelect(event.target.value)}
-      className="w-full border border-line bg-paper px-3 py-2 text-sm text-ink focus:border-ink-faint focus:outline-none"
       aria-label="Choose a conversation"
     >
       {groups.map((group) => (
@@ -500,7 +508,7 @@ function ChannelSelect({
           ))}
         </optgroup>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -661,22 +669,12 @@ function SessionDivider({ session, first }: { session: SessionModel; first: bool
       ? "conversation"
       : "new conversation";
   return (
-    <div
-      className={
-        "flex items-center gap-3 " +
-        (first ? "mb-4 " : "my-4 ") +
-        (session.compaction ? "text-clay" : "text-ink-soft")
-      }
+    <LabeledDivider
+      className={(first ? "mb-4 " : "my-4 ") + (session.compaction ? "text-clay" : "text-ink-soft")}
     >
-      <span className="h-px flex-1 bg-line" />
-      <span className="flex items-baseline gap-2 font-mono text-2xs uppercase tracking-widest">
-        <span>{label}</span>
-        <span className="tracking-normal text-ink-faint normal-case">
-          {formatDateTime(session.startedAt)}
-        </span>
-      </span>
-      <span className="h-px flex-1 bg-line" />
-    </div>
+      <span className="uppercase tracking-widest">{label}</span>
+      <span className="text-ink-faint">{formatDateTime(session.startedAt)}</span>
+    </LabeledDivider>
   );
 }
 
@@ -720,9 +718,7 @@ function BriefBlock({
       />
       {open && (
         <>
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-4 py-3 font-mono text-xs leading-relaxed text-ink-soft">
-            {session.brief}
-          </pre>
+          <Excerpt className="mt-3 max-h-96">{session.brief}</Excerpt>
           <Disclosure
             open={traceOpen}
             onToggle={toggleTrace}
@@ -783,11 +779,9 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
   return (
     <motion.li className="border-b border-line/70 py-4 last:border-b-0 sm:py-5" {...enter}>
       {turn.entrance && turn.speaker && (
-        <div className="mb-4 flex items-center gap-3 text-ink-faint">
-          <span className="h-px flex-1 bg-line" />
-          <span className="font-mono text-2xs">{turn.speaker} entered the room</span>
-          <span className="h-px flex-1 bg-line" />
-        </div>
+        <LabeledDivider className="mb-4 text-ink-faint">
+          <span>{turn.speaker} entered the room</span>
+        </LabeledDivider>
       )}
       <div className="mb-1.5 flex items-baseline gap-2">
         <span
@@ -852,15 +846,11 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
           </span>
           {towardCompaction !== null && (
             <>
-              <div
-                className="h-1 w-16 shrink-0 bg-oat"
+              <Meter
+                fraction={towardCompaction / 100}
+                className="w-16"
                 title={`${towardCompaction}% of the compaction budget (${formatTokens(budget)})`}
-              >
-                <div
-                  className={"h-1 " + (towardCompaction >= 80 ? "bg-clay" : "bg-sage")}
-                  style={{ width: `${Math.min(100, towardCompaction)}%` }}
-                />
-              </div>
+              />
               <span>
                 {towardCompaction}% to compaction ({formatTokens(budget)})
               </span>
@@ -949,12 +939,7 @@ function ContextBar({ usage, budget }: { usage: ModelInteraction["usage"]; budge
   const fraction = budget > 0 ? usage.prompt_tokens / budget : 0;
   return (
     <div className="mt-1.5 flex items-center gap-3">
-      <div className="h-1 w-24 shrink-0 bg-oat">
-        <div
-          className={"h-1 " + (fraction >= 0.8 ? "bg-clay" : "bg-sage")}
-          style={{ width: `${Math.min(100, fraction * 100)}%` }}
-        />
-      </div>
+      <Meter fraction={fraction} className="w-24" />
       <span className="font-mono text-2xs text-ink-faint">
         {formatTokens(usage.prompt_tokens)} / {formatTokens(budget)} · {Math.round(fraction * 100)}%
         {usage.completion_tokens !== null && ` · +${formatTokens(usage.completion_tokens)} out`}
@@ -1006,11 +991,7 @@ function MessageRow({ message }: { message: Message }) {
 }
 
 function Block({ text }: { text: string }) {
-  return (
-    <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-3 py-2 font-mono text-2xs leading-relaxed text-ink-soft">
-      {text}
-    </pre>
-  );
+  return <Excerpt className="mt-1">{text}</Excerpt>;
 }
 
 function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> }) {

@@ -1,4 +1,9 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+} from "react";
 
 /// The small mono, upper-case, wide-tracked label that titles a section or stands as an eyebrow —
 /// the quiet structural device used throughout, in place of heavier headings.
@@ -69,6 +74,76 @@ export function Hint({
 /// A faint middot separating inline metadata.
 export function Dot() {
   return <span className="text-ink-faint/45">·</span>;
+}
+
+/// The console's one select shape, matching `TextInput` — used where a list collapses to a native
+/// dropdown (the mobile conversation and memory pickers).
+export function Select({ className = "", ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...rest}
+      className={
+        "w-full rounded-xs border border-line bg-paper px-2.5 py-2 text-sm text-ink focus:border-ink-faint focus:outline-none " +
+        className
+      }
+    />
+  );
+}
+
+/// A quoted block of the agent's own material — a brief, a prompt, a judge response, a raw payload —
+/// set off on an oat ground behind a hairline. Scrolls internally past `maxHeight` so a long capture
+/// never swallows the page.
+export function Excerpt({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <pre
+      className={
+        "max-h-72 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-3 py-2 font-mono text-xs leading-relaxed text-ink-soft " +
+        className
+      }
+    >
+      {children}
+    </pre>
+  );
+}
+
+/// A rule with a centered label — the seam between sessions, an entrance into a room: an event in the
+/// flow of a transcript rather than a heading above it.
+export function LabeledDivider({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-center gap-3 ${className}`}>
+      <span className="h-px flex-1 bg-line" />
+      <span className="flex min-w-0 items-baseline gap-2 font-mono text-2xs">{children}</span>
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  );
+}
+
+/// A slim fill toward a budget — sage with headroom, clay past `warnAt` (where the budget looms).
+export function Meter({
+  fraction,
+  warnAt = 0.8,
+  className = "",
+  title,
+}: {
+  fraction: number;
+  warnAt?: number;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <div className={`h-1 shrink-0 bg-oat ${className}`} title={title}>
+      <div
+        className={"h-1 " + (fraction >= warnAt ? "bg-clay" : "bg-sage")}
+        style={{ width: `${Math.min(100, fraction * 100)}%` }}
+      />
+    </div>
+  );
 }
 
 /// A disclosure toggle — the `▸ label` / `▾ label` affordance used for briefs, deliberations,

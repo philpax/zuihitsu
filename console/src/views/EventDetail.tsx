@@ -16,6 +16,7 @@ import { formatDateTime, formatMs } from "../lib/format.ts";
 import { rruleLabel } from "../lib/audit.ts";
 import { statePath } from "../lib/routes.ts";
 import { Lua } from "../components/Lua.tsx";
+import { Excerpt } from "../components/primitives.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 
 /// The expanded view of a single event, rendered for its kind. Every payload gets a bespoke,
@@ -516,11 +517,7 @@ function Mono({ children }: { children: ReactNode }) {
 
 /// A long text body (a brief, a prompt template) — the content itself, not a JSON dump.
 function Prose({ children }: { children: string }) {
-  return (
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-3 py-2 font-mono text-2xs leading-relaxed text-ink-soft">
-      {children}
-    </pre>
-  );
+  return <Excerpt>{children}</Excerpt>;
 }
 
 /// The readable fallback for a payload with no bespoke case: nested label/value rows rather than a

@@ -13,7 +13,7 @@ import {
   rruleLabel,
 } from "../lib/audit.ts";
 import { groupBy } from "../lib/collections.ts";
-import { Eyebrow } from "./primitives.tsx";
+import { Eyebrow, Select } from "./primitives.tsx";
 
 /// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
 /// on the left, the opened memory's contents, links, and `same_as` class on the right. Selection is
@@ -127,10 +127,10 @@ function MemorySelect({
 }) {
   const groups = groupByNamespace(memories);
   return (
-    <select
+    <Select
       value={selected ?? ""}
       onChange={(event) => onSelect(event.target.value)}
-      className="w-full border border-line bg-paper px-3 py-2 font-mono text-xs text-ink focus:border-ink-faint focus:outline-none md:hidden"
+      className="md:hidden"
       aria-label="Choose a memory"
     >
       {groups.map(([namespace, items]) => (
@@ -143,7 +143,7 @@ function MemorySelect({
           ))}
         </optgroup>
       ))}
-    </select>
+    </Select>
   );
 }
 
