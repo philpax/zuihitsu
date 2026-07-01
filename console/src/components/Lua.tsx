@@ -8,7 +8,7 @@ hljs.registerLanguage("lua", lua);
 export function Lua({ code }: { code: string }) {
   const html = hljs.highlight(code, { language: "lua" }).value;
   return (
-    <pre className="overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-2xs leading-relaxed">
+    <pre className="overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-xs leading-relaxed">
       <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
     </pre>
   );
