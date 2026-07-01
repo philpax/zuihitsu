@@ -126,7 +126,7 @@ export function ConversationView({
 
   function startRoom() {
     const name = draftRoom.trim();
-    if (!name) return;
+    if (!name || hasScopeChar(name)) return;
     const locator = { platform: DIRECT_PLATFORM, scope_path: name };
     setPendingRoom(locator);
     selectRoom(localKey(locator));
@@ -230,6 +230,7 @@ function Room({
 }) {
   const isOperator = channel.authority === "operator";
   const handle = participate?.sender.trim() ?? "";
+  const handleScoped = hasScopeChar(handle);
   const { bySeq, budget } = useContext(ModelCalls);
   // The conversation's running cost, shown in the header: total generated (additive across turns) and
   // the peak context any turn reached (the high-water mark against the compaction budget — not a sum,
@@ -316,8 +317,12 @@ function Room({
             <Composer
               onSend={onSend}
               onPendingChange={setThinking}
-              disabled={!isOperator && handle.length === 0}
-              disabledHint="Set who you are to start."
+              disabled={!isOperator && (handle.length === 0 || handleScoped)}
+              disabledHint={
+                handleScoped
+                  ? "The handle should be a bare name, not a memory path."
+                  : "Set who you are to start."
+              }
               placeholder={
                 isOperator
                   ? "Speak to the agent as the operator…"
@@ -518,6 +523,8 @@ function RoomControls({
   onCreateRoom: () => void;
   personHandles: string[];
 }) {
+  const senderScoped = hasScopeChar(sender);
+  const roomScoped = hasScopeChar(draftRoom.trim());
   return (
     <div className="flex flex-col gap-3">
       <label className="flex flex-col gap-1.5">
@@ -534,7 +541,15 @@ function RoomControls({
             <option key={handle} value={handle} />
           ))}
         </datalist>
-        <span className="font-mono text-2xs text-ink-faint">person · a name, not a memory id</span>
+        {senderScoped ? (
+          <span className="font-mono text-2xs text-clay">
+            a bare name, not a memory path — drop the “{sender.slice(0, sender.indexOf("/"))}/”
+          </span>
+        ) : (
+          <span className="font-mono text-2xs text-ink-faint">
+            person · a name, not a memory id
+          </span>
+        )}
       </label>
 
       <label className="flex flex-col gap-1.5">
@@ -542,13 +557,20 @@ function RoomControls({
         <input
           value={draftRoom}
           onChange={(event) => onDraftRoomChange(event.target.value)}
-          onKeyDown={(event) => event.key === "Enter" && onCreateRoom()}
+          onKeyDown={(event) => event.key === "Enter" && !roomScoped && onCreateRoom()}
           placeholder="a room name"
           className="w-full border border-line bg-transparent px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
         />
-        <span className="font-mono text-2xs text-ink-faint">
-          direct · a name, not a context path
-        </span>
+        {roomScoped ? (
+          <span className="font-mono text-2xs text-clay">
+            a bare name, not a context path — drop the “
+            {draftRoom.trim().slice(0, draftRoom.trim().indexOf(":"))}:”
+          </span>
+        ) : (
+          <span className="font-mono text-2xs text-ink-faint">
+            direct · a name, not a context path
+          </span>
+        )}
       </label>
     </div>
   );
@@ -616,6 +638,12 @@ function channelKey(platform: string, scopePath: string): string {
 /// display concern and a room name may contain anything.
 function localKey(locator: ConversationLocator): string {
   return `${locator.platform} · ${locator.scope_path}`;
+}
+
+/// Whether a value carries a scope character (`/` for `person/*`, `:` for `context/*`) — the sign
+/// the user typed a full path when a bare name is expected. Used to warn inline and gate submission.
+function hasScopeChar(value: string): boolean {
+  return value.includes("/") || value.includes(":");
 }
 
 function lastActivity(conversation: ConversationModel | null): number {
