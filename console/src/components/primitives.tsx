@@ -9,15 +9,18 @@ import type {
 /// the quiet structural device used throughout, in place of heavier headings.
 export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <span className={`font-mono text-2xs uppercase tracking-widest text-ink-soft ${className}`}>
+    <span
+      className={`font-mono text-2xs font-medium uppercase tracking-widest text-ink-soft ${className}`}
+    >
       {children}
     </span>
   );
 }
 
-/// The console's one action shape: a hairline outline that warms to clay on hover. `primary` marks
-/// the view's main verb (save, send, run) with a stronger stroke; everything else stays quiet. One
-/// component so every view's buttons agree, instead of each re-deriving the class string.
+/// The console's one action shape. `primary` marks the view's main verb (save, send, run) as a
+/// filled block of sumi ink — the one weighted element on an otherwise hairline page — warming to
+/// clay on hover; everything else stays a quiet outline. One component so every view's buttons
+/// agree, instead of each re-deriving the class string.
 export function Button({
   primary = false,
   className = "",
@@ -27,8 +30,10 @@ export function Button({
     <button
       {...rest}
       className={
-        "rounded-xs border px-4 py-2 font-mono text-xs text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45 " +
-        (primary ? "border-ink-faint " : "border-line-strong ") +
+        "rounded-xs border px-4 py-2 font-mono text-xs transition-colors disabled:opacity-45 " +
+        (primary
+          ? "border-ink bg-ink text-paper enabled:hover:border-clay enabled:hover:bg-clay "
+          : "border-line-strong text-ink enabled:hover:border-clay enabled:hover:text-clay ") +
         className
       }
     />
@@ -42,7 +47,7 @@ export function TextInput({ className = "", ...rest }: InputHTMLAttributes<HTMLI
     <input
       {...rest}
       className={
-        "w-full rounded-xs border border-line bg-transparent px-2.5 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none " +
+        "w-full rounded-xs border border-line bg-paper-raised px-2.5 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/70 focus:border-ink-faint focus:outline-none " +
         className
       }
     />
@@ -83,7 +88,7 @@ export function Select({ className = "", ...rest }: SelectHTMLAttributes<HTMLSel
     <select
       {...rest}
       className={
-        "w-full rounded-xs border border-line bg-paper px-2.5 py-2 text-sm text-ink focus:border-ink-faint focus:outline-none " +
+        "w-full rounded-xs border border-line bg-paper-raised px-2.5 py-2 text-sm text-ink focus:border-ink-faint focus:outline-none " +
         className
       }
     />
@@ -169,8 +174,8 @@ export function Segmented({
           className={
             "border-b-2 pb-0.5 transition-colors " +
             (option.id === value
-              ? "border-clay text-ink"
-              : "border-transparent text-ink-faint hover:text-ink-soft")
+              ? "border-clay font-medium text-ink"
+              : "border-transparent text-ink-soft hover:text-ink")
           }
         >
           {option.label}
@@ -200,7 +205,7 @@ export function Disclosure({
     <button
       onClick={onToggle}
       className={
-        "flex items-baseline gap-2 text-left font-mono text-xs text-ink-faint transition-colors hover:text-ink-soft " +
+        "flex items-baseline gap-2 text-left font-mono text-xs text-ink-soft transition-colors hover:text-ink " +
         className
       }
     >

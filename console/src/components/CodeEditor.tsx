@@ -43,7 +43,7 @@ export function CodeEditor({
 }) {
   return (
     <div
-      className="border border-line bg-paper/60"
+      className="rounded-xs border border-line bg-paper-raised"
       onKeyDownCapture={(event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
           event.preventDefault();

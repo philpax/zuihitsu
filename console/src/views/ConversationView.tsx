@@ -383,7 +383,9 @@ function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
   return (
     <div className="border-t border-line/70 py-4 opacity-55 sm:py-5">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <span className="font-mono text-2xs uppercase tracking-widest text-clay">{speaker}</span>
+        <span className="font-mono text-2xs font-medium uppercase tracking-widest text-clay">
+          {speaker}
+        </span>
         <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">sending…</span>
       </div>
       <p className="whitespace-pre-wrap text-base leading-relaxed text-ink">{text}</p>
@@ -636,7 +638,9 @@ function ChannelLink({
       title={channel.label}
       className={
         "flex w-full min-w-0 items-baseline border-l-2 py-1.5 pl-2.5 text-left text-sm transition-colors " +
-        (active ? "border-clay text-ink" : "border-transparent text-ink-soft hover:text-ink") +
+        (active
+          ? "border-clay font-medium text-ink"
+          : "border-transparent text-ink-soft hover:text-ink") +
         (channel.conversation ? "" : " italic text-ink-faint")
       }
     >
@@ -828,7 +832,8 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
       <div className="mb-1.5 flex items-baseline gap-2">
         <span
           className={
-            "font-mono text-2xs uppercase tracking-widest " + (isAgent ? "text-sage" : "text-clay")
+            "font-mono text-2xs font-medium uppercase tracking-widest " +
+            (isAgent ? "text-sage" : "text-clay")
           }
         >
           {isAgent ? "the agent" : (turn.speaker ?? "someone")}

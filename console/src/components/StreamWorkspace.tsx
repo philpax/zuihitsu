@@ -121,7 +121,7 @@ export function StreamWorkspace({
             className={
               "-mb-px shrink-0 whitespace-nowrap border-b-2 py-3 transition-colors " +
               (entry.id === view
-                ? "border-clay text-ink"
+                ? "border-clay font-medium text-ink"
                 : "border-transparent text-ink-soft hover:text-ink")
             }
           >

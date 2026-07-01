@@ -81,7 +81,7 @@ function PromptEditor({
         onChange={(event) => setDraft(event.target.value)}
         rows={18}
         spellCheck={false}
-        className="w-full resize-y rounded-xs border border-line bg-paper/60 p-3 font-mono text-xs leading-relaxed text-ink focus:border-ink-faint focus:outline-none"
+        className="w-full resize-y rounded-xs border border-line bg-paper-raised p-3 font-mono text-xs leading-relaxed text-ink focus:border-ink-faint focus:outline-none"
       />
       <div className="mt-3 flex items-center gap-4">
         <Button primary onClick={save} disabled={!dirty || saving}>
