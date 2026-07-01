@@ -6,25 +6,29 @@
    typographic scale and hairline rules do the structural work in place of boxes and shadows.
    ---------------------------------------------------------------------------------------------- */
 @theme {
-  /* Ground: undyed paper, warming as it deepens. */
+  /* Ground: undyed paper, warming as it deepens; a raised sheet for the surfaces you write on. */
   --color-paper: #f4efe5;
+  --color-paper-raised: #faf7f0;
   --color-oat: #ebe3d3;
   --color-oat-deep: #e0d6c2;
 
-  /* Sumi ink, never pure black; softening toward the page as it recedes. */
-  --color-ink: #2c2823;
-  --color-ink-soft: #6d665a;
-  --color-ink-faint: #9c9484;
+  /* Sumi ink, never pure black; softening toward the page as it recedes — but never below
+     legibility. The ramp is chosen by contrast on paper: ink ~14:1, soft ~6.6:1, faint ~4.7:1
+     (AA at the small sizes it is used at). */
+  --color-ink: #26211b;
+  --color-ink-soft: #5b5344;
+  --color-ink-faint: #75695a;
 
-  /* Hairlines do the dividing — no boxes, no shadows. */
-  --color-line: #ddd4c3;
-  --color-line-strong: #c9bda7;
+  /* Hairlines do the dividing — no boxes, no shadows. Dark enough to actually divide. */
+  --color-line: #cfc3a9;
+  --color-line-strong: #ab9c7d;
 
   /* Two earthen accents, used sparingly. Clay marks attention and the live edge; sage marks calm
-     and what has held. The soft variants are for fills, the base for ink and strokes. */
-  --color-clay: #af6047;
+     and what has held. The soft variants are for fills, the base for ink and strokes — both base
+     tones hold ≥5:1 on paper so accent text stays readable, not just decorative. */
+  --color-clay: #9d4a31;
   --color-clay-soft: #d8b5a6;
-  --color-sage: #707a55;
+  --color-sage: #556040;
   --color-sage-soft: #b4bb9c;
 
   /* A serif for editorial calm, a humanist sans for the body, a mono for the agent's own data. */
@@ -98,6 +102,14 @@
   ::selection {
     background-color: var(--color-clay-soft);
     color: var(--color-ink);
+  }
+
+  /* A visible keyboard focus everywhere, in the accent that already means "attention". Buttons and
+     inputs style their own borders on focus; this guarantees a ring for everything else without
+     painting one under every pointer click. */
+  :focus-visible {
+    outline: 2px solid var(--color-clay);
+    outline-offset: 2px;
   }
 
   /* A thin, warm scrollbar that belongs to the paper. */
