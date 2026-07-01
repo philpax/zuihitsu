@@ -1,45 +1,66 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import type { LiveConnection } from "../lib/live.ts";
 import { type Settings, getSettings, putSettings } from "../lib/settings.ts";
 import { type ConfigTree, type ConfigValue, getConfig } from "../lib/config.ts";
 import { snapshotNow } from "../lib/operator.ts";
 import { settingsMetadata } from "../types/settings-metadata.ts";
-import { Button, Checkbox, Eyebrow, Hint } from "./primitives.tsx";
+import { Button, Checkbox, Eyebrow, Hint, Segmented } from "./primitives.tsx";
 
 /// One leaf field's value, and a record of them — the structural shape the generic editor walks. The
 /// public API stays typed against the exported `Settings`; this is only the editor's view of it.
 type FieldValue = number | string | boolean;
 type FieldRecord = { [key: string]: FieldValue | FieldRecord };
 
+/// The view's three concerns, each its own section: the agent's behavioral settings (editable, live),
+/// the environmental TOML config it booted from (read-only), and maintenance actions. The open
+/// section rides in the URL (`?section`), so it deep-links and survives a view switch.
+const SECTIONS = [
+  { id: "settings", label: "Settings" },
+  { id: "environment", label: "Environment" },
+  { id: "maintenance", label: "Maintenance" },
+] as const;
+type SectionId = (typeof SECTIONS)[number]["id"];
+
 /// The Settings view: the agent's behavioral settings (the latest `ConfigSet` snapshot), read and
 /// edited live (spec §Initialization → configuration). A save logs a new operator `ConfigSet` that
 /// takes effect on the next read, so the change shows up in the Events view and time-travels like
-/// anything else. Distinct from the environmental TOML config, which is read at boot and not editable
-/// here.
+/// anything else.
 export function SettingsView({ connection }: { connection: LiveConnection }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get("section");
+  const section: SectionId = SECTIONS.some((entry) => entry.id === requested)
+    ? (requested as SectionId)
+    : "settings";
+
+  function selectSection(id: string) {
+    setSearchParams(
+      (prev) => {
+        const updated = new URLSearchParams(prev);
+        updated.set("section", id);
+        return updated;
+      },
+      { replace: true },
+    );
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <Segmented options={SECTIONS} value={section} onChange={selectSection} className="mb-6" />
+      {section === "settings" && <BehavioralSettings connection={connection} />}
+      {section === "environment" && <EnvironmentSection connection={connection} />}
+      {section === "maintenance" && <MaintenanceSection connection={connection} />}
+    </div>
+  );
+}
+
+/// The editable behavioral settings tree, with the save bar footing it.
+function BehavioralSettings({ connection }: { connection: LiveConnection }) {
   const [tree, setTree] = useState<Settings | null>(null);
   const [original, setOriginal] = useState<string>("");
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [config, setConfig] = useState<ConfigTree | null>(null);
-  const [snapshot, setSnapshot] = useState<
-    | { state: "idle" | "working" }
-    | { state: "done"; message: string }
-    | { state: "error"; message: string }
-  >({ state: "idle" });
-
-  useEffect(() => {
-    let cancelled = false;
-    // The environmental config is read-only and non-essential, so a failure just hides its section.
-    getConfig(connection).then(
-      (value) => !cancelled && setConfig(value),
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [connection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +104,92 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
     }
   }
 
+  if (status === "loading" || !tree) {
+    return (
+      <p className="py-12 text-center text-sm text-ink-faint">
+        {status === "error" ? `Could not load settings — ${error}` : "Loading settings…"}
+      </p>
+    );
+  }
+
+  const dirty = JSON.stringify(tree) !== original;
+  return (
+    <div>
+      <div className="flex flex-col gap-8">
+        {Object.entries(tree as unknown as FieldRecord).map(([group, value]) => (
+          <section key={group}>
+            <Eyebrow>{label(group)}</Eyebrow>
+            <div className="mt-3">
+              <Fields tree={value} path={[group]} onChange={update} />
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <div className="sticky bottom-0 mt-8 flex items-center gap-4 border-t border-line bg-paper/95 py-4 backdrop-blur">
+        <Button primary onClick={save} disabled={!dirty || status === "saving"}>
+          {status === "saving" ? "Saving…" : "Save"}
+        </Button>
+        {status === "error" && <Hint tone="error">{error}</Hint>}
+        {!dirty && status === "ready" && <Hint>no unsaved changes</Hint>}
+      </div>
+    </div>
+  );
+}
+
+/// The environmental TOML config, read-only.
+function EnvironmentSection({ connection }: { connection: LiveConnection }) {
+  const [config, setConfig] = useState<ConfigTree | null | "unavailable">(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getConfig(connection).then(
+      (value) => !cancelled && setConfig(value),
+      () => !cancelled && setConfig("unavailable"),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [connection]);
+
+  if (config === null) {
+    return <p className="py-12 text-center text-sm text-ink-faint">Loading the environment…</p>;
+  }
+  if (config === "unavailable") {
+    return (
+      <p className="py-12 text-center text-sm text-ink-faint">
+        The environment is not available from this host.
+      </p>
+    );
+  }
+  return (
+    <div>
+      <p className="max-w-prose text-sm leading-relaxed text-ink-soft">
+        The TOML config this instance booted from — read-only here (it is read at startup, not from
+        the log). Secrets are redacted: API keys show as counts, MCP env as its variable names.
+      </p>
+      <div className="mt-6 flex flex-col gap-7">
+        {Object.entries(config).map(([group, value]) => (
+          <div key={group}>
+            <Eyebrow>{label(group)}</Eyebrow>
+            <div className="mt-3">
+              <ConfigFields value={value} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/// Maintenance actions against the running instance.
+function MaintenanceSection({ connection }: { connection: LiveConnection }) {
+  const [snapshot, setSnapshot] = useState<
+    | { state: "idle" | "working" }
+    | { state: "done"; message: string }
+    | { state: "error"; message: string }
+  >({ state: "idle" });
+
   async function takeSnapshot() {
     setSnapshot({ state: "working" });
     try {
@@ -99,72 +206,21 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
     }
   }
 
-  if (status === "loading" || !tree) {
-    return (
-      <p className="py-12 text-center text-sm text-ink-faint">
-        {status === "error" ? `Could not load settings — ${error}` : "Loading settings…"}
-      </p>
-    );
-  }
-
-  const dirty = JSON.stringify(tree) !== original;
   return (
-    <div>
-      <div className="flex flex-col gap-6">
-        {Object.entries(tree as unknown as FieldRecord).map(([section, value]) => (
-          <section key={section}>
-            <Eyebrow>{label(section)}</Eyebrow>
-            <div className="mt-3">
-              <Fields tree={value} path={[section]} onChange={update} />
-            </div>
-          </section>
-        ))}
-      </div>
-
-      <div className="mt-6 flex items-center gap-4 border-t border-line pt-5">
-        <Button primary onClick={save} disabled={!dirty || status === "saving"}>
-          {status === "saving" ? "Saving…" : "Save"}
+    <section>
+      <Eyebrow>Graph snapshot</Eyebrow>
+      <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">
+        Write a graph snapshot now — the take-one-before-an-experiment trigger. Boot restores from
+        the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
+      </p>
+      <div className="mt-4 flex items-center gap-4">
+        <Button onClick={takeSnapshot} disabled={snapshot.state === "working"}>
+          {snapshot.state === "working" ? "Snapshotting…" : "Snapshot now"}
         </Button>
-        {status === "error" && <Hint tone="error">{error}</Hint>}
-        {!dirty && status === "ready" && <Hint>no unsaved changes</Hint>}
+        {snapshot.state === "done" && <Hint className="text-ink-soft">{snapshot.message}</Hint>}
+        {snapshot.state === "error" && <Hint tone="error">{snapshot.message}</Hint>}
       </div>
-
-      <section className="mt-8 border-t border-line pt-6">
-        <Eyebrow>Maintenance</Eyebrow>
-        <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">
-          Write a graph snapshot now — the take-one-before-an-experiment trigger. Boot restores from
-          the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
-        </p>
-        <div className="mt-4 flex items-center gap-4">
-          <Button onClick={takeSnapshot} disabled={snapshot.state === "working"}>
-            {snapshot.state === "working" ? "Snapshotting…" : "Snapshot now"}
-          </Button>
-          {snapshot.state === "done" && <Hint className="text-ink-soft">{snapshot.message}</Hint>}
-          {snapshot.state === "error" && <Hint tone="error">{snapshot.message}</Hint>}
-        </div>
-      </section>
-
-      {config && (
-        <section className="mt-8 border-t border-line pt-6">
-          <Eyebrow>Environment</Eyebrow>
-          <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">
-            The TOML config this instance booted from — read-only here (it is read at startup, not
-            from the log). Secrets are redacted: API keys show as counts, MCP env as its variable
-            names.
-          </p>
-          <div className="mt-5 flex flex-col gap-7">
-            {Object.entries(config).map(([section, value]) => (
-              <div key={section}>
-                <Eyebrow>{label(section)}</Eyebrow>
-                <div className="mt-3">
-                  <ConfigFields value={value} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
+    </section>
   );
 }
 
@@ -210,6 +266,24 @@ function Fields({
 
 const CAPTURE_LEVELS = ["Full", "Digest", "Off"];
 
+/// The display units a time-based field can be edited in. The wire value stays in the field's own
+/// unit (seconds or days); only what the input shows converts. Seconds round to whole on save (the
+/// wire fields are integers); days keep two decimals (the tau constants are fractional).
+interface DisplayUnit {
+  id: string;
+  factor: number;
+}
+const SECOND_UNITS: DisplayUnit[] = [
+  { id: "s", factor: 1 },
+  { id: "min", factor: 60 },
+  { id: "h", factor: 3600 },
+  { id: "d", factor: 86400 },
+];
+const DAY_UNITS: DisplayUnit[] = [
+  { id: "d", factor: 1 },
+  { id: "wk", factor: 7 },
+];
+
 function Leaf({
   name,
   path,
@@ -222,14 +296,34 @@ function Leaf({
   onChange: (value: FieldValue) => void;
 }) {
   const meta = settingsMetadata[path.join(".")];
-  const isMinutes = meta?.display === "min" && meta?.unit === "seconds";
-  // The wire value is seconds; the editor shows minutes. Round the display to two decimals so a
-  // non-multiple-of-60 (e.g. 100s) shows `1.67` rather than a float soup; `Math.round` on save
-  // recovers the nearest whole second.
+  const units =
+    typeof value === "number" && meta?.unit === "seconds"
+      ? SECOND_UNITS
+      : typeof value === "number" && meta?.unit === "days"
+        ? DAY_UNITS
+        : null;
+  // The unit the field is being edited in — the metadata's preferred display to start (`min` for the
+  // long intervals), switchable per field.
+  const [unitId, setUnitId] = useState(
+    meta?.display && units?.some((unit) => unit.id === meta.display) ? meta.display : units?.[0].id,
+  );
+  const unit = units?.find((entry) => entry.id === unitId) ?? null;
+
+  // Round the display to two decimals so a non-multiple (e.g. 100s shown in minutes) reads `1.67`
+  // rather than a float soup; the save conversion below recovers the wire unit.
   const shownValue =
-    isMinutes && typeof value === "number"
-      ? String(Number((value / 60).toFixed(2)))
+    unit && typeof value === "number"
+      ? String(Number((value / unit.factor).toFixed(2)))
       : String(value);
+
+  function onEdit(text: string) {
+    if (unit && typeof value === "number") {
+      const inWire = Number(text) * unit.factor;
+      onChange(meta?.unit === "seconds" ? Math.round(inWire) : Number(inWire.toFixed(2)));
+    } else {
+      onChange(typeof value === "number" ? Number(text) : text);
+    }
+  }
 
   const input =
     name === "capture_model_calls" ? (
@@ -250,31 +344,42 @@ function Leaf({
       <input
         type={typeof value === "number" ? "number" : "text"}
         value={shownValue}
-        onChange={(event) => {
-          if (isMinutes && typeof value === "number") {
-            onChange(Math.round(Number(event.target.value) * 60));
-          } else {
-            onChange(typeof value === "number" ? Number(event.target.value) : event.target.value);
-          }
-        }}
-        className="w-32 border-b border-line bg-transparent pb-1 text-right font-mono text-xs text-ink focus:border-ink-faint focus:outline-none"
+        onChange={(event) => onEdit(event.target.value)}
+        className="w-28 border-b border-line bg-transparent pb-1 text-right font-mono text-xs text-ink focus:border-ink-faint focus:outline-none"
       />
     );
   return (
-    <label className="flex items-baseline justify-between gap-4">
-      <span className="flex flex-col gap-0.5">
+    <div className="flex items-baseline justify-between gap-4">
+      <label className="flex flex-col gap-0.5">
         <span className="font-mono text-2xs text-ink-soft">{label(name)}</span>
         {meta?.description && (
-          <span className="text-2xs leading-snug text-ink-faint">{meta.description}</span>
+          <span className="max-w-prose text-xs leading-snug text-ink-faint">
+            {meta.description}
+          </span>
         )}
-      </span>
-      <span className="flex items-baseline gap-1.5">
+      </label>
+      <span className="flex shrink-0 items-baseline gap-1.5">
         {input}
-        {meta?.display && (
-          <span className="w-12 text-left font-mono text-2xs text-ink-faint">{meta.display}</span>
+        {units ? (
+          <select
+            value={unitId}
+            onChange={(event) => setUnitId(event.target.value)}
+            aria-label={`Unit for ${label(name)}`}
+            className="w-12 bg-transparent font-mono text-2xs text-ink-faint focus:outline-none"
+          >
+            {units.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.id}
+              </option>
+            ))}
+          </select>
+        ) : (
+          meta?.display && (
+            <span className="w-12 text-left font-mono text-2xs text-ink-faint">{meta.display}</span>
+          )
         )}
       </span>
-    </label>
+    </div>
   );
 }
 

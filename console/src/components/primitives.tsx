@@ -146,6 +146,40 @@ export function Meter({
   );
 }
 
+/// A row of sibling choices where exactly one is active — the sub-nav inside a view (settings
+/// sections, prompt templates). Quieter than the workspace tab bar: the active choice is inked and
+/// underlined in clay, the rest recede.
+export function Segmented({
+  options,
+  value,
+  onChange,
+  className = "",
+}: {
+  options: ReadonlyArray<{ id: string; label: string }>;
+  value: string;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-wrap gap-x-5 gap-y-2 text-sm ${className}`}>
+      {options.map((option) => (
+        <button
+          key={option.id}
+          onClick={() => onChange(option.id)}
+          className={
+            "border-b-2 pb-0.5 transition-colors " +
+            (option.id === value
+              ? "border-clay text-ink"
+              : "border-transparent text-ink-faint hover:text-ink-soft")
+          }
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /// A disclosure toggle — the `▸ label` / `▾ label` affordance used for briefs, deliberations,
 /// prompts, and the API reference. One component so the arrow, spacing, and hover behavior agree
 /// everywhere. `summary` is the always-visible row beside the label (a count, a duration).

@@ -4,7 +4,7 @@ import type { Event } from "../types/Event.ts";
 import type { PromptTemplateName } from "../types/PromptTemplateName.ts";
 import type { LiveConnection } from "../lib/live.ts";
 import { type PromptTemplate, deriveTemplates, registerPrompt } from "../lib/prompts.ts";
-import { Button, Hint } from "./primitives.tsx";
+import { Button, Hint, Segmented } from "./primitives.tsx";
 
 /// The Prompts view: the agent's prompt templates — the system-prompt scaffold and the framing
 /// templates — read from the log and editable (spec §Initialization → prompt templates). A save
@@ -32,20 +32,12 @@ export function PromptsView({
   const active = templates.find((template) => template.name === selected) ?? templates[0];
   return (
     <div>
-      <div className="mb-6 flex flex-wrap gap-x-5 gap-y-2 text-sm">
-        {templates.map((template) => (
-          <button
-            key={template.name}
-            onClick={() => setSelected(template.name)}
-            className={
-              "transition-colors " +
-              (template.name === active.name ? "text-ink" : "text-ink-faint hover:text-ink-soft")
-            }
-          >
-            {template.name}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        options={templates.map((template) => ({ id: template.name, label: template.name }))}
+        value={active.name}
+        onChange={(id) => setSelected(id as PromptTemplateName)}
+        className="mb-6"
+      />
 
       {/* Keyed by name so selecting a different template remounts the editor with a fresh draft; a
           new version of the *same* template (arriving via the tail after a save) keeps the key, so it
