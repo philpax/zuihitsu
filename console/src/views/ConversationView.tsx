@@ -330,7 +330,7 @@ function Room({
           under the transcript column. */}
       {participate && (
         <Docked>
-          <div className="pt-2 md:grid md:grid-cols-[12rem_1fr] md:gap-8">
+          <div className="pb-2.5 pt-2 md:grid md:grid-cols-[12rem_1fr] md:gap-8">
             <div className="hidden md:block" />
             <div className="w-full max-w-[46rem]">
               {participate.atHead ? (
