@@ -40,7 +40,7 @@ export function EventRow({
   const [open, setOpen] = useState(false);
   const base = useStreamBase();
   return (
-    <li className="font-mono text-2xs">
+    <li className="font-mono text-xs">
       <button
         onClick={() => setOpen(!open)}
         className="group flex w-full items-baseline gap-2 text-left"

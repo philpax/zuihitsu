@@ -65,7 +65,7 @@ export const turnComponents: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="mt-3 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-2xs leading-relaxed">
+    <pre className="mt-3 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-xs leading-relaxed">
       {children}
     </pre>
   ),
@@ -122,7 +122,7 @@ export const thinkingComponents: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="mt-2 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-2xs not-italic leading-relaxed text-ink-soft">
+    <pre className="mt-2 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-xs not-italic leading-relaxed text-ink-soft">
       {children}
     </pre>
   ),

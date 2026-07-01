@@ -68,7 +68,7 @@ export function DiffView({
       <div className="mb-6">
         <div className="mb-1.5 flex items-baseline justify-between gap-4">
           <Eyebrow>baseline</Eyebrow>
-          <span className="font-mono text-2xs text-ink-soft">
+          <span className="font-mono text-xs text-ink-soft">
             comparing seq {lo} → {hi}
             {lo === hi && " · pick two different points"}
           </span>
@@ -100,7 +100,7 @@ export function DiffView({
               <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink">
                 {change.name}
               </span>
-              <span className="shrink-0 text-right font-mono text-2xs text-ink-soft">
+              <span className="shrink-0 text-right font-mono text-xs text-ink-soft">
                 {describe(change)}
               </span>
             </li>
@@ -113,7 +113,7 @@ export function DiffView({
           <Eyebrow>events between</Eyebrow>
           <ul className="mt-3 flex flex-col gap-1">
             {bridging.map((event) => (
-              <li key={event.seq} className="flex items-baseline gap-2 font-mono text-2xs">
+              <li key={event.seq} className="flex items-baseline gap-2 font-mono text-xs">
                 <span className="shrink-0 text-ink-faint">{event.seq}</span>
                 <span className="shrink-0 text-ink-soft">{event.payload.type}</span>
                 <span className="truncate text-ink-faint">

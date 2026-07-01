@@ -25,11 +25,11 @@ function Section({ section }: { section: BriefSectionTrace }) {
     <div>
       <div className="flex items-baseline gap-2">
         <Eyebrow>{sectionLabel(section.kind)}</Eyebrow>
-        <span className="font-mono text-2xs text-ink-soft">{section.memory}</span>
-        {section.confidential && <span className="font-mono text-2xs text-clay">confidential</span>}
+        <span className="font-mono text-xs text-ink-soft">{section.memory}</span>
+        {section.confidential && <span className="font-mono text-xs text-clay">confidential</span>}
       </div>
       {section.entries.length === 0 ? (
-        <p className="mt-1.5 font-mono text-2xs text-ink-faint">no entries</p>
+        <p className="mt-1.5 font-mono text-xs text-ink-faint">no entries</p>
       ) : (
         <ul className="mt-2 flex flex-col gap-2">
           {section.entries.map((entry, index) => (
@@ -68,7 +68,7 @@ function EntryRow({ entry }: { entry: EntryTrace }) {
           {entry.text}
         </p>
         <p
-          className={"font-mono text-2xs " + (tone === "filtered" ? "text-clay" : "text-ink-faint")}
+          className={"font-mono text-xs " + (tone === "filtered" ? "text-clay" : "text-ink-faint")}
         >
           {note}
         </p>

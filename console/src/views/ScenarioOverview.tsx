@@ -27,7 +27,7 @@ export function ScenarioOverview() {
   return (
     <main className="flex-1 py-7">
       {waiting && (
-        <p className="mb-4 font-mono text-2xs text-ink-faint">
+        <p className="mb-4 font-mono text-xs text-ink-faint">
           <span className="animate-pulse">waiting for the first run to start…</span>
         </p>
       )}
@@ -131,7 +131,7 @@ function ScenarioRow({
                 <Link
                   key={run.index}
                   to={runPath(meta.name, run.index)}
-                  className="font-mono text-2xs text-ink-faint transition-colors hover:text-clay"
+                  className="font-mono text-xs text-ink-faint transition-colors hover:text-clay"
                   title={`Inspect run ${run.index}`}
                 >
                   {run.index}
@@ -141,7 +141,7 @@ function ScenarioRow({
                 <Link
                   to={runPath(meta.name, liveRun)}
                   title={`Run ${liveRun} · streaming live`}
-                  className="font-mono text-2xs text-sage transition-colors hover:text-clay"
+                  className="font-mono text-xs text-sage transition-colors hover:text-clay"
                 >
                   {liveRun}
                 </Link>
@@ -172,7 +172,7 @@ function ScenarioRow({
           <>
             <div className="flex items-baseline gap-2.5">
               <span className="font-mono text-lg text-ink">{formatRate(aggregate.rate)}</span>
-              <span className="font-mono text-2xs text-ink-faint">
+              <span className="font-mono text-xs text-ink-faint">
                 {running
                   ? `${completed}/${runsPlanned} runs`
                   : `${aggregate.runs} run${aggregate.runs > 1 ? "s" : ""}`}
@@ -181,7 +181,7 @@ function ScenarioRow({
 
             <RateBar rate={aggregate.rate} threshold={threshold} held={held} />
 
-            <div className="flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
+            <div className="flex items-baseline gap-3 font-mono text-xs text-ink-faint">
               <span className={held ? "text-sage" : "text-clay"}>
                 {meta.bar.kind === "gating"
                   ? aggregate.gating_passed

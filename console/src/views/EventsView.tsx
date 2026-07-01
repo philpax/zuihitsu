@@ -110,12 +110,12 @@ export function EventsView({
     <section>
       {focusName && (
         <div className="mb-5 flex items-baseline justify-between gap-4 border-l-2 border-clay bg-clay-soft/15 py-2 pl-3 pr-2">
-          <span className="font-mono text-2xs text-ink-soft">
+          <span className="font-mono text-xs text-ink-soft">
             events touching <span className="text-ink">{focusName}</span>
           </span>
           <button
             onClick={clearFocus}
-            className="shrink-0 font-mono text-2xs text-clay transition-colors hover:text-ink"
+            className="shrink-0 font-mono text-xs text-clay transition-colors hover:text-ink"
           >
             clear ✕
           </button>
@@ -150,7 +150,7 @@ export function EventsView({
           {typeFilter && (
             <button
               onClick={() => setTypeFilter(null)}
-              className="font-mono text-2xs text-clay transition-colors hover:text-ink"
+              className="font-mono text-xs text-clay transition-colors hover:text-ink"
               title="Clear the type filter"
             >
               {typeFilter} ✕

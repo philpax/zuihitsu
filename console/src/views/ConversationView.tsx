@@ -992,7 +992,7 @@ function MessageRow({ message }: { message: Message }) {
       </span>
       {message.content && <Block text={message.content} />}
       {message.tool_calls.length > 0 && (
-        <p className="mt-1 font-mono text-2xs text-clay">
+        <p className="mt-1 font-mono text-xs text-clay">
           → {message.tool_calls.map((call) => call.name).join(", ")}
         </p>
       )}
@@ -1010,10 +1010,10 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
     <div>
       <Lua code={step.script} />
       {error ? (
-        <p className="mt-1 font-mono text-2xs text-clay">{terminalCauseLabel(error)}</p>
+        <p className="mt-1 font-mono text-xs text-clay">{terminalCauseLabel(error)}</p>
       ) : (
         step.result && (
-          <p className="mt-1 whitespace-pre-wrap font-mono text-2xs text-ink-soft">
+          <p className="mt-1 whitespace-pre-wrap font-mono text-xs text-ink-soft">
             → {step.result}
           </p>
         )

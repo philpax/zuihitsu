@@ -42,11 +42,11 @@ export function VerdictPanel({ run, gating }: { run: RunRecord; gating: boolean 
           </span>
         </span>
         {gating && total > 0 && (
-          <span className="font-mono text-2xs text-ink-soft">
+          <span className="font-mono text-xs text-ink-soft">
             {passed}/{total} criteria passed
           </span>
         )}
-        <span className="ml-auto flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
+        <span className="ml-auto flex items-baseline gap-3 font-mono text-xs text-ink-faint">
           <span>{metrics.model_calls} calls</span>
           <span>·</span>
           <span>{formatMs(metrics.wall_clock_ms)}</span>
@@ -57,7 +57,7 @@ export function VerdictPanel({ run, gating }: { run: RunRecord; gating: boolean 
 
       {open &&
         (run.verdicts.length === 0 ? (
-          <p className="mt-2 font-mono text-2xs text-ink-faint">
+          <p className="mt-2 font-mono text-xs text-ink-faint">
             No criteria recorded for this run.
           </p>
         ) : (
