@@ -334,45 +334,48 @@ function RelationLegend({
       {relations.length === 0 ? (
         <p className="py-2 font-mono text-2xs text-ink-faint">no registered relations</p>
       ) : (
-        <table className="w-full table-fixed border-collapse">
-          <thead>
-            <tr className="border-b border-line text-left font-mono text-2xs uppercase tracking-widest text-ink-faint">
-              <th className="w-[20%] pb-1 pr-2 font-normal">name</th>
-              <th className="w-[20%] pb-1 pr-2 font-normal">inverse</th>
-              <th className="w-24 pb-1 pr-2 font-normal">card</th>
-              <th className="pb-1 font-normal">description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {relations.map((relation) => {
-              const active = selected.has(relation.name);
-              const color = relationColor(relation.name);
-              return (
-                <tr
-                  key={relation.name}
-                  onClick={() => onToggle(relation.name)}
-                  className={
-                    "cursor-pointer border-l-2 align-baseline transition-colors " +
-                    (active ? "border-clay" : "border-transparent hover:bg-oat/30")
-                  }
-                >
-                  <td className="py-1 pl-2.5 pr-2 font-mono text-xs" style={{ color }}>
-                    {relation.name}
-                  </td>
-                  <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
-                    {relation.inverse}
-                  </td>
-                  <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
-                    {cardinalityLabel(relation)}
-                  </td>
-                  <td className="py-1 text-2xs leading-snug text-ink-faint">
-                    {relation.description || "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        // Scrolls sideways on a narrow screen rather than crushing its fixed columns.
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] table-fixed border-collapse">
+            <thead>
+              <tr className="border-b border-line text-left font-mono text-2xs uppercase tracking-widest text-ink-faint">
+                <th className="w-[20%] pb-1 pr-2 font-normal">name</th>
+                <th className="w-[20%] pb-1 pr-2 font-normal">inverse</th>
+                <th className="w-24 pb-1 pr-2 font-normal">card</th>
+                <th className="pb-1 font-normal">description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relations.map((relation) => {
+                const active = selected.has(relation.name);
+                const color = relationColor(relation.name);
+                return (
+                  <tr
+                    key={relation.name}
+                    onClick={() => onToggle(relation.name)}
+                    className={
+                      "cursor-pointer border-l-2 align-baseline transition-colors " +
+                      (active ? "border-clay" : "border-transparent hover:bg-oat/30")
+                    }
+                  >
+                    <td className="py-1 pl-2.5 pr-2 font-mono text-xs" style={{ color }}>
+                      {relation.name}
+                    </td>
+                    <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
+                      {relation.inverse}
+                    </td>
+                    <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
+                      {cardinalityLabel(relation)}
+                    </td>
+                    <td className="py-1 text-2xs leading-snug text-ink-faint">
+                      {relation.description || "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </nav>
   );

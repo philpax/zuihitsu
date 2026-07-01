@@ -229,7 +229,7 @@ function MemoryDetailPane({
   const disputed = new Set(detail.disputed);
 
   return (
-    <article className="max-w-prose">
+    <article className="max-w-[46rem]">
       <header className="border-b border-line pb-5">
         <div className="flex items-baseline justify-between gap-4">
           {/* On mobile the dropdown already names the open memory, so the heading would just repeat it. */}

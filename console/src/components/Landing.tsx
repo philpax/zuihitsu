@@ -21,7 +21,7 @@ export function Landing({
 }) {
   useDocumentTitle("console");
   return (
-    <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-8">
+    <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-5 py-10 sm:px-8">
       <div className="mb-9 flex flex-col items-center gap-2">
         <span className="font-serif text-4xl text-ink">zuihitsu</span>
         <Eyebrow>console</Eyebrow>

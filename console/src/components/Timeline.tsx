@@ -1,7 +1,6 @@
 import type { Event } from "../types/Event.ts";
 import { eventSummary } from "../lib/events.ts";
 import { formatDate, formatDateTime, formatTime } from "../lib/format.ts";
-import { Eyebrow } from "./primitives.tsx";
 
 /// The global time cursor for the run-scoped views: a sticky scrubber over the run's seq range that
 /// every view reflects — the State graph folds to it, the Conversation and Events stop there. The
@@ -27,32 +26,29 @@ export function Timeline({
   const last = events[events.length - 1] ?? null;
 
   return (
-    <div className="border-t border-line py-3">
-      <div className="mb-1.5 flex items-baseline justify-between gap-4">
-        <Eyebrow>timeline</Eyebrow>
-        <div className="flex min-w-0 items-baseline gap-2 font-mono text-2xs">
-          <button
-            onClick={onReset}
-            className={"shrink-0 " + (atHead ? "text-ink-faint" : "text-clay hover:text-ink")}
-            title={atHead ? "At the latest state" : "Jump to the latest state"}
-          >
-            seq {seq} / {head}
-          </button>
-          {current && (
-            <>
-              <time
-                className="shrink-0 text-ink-faint"
-                dateTime={new Date(current.recorded_at).toISOString()}
-                title={formatDateTime(current.recorded_at)}
-              >
-                · {formatTime(current.recorded_at)}
-              </time>
-              <span className="truncate text-ink-faint">
-                · {current.payload.type} {eventSummary(current.payload, nameById)}
-              </span>
-            </>
-          )}
-        </div>
+    <div className="border-t border-line py-2.5">
+      <div className="mb-1 flex min-w-0 items-baseline gap-2 font-mono text-2xs">
+        <button
+          onClick={onReset}
+          className={"shrink-0 " + (atHead ? "text-ink-faint" : "text-clay hover:text-ink")}
+          title={atHead ? "At the latest state" : "Jump to the latest state"}
+        >
+          seq {seq} / {head}
+        </button>
+        {current && (
+          <>
+            <time
+              className="shrink-0 text-ink-faint"
+              dateTime={new Date(current.recorded_at).toISOString()}
+              title={formatDateTime(current.recorded_at)}
+            >
+              · {formatTime(current.recorded_at)}
+            </time>
+            <span className="truncate text-ink-faint">
+              · {current.payload.type} {eventSummary(current.payload, nameById)}
+            </span>
+          </>
+        )}
       </div>
       <input
         type="range"
@@ -62,8 +58,10 @@ export function Timeline({
         onChange={(event) => onScrub(Number(event.target.value))}
         className="w-full accent-clay"
       />
+      {/* The run's span flanks the scrubber where there is room; on a phone the bottom chrome
+          stays two rows. */}
       {first && last && (
-        <div className="mt-1 flex justify-between font-mono text-2xs text-ink-faint/70">
+        <div className="mt-1 hidden justify-between font-mono text-2xs text-ink-faint/70 sm:flex">
           <span>{formatDate(first.recorded_at)}</span>
           <span>{formatDate(last.recorded_at)}</span>
         </div>

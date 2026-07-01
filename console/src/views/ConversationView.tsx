@@ -144,7 +144,9 @@ export function ConversationView({
   return (
     <ModelCalls.Provider value={modelCalls}>
       <Names.Provider value={names}>
-        <div className="grid grid-cols-1 gap-1 md:grid-cols-[11rem_1fr] md:gap-6">
+        {/* The sidebar-and-transcript grid; the docked composer below mirrors it, so keep the two
+            template strings in step. */}
+        <div className="grid grid-cols-1 gap-1 md:grid-cols-[12rem_1fr] md:gap-8">
           <div className="md:sticky md:top-4 md:self-start">
             <aside className="hidden flex-col gap-4 md:flex">
               {participate && (
@@ -281,7 +283,7 @@ function Room({
   }
 
   return (
-    <div className="flex w-full max-w-prose flex-col">
+    <div className="flex w-full max-w-[46rem] flex-col">
       <header className="mb-4">
         <Eyebrow>
           {channel.label}
@@ -327,9 +329,9 @@ function Room({
           under the transcript column. */}
       {participate && (
         <Docked>
-          <div className="pt-2 md:grid md:grid-cols-[11rem_1fr] md:gap-6">
+          <div className="pt-2 md:grid md:grid-cols-[12rem_1fr] md:gap-8">
             <div className="hidden md:block" />
-            <div className="w-full max-w-prose">
+            <div className="w-full max-w-[46rem]">
               {participate.atHead ? (
                 <Composer
                   onSend={onSend}
