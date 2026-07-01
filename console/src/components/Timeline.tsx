@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import type { Event } from "../types/Event.ts";
 import { eventSummary } from "../lib/events.ts";
 import { formatDate, formatDateTime, formatTime } from "../lib/format.ts";
@@ -56,7 +58,8 @@ export function Timeline({
         max={head}
         value={seq}
         onChange={(event) => onScrub(Number(event.target.value))}
-        className="w-full accent-clay"
+        className="scrubber"
+        style={{ "--scrubbed": `${head > 0 ? (seq / head) * 100 : 0}%` } as CSSProperties}
       />
       {/* The run's span flanks the scrubber where there is room; on a phone the bottom chrome
           stays two rows. */}

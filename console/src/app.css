@@ -145,6 +145,51 @@
   }
 }
 
+/* The timeline scrubber: a hairline track with a clay needle in place of the stock slider — the
+   scrubbed span fills in soft clay, quiet enough that a log sitting at its head does not paint a
+   saturated bar across the viewport. WebKit takes the fill from the `--scrubbed` stop the Timeline
+   component sets inline; Firefox has ::-moz-range-progress natively. */
+.scrubber {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.scrubber::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--color-clay-soft) var(--scrubbed, 100%),
+    var(--color-oat-deep) var(--scrubbed, 100%)
+  );
+}
+.scrubber::-moz-range-track {
+  height: 2px;
+  background: var(--color-oat-deep);
+}
+.scrubber::-moz-range-progress {
+  height: 2px;
+  background: var(--color-clay-soft);
+}
+.scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 4px;
+  height: 16px;
+  margin-top: -7px;
+  border-radius: 1px;
+  background: var(--color-clay);
+}
+.scrubber::-moz-range-thumb {
+  width: 4px;
+  height: 16px;
+  border: none;
+  border-radius: 1px;
+  background: var(--color-clay);
+}
+
 /* KaTeX display math: centered with vertical breathing room, inheriting the surrounding text color.
     Inline math needs no override — KaTeX's own styles handle it. */
 .katex-display {
