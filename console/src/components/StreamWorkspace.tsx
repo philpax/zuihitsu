@@ -5,6 +5,7 @@ import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica.ts";
 import type { LiveConnection } from "../lib/live.ts";
 import { STREAM_VIEWS } from "../lib/streamViews.ts";
+import { DockContext } from "../lib/dock.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
@@ -74,6 +75,9 @@ export function StreamWorkspace({
   extraViews?: ExtraView[];
 }) {
   const cursor = seq ?? head;
+  // The bottom dock a view can float its controls into (the conversation composer), held as state
+  // rather than a ref so the provider re-renders its consumers once the element lands.
+  const [dock, setDock] = useState<HTMLDivElement | null>(null);
   // Which way the next view slides: +1 from the right when moving rightward along the tabs, -1 from
   // the left when moving leftward. Computed at the switch (not from a lagging ref) so it stays within
   // the Rules of React; reduced-motion flattens the slide to a quick fade.
@@ -127,47 +131,60 @@ export function StreamWorkspace({
       </nav>
 
       <main className="relative flex-1 overflow-x-clip py-4">
-        <AnimatePresence mode="popLayout" custom={direction} initial={false}>
-          <motion.div
-            key={view}
-            custom={direction}
-            initial={{ x: direction * shift, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: direction * -shift, opacity: 0 }}
-            transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
-          >
-            {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
-            {view === "relations" && (
-              <Suspense
-                fallback={
-                  <div className="py-16 text-center text-sm text-ink-faint">Loading relations…</div>
-                }
-              >
-                <RelationsView key={cursor} replica={replica} cursor={cursor} />
-              </Suspense>
-            )}
-            {view === "conversation" && (
-              <ConversationView
-                replica={replica}
-                events={events}
-                cursor={cursor}
-                participate={participant && { ...participant, atHead: cursor >= head }}
-              />
-            )}
-            {view === "agenda" && <AgendaView replica={replica} events={events} cursor={cursor} />}
-            {view === "background" && (
-              <BackgroundView replica={replica} events={events} cursor={cursor} />
-            )}
-            {view === "events" && <EventsView replica={replica} events={events} cursor={cursor} />}
-            {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
-            {extra?.node}
-          </motion.div>
-        </AnimatePresence>
+        <DockContext.Provider value={dock}>
+          <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+            <motion.div
+              key={view}
+              custom={direction}
+              initial={{ x: direction * shift, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: direction * -shift, opacity: 0 }}
+              transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+            >
+              {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
+              {view === "relations" && (
+                <Suspense
+                  fallback={
+                    <div className="py-16 text-center text-sm text-ink-faint">
+                      Loading relations…
+                    </div>
+                  }
+                >
+                  <RelationsView key={cursor} replica={replica} cursor={cursor} />
+                </Suspense>
+              )}
+              {view === "conversation" && (
+                <ConversationView
+                  replica={replica}
+                  events={events}
+                  cursor={cursor}
+                  participate={participant && { ...participant, atHead: cursor >= head }}
+                />
+              )}
+              {view === "agenda" && (
+                <AgendaView replica={replica} events={events} cursor={cursor} />
+              )}
+              {view === "background" && (
+                <BackgroundView replica={replica} events={events} cursor={cursor} />
+              )}
+              {view === "events" && (
+                <EventsView replica={replica} events={events} cursor={cursor} />
+              )}
+              {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
+              {extra?.node}
+            </motion.div>
+          </AnimatePresence>
+        </DockContext.Provider>
       </main>
 
-      {head > 0 && !extra && (
-        <Timeline head={head} seq={cursor} events={events} onScrub={scrub} onReset={reset} />
-      )}
+      {/* The sticky bottom chrome: the dock (a view's floating controls) stacked over the global
+          timeline, in one region so they never fight for the same edge. */}
+      <footer className="sticky bottom-0 z-10 bg-paper/95 backdrop-blur">
+        <div ref={setDock} />
+        {head > 0 && !extra && (
+          <Timeline head={head} seq={cursor} events={events} onScrub={scrub} onReset={reset} />
+        )}
+      </footer>
     </>
   );
 }

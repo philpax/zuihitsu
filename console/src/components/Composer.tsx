@@ -44,33 +44,52 @@ export function Composer({
     }
   }
 
+  // The textarea and an invisible twin share one grid cell: the twin renders the draft as wrapped
+  // text, so the cell — and with it the textarea — grows line by line as you type, capped before it
+  // eats the transcript. Robust everywhere, unlike `field-sizing: content`.
+  const grown =
+    "col-start-1 row-start-1 max-h-44 px-3.5 py-2.5 text-base leading-relaxed break-words";
   return (
-    <div className="border-t border-line pt-4">
-      <textarea
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            send();
-          }
-        }}
-        rows={2}
-        placeholder={
-          disabled ? disabledHint : pending ? "Waiting for the agent's reply…" : placeholder
-        }
-        disabled={pending || disabled}
-        className="w-full resize-none bg-transparent text-base leading-relaxed text-ink placeholder:text-ink-faint/60 focus:outline-none disabled:opacity-60"
-      />
-      <div className="mt-2 flex items-center justify-between">
+    <div>
+      <div className="flex items-end rounded-sm border border-line bg-paper transition-colors focus-within:border-line-strong">
+        <div className="grid min-w-0 flex-1">
+          <div aria-hidden className={`${grown} invisible overflow-hidden whitespace-pre-wrap`}>
+            {draft + " "}
+          </div>
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                send();
+              }
+            }}
+            rows={1}
+            placeholder={
+              disabled ? disabledHint : pending ? "Waiting for the agent's reply…" : placeholder
+            }
+            disabled={pending || disabled}
+            className={`${grown} w-full resize-none overflow-y-auto bg-transparent text-ink placeholder:text-ink-faint/60 focus:outline-none disabled:opacity-60`}
+          />
+        </div>
+        <Button
+          primary
+          className="m-2 shrink-0"
+          onClick={send}
+          disabled={pending || disabled || draft.trim().length === 0}
+        >
+          {pending ? "…" : "send"}
+        </Button>
+      </div>
+      <div className="mt-1.5 flex min-h-4 items-baseline">
         {error ? (
           <Hint tone="error">{error}</Hint>
         ) : (
-          <Hint className="hidden sm:inline">enter to send · shift+enter for a newline</Hint>
+          <Hint className="hidden text-2xs sm:inline">
+            enter to send · shift+enter for a newline
+          </Hint>
         )}
-        <Button primary onClick={send} disabled={pending || disabled || draft.trim().length === 0}>
-          {pending ? "…" : "send"}
-        </Button>
       </div>
     </div>
   );

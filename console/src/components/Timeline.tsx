@@ -27,7 +27,7 @@ export function Timeline({
   const last = events[events.length - 1] ?? null;
 
   return (
-    <footer className="sticky bottom-0 border-t border-line bg-paper/95 py-3 backdrop-blur">
+    <div className="border-t border-line py-3">
       <div className="mb-1.5 flex items-baseline justify-between gap-4">
         <Eyebrow>timeline</Eyebrow>
         <div className="flex min-w-0 items-baseline gap-2 font-mono text-2xs">
@@ -68,7 +68,7 @@ export function Timeline({
           <span>{formatDate(last.recorded_at)}</span>
         </div>
       )}
-    </footer>
+    </div>
   );
 }
 

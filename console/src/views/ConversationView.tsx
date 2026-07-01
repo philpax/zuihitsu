@@ -34,6 +34,7 @@ import { OutcomeList } from "../components/OutcomeList.tsx";
 import { BriefSections } from "../components/BriefTrace.tsx";
 import type { BriefTrace } from "../lib/brief.ts";
 import { Composer } from "../components/Composer.tsx";
+import { Docked } from "../components/dock.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 import { TurnMarkdown } from "../components/TurnMarkdown.tsx";
 
@@ -321,30 +322,39 @@ function Room({
 
       {thinking && <ThinkingIndicator />}
 
-      {participate &&
-        (participate.atHead ? (
-          <div className="mt-6">
-            <Composer
-              onSend={onSend}
-              onPendingChange={setThinking}
-              disabled={!isOperator && (handle.length === 0 || handleScoped)}
-              disabledHint={
-                handleScoped
-                  ? "The handle should be a bare name, not a memory path."
-                  : "Set who you are to start."
-              }
-              placeholder={
-                isOperator
-                  ? "Speak to the agent as the operator…"
-                  : `Message ${channel.label} as ${handle || "…"}`
-              }
-            />
+      {/* The composer floats in the workspace's bottom dock, so you can start typing from anywhere
+          in the transcript. It mirrors the view's sidebar grid so the writing line sits exactly
+          under the transcript column. */}
+      {participate && (
+        <Docked>
+          <div className="pt-2 md:grid md:grid-cols-[11rem_1fr] md:gap-6">
+            <div className="hidden md:block" />
+            <div className="w-full max-w-prose">
+              {participate.atHead ? (
+                <Composer
+                  onSend={onSend}
+                  onPendingChange={setThinking}
+                  disabled={!isOperator && (handle.length === 0 || handleScoped)}
+                  disabledHint={
+                    handleScoped
+                      ? "The handle should be a bare name, not a memory path."
+                      : "Set who you are to start."
+                  }
+                  placeholder={
+                    isOperator
+                      ? "Speak to the agent as the operator…"
+                      : `Message ${channel.label} as ${handle || "…"}`
+                  }
+                />
+              ) : (
+                <p className="mb-2 rounded-sm border border-line bg-paper px-3 py-2 text-center font-mono text-xs text-ink-faint">
+                  viewing history · return to the head of the timeline to speak
+                </p>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="mt-6 border-t border-line pt-4 text-center font-mono text-2xs text-ink-faint">
-            viewing history · return to the head of the timeline to speak
-          </p>
-        ))}
+        </Docked>
+      )}
     </div>
   );
 }
