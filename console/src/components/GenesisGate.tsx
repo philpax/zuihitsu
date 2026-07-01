@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { LiveConnection } from "../lib/live.ts";
 import { type Seed, createAgent } from "../lib/operator.ts";
-import { Eyebrow } from "./primitives.tsx";
+import { Button, Eyebrow } from "./primitives.tsx";
 
 /// Bring the agent into being before the workspace opens: name it, give it a persona, and
 /// plant any first-person seed entries in `self`. Shown by the agent frame when the connected
@@ -88,13 +88,9 @@ export function GenesisGate({
           />
         </Field>
         {error && <p className="text-sm text-clay">{error}</p>}
-        <button
-          onClick={submit}
-          disabled={!ready || pending}
-          className="self-start border border-line-strong px-5 py-2 text-base text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
-        >
+        <Button primary className="self-start" onClick={submit} disabled={!ready || pending}>
           {pending ? "Creating…" : resuming ? "Resume genesis" : "Create the agent"}
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -19,7 +19,7 @@ import { type ModelInteraction, buildInteractions, tokenBudgetAt } from "../lib/
 import { formatDateTime, formatMs, formatTime, formatTokens } from "../lib/format.ts";
 import { imprint } from "../lib/operator.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../lib/participant.ts";
-import { Eyebrow } from "../components/primitives.tsx";
+import { Disclosure, Eyebrow, Hint, TextInput } from "../components/primitives.tsx";
 import { Lua } from "../components/Lua.tsx";
 import { OutcomeList } from "../components/OutcomeList.tsx";
 import { BriefSections } from "../components/BriefTrace.tsx";
@@ -530,12 +530,11 @@ function RoomControls({
     <div className="flex flex-col gap-3">
       <label className="flex flex-col gap-1.5">
         <Eyebrow>you are</Eyebrow>
-        <input
+        <TextInput
           value={sender}
           onChange={(event) => onSenderChange(event.target.value)}
           list="person-handles"
           placeholder="a handle"
-          className="w-full border border-line bg-transparent px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
         />
         <datalist id="person-handles">
           {personHandles.map((handle) => (
@@ -543,34 +542,29 @@ function RoomControls({
           ))}
         </datalist>
         {senderScoped ? (
-          <span className="font-mono text-2xs text-clay">
+          <Hint tone="error">
             a bare name, not a memory path — drop the “{sender.slice(0, sender.indexOf("/"))}/”
-          </span>
+          </Hint>
         ) : (
-          <span className="font-mono text-2xs text-ink-faint">
-            person · a name, not a memory id
-          </span>
+          <Hint>person · a name, not a memory id</Hint>
         )}
       </label>
 
       <label className="flex flex-col gap-1.5">
         <Eyebrow>new conversation</Eyebrow>
-        <input
+        <TextInput
           value={draftRoom}
           onChange={(event) => onDraftRoomChange(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && !roomScoped && onCreateRoom()}
           placeholder="a room name"
-          className="w-full border border-line bg-transparent px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
         />
         {roomScoped ? (
-          <span className="font-mono text-2xs text-clay">
+          <Hint tone="error">
             a bare name, not a context path — drop the “
             {draftRoom.trim().slice(0, draftRoom.trim().indexOf(":"))}:”
-          </span>
+          </Hint>
         ) : (
-          <span className="font-mono text-2xs text-ink-faint">
-            direct · a name, not a context path
-          </span>
+          <Hint>direct · a name, not a context path</Hint>
         )}
       </label>
     </div>
@@ -718,27 +712,24 @@ function BriefBlock({
 
   return (
     <div className="mb-2 border-b border-line pb-6">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-baseline gap-3 text-left transition-colors hover:text-ink"
-      >
-        <Eyebrow>{open ? "▾ brief" : "▸ brief"}</Eyebrow>
-        <span className="font-mono text-2xs text-ink-faint">
-          {session.participants.join(", ") || "no one present"}
-        </span>
-      </button>
+      <Disclosure
+        open={open}
+        onToggle={() => setOpen(!open)}
+        label="brief"
+        summary={session.participants.join(", ") || "no one present"}
+      />
       {open && (
         <>
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-4 py-3 font-mono text-2xs leading-relaxed text-ink-soft">
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-4 py-3 font-mono text-xs leading-relaxed text-ink-soft">
             {session.brief}
           </pre>
-          <button
-            onClick={toggleTrace}
-            className="mt-3 font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
-          >
-            {traceOpen ? "▾" : "▸"} composition trace
-            <span className="ml-2 text-ink-faint/70">· re-folds the replica to evaluate</span>
-          </button>
+          <Disclosure
+            open={traceOpen}
+            onToggle={toggleTrace}
+            label="composition trace"
+            summary="· re-folds the replica to evaluate"
+            className="mt-3"
+          />
           {traceOpen && trace && <BriefSections sections={trace.sections} />}
         </>
       )}
@@ -894,13 +885,12 @@ function Deliberation({ steps }: { steps: DeliberationStep[] }) {
 
   return (
     <div className="mt-3">
-      <button
-        onClick={() => setOpen(!open)}
-        className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
-      >
-        {open ? "▾" : "▸"} deliberation · {steps.length} step{steps.length > 1 ? "s" : ""} ·{" "}
-        {formatMs(total)}
-      </button>
+      <Disclosure
+        open={open}
+        onToggle={() => setOpen(!open)}
+        label="deliberation"
+        summary={`· ${steps.length} step${steps.length > 1 ? "s" : ""} · ${formatMs(total)}`}
+      />
       {open && (
         <div className="mt-3 flex flex-col gap-3 border-l border-line pl-4">
           {steps.map((step, index) =>
@@ -937,13 +927,14 @@ function ModelStep({ step }: { step: Extract<DeliberationStep, { kind: "model" }
       )}
       {interaction && (interaction.system || interaction.messages.length > 0) && (
         <div className="mt-1.5">
-          <button
-            onClick={() => setShowPrompt(!showPrompt)}
-            className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
-          >
-            {showPrompt ? "▾" : "▸"} prompt · {interaction.messages.length} message
-            {interaction.messages.length === 1 ? "" : "s"}
-          </button>
+          <Disclosure
+            open={showPrompt}
+            onToggle={() => setShowPrompt(!showPrompt)}
+            label="prompt"
+            summary={`· ${interaction.messages.length} message${
+              interaction.messages.length === 1 ? "" : "s"
+            }`}
+          />
           {showPrompt && <Prompt interaction={interaction} />}
         </div>
       )}

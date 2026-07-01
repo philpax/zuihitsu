@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { RunRecord } from "../types/RunRecord.ts";
 import type { Verdict } from "../types/Verdict.ts";
 import { formatMs, formatTokenSplit } from "../lib/format.ts";
-import { Eyebrow } from "./primitives.tsx";
+import { Disclosure, Eyebrow } from "./primitives.tsx";
 
 /// The run's verdicts and cost, sitting above the deep views so opening a run answers "did it pass,
 /// and why" before anything else. The summary line carries the gate's outcome and the run's metrics;
@@ -89,12 +89,7 @@ function VerdictRow({ verdict }: { verdict: Verdict }) {
       )}
       {verdict.judge_raw && (
         <div className="mt-1">
-          <button
-            onClick={() => setShowRaw(!showRaw)}
-            className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink-soft"
-          >
-            {showRaw ? "▾" : "▸"} judge response
-          </button>
+          <Disclosure open={showRaw} onToggle={() => setShowRaw(!showRaw)} label="judge response" />
           {showRaw && (
             <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-3 py-2 font-mono text-2xs leading-relaxed text-ink-soft">
               {verdict.judge_raw}

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { LiveConnection } from "../lib/live.ts";
 import { type ApiEntry, type LuaOutcome, luaApi, runLua } from "../lib/lua.ts";
-import { Checkbox, Eyebrow } from "./primitives.tsx";
+import { Button, Checkbox, Disclosure, Hint } from "./primitives.tsx";
 import { CodeEditor } from "./CodeEditor.tsx";
 import { ApiReference } from "./ApiReference.tsx";
 
@@ -64,13 +64,9 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
           <div className="flex items-center gap-4">
-            <button
-              onClick={run}
-              disabled={pending || script.trim().length === 0}
-              className="border border-line-strong px-4 py-1.5 font-mono text-xs text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
-            >
+            <Button primary onClick={run} disabled={pending || script.trim().length === 0}>
               {pending ? "running…" : "run"}
-            </button>
+            </Button>
             <Checkbox
               checked={allowMcp}
               onChange={setAllowMcp}
@@ -87,7 +83,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
               }
             />
           </div>
-          <span className="font-mono text-2xs text-ink-faint">⌘/ctrl + ↵ to run</span>
+          <Hint>⌘/ctrl + ↵ to run</Hint>
         </div>
 
         <ol className="mt-6 flex flex-col gap-6">
@@ -98,15 +94,12 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
       </div>
 
       <aside className="lg:sticky lg:top-4 lg:self-start">
-        <button
-          onClick={() => setShowApi(!showApi)}
-          className="flex items-baseline gap-2 text-left transition-colors hover:text-ink"
-        >
-          <Eyebrow>{showApi ? "▾ Lua API" : "▸ Lua API"}</Eyebrow>
-          <span className="font-mono text-2xs text-ink-faint">
-            {api ? `${api.length} calls` : "loading…"}
-          </span>
-        </button>
+        <Disclosure
+          open={showApi}
+          onToggle={() => setShowApi(!showApi)}
+          label="Lua API"
+          summary={api ? `${api.length} calls` : "loading…"}
+        />
         {showApi && api && (
           <div className="mt-5 max-h-[34rem] overflow-y-auto pr-2 lg:max-h-[70vh]">
             <ApiReference entries={api} />

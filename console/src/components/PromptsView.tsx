@@ -4,6 +4,7 @@ import type { Event } from "../types/Event.ts";
 import type { PromptTemplateName } from "../types/PromptTemplateName.ts";
 import type { LiveConnection } from "../lib/live.ts";
 import { type PromptTemplate, deriveTemplates, registerPrompt } from "../lib/prompts.ts";
+import { Button, Hint } from "./primitives.tsx";
 
 /// The Prompts view: the agent's prompt templates — the system-prompt scaffold and the framing
 /// templates — read from the log and editable (spec §Initialization → prompt templates). A save
@@ -91,22 +92,18 @@ function PromptEditor({
         className="w-full resize-y border border-line bg-paper/60 p-3 font-mono text-2xs leading-relaxed text-ink focus:border-ink-faint focus:outline-none"
       />
       <div className="mt-3 flex items-center gap-4">
-        <button
-          onClick={save}
-          disabled={!dirty || saving}
-          className="border border-line-strong px-5 py-2 text-base text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
-        >
+        <Button primary onClick={save} disabled={!dirty || saving}>
           {saving ? "Saving…" : `Save as version ${template.version + 1}`}
-        </button>
+        </Button>
         {dirty && (
           <button
             onClick={() => setDraft(template.body)}
-            className="font-mono text-2xs text-ink-faint transition-colors hover:text-clay"
+            className="font-mono text-xs text-ink-faint transition-colors hover:text-clay"
           >
             revert
           </button>
         )}
-        {error && <span className="font-mono text-2xs text-clay">{error}</span>}
+        {error && <Hint tone="error">{error}</Hint>}
       </div>
     </>
   );

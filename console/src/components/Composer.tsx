@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button, Hint } from "./primitives.tsx";
+
 /// A message composer: a growing input that sends on Enter (Shift+Enter for a newline), with a
 /// pending state while the turn runs and any failure surfaced inline. `onSend` runs the turn — the
 /// caller chooses the endpoint and authority (a participant message or an operator imprint) — and
@@ -62,19 +64,13 @@ export function Composer({
       />
       <div className="mt-2 flex items-center justify-between">
         {error ? (
-          <span className="font-mono text-2xs text-clay">{error}</span>
+          <Hint tone="error">{error}</Hint>
         ) : (
-          <span className="font-mono text-2xs text-ink-faint">
-            enter to send · shift+enter for a newline
-          </span>
+          <Hint className="hidden sm:inline">enter to send · shift+enter for a newline</Hint>
         )}
-        <button
-          onClick={send}
-          disabled={pending || disabled || draft.trim().length === 0}
-          className="border border-line-strong px-4 py-1.5 font-mono text-xs text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
-        >
+        <Button primary onClick={send} disabled={pending || disabled || draft.trim().length === 0}>
           {pending ? "…" : "send"}
-        </button>
+        </Button>
       </div>
     </div>
   );

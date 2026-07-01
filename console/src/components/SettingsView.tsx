@@ -5,7 +5,7 @@ import { type Settings, getSettings, putSettings } from "../lib/settings.ts";
 import { type ConfigTree, type ConfigValue, getConfig } from "../lib/config.ts";
 import { snapshotNow } from "../lib/operator.ts";
 import { settingsMetadata } from "../types/settings-metadata.ts";
-import { Checkbox, Eyebrow } from "./primitives.tsx";
+import { Button, Checkbox, Eyebrow, Hint } from "./primitives.tsx";
 
 /// One leaf field's value, and a record of them — the structural shape the generic editor walks. The
 /// public API stays typed against the exported `Settings`; this is only the editor's view of it.
@@ -122,17 +122,11 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
       </div>
 
       <div className="mt-6 flex items-center gap-4 border-t border-line pt-5">
-        <button
-          onClick={save}
-          disabled={!dirty || status === "saving"}
-          className="border border-line-strong px-5 py-2 text-base text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
-        >
+        <Button primary onClick={save} disabled={!dirty || status === "saving"}>
           {status === "saving" ? "Saving…" : "Save"}
-        </button>
-        {status === "error" && <span className="font-mono text-2xs text-clay">{error}</span>}
-        {!dirty && status === "ready" && (
-          <span className="font-mono text-2xs text-ink-faint">no unsaved changes</span>
-        )}
+        </Button>
+        {status === "error" && <Hint tone="error">{error}</Hint>}
+        {!dirty && status === "ready" && <Hint>no unsaved changes</Hint>}
       </div>
 
       <section className="mt-8 border-t border-line pt-6">
@@ -142,19 +136,11 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
           the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
         </p>
         <div className="mt-4 flex items-center gap-4">
-          <button
-            onClick={takeSnapshot}
-            disabled={snapshot.state === "working"}
-            className="border border-line-strong px-5 py-2 text-base text-ink transition-colors enabled:hover:border-clay enabled:hover:text-clay disabled:opacity-45"
-          >
+          <Button onClick={takeSnapshot} disabled={snapshot.state === "working"}>
             {snapshot.state === "working" ? "Snapshotting…" : "Snapshot now"}
-          </button>
-          {snapshot.state === "done" && (
-            <span className="font-mono text-2xs text-ink-soft">{snapshot.message}</span>
-          )}
-          {snapshot.state === "error" && (
-            <span className="font-mono text-2xs text-clay">{snapshot.message}</span>
-          )}
+          </Button>
+          {snapshot.state === "done" && <Hint className="text-ink-soft">{snapshot.message}</Hint>}
+          {snapshot.state === "error" && <Hint tone="error">{snapshot.message}</Hint>}
         </div>
       </section>
 
