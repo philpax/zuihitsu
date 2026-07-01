@@ -62,7 +62,9 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
   }
 
   return (
-    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-x-10">
+    // On a wide screen the editor column is capped and the whole spread centers, so the editor and
+    // the reference read as one composed page rather than two islands pinned to opposite edges.
+    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,46rem)_minmax(0,24rem)] lg:items-start lg:justify-center lg:gap-x-12">
       <section className="min-w-0">
         <CodeEditor value={script} onChange={setScript} onSubmit={run} disabled={pending} />
 

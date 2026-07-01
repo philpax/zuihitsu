@@ -31,7 +31,7 @@ export function PromptsView({
 
   const active = templates.find((template) => template.name === selected) ?? templates[0];
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <Segmented
         options={templates.map((template) => ({ id: template.name, label: template.name }))}
         value={active.name}

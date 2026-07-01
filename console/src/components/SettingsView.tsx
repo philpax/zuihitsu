@@ -46,7 +46,7 @@ export function SettingsView({ connection }: { connection: LiveConnection }) {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="mx-auto max-w-2xl">
       <Segmented options={SECTIONS} value={section} onChange={selectSection} className="mb-6" />
       {section === "settings" && <BehavioralSettings connection={connection} />}
       {section === "environment" && <EnvironmentSection connection={connection} />}

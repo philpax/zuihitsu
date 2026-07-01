@@ -243,7 +243,7 @@ export function Checkbox({
   if (label === undefined) return input;
   return (
     <label
-      className={`flex cursor-pointer items-center gap-2 font-mono text-2xs text-ink-faint ${className}`}
+      className={`flex cursor-pointer items-center gap-2 font-mono text-xs text-ink-soft ${className}`}
     >
       {input}
       {label}
