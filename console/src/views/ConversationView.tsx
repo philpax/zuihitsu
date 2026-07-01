@@ -183,7 +183,8 @@ export function ConversationView({
               )}
             </aside>
 
-            {/* On mobile the list collapses to a dropdown so the transcript owns the screen. */}
+            {/* On mobile the list collapses to a dropdown and the identity-and-new-room controls
+                fold behind a disclosure, so the transcript owns the screen. */}
             <div className="flex flex-col gap-3 md:hidden">
               <ChannelSelect
                 groups={groups}
@@ -191,7 +192,7 @@ export function ConversationView({
                 onSelect={selectRoom}
               />
               {participate && (
-                <RoomControls
+                <MobileRoomControls
                   sender={participate.sender}
                   onSenderChange={participate.setSender}
                   draftRoom={draftRoom}
@@ -587,6 +588,35 @@ function RoomControls({
           <Hint>direct · a name, not a context path</Hint>
         )}
       </label>
+    </div>
+  );
+}
+
+/// The mobile face of the live controls: folded behind a disclosure whose summary names who you are
+/// speaking as (or that no one is set yet), so a phone's first screen belongs to the transcript. The
+/// composer's disabled placeholder points here when a handle is still needed.
+function MobileRoomControls(props: {
+  sender: string;
+  onSenderChange: (value: string) => void;
+  draftRoom: string;
+  onDraftRoomChange: (value: string) => void;
+  onCreateRoom: () => void;
+  personHandles: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <Disclosure
+        open={open}
+        onToggle={() => setOpen(!open)}
+        label="you"
+        summary={props.sender.trim() ? `speaking as ${props.sender.trim()}` : "set who you are"}
+      />
+      {open && (
+        <div className="mt-3">
+          <RoomControls {...props} />
+        </div>
+      )}
     </div>
   );
 }
