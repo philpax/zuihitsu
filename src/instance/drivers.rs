@@ -10,7 +10,7 @@ use std::{
 };
 
 use crate::{
-    agent::buffer_turns,
+    agent::bounded_buffer_turns,
     memory::scheduler,
     metrics::{observe_wakeups_fired, observe_worker_error},
     model::ModelClient,
@@ -136,10 +136,8 @@ impl Instance {
         model: &dyn ModelClient,
     ) -> Result<usize, InstanceError> {
         let now = self.engine.clock.now();
-        let idle_gap_ms = Settings::from_store(self.engine.store.lock().as_ref())?
-            .compaction
-            .idle_gap_seconds
-            .saturating_mul(1_000);
+        let compaction = Settings::from_store(self.engine.store.lock().as_ref())?.compaction;
+        let idle_gap_ms = compaction.idle_gap_seconds.saturating_mul(1_000);
         let mut closed = 0;
         // Bind the list first so the graph guard drops before the per-session flush `.await` below.
         let open = self.engine.graph.lock().open_sessions()?;
@@ -150,10 +148,14 @@ impl Instance {
                 .map(|open| open.last_activity_millis());
             let last_activity_ms = match live_activity {
                 Some(ms) => ms,
-                None => buffer_turns(
+                // A recovered session reads only from its own `SessionStarted` seq (an empty carried
+                // tail), routed through the bound for a single buffer-read path.
+                None => bounded_buffer_turns(
                     self.engine.store.lock().as_ref(),
                     conversation,
                     recovered.start_seq,
+                    recovered.start_seq,
+                    compaction.carryover_char_budget,
                 )?
                 .last()
                 .map_or(recovered.started_at, |turn| turn.recorded_at)
@@ -181,6 +183,7 @@ impl Instance {
                     started_at: recovered.started_at,
                     last_activity: AtomicI64::new(last_activity_ms),
                     start_seq: recovered.start_seq,
+                    session_start_seq: recovered.start_seq,
                 }),
             };
             self.flush_and_end(conversation, stale.as_ref(), model)

@@ -199,6 +199,7 @@ mod embedding_swap_tests {
             started_at: Timestamp::from_millis(1_000),
             last_activity: AtomicI64::new(1_000),
             start_seq: Seq(1),
+            session_start_seq: Seq(1),
         });
         assert!(
             !server
@@ -256,6 +257,7 @@ mod embedding_swap_tests {
             started_at: Timestamp::from_millis(1_000),
             last_activity: AtomicI64::new(1_000),
             start_seq: Seq(1),
+            session_start_seq: Seq(1),
         });
         let model = crate::model::ScriptedModel::new([]);
         let lifecycle = server.lifecycle_lock(conversation);

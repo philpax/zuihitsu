@@ -1325,3 +1325,99 @@ async fn a_describe_backlog_survives_a_restart() {
     let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
     let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
+
+#[tokio::test]
+async fn the_buffer_stays_bounded_across_repeated_compactions() {
+    // The compaction-seam bug (issue #22): when the turns are small relative to the carryover char
+    // budget, the pre-fix carryover tail never trimmed and `from_seq` never advanced, so the live
+    // buffer re-spanned every session since the original carryover point — growing without bound. Here
+    // the token budget forces a compaction on every message and the char budget is loose (its default),
+    // exactly the condition that stuck `from_seq`; the buffer must stay bounded regardless.
+    let (server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    // Disable the pre-compaction flush, so each message is a single scripted model step — the buffer
+    // growth is isolated from flush turns.
+    settings.compaction.flush_min_turns = 1_000_000;
+    // A loose char budget (the default) that small turns never fill — the pre-fix stuck condition.
+    settings.compaction.carryover_char_budget = 4_000;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let seams = 8;
+    // Every step reports usage over the budget, so every message forces a re-segment.
+    let model = ScriptedModel::with_usage(
+        (0..seams).map(|i| (Completion::Reply(format!("reply {i}")), 200u32)),
+    );
+
+    for i in 0..seams {
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", &format!("message {i}"), &["dave"])
+            .await
+            .unwrap();
+    }
+
+    // Every message re-segmented: one session per message.
+    assert_eq!(
+        server.control().sessions(&leads).unwrap().len(),
+        seams as usize
+    );
+
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), seams as usize);
+
+    // The buffer is bounded: a seeded session sees only the prior session's carried tail plus its own
+    // inbound. It must not grow with the number of seams — the pre-fix buffer grew by two messages each
+    // seam (reaching 15 at the eighth message), so this bound (four) fails against the old code.
+    for (turn_index, messages) in seen.iter().enumerate() {
+        assert!(
+            messages.len() <= 4,
+            "turn {turn_index} buffer grew to {} messages: {:?}",
+            messages.len(),
+            messages
+                .iter()
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    // From the second seam on, the count is steady, not climbing — the bound is a plateau, not a slower
+    // leak.
+    let steady = seen[2].len();
+    for messages in &seen[2..] {
+        assert_eq!(messages.len(), steady, "the bounded buffer size is stable");
+    }
+
+    // The trim drops the oldest and keeps the newest: the first message is long gone from the last
+    // prompt, and the latest inbound is present.
+    let last: Vec<&str> = seen
+        .last()
+        .unwrap()
+        .iter()
+        .map(|m| m.content.as_str())
+        .collect();
+    assert!(
+        !last.iter().any(|content| content.contains("message 0")),
+        "the original first turn should have been trimmed away, but is still present: {last:?}",
+    );
+    assert!(
+        last.iter()
+            .any(|content| content.contains(&format!("message {}", seams - 1))),
+        "the newest inbound must always be present: {last:?}",
+    );
+
+    // The total char size is bounded too — a generous fixed ceiling (the char budget plus a single
+    // session's stamped turns), independent of the seam count; the pre-fix buffer blows past it as the
+    // seams accrue.
+    let last_chars: usize = seen
+        .last()
+        .unwrap()
+        .iter()
+        .map(|m| m.content.chars().count())
+        .sum();
+    assert!(
+        last_chars <= 4_000 + 1_000,
+        "the last prompt's char size {last_chars} exceeds the bound",
+    );
+}

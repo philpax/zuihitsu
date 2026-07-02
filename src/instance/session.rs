@@ -16,8 +16,8 @@ use tracing::Instrument;
 use crate::{
     InstanceFeatures,
     agent::{
-        Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, lua::Session,
-        run_flush, run_turn,
+        Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns,
+        lua::Session, run_flush, run_turn,
     },
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, Seq, SessionId, TurnId},
@@ -66,6 +66,12 @@ pub(crate) struct OpenSession {
     /// session, or a carried tail's seq across a compaction seam (so the carryover plus this
     /// session's turns reconstruct the buffer — see [`buffer_turns`]).
     pub start_seq: Seq,
+    /// This session's own `SessionStarted` seq — where its own turns begin, at or after `start_seq`.
+    /// It splits the buffer read at turn time (and at the flush): the carried tail below it is
+    /// re-trimmed to the carryover char budget, while this session's own turns ride whole, so the
+    /// buffer stays bounded across compaction seams (see [`bounded_buffer_turns`]). Equal to
+    /// `start_seq` for a fresh or idle-opened session (an empty tail).
+    pub session_start_seq: Seq,
 }
 
 impl OpenSession {
@@ -195,11 +201,14 @@ impl Instance {
         let max_block_attempts = turn_settings.max_block_attempts.max(1) as u32;
         let capture = settings.observability.capture_model_calls;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
-        // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
-        let buffer = buffer_turns(
+        // a compaction seam, the carried tail plus this session's turns), read from `start_seq` with
+        // the carried tail bounded to the carryover char budget so it cannot grow across seams.
+        let buffer = bounded_buffer_turns(
             self.engine.store.lock().as_ref(),
             routed.conversation,
             open.start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
         )?;
         let report = run_turn(Turn {
             session: &open.vm,
@@ -268,10 +277,12 @@ impl Instance {
             return Ok(false);
         }
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
-        let buffer = buffer_turns(
+        let buffer = bounded_buffer_turns(
             self.engine.store.lock().as_ref(),
             conversation,
             open.start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
         )?;
         let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
         if flushed {
@@ -369,10 +380,15 @@ impl Instance {
             self.engine.graph.lock().last_open_session(conversation)?
         };
         if let Some(recovered) = recovered {
-            let buffer = buffer_turns(
+            // A recovered session reads only from its own `SessionStarted` seq (the carried tail is not
+            // reconstructable from the log alone), so the read start and this session's start coincide
+            // — an empty tail, but routed through the bound for a single buffer-read path.
+            let buffer = bounded_buffer_turns(
                 self.engine.store.lock().as_ref(),
                 conversation,
                 recovered.start_seq,
+                recovered.start_seq,
+                settings.compaction.carryover_char_budget,
             )?;
             let last_activity = buffer
                 .last()
@@ -386,6 +402,7 @@ impl Instance {
                 started_at: recovered.started_at,
                 last_activity: AtomicI64::new(last_activity.as_millis()),
                 start_seq: recovered.start_seq,
+                session_start_seq: recovered.start_seq,
             };
             if resumable {
                 open.touch(now);
@@ -486,6 +503,7 @@ impl Instance {
             start_seq: carryover
                 .map(|carry| carry.from_seq)
                 .unwrap_or(session_start_seq),
+            session_start_seq,
         });
         self.sessions.insert(conversation, open.clone());
 

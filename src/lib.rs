@@ -71,7 +71,8 @@ pub use vocabulary::{RelationName, TagName};
 
 pub use agent::{
     BlockContext, InferredLink, LinkInferenceArgs, McpCatalogue, NewRelationSpec, ToolStep, Turn,
-    TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
+    TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns, buffer_turns,
+    carryover_start,
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     run_adjudicate_catch_up, run_describe_catch_up, run_describe_catch_up_for,
     run_link_inference_catch_up, run_turn, session_touched,

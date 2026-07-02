@@ -177,6 +177,52 @@ pub fn buffer_turns(
     Ok(turns)
 }
 
+/// Read the live buffer ([`buffer_turns`]) and bound its carried tail, so the buffer cannot grow
+/// without bound across compaction seams. `session_start_seq` is this session's own `SessionStarted`
+/// seq; it splits the read into the carried tail (turns before it, seeded from a prior session across
+/// a compaction seam) and this session's own turns (at or after it). The tail is re-trimmed to
+/// `char_budget` — the same newest-first fill the carryover staging uses ([`carryover_start`]) — so a
+/// session seeded from a carryover, and every session after it, sees a tail no larger than the budget
+/// rather than every turn accrued since the original carryover point. The session's own turns always
+/// ride whole (the token-budget compaction already bounds them), so the buffer is structurally
+/// `≤ char_budget + one session's turns`, regardless of how the budgets are tuned. For a fresh session
+/// `start_seq == session_start_seq`, the tail is empty and this is exactly [`buffer_turns`].
+pub fn bounded_buffer_turns(
+    store: &dyn Store,
+    conversation: ConversationId,
+    start_seq: Seq,
+    session_start_seq: Seq,
+    char_budget: i64,
+) -> Result<Vec<TurnView>, StoreError> {
+    let mut turns = buffer_turns(store, conversation, start_seq)?;
+    // The read is in seq order, so the carried tail is the prefix below this session's own start.
+    let split = turns.partition_point(|turn| turn.seq < session_start_seq);
+    let keep_from = carryover_start(&turns[..split], char_budget);
+    turns.drain(..keep_from);
+    Ok(turns)
+}
+
+/// The index into `turns` of the oldest turn that fits `char_budget`, filling backward from the newest
+/// — the raw-transcript carryover trim rule (spec §Compaction → raw-transcript carryover). The newest
+/// turn is always kept (even if it alone exceeds the budget), then older turns while their running
+/// character total fits. Returns `turns.len()` for an empty slice (an empty tail keeps nothing).
+/// Shared by the read-time tail bound ([`bounded_buffer_turns`]) and the carryover staging, so both
+/// trim by the same rule.
+pub fn carryover_start(turns: &[TurnView], char_budget: i64) -> usize {
+    let char_budget = char_budget.max(0) as usize;
+    let mut total = 0usize;
+    let mut start = turns.len();
+    for (idx, turn) in turns.iter().enumerate().rev() {
+        let next = total.saturating_add(turn.text.chars().count());
+        if start != turns.len() && next > char_budget {
+            break;
+        }
+        total = next;
+        start = idx;
+    }
+    start
+}
+
 /// The distinct memory IDs the `conversation`'s blocks touched (read or wrote) from `from_seq`,
 /// unioned across its `LuaExecuted` events in first-touch order — the touch-derived working set
 /// carried across a compaction seam (spec §Compaction → working-set carryover). The read half is as

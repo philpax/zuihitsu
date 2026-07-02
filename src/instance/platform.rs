@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
-    agent::{TurnOutcome, TurnView, buffer_turns, session_touched},
+    agent::{TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
     memory::{
@@ -252,16 +252,22 @@ impl Platform<'_> {
             .flush_and_end(conversation, open.as_ref(), model)
             .await?;
 
-        // Re-read the buffer (now including any flush turn) for the carried tail, and assemble the
-        // working set (likewise after the flush, so its writes and _session_carryover flags are included).
-        let buffer = buffer_turns(
+        // Stage the next carryover from this session's *own* turns (those at or after its
+        // `SessionStarted`), not the whole buffer — so `from_seq` advances into the current session
+        // with each seam rather than sticking at the original carryover point (the buffer would
+        // otherwise re-span every session since it, unbounded, when the turns are small relative to the
+        // char budget). The prior carried tail has already served its continuity; the token-budget
+        // compaction bounds this session's own turns, and `carryover_tail` trims them to the char
+        // budget. The read starts at this session's own start (an empty carried tail).
+        let own = bounded_buffer_turns(
             self.server.engine.store.lock().as_ref(),
             conversation,
-            open.start_seq,
+            open.session_start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
         )?;
         let working_set = self.compaction_working_set(conversation, open.start_seq)?;
-        if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
-        {
+        if let Some(mut carry) = carryover_tail(&own, settings.compaction.carryover_char_budget) {
             carry.working_set = working_set;
             self.server.sessions.insert_carryover(conversation, carry);
         }
@@ -327,18 +333,8 @@ impl Platform<'_> {
 /// the immediate conversational thread survives the seam, then older turns are added while they fit.
 /// Returns the oldest carried turn as the carryover extent, or `None` for an empty buffer.
 fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<Carryover> {
-    let char_budget = char_budget.max(0) as usize;
-    let mut total = 0usize;
-    let mut oldest: Option<&TurnView> = None;
-    for turn in buffer.iter().rev() {
-        let next = total.saturating_add(turn.text.chars().count());
-        if oldest.is_some() && next > char_budget {
-            break;
-        }
-        total = next;
-        oldest = Some(turn);
-    }
-    oldest.map(|turn| Carryover {
+    let start = carryover_start(buffer, char_budget);
+    buffer.get(start).map(|turn| Carryover {
         seeded_from_turn: turn.turn_id,
         from_seq: turn.seq,
         // Filled in by the caller, which has the session's touched set.
@@ -400,6 +396,19 @@ mod tests {
     #[test]
     fn carryover_tail_of_an_empty_buffer_is_none() {
         assert!(carryover_tail(&[], 100).is_none());
+    }
+
+    #[test]
+    fn carryover_start_indexes_the_oldest_turn_that_fits() {
+        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
+        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, not "aaaa" — the kept tail starts at index 1.
+        assert_eq!(carryover_start(&buffer, 6), 1);
+        // A budget below the newest turn still keeps it (index 2), never an empty tail.
+        assert_eq!(carryover_start(&buffer, 0), 2);
+        // A budget the whole buffer fits keeps everything (index 0).
+        assert_eq!(carryover_start(&buffer, 1_000), 0);
+        // An empty slice keeps nothing — the past-the-end index.
+        assert_eq!(carryover_start(&[], 100), 0);
     }
 
     #[test]
