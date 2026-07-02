@@ -161,6 +161,7 @@ mod tests {
                 Err(ModelError::Backend {
                     model: String::new(),
                     message: "error sending request".to_owned(),
+                    transient: true,
                 })
             } else {
                 Ok(reply())
@@ -186,6 +187,7 @@ mod tests {
                     Err::<(), _>(ModelError::Backend {
                         model: String::new(),
                         message: "transient".to_owned(),
+                        transient: true,
                     })
                 } else {
                     Ok(())
@@ -206,6 +208,7 @@ mod tests {
                 Err(ModelError::Backend {
                     model: String::new(),
                     message: "always down".to_owned(),
+                    transient: true,
                 })
             }
         })

@@ -37,7 +37,9 @@ pub use agent::{
     templates::{PromptTemplate, latest_template},
 };
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, SnapshotConfig};
+pub use config::{
+    ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, ResilienceConfig, SnapshotConfig,
+};
 pub use event::{
     Cardinality, Event, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
     Initiation, LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
@@ -48,12 +50,14 @@ pub use ids::{
     NamespacedMemoryName, Seq, SessionId, TurnId, UnknownNamespace,
 };
 pub use model::{
-    Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
+    Completion, FlakyModel, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
     ResponseSchema, Role, ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
     embed::{Embedder, Embedding, FakeEmbedder},
     extract_json_object,
     index::{IndexError, Indexer},
-    parse_structured, schema_of,
+    parse_structured,
+    retry::{BackendHealth, CircuitState, RetryingModel},
+    schema_of,
 };
 pub use settings::{
     BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings, ConcurrencySettings,

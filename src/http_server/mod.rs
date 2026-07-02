@@ -33,9 +33,9 @@ use axum::{
 use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
 use zuihitsu::{
-    ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder, Server,
-    ServerError, SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, StoreError,
-    SystemClock, VectorError, VectorIndex,
+    ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder,
+    RetryingModel, Server, ServerError, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
+    StdioHost, StoreError, SystemClock, VectorError, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
     snapshot,
@@ -58,6 +58,10 @@ use platform::{join, message};
 struct AppState {
     server: Arc<Server>,
     model: Option<Arc<dyn ModelClient>>,
+    /// The same client as `model`, as its concrete resilience wrapper — the handle
+    /// `/control/health` reads the circuit state and last failure from. `None` when no model is
+    /// configured (and in router tests that inject a bare fake as `model`).
+    backend: Option<Arc<RetryingModel>>,
     /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
     /// otherwise (the snapshot endpoint then answers `409`).
     snapshot_dir: Option<PathBuf>,
@@ -227,13 +231,22 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         Duration::from_secs(server.control().settings()?.scheduler.tick_seconds.max(1) as u64);
 
     // The model client the conversing endpoints use, built from config. Absent endpoint → no model →
-    // those endpoints answer 503 rather than failing at call time.
-    let model: Option<Arc<dyn ModelClient>> = if config.model.endpoint.is_empty() {
+    // those endpoints answer 503 rather than failing at call time. The real client is wrapped in
+    // the transport-resilience decorator here, at serving construction, so every caller — the turn
+    // loop and the background workers — shares one retry policy and one circuit breaker; the
+    // concrete handle is kept alongside the trait object so `/control/health` can read the circuit.
+    let backend: Option<Arc<RetryingModel>> = if config.model.endpoint.is_empty() {
         tracing::warn!("no model endpoint configured; conversing endpoints will return 503");
         None
     } else {
-        Some(Arc::new(OpenAiClient::new(&config.model)))
+        Some(Arc::new(RetryingModel::new(
+            Arc::new(OpenAiClient::new(&config.model)),
+            &config.model.resilience,
+        )))
     };
+    let model: Option<Arc<dyn ModelClient>> = backend
+        .clone()
+        .map(|backend| backend as Arc<dyn ModelClient>);
     let server = Arc::new(server);
 
     // The background scheduler driver fires due wake-ups on its own timer (spec §Scheduled work),
@@ -355,6 +368,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let app = router(AppState {
         server: server.clone(),
         model,
+        backend,
         snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
         metrics,
         boot,

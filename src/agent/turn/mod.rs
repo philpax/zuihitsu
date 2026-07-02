@@ -38,7 +38,9 @@ use crate::{
     },
     ids::{ConversationId, MemoryId, Namespace, Seq, TurnId},
     memory::memory_block::Authority,
-    metrics::{observe_lua_block, observe_lua_block_error, observe_model_call},
+    metrics::{
+        observe_lua_block, observe_lua_block_error, observe_model_call, observe_turn_deferred,
+    },
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec, schema_of,
@@ -62,6 +64,14 @@ pub enum TurnOutcome {
     Silent,
     /// The step budget was exhausted without a terminal; recorded for the agent to reason about.
     MaxStepsExceeded,
+    /// The inbound message was delivered and durably recorded, but the model backend was
+    /// unreachable (transient failure with retries exhausted, or an open circuit), so no response
+    /// cycle ran. Nothing is lost, and catch-up is passive by design: the next inbound message's
+    /// turn replays the buffer — which includes every deferred inbound — so one response cycle
+    /// covers them all. There is no active on-recovery push, because replies have no delivery
+    /// channel to platform clients besides the message-response path, and agent-initiated contact
+    /// is a deliberately deferred design area.
+    Deferred,
 }
 
 /// What a completed turn reports to the platform: its conversational `outcome` and the peak
@@ -432,7 +442,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         names.get(&inbound_participant).map(String::as_str),
     )));
 
-    let (outcome, peak_prompt_tokens, steps, blocks) = run_steps(Steps {
+    let steps_result = run_steps(Steps {
         session,
         model,
         engine: engine.clone(),
@@ -452,7 +462,25 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_steps,
         capture,
     })
-    .await?;
+    .await;
+    let (outcome, peak_prompt_tokens, steps, blocks) = match steps_result {
+        Ok(resolved) => resolved,
+        // The model backend is unreachable (retries, if any, exhausted by the wrapper, or the
+        // circuit open): defer the turn instead of erroring it. The inbound participant turn was
+        // appended above, before the loop, so nothing durable is lost — and deliberately no agent
+        // turn is recorded (the harness's retries are infra-transparent, spec §Event sourcing:
+        // they emit nothing to the log). The report's `turn_id` therefore keys no events, and the
+        // step/block counts read zero even if the loop ran partial steps before the outage —
+        // those blocks' events are in the log under this turn id, but with no agent turn to
+        // anchor them the buffer replay carries only the inbound. Lua/store/graph failures keep
+        // the error path: `Deferred` is only for model-transport failure.
+        Err(TurnError::Model(error)) if error.is_unavailable() => {
+            tracing::warn!(%error, "the model backend is unreachable; deferring the turn");
+            observe_turn_deferred();
+            (TurnOutcome::Deferred, None, 0, 0)
+        }
+        Err(error) => return Err(error),
+    };
 
     // Description regeneration and temporal extraction for the memories this turn wrote run off the hot
     // path, in the background describer (spec §Write path → regenerate off the hot path, as a

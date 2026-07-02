@@ -141,6 +141,7 @@ impl Instance {
                     TurnOutcome::Reply(_) => "reply",
                     TurnOutcome::Silent => "silent",
                     TurnOutcome::MaxStepsExceeded => "max_steps",
+                    TurnOutcome::Deferred => "deferred",
                 };
                 span.record("turn_id", tracing::field::debug(&report.turn_id));
                 span.record("outcome", outcome);

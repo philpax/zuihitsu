@@ -7,7 +7,9 @@ use std::collections::BTreeSet;
 
 use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
-    agent::{TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched},
+    agent::{
+        TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched,
+    },
     event::PromptTemplateName,
     ids::{ConversationId, ConversationLocator, MemoryId, Seq},
     memory::{
@@ -118,6 +120,12 @@ impl Platform<'_> {
             )
             .await?;
 
+        // A deferred turn skips the compaction check entirely: the model just proved unreachable,
+        // so the pre-compaction flush could not run anyway, and the buffer gained no agent turn.
+        if report.outcome == TurnOutcome::Deferred {
+            return Ok(report.outcome);
+        }
+
         // Token-triggered compaction: if the turn's peak prompt crossed the budget, end the session
         // now so the next message re-segments with a fresh brief and a carried tail (spec
         // §Compaction). The estimate fallback keeps the trigger meaningful when the backend reports
@@ -138,8 +146,27 @@ impl Platform<'_> {
             reported = report.prompt_tokens.is_some(),
             "compaction trigger check",
         );
-        if observed > token_budget {
-            self.end_session_for_compaction(conversation, model).await?;
+        if observed > token_budget
+            && let Err(error) = self.end_session_for_compaction(conversation, model).await
+        {
+            // The turn's outcome is already in hand; if the model went down between the reply and
+            // the compaction flush, deliver the reply rather than turning it into an error. The
+            // flush failed before `SessionEnded`, so the session is still open in the log — the
+            // next message's cold-start recovery resumes or closes it (the session was already
+            // taken out of the live map).
+            match &error {
+                InstanceError::Turn {
+                    error: TurnError::Model(model_error),
+                    ..
+                } if model_error.is_unavailable() => {
+                    tracing::warn!(
+                        %error,
+                        "the model became unreachable during the compaction flush; delivering \
+                         the reply and leaving the session for recovery"
+                    );
+                }
+                _ => return Err(error),
+            }
         }
         Ok(report.outcome)
     }

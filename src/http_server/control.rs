@@ -10,22 +10,29 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ApiEntry, Arbitration, ConversationLocator, EntryView, EnvConfig, Event, LuaConsoleOutcome,
-    MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout, SeedSelf, Seq, SessionView,
-    Settings, TurnOutcome, genesis::GenesisStatus,
+    ApiEntry, Arbitration, BackendHealth, ConversationLocator, EntryView, EnvConfig, Event,
+    LuaConsoleOutcome, MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout, SeedSelf,
+    Seq, SessionView, Settings, TurnOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
 
-/// The serving health/status: whether an agent exists yet.
+/// The serving health/status: whether an agent exists yet, and the model transport's health — the
+/// circuit-breaker state, the consecutive-failure count, and the last failure's cause — which the
+/// console polls to drive its degraded-backend banner. `model` is `None` when no model endpoint is
+/// configured (the conversing endpoints answer 503, which is its own signal).
 #[derive(Serialize)]
 pub(super) struct Health {
     genesis: GenesisStatus,
+    model: Option<BackendHealth>,
 }
 
 pub(super) async fn health(State(state): State<AppState>) -> Result<Json<Health>, ApiError> {
     let genesis = state.server.control().genesis_status()?;
-    Ok(Json(Health { genesis }))
+    Ok(Json(Health {
+        genesis,
+        model: state.backend.as_ref().map(|backend| backend.health()),
+    }))
 }
 
 /// `POST /control/agent` — create the agent (or resume an interrupted genesis); idempotent.

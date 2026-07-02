@@ -5,13 +5,18 @@
 //! loop and tool protocol in Stage 4.
 //!
 //! This root holds the model-client seam itself; the embedder seam lives in [`embed`], the
-//! log-to-vector indexer in [`index`], and the OpenAI-compatible backends for both in [`openai`].
+//! log-to-vector indexer in [`index`], the OpenAI-compatible backends for both in [`openai`], and
+//! the transport-resilience wrapper (retries plus the circuit breaker) in [`retry`].
 
 pub mod embed;
 pub mod index;
 pub mod openai;
+pub mod retry;
 
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -140,8 +145,17 @@ pub trait ModelClient: Send + Sync {
 pub enum ModelError {
     /// The backend (network, inference server) failed. `model` is the model id (`config.llm` or the
     /// embedder's `model`), packed at the `generate`/`embed` boundary so an operator seeing the error
-    /// knows which endpoint to investigate.
-    Backend { model: String, message: String },
+    /// knows which endpoint to investigate. `transient` classifies the failure at construction —
+    /// connect/transport failures, timeouts, and HTTP 408/429/5xx are transient (worth retrying);
+    /// schema, auth, and other 4xx failures are not.
+    Backend {
+        model: String,
+        message: String,
+        transient: bool,
+    },
+    /// The circuit breaker is open: recent backend calls failed consecutively, so this call failed
+    /// fast without reaching the backend (see [`retry::RetryingModel`]).
+    CircuitOpen { model: String },
     /// The scripted fake ran out of programmed responses.
     Exhausted,
 }
@@ -152,24 +166,54 @@ impl ModelError {
     /// Called at the `generate`/`embed` boundary so every propagated `Backend` carries the model id.
     pub fn with_model(self, model: &str) -> Self {
         match self {
-            ModelError::Backend { message, .. } => ModelError::Backend {
+            ModelError::Backend {
+                message, transient, ..
+            } => ModelError::Backend {
                 model: model.to_owned(),
                 message,
+                transient,
             },
             other => other,
         }
+    }
+
+    /// Whether this failure is transient at the transport level — a retry against the same backend
+    /// could succeed. Classified where the backend error is still structured (the `openai` module);
+    /// [`retry::RetryingModel`] retries only these.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            ModelError::Backend {
+                transient: true,
+                ..
+            }
+        )
+    }
+
+    /// Whether the model backend is unreachable right now — a transient failure (whose retries, if
+    /// any, the wrapper already exhausted) or an open circuit. The condition a routed turn defers
+    /// on: the inbound is durable, and the agent catches up when the backend returns.
+    pub fn is_unavailable(&self) -> bool {
+        self.is_transient() || matches!(self, ModelError::CircuitOpen { .. })
     }
 }
 
 impl std::fmt::Display for ModelError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModelError::Backend { model, message } => {
+            ModelError::Backend { model, message, .. } => {
                 if model.is_empty() {
                     write!(f, "model: {message}")
                 } else {
                     write!(f, "model: {model}: {message}")
                 }
+            }
+            ModelError::CircuitOpen { model } => {
+                write!(
+                    f,
+                    "model: {model}: the circuit is open after repeated backend failures; \
+                     failing fast without calling the backend"
+                )
             }
             ModelError::Exhausted => {
                 write!(
@@ -258,6 +302,101 @@ impl ModelClient for ScriptedModel {
     async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
         self.seen.lock().push(request.messages.clone());
         self.steps.lock().pop_front().ok_or(ModelError::Exhausted)
+    }
+}
+
+/// A fault-injecting fake: fails a programmed number of leading calls (or every call) with a
+/// backend error, then serves scripted completions like [`ScriptedModel`]. Drives the
+/// transport-resilience paths — retries, the circuit breaker, deferred turns — without a real
+/// endpoint, and is distinguishable from [`ScriptedModel`], which never fails with a backend error
+/// (its only failure is [`ModelError::Exhausted`], a test-logic error).
+pub struct FlakyModel {
+    /// How many leading calls fail; `None` means every call fails.
+    remaining_faults: Mutex<Option<usize>>,
+    /// The failure each faulted call returns, as a rebuildable template (`ModelError` is not `Clone`).
+    fault_message: String,
+    fault_transient: bool,
+    then: ScriptedModel,
+    calls: AtomicUsize,
+}
+
+impl FlakyModel {
+    /// Fail the first `faults` calls with a transient backend error, then serve `steps`.
+    pub fn transient_then(
+        faults: usize,
+        steps: impl IntoIterator<Item = Completion>,
+    ) -> FlakyModel {
+        FlakyModel {
+            remaining_faults: Mutex::new(Some(faults)),
+            fault_message: "error sending request (injected transient fault)".to_owned(),
+            fault_transient: true,
+            then: ScriptedModel::new(steps),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    /// Fail every call with a transient backend error — a backend that stays down.
+    pub fn always_transient() -> FlakyModel {
+        FlakyModel {
+            remaining_faults: Mutex::new(None),
+            fault_message: "error sending request (injected transient fault)".to_owned(),
+            fault_transient: true,
+            then: ScriptedModel::new([]),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    /// Fail every call with a non-transient backend error — a backend that rejects the request
+    /// (schema, auth, a plain 4xx), which must be neither retried nor deferred.
+    pub fn always_permanent() -> FlakyModel {
+        FlakyModel {
+            remaining_faults: Mutex::new(None),
+            fault_message: "the backend rejected the request (injected permanent fault)".to_owned(),
+            fault_transient: false,
+            then: ScriptedModel::new([]),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    /// How many `generate` calls reached this model — what a retry or fast-fail assertion counts.
+    pub fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    fn fault(&self) -> ModelError {
+        ModelError::Backend {
+            model: String::new(),
+            message: self.fault_message.clone(),
+            transient: self.fault_transient,
+        }
+    }
+}
+
+#[async_trait]
+impl ModelClient for FlakyModel {
+    fn model_id(&self) -> &str {
+        "flaky-model"
+    }
+
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        // Decide under the guard, then release it before delegating: the scripted delegate's
+        // `generate` is an await point, and the synchronous lock must not be held across it.
+        let faulted = {
+            let mut remaining = self.remaining_faults.lock();
+            match remaining.as_mut() {
+                None => true,
+                Some(0) => false,
+                Some(n) => {
+                    *n -= 1;
+                    true
+                }
+            }
+        };
+        if faulted {
+            return Err(self.fault());
+        }
+        self.then.generate(request).await
     }
 }
 

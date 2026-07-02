@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use metrics::{counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram};
 
-use crate::model::Usage;
+use crate::model::{Usage, retry::CircuitState};
 
 /// The histogram bucket bounds (seconds), shared by every latency histogram — turn duration, model
 /// call duration, and MCP call duration are all latency-in-seconds, so one mesh keeps them
@@ -46,6 +46,12 @@ pub const MEMORY_SEARCH_DURATION_SECONDS: &str = "zuihitsu_memory_search_duratio
 pub const ERRORS_TOTAL: &str = "zuihitsu_errors_total";
 pub const MCP_CALL_ERRORS_TOTAL: &str = "zuihitsu_mcp_call_errors_total";
 pub const LUA_BLOCK_ERRORS_TOTAL: &str = "zuihitsu_lua_block_errors_total";
+
+// Model-transport resilience: retries, the circuit breaker, and deferred turns.
+pub const MODEL_RETRIES_TOTAL: &str = "zuihitsu_model_retries_total";
+pub const MODEL_CIRCUIT_FAST_FAILS_TOTAL: &str = "zuihitsu_model_circuit_fast_fails_total";
+pub const MODEL_CIRCUIT_STATE: &str = "zuihitsu_model_circuit_state";
+pub const TURNS_DEFERRED_TOTAL: &str = "zuihitsu_turns_deferred_total";
 
 // Saturation: tokens.
 pub const MODEL_PROMPT_TOKENS_TOTAL: &str = "zuihitsu_model_prompt_tokens_total";
@@ -106,6 +112,24 @@ pub fn describe() {
     describe_counter!(
         LUA_BLOCK_ERRORS_TOTAL,
         "run_lua blocks that ended in an error or abort."
+    );
+    // Model-transport resilience.
+    describe_counter!(
+        MODEL_RETRIES_TOTAL,
+        "Transient model-call failures that were retried."
+    );
+    describe_counter!(
+        MODEL_CIRCUIT_FAST_FAILS_TOTAL,
+        "Model calls failed fast because the circuit was open (no backend call)."
+    );
+    describe_gauge!(
+        MODEL_CIRCUIT_STATE,
+        "The model circuit breaker's state: 0 closed, 1 half-open, 2 open."
+    );
+    describe_counter!(
+        TURNS_DEFERRED_TOTAL,
+        "Routed turns deferred because the model backend was unreachable (the inbound stays \
+         durable; the next successful turn covers it)."
     );
     // Saturation: tokens.
     describe_counter!(
@@ -207,6 +231,34 @@ pub fn observe_lua_block() {
 /// Observe a `run_lua` block that ended in an error or abort (catchable — the turn continues).
 pub fn observe_lua_block_error() {
     counter!(LUA_BLOCK_ERRORS_TOTAL).increment(1);
+}
+
+/// Observe one transport retry of a model call: the attempt failed transiently and the wrapper is
+/// about to try again. Infra-transparent to the log (spec §Event sourcing) — this counter and the
+/// paired `tracing::warn!` are the only trace a retry leaves.
+pub fn observe_model_retry() {
+    counter!(MODEL_RETRIES_TOTAL).increment(1);
+}
+
+/// Observe a model call that failed fast because the circuit was open — no backend call was made.
+pub fn observe_model_circuit_fast_fail() {
+    counter!(MODEL_CIRCUIT_FAST_FAILS_TOTAL).increment(1);
+}
+
+/// Record that a routed turn was deferred: the inbound is durable, but the model backend was
+/// unreachable, so no response cycle ran (the next successful turn's buffer replay covers it).
+pub fn observe_turn_deferred() {
+    counter!(TURNS_DEFERRED_TOTAL).increment(1);
+}
+
+/// Set the model circuit-breaker state gauge: `0` closed, `1` half-open, `2` open.
+pub fn set_model_circuit_state(state: CircuitState) {
+    let value = match state {
+        CircuitState::Closed => 0.0,
+        CircuitState::HalfOpen => 1.0,
+        CircuitState::Open => 2.0,
+    };
+    gauge!(MODEL_CIRCUIT_STATE).set(value);
 }
 
 /// Observe one `memory.search`: throughput + latency.
@@ -363,6 +415,10 @@ mod tests {
             observe_mcp_call_error();
             observe_lua_block();
             observe_lua_block_error();
+            observe_model_retry();
+            observe_model_circuit_fast_fail();
+            observe_turn_deferred();
+            set_model_circuit_state(CircuitState::Open);
             observe_search(Duration::from_millis(10));
             observe_wakeups_fired(1);
             observe_wakeups_surfaced(1);
@@ -392,6 +448,10 @@ mod tests {
             ERRORS_TOTAL,
             MCP_CALL_ERRORS_TOTAL,
             LUA_BLOCK_ERRORS_TOTAL,
+            MODEL_RETRIES_TOTAL,
+            MODEL_CIRCUIT_FAST_FAILS_TOTAL,
+            MODEL_CIRCUIT_STATE,
+            TURNS_DEFERRED_TOTAL,
             MODEL_PROMPT_TOKENS_TOTAL,
             MODEL_COMPLETION_TOKENS_TOTAL,
             TURNS_DURATION_SECONDS,
