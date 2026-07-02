@@ -92,6 +92,47 @@ impl From<MemorySearchError> for LuaError {
     }
 }
 
+/// A failure resolving a `convo.turn` transcript link. `InvalidTurnId` and `NotFound` are teachable
+/// (the agent reads them and adapts); `Store` is an infrastructure read failure surfaced to terminate
+/// the block cleanly, as `memory.search` does — turn resolution is read-only, so a failure corrupts
+/// nothing. `NotFound` deliberately covers both an unknown id and a turn in another conversation, so
+/// the message never reveals that a turn exists in a room the requester is not in.
+#[derive(Debug)]
+pub(super) enum TurnResolveError {
+    /// `convo.turn` was given a string that is not a ULID.
+    InvalidTurnId { id: String, source: UlidError },
+    /// No turn with this id exists in the current conversation (unknown, or in another room).
+    NotFound { id: String },
+    /// The event store could not be read.
+    Store(StoreError),
+}
+
+impl std::fmt::Display for TurnResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TurnResolveError::InvalidTurnId { id, source } => {
+                write!(f, "invalid turn id {id:?}: {source}")
+            }
+            TurnResolveError::NotFound { id } => write!(
+                f,
+                "no turn {id:?} in this conversation — a turn link resolves only within this room, \
+                 and the id must be one you were given (the ?turn=<id> of a link pasted here)"
+            ),
+            TurnResolveError::Store(error) => {
+                write!(f, "could not read the conversation transcript: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TurnResolveError {}
+
+impl From<TurnResolveError> for LuaError {
+    fn from(error: TurnResolveError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// A bad handle or link target passed to a memory operation.
 #[derive(Debug)]
 pub(super) enum HandleError {

@@ -18,6 +18,7 @@ mod rename;
 mod reuse;
 mod scheduling;
 mod tagging;
+mod transcripts;
 
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ use crate::scenario::Scenario;
 pub fn all() -> Vec<Arc<dyn Scenario>> {
     [
         recall::scenarios(),
+        transcripts::scenarios(),
         reuse::scenarios(),
         tagging::scenarios(),
         relations::scenarios(),

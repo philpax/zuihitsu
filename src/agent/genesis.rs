@@ -318,6 +318,16 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         );
     }
     scaffold_points.push(record_point);
+    // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
+    if features.transcripts {
+        scaffold_points.push(
+            "When someone pastes a console link to an earlier moment, it carries a turn id as \
+             ?turn=<id> in the URL — pass that id to convo.turn(id) to pull up that turn and the \
+             exchange around it, then answer from what was actually said there rather than guessing \
+             which moment they mean. It resolves only turns from this room."
+                .to_owned(),
+        );
+    }
     scaffold_points.push(
         "Record the particulars, not a gist. The named, precise, improbable details are how you \
          later recognize a person or thing and tell two apart; thinned to \"a trip\" or \"a \
@@ -1011,5 +1021,28 @@ mod tests {
                 _ => None,
             })
             .expect("genesis completed")
+    }
+
+    /// The Scaffold template body `default_templates` bakes for a feature set — the third gate the
+    /// transcripts feature must move in lockstep with (Lua registration and the API reference are the
+    /// other two).
+    fn scaffold_body(features: &InstanceFeatures) -> String {
+        super::default_templates(features)
+            .into_iter()
+            .find(|template| template.name == PromptTemplateName::Scaffold)
+            .map(|template| template.body)
+            .expect("default_templates includes the scaffold")
+    }
+
+    #[test]
+    fn the_transcripts_dotpoint_is_gated_on_the_feature() {
+        // On by default, the scaffold teaches convo.turn; disabled, the dotpoint is dropped so the
+        // prompt never teaches a practice the runtime rejects.
+        assert!(scaffold_body(&InstanceFeatures::default()).contains("convo.turn"));
+        let disabled = InstanceFeatures {
+            transcripts: false,
+            ..Default::default()
+        };
+        assert!(!scaffold_body(&disabled).contains("convo.turn"));
     }
 }

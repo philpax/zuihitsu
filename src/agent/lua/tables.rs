@@ -3,17 +3,20 @@
 //! shared [`BlockApi`] seam; they never touch the buffer, the events, or the visibility rules directly.
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
+use ulid::Ulid;
 
 use crate::{
     InstanceFeatures,
-    ids::MemoryName,
+    agent::turn::{ResolvedTurn, TurnWindow, resolve_turn},
+    event::TurnRole,
+    ids::{MemoryName, TurnId},
     memory::memory_block::{AppendOptions, RelationSpec},
     time,
     vocabulary::{RelationName, TagName},
 };
 
 use super::{
-    error::{BlockConsistencyError, CalendarError},
+    error::{BlockConsistencyError, CalendarError, TurnResolveError},
     runtime::{
         BlockApi, SearchOpts, entry_handle_id, handle_id, link_target_id, make_date,
         make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
@@ -21,6 +24,11 @@ use super::{
         value_text,
     },
 };
+
+/// How many turns before and after the focal turn `convo.turn` includes in its window — a few on
+/// each side, enough to place the linked moment in its immediate exchange without replaying the room.
+const TURN_WINDOW_BEFORE: usize = 3;
+const TURN_WINDOW_AFTER: usize = 3;
 
 /// Install the per-block memory API as `'static` async Lua functions over the shared [`BlockApi`]
 /// seam. Before its operation, each function acquires the lock on every memory it touches and holds
@@ -111,6 +119,9 @@ pub(super) fn install_block_api(
     }
     if features.linking {
         globals.set("links", links_table(lua, api)?)?;
+    }
+    if features.transcripts {
+        globals.set("convo", convo_table(lua, api)?)?;
     }
     Ok(())
 }
@@ -1015,6 +1026,138 @@ pub(super) fn context_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlu
         })?,
     )?;
     Ok(context)
+}
+
+/// The `convo` global: `turn(id)` resolves a conversation turn link (the `?turn=<ulid>` a console
+/// deep-link carries) to that moment and a small window of surrounding turns, from the current
+/// conversation only. The result is a table `{ id, text, speaker, role, at, window }` — the focal
+/// turn's fields at the top, and `window` the ordered surrounding turns (the focal one included,
+/// flagged `focused`) — that prints as a readable transcript excerpt so `return convo.turn(id)` reads
+/// back as the exchange. An unknown or malformed id, or one belonging to another room, is a teachable
+/// error (see [`TurnResolveError`]); resolving is read-only and touches no memory, so it takes no lock.
+pub(super) fn convo_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
+    let convo = lua.create_table()?;
+    let line_metatable = turn_line_metatable(lua)?;
+    let window_metatable = turn_window_metatable(lua)?;
+    convo.set(
+        "turn",
+        lua.create_function({
+            let api = api.clone();
+            let line_metatable = line_metatable.clone();
+            let window_metatable = window_metatable.clone();
+            move |lua, id: String| {
+                let turn_id = TurnId(Ulid::from_string(&id).map_err(|source| {
+                    TurnResolveError::InvalidTurnId {
+                        id: id.clone(),
+                        source,
+                    }
+                })?);
+                let (engine, conversation) = api.block.lock().turn_resolution_handle();
+                let window = resolve_turn(
+                    engine.as_ref(),
+                    conversation,
+                    turn_id,
+                    TURN_WINDOW_BEFORE,
+                    TURN_WINDOW_AFTER,
+                )
+                .map_err(TurnResolveError::Store)?
+                .ok_or(TurnResolveError::NotFound { id })?;
+                make_turn_window(lua, &window, &line_metatable, &window_metatable)
+            }
+        })?,
+    )?;
+    Ok(convo)
+}
+
+/// Build the `convo.turn` result: the focal turn's fields at the top, and `window` the ordered
+/// surrounding turns (the focal one flagged `focused`), each a line backed by [`turn_line_metatable`].
+fn make_turn_window(
+    lua: &Lua,
+    window: &TurnWindow,
+    line_metatable: &Table,
+    window_metatable: &Table,
+) -> mlua::Result<Table> {
+    let list = lua.create_table()?;
+    for (index, turn) in window.turns.iter().enumerate() {
+        let line = make_turn_line(lua, turn, index == window.focus, line_metatable)?;
+        list.set(index + 1, line)?;
+    }
+    let focus = &window.turns[window.focus];
+    let result = lua.create_table()?;
+    result.set("id", focus.turn_id.0.to_string())?;
+    result.set("text", focus.text.as_str())?;
+    result.set("speaker", focus.speaker.as_str())?;
+    result.set("role", turn_role_label(focus.role))?;
+    result.set("at", time::format_stamp(focus.recorded_at))?;
+    result.set("window", list)?;
+    result.set_metatable(Some(window_metatable.clone()))?;
+    Ok(result)
+}
+
+/// One turn in a `convo.turn` window as `{ id, text, speaker, role, at, focused }`, backed by
+/// [`turn_line_metatable`] so it prints as a transcript line.
+fn make_turn_line(
+    lua: &Lua,
+    turn: &ResolvedTurn,
+    focused: bool,
+    line_metatable: &Table,
+) -> mlua::Result<Table> {
+    let line = lua.create_table()?;
+    line.set("id", turn.turn_id.0.to_string())?;
+    line.set("text", turn.text.as_str())?;
+    line.set("speaker", turn.speaker.as_str())?;
+    line.set("role", turn_role_label(turn.role))?;
+    line.set("at", time::format_stamp(turn.recorded_at))?;
+    line.set("focused", focused)?;
+    line.set_metatable(Some(line_metatable.clone()))?;
+    Ok(line)
+}
+
+/// The agent-facing role label for a resolved turn — the string a script branches on.
+fn turn_role_label(role: TurnRole) -> &'static str {
+    match role {
+        TurnRole::Participant => "participant",
+        TurnRole::Agent => "agent",
+        TurnRole::System => "system",
+    }
+}
+
+/// The metatable backing a `convo.turn` window line: `__tostring` renders it as `[at] speaker: text`,
+/// with a `»` marker on the focal turn, so a window reads back as a transcript excerpt with the linked
+/// moment called out.
+fn turn_line_metatable(lua: &Lua) -> mlua::Result<Table> {
+    let metatable = lua.create_table()?;
+    metatable.set(
+        "__tostring",
+        lua.create_function(|_, this: Table| {
+            let at: String = this.get("at")?;
+            let speaker: String = this.get("speaker")?;
+            let text: String = this.get("text")?;
+            let focused: bool = this.get("focused")?;
+            let marker = if focused { "» " } else { "  " };
+            Ok(format!("{marker}[{at}] {speaker}: {text}"))
+        })?,
+    )?;
+    Ok(metatable)
+}
+
+/// The metatable backing the `convo.turn` result: `__tostring` renders its `window` as the joined
+/// transcript lines, so `return convo.turn(id)` reads back as the exchange around the linked moment.
+fn turn_window_metatable(lua: &Lua) -> mlua::Result<Table> {
+    let metatable = lua.create_table()?;
+    metatable.set(
+        "__tostring",
+        lua.create_function(|lua, this: Table| {
+            let window: Table = this.get("window")?;
+            let lines: Vec<String> = window
+                .sequence_values::<Value>()
+                .filter_map(Result::ok)
+                .map(|line| render(lua, &line))
+                .collect();
+            Ok(lines.join("\n"))
+        })?,
+    )?;
+    Ok(metatable)
 }
 
 /// The `calendar` global: `upcoming`, `on`, and `recurring`, each returning a list of memory

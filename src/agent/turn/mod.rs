@@ -36,7 +36,7 @@ use crate::{
         EventPayload, Initiation, ModelPhase, ProducedBy, PromptTemplateName, RequestRecord,
         Teller, TerminalCause, TurnRole,
     },
-    ids::{ConversationId, MemoryId, Namespace, Seq, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, Namespace, Seq, TurnId},
     memory::memory_block::Authority,
     metrics::{
         observe_lua_block, observe_lua_block_error, observe_model_call, observe_turn_deferred,
@@ -193,6 +193,94 @@ pub fn buffer_turns(
         }
     }
     Ok(turns)
+}
+
+/// One conversation turn resolved for the `convo.turn` transcript link resolver (spec §Transcripts):
+/// its stable id, who spoke, its role, its text, and when it was recorded. `speaker` is the
+/// participant's conversational display name for a participant turn, `self` for the agent's own turn,
+/// and `system` for an injected system turn.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedTurn {
+    pub turn_id: TurnId,
+    pub role: TurnRole,
+    pub speaker: String,
+    pub text: String,
+    pub recorded_at: Timestamp,
+}
+
+/// A resolved turn together with a small window of the turns immediately around it in the same
+/// conversation, in chronological order. `focus` indexes the requested turn within `turns`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnWindow {
+    pub turns: Vec<ResolvedTurn>,
+    pub focus: usize,
+}
+
+/// Resolve a turn id to that moment plus a window of `before`/`after` surrounding turns, scoped to
+/// `conversation` — the current room only (v1 scope). `Ok(None)` when the id names no turn in this
+/// conversation, whether it is genuinely unknown or belongs to another room: the two cases are
+/// deliberately indistinguishable, so a resolver cannot probe whether a turn exists in a room the
+/// requester is not in (which would leak cross-room existence).
+///
+/// The whole room is read — turns are event-sourced, not materialized in the graph, so a store scan
+/// is the read shape v1 has. No visibility filtering is applied: the window is a transcript replay
+/// within a room the requester is already in — the same-room material the participants saw or the
+/// agent injected there — so resolving it opens no new visibility surface (spec §Visibility). System
+/// turns (join briefs, drained wake-ups) resolve too, for the same reason: they were injected into
+/// this room and read here.
+pub fn resolve_turn(
+    engine: &Engine,
+    conversation: ConversationId,
+    turn_id: TurnId,
+    before: usize,
+    after: usize,
+) -> Result<Option<TurnWindow>, StoreError> {
+    // Read the room's turns off the store lock, then resolve speakers off the graph lock — the two
+    // locks are taken in sequence, never held together, so this read observes the graph-before-store
+    // ordering without violating it.
+    let turns = {
+        let store = engine.store.lock();
+        buffer_turns(store.as_ref(), conversation, Seq::ZERO)?
+    };
+    let Some(focus_idx) = turns.iter().position(|turn| turn.turn_id == turn_id) else {
+        return Ok(None);
+    };
+    let start = focus_idx.saturating_sub(before);
+    let end = focus_idx
+        .saturating_add(after)
+        .saturating_add(1)
+        .min(turns.len());
+    let window = &turns[start..end];
+    let names = participant_names(engine, window, &[]);
+    let resolved = window
+        .iter()
+        .map(|turn| ResolvedTurn {
+            turn_id: turn.turn_id,
+            role: turn.role,
+            speaker: turn_speaker(turn, &names),
+            text: turn.text.clone(),
+            recorded_at: turn.recorded_at,
+        })
+        .collect();
+    Ok(Some(TurnWindow {
+        turns: resolved,
+        focus: focus_idx - start,
+    }))
+}
+
+/// The conversational display name for a resolved turn: the participant's handle for a participant
+/// turn (falling back to `someone` when it is not in the graph, matching [`participant_names`]),
+/// `self` for the agent's own turn, and `system` for an injected system turn.
+fn turn_speaker(turn: &TurnView, names: &BTreeMap<MemoryId, String>) -> String {
+    match turn.role {
+        TurnRole::Participant => turn
+            .participant
+            .and_then(|id| names.get(&id))
+            .cloned()
+            .unwrap_or_else(|| "someone".to_owned()),
+        TurnRole::Agent => MemoryName::SELF.to_owned(),
+        TurnRole::System => "system".to_owned(),
+    }
 }
 
 /// Read the live buffer ([`buffer_turns`]) and bound its carried tail, so the buffer cannot grow

@@ -372,6 +372,23 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         ))
         .returns(AT::Handle.optional());
 
+    let convo_turn = AE::new("convo.turn")
+        .description(
+            "Resolve a conversation turn link to that moment and the exchange around it. A pasted \
+             console link carries a turn id as ?turn=<id> in its URL — pass that id here to pull up \
+             the turn it points at, from this conversation. The result is a table { id, text, \
+             speaker, role, at, window } — the linked turn's fields, and window the surrounding turns \
+             (the linked one flagged focused) — that prints as a transcript excerpt with the linked \
+             moment marked. It resolves only turns from the room you are in; an unknown id, or one \
+             from another room, is an error.",
+        )
+        .required(
+            "id",
+            AT::String,
+            "the turn id — the ?turn=<id> value from a pasted console link",
+        )
+        .returns(AT::Object(Vec::new()));
+
     let abort = AE::new("block.abort")
         .description("Discard everything this block buffered and end it, recording the reason.")
         .optional("reason", AT::String, "why the block was abandoned");
@@ -489,6 +506,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         entries.extend([links_register, links_list, links_get]);
     }
     entries.push(context);
+    if features.transcripts {
+        entries.push(convo_turn);
+    }
     if features.calendar {
         entries.extend([
             upcoming,
@@ -563,6 +583,17 @@ mod tests {
         };
         let entries = names(&features);
         assert!(!entries.contains(&"<memory>:propose_merge".to_owned()));
+    }
+
+    #[test]
+    fn disabling_transcripts_omits_convo_turn() {
+        let features = InstanceFeatures {
+            transcripts: false,
+            ..Default::default()
+        };
+        assert!(!names(&features).contains(&"convo.turn".to_owned()));
+        // On by default, it is present.
+        assert!(names(&InstanceFeatures::default()).contains(&"convo.turn".to_owned()));
     }
 
     #[test]

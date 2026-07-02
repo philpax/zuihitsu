@@ -12,8 +12,9 @@ use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
     Clock, Completion, ConversationLocator, Engine, Graph, InstanceFeatures, ManualClock, MemoryId,
     MemoryName, MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Session,
-    Store, TagName, Teller, TemporalRef, TerminalCause, TurnId, Visibility,
-    event::{ArbitrationResolution, EventPayload, EventSource},
+    Store, TagName, Teller, TemporalRef, TerminalCause, TurnId, TurnRole, Visibility,
+    event::{ArbitrationResolution, EventPayload, EventSource, Initiation},
+    ids::ConversationId,
     resolve_or_mint_conversation,
 };
 
@@ -2290,5 +2291,246 @@ async fn renaming_onto_an_occupied_handle_is_a_teachable_error() {
     assert!(
         message.contains(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
         "{message}"
+    );
+}
+
+/// The `convo.turn` transcript-link resolver. A build helper for a room's turns, then: resolving a
+/// turn id returns that moment and a window of its neighbours; an unknown id, a malformed id, and a
+/// turn in another conversation are each teachable errors that never reveal cross-room existence; and
+/// with the `transcripts` feature off the `convo` table is absent, so the call is a nil-call error.
+fn turn_event(
+    conversation: ConversationId,
+    turn_id: TurnId,
+    role: TurnRole,
+    text: &str,
+    participant: Option<MemoryId>,
+) -> EventPayload {
+    EventPayload::ConversationTurn {
+        conversation,
+        turn_id,
+        role,
+        text: text.to_owned(),
+        participant,
+        initiation: Initiation::Responding,
+        produced_by: None,
+    }
+}
+
+/// A block context for a participant-authored turn in these resolver tests.
+fn resolver_context() -> BlockContext {
+    BlockContext {
+        teller: Teller::Agent,
+        authority: Authority::Platform,
+        turn_id: TurnId::generate(),
+        block_timeout: TEST_BLOCK_TIMEOUT,
+        max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        present_set: Vec::new(),
+        dry_run: false,
+    }
+}
+
+#[tokio::test]
+async fn convo_turn_resolves_a_turn_and_its_window() {
+    let mut store = MemoryStore::new();
+    let clock = ManualClock::new(common::time::EARLY);
+    let mut graph = Graph::open_in_memory().unwrap();
+
+    let conversation = resolve_or_mint_conversation(
+        &mut store,
+        &clock,
+        &graph,
+        &ConversationLocator::new("discord", "planning"),
+    )
+    .unwrap();
+    let sarah = MemoryId::generate();
+    store
+        .append(
+            clock.now(),
+            vec![EventPayload::memory_created(
+                sarah,
+                Namespace::Person.with_name("sarah"),
+            )],
+        )
+        .unwrap();
+
+    // Three turns in the room; the middle one is the moment a later link would point back to.
+    let before = TurnId::generate();
+    let focus = TurnId::generate();
+    let after = TurnId::generate();
+    store
+        .append(
+            clock.now(),
+            vec![
+                turn_event(
+                    conversation,
+                    before,
+                    TurnRole::Participant,
+                    "Kicking off Q3 planning.",
+                    Some(sarah),
+                ),
+                turn_event(
+                    conversation,
+                    focus,
+                    TurnRole::Participant,
+                    "We ship Meridian on August 14th.",
+                    Some(sarah),
+                ),
+                turn_event(
+                    conversation,
+                    after,
+                    TurnRole::Agent,
+                    "Noted — Meridian on the 14th.",
+                    None,
+                ),
+            ],
+        )
+        .unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    let session = Session::new(conversation, InstanceFeatures::default());
+    let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
+
+    let outcome = session
+        .execute(
+            &engine,
+            &resolver_context(),
+            &format!(r#"return convo.turn("{}")"#, focus.0),
+        )
+        .await
+        .unwrap();
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    // The focal turn, its neighbour before, and the agent's reply after all ride the window, with the
+    // participant resolved to their conversational handle.
+    assert!(
+        result.contains("We ship Meridian on August 14th."),
+        "{result}"
+    );
+    assert!(result.contains("Kicking off Q3 planning."), "{result}");
+    assert!(result.contains("Noted — Meridian on the 14th."), "{result}");
+    assert!(result.contains("sarah"), "{result}");
+}
+
+#[tokio::test]
+async fn convo_turn_on_an_unknown_id_is_a_teachable_error() {
+    let mut store = MemoryStore::new();
+    let clock = ManualClock::new(common::time::EARLY);
+    let graph = Graph::open_in_memory().unwrap();
+    let conversation = resolve_or_mint_conversation(
+        &mut store,
+        &clock,
+        &graph,
+        &ConversationLocator::new("discord", "planning"),
+    )
+    .unwrap();
+
+    let session = Session::new(conversation, InstanceFeatures::default());
+    let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
+
+    // A well-formed but unknown turn id resolves to nothing — a teachable error.
+    let unknown = TurnId::generate();
+    let outcome = session
+        .execute(
+            &engine,
+            &resolver_context(),
+            &format!(r#"return convo.turn("{}")"#, unknown.0),
+        )
+        .await
+        .unwrap();
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(message.contains("no turn"), "{message}");
+
+    // A malformed id is likewise teachable, distinctly worded.
+    let outcome = session
+        .execute(
+            &engine,
+            &resolver_context(),
+            r#"return convo.turn("not-a-ulid")"#,
+        )
+        .await
+        .unwrap();
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(message.contains("invalid turn id"), "{message}");
+}
+
+#[tokio::test]
+async fn convo_turn_does_not_resolve_another_conversations_turn() {
+    let mut store = MemoryStore::new();
+    let clock = ManualClock::new(common::time::EARLY);
+    let mut graph = Graph::open_in_memory().unwrap();
+
+    // Two rooms; a turn recorded in the other room must not resolve from this one — and must fail
+    // with the same shape as an unknown id, so cross-room existence never leaks.
+    let here = resolve_or_mint_conversation(
+        &mut store,
+        &clock,
+        &graph,
+        &ConversationLocator::new("discord", "here"),
+    )
+    .unwrap();
+    let elsewhere = resolve_or_mint_conversation(
+        &mut store,
+        &clock,
+        &graph,
+        &ConversationLocator::new("discord", "elsewhere"),
+    )
+    .unwrap();
+    let foreign = TurnId::generate();
+    store
+        .append(
+            clock.now(),
+            vec![turn_event(
+                elsewhere,
+                foreign,
+                TurnRole::Participant,
+                "A secret in another room.",
+                None,
+            )],
+        )
+        .unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    let session = Session::new(here, InstanceFeatures::default());
+    let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
+    let outcome = session
+        .execute(
+            &engine,
+            &resolver_context(),
+            &format!(r#"return convo.turn("{}")"#, foreign.0),
+        )
+        .await
+        .unwrap();
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    // The same "no turn" wording as a genuinely unknown id — the message never says it exists elsewhere.
+    assert!(message.contains("no turn"), "{message}");
+    assert!(
+        !message.contains("another room") && !message.contains("elsewhere"),
+        "the error must not reveal the turn exists in another conversation: {message}"
+    );
+}
+
+#[tokio::test]
+async fn convo_turn_is_absent_when_transcripts_are_disabled() {
+    let disabled = InstanceFeatures {
+        transcripts: false,
+        ..Default::default()
+    };
+    let h = Harness::with_features(disabled);
+    let outcome = h
+        .run(&format!(r#"return convo.turn("{}")"#, TurnId::generate().0))
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a nil-call error, got {outcome:?}");
+    };
+    assert!(
+        message.contains("nil"),
+        "a disabled convo.turn should surface a nil-call error, got: {message}"
     );
 }
