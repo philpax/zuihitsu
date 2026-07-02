@@ -1,4 +1,5 @@
 import type { ConversationLocator } from "../types/ConversationLocator.ts";
+import type { TurnOutcome } from "../types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 
@@ -18,16 +19,19 @@ export interface OutboundMessage {
 
 /// Deliver a participant message and run the agent's response cycle — the console acting as a
 /// platform client (spec §Clients → platform clients), holding only platform authority. The reply
-/// and both turns arrive through the live tail. Throws with the agent's reason on failure (e.g. no
-/// model configured).
+/// and both turns arrive through the live tail; the returned wire outcome matters mostly for
+/// `"Deferred"`, which says the message was delivered and recorded but the agent's model was
+/// unreachable — the agent catches up on its next turn. Throws with the agent's reason on failure
+/// (e.g. no model configured).
 export async function sendMessage(
   connection: LiveConnection,
   message: OutboundMessage,
-): Promise<void> {
+): Promise<TurnOutcome> {
   const response = await fetch(`${connection.baseUrl}/platform/message`, {
     method: "POST",
     headers: authHeaders(connection),
     body: JSON.stringify(message),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as TurnOutcome;
 }

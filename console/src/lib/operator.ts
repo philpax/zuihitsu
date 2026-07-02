@@ -1,3 +1,4 @@
+import type { TurnOutcome } from "../types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 
@@ -36,14 +37,17 @@ export async function createAgent(connection: LiveConnection, seed: Seed): Promi
 
 /// Deliver one operator message of the imprint interview and run the agent's response — the only
 /// path that may write `self`. The turns it produces (the operator's message and the agent's reply)
-/// arrive through the live tail. Throws with the agent's reason on failure (e.g. no model configured).
-export async function imprint(connection: LiveConnection, text: string): Promise<void> {
+/// arrive through the live tail; a `"Deferred"` outcome says the message landed but the model was
+/// unreachable, exactly as on the participant path. Throws with the agent's reason on failure
+/// (e.g. no model configured).
+export async function imprint(connection: LiveConnection, text: string): Promise<TurnOutcome> {
   const response = await fetch(`${connection.baseUrl}/control/imprint`, {
     method: "POST",
     headers: authHeaders(connection),
     body: JSON.stringify({ text }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as TurnOutcome;
 }
 
 /// Write a graph snapshot now — the operator's take-one-before-an-experiment trigger. Returns the file

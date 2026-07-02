@@ -5,7 +5,9 @@ import { useLiveLog } from "../lib/live.ts";
 import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { useStreamLocation } from "../lib/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../lib/operator.ts";
+import { isDegraded, useBackendHealth } from "../lib/health.ts";
 import { Dot, Eyebrow } from "./primitives.tsx";
+import { BackendBanner } from "./BackendBanner.tsx";
 import { StreamWorkspace } from "./StreamWorkspace.tsx";
 import { GenesisGate } from "./GenesisGate.tsx";
 import { LuaConsole } from "./LuaConsole.tsx";
@@ -40,6 +42,8 @@ export function LiveShell({
   // The handle you converse under as a participant, lifted here so it survives view switches.
   const [sender, setSender] = useState("");
   const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
+  // The model transport's health, polled for the degraded-backend banner below the header.
+  const backend = useBackendHealth(connection);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +89,8 @@ export function LiveShell({
           <span>{log.head} events</span>
         </div>
       </header>
+
+      {isDegraded(backend) && <BackendBanner health={backend} />}
 
       {!log.replica ? (
         <Pending status={log.status} />

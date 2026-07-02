@@ -235,11 +235,19 @@ fn export_types(dir: &Path) -> ExitCode {
     // the shared types regenerate identically); the console consumes both. The namespace types are
     // not transitively referenced by any event payload, so they are exported explicitly — the console
     // uses them to construct and decompose memory names without hardcoding the `person/` prefix.
-    use zuihitsu::ids::{Namespace, NamespacedMemoryName};
+    // `TurnOutcome` (the `/platform/message` wire outcome, whose `Deferred` variant the composer
+    // reads) and `BackendHealth` (the `/control/health` transport surface the degraded-backend
+    // banner polls) are likewise outside the event trees, so they export explicitly too.
+    use zuihitsu::{
+        BackendHealth, TurnOutcome,
+        ids::{Namespace, NamespacedMemoryName},
+    };
     match EvalPackage::export_all_to(dir)
         .and_then(|()| LiveEvent::export_all_to(dir))
         .and_then(|()| Namespace::export_all_to(dir))
         .and_then(|()| NamespacedMemoryName::export_all_to(dir))
+        .and_then(|()| TurnOutcome::export_all_to(dir))
+        .and_then(|()| BackendHealth::export_all_to(dir))
     {
         Ok(()) => {
             println!(

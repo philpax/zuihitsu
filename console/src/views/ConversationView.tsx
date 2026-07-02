@@ -262,26 +262,40 @@ function Room({
   // never sits against a conversation that does not yet show what was said. `baseline` is the turn
   // count at send; once the conversation grows past it, the real turn has landed and this is dropped.
   const [optimistic, setOptimistic] = useState<{ text: string; baseline: number } | null>(null);
+  // A send whose wire outcome was `Deferred`: the message was delivered and recorded, but the
+  // agent's model was unreachable, so no reply is coming for it — a quiet state, not an error.
+  // `baseline` is the turn count at send; the marker clears once an agent turn lands past it (the
+  // catch-up turn covered the deferred inbound) or the next send replaces it.
+  const [deferred, setDeferred] = useState<{ baseline: number } | null>(null);
 
   async function onSend(text: string) {
     if (!participate) return;
-    setOptimistic({ text, baseline: channel.conversation?.turns.length ?? 0 });
+    const baseline = channel.conversation?.turns.length ?? 0;
+    setOptimistic({ text, baseline });
+    setDeferred(null);
     try {
-      if (isOperator) {
-        await imprint(participate.connection, text);
-      } else {
-        await sendMessage(participate.connection, {
-          locator: channel.locator,
-          sender: handle,
-          text,
-          present: [handle],
-        });
-      }
+      const outcome = isOperator
+        ? await imprint(participate.connection, text)
+        : await sendMessage(participate.connection, {
+            locator: channel.locator,
+            sender: handle,
+            text,
+            present: [handle],
+          });
+      if (outcome === "Deferred") setDeferred({ baseline });
     } catch (error) {
       setOptimistic(null); // the send failed — drop the optimistic turn (the composer restores the draft).
       throw error;
     }
   }
+
+  // The deferral is covered once the agent speaks again in this room: its next turn replayed the
+  // buffer, deferred inbounds included, so the marker would only restate what the reply shows.
+  const deferredCovered =
+    deferred !== null &&
+    (channel.conversation?.turns ?? [])
+      .slice(deferred.baseline)
+      .some((turn) => turn.role === "Agent");
 
   return (
     <div className="flex w-full max-w-[46rem] flex-col">
@@ -323,6 +337,8 @@ function Room({
         />
       )}
 
+      {deferred !== null && !deferredCovered && <DeferredNotice />}
+
       {thinking && <ThinkingIndicator />}
 
       {/* The composer floats in the workspace's bottom dock, so you can start typing from anywhere
@@ -358,6 +374,21 @@ function Room({
           </div>
         </Docked>
       )}
+    </div>
+  );
+}
+
+/// A sent message was delivered and durably recorded, but the agent's model was unreachable, so
+/// the reply is deferred — a quiet state marker where the reply would land, not an error: the
+/// agent replays the buffer on its next turn and catches up then. Faint ink, no accent — the
+/// message is safe, and the header banner already carries the degraded-backend signal.
+function DeferredNotice() {
+  return (
+    <div className="mt-5 flex items-center gap-2 text-ink-faint">
+      <span className="inline-flex h-1.5 w-1.5 rounded-full border border-line-strong" />
+      <span className="font-mono text-2xs uppercase tracking-widest">
+        delivered — the agent will catch up when its model returns
+      </span>
     </div>
   );
 }

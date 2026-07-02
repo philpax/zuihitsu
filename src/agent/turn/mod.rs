@@ -57,6 +57,7 @@ use super::{
 
 /// What a completed turn delivers to the platform client.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TurnOutcome {
     /// A reply to post back.
     Reply(String),
