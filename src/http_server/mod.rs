@@ -45,8 +45,8 @@ use zuihitsu::{
 use auth::{require_control_key, require_platform_key};
 use control::{
     arbitrations, create_agent, entries, env_config, events, genesis, health, imprint,
-    interactions, lua_api, memories, memory, metrics, recurring, register_prompt, run_lua,
-    sessions, set_settings, settings, snapshot as snapshot_handler,
+    interactions, lua_api, memories, memory, merge_proposals, metrics, recurring, register_prompt,
+    run_lua, sessions, set_settings, settings, snapshot as snapshot_handler,
 };
 use platform::{join, message};
 
@@ -425,6 +425,7 @@ fn router(state: AppState) -> Router {
         .route("/sessions", get(sessions))
         .route("/recurring", get(recurring))
         .route("/arbitrations", get(arbitrations))
+        .route("/merge-proposals", get(merge_proposals))
         .route("/interactions", get(interactions))
         .route("/events", get(events))
         .route("/snapshot", post(snapshot_handler))

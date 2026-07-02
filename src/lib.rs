@@ -40,8 +40,8 @@ pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, SnapshotConfig};
 pub use event::{
     Cardinality, Event, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
-    Initiation, LinkInferenceResult, LinkSource, ModelPhase, ProducedBy, PromptTemplateName,
-    RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    Initiation, LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
+    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
@@ -80,7 +80,8 @@ pub use agent::{
 pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};
 pub use instance::{
-    Arbitration, Control, Instance, InstanceError, LuaConsoleOutcome, ModelCall, SnapshotSchedule,
+    Arbitration, Control, Instance, InstanceError, LuaConsoleOutcome, MergeProposal, ModelCall,
+    SnapshotSchedule,
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,

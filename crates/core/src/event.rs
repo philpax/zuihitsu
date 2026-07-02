@@ -177,6 +177,31 @@ impl std::str::FromStr for LinkSource {
     }
 }
 
+/// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec
+/// §Cross-platform identity). `Agent` is the agent's own judgment from a turn (`mem:propose_merge`);
+/// `Orchestration` is the identity-resolution layer flagging that a platform arrival's handle matches
+/// an existing but platform-unbound `person/*` stub (an agent-authored hearsay memory). An
+/// orchestration proposal is never an assertion of identity — only a flag that the two may be one, for
+/// the adjudicator or operator to weigh, so a handle match never itself merges two stubs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum MergeProposalSource {
+    /// The default stands in for the field's absence in version-1 `MergeProposed` payloads, which
+    /// predate orchestration proposals — every proposal then was the agent's own.
+    #[default]
+    Agent,
+    Orchestration,
+}
+
+impl MergeProposalSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MergeProposalSource::Agent => "Agent",
+            MergeProposalSource::Orchestration => "Orchestration",
+        }
+    }
+}
+
 /// Provenance for events that carry an authority, distinct from a participant teller: `Bootstrap`
 /// for genesis, `Orchestration` for prompt templates, `Operator` for operator/control writes, and
 /// `Agent` for the agent's own (spec §Initialization, §Trust model).
@@ -508,13 +533,22 @@ pub enum EventPayload {
         resolution: ArbitrationResolution,
         produced_by: Option<ProducedBy>,
     },
-    /// The agent's judgment that two `person/*` stubs may be the same human across platforms, recorded
-    /// for the off-hot-path adjudication pass to weigh (spec §Cross-platform identity → agent-proposed
-    /// merge). Deliberately *not* a `same_as` link and not projected into the graph: a proposal is inert
-    /// — it leaves both stubs in their own classes and surfaces nothing — so nothing crosses the
-    /// would-be merge until an adjudication accepts it. `produced_by` is `None` (the agent proposes from
-    /// a turn, not an inference pass).
-    MergeProposed { from: MemoryId, to: MemoryId },
+    /// A judgment that two `person/*` stubs may be the same human across platforms, recorded for the
+    /// off-hot-path adjudication pass to weigh (spec §Cross-platform identity → adjudicated merge).
+    /// `source` records who raised it: the agent from a turn (`mem:propose_merge`), or the
+    /// identity-resolution orchestration when a platform arrival's handle matched an existing but
+    /// platform-unbound stub. Deliberately *not* a `same_as` link and not projected into the graph: a
+    /// proposal is inert — it leaves both stubs in their own classes and surfaces nothing — so nothing
+    /// crosses the would-be merge until an adjudication accepts it, and an orchestration proposal in
+    /// particular never asserts identity from a bare handle match.
+    MergeProposed {
+        from: MemoryId,
+        to: MemoryId,
+        /// Defaulted so version-1 payloads (written before the field existed) replay as
+        /// agent-sourced, which every proposal then was.
+        #[serde(default)]
+        source: MergeProposalSource,
+    },
     /// The adjudication pass's verdict on a `MergeProposed`: whether the two stubs' independently-
     /// recorded facts coincide improbably enough to be one person, given the confidences at risk (spec
     /// §Cross-platform identity → adjudicated merge). A log-only audit record carrying the reasoning. On
@@ -866,8 +900,12 @@ impl EventPayload {
         }
     }
 
-    pub fn merge_proposed(from: MemoryId, to: MemoryId) -> EventPayload {
-        EventPayload::MergeProposed { from, to }
+    pub fn merge_proposed(
+        from: MemoryId,
+        to: MemoryId,
+        source: MergeProposalSource,
+    ) -> EventPayload {
+        EventPayload::MergeProposed { from, to, source }
     }
 
     pub fn memory_volatility_set(id: MemoryId, volatility: Volatility) -> EventPayload {
@@ -1081,9 +1119,13 @@ impl EventPayload {
         }
     }
 
-    /// The payload-schema version. All current payloads are `1`; higher versions add fields.
+    /// The payload-schema version; higher versions add fields. `MergeProposed` is `2` since gaining
+    /// `source` (version-1 payloads deserialize via its default); everything else is `1`.
     pub fn version(&self) -> u32 {
-        1
+        match self {
+            EventPayload::MergeProposed { .. } => 2,
+            _ => 1,
+        }
     }
 
     /// The primary entity this event is about, stored as an indexed column so per-target history is
@@ -1152,8 +1194,8 @@ pub struct Event {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConversationId, EntryId, EventPayload, MemoryId, ModelPhase, RequestRecord, SessionId,
-        Teller, Timestamp, TurnId, Visibility,
+        ConversationId, EntryId, EventPayload, MemoryId, MergeProposalSource, ModelPhase,
+        RequestRecord, SessionId, Teller, Timestamp, TurnId, Visibility,
     };
     use crate::{
         model::{Completion, Message, ToolChoice, Usage},
@@ -1328,6 +1370,26 @@ mod tests {
             EventPayload::describe_pass_completed(vec![MemoryId::generate(), MemoryId::generate()]);
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn a_version_one_merge_proposed_reads_as_agent_sourced() {
+        // A payload written before `source` existed must replay: the field defaults to `Agent`,
+        // which every proposal then was.
+        let from = MemoryId::generate();
+        let to = MemoryId::generate();
+        let legacy = format!(
+            r#"{{"type":"MergeProposed","from":"{}","to":"{}"}}"#,
+            from.0, to.0
+        );
+        assert_eq!(
+            serde_json::from_str::<EventPayload>(&legacy).unwrap(),
+            EventPayload::MergeProposed {
+                from,
+                to,
+                source: MergeProposalSource::Agent,
+            }
+        );
     }
 
     #[test]

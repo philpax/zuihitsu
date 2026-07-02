@@ -14,6 +14,7 @@ use crate::{
 mod describe;
 mod merge;
 mod occurrence;
+mod participants;
 mod projection;
 mod relations;
 mod replay;

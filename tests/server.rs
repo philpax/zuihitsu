@@ -7,9 +7,9 @@ use std::time::Duration;
 use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, Embedder, FakeEmbedder, GenerateRequest,
     GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore,
-    ModelClient, ModelError, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall,
-    TurnOutcome, TurnRole, Usage, VectorIndex,
-    event::EventPayload,
+    ModelClient, ModelError, Namespace, ScriptedModel, SeedSelf, Server, SqliteStore, Store,
+    ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
+    event::{EventPayload, MergeProposalSource},
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
 };
@@ -1683,4 +1683,63 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
         last_chars <= 4_000 + 1_000,
         "the last prompt's char size {last_chars} exceeds the bound",
     );
+}
+
+#[tokio::test]
+async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator() {
+    // An agent-authored hearsay stub: `person/philpax` exists (written from conversation) but is bound
+    // to no platform — the operator/agent has never confirmed which platform account it belongs to.
+    let (server, _clock) = born_agent();
+    let hearsay = MemoryId::generate();
+    server
+        .control()
+        .seed_events(vec![EventPayload::memory_created(
+            hearsay,
+            Namespace::Person.with_name("philpax"),
+        )])
+        .unwrap();
+
+    // Philpax then arrives on Discord. The handle matches the unbound stub, so the arrival mints its own
+    // platform-qualified stub (it is *not* merged onto the hearsay one from a bare handle match), and an
+    // orchestration-sourced merge is proposed to reunite them.
+    let model = ScriptedModel::new([Completion::Reply("Hello.".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+    server
+        .platform()
+        .route_message(&model, &leads, "philpax", "hi there", &["philpax"])
+        .await
+        .unwrap();
+
+    // Both stubs exist and stay distinct: the fresh qualified one and the untouched hearsay one.
+    let arrival = server
+        .control()
+        .memory("person/philpax@discord")
+        .unwrap()
+        .expect("the arrival minted a platform-qualified stub");
+    assert!(server.control().memory("person/philpax").unwrap().is_some());
+
+    // The log carries the orchestration-sourced proposal reuniting the two.
+    let proposal = server
+        .control()
+        .events()
+        .unwrap()
+        .into_iter()
+        .find_map(|event| match event.payload {
+            EventPayload::MergeProposed { from, to, source } => Some((from, to, source)),
+            _ => None,
+        })
+        .expect("a merge was proposed for the handle match");
+    assert_eq!(
+        proposal,
+        (arrival.id, hearsay, MergeProposalSource::Orchestration)
+    );
+
+    // And it is visible on the operator's merge-proposal surface — unweighed, awaiting the operator —
+    // rather than silently dropped or auto-merged.
+    let surfaced = server.control().merge_proposals().unwrap();
+    assert_eq!(surfaced.len(), 1);
+    assert_eq!(surfaced[0].from.as_str(), "person/philpax@discord");
+    assert_eq!(surfaced[0].to.as_str(), "person/philpax");
+    assert_eq!(surfaced[0].source, MergeProposalSource::Orchestration);
+    assert!(!surfaced[0].refused);
 }

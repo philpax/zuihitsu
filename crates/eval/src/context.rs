@@ -6,8 +6,9 @@
 use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
-    ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, ManualClock,
-    MemoryStore, ModelClient, SeedSelf, Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
+    ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, LinkSource,
+    ManualClock, MemoryId, MemoryStore, ModelClient, RelationName, SeedSelf, Seq, Server,
+    SqliteVectorIndex, Timestamp, TurnOutcome,
 };
 
 use crate::error::EvalError;
@@ -149,6 +150,21 @@ impl RunContext {
     pub fn seed_events(&self, events: Vec<EventPayload>) -> Result<(), EvalError> {
         self.server.control().seed_events(events)?;
         Ok(())
+    }
+
+    /// Confirm a cross-platform merge as the operator would from the console (spec §Cross-platform
+    /// identity → operator-asserted merge): author the `same_as` link between two `person/*` stubs
+    /// directly, the one path to a merge that does not run through the adjudicator. Drives the operator
+    /// confirmation a proposal surfaces for, so a scenario can assess what the agent does once identity
+    /// is confirmed.
+    pub fn operator_merge(&self, from: MemoryId, to: MemoryId) -> Result<(), EvalError> {
+        self.seed_events(vec![EventPayload::LinkCreated {
+            from,
+            to,
+            relation: RelationName::SameAs,
+            source: LinkSource::Operator,
+            told_by: None,
+        }])
     }
 
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.

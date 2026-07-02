@@ -9,7 +9,7 @@
 
 use crate::{
     clock::Clock,
-    event::EventPayload,
+    event::{EventPayload, MergeProposalSource},
     graph::{Graph, GraphError},
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace},
     store::{Store, StoreError},
@@ -97,11 +97,15 @@ impl From<GraphError> for IdentityError {
 /// The name is the clean `person/<platform_user_id>`, so a person is one coherent memory the agent
 /// reads and writes under a single handle — not split between a system stub and a canonical the agent
 /// mints alongside it. The platform-qualified `person/<platform_user_id>@<platform>` form is used only
-/// to disambiguate a genuine collision: when that clean name already belongs to a *different* identity
-/// (the same handle on two platforms), so two distinct people stay distinct rather than silently
-/// merging — the cross-platform-explicit property. The `(platform, key)` binding lives in
-/// `ParticipantIdentified` regardless of the name, so the name stays free to be the clean one and to be
-/// renamed later (humanizing a raw id) without breaking resolution.
+/// when that clean name is already taken (spec §Identity → cross-platform-explicit): if it belongs to a
+/// *different* platform-bound identity (the same handle on two platforms), the qualified stub keeps two
+/// distinct people distinct rather than silently merging; if it belongs to a platform-*unbound* memory
+/// (an agent-authored hearsay stub the agent wrote from conversation, never bound to a platform), the
+/// qualified stub is still minted, but a `MergeProposed` (`Orchestration`-sourced) is emitted alongside
+/// it so the adjudicator or operator can reunite the two — a handle match never itself asserts identity
+/// (the impersonation surface). The `(platform, key)` binding lives in `ParticipantIdentified`
+/// regardless of the name, so the name stays free to be the clean one and to be renamed later
+/// (humanizing a raw id) without breaking resolution.
 pub fn resolve_or_mint_participant(
     store: &mut dyn Store,
     clock: &dyn Clock,
@@ -115,14 +119,27 @@ pub fn resolve_or_mint_participant(
             return Ok(id);
         }
         let id = MemoryId::generate();
-        let name = graph.participant_name(platform, platform_user_id)?;
-        store.append(
-            clock.now(),
-            vec![
-                EventPayload::memory_created(id, name.clone()),
-                EventPayload::participant_identified(id, platform, platform_user_id),
-            ],
-        )?;
+        let mint = graph.participant_mint(platform, platform_user_id)?;
+        let name = mint.name;
+        let mut events = vec![
+            EventPayload::memory_created(id, name.clone()),
+            EventPayload::participant_identified(id, platform, platform_user_id),
+        ];
+        if let Some(existing) = mint.propose_same_as_with {
+            // The clean handle is an unbound hearsay stub: propose reuniting the fresh platform-bound
+            // stub with it, for the adjudicator or operator to weigh. Never an auto-merge — the handle
+            // match alone is not identity.
+            events.push(EventPayload::merge_proposed(
+                id,
+                existing,
+                MergeProposalSource::Orchestration,
+            ));
+            tracing::info!(
+                %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
+                "proposed merging a platform arrival with a matching unbound stub",
+            );
+        }
+        store.append(clock.now(), events)?;
         tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
         Ok(id)
     })()
@@ -173,8 +190,9 @@ mod tests {
     use super::{resolve_or_mint_conversation, resolve_or_mint_participant};
     use crate::{
         clock::ManualClock,
+        event::{EventPayload, MergeProposalSource},
         graph::Graph,
-        ids::{ConversationLocator, MemoryName, Namespace, Seq},
+        ids::{ConversationLocator, MemoryId, MemoryName, Namespace, Seq},
         store::{MemoryStore, Store},
         time::Timestamp,
     };
@@ -221,6 +239,51 @@ mod tests {
         assert_eq!(
             graph.memory_by_id(elsewhere).unwrap().unwrap().name,
             Namespace::Person.with_name("12345@slack").into()
+        );
+    }
+
+    #[test]
+    fn arrival_matching_an_unbound_stub_mints_qualified_and_proposes_a_merge() {
+        let mut store = MemoryStore::new();
+        let clock = ManualClock::new(Timestamp::from_millis(1_000));
+        let mut graph = Graph::open_in_memory().unwrap();
+
+        // An agent-authored hearsay stub: `person/philpax` exists but is bound to no platform.
+        let hearsay = MemoryId::generate();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                vec![EventPayload::memory_created(
+                    hearsay,
+                    Namespace::Person.with_name("philpax"),
+                )],
+            )
+            .unwrap();
+        graph.materialize_from(&store).unwrap();
+
+        // Philpax then arrives on a platform: the qualified stub is minted (not merged onto the hearsay
+        // one), and an orchestration-sourced merge is proposed to reunite them for adjudication.
+        let arrival =
+            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "philpax").unwrap();
+        graph.materialize_from(&store).unwrap();
+        assert_ne!(arrival, hearsay);
+        assert_eq!(
+            graph.memory_by_id(arrival).unwrap().unwrap().name,
+            Namespace::Person.with_name("philpax@discord").into()
+        );
+
+        let proposals: Vec<_> = store
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .into_iter()
+            .filter_map(|event| match event.payload {
+                EventPayload::MergeProposed { from, to, source } => Some((from, to, source)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            proposals,
+            vec![(arrival, hearsay, MergeProposalSource::Orchestration)]
         );
     }
 

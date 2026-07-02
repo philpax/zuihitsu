@@ -306,7 +306,7 @@ fn collect_pending_proposals(
             EventPayload::MergeAdjudicated { from, to, .. } => {
                 settled.insert(canonical_pair(from, to));
             }
-            EventPayload::MergeProposed { from, to } => {
+            EventPayload::MergeProposed { from, to, .. } => {
                 let pair = canonical_pair(from, to);
                 if seen.insert(pair) {
                     ordered.push(pair);

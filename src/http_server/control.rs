@@ -11,8 +11,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ApiEntry, Arbitration, ConversationLocator, EntryView, EnvConfig, Event, LuaConsoleOutcome,
-    MemoryView, ModelCall, PromptTemplateName, Rollout, SeedSelf, Seq, SessionView, Settings,
-    TurnOutcome, genesis::GenesisStatus,
+    MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout, SeedSelf, Seq, SessionView,
+    Settings, TurnOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
@@ -156,6 +156,14 @@ pub(super) async fn arbitrations(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Arbitration>>, ApiError> {
     Ok(Json(state.server.control().arbitrations()?))
+}
+
+/// `GET /control/merge-proposals` — the cross-platform merge proposals still awaiting the operator, in
+/// first-proposal order (the operator's backstop for merges the evidence did not yet justify).
+pub(super) async fn merge_proposals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<MergeProposal>>, ApiError> {
+    Ok(Json(state.server.control().merge_proposals()?))
 }
 
 /// `GET /control/interactions` — the recorded model interactions, oldest first (the deliberation

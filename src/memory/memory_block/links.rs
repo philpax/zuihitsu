@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    event::{EventPayload, LinkSource, Teller},
+    event::{EventPayload, LinkSource, MergeProposalSource, Teller},
     graph::RelationView,
     ids::MemoryId,
     vocabulary::RelationName,
@@ -70,7 +70,11 @@ impl MemoryBlock {
         }
         self.touched.insert(from);
         self.touched.insert(to);
-        self.buffer.push(EventPayload::merge_proposed(from, to));
+        self.buffer.push(EventPayload::merge_proposed(
+            from,
+            to,
+            MergeProposalSource::Agent,
+        ));
         Ok(())
     }
 

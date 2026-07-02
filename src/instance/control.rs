@@ -4,7 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use super::{Instance, InstanceError, RoutedTurn};
 use crate::{
@@ -16,11 +19,11 @@ use crate::{
         templates,
     },
     event::{
-        Event, EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord, Teller,
-        TerminalCause,
+        Event, EventPayload, EventSource, MergeProposalSource, ModelPhase, PromptTemplateName,
+        RequestRecord, Teller, TerminalCause,
     },
     graph::{EntryView, MemoryView, SessionView},
-    ids::{ConversationId, ConversationLocator, MemoryName, Seq, TurnId},
+    ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Seq, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
     metrics::{set_graph_counts, set_head_seq, set_lag, set_mcp, set_sessions_active},
     model::{Completion, ModelClient, Usage},
@@ -40,6 +43,22 @@ pub struct Control<'a> {
 pub struct Arbitration {
     pub memory: MemoryName,
     pub statement: String,
+}
+
+/// One cross-platform merge proposal still awaiting the operator (spec §Cross-platform identity →
+/// adjudicated merge): the two stubs, who raised it, and whether the adjudicator has already weighed and
+/// refused it. A proposal the adjudicator (or an operator) has *accepted* — the two stubs now share a
+/// `same_as` class — drops off; every other proposal stays, so the "left for the operator" path is
+/// visible here rather than silently dropped. The operator's backstop for merges the evidence did not
+/// (yet) justify, including the orchestration-raised ones from a bare handle match.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MergeProposal {
+    pub from: MemoryName,
+    pub to: MemoryName,
+    pub source: MergeProposalSource,
+    /// `true` once the adjudicator has weighed the pair and refused the merge; `false` while it is still
+    /// unweighed (or the adjudicator could not reach a verdict). Either way the operator can act on it.
+    pub refused: bool,
 }
 
 /// One recorded model interaction — the console's view of a single model call (spec
@@ -326,6 +345,71 @@ impl Control<'_> {
         Ok(out)
     }
 
+    /// The cross-platform merge proposals still awaiting the operator, in first-proposal order (spec
+    /// §Cross-platform identity → adjudicated merge). A proposal whose two stubs now share a `same_as`
+    /// class has been merged (by the adjudicator or an operator) and drops off; every other proposal —
+    /// unweighed, or weighed and refused — stays, so the operator's backstop never silently loses one.
+    /// `MergeProposed`/`MergeAdjudicated` are log-only, so this reads them from the log and resolves the
+    /// current class membership from the graph.
+    pub fn merge_proposals(&self) -> Result<Vec<MergeProposal>, InstanceError> {
+        let events = self.server.engine.store.lock().read_from(Seq::ZERO)?;
+        // Track each pair by its canonical key (`same_as` is symmetric) for settlement matching, but
+        // keep the original `(from, to)` order of the first proposal for a stable display direction.
+        let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
+        let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
+        let mut refused: BTreeSet<(MemoryId, MemoryId)> = BTreeSet::new();
+        for event in events {
+            match event.payload {
+                EventPayload::MergeProposed {
+                    from,
+                    to,
+                    source: raised_by,
+                } => {
+                    let pair = canonical_pair(from, to);
+                    if source.insert(pair, raised_by).is_none() {
+                        order.push((from, to));
+                    }
+                }
+                EventPayload::MergeAdjudicated {
+                    from, to, accepted, ..
+                } => {
+                    let pair = canonical_pair(from, to);
+                    // The latest verdict wins: an accept clears a prior refusal, a refusal marks it.
+                    if accepted {
+                        refused.remove(&pair);
+                    } else {
+                        refused.insert(pair);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let graph = self.server.engine.graph.lock();
+        let mut out = Vec::new();
+        for (from, to) in order {
+            // A pair now in one class has been merged — nothing left for the operator to decide.
+            let from_class = graph.class_id(from)?;
+            if from_class.is_some() && from_class == graph.class_id(to)? {
+                continue;
+            }
+            let name = |id| -> Result<MemoryName, InstanceError> {
+                Ok(graph
+                    .memory_by_id(id)?
+                    .map(|memory| memory.name)
+                    .unwrap_or_else(|| MemoryName::new("<unknown>")))
+            };
+            let pair = canonical_pair(from, to);
+            out.push(MergeProposal {
+                from: name(from)?,
+                to: name(to)?,
+                source: source[&pair],
+                refused: refused.contains(&pair),
+            });
+        }
+        Ok(out)
+    }
+
     /// The model interactions recorded on the log, oldest first — each call's request (delta-encoded),
     /// deliberation, token usage, and latency. The console's deliberation surface and the answer to
     /// "where did the turn's time go" (spec §Observability); `ModelCalled` is log-only, so this reads
@@ -485,4 +569,10 @@ impl Control<'_> {
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(())
     }
+}
+
+/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
+/// adjudication key on the same canonical pair regardless of which stub each named first.
+fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {
+    if from <= to { (from, to) } else { (to, from) }
 }
