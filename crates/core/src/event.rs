@@ -541,6 +541,14 @@ pub enum EventPayload {
         result: LinkInferenceResult,
         produced_by: Option<ProducedBy>,
     },
+    /// Records one describer pass: every memory the pass considered, whether or not synthesis
+    /// succeeded (matching the describer's advance-past-failure discipline). Applying it stamps each
+    /// listed memory's `last_described_seq` to this event's seq, so a memory is stale exactly while
+    /// its `last_content_seq` outruns its `last_described_seq` (spec §Write path → regenerate off the
+    /// hot path, as a catch-up). The list is a `Vec` so a pass may batch several memories, though a
+    /// per-memory pass records a batch of one. Log-derived state: the describe backlog survives a
+    /// restart, since it is a function of the log rather than an in-memory cursor.
+    DescribePassCompleted { memories: Vec<MemoryId> },
     MemoryVolatilitySet {
         id: MemoryId,
         volatility: Volatility,
@@ -866,6 +874,10 @@ impl EventPayload {
         EventPayload::MemoryVolatilitySet { id, volatility }
     }
 
+    pub fn describe_pass_completed(memories: Vec<MemoryId>) -> EventPayload {
+        EventPayload::DescribePassCompleted { memories }
+    }
+
     pub fn tag_created(name: TagName, description: impl Into<String>) -> EventPayload {
         EventPayload::TagCreated {
             name,
@@ -1045,6 +1057,7 @@ impl EventPayload {
             EventPayload::MergeProposed { .. } => "MergeProposed",
             EventPayload::MergeAdjudicated { .. } => "MergeAdjudicated",
             EventPayload::LinksInferred { .. } => "LinksInferred",
+            EventPayload::DescribePassCompleted { .. } => "DescribePassCompleted",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
@@ -1102,8 +1115,11 @@ impl EventPayload {
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.as_str().to_owned()),
-            // A whole-settings snapshot and a vector-index migration: neither is about a single entity.
-            EventPayload::ConfigSet { .. } | EventPayload::EmbeddingModelChanged { .. } => None,
+            // A whole-settings snapshot, a vector-index migration, and a describer pass over many
+            // memories: none is about a single entity.
+            EventPayload::ConfigSet { .. }
+            | EventPayload::EmbeddingModelChanged { .. }
+            | EventPayload::DescribePassCompleted { .. } => None,
             // Conversation-keyed events target the conversation, so per-conversation history (the
             // console's conversation view, compaction's read of a session's blocks) is a cheap
             // indexed filter. A `LuaExecuted` touches many memories, but it belongs to one
@@ -1302,6 +1318,14 @@ mod tests {
             session: SessionId::generate(),
             surfaced_at: Timestamp::from_millis(2_000),
         };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn describe_pass_completed_round_trips() {
+        let event =
+            EventPayload::describe_pass_completed(vec![MemoryId::generate(), MemoryId::generate()]);
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
     }

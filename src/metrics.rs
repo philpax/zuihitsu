@@ -62,7 +62,7 @@ pub const LINK_COUNT: &str = "zuihitsu_link_count";
 pub const TAG_COUNT: &str = "zuihitsu_tag_count";
 pub const RELATION_COUNT: &str = "zuihitsu_relation_count";
 pub const INDEXER_LAG_SEQ: &str = "zuihitsu_indexer_lag_seq";
-pub const DESCRIBER_LAG_SEQ: &str = "zuihitsu_describer_lag_seq";
+pub const DESCRIBER_STALE_MEMORIES: &str = "zuihitsu_describer_stale_memories";
 pub const ADJUDICATOR_LAG_SEQ: &str = "zuihitsu_adjudicator_lag_seq";
 pub const MCP_SERVERS_UP: &str = "zuihitsu_mcp_servers_up";
 pub const MCP_TOOLS_TOTAL: &str = "zuihitsu_mcp_tools_total";
@@ -137,8 +137,9 @@ pub fn describe() {
         "How far the vector indexer trails the log head, in seqs."
     );
     describe_gauge!(
-        DESCRIBER_LAG_SEQ,
-        "How far the background describer trails the log head, in seqs."
+        DESCRIBER_STALE_MEMORIES,
+        "The background describer's backlog: memories whose content has changed since they were \
+         last described."
     );
     describe_gauge!(
         ADJUDICATOR_LAG_SEQ,
@@ -274,11 +275,11 @@ pub fn set_graph_counts(memories: u64, entries: u64, links: u64, tags: usize, re
 }
 
 /// Set the worker-lag gauges. `indexer_lag` is `None` on a graph-only instance (no embedder).
-pub fn set_lag(indexer_lag: Option<u64>, describer_lag: u64, adjudicator_lag: u64) {
+pub fn set_lag(indexer_lag: Option<u64>, describer_backlog: u64, adjudicator_lag: u64) {
     if let Some(lag) = indexer_lag {
         gauge!(INDEXER_LAG_SEQ).set(lag as f64);
     }
-    gauge!(DESCRIBER_LAG_SEQ).set(describer_lag as f64);
+    gauge!(DESCRIBER_STALE_MEMORIES).set(describer_backlog as f64);
     gauge!(ADJUDICATOR_LAG_SEQ).set(adjudicator_lag as f64);
 }
 
@@ -407,7 +408,7 @@ mod tests {
             TAG_COUNT,
             RELATION_COUNT,
             INDEXER_LAG_SEQ,
-            DESCRIBER_LAG_SEQ,
+            DESCRIBER_STALE_MEMORIES,
             ADJUDICATOR_LAG_SEQ,
             MCP_SERVERS_UP,
             MCP_TOOLS_TOTAL,

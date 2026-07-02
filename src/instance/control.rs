@@ -259,11 +259,10 @@ impl Control<'_> {
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
-        // Baseline the describer cursor past genesis: the seeded `self` has no synthesized description
-        // yet, and nothing should try to regenerate it until real content is written (it would have no
-        // public entries, and a synchronous caller — a scripted test or the open-time forcing guard —
-        // must not block on it). The same baseline `boot` performs, here for the born-without-boot path.
-        self.server.baseline_describer_cursor()?;
+        // Baseline the adjudicator and link-inference cursors past genesis so a synchronous caller does
+        // not re-run those passes over the seeded state. The describer needs no baseline call: the
+        // `GenesisCompleted` handler already marked the seeded `self` described in the graph
+        // materialization above, so the first describe pass over it regenerates nothing.
         self.server.baseline_adjudicator_cursor()?;
         self.server.baseline_link_inference_cursor()?;
         Ok(outcome)
@@ -418,9 +417,8 @@ impl Control<'_> {
             graph.all_tags()?.len(),
             graph.all_relations()?.len(),
         );
-        let describer_lag = head
-            .0
-            .saturating_sub(self.server.describer_cursor_value().0);
+        // Read through the graph guard already held above — the graph lock is not reentrant.
+        let describer_backlog = graph.stale_memory_count()?;
         let adjudicator_lag = head
             .0
             .saturating_sub(self.server.adjudicator_cursor_value().0);
@@ -432,7 +430,7 @@ impl Control<'_> {
                 .map(|cursor| head.0.saturating_sub(cursor.0))
                 .unwrap_or(head.0)
         });
-        set_lag(indexer_lag, describer_lag, adjudicator_lag);
+        set_lag(indexer_lag, describer_backlog, adjudicator_lag);
         let (servers_up, tools_total) = self
             .server
             .mcp

@@ -73,8 +73,8 @@ pub use agent::{
     BlockContext, InferredLink, LinkInferenceArgs, McpCatalogue, NewRelationSpec, ToolStep, Turn,
     TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
-    run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up, run_turn,
-    session_touched,
+    run_adjudicate_catch_up, run_describe_catch_up, run_describe_catch_up_for,
+    run_link_inference_catch_up, run_turn, session_touched,
 };
 pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};

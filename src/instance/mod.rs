@@ -85,15 +85,11 @@ pub struct Instance {
 
 /// The off-hot-path synthesis cursors and their serialization guards. Each cursor tracks how far
 /// a background pass has progressed; its guard serializes that pass against the explicit catch-up.
-/// All three pass pairs are re-seeded to log-head at boot, treating already-written state as
-/// processed so a restart does not re-run old passes.
+/// The adjudicator and link-inference cursors are re-seeded to log-head at boot, treating
+/// already-written state as processed so a restart does not re-run those passes. The describer keeps
+/// no cursor — its backlog is the graph's log-derived per-memory described-state, so a pending
+/// describe backlog persists across a restart rather than being reset at boot (spec §Write path).
 pub(crate) struct BackgroundPasses {
-    /// The describer's cursor: the log seq through which descriptions have been regenerated. The
-    /// background describer (and the explicit `describe_catch_up`) advances it as it catches synthesized
-    /// descriptions up to the log off the hot path (spec §Write path → regenerate off the hot path).
-    /// In-memory; `boot` re-seeds it to log-head, treating already-written state as described — a crash
-    /// mid-regen self-heals on the memory's next write rather than re-describing the whole log at boot.
-    describer_cursor: Mutex<Seq>,
     /// The merge-adjudicator's cursor: the log seq through which proposed merges have been adjudicated.
     /// Its own background pass (and the explicit `adjudicate_catch_up`) advances it as it weighs pending
     /// proposals off the hot path (spec §Cross-platform identity → adjudicated merge). Re-seeded to
@@ -104,9 +100,10 @@ pub(crate) struct BackgroundPasses {
     /// advances it as it extracts relationships off the hot path (spec §Write path → link inference).
     /// Re-seeded to log-head at boot, like the describer's and adjudicator's.
     link_inference_cursor: Mutex<Seq>,
-    /// Serializes describe-catch-up passes — the force-before-brief one (a new session opening) and the
-    /// background timer one — so two never run concurrently. Without it both read the cursor before
-    /// either advances it, so they re-describe (and re-embed) the same memories for the same change.
+    /// Serializes describe-catch-up passes — the narrow force-before-brief one (a new session opening)
+    /// and the background timer one. Held per memory rather than across a whole pass, so a session
+    /// open's narrow pass interleaves with a long background backlog; each memory's staleness is
+    /// re-checked under it, so two passes never redescribe the same memory for the same change.
     describe_guard: tokio::sync::Mutex<()>,
     /// As `describe_guard`, serializing the adjudicator's catch-up.
     adjudicate_guard: tokio::sync::Mutex<()>,
@@ -351,9 +348,10 @@ impl Instance {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
-        // Seed the synthesis cursors to log-head: state written before this boot is treated as already
-        // processed, so a restart does not re-run old passes (spec §Write path). New writes from here are
-        // caught up off the hot path.
+        // Seed the adjudicator and link-inference cursors to log-head: state written before this boot is
+        // treated as already processed, so a restart does not re-run those passes (spec §Write path).
+        // The describer needs no seeding — its backlog is the graph's log-derived per-memory
+        // described-state, so a pre-shutdown backlog survives the restart and is caught up here.
         self.passes.reseed(self.engine.store.lock().head()?);
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "instance booted");
@@ -461,8 +459,14 @@ impl Instance {
         self.passes.describe_catch_up(&self.engine, model).await
     }
 
-    pub(crate) fn baseline_describer_cursor(&self) -> Result<(), InstanceError> {
-        self.passes.baseline_describer_cursor(&self.engine)
+    pub async fn describe_catch_up_for(
+        &self,
+        model: &dyn ModelClient,
+        ids: &[MemoryId],
+    ) -> Result<usize, InstanceError> {
+        self.passes
+            .describe_catch_up_for(&self.engine, model, ids)
+            .await
     }
 
     pub async fn adjudicate_catch_up(
@@ -487,11 +491,6 @@ impl Instance {
 
     pub(crate) fn baseline_link_inference_cursor(&self) -> Result<(), InstanceError> {
         self.passes.baseline_link_inference_cursor(&self.engine)
-    }
-
-    /// The current describer cursor value, for lag reporting in [`Control::refresh_gauges`].
-    pub(crate) fn describer_cursor_value(&self) -> Seq {
-        self.passes.describer_cursor_value()
     }
 
     /// The current adjudicator cursor value, for lag reporting in [`Control::refresh_gauges`].

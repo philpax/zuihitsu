@@ -11,6 +11,7 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
+mod describe;
 mod merge;
 mod occurrence;
 mod projection;
@@ -92,6 +93,8 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
             source: LinkSource::Agent,
             told_by: None,
         },
+        // A describer pass over both people, so a rebuild stresses the described-state handler too.
+        EventPayload::describe_pass_completed(vec![dave, erin]),
         // Supersede dave's first entry with his second — it drops from live reads but stays recorded.
         EventPayload::memory_superseded(dave, e1, e2),
         // Soft-delete a memory — filtered from reads, retained in the tables.

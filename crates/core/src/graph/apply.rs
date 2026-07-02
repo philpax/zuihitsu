@@ -28,13 +28,34 @@ impl Graph {
     /// `(type, version)` dispatch; a wrong arm is a silent-leak class the eval harness backstops.
     pub fn apply(&mut self, event: &Event) -> Result<(), GraphError> {
         match &event.payload {
-            // No graph projection: genesis marker, and orchestration/behavioral config which the
-            // server reads from the log rather than the graph.
-            EventPayload::GenesisCompleted { .. }
-            | EventPayload::PromptTemplateRegistered { .. }
+            // No graph projection: orchestration/behavioral config which the server reads from the log
+            // rather than the graph.
+            EventPayload::PromptTemplateRegistered { .. }
             | EventPayload::ConfigSet { .. }
             | EventPayload::LuaExecuted { .. }
             | EventPayload::ConversationTurn { .. } => {}
+            // The genesis marker baselines the describer: every memory that exists at genesis (the
+            // seeded `self`) is treated as already described, so the first describer tick after a fresh
+            // genesis regenerates nothing before real content lands. Setting `last_described_seq` to
+            // each memory's `last_content_seq` clears any staleness the seeding writes created.
+            EventPayload::GenesisCompleted { .. } => {
+                self.conn
+                    .execute(
+                        "UPDATE memories SET last_described_seq = last_content_seq",
+                        [],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::DescribePassCompleted { memories } => {
+                for memory in memories {
+                    self.conn
+                        .execute(
+                            "UPDATE memories SET last_described_seq = ?1 WHERE id = ?2",
+                            params![event.seq.0 as i64, memory.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
+            }
             // The model-interaction record is log-only telemetry, read from the log rather than
             // projected (spec §Observability), and replay-inert by construction.
             EventPayload::ModelCalled { .. } => {}
@@ -87,12 +108,13 @@ impl Graph {
                 // A lone memory is its own class; a later same_as merge recomputes class_id.
                 self.conn
                     .execute(
-                        "INSERT INTO memories (id, name, created_at, class_id)
-                         VALUES (?1, ?2, ?3, ?1)",
+                        "INSERT INTO memories (id, name, created_at, class_id, last_content_seq)
+                         VALUES (?1, ?2, ?3, ?1, ?4)",
                         params![
                             id.0.to_string(),
                             name.as_str(),
-                            event.recorded_at.as_millis()
+                            event.recorded_at.as_millis(),
+                            event.seq.0 as i64,
                         ],
                     )
                     .map_err(backend)?;
@@ -109,10 +131,13 @@ impl Graph {
                 old_name,
                 new_name,
             } => {
+                // A rename changes no content, but the description is synthesized under the memory's
+                // name, so it must be re-described under the new handle — mark it stale by advancing
+                // `last_content_seq`, matching the write-set the describer keys on.
                 self.conn
                     .execute(
-                        "UPDATE memories SET name = ?1 WHERE id = ?2",
-                        params![new_name.as_str(), id.0.to_string()],
+                        "UPDATE memories SET name = ?1, last_content_seq = ?2 WHERE id = ?3",
+                        params![new_name.as_str(), event.seq.0 as i64, id.0.to_string()],
                     )
                     .map_err(backend)?;
                 self.conn
@@ -183,6 +208,14 @@ impl Graph {
                             serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
                             event.seq.0 as i64,
                         ],
+                    )
+                    .map_err(backend)?;
+                // Advance the memory's content watermark so it reads as stale until the describer's
+                // next pass considers it (spec §Write path → regenerate off the hot path).
+                self.conn
+                    .execute(
+                        "UPDATE memories SET last_content_seq = ?1 WHERE id = ?2",
+                        params![event.seq.0 as i64, id.0.to_string()],
                     )
                     .map_err(backend)?;
                 // Only public content enters the lexical index: name and description are already

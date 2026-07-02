@@ -477,11 +477,39 @@ mod observability_tests {
         );
         // The agent-state gauges were refreshed from the graph.
         assert!(text.contains("zuihitsu_memory_count"));
-        // The describer was caught up to the pre-turn head, so the turn's own writes leave a lag.
+        // The pre-brief pass described the brief's memories (the participant stub and the room's
+        // context) and the plain-reply turn wrote nothing, so the describer's backlog gauge reads zero.
         assert!(
-            text.contains("zuihitsu_describer_lag_seq ")
-                && !text.contains("zuihitsu_describer_lag_seq 0\n"),
-            "the turn's writes lag the describer cursor"
+            text.contains("zuihitsu_describer_stale_memories 0\n"),
+            "nothing is stale after a plain-reply turn"
+        );
+
+        // A write to a memory outside any brief leaves it stale, and the refreshed gauge counts it.
+        let orphan = crate::ids::MemoryId::generate();
+        let now = server.engine.clock.now();
+        server
+            .engine
+            .store
+            .lock()
+            .append(
+                now,
+                vec![crate::event::EventPayload::memory_created(
+                    orphan,
+                    crate::ids::MemoryName::new("topic/orphan"),
+                )],
+            )
+            .unwrap();
+        server
+            .engine
+            .graph
+            .lock()
+            .materialize_from(server.engine.store.lock().as_ref())
+            .unwrap();
+        server.control().refresh_gauges().unwrap();
+        let text = handle.render();
+        assert!(
+            text.contains("zuihitsu_describer_stale_memories 1\n"),
+            "an undescribed write surfaces in the backlog gauge"
         );
     }
 

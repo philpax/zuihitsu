@@ -84,9 +84,9 @@ mod harness {
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
-        Event, FakeEmbedder, Graph, InMemoryVectorIndex, InstanceFeatures, ManualClock, MemoryId,
-        MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView,
-        VectorIndex,
+        Event, EventPayload, FakeEmbedder, Graph, InMemoryVectorIndex, InstanceFeatures,
+        ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller,
+        Turn, TurnId, TurnView, VectorIndex,
         model::index::{apply_batch, embed_batch},
         run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -110,10 +110,11 @@ mod harness {
         pub session: Session,
         /// The stand-in inbound participant a turn is attributed to.
         pub participant: MemoryId,
-        /// The describer's cursor, mirroring the server's: descriptions have been regenerated through
-        /// this seq. Advanced by [`Harness::describe`]; baselined past genesis by
-        /// [`Harness::baseline_descriptions`] so a catch-up never reconsiders the seeded `self`.
-        describer_cursor: Cell<Seq>,
+        /// The describer's per-memory serialization guard, mirroring the server's. The describer keeps
+        /// no cursor — its backlog is the graph's log-derived stale set — so [`Harness::describe`]
+        /// catches every stale memory up, and [`Harness::baseline_descriptions`] marks the current
+        /// stale set described so a later catch-up never reconsiders the seeded `self`.
+        describe_guard: tokio::sync::Mutex<()>,
         adjudicator_cursor: Cell<Seq>,
         link_inference_cursor: Cell<Seq>,
     }
@@ -130,7 +131,7 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate(), InstanceFeatures::default()),
                 participant: MemoryId::generate(),
-                describer_cursor: Cell::new(Seq::ZERO),
+                describe_guard: tokio::sync::Mutex::new(()),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
             }
@@ -163,7 +164,7 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate(), InstanceFeatures::default()),
                 participant: MemoryId::generate(),
-                describer_cursor: Cell::new(Seq::ZERO),
+                describe_guard: tokio::sync::Mutex::new(()),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
             }
@@ -183,7 +184,7 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate(), features),
                 participant: MemoryId::generate(),
-                describer_cursor: Cell::new(Seq::ZERO),
+                describe_guard: tokio::sync::Mutex::new(()),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
             }
@@ -201,12 +202,25 @@ mod harness {
             apply_batch(&mut **retrieval.vectors.lock(), batch).unwrap();
         }
 
-        /// Baseline the describer cursor at the current log head — call after `genesis::rollout` so a
-        /// later [`Harness::describe`] only regenerates what the test itself wrote, not the seeded
-        /// `self` (whose description genesis already provided).
+        /// Mark every currently-stale memory described — call after `genesis::rollout` so a later
+        /// [`Harness::describe`] only regenerates what the test itself wrote, not the seeded `self`
+        /// (whose description genesis already provided). Records a `DescribePassCompleted` over the
+        /// current stale set, the log-derived analogue of the old "baseline the cursor at head".
         pub fn baseline_descriptions(&self) {
-            self.describer_cursor
-                .set(self.engine.store.lock().head().unwrap());
+            let stale = self.engine.graph.lock().stale_memories().unwrap();
+            if stale.is_empty() {
+                return;
+            }
+            let now = self.engine.clock.now();
+            self.engine
+                .store
+                .lock()
+                .append(now, vec![EventPayload::describe_pass_completed(stale)])
+                .unwrap();
+            let mut graph = self.engine.graph.lock();
+            graph
+                .materialize_from(self.engine.store.lock().as_ref())
+                .unwrap();
         }
 
         /// Baseline the link-inference cursor at the current log head — call after `genesis::rollout`
@@ -222,11 +236,9 @@ mod harness {
         /// Regenerates descriptions, belief arbitration, and temporal extraction for the memories the
         /// turn(s) since the last call wrote, advancing the cursor.
         pub async fn describe(&self, model: &dyn ModelClient) {
-            let (advanced, _) =
-                run_describe_catch_up(&self.engine, model, self.describer_cursor.get())
-                    .await
-                    .unwrap();
-            self.describer_cursor.set(advanced);
+            run_describe_catch_up(&self.engine, model, &self.describe_guard)
+                .await
+                .unwrap();
         }
 
         /// Run the merge-adjudication catch-up over the proposals written since its cursor — the

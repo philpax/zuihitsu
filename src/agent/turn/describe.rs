@@ -26,216 +26,275 @@ use crate::{
         Completion, GenerateRequest, GenerateResponse, ModelClient, ModelError, extract_json_object,
     },
     settings::CaptureLevel,
-    store::Store,
     time::{self, CivilDate, Direction, Rrule, TemporalRef, Timestamp},
 };
 
-use super::{Recording, TurnError, collect_written_memories, templates};
+use super::{Recording, TurnError, templates};
+use templates::PromptTemplate;
 
 /// Catch descriptions up to the log off the hot path (spec §Write path → regenerate off the hot path,
-/// as a catch-up): regenerate every memory whose content changed in `(cursor, head]` and resolve any
-/// entries left untimed in that window, then return the head it advanced to and how many memories it
-/// considered. The background counterpart to the inline regeneration a turn used to do — driven by the
-/// served runtime on a timer and by tests and the eval harness explicitly. Its synthesis calls carry no
-/// conversation, so they record no `ModelCalled` telemetry; the `MemoryDescriptionRegenerated` events
-/// it emits still carry their `produced_by`. Idempotent: re-running from the same cursor reproduces the
-/// same events.
+/// as a catch-up): describe every stale memory — one whose content has changed since the describer
+/// last considered it — regenerating its description, arbitrating its beliefs, and resolving any
+/// occurrences it left untimed, then return how many memories it considered. The whole-log pass the
+/// served runtime drives on a timer and tests and the eval harness drive explicitly. Its synthesis
+/// calls carry no conversation, so they record no `ModelCalled` telemetry; the emitted events still
+/// carry their `produced_by`. Idempotent: a memory already fresh is skipped, so an idle tick is cheap.
 pub async fn run_describe_catch_up(
     engine: &Engine,
     model: &dyn ModelClient,
-    cursor: Seq,
-) -> Result<(Seq, usize), TurnError> {
-    let head = engine.store.lock().head()?;
-    if head <= cursor {
-        return Ok((cursor, 0));
-    }
-    let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
-    regenerate_descriptions(
-        model,
-        engine,
-        &written,
-        cursor,
-        Recording {
-            conversation: None,
-            turn_id: TurnId::generate(),
-            capture: CaptureLevel::Off,
-        },
-    )
-    .await?;
-    Ok((head, written.len()))
+    guard: &tokio::sync::Mutex<()>,
+) -> Result<usize, TurnError> {
+    let stale = engine.graph.lock().stale_memories()?;
+    describe_memories(engine, model, guard, &stale).await
 }
 
-/// Regenerate each written memory's description from its entries and, in the same model call,
-/// extract the occurrence time of any entry written this turn that the agent left untimed (spec §Time
-/// → "in the same pass"). New descriptions and resolved occurrences commit in one batch. A memory
-/// with no entries is skipped; a model failure on one memory is logged and leaves it unchanged rather
-/// than failing the whole turn.
-async fn regenerate_descriptions(
-    model: &dyn ModelClient,
+/// As [`run_describe_catch_up`], but narrowed to the stale memories among `ids` — the pass a session
+/// open runs over its brief's read set, so it pays only for the descriptions the brief will read and
+/// leaves the rest of the backlog to the background pass (spec §Starvation bound → composing a brief
+/// forces the catch-up). A stale memory not in `ids` stays stale for the background pass — no skip, no
+/// redundancy.
+pub async fn run_describe_catch_up_for(
     engine: &Engine,
-    written: &[MemoryId],
-    cycle_start: Seq,
-    recording: Recording,
-) -> Result<(), TurnError> {
-    let Some(description_template) = templates::latest_template(
+    model: &dyn ModelClient,
+    guard: &tokio::sync::Mutex<()>,
+    ids: &[MemoryId],
+) -> Result<usize, TurnError> {
+    let stale = engine.graph.lock().stale_memories_among(ids)?;
+    describe_memories(engine, model, guard, &stale).await
+}
+
+/// The description-regeneration and (optional) temporal-extraction templates a synthesis pass reads,
+/// with the combined system prompt precomputed once for the whole pass.
+struct SynthesisTemplates {
+    description: PromptTemplate,
+    extraction: Option<PromptTemplate>,
+    system: String,
+}
+
+/// Describe each candidate stale memory, holding the describer guard **per memory** rather than across
+/// the whole pass: acquire it, describe one memory, append its synthesis events and the
+/// `DescribePassCompleted` that marks it considered, materialize, and release — so a narrow session-open
+/// pass interleaves with a long background backlog instead of waiting behind it. Staleness is re-checked
+/// under the guard each iteration, so two passes never redo the same memory. The guard is the async one,
+/// held by design across the model `.await`; no store or graph guard is (each is taken transiently and
+/// released before a suspension point). Returns how many memories it considered.
+async fn describe_memories(
+    engine: &Engine,
+    model: &dyn ModelClient,
+    guard: &tokio::sync::Mutex<()>,
+    candidates: &[MemoryId],
+) -> Result<usize, TurnError> {
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+    let Some(templates) = load_synthesis_templates(engine)? else {
+        return Ok(0);
+    };
+    let recording = Recording {
+        conversation: None,
+        turn_id: TurnId::generate(),
+        capture: CaptureLevel::Off,
+    };
+    let mut considered = 0;
+    for &id in candidates {
+        // Held across this one memory's synthesis so a concurrent pass waits, then re-reads the
+        // advanced watermark and skips it. Released at the end of the iteration.
+        let _guard = guard.lock().await;
+        let Some((content_seq, described_seq)) = engine.graph.lock().described_state(id)? else {
+            // Unknown or soft-deleted since the candidate set was taken — nothing to describe.
+            continue;
+        };
+        if content_seq <= described_seq {
+            // A concurrent pass already caught this memory up.
+            continue;
+        }
+        describe_one(engine, model, recording, &templates, id, described_seq).await?;
+        considered += 1;
+    }
+    Ok(considered)
+}
+
+/// Load the description-regeneration template (required) and the temporal-extraction template
+/// (optional — without it the pass degrades to description-only), composing the combined system
+/// prompt. `None` when no description template is registered, which skips the whole pass.
+fn load_synthesis_templates(engine: &Engine) -> Result<Option<SynthesisTemplates>, TurnError> {
+    let Some(description) = templates::latest_template(
         engine.store.lock().as_ref(),
         PromptTemplateName::DescriptionRegen,
     )?
     else {
-        return Ok(());
+        return Ok(None);
     };
-    // The extraction half is optional: without its template the pass degrades to description-only.
-    let extraction_template = templates::latest_template(
+    let extraction = templates::latest_template(
         engine.store.lock().as_ref(),
         PromptTemplateName::TemporalExtraction,
     )?;
     let system = compose_synthesis_system(
-        &description_template.body,
-        extraction_template
-            .as_ref()
-            .map(|template| template.body.as_str()),
+        &description.body,
+        extraction.as_ref().map(|template| template.body.as_str()),
     );
-    // Entries appended this turn that the agent left untimed, mapped to their owning memory — the
-    // only entries extraction may resolve. An explicit `occurred_at` is never overridden, and settled
-    // older entries are never re-touched.
-    let eligible = collect_untimed_entries(engine.store.lock().as_ref(), cycle_start)?;
-    let now = engine.clock.now();
+    Ok(Some(SynthesisTemplates {
+        description,
+        extraction,
+        system,
+    }))
+}
 
+/// Describe one stale memory: regenerate its description and arbitrate its beliefs from its public
+/// class entries, and in the same pass resolve the occurrence of any entry it left untimed since
+/// `described_seq` (spec §Time → "in the same pass"). The synthesis events and a `DescribePassCompleted`
+/// listing this memory commit in one batch, then materialize — so the memory reads fresh and its
+/// `last_described_seq` advances past its content, whether or not synthesis produced anything (a memory
+/// with no public entries is still marked considered, matching the describer's advance-past-failure
+/// discipline). A model failure on the memory is logged and leaves the description unchanged.
+async fn describe_one(
+    engine: &Engine,
+    model: &dyn ModelClient,
+    recording: Recording,
+    templates: &SynthesisTemplates,
+    id: MemoryId,
+    described_seq: Seq,
+) -> Result<(), TurnError> {
+    let now = engine.clock.now();
     let mut events = Vec::new();
     let mut resolved = BTreeSet::new();
-    let extraction_provenance = extraction_template.as_ref().map(|template| ProducedBy {
+    let extraction_provenance = templates.extraction.as_ref().map(|template| ProducedBy {
         model_id: model.model_id().into(),
         template_name: PromptTemplateName::TemporalExtraction,
         template_version: template.version,
     });
-    for &id in written {
-        // Read the memory and its whole same_as class with a transient lock, released before the
-        // synthesis `.await` below — no graph guard is held across a suspension point.
-        let (memory, entries) = {
-            let graph = engine.graph.lock();
-            let Some(memory) = graph.memory_by_id(id)? else {
-                continue;
-            };
-            // Class-wide synthesis: a merged identity has one unified description, composed from the
-            // whole same_as class rather than the single written stub (spec §Visibility).
-            (memory, graph.class_entries(id)?)
+
+    // Read the memory, its whole same_as class, and the entries it left untimed since it was last
+    // described, with a transient lock released before the synthesis `.await` — no graph guard is held
+    // across a suspension point. A class-wide read gives a merged identity one unified description
+    // (spec §Visibility); the untimed window filters to this memory's own entries.
+    let (memory, entries, eligible) = {
+        let graph = engine.graph.lock();
+        let Some(memory) = graph.memory_by_id(id)? else {
+            return Ok(());
         };
-        if entries.is_empty() {
-            continue;
-        }
-
-        // The description and arbitration are synthesized over the memory's PUBLIC entries only, so a
-        // private aside never reaches the always-visible summary (spec §Write path → from Public
-        // entries only). For an all-public memory this is the whole class, unchanged.
-        let public_entries: Vec<EntryView> = entries
-            .iter()
-            .filter(|entry| entry.visibility == Visibility::Public)
-            .cloned()
+        let entries = graph.class_entries(id)?;
+        let eligible: BTreeMap<EntryId, MemoryId> = graph
+            .untimed_entries_since(id, described_seq)?
+            .into_iter()
+            .map(|entry_id| (entry_id, id))
             .collect();
-        if !public_entries.is_empty() {
-            match synthesize(
-                model,
-                engine,
-                recording,
-                &system,
-                &memory,
-                &public_entries,
-                now,
-            )
-            .await
-            {
-                Ok(Some(synthesis)) => {
-                    if !synthesis.description.trim().is_empty() {
-                        events.push(EventPayload::memory_description_regenerated(
-                            id,
-                            synthesis.description.trim().to_owned(),
-                            Some(ProducedBy {
-                                model_id: model.model_id().into(),
-                                template_name: PromptTemplateName::DescriptionRegen,
-                                template_version: description_template.version,
-                            }),
-                        ));
-                    }
-                    if let Some(event) = arbitration_event(
-                        id,
-                        &memory,
-                        synthesis.arbitration,
-                        &public_entries,
-                        model.model_id(),
-                        description_template.version,
-                    ) {
-                        events.push(event);
-                    }
-                    if let Some(provenance) = &extraction_provenance {
-                        resolve_occurrences(
-                            synthesis.occurrences,
-                            &public_entries,
-                            &eligible,
-                            &mut resolved,
-                            provenance,
-                            &memory,
-                            &mut events,
-                        );
-                    }
-                }
-                Ok(None) => {}
-                Err(error) => tracing::warn!(
-                    memory = %memory.name.as_str(),
-                    %error,
-                    "turn-end synthesis failed; keeping the prior description"
-                ),
-            }
-        }
+        (memory, entries, eligible)
+    };
 
-        // Private entries the agent left untimed this turn still need temporal extraction — a private
-        // reminder must still become a wake-up — but must never enter the description. A focused
-        // extract-only pass resolves their occurrences; its description and arbitration are discarded.
-        if let Some(provenance) = &extraction_provenance {
-            let private_untimed: Vec<EntryView> = entries
-                .iter()
-                .filter(|entry| {
-                    entry.visibility != Visibility::Public && eligible.contains_key(&entry.entry_id)
-                })
-                .cloned()
-                .collect();
-            if !private_untimed.is_empty() {
-                match synthesize(
-                    model,
-                    engine,
-                    recording,
-                    &system,
+    // The description and arbitration are synthesized over the memory's PUBLIC entries only, so a
+    // private aside never reaches the always-visible summary (spec §Write path → from Public entries
+    // only). For an all-public memory this is the whole class, unchanged.
+    let public_entries: Vec<EntryView> = entries
+        .iter()
+        .filter(|entry| entry.visibility == Visibility::Public)
+        .cloned()
+        .collect();
+    if !public_entries.is_empty() {
+        match synthesize(
+            model,
+            engine,
+            recording,
+            &templates.system,
+            &memory,
+            &public_entries,
+            now,
+        )
+        .await
+        {
+            Ok(Some(synthesis)) => {
+                if !synthesis.description.trim().is_empty() {
+                    events.push(EventPayload::memory_description_regenerated(
+                        id,
+                        synthesis.description.trim().to_owned(),
+                        Some(ProducedBy {
+                            model_id: model.model_id().into(),
+                            template_name: PromptTemplateName::DescriptionRegen,
+                            template_version: templates.description.version,
+                        }),
+                    ));
+                }
+                if let Some(event) = arbitration_event(
+                    id,
                     &memory,
-                    &private_untimed,
-                    now,
-                )
-                .await
-                {
-                    Ok(Some(synthesis)) => resolve_occurrences(
+                    synthesis.arbitration,
+                    &public_entries,
+                    model.model_id(),
+                    templates.description.version,
+                ) {
+                    events.push(event);
+                }
+                if let Some(provenance) = &extraction_provenance {
+                    resolve_occurrences(
                         synthesis.occurrences,
-                        &private_untimed,
+                        &public_entries,
                         &eligible,
                         &mut resolved,
                         provenance,
                         &memory,
                         &mut events,
-                    ),
-                    Ok(None) => {}
-                    Err(error) => tracing::warn!(
-                        memory = %memory.name.as_str(),
-                        %error,
-                        "private-entry extraction failed; leaving them untimed"
-                    ),
+                    );
                 }
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                memory = %memory.name.as_str(),
+                %error,
+                "turn-end synthesis failed; keeping the prior description"
+            ),
+        }
+    }
+
+    // Private entries the agent left untimed still need temporal extraction — a private reminder must
+    // still become a wake-up — but must never enter the description. A focused extract-only pass
+    // resolves their occurrences; its description and arbitration are discarded.
+    if let Some(provenance) = &extraction_provenance {
+        let private_untimed: Vec<EntryView> = entries
+            .iter()
+            .filter(|entry| {
+                entry.visibility != Visibility::Public && eligible.contains_key(&entry.entry_id)
+            })
+            .cloned()
+            .collect();
+        if !private_untimed.is_empty() {
+            match synthesize(
+                model,
+                engine,
+                recording,
+                &templates.system,
+                &memory,
+                &private_untimed,
+                now,
+            )
+            .await
+            {
+                Ok(Some(synthesis)) => resolve_occurrences(
+                    synthesis.occurrences,
+                    &private_untimed,
+                    &eligible,
+                    &mut resolved,
+                    provenance,
+                    &memory,
+                    &mut events,
+                ),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(
+                    memory = %memory.name.as_str(),
+                    %error,
+                    "private-entry extraction failed; leaving them untimed"
+                ),
             }
         }
     }
 
-    if !events.is_empty() {
-        engine.store.lock().append(now, events)?;
-        // Two guards at once: graph (written) before store (read), per the lock-ordering rule.
-        let mut graph = engine.graph.lock();
-        graph.materialize_from(engine.store.lock().as_ref())?;
-    }
+    // Always record the pass over this memory, even when synthesis produced nothing (an empty or
+    // all-private memory still counts as considered), so its `last_described_seq` advances and it does
+    // not churn back into the stale set on the next tick.
+    events.push(EventPayload::describe_pass_completed(vec![id]));
+    engine.store.lock().append(now, events)?;
+    // Two guards at once: graph (written) before store (read), per the lock-ordering rule.
+    let mut graph = engine.graph.lock();
+    graph.materialize_from(engine.store.lock().as_ref())?;
     Ok(())
 }
 
@@ -336,28 +395,6 @@ fn resolve_occurrences(
             Some(provenance.clone()),
         ));
     }
-}
-
-/// Entries appended since `cycle_start` that carry no `occurred_at`, mapped to their owning memory —
-/// the entries the extraction pass is allowed to resolve. An entry the agent timed explicitly is
-/// excluded, so extraction never overrides a deliberate occurrence.
-fn collect_untimed_entries(
-    store: &dyn Store,
-    cycle_start: Seq,
-) -> Result<BTreeMap<EntryId, MemoryId>, TurnError> {
-    let mut untimed = BTreeMap::new();
-    for event in store.read_from(cycle_start.next())? {
-        if let EventPayload::MemoryContentAppended {
-            id,
-            entry_id,
-            occurred_at: None,
-            ..
-        } = event.payload
-        {
-            untimed.insert(entry_id, id);
-        }
-    }
-    Ok(untimed)
 }
 
 /// The synthesis call's system prompt: the description-regeneration instructions, plus the

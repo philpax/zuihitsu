@@ -423,22 +423,31 @@ impl Instance {
             .as_ref()
             .map_or(&[], |carry| carry.working_set.as_slice());
 
-        // Force the description catch-up to completion before composing the brief, so it never reads
-        // stale prose for memories a prior turn or the pre-compaction flush just wrote (spec
-        // §Starvation bound → composing a brief forces the catch-up). Then materialize the fresh
-        // descriptions into the graph the brief reads. (A full catch-up here; narrowing it to the
-        // brief's own memories is a later refinement.) No lock is held across the model call.
-        self.describe_catch_up(model).await?;
-        self.engine
-            .graph
-            .lock()
-            .materialize_from(self.engine.store.lock().as_ref())?;
-
+        // Force the description catch-up before composing the brief, so it never reads stale prose for
+        // memories a prior turn or the pre-compaction flush just wrote (spec §Starvation bound →
+        // composing a brief forces the catch-up). Narrowed to the brief's own read set — the present
+        // set, the room's context memory, the carried working set, and the agent's `self` — so a
+        // session open pays only for the descriptions its brief reads, not a whole concurrent backlog
+        // turn A left; the rest stays stale for the background pass. No lock is held across the model
+        // call.
         let context = self
             .engine
             .graph
             .lock()
             .context_for_conversation(conversation)?;
+        let brief_memories = {
+            let graph = self.engine.graph.lock();
+            let mut ids = present_set.to_vec();
+            ids.extend_from_slice(working_set);
+            ids.extend(context);
+            ids.extend(graph.self_memory()?.map(|memory| memory.id));
+            ids
+        };
+        self.describe_catch_up_for(model, &brief_memories).await?;
+        self.engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
         let brief = brief::compose(
             &self.engine.graph.lock(),
             &settings.brief,

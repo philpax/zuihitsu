@@ -623,7 +623,8 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         EventPayload::BeliefArbitrated { .. }
         | EventPayload::MergeProposed { .. }
         | EventPayload::MergeAdjudicated { .. }
-        | EventPayload::LinksInferred { .. } => AnsiColor::Magenta,
+        | EventPayload::LinksInferred { .. }
+        | EventPayload::DescribePassCompleted { .. } => AnsiColor::Magenta,
         // Telemetry and structural or config events — the quiet background.
         EventPayload::ModelCalled { .. }
         | EventPayload::LuaExecuted { .. }

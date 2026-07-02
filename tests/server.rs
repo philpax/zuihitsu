@@ -17,7 +17,7 @@ use zuihitsu::{
 use common::time::TEST_NOW;
 
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -933,10 +933,12 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
             10,
         ),
         (Completion::Reply("flagged".to_owned()), 0),
-        (describe_call("The DB migration plan."), 0),
         // Session 2 (after an idle reopen) crosses the budget without touching the migration thread.
         (Completion::Reply("on something else".to_owned()), 200),
-        // Session 3 opens with the carryover; its frozen brief is what we inspect.
+        // Session 3 opens with the carryover. The pre-brief describe pass now narrows to the brief's
+        // read set — which includes the carried migration thread — so it is described here, at the
+        // open that first surfaces it, rather than at an earlier session's open.
+        (describe_call("The DB migration plan."), 0),
         (Completion::Reply("back".to_owned()), 0),
     ]);
 
@@ -1079,4 +1081,247 @@ async fn imprint_records_the_creator_and_links_created_by() {
     let sessions = server.control().sessions(&imprint).unwrap();
     let brief = &sessions.last().unwrap().brief;
     assert!(brief.contains("created_by"), "brief was: {brief}");
+}
+
+/// A model that distinguishes structured-output (synthesize/describe) calls from conversational step
+/// calls: a `response_format` request is a synthesis, answered with a fixed description and its
+/// synthesized memory recorded (parsed from the `Memory: <name>` prompt header) so a test can assert
+/// which memories a describe pass actually called `generate` for; every other request pops the next
+/// scripted conversational step.
+struct DispatchingModel {
+    steps: Mutex<std::collections::VecDeque<Completion>>,
+    synthesized: Mutex<Vec<String>>,
+}
+
+impl DispatchingModel {
+    fn new(steps: impl IntoIterator<Item = Completion>) -> DispatchingModel {
+        DispatchingModel {
+            steps: Mutex::new(steps.into_iter().collect()),
+            synthesized: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The memory handles a synthesis call was made for, in call order.
+    fn synthesized(&self) -> Vec<String> {
+        self.synthesized.lock().unwrap().clone()
+    }
+}
+
+/// The fixed description every [`DispatchingModel`] synthesis returns, distinctive enough to assert on
+/// in a brief.
+const DISPATCH_DESCRIPTION: &str = "A synthesized description from the describer.";
+
+#[async_trait::async_trait]
+impl ModelClient for DispatchingModel {
+    fn model_id(&self) -> &str {
+        "dispatching-model"
+    }
+
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        // A synthesis is the response-format-constrained call; a step offers tools or a plain reply.
+        if request.response_format.is_some() {
+            if let Some(name) = request
+                .messages
+                .first()
+                .and_then(|message| message.content.strip_prefix("Memory: "))
+                .and_then(|rest| rest.split('\n').next())
+            {
+                self.synthesized.lock().unwrap().push(name.to_owned());
+            }
+            return Ok(GenerateResponse {
+                completion: Completion::Reply(
+                    serde_json::json!({ "description": DISPATCH_DESCRIPTION, "occurrences": [] })
+                        .to_string(),
+                ),
+                usage: Usage::default(),
+                reasoning: None,
+                finish_reason: None,
+            });
+        }
+        let completion = self
+            .steps
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or(ModelError::Exhausted)?;
+        Ok(GenerateResponse {
+            completion,
+            usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
+    // A turn writes a fact about the present participant and an unrelated topic. The next session's
+    // pre-brief describe pass is narrowed to the brief's read set, so it describes the participant but
+    // not the unrelated topic; a later whole-log catch-up then describes the topic.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = DispatchingModel::new([
+        run_lua_call(
+            r#"memory.get("person/dave"):append("Dave climbs on weekends", { by_agent = true, visibility = "public" })
+               local o = memory.create("topic/orphan")
+               o:append("An unrelated topic note", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "remember this", &["dave"])
+        .await
+        .unwrap();
+    // A fresh session past the idle gap runs the narrowed pre-brief describe over its read set.
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "again", &["dave"])
+        .await
+        .unwrap();
+
+    let synthesized = model.synthesized();
+    assert!(
+        synthesized.iter().any(|name| name == "person/dave"),
+        "the present participant is in the brief, so it is described: {synthesized:?}"
+    );
+    assert!(
+        !synthesized.iter().any(|name| name == "topic/orphan"),
+        "the unrelated topic is not in the brief, so the narrowed pass skips it: {synthesized:?}"
+    );
+
+    // The whole-log catch-up now picks up the topic the narrowed pass left stale.
+    let considered = server.describe_catch_up(&model).await.unwrap();
+    assert_eq!(considered, 1, "only the orphan topic is still stale");
+    assert!(
+        model
+            .synthesized()
+            .iter()
+            .any(|name| name == "topic/orphan"),
+        "the background catch-up describes the previously-skipped topic"
+    );
+}
+
+#[tokio::test]
+async fn a_prior_turns_write_is_described_before_the_next_briefs_composition() {
+    // A fact the first session wrote to the room's context is described at the next session's open,
+    // before its brief is composed — so the frozen brief carries the fresh description, not stale prose.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = DispatchingModel::new([
+        run_lua_call(
+            r#"context.current():append("The team is planning a database migration", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("ok again".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "note the room", &["dave"])
+        .await
+        .unwrap();
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .await
+        .unwrap();
+
+    let sessions = server.control().sessions(&leads).unwrap();
+    let brief = &sessions.last().unwrap().brief;
+    assert!(
+        brief.contains(DISPATCH_DESCRIPTION),
+        "the second session's brief carries the freshly-synthesized room description: {brief}"
+    );
+}
+
+#[tokio::test]
+async fn a_fresh_genesis_describes_nothing_on_the_first_tick() {
+    // Genesis baselines the seeded `self` as already described, so the first describe pass over a
+    // fresh agent regenerates nothing and calls the model zero times.
+    let (server, _clock) = born_agent();
+    let model = DispatchingModel::new([]);
+    let considered = server.describe_catch_up(&model).await.unwrap();
+    assert_eq!(considered, 0, "nothing is stale after a fresh genesis");
+    assert!(
+        model.synthesized().is_empty(),
+        "the describer made no synthesis calls: {:?}",
+        model.synthesized()
+    );
+}
+
+#[tokio::test]
+async fn a_describe_backlog_survives_a_restart() {
+    // A memory written but not yet described before shutdown stays stale in the log-derived
+    // described-state, so after a rebuild the background describer picks it up — the backlog is not
+    // silently dropped at boot.
+    let path = std::env::temp_dir().join(format!(
+        "zuihitsu-backlog-{}.sqlite",
+        MemoryId::generate().0
+    ));
+    let clock = ManualClock::new(TEST_NOW);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // First process: a turn writes a topic that the pre-brief pass does not describe (it is not in the
+    // brief's read set), so it is left stale when the process ends.
+    {
+        let mut server = Server::new(
+            Box::new(SqliteStore::open(&path).unwrap()),
+            Graph::open_in_memory().unwrap(),
+            Box::new(clock.clone()),
+        );
+        server.boot().unwrap();
+        server.control().create_agent(&seed()).unwrap();
+        let model = DispatchingModel::new([
+            run_lua_call(
+                r#"local m = memory.create("topic/backlog")
+                   m:append("A durable fact left undescribed", { by_agent = true, visibility = "public" })"#,
+            ),
+            Completion::Reply("ok".to_owned()),
+        ]);
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", "note this", &["dave"])
+            .await
+            .unwrap();
+        assert!(
+            !model
+                .synthesized()
+                .iter()
+                .any(|name| name == "topic/backlog"),
+            "the pre-brief pass left the topic undescribed: {:?}",
+            model.synthesized()
+        );
+    } // the server drops: a restart
+
+    // Second process: a fresh graph rebuilt from the same log. The backlog persists, so the describer
+    // catches it up.
+    let mut server = Server::new(
+        Box::new(SqliteStore::open(&path).unwrap()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.boot().unwrap();
+    let model = DispatchingModel::new([]);
+    let considered = server.describe_catch_up(&model).await.unwrap();
+    assert!(
+        considered >= 1,
+        "the pre-shutdown backlog is described after a restart"
+    );
+    assert!(
+        model
+            .synthesized()
+            .iter()
+            .any(|name| name == "topic/backlog"),
+        "the restarted describer picks up the undescribed topic: {:?}",
+        model.synthesized()
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }

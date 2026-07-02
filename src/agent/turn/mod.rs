@@ -13,7 +13,7 @@ mod error;
 mod link_inference;
 
 pub use adjudicate::run_adjudicate_catch_up;
-pub use describe::run_describe_catch_up;
+pub use describe::{run_describe_catch_up, run_describe_catch_up_for};
 pub use error::TurnError;
 pub use link_inference::{
     InferredLink, LinkInferenceArgs, NewRelationSpec, run_link_inference_catch_up,
