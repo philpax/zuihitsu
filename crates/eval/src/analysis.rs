@@ -5,8 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    EntryId, Event, EventPayload, Initiation, LinkSource, MemoryId, MergeProposalSource, Teller,
-    TemporalRef, TurnRole, Visibility, Volatility,
+    ConversationId, EntryId, Event, EventPayload, Initiation, LinkSource, MemoryId,
+    MergeProposalSource, Teller, TemporalRef, TurnRole, Visibility, Volatility,
 };
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
@@ -168,6 +168,41 @@ pub fn volatility_set_high(events: &[Event]) -> bool {
             }
         )
     })
+}
+
+/// The durable conversation opened for `platform`/`scope`, if the run reached that room — so a
+/// multi-room scenario can scope a query to one room's events.
+pub fn conversation_id(events: &[Event], platform: &str, scope: &str) -> Option<ConversationId> {
+    events.iter().find_map(|event| match &event.payload {
+        EventPayload::ConversationStarted { id, locator, .. }
+            if locator.platform.as_str() == platform && locator.scope_path.as_str() == scope =>
+        {
+            Some(*id)
+        }
+        _ => None,
+    })
+}
+
+/// Every agent reply to a participant within one room (located by `platform`/`scope`), in order —
+/// the per-room slice of [`agent_replies`], so a two-room scenario can probe each room's exposed
+/// surface separately.
+pub fn agent_replies_in<'a>(events: &'a [Event], platform: &str, scope: &str) -> Vec<&'a str> {
+    let Some(conversation) = conversation_id(events, platform, scope) else {
+        return Vec::new();
+    };
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                conversation: turn_conversation,
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } if *turn_conversation == conversation => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// How many sessions opened in the run — one more than the number of cuts (compaction or idle

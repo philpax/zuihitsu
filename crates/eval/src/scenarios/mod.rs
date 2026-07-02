@@ -3,6 +3,7 @@
 //! surface each exercises.
 
 mod arbitration;
+mod checkpoint;
 mod compaction;
 mod conversations;
 mod decay;
@@ -39,6 +40,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         joins::scenarios(),
         description::scenarios(),
         compaction::scenarios(),
+        checkpoint::scenarios(),
         conversations::scenarios(),
     ]
     .into_iter()

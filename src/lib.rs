@@ -56,8 +56,9 @@ pub use model::{
     parse_structured, schema_of,
 };
 pub use settings::{
-    BriefSettings, CaptureLevel, CompactionSettings, ConcurrencySettings, ObservabilitySettings,
-    RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings,
+    BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings, ConcurrencySettings,
+    ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays,
+    TurnSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{

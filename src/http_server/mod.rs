@@ -105,6 +105,12 @@ const LINK_INFERENCE_TICK_SECONDS: u64 = 7;
 /// minutes — and an idle tick is cheap (a query for open sessions, then a per-session activity check).
 const SWEEP_TICK_SECONDS: u64 = 60;
 
+/// How often the checkpoint sweep evaluates live sessions for a mid-session flush (spec §Compaction →
+/// checkpoint flush). The gates (substance, cooldown, audience) do the real rate-limiting; the tick
+/// only bounds how quickly an eligible session is noticed, and an idle tick is cheap (per-live-session
+/// buffer reads, no model call).
+const CHECKPOINT_TICK_SECONDS: u64 = 30;
+
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
 pub fn run_blocking(config_path: &Path) -> Result<(), ServeError> {
@@ -316,6 +322,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
+    // The background checkpoint sweep flushes a live session's working state to memory mid-session
+    // (spec §Compaction → checkpoint flush), so a parallel conversation can read it before this one
+    // goes idle. Spawned only when a model is configured; the flush turn needs one.
+    let checkpoint_sweeper = model.as_ref().map(|model| {
+        let server = server.clone();
+        let model = model.clone();
+        tokio::spawn(async move {
+            server
+                .run_checkpoint_sweeper(
+                    model,
+                    Duration::from_secs(CHECKPOINT_TICK_SECONDS),
+                    shutdown_signal(),
+                )
+                .await
+        })
+    });
+
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
     // §Snapshots), when enabled. Stops on the same shutdown signal.
     let snapshotter = config.snapshots.enabled.then(|| {
@@ -397,6 +420,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     }
     if let Some(sweeper) = sweeper {
         let _ = sweeper.await;
+    }
+    if let Some(checkpoint_sweeper) = checkpoint_sweeper {
+        let _ = checkpoint_sweeper.await;
     }
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;

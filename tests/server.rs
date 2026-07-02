@@ -9,7 +9,7 @@ use zuihitsu::{
     GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore,
     ModelClient, ModelError, Namespace, ScriptedModel, SeedSelf, Server, SqliteStore, Store,
     ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
-    event::{EventPayload, MergeProposalSource},
+    event::{EventPayload, MergeProposalSource, PromptTemplateName},
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
 };
@@ -1026,6 +1026,489 @@ async fn a_low_activity_session_skips_the_flush() {
 
     // The session ended (a re-segment is staged) without a flush turn having run.
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
+}
+
+/// Point the checkpoint gates at a test's scale: a small substance threshold (30 chars — a one-line
+/// greeting stays under it, a substantive message clears it) and no cooldown unless the test is about
+/// it.
+fn tune_checkpoint(server: &Server, min_delta_chars: i64, cooldown_seconds: i64) {
+    let mut settings = server.control().settings().unwrap();
+    settings.checkpoint.min_delta_chars = min_delta_chars;
+    settings.checkpoint.cooldown_seconds = cooldown_seconds;
+    server.control().set_settings(settings).unwrap();
+}
+
+/// A substantive room-A message that clears a 30-char substance threshold.
+const SUBSTANTIVE: &str = "We decided: the migration ships on Friday, Erin owns the comms, and \
+                           the fallback window is Monday morning.";
+
+#[tokio::test]
+async fn a_checkpoint_fires_only_past_the_substance_threshold() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 200, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("noted the plan".to_owned()),
+        // The one checkpoint flush at the end confirms.
+        Completion::Reply("checkpointed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hello", &["erin"])
+        .await
+        .unwrap();
+
+    // Cooldown passes (zero) and the audience is live (room B), but neither room's delta reaches the
+    // threshold — the substance gate alone blocks.
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+
+    // A substantive message pushes room A's delta past the threshold; the same sweep now flushes it.
+    let long = SUBSTANTIVE.repeat(3);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", &long, &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_checkpoint_waits_out_the_cooldown() {
+    let (server, clock) = born_agent();
+    tune_checkpoint(&server, 30, 600);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("checkpointed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+
+    // Substance and audience pass, but the session is younger than the cooldown (measured from its
+    // start, since it has never flushed) — the cooldown gate alone blocks.
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+
+    // Past the cooldown (still within the idle gap), the sweep flushes room A. Room B's delta stays
+    // under the substance threshold, so it does not ride along.
+    clock.advance_millis(601 * 1_000);
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_checkpoint_requires_a_live_audience() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("checkpointed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+
+    // Substance and cooldown pass, but room A is the only live conversation — the tail's only reader
+    // is room A itself, which already has it in the buffer, so the audience gate alone blocks.
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+
+    // Another conversation coming live gives the flush a reader; the same sweep now flushes room A
+    // (room B's own delta stays under the substance threshold).
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_checkpoint_flush_leaves_the_session_open_and_rides_the_buffer() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        // The checkpoint flush writes durable state and confirms.
+        run_lua_call(r#"memory.create("topic/launch", "The migration ships on Friday")"#),
+        Completion::Reply("saved what matters".to_owned()),
+        Completion::Reply("indeed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    // The flush turn landed with the Flush provenance, and the session is still open: no
+    // SessionEnded, and the next message continues the same session rather than opening a new one.
+    let events = server.control().events().unwrap();
+    let flush_turns = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ConversationTurn { produced_by: Some(produced), .. }
+                    if produced.template_name == PromptTemplateName::Flush
+            )
+        })
+        .count();
+    assert_eq!(flush_turns, 1);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event.payload, EventPayload::SessionEnded { .. })),
+        "the checkpoint must leave every session open"
+    );
+
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", "sounds right?", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.control().sessions(&room_a).unwrap().len(), 1);
+    // The next turn's prompt replays the flush turn — its Lua step and its confirmation — like any
+    // agent turn in the buffer (no rewind).
+    let seen = model.recorded_messages();
+    let last_prompt = seen.last().unwrap();
+    assert!(
+        last_prompt
+            .iter()
+            .any(|message| message.content.contains("saved what matters")),
+        "the flush turn should ride the live buffer; prompt was: {last_prompt:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        // Call 0: room A's first exchange, carrying the ALPHA marker.
+        Completion::Reply("ok one".to_owned()),
+        // Call 1: room B (the audience).
+        Completion::Reply("ok".to_owned()),
+        // Call 2: the first checkpoint flush.
+        Completion::Reply("first checkpoint".to_owned()),
+        // Call 3: room A's second exchange, carrying the BETA marker.
+        Completion::Reply("ok two".to_owned()),
+        // Call 4: the second checkpoint flush.
+        Completion::Reply("second checkpoint".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_a,
+            "dave",
+            "ALPHA: the migration plan is locked, we ship the database cutover on Friday.",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_a,
+            "dave",
+            "BETA: after the cutover, Erin owns the comms and the fallback window is Monday.",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), 5);
+    // The first flush prompt covers the session so far (the ALPHA exchange).
+    let first_flush: Vec<&str> = seen[2].iter().map(|m| m.content.as_str()).collect();
+    assert!(
+        first_flush.iter().any(|content| content.contains("ALPHA")),
+        "the first checkpoint should see the pre-watermark turns: {first_flush:?}"
+    );
+    // The second covers only the delta past the first's watermark: BETA is in, ALPHA is not — a
+    // repeat checkpoint never re-flushes the same turns.
+    let second_flush: Vec<&str> = seen[4].iter().map(|m| m.content.as_str()).collect();
+    assert!(
+        second_flush.iter().any(|content| content.contains("BETA")),
+        "the second checkpoint should see the new delta: {second_flush:?}"
+    );
+    assert!(
+        !second_flush.iter().any(|content| content.contains("ALPHA")),
+        "the second checkpoint must not re-flush turns before its watermark: {second_flush:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_checkpointed_memory_is_retrievable_in_another_room() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("hi erin".to_owned()),
+        // The checkpoint flush in room A writes the decision to memory, mid-session.
+        run_lua_call(
+            r#"memory.create("topic/friday-launch", "Decided to ship the migration on Friday")"#,
+        ),
+        Completion::Reply("flushed".to_owned()),
+        // Room B's next turn reads it back — the cross-conversation sync the checkpoint exists for.
+        run_lua_call(r#"return memory.get("topic/friday-launch"):entries()"#),
+        Completion::Reply("Dave's room decided to ship the migration on Friday.".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hello", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    // Room A's session is still open (mid-conversation), yet its working state is already durable.
+    assert!(
+        server
+            .control()
+            .memory("topic/friday-launch")
+            .unwrap()
+            .is_some()
+    );
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_b,
+            "erin",
+            "what did dave's room decide?",
+            &["erin"],
+        )
+        .await
+        .unwrap();
+    // Room B's read block saw the checkpointed content, before room A ever went idle.
+    let events = server.control().events().unwrap();
+    let read_back = events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LuaExecuted { script, result: Some(result), .. }
+                if script.contains("friday-launch") && result.contains("Friday")
+        )
+    });
+    assert!(
+        read_back,
+        "room B's next turn should read the checkpointed memory"
+    );
+}
+
+/// A model that answers from a script but parks one designated call until released — the window a
+/// concurrency test opens to overlap other work with an in-flight flush.
+struct GatedModel {
+    completions: Mutex<std::collections::VecDeque<Completion>>,
+    calls: AtomicUsize,
+    gated_call: usize,
+    entered: std::sync::atomic::AtomicBool,
+    release: tokio::sync::Notify,
+}
+
+impl GatedModel {
+    fn new(completions: impl IntoIterator<Item = Completion>, gated_call: usize) -> GatedModel {
+        GatedModel {
+            completions: Mutex::new(completions.into_iter().collect()),
+            calls: AtomicUsize::new(0),
+            gated_call,
+            entered: std::sync::atomic::AtomicBool::new(false),
+            release: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Whether the gated call has been reached (and is parked).
+    fn entered(&self) -> bool {
+        self.entered.load(Ordering::SeqCst)
+    }
+
+    /// Let the parked call proceed.
+    fn release(&self) {
+        self.release.notify_one();
+    }
+}
+
+#[async_trait::async_trait]
+impl ModelClient for GatedModel {
+    fn model_id(&self) -> &str {
+        "gated-model"
+    }
+
+    async fn generate(&self, _request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call == self.gated_call {
+            self.entered.store(true, Ordering::SeqCst);
+            // `notify_one` before this await stores a permit, so a release observed via `entered`
+            // can never be missed.
+            self.release.notified().await;
+        }
+        let completion = self
+            .completions
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("a scripted completion for every call");
+        Ok(GenerateResponse {
+            completion,
+            usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+    let server = Arc::new(server);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    // Call 2 — the checkpoint flush — parks until released; the message that arrives while it is
+    // parked must wait on the conversation's lifecycle lock rather than interleave.
+    let model = Arc::new(GatedModel::new(
+        [
+            Completion::Reply("noted".to_owned()),
+            Completion::Reply("hi".to_owned()),
+            Completion::Reply("checkpointed".to_owned()),
+            Completion::Reply("welcome back".to_owned()),
+        ],
+        2,
+    ));
+    server
+        .platform()
+        .route_message(model.as_ref(), &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(model.as_ref(), &room_b, "erin", "hello", &["erin"])
+        .await
+        .unwrap();
+
+    // Start the sweep; it takes room A's lifecycle lock and parks inside the flush's model call.
+    let sweep = tokio::spawn({
+        let server = server.clone();
+        let model = model.clone();
+        async move { server.checkpoint_live_sessions(model.as_ref()).await }
+    });
+    while !model.entered() {
+        tokio::task::yield_now().await;
+    }
+
+    // A message arrives mid-flush. It must queue behind the flush in `ensure_session` — its inbound
+    // turn cannot land while the flush holds the lock.
+    let message = tokio::spawn({
+        let server = server.clone();
+        let model = model.clone();
+        async move {
+            server
+                .platform()
+                .route_message(
+                    model.as_ref(),
+                    &ConversationLocator::new("discord", "room-a"),
+                    "dave",
+                    "one more thing",
+                    &["dave"],
+                )
+                .await
+        }
+    });
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+    let mid_flush = server.control().events().unwrap();
+    assert!(
+        !mid_flush.iter().any(|event| {
+            matches!(&event.payload, EventPayload::ConversationTurn { text, .. } if text == "one more thing")
+        }),
+        "the arriving message must wait on the lifecycle lock while the flush is in flight"
+    );
+
+    model.release();
+    assert_eq!(sweep.await.unwrap().unwrap(), 1);
+    message.await.unwrap().unwrap();
+
+    // Serialized through the lock: exactly one flush turn, recorded before the waiting message's
+    // inbound turn — no double flush, and no interleaving.
+    let events = server.control().events().unwrap();
+    let flush_seqs: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ConversationTurn { produced_by: Some(produced), .. }
+                    if produced.template_name == PromptTemplateName::Flush
+            )
+        })
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(flush_seqs.len(), 1, "exactly one flush turn is recorded");
+    let inbound_seq = events
+        .iter()
+        .find(|event| {
+            matches!(&event.payload, EventPayload::ConversationTurn { text, .. } if text == "one more thing")
+        })
+        .map(|event| event.seq)
+        .expect("the waiting message lands after the flush releases");
+    assert!(
+        flush_seqs[0] < inbound_seq,
+        "the flush turn precedes the message that waited on it"
+    );
 }
 
 #[tokio::test]

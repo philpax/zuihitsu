@@ -464,7 +464,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            version: 1,
+            // Version 2: the `_session_carryover` link teaching is retired (issue #21). Distinct
+            // bodies must not share a version across instances' logs — a flush turn's `produced_by`
+            // records the template version, so a v1 reference keeps naming the old body.
+            version: 2,
             body: flush_template_body(),
         },
         TemplateDef {

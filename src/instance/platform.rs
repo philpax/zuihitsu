@@ -312,6 +312,7 @@ mod tests {
             participant: None,
             recorded_at: Timestamp::from_millis(0),
             steps: Vec::new(),
+            produced_by: None,
         }
     }
 

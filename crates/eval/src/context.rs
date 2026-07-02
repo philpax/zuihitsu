@@ -187,6 +187,31 @@ impl RunContext {
         Ok(())
     }
 
+    /// Tune the checkpoint gates so a scripted two-room exchange trips them: the substance threshold
+    /// and the cooldown, leaving the enable flag and the rest of the settings as seeded.
+    pub fn tune_checkpoint(
+        &self,
+        min_delta_chars: i64,
+        cooldown_seconds: i64,
+    ) -> Result<(), EvalError> {
+        let mut settings = self.server.control().settings()?;
+        settings.checkpoint.min_delta_chars = min_delta_chars;
+        settings.checkpoint.cooldown_seconds = cooldown_seconds;
+        self.server.control().set_settings(settings)?;
+        Ok(())
+    }
+
+    /// Run one checkpoint sweep over the live sessions — the mid-session flush the background
+    /// checkpoint sweeper drives on a timer (spec §Compaction → checkpoint flush), driven explicitly
+    /// so a scenario controls exactly where the flush lands between turns. Returns how many sessions
+    /// flushed.
+    pub async fn checkpoint_sweep(&self) -> Result<usize, EvalError> {
+        Ok(self
+            .server
+            .checkpoint_live_sessions(self.model.as_ref())
+            .await?)
+    }
+
     /// Catch the vector index up to the log, so a fact written this run is searchable next turn (the
     /// same catch-up the background indexer runs).
     pub async fn index_catch_up(&self) -> Result<(), EvalError> {

@@ -111,6 +111,11 @@ pub struct TurnView {
     /// The `run_lua` steps this turn's agent response ran, in order. Empty for participant/system
     /// turns, and for an agent turn that ran no blocks (a direct reply).
     pub steps: Vec<ToolStep>,
+    /// The provenance the turn was recorded with — which template drove an agent turn. What lets a
+    /// buffer scan recognize a flush turn (its `template_name` is `Flush`) and derive the session's
+    /// flush watermark ([`flushed_up_to`]). `None` for participant/system turns and for agent turns
+    /// recorded before provenance existed.
+    pub produced_by: Option<ProducedBy>,
 }
 
 /// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
@@ -154,6 +159,7 @@ pub fn buffer_turns(
                 role,
                 text,
                 participant,
+                produced_by,
                 ..
             } if turn_conversation == conversation => {
                 let steps = if role == TurnRole::Agent {
@@ -169,6 +175,7 @@ pub fn buffer_turns(
                     participant,
                     recorded_at: event.recorded_at,
                     steps,
+                    produced_by,
                 });
             }
             _ => {}
@@ -250,6 +257,25 @@ pub fn session_touched(
         }
     }
     Ok(ordered)
+}
+
+/// The session's flush watermark, derived from the log: the seq of the buffer's last flush turn — an
+/// agent turn whose `produced_by` carries the `Flush` template, a checkpoint or a prior session's
+/// end-flush riding the carried tail — or `session_start` when no flush turn is in view. Everything at
+/// or before the watermark has been flushed to memory; the turns past it are the unflushed delta a
+/// checkpoint flush scopes itself to (spec §Compaction → checkpoint flush). Derived per read rather
+/// than held as mutable session state, so replaying the log reproduces it exactly.
+pub fn flushed_up_to(buffer: &[TurnView], session_start: Seq) -> Seq {
+    buffer
+        .iter()
+        .rev()
+        .find(|turn| {
+            turn.produced_by
+                .as_ref()
+                .is_some_and(|produced| produced.template_name == PromptTemplateName::Flush)
+        })
+        .map(|turn| turn.seq)
+        .unwrap_or(session_start)
 }
 
 /// The write context one block — or a whole step loop — runs under: who its content is attributed

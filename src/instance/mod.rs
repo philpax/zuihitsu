@@ -191,6 +191,16 @@ impl SessionStore {
         self.sessions.lock().len()
     }
 
+    /// Every live session with its conversation, collected under a single lock acquisition — the
+    /// checkpoint sweeper's candidate list (and its audience gate's view of who else is active).
+    pub(crate) fn live(&self) -> Vec<(ConversationId, Arc<OpenSession>)> {
+        self.sessions
+            .lock()
+            .iter()
+            .map(|(conversation, open)| (*conversation, open.clone()))
+            .collect()
+    }
+
     /// Drain all live sessions for shutdown, collecting them under a single lock acquisition.
     pub(crate) fn drain(&self) -> Vec<Arc<OpenSession>> {
         self.sessions
