@@ -8,10 +8,9 @@ use std::collections::BTreeSet;
 use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched},
-    event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
-    ids::{ConversationId, ConversationLocator, MemoryId, Seq, SessionId, TurnId},
+    event::PromptTemplateName,
+    ids::{ConversationId, ConversationLocator, MemoryId, Seq},
     memory::{
-        brief,
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
         memory_block::Authority,
     },
@@ -146,13 +145,18 @@ impl Platform<'_> {
         Ok(report.outcome)
     }
 
-    /// Note a participant arriving mid-session. If the room has a live session, this records a
+    /// Note a participant arriving mid-session — the explicit join path, for clients that deliver
+    /// presence changes as their own signal (the per-message presence sync in the turn path covers
+    /// those that only deliver messages). If the room has a live session, this records a
     /// `ParticipantJoined` and injects the joiner's brief — built against the now-present set, so the
     /// subject-guard suppresses asides about them — as a `system` turn at the join point, rather than
     /// rebuilding the frozen prompt (spec §Mid-conversation joins). A no-op if the room has never been
     /// seen or has no live session; the next message then opens a session with the joiner present.
-    pub fn note_join(
+    /// `model` feeds the joiner's describe catch-up before the brief composes; with none configured
+    /// the brief composes off the current prose — a slightly stale join-brief beats refusing the join.
+    pub async fn note_join(
         &self,
+        model: Option<&dyn ModelClient>,
         locator: &ConversationLocator,
         participant: &str,
     ) -> Result<(), InstanceError> {
@@ -186,60 +190,9 @@ impl Platform<'_> {
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
 
-        self.join_participant(conversation, session, joiner)
-    }
-
-    /// Record a participant arriving mid-session: a `ParticipantJoined` plus the joiner's brief,
-    /// injected as a `system` turn at the join point rather than by rebuilding the frozen prompt
-    /// (spec §Mid-conversation joins). The brief is filtered against the present set including the
-    /// joiner, so the subject-guard suppresses asides about them. The joiner must already be resolved
-    /// to a memory id; the caller owns locating the conversation and the live session.
-    fn join_participant(
-        &self,
-        conversation: ConversationId,
-        session: SessionId,
-        joiner: MemoryId,
-    ) -> Result<(), InstanceError> {
-        let mut present_set = self
-            .server
-            .engine
-            .graph
-            .lock()
-            .session_participants(session)?;
-        if !present_set.contains(&joiner) {
-            present_set.push(joiner);
-        }
-        let now = self.server.engine.clock.now();
-        let join_brief = brief::compose_participant(
-            &self.server.engine.graph.lock(),
-            joiner,
-            &present_set,
-            &Settings::from_store(self.server.engine.store.lock().as_ref())?.brief,
-            now,
-        )?;
-
-        let turn_id = TurnId::generate();
-        self.server.engine.store.lock().append(
-            now,
-            vec![
-                EventPayload::participant_joined(conversation, session, joiner, turn_id),
-                EventPayload::ConversationTurn {
-                    conversation,
-                    turn_id,
-                    role: TurnRole::System,
-                    text: join_brief,
-                    participant: Some(joiner),
-                    initiation: Initiation::Responding,
-                    produced_by: None,
-                },
-            ],
-        )?;
         self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
-        Ok(())
+            .join_participant(model, conversation, session, joiner)
+            .await
     }
 
     /// End the live session because the buffer crossed the token budget, running the budget-gated
@@ -369,7 +322,7 @@ fn estimate_tokens(buffer: &[TurnView], inbound: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ids::TurnId, time::Timestamp};
+    use crate::{event::TurnRole, ids::TurnId, time::Timestamp};
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {

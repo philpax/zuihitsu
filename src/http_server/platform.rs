@@ -40,7 +40,9 @@ pub(super) async fn message(
     Ok(Json(outcome))
 }
 
-/// `POST /platform/join` — note a participant arriving mid-session (no model needed).
+/// `POST /platform/join` — note a participant arriving mid-session. The model, when configured,
+/// feeds the joiner's describe catch-up before the join-brief composes; without one the join still
+/// succeeds off the current prose rather than returning a 503.
 #[derive(Deserialize)]
 pub(super) struct JoinRequest {
     locator: ConversationLocator,
@@ -54,6 +56,11 @@ pub(super) async fn join(
     state
         .server
         .platform()
-        .note_join(&request.locator, &request.participant)?;
+        .note_join(
+            state.model.as_deref(),
+            &request.locator,
+            &request.participant,
+        )
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

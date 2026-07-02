@@ -8,7 +8,7 @@ use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, Embedder, FakeEmbedder, GenerateRequest,
     GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore,
     ModelClient, ModelError, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall,
-    TurnOutcome, Usage, VectorIndex,
+    TurnOutcome, TurnRole, Usage, VectorIndex,
     event::EventPayload,
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
@@ -554,8 +554,13 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
         .unwrap();
     let dave = server.control().memory("person/dave").unwrap().unwrap().id;
 
-    // Erin joins mid-session: she is recorded on the session, alongside Dave.
-    server.platform().note_join(&leads, "erin").unwrap();
+    // Erin joins mid-session via the explicit endpoint path — with no model configured, so the
+    // join-brief composes off the current prose rather than failing.
+    server
+        .platform()
+        .note_join(None, &leads, "erin")
+        .await
+        .unwrap();
     let erin = server.control().memory("person/erin").unwrap().unwrap().id;
 
     let sessions = server.control().sessions(&leads).unwrap();
@@ -563,6 +568,179 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
     let participants = &sessions[0].participants;
     assert!(participants.contains(&dave));
     assert!(participants.contains(&erin));
+
+    // The endpoint shares the per-message sync's code path: the same join-brief system turn lands.
+    let events = server.control().events().unwrap();
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.payload,
+            EventPayload::ConversationTurn {
+                role: TurnRole::System,
+                participant: Some(participant),
+                ..
+            } if *participant == erin
+        )),
+        "note_join injects the same join-brief as the per-message sync"
+    );
+}
+
+#[tokio::test]
+async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their_turn() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("hi erin".to_owned()),
+    ]);
+
+    // Dave opens the session alone; Erin's first message arrives mid-session, with no explicit
+    // /platform/join posted — the message itself is the join signal.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "erin", "hey, joining in", &["dave", "erin"])
+        .await
+        .unwrap();
+
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+
+    // Exactly one join was recorded for the newcomer.
+    let joins = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ParticipantJoined { participant, .. } if *participant == erin
+            )
+        })
+        .count();
+    assert_eq!(joins, 1, "one ParticipantJoined for the newcomer");
+
+    // The injected join-brief — a system turn about Erin — precedes her inbound turn in the log,
+    // and its text reflects her memory.
+    let (brief_seq, brief_text) = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::System,
+                participant: Some(participant),
+                text,
+                ..
+            } if *participant == erin => Some((event.seq, text.clone())),
+            _ => None,
+        })
+        .expect("the join injected a system join-brief turn");
+    let inbound_seq = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Participant,
+                participant: Some(participant),
+                ..
+            } if *participant == erin => Some(event.seq),
+            _ => None,
+        })
+        .expect("Erin's inbound turn is in the log");
+    assert!(
+        brief_seq.0 < inbound_seq.0,
+        "the join-brief precedes the joiner's inbound turn"
+    );
+    assert!(
+        brief_text.contains("person/erin"),
+        "the join-brief reflects the joiner's memory: {brief_text}"
+    );
+
+    // The join reused the live session, whose participants now include both.
+    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert_eq!(sessions.len(), 1, "the join reused the live session");
+    assert!(sessions[0].participants.contains(&dave));
+    assert!(sessions[0].participants.contains(&erin));
+}
+
+#[tokio::test]
+async fn a_participant_merely_present_on_a_message_is_joined_too() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("noted".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    // Erin never speaks — she only appears in Dave's present list — yet the presence sync joins her.
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "dave",
+            "erin just walked in",
+            &["dave", "erin"],
+        )
+        .await
+        .unwrap();
+
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.payload,
+            EventPayload::ParticipantJoined { participant, .. } if *participant == erin
+        )),
+        "presence alone records the join"
+    );
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert!(sessions[0].participants.contains(&erin));
+}
+
+#[tokio::test]
+async fn repeat_messages_from_the_same_joiner_do_not_re_join() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("hi erin".to_owned()),
+        Completion::Reply("still here".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "erin", "hi", &["dave", "erin"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "erin", "one more thing", &["dave", "erin"])
+        .await
+        .unwrap();
+
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+    let joins = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ParticipantJoined { participant, .. } if *participant == erin
+            )
+        })
+        .count();
+    assert_eq!(joins, 1, "a member's later messages do not re-join");
 }
 
 #[tokio::test]
@@ -1236,6 +1414,91 @@ async fn a_prior_turns_write_is_described_before_the_next_briefs_composition() {
     assert!(
         brief.contains(DISPATCH_DESCRIPTION),
         "the second session's brief carries the freshly-synthesized room description: {brief}"
+    );
+}
+
+#[tokio::test]
+async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief() {
+    // The starvation bound on the join-brief: composing a joiner's brief forces the describe
+    // catch-up for their memory, so the injected brief reads fresh prose rather than stale.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = DispatchingModel::new([
+        // Session 1: Erin is present, and the agent writes a public fact about her — left stale
+        // for the background describer when the session lapses.
+        run_lua_call(
+            r#"memory.get("person/erin"):append("Erin runs the design reviews", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        // Session 2, opened by Dave alone: the narrowed pre-brief pass skips absent Erin.
+        Completion::Reply("hi dave".to_owned()),
+        // Erin's mid-session arrival.
+        Completion::Reply("welcome back".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "dave",
+            "erin runs the reviews",
+            &["dave", "erin"],
+        )
+        .await
+        .unwrap();
+    // Past the idle gap, Dave alone opens session 2 — Erin is not in its brief's read set, so her
+    // description stays stale.
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "quiet morning", &["dave"])
+        .await
+        .unwrap();
+    assert!(
+        !model.synthesized().iter().any(|name| name == "person/erin"),
+        "Erin stays stale while absent: {:?}",
+        model.synthesized()
+    );
+
+    // Erin arrives mid-session: the join forces the describe catch-up over her memory before her
+    // join-brief composes.
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "erin",
+            "hey, what did I miss?",
+            &["dave", "erin"],
+        )
+        .await
+        .unwrap();
+    assert!(
+        model.synthesized().iter().any(|name| name == "person/erin"),
+        "the join described the stale joiner: {:?}",
+        model.synthesized()
+    );
+
+    // ...and the injected join-brief carries the fresh description, proving the catch-up ran
+    // before the brief composed.
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+    let join_brief = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::System,
+                participant: Some(participant),
+                text,
+                ..
+            } if *participant == erin => Some(text.clone()),
+            _ => None,
+        })
+        .expect("the join injected a join-brief");
+    assert!(
+        join_brief.contains(DISPATCH_DESCRIPTION),
+        "the join-brief reads the freshly-synthesized description: {join_brief}"
     );
 }
 
