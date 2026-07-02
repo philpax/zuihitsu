@@ -190,6 +190,20 @@
   background: var(--color-clay);
 }
 
+/* A turn arrived at by deep link (`?turn=<id>`): a calm sage wash that settles back to the paper,
+   so the linked moment announces itself once and then reads as an ordinary row. */
+@keyframes turn-arrival {
+  from {
+    background-color: color-mix(in srgb, var(--color-sage-soft) 45%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.turn-linked {
+  animation: turn-arrival 2.5s ease-out 1 both;
+}
+
 /* KaTeX display math: centered with vertical breathing room, inheriting the surrounding text color.
     Inline math needs no override — KaTeX's own styles handle it. */
 .katex-display {

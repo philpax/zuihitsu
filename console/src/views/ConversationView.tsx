@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 
@@ -118,14 +118,33 @@ export function ConversationView({
     ...(operatorPlaceholder ? [operatorPlaceholder] : []),
   ];
   const groups = groupChannels(all);
+
+  // A deep link to a moment (`?turn=<id>`, copied from a turn's link affordance) resolves to the
+  // room that holds the turn — the console folds the whole log, so the turn's position is found
+  // client-side. An explicit `?room` still wins (the linked room only stands in for a missing one),
+  // and an id no folded conversation holds — unknown, or past the timeline cursor — leaves
+  // `linkedChannel` null, which the transcript surfaces as a quiet notice rather than a crash.
+  const linkedTurnId = searchParams.get("turn");
+  const linkedChannel = linkedTurnId
+    ? (known.find((channel) =>
+        channel.conversation?.turns.some((turn) => turn.turnId === linkedTurnId),
+      ) ?? null)
+    : null;
   const selected =
-    all.find((channel) => channel.key === selectedKey) ?? pending ?? groups[0]?.channels[0] ?? null;
+    all.find((channel) => channel.key === selectedKey) ??
+    linkedChannel ??
+    pending ??
+    groups[0]?.channels[0] ??
+    null;
 
   function selectRoom(key: string) {
     setSearchParams(
       (prev) => {
         const updated = new URLSearchParams(prev);
         updated.set("room", key);
+        // Choosing a room is a navigation act of its own — the turn link has done its job, so it
+        // does not follow along to highlight a moment in a room it never pointed at.
+        updated.delete("turn");
         return updated;
       },
       { replace: true },
@@ -213,6 +232,7 @@ export function ConversationView({
               cursor={cursor}
               channel={selected}
               participate={participate}
+              unknownTurn={linkedTurnId !== null && linkedChannel === null ? linkedTurnId : null}
             />
           ) : (
             <div className="py-16 text-center text-sm text-ink-faint">
@@ -233,11 +253,14 @@ function Room({
   cursor,
   channel,
   participate,
+  unknownTurn,
 }: {
   replica: Replica;
   cursor: number;
   channel: Channel;
   participate?: Participation;
+  /// A `?turn` deep link whose id resolved to no folded turn — surfaced as a quiet notice.
+  unknownTurn?: string | null;
 }) {
   const isOperator = channel.authority === "operator";
   const handle = participate?.sender.trim() ?? "";
@@ -320,6 +343,8 @@ function Room({
         )}
       </header>
 
+      {unknownTurn && <UnknownTurnNotice />}
+
       {channel.conversation ? (
         <Transcript replica={replica} conversation={channel.conversation} cursor={cursor} />
       ) : (
@@ -393,6 +418,20 @@ function DeferredNotice() {
   );
 }
 
+/// A `?turn` deep link whose id no folded turn carries — unknown, mistyped, or a moment past the
+/// timeline cursor. A quiet inline notice in the deferred marker's register (faint ink, no accent),
+/// not an error: the transcript below is intact, only the pointer failed to land.
+function UnknownTurnNotice() {
+  return (
+    <div className="mb-4 flex items-center gap-2 text-ink-faint">
+      <span className="inline-flex h-1.5 w-1.5 rounded-full border border-line-strong" />
+      <span className="font-mono text-2xs uppercase tracking-widest">
+        that turn link points nowhere in view — an unknown id, or a moment past the timeline cursor
+      </span>
+    </div>
+  );
+}
+
 /// The agent is composing a reply — a sage pulse where the next turn will land, shown between the
 /// transcript and the composer while a sent turn is in flight.
 function ThinkingIndicator() {
@@ -437,11 +476,19 @@ function Transcript({
   // turns that arrive afterward — a live run streaming in — fade and slide in to signal the new state.
   const reduce = useReducedMotion();
   const [freshAfter] = useState(cursor);
+  // The room key each turn's copy-link affordance bakes into its URL, so the pasted link reopens
+  // this room before scrolling to the turn.
+  const roomKey = channelKey(conversation.platform, conversation.scopePath);
   if (conversation.sessions.length === 0) {
     return (
       <ol className="flex flex-col">
         {conversation.turns.map((turn) => (
-          <TurnItem key={turn.turnId} turn={turn} fresh={!reduce && turn.seq > freshAfter} />
+          <TurnItem
+            key={turn.turnId}
+            turn={turn}
+            fresh={!reduce && turn.seq > freshAfter}
+            roomKey={roomKey}
+          />
         ))}
       </ol>
     );
@@ -463,7 +510,12 @@ function Transcript({
             />
             <ol className="mt-2 flex flex-col">
               {turns.map((turn) => (
-                <TurnItem key={turn.turnId} turn={turn} fresh={!reduce && turn.seq > freshAfter} />
+                <TurnItem
+                  key={turn.turnId}
+                  turn={turn}
+                  fresh={!reduce && turn.seq > freshAfter}
+                  roomKey={roomKey}
+                />
               ))}
             </ol>
           </div>
@@ -832,10 +884,18 @@ function turnTokens(
   return { context, output };
 }
 
-function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
+function TurnItem({ turn, fresh, roomKey }: { turn: TurnModel; fresh: boolean; roomKey: string }) {
   const { bySeq, budget } = useContext(ModelCalls);
   const tokens = turnTokens(turn, bySeq);
   const towardCompaction = budget > 0 ? Math.round((tokens.context / budget) * 100) : null;
+  // The deep-linked turn (`?turn=<id>`) announces itself: scrolled into view once and washed in
+  // fading sage, so a pasted link lands the reader on the moment it points at.
+  const [searchParams] = useSearchParams();
+  const linked = searchParams.get("turn") === turn.turnId;
+  const itemRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (linked) itemRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [linked]);
   // A turn that streamed in after the view opened fades and lifts into place; the initial ones do not.
   const enter = fresh
     ? {
@@ -846,15 +906,24 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
     : {};
   if (turn.role === "System") {
     return (
-      <motion.li className="py-3 text-center" {...enter}>
+      <motion.li
+        ref={itemRef}
+        className={"group flex items-baseline justify-center gap-2 py-3" + linkedClass(linked)}
+        {...enter}
+      >
         <span className="font-mono text-2xs text-ink-faint">{turn.text || "(system)"}</span>
+        <CopyTurnLink roomKey={roomKey} turnId={turn.turnId} />
       </motion.li>
     );
   }
 
   const isAgent = turn.role === "Agent";
   return (
-    <motion.li className="border-b border-line/70 py-4 last:border-b-0 sm:py-5" {...enter}>
+    <motion.li
+      ref={itemRef}
+      className={"group border-b border-line/70 py-4 last:border-b-0 sm:py-5" + linkedClass(linked)}
+      {...enter}
+    >
       {turn.entrance && turn.speaker && (
         <LabeledDivider className="mb-4 text-ink-faint">
           <span>{turn.speaker} entered the room</span>
@@ -875,15 +944,18 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
           ) : (
             <span className="font-mono text-2xs text-ink-faint">· unprompted</span>
           ))}
-        {turn.recordedAt > 0 && (
-          <time
-            className="ml-auto shrink-0 font-mono text-2xs text-ink-faint"
-            dateTime={new Date(turn.recordedAt).toISOString()}
-            title={formatDateTime(turn.recordedAt)}
-          >
-            {formatTime(turn.recordedAt)}
-          </time>
-        )}
+        <span className="ml-auto flex shrink-0 items-baseline gap-2">
+          {turn.recordedAt > 0 && (
+            <time
+              className="font-mono text-2xs text-ink-faint"
+              dateTime={new Date(turn.recordedAt).toISOString()}
+              title={formatDateTime(turn.recordedAt)}
+            >
+              {formatTime(turn.recordedAt)}
+            </time>
+          )}
+          <CopyTurnLink roomKey={roomKey} turnId={turn.turnId} />
+        </span>
       </div>
       {/* Deliberation precedes the response — the agent thinks, then speaks. */}
       {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
@@ -937,6 +1009,47 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
         </div>
       )}
     </motion.li>
+  );
+}
+
+/// The fading arrival wash for the deep-linked turn, as a class suffix (see `turn-arrival` in
+/// app.css) — appended so the wash rides whichever turn shape (system or spoken) the link lands on.
+function linkedClass(linked: boolean): string {
+  return linked ? " turn-linked" : "";
+}
+
+/// The quiet copy-link affordance a hovered turn reveals: copies a URL carrying the room and this
+/// turn's id (`?room=…&turn=<ulid>`), so the pasted link reopens this view scrolled to the moment —
+/// and, pasted into a chat with the agent, carries the id its `convo.turn` resolver reads. Text, not
+/// chrome: a faint mono "link" that reads "copied" for a beat after the write.
+function CopyTurnLink({ roomKey, turnId }: { roomKey: string; turnId: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    // The current URL keeps its path and cursor (`?seq`); only the room and turn are pinned, so the
+    // link reproduces this view of this moment in either frame (live or an eval run).
+    const url = new URL(window.location.href);
+    url.searchParams.set("room", roomKey);
+    url.searchParams.set("turn", turnId);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // The clipboard can be unavailable (an insecure context, a denied permission); the affordance
+      // simply does not confirm, and the URL remains reachable through the browser itself.
+    }
+  }
+  return (
+    <button
+      onClick={copy}
+      title="Copy a link to this turn"
+      className={
+        "font-mono text-2xs transition-opacity focus-visible:opacity-100 group-hover:opacity-100 " +
+        (copied ? "text-sage opacity-100" : "text-ink-faint opacity-0 hover:text-ink")
+      }
+    >
+      {copied ? "copied" : "link"}
+    </button>
   );
 }
 
