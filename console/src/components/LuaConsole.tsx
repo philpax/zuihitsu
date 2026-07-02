@@ -7,6 +7,15 @@ import { CodeEditor } from "./CodeEditor.tsx";
 import { ApiReference } from "./ApiReference.tsx";
 import { Lua } from "./Lua.tsx";
 
+/// Read-only one-liners offered while the scrollback is empty — click one to load it into the
+/// editor. Each is a safe read against the live graph, chosen to show the console's range: recall,
+/// a memory's contents, and its full record.
+const STARTERS = [
+  'return memory.search("what do I know about…")',
+  'return memory.get("self"):entries()',
+  'return memory.get("self"):history()',
+];
+
 /// One run kept in the console's scrollback: the script and what it returned (a rendered value or an
 /// error/abort), or `pending` while in flight.
 interface Run {
@@ -63,9 +72,12 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
 
   return (
     // On a wide screen the editor column is capped and the whole spread centers, so the editor and
-    // the reference read as one composed page rather than two islands pinned to opposite edges.
-    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,46rem)_minmax(0,24rem)] lg:items-start lg:justify-center lg:gap-x-12">
-      <section className="min-w-0">
+    // the reference read as one composed page rather than two islands pinned to opposite edges. The
+    // API panel is mounted per breakpoint — folded between the editor and the scrollback on a
+    // narrow screen, an always-open sticky column on a wide one — so neither placement distorts
+    // the other's flow.
+    <div className="lg:grid lg:grid-cols-[minmax(0,46rem)_minmax(0,24rem)] lg:items-start lg:justify-center lg:gap-x-12">
+      <div className="min-w-0">
         <CodeEditor value={script} onChange={setScript} onSubmit={run} disabled={pending} />
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
@@ -91,35 +103,56 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
           </div>
           <Hint className="hidden sm:inline">⌘/ctrl + ↵ to run</Hint>
         </div>
-      </section>
 
-      {/* Between the editor and the scrollback on a narrow screen; the right column on a wide one. */}
-      <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:sticky lg:top-4 lg:self-start">
-        <ApiPanel
-          api={api}
-          open={showApiOnMobile}
-          onToggle={() => setShowApiOnMobile(!showApiOnMobile)}
-        />
+        <div className="mt-6 lg:hidden">
+          <ApiPanel
+            api={api}
+            open={showApiOnMobile}
+            onToggle={() => setShowApiOnMobile(!showApiOnMobile)}
+          />
+        </div>
+
+        <section className="mt-6 min-w-0">
+          {runs.length === 0 && (
+            <div className="border-t border-line pt-4">
+              <Eyebrow>try</Eyebrow>
+              <ul className="mt-2.5 flex flex-col gap-1.5">
+                {STARTERS.map((starter) => (
+                  <li key={starter}>
+                    <button
+                      onClick={() => setScript(starter)}
+                      className="text-left font-mono text-xs text-ink-soft transition-colors hover:text-clay"
+                      title="Load into the editor"
+                    >
+                      {starter}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {runs.length > 0 && (
+            <div className="mb-4 flex items-baseline justify-between border-b border-line pb-2">
+              <Eyebrow>scrollback</Eyebrow>
+              <button
+                onClick={() => setRuns([])}
+                className="font-mono text-xs text-ink-faint transition-colors hover:text-clay"
+              >
+                clear
+              </button>
+            </div>
+          )}
+          <ol className="flex flex-col gap-6">
+            {runs.map((entry) => (
+              <RunResult key={entry.id} run={entry} />
+            ))}
+          </ol>
+        </section>
+      </div>
+
+      <aside className="hidden min-w-0 lg:sticky lg:top-4 lg:block lg:self-start">
+        <ApiPanel api={api} open onToggle={() => {}} />
       </aside>
-
-      <section className="min-w-0 lg:col-start-1 lg:row-start-2">
-        {runs.length > 0 && (
-          <div className="mb-4 flex items-baseline justify-between border-b border-line pb-2">
-            <Eyebrow>scrollback</Eyebrow>
-            <button
-              onClick={() => setRuns([])}
-              className="font-mono text-xs text-ink-faint transition-colors hover:text-clay"
-            >
-              clear
-            </button>
-          </div>
-        )}
-        <ol className="flex flex-col gap-6">
-          {runs.map((entry) => (
-            <RunResult key={entry.id} run={entry} />
-          ))}
-        </ol>
-      </section>
     </div>
   );
 }
@@ -168,7 +201,7 @@ function ApiPanel({
           className="mt-3"
         />
         {filtered && (
-          <div className="mt-5 overflow-y-auto pr-2 lg:max-h-[calc(100vh-14rem)]">
+          <div className="mt-5 overflow-y-auto pr-2 lg:max-h-[calc(100vh_-_12rem)]">
             {filtered.length === 0 ? (
               <Hint>nothing matches “{query.trim()}”</Hint>
             ) : (
