@@ -9,7 +9,7 @@ use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched},
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
-    ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
+    ids::{ConversationId, ConversationLocator, MemoryId, Seq, SessionId, TurnId},
     memory::{
         brief,
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
@@ -186,8 +186,20 @@ impl Platform<'_> {
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
 
-        // The brief is filtered against the present set including the joiner, so the subject-guard
-        // fires for asides about them.
+        self.join_participant(conversation, session, joiner)
+    }
+
+    /// Record a participant arriving mid-session: a `ParticipantJoined` plus the joiner's brief,
+    /// injected as a `system` turn at the join point rather than by rebuilding the frozen prompt
+    /// (spec §Mid-conversation joins). The brief is filtered against the present set including the
+    /// joiner, so the subject-guard suppresses asides about them. The joiner must already be resolved
+    /// to a memory id; the caller owns locating the conversation and the live session.
+    fn join_participant(
+        &self,
+        conversation: ConversationId,
+        session: SessionId,
+        joiner: MemoryId,
+    ) -> Result<(), InstanceError> {
         let mut present_set = self
             .server
             .engine
