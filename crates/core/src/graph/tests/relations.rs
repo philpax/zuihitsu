@@ -82,6 +82,50 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
 }
 
 #[test]
+fn a_legacy_session_carryover_link_still_materializes_and_replays_deterministically() {
+    // Issue #21 retires `_session_carryover`: fresh instances no longer seed the relation, but old
+    // logs still carry its `LinkTypeRegistered` and the links made under it. The materializer must
+    // keep handling both — the registry entry arriving from the log's events materializes the
+    // relation, and a link under it is traversable — and two folds of the same log must agree.
+    let context = MemoryId::generate();
+    let thread = MemoryId::generate();
+    let log = vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SessionCarryover,
+            inverse: RelationName::SessionCarries,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: false,
+            reflexive: false,
+            description: "legacy compaction plumbing".to_owned(),
+        },
+        EventPayload::memory_created(context, Namespace::Context.with_name("discord:leads")),
+        EventPayload::memory_created(thread, Namespace::Topic.with_name("migration")),
+        EventPayload::LinkCreated {
+            from: thread,
+            to: context,
+            relation: RelationName::SessionCarryover,
+            source: LinkSource::Agent,
+            told_by: None,
+        },
+    ];
+
+    // The relation registers and the link materializes under both labels.
+    let (_store, graph) = materialized(log.clone());
+    let carried = graph.outgoing(context, "_session_carries").unwrap();
+    assert_eq!(carried.len(), 1);
+    assert_eq!(carried[0].id, thread);
+    assert_eq!(
+        graph.outgoing(thread, "_session_carryover").unwrap().len(),
+        1
+    );
+
+    // A second fold of the same log reaches byte-identical projected state.
+    let (_store_b, graph_b) = materialized(log);
+    assert_eq!(graph.fingerprint().unwrap(), graph_b.fingerprint().unwrap());
+}
+
+#[test]
 fn relation_registry_records_cardinality() {
     let (_store, graph) = materialized(vec![mentor_relation()]);
     let relation = graph.relation("mentor_of").unwrap().unwrap();

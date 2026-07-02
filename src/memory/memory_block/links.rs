@@ -38,7 +38,7 @@ impl MemoryBlock {
         self.class_link_refs(id)
     }
 
-    /// Link `from` to `to` under a registered relation (e.g. flag a thread `_session_carryover` the context).
+    /// Link `from` to `to` under a registered relation (e.g. record that one person `knows` another).
     pub fn link(
         &mut self,
         from: MemoryId,

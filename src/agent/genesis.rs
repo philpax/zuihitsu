@@ -465,9 +465,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         TemplateDef {
             name: PromptTemplateName::Flush,
             version: 1,
-            // The `_session_carryover` guidance teaches `:link`, so it is included only when linking is on.
-            // The rest of the flush instruction (write durable state, set visibility) stands either way.
-            body: flush_template_body(features),
+            body: flush_template_body(),
         },
         TemplateDef {
             name: PromptTemplateName::Imprint,
@@ -552,41 +550,28 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     ]
 }
 
-/// The Flush template body. Its `_session_carryover` guidance teaches `:link`, so it is dropped when linking
-/// is off; the rest of the flush instruction (write durable state, set visibility) stands either
-/// way. Assembling conditionally keeps the three gates (Lua registration, API reference, scaffold)
-/// in lockstep — the agent is not taught to link when it cannot.
-fn flush_template_body(features: &InstanceFeatures) -> String {
-    let mut body =
-        "This conversation session is ending and its live transcript is about to scroll \
-         out of view. Before it does, write to memory — by emitting Lua through the \
-         run_lua tool — anything from it worth keeping that you have not already recorded: \
-         facts you learned, decisions made, and commitments given. Record your own \
-         observations and inferences under the `agent` teller, and record what you learned \
-         about a person on that person's own memory under their canonical person/ handle — \
-         not on the memory of whoever told you, and not on a topic; when one participant \
-         relayed something about another, it belongs on the person it concerns. This \
-         re-recording is your own note, so it has no protective default: you must set its \
-         visibility yourself, by the same rule as in a turn — an ordinary relayed fact is \
-         visibility = \"attributed\" so it stays available once its teller is gone, a \
-         genuine confidence is visibility = \"private\". Keep confidences compartmentalized \
-         exactly as in an ordinary turn — anything told to you in confidence, or that you \
-         were asked not to repeat, is private wherever it lands; never write it to a public \
-         topic, and never mark it public or attributed, which is what would surface it to \
-         the person it was kept from."
-            .to_owned();
-    if features.linking {
-        body.push_str(
-            " For threads still open, link the relevant memories `_session_carryover` the current context, \
-             and clear `_session_carryover` on threads that have closed, so the next session resurfaces what \
-             is still live.",
-        );
-    }
-    body.push_str(
-        " Nothing you leave only in the transcript survives, so be deliberate; when you \
-         have flushed what matters, reply briefly to confirm.",
-    );
-    body
+/// The Flush template body. A flush turn — whether the pre-compaction end-flush or a mid-session
+/// checkpoint — writes durable working state to memory with the turn's own visibility discipline.
+/// It no longer teaches any `_session_carryover` link flag: the working set carried across a
+/// compaction seam is platform-derived (the session's touched set), so the agent has no session-
+/// lifetime flags to manage on the semantic graph.
+fn flush_template_body() -> String {
+    "Before this conversation's live transcript scrolls out of view, write to memory — by \
+     emitting Lua through the run_lua tool — anything from it worth keeping that you have not \
+     already recorded: facts you learned, decisions made, and commitments given. Record your own \
+     observations and inferences under the `agent` teller, and record what you learned about a \
+     person on that person's own memory under their canonical person/ handle — not on the memory \
+     of whoever told you, and not on a topic; when one participant relayed something about \
+     another, it belongs on the person it concerns. This re-recording is your own note, so it \
+     has no protective default: you must set its visibility yourself, by the same rule as in a \
+     turn — an ordinary relayed fact is visibility = \"attributed\" so it stays available once \
+     its teller is gone, a genuine confidence is visibility = \"private\". Keep confidences \
+     compartmentalized exactly as in an ordinary turn — anything told to you in confidence, or \
+     that you were asked not to repeat, is private wherever it lands; never write it to a public \
+     topic, and never mark it public or attributed, which is what would surface it to the person \
+     it was kept from. Nothing you leave only in the transcript survives, so be deliberate; when \
+     you have flushed what matters, reply briefly to confirm."
+        .to_owned()
 }
 
 /// A build-seeded system tag. Like the seed relations, these are build defaults rather than part of
@@ -619,7 +604,7 @@ fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
         Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, ParticipatesIn,
-        SameAs, SessionCarries, SessionCarryover,
+        SameAs,
     };
     vec![
         // created_by is historical origin (one creator); distinct from current operatorship.
@@ -662,23 +647,9 @@ fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "Two platform stubs are the same person — cross-platform identity.",
         },
-        // A memory flagged for carryover across a compaction seam: the agent links it
-        // `_session_carryover` the current context during flush, so the next session resurfaces it.
-        // System plumbing, not a semantic relationship — the leading underscore signals this..
-        RelationDef {
-            name: SessionCarryover,
-            inverse: SessionCarries,
-            from_card: Many,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "A memory is carried into the next session from this context — set during \
-                flush, cleared when the thread closes. System plumbing, not a semantic relationship.",
-        },
         // A person's involvement in an event: person/ --participates_in--> event/, inverse
-        // event/ --has_participant--> person/. Distinct from _session_carryover (compaction plumbing) and
-        // knows (person-to-person): the people at an event are participants, not attendees of a
-        // context or acquaintances of the event.
+        // event/ --has_participant--> person/. Distinct from knows (person-to-person): the people at
+        // an event are participants, not acquaintances of the event.
         RelationDef {
             name: ParticipatesIn,
             inverse: HasParticipant,
@@ -868,6 +839,48 @@ mod tests {
             .iter()
             .any(|e| matches!(e.payload, EventPayload::LinkCreated { .. }));
         assert!(!any_link);
+    }
+
+    #[test]
+    fn a_fresh_instance_neither_seeds_nor_teaches_session_carryover() {
+        // Issue #21: `_session_carryover` is retired. A fresh genesis registers no such relation, and
+        // the Flush template teaches no carryover link — the flush's job is to write durable state to
+        // memory with the turn's visibility discipline, nothing more.
+        let mut store = MemoryStore::new();
+        genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
+        let events = store.read_from(Seq::ZERO).unwrap();
+
+        let carryover_relation = events.iter().any(|e| {
+            matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. }
+                if name.as_str() == "_session_carryover" || name.as_str() == "_session_carries")
+        });
+        assert!(
+            !carryover_relation,
+            "a fresh genesis must not seed the _session_carryover relation"
+        );
+
+        let flush_body = events
+            .iter()
+            .find_map(|e| match &e.payload {
+                EventPayload::PromptTemplateRegistered { name, body, .. }
+                    if *name == PromptTemplateName::Flush =>
+                {
+                    Some(body.clone())
+                }
+                _ => None,
+            })
+            .expect("genesis registers a Flush template");
+        assert!(
+            !flush_body.contains("_session_carryover"),
+            "the Flush template must not teach _session_carryover; body was: {flush_body}"
+        );
     }
 
     #[test]

@@ -271,8 +271,8 @@ fn install_handle_methods(
         })?,
     )?;
 
-    // mem:link(relation, other) / mem:unlink(relation, other) — flag (or clear) a relation such
-    // as `_session_carryover`, locking both endpoints. The script names the relation as a string; it is
+    // mem:link(relation, other) / mem:unlink(relation, other) — record (or clear) a relation such
+    // as `knows`, locking both endpoints. The script names the relation as a string; it is
     // recognized into its typed [`RelationName`] here, at the wrapper boundary.
     if features.linking {
         methods.set(

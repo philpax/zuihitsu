@@ -1095,7 +1095,11 @@ async fn the_working_set_carries_into_the_next_session_brief() {
 }
 
 #[tokio::test]
-async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouched() {
+async fn the_compaction_working_set_is_the_touched_set_only() {
+    // The `_session_carryover` link source is retired (issue #21): the compacted session's working set
+    // is purely its touched memories. A thread the agent flagged for carryover in an earlier session
+    // but never touched in the session that compacts does not carry, since no agent-managed graph flag
+    // feeds the working set anymore — only the platform-derived touched set does.
     let (server, clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
@@ -1103,7 +1107,8 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
 
     let leads = ConversationLocator::new("discord", "leads");
     let model = ScriptedModel::with_usage([
-        // Session 1: flag a thread _session_carryover the room (an ordinary turn, under budget).
+        // Session 1: create a thread and (as an old agent might) flag it — an ordinary turn, under budget.
+        // The link still materializes; it simply no longer feeds the carryover working set.
         (
             run_lua_call(
                 r#"local t = memory.create("topic/migration", "Plan the DB migration"); t:link("_session_carryover", context.current())"#,
@@ -1113,10 +1118,7 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
         (Completion::Reply("flagged".to_owned()), 0),
         // Session 2 (after an idle reopen) crosses the budget without touching the migration thread.
         (Completion::Reply("on something else".to_owned()), 200),
-        // Session 3 opens with the carryover. The pre-brief describe pass now narrows to the brief's
-        // read set — which includes the carried migration thread — so it is described here, at the
-        // open that first surfaces it, rather than at an earlier session's open.
-        (describe_call("The DB migration plan."), 0),
+        // Session 3 opens; nothing carried, so no describe pass fires for the migration thread.
         (Completion::Reply("back".to_owned()), 0),
     ]);
 
@@ -1125,7 +1127,7 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
         .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
         .await
         .unwrap();
-    // An idle gap reopens a fresh session 2 (no carryover, and it will not touch the thread).
+    // An idle gap reopens a fresh session 2 (which will not touch the thread).
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
@@ -1139,12 +1141,12 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
         .await
         .unwrap();
 
-    // Session 2 never touched the migration thread, yet it carries into session 3's brief — proving
-    // _session_carryover is a distinct, persistent working-set source, not just an alias for touch-derivation.
+    // Session 2 never touched the migration thread, so it does not carry into session 3's brief — the
+    // working set is the touched set alone, with no `_session_carryover` contribution.
     let sessions = server.control().sessions(&leads).unwrap();
     let latest = sessions.last().unwrap();
     assert!(
-        latest.brief.contains("topic/migration"),
+        !latest.brief.contains("topic/migration"),
         "brief was: {}",
         latest.brief
     );
