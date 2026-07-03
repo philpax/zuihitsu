@@ -57,7 +57,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             "Recall memories by meaning and wording, across your whole memory, ranked best-first. \
              Results are filtered to what may surface to who is present, so a teller-private aside \
              appears only while its teller is here (with a marker noting it). Each result is a table \
-             { name, description, score, marker? } — fetch a name with memory.get to read more.",
+             { name, description, score, marker?, snippet? } — snippet is the matched content that \
+             produced the hit, so you can triage a result even when its description is thin; fetch a \
+             name with memory.get to read more.",
         )
         .required("query", AT::String, "what to look for, in natural language")
         .optional(

@@ -594,9 +594,11 @@ pub(super) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
 }
 
 /// The metatable backing `memory.search` result objects: `__tostring` renders one as a readable
-/// line (name, score, description, and any teller-private marker), so returning the result list
-/// reads back as text rather than `<table>` while each result keeps its fields for the agent to
-/// inspect (`result.name` to fetch, `result.score` to weigh).
+/// line (name, score, description, the matched-content snippet, and any teller-private marker), so
+/// returning the result list reads back as text rather than `<table>` while each result keeps its
+/// fields for the agent to inspect (`result.name` to fetch, `result.score` to weigh). The snippet is
+/// the content that produced the hit, so a result stays triageable even when the description is stale
+/// or empty.
 fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     metatable.set(
@@ -606,10 +608,14 @@ fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             let description: String = this.get("description")?;
             let score: f32 = this.get("score")?;
             let marker: Option<String> = this.get("marker")?;
+            let snippet: Option<String> = this.get("snippet")?;
             let mut line = format!("{name} (score {score:.2})");
             if !description.is_empty() {
                 line.push_str(" — ");
                 line.push_str(&description);
+            }
+            if let Some(snippet) = snippet.filter(|s| !s.is_empty()) {
+                line.push_str(&format!(" match: \"{snippet}\""));
             }
             if let Some(marker) = marker {
                 line.push(' ');
@@ -970,6 +976,9 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                         table.set("score", row.score)?;
                         if let Some(marker) = row.marker {
                             table.set("marker", marker)?;
+                        }
+                        if let Some(snippet) = row.snippet {
+                            table.set("snippet", snippet)?;
                         }
                         table.set_metatable(Some(result_metatable.clone()))?;
                         list.set(index + 1, table)?;

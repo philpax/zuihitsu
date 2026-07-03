@@ -32,6 +32,8 @@ mod sessions;
 mod tests;
 mod vocabulary;
 
+pub use search::LexicalHit;
+
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryView {

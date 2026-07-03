@@ -186,10 +186,14 @@ impl Scenario for TranscriptAudienceGate {
             Turn::new("discord", "leads", "tom", GATE_CONFIDENCE).with_present(&["maya", "tom"]),
         )
         .await?;
-        // Catch the vector index up to session 1's writes — the same catch-up the background indexer
-        // runs (mirroring checkpoint.rs) — so the decision the agent recorded this session is
-        // searchable from the next one. Without it, session 2's `memory.search` finds nothing and the
-        // gate has no shareable substance to relay once the reference blocks.
+        // Catch the background describer and vector index up to session 1's writes — the same
+        // catch-ups the deployed daemons run (mirroring checkpoint.rs) — so the decision the agent
+        // recorded this session is both described and searchable from the next one. The describe tick
+        // stands in for the background describer that would have run before session 2, so a search hit
+        // renders with a fresh description rather than a stale one. Without the index tick, session 2's
+        // `memory.search` finds nothing and the gate has no shareable substance to relay once the
+        // reference blocks.
+        ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // An idle gap closes the session; the next message opens a fresh one.
         ctx.advance(24 * 60 * 60 * 1000);
@@ -308,9 +312,11 @@ impl Scenario for TranscriptDmLookup {
                 .with_present(&["maya", "tom", "jordan"]),
         )
         .await?;
-        // Catch the vector index up to the room's write (mirroring checkpoint.rs), so if a DM beat
-        // falls back to `memory.search` rather than resolving the reference, the room moment is
-        // searchable.
+        // Catch the background describer and vector index up to the room's write (mirroring
+        // checkpoint.rs), so if a DM beat falls back to `memory.search` rather than resolving the
+        // reference, the room moment is both described and searchable — a hit renders with a fresh
+        // description, as the deployed describer would have supplied before the next session.
+        ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         ctx.advance(60 * 60 * 1000);
 

@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use crate::{
     decay,
     event::{Visibility, Volatility},
-    graph::{Graph, GraphError, MemoryView},
+    graph::{Graph, GraphError, LexicalHit, MemoryView},
     ids::{MemoryId, MemoryName},
     model::index::VectorKey,
     settings::SearchSettings,
@@ -30,12 +30,17 @@ use crate::{
 use super::visibility;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
-/// a private entry, and `None` otherwise.
+/// a private entry, and `None` otherwise. `snippet` is the fragment of matched content that produced
+/// the hit — an FTS5 extract for a lexical match, or the matched entry's text (clipped) for a
+/// semantic entry match — so the result stays legible even when the memory's description is stale or
+/// empty. Both snippet sources are visibility-safe: the FTS index is public-only, and an entry
+/// snippet is only ever taken from an entry that has already passed the visibility predicate.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchHit {
     pub memory: MemoryView,
     pub score: f32,
     pub marker: Option<String>,
+    pub snippet: Option<String>,
 }
 
 /// A search failure, from either the graph projection or the vector index.
@@ -109,6 +114,10 @@ pub fn search(
     // pass the predicate, and a surviving private one contributes a marker.
     let mut cosine: BTreeMap<MemoryId, f32> = BTreeMap::new();
     let mut markers: BTreeMap<MemoryId, String> = BTreeMap::new();
+    // The matched-content snippet per memory, so a hit reads legibly even with a stale or empty
+    // description. An entry-vector hit contributes its (already visibility-filtered) entry text; a
+    // lexical hit's FTS extract is preferred below, as it marks the matched span precisely.
+    let mut snippets: BTreeMap<MemoryId, String> = BTreeMap::new();
     for hit in vectors.search(query.embedding, over_fetch)? {
         let score = hit.score.max(0.0);
         match VectorKey::parse(&hit.id) {
@@ -121,6 +130,11 @@ pub fn search(
                     continue;
                 }
                 raise(&mut cosine, memory.id, score);
+                // The matched entry survived the predicate, so its text is safe to quote as this
+                // memory's snippet; the first surviving hit wins (best cosine, by search order).
+                if let Entry::Vacant(slot) = snippets.entry(memory.id) {
+                    slot.insert(clip_snippet(&entry.text));
+                }
                 // The first surviving hit for a memory sets its marker (visibility register and/or
                 // staleness), via the vacant entry so the work and its `?` compose cleanly.
                 if let Entry::Vacant(slot) = markers.entry(memory.id) {
@@ -148,8 +162,15 @@ pub fn search(
     }
 
     // Lexical: normalized bm25 per memory. FTS holds only public content, so a lexical hit needs no
-    // visibility filter.
-    let bm25 = normalize_bm25(&graph.search_lexical(query.text, over_fetch)?);
+    // visibility filter — and neither does its snippet, an FTS extract of that public content. The
+    // FTS extract marks the matched span, so it takes precedence over any entry-vector snippet.
+    let lexical = graph.search_lexical(query.text, over_fetch)?;
+    for hit in &lexical {
+        if !hit.snippet.is_empty() {
+            snippets.insert(hit.id, clip_snippet(&hit.snippet));
+        }
+    }
+    let bm25 = normalize_bm25(&lexical);
 
     let candidates: BTreeSet<MemoryId> = cosine.keys().chain(bm25.keys()).copied().collect();
 
@@ -176,6 +197,7 @@ pub fn search(
             memory,
             score,
             marker,
+            snippet: snippets.get(&id).cloned(),
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -218,27 +240,40 @@ fn tag_match(memory: &MemoryView, query_tags: &[TagName]) -> f32 {
 }
 
 /// Normalize raw bm25 scores (more negative is a better match) to `[0, 1]`, best at 1.
-fn normalize_bm25(lexical: &[(MemoryId, f32)]) -> BTreeMap<MemoryId, f32> {
+fn normalize_bm25(lexical: &[LexicalHit]) -> BTreeMap<MemoryId, f32> {
     let min = lexical
         .iter()
-        .map(|(_, s)| *s)
+        .map(|hit| hit.score)
         .fold(f32::INFINITY, f32::min);
     let max = lexical
         .iter()
-        .map(|(_, s)| *s)
+        .map(|hit| hit.score)
         .fold(f32::NEG_INFINITY, f32::max);
     let range = max - min;
     lexical
         .iter()
-        .map(|(id, score)| {
+        .map(|hit| {
             let normalized = if range > 0.0 {
-                (max - score) / range
+                (max - hit.score) / range
             } else {
                 1.0
             };
-            (*id, normalized)
+            (hit.id, normalized)
         })
         .collect()
+}
+
+/// Clip a matched-content snippet to a legible length, appending an ellipsis when it is cut. The FTS5
+/// extract is already short, so this mainly bounds an entry-vector snippet (a whole entry's text) to a
+/// phrase-sized preview. Cuts on a `char` boundary, not a byte offset, so multi-byte text stays valid.
+fn clip_snippet(text: &str) -> String {
+    const MAX_CHARS: usize = 160;
+    let trimmed = text.trim();
+    let mut clipped: String = trimmed.chars().take(MAX_CHARS).collect();
+    if trimmed.chars().count() > MAX_CHARS {
+        clipped.push('…');
+    }
+    clipped
 }
 
 /// `exp(-Δt / τ(volatility))` over the memory's most recent *occurrence* time — each entry's
@@ -848,6 +883,113 @@ mod tests {
         assert_eq!(
             phil_hit.marker.as_deref(),
             Some("[teller-private, told by person/erin in #leads (confidential)]")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_description_still_yields_a_legible_snippet() {
+        // The legibility guarantee: even when a memory's description is empty (the describer has not
+        // caught up), a content match still carries a snippet of what matched — so the hit is
+        // triageable rather than a bare name.
+        let mut corpus = Corpus::new();
+        let devin = corpus
+            .add(
+                Namespace::Person.with_name("devin"),
+                "",
+                "owns the rollback and cuts billing over to Stripe on July 20th",
+                1_000,
+            )
+            .await;
+
+        let hits = corpus
+            .query_in("cut billing over to Stripe", None, &[], &[], 1_000, 5)
+            .await;
+        let hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == devin)
+            .expect("Devin surfaces on the content match");
+        assert!(
+            hit.memory.description.is_empty(),
+            "the description is stale/empty, so it cannot carry the hit"
+        );
+        let snippet = hit
+            .snippet
+            .as_deref()
+            .expect("a matched-content snippet stands in for the missing description");
+        assert!(
+            snippet.contains("Stripe"),
+            "the snippet quotes the matched content: {snippet:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_private_entry_never_appears_in_a_snippet_for_an_excluded_present_set() {
+        // The snippet must inherit the same visibility filter as the hit: a private aside's content
+        // may never be quoted for a present set that excludes its audience, even though the subject
+        // may still surface via public vectors.
+        let mut corpus = Corpus::new();
+        let erin = corpus
+            .add(
+                Namespace::Person.with_name("erin"),
+                "A colleague",
+                "We work together",
+                1_000,
+            )
+            .await;
+        let phil = corpus
+            .add(
+                Namespace::Person.with_name("phil"),
+                "A teammate",
+                "On the same team",
+                1_000,
+            )
+            .await;
+        corpus
+            .tell_private(phil, "the quarterly review went badly", erin, 1_000)
+            .await;
+
+        // Erin absent: the aside's teller is not present, so it never surfaces — and no snippet on any
+        // hit may quote its content.
+        let hits = corpus
+            .query_in(
+                "the quarterly review went badly",
+                None,
+                &[],
+                &[phil],
+                1_000,
+                5,
+            )
+            .await;
+        assert!(
+            hits.iter().all(|hit| hit
+                .snippet
+                .as_deref()
+                .is_none_or(|snippet| !snippet.contains("quarterly review"))),
+            "a private aside leaked into a snippet: {hits:?}"
+        );
+
+        // Positive control: with Erin present the aside surfaces, and its snippet is legible.
+        let hits = corpus
+            .query_in(
+                "the quarterly review went badly",
+                None,
+                &[],
+                &[erin],
+                1_000,
+                5,
+            )
+            .await;
+        let phil_hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == phil)
+            .expect("Phil surfaces via the aside");
+        assert!(
+            phil_hit
+                .snippet
+                .as_deref()
+                .expect("the surviving aside carries a snippet")
+                .contains("quarterly review"),
+            "the surfaced aside's snippet quotes its content: {phil_hit:?}"
         );
     }
 

@@ -141,9 +141,12 @@ impl Scenario for CheckpointSyncsParallelRooms {
         .await?;
 
         // The checkpoint sweep: room A's working state reaches memory mid-session, its session left
-        // open. Then the index catch-up the background indexer would provide, so the flushed facts
-        // are searchable from room B.
+        // open. Then the describe and index catch-ups the background daemons would provide, so the
+        // flushed facts are both described and searchable from room B — room B's recall hit renders
+        // with a fresh description rather than a stale one, as the deployed describer would have
+        // supplied between the flush and the recall.
         ctx.checkpoint_sweep().await?;
+        ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
 
         // Room A keeps talking past the flush — the composure probe's surface. The reply must engage

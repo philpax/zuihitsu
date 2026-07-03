@@ -368,12 +368,15 @@ pub(super) struct SearchOpts {
     limit: Option<usize>,
 }
 
-/// One ranked search result handed back to Lua as `{ name, description, score, marker? }`.
+/// One ranked search result handed back to Lua as `{ name, description, score, marker?, snippet? }`.
+/// `snippet` is the matched content that produced the hit, so a result stays legible even when the
+/// memory's description is stale or empty.
 pub(super) struct SearchRow {
     pub(super) name: String,
     pub(super) description: String,
     pub(super) score: f32,
     pub(super) marker: Option<String>,
+    pub(super) snippet: Option<String>,
 }
 
 /// Run a `memory.search`: embed the query off every lock, read the search settings, then rank under a
@@ -427,6 +430,7 @@ pub(super) async fn run_memory_search(
             description: hit.memory.description,
             score: hit.score,
             marker: hit.marker,
+            snippet: hit.snippet,
         })
         .collect())
 }

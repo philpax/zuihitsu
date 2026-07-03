@@ -1693,7 +1693,7 @@ async fn memory_search_recalls_an_indexed_entry() {
     h.index().await;
 
     // A search for the same text recalls Dave (the deterministic fake embedder matches it exactly);
-    // each result is a { name, description, score, marker? } table.
+    // each result is a { name, description, score, marker?, snippet? } table.
     let outcome = h
         .run(
             r#"
