@@ -320,6 +320,17 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         );
     }
     scaffold_points.push(record_point);
+    // The operator-anchor dotpoint stays always-on: it teaches a memory-placement practice, not a
+    // gated call. The `person/operator` guard is always-on memory (it fires regardless of features),
+    // and the anchor's `same_as` merge is asserted by the console, never the agent — so the point
+    // describes the merge passively rather than teaching a call the agent would be refused.
+    scaffold_points.push(format!(
+        "The operator you speak with is anchored provisionally as {person}operator — a merge anchor, \
+         not a profile, holding no content of its own. Everything you learn about them, now and \
+         later, lands on their real {person}<name> memory, never on {person}operator; once you know \
+         who they are, the anchor is merged (same_as) into that profile, joining the two into one \
+         identity."
+    ));
     // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
     if features.transcripts {
         // The reconstruction clause leans on link-following, which is the `linking` feature; drop
