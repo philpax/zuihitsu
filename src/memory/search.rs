@@ -22,7 +22,7 @@ use crate::{
     ids::{MemoryId, MemoryName},
     model::index::VectorKey,
     settings::SearchSettings,
-    time::{self, Timestamp},
+    time::{self, TemporalRef, Timestamp},
     vector::{VectorError, VectorIndex},
     vocabulary::TagName,
 };
@@ -35,12 +35,20 @@ use super::visibility;
 /// semantic entry match — so the result stays legible even when the memory's description is stale or
 /// empty. Both snippet sources are visibility-safe: the FTS index is public-only, and an entry
 /// snippet is only ever taken from an entry that has already passed the visibility predicate.
+///
+/// `occurred_at` is the resolved occurrence a hit carries so a scheduled or dated fact's *when* rides
+/// on the result line, rather than surfacing only if the agent separately drills into `entries()`. A
+/// hit is memory-level, so this is one representative date — the most recent visible dated entry's
+/// occurrence (see [`visible_occurrence`]) — and the agent recalls the full set of occurrences through
+/// `entries()`. Like the snippet, it is visibility-filtered: a date from an entry the present set
+/// cannot see never leaks onto the hit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchHit {
     pub memory: MemoryView,
     pub score: f32,
     pub marker: Option<String>,
     pub snippet: Option<String>,
+    pub occurred_at: Option<TemporalRef>,
 }
 
 /// A search failure, from either the graph projection or the vector index.
@@ -193,11 +201,17 @@ pub fn search(
         // older content still uses one) reads as the same person under their current handle, rather
         // than a second one (spec §Identity → Renaming).
         let marker = combine_marker(markers.get(&id).cloned(), graph.former_names(id)?);
+        // Surface the memory's representative occurrence, so a recall that renders from the hit line
+        // (rather than drilling into `entries()`) still carries a scheduled or dated fact's date.
+        // Filtered by the same predicate as the snippet: a date on an entry the present set cannot see
+        // never leaks.
+        let occurred_at = visible_occurrence(&memory, graph, query.present_set, &class_of)?;
         hits.push(SearchHit {
             memory,
             score,
             marker,
             snippet: snippets.get(&id).cloned(),
+            occurred_at,
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -218,6 +232,29 @@ fn combine_marker(marker: Option<String>, former_names: Vec<MemoryName>) -> Opti
         Some(existing) => format!("{existing} {note}"),
         None => note,
     })
+}
+
+/// The occurrence to surface on a hit: the most recent visible dated entry's `occurred_at`, over the
+/// memory's whole `same_as` class. Entries are scanned in commit order, so the last visible dated one
+/// wins — the freshest dated fact, which for a recall is the scheduled event or decision the agent is
+/// most likely relaying. The visibility predicate gates each entry against the present set, mirroring
+/// the snippet, so a date on a teller-private aside the present set cannot see never leaks onto the
+/// hit. `None` when the memory holds no visible dated entry.
+fn visible_occurrence(
+    memory: &MemoryView,
+    graph: &Graph,
+    present_set: &[MemoryId],
+    class_of: &visibility::ClassOf,
+) -> Result<Option<TemporalRef>, GraphError> {
+    let mut latest = None;
+    for entry in graph.class_entries(memory.id)? {
+        if entry.occurred_at.is_some()
+            && visibility::visible(&entry, memory, present_set, class_of)?
+        {
+            latest = entry.occurred_at;
+        }
+    }
+    Ok(latest)
 }
 
 /// Keep the best (highest) cosine seen for a memory.
@@ -318,7 +355,7 @@ mod tests {
         },
         settings::{SearchSettings, Settings},
         store::{MemoryStore, Store},
-        time::{TemporalRef, Timestamp},
+        time::{CivilDate, TemporalRef, Timestamp},
         vector::InMemoryVectorIndex,
         vocabulary::TagName,
     };
@@ -569,6 +606,65 @@ mod tests {
                     text: text.to_owned(),
                     told_by: Teller::Participant(teller),
                     told_in: Some(told_in),
+                    visibility: Visibility::PrivateToTeller,
+                }],
+            )
+            .await;
+        }
+
+        /// As [`Corpus::add`], but the single content entry carries an occurrence — so the memory has
+        /// a resolved date to surface on a hit.
+        async fn add_dated(
+            &mut self,
+            name: impl Into<MemoryName>,
+            description: &str,
+            content: &str,
+            occurred_at: TemporalRef,
+            at_ms: i64,
+        ) -> MemoryId {
+            let id = MemoryId::generate();
+            let at = Timestamp::from_millis(at_ms);
+            self.commit(
+                at_ms,
+                vec![
+                    EventPayload::memory_created(id, name),
+                    EventPayload::MemoryContentAppended {
+                        id,
+                        entry_id: EntryId::generate(),
+                        asserted_at: at,
+                        occurred_at: Some(occurred_at),
+                        text: content.to_owned(),
+                        told_by: Teller::Agent,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
+                    EventPayload::memory_description_regenerated(id, description, None),
+                ],
+            )
+            .await;
+            id
+        }
+
+        /// As [`Corpus::tell_private`], but the private aside carries an occurrence — so a date lives
+        /// on an entry that only surfaces while its teller is present.
+        async fn tell_private_dated(
+            &mut self,
+            memory: MemoryId,
+            text: &str,
+            teller: MemoryId,
+            occurred_at: TemporalRef,
+            at_ms: i64,
+        ) {
+            self.commit(
+                at_ms,
+                vec![EventPayload::MemoryContentAppended {
+                    id: memory,
+                    entry_id: EntryId::generate(),
+                    asserted_at: Timestamp::from_millis(at_ms),
+                    occurred_at: Some(occurred_at),
+                    text: text.to_owned(),
+                    told_by: Teller::Participant(teller),
+                    told_in: None,
                     visibility: Visibility::PrivateToTeller,
                 }],
             )
@@ -990,6 +1086,96 @@ mod tests {
                 .expect("the surviving aside carries a snippet")
                 .contains("quarterly review"),
             "the surfaced aside's snippet quotes its content: {phil_hit:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hit_carries_the_resolved_occurrence() {
+        // The date-legibility guarantee: a scheduled fact's resolved occurrence rides on the hit, so a
+        // recall that renders from the result line keeps the *when* — rather than the date surfacing
+        // only if the agent separately drills into `entries()`.
+        let mut corpus = Corpus::new();
+        let ship = TemporalRef::Day(CivilDate("2026-07-17".into()));
+        let migration = corpus
+            .add_dated(
+                Namespace::Event.with_name("billing-migration"),
+                "The billing migration",
+                "shipping the billing migration on Friday the 17th",
+                ship.clone(),
+                1_000,
+            )
+            .await;
+
+        let hits = corpus
+            .query_in("shipping the billing migration", None, &[], &[], 1_000, 5)
+            .await;
+        let hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == migration)
+            .expect("the migration surfaces on the content match");
+        assert_eq!(
+            hit.occurred_at.as_ref(),
+            Some(&ship),
+            "the hit carries the resolved occurrence: {hit:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_private_entrys_date_never_leaks_into_a_hit() {
+        // The occurrence inherits the snippet's visibility filter: a date on a private aside may never
+        // ride on a hit for a present set that excludes its audience, even though the subject may still
+        // surface via public vectors.
+        let mut corpus = Corpus::new();
+        let erin = corpus
+            .add(
+                Namespace::Person.with_name("erin"),
+                "A colleague",
+                "We work together",
+                1_000,
+            )
+            .await;
+        let phil = corpus
+            .add(
+                Namespace::Person.with_name("phil"),
+                "A teammate",
+                "On the same team",
+                1_000,
+            )
+            .await;
+        // The only dated entry on Phil is Erin's private aside, so any date on his hit can come only
+        // from it — an unambiguous probe for a leak.
+        let review = TemporalRef::Day(CivilDate("2026-07-20".into()));
+        corpus
+            .tell_private_dated(
+                phil,
+                "his review is on the 20th",
+                erin,
+                review.clone(),
+                1_000,
+            )
+            .await;
+
+        // Erin absent: the aside is not visible, so no hit may carry its date.
+        let hits = corpus
+            .query_in("his review is on the 20th", None, &[], &[phil], 1_000, 5)
+            .await;
+        assert!(
+            hits.iter().all(|hit| hit.occurred_at.is_none()),
+            "a private aside's date leaked onto a hit: {hits:?}"
+        );
+
+        // Positive control: with Erin present the aside surfaces, so its date rides on Phil's hit.
+        let hits = corpus
+            .query_in("his review is on the 20th", None, &[], &[erin], 1_000, 5)
+            .await;
+        let phil_hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == phil)
+            .expect("Phil surfaces via the aside");
+        assert_eq!(
+            phil_hit.occurred_at.as_ref(),
+            Some(&review),
+            "the surfaced aside's date rides on the hit: {phil_hit:?}"
         );
     }
 

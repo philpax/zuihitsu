@@ -20,6 +20,7 @@ use crate::{
         search::{SearchQuery, search},
     },
     settings::Settings,
+    time::TemporalRef,
     vocabulary::TagName,
 };
 
@@ -368,15 +369,19 @@ pub(super) struct SearchOpts {
     limit: Option<usize>,
 }
 
-/// One ranked search result handed back to Lua as `{ name, description, score, marker?, snippet? }`.
-/// `snippet` is the matched content that produced the hit, so a result stays legible even when the
-/// memory's description is stale or empty.
+/// One ranked search result handed back to Lua as
+/// `{ name, description, score, marker?, snippet?, occurred_at? }`. `snippet` is the matched content
+/// that produced the hit, so a result stays legible even when the memory's description is stale or
+/// empty; `occurred_at` is the memory's representative occurrence (the same tagged table `append`
+/// takes), so a scheduled or dated fact's date rides on the result rather than surfacing only through
+/// a separate `entries()` read.
 pub(super) struct SearchRow {
     pub(super) name: String,
     pub(super) description: String,
     pub(super) score: f32,
     pub(super) marker: Option<String>,
     pub(super) snippet: Option<String>,
+    pub(super) occurred_at: Option<TemporalRef>,
 }
 
 /// Run a `memory.search`: embed the query off every lock, read the search settings, then rank under a
@@ -437,6 +442,7 @@ pub(super) async fn run_memory_search(
             score: hit.score,
             marker: hit.marker,
             snippet: hit.snippet,
+            occurred_at: hit.occurred_at,
         })
         .collect())
 }

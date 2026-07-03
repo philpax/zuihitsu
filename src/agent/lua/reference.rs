@@ -57,9 +57,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             "Recall memories by meaning and wording, across your whole memory, ranked best-first. \
              Results are filtered to what may surface to who is present, so a teller-private aside \
              appears only while its teller is here (with a marker noting it). Each result is a table \
-             { name, description, score, marker?, snippet? } — snippet is the matched content that \
-             produced the hit, so you can triage a result even when its description is thin; fetch a \
-             name with memory.get to read more.",
+             { name, description, score, marker?, snippet?, occurred_at? } — snippet is the matched \
+             content that produced the hit, so you can triage a result even when its description is \
+             thin, and occurred_at is the memory's representative date (the same tagged table append \
+             takes, e.g. occurred_at.day) when it holds a dated fact. A hit is a pointer, not the \
+             whole record: fetch a name with memory.get to read every entry and occurrence in full.",
         )
         .required("query", AT::String, "what to look for, in natural language")
         .optional(

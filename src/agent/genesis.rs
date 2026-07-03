@@ -244,8 +244,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     let recall_point = format!(
         "A question is a cue to consult memory, not just the conversation in front of you. To recall \
          a person, memory.get their {person} handle — it returns everything you hold on them, surer \
-         than searching the topic; otherwise memory.search by meaning. Read a merged identity \
-         through its canonical {person} handle, not a per-platform stub."
+         than searching the topic; otherwise memory.search by meaning. A search hit is a pointer, not \
+         the whole record: when relaying a specific like a date, read the memory in full through its \
+         entries rather than the hit's line. Read a merged identity through its canonical {person} \
+         handle, not a per-platform stub."
     );
     let merge_point = format!(
         "Until a merge is adjudicated, two {person} stubs are two people even under one display \

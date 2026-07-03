@@ -1727,6 +1727,51 @@ async fn memory_search_recalls_an_indexed_entry() {
 }
 
 #[tokio::test]
+async fn memory_search_carries_a_dated_hits_occurrence() {
+    // A scheduled fact's date rides on the hit, so a recall relayed from the result — the line or the
+    // `occurred_at` field — keeps the *when* without a separate `entries()` read. The regression: a
+    // search hit dropped the resolved date, and recaps rendered from it lost the day.
+    let h = Harness::with_retrieval();
+    let seeded = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_LAUNCH)
+        ev:append("shipping the billing migration on Friday the 17th",
+            { by_agent = true, visibility = "public", occurred_at = { day = "2026-07-17" } })
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(matches!(seeded, BlockOutcome::Committed { .. }));
+    h.index().await;
+
+    // The result carries the occurrence as the same tagged table `append` takes, so a script reads the
+    // date off the hit directly.
+    let field = h
+        .run(
+            r#"
+        local results = memory.search("shipping the billing migration")
+        if #results == 0 then return "none" end
+        return results[1].occurred_at.day
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = field else {
+        panic!("expected commit, got {field:?}");
+    };
+    assert_eq!(result, "2026-07-17");
+
+    // And the rendered line shows the date, so a recap relayed from the printed result keeps it.
+    let rendered = h
+        .run(r#"return memory.search("shipping the billing migration")"#)
+        .await;
+    let BlockOutcome::Committed { result } = rendered else {
+        panic!("expected commit, got {rendered:?}");
+    };
+    assert!(result.contains("[when 2026-07-17]"), "rendered: {result:?}");
+}
+
+#[tokio::test]
 async fn search_finds_a_renamed_person_by_an_old_name() {
     let h = Harness::with_retrieval();
     // A public fact that does *not* mention the name, then a rename — so only the alias-aware indexing

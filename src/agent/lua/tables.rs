@@ -594,16 +594,17 @@ pub(super) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
 }
 
 /// The metatable backing `memory.search` result objects: `__tostring` renders one as a readable
-/// line (name, score, description, the matched-content snippet, and any teller-private marker), so
-/// returning the result list reads back as text rather than `<table>` while each result keeps its
-/// fields for the agent to inspect (`result.name` to fetch, `result.score` to weigh). The snippet is
-/// the content that produced the hit, so a result stays triageable even when the description is stale
-/// or empty.
+/// line (name, score, description, the matched-content snippet, the representative occurrence, and any
+/// teller-private marker), so returning the result list reads back as text rather than `<table>` while
+/// each result keeps its fields for the agent to inspect (`result.name` to fetch, `result.score` to
+/// weigh, `result.occurred_at.day` to read a date). The snippet is the content that produced the hit,
+/// so a result stays triageable even when the description is stale or empty; the occurrence carries a
+/// scheduled or dated fact's date so a recall relayed from the line keeps the *when*.
 fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     metatable.set(
         "__tostring",
-        lua.create_function(|_, this: Table| {
+        lua.create_function(|lua, this: Table| {
             let name: String = this.get("name")?;
             let description: String = this.get("description")?;
             let score: f32 = this.get("score")?;
@@ -616,6 +617,15 @@ fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             }
             if let Some(snippet) = snippet.filter(|s| !s.is_empty()) {
                 line.push_str(&format!(" match: \"{snippet}\""));
+            }
+            // The representative occurrence renders inline (like an entry's date on read), so a recall
+            // that relays the hit line still carries a scheduled or dated fact's date. The stored value
+            // is the structured tagged table; render it back to a date for display.
+            let occurred = this.get::<Value>("occurred_at")?;
+            if !occurred.is_nil()
+                && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
+            {
+                line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
             }
             if let Some(marker) = marker {
                 line.push(' ');
@@ -979,6 +989,12 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                         }
                         if let Some(snippet) = row.snippet {
                             table.set("snippet", snippet)?;
+                        }
+                        // The occurrence rides as the same tagged table `append` accepts (e.g.
+                        // `{ day = "…" }`), so a script can read `result.occurred_at.day` and the
+                        // metatable's `__tostring` renders the date on the result line.
+                        if let Some(occurred_at) = row.occurred_at {
+                            table.set("occurred_at", lua.to_value(&occurred_at)?)?;
                         }
                         table.set_metatable(Some(result_metatable.clone()))?;
                         list.set(index + 1, table)?;
