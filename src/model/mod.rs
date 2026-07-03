@@ -233,6 +233,7 @@ impl std::error::Error for ModelError {}
 pub struct ScriptedModel {
     steps: Mutex<VecDeque<GenerateResponse>>,
     seen: Mutex<Vec<Vec<Message>>>,
+    seen_tool_choice: Mutex<Vec<ToolChoice>>,
 }
 
 impl ScriptedModel {
@@ -283,6 +284,7 @@ impl ScriptedModel {
         ScriptedModel {
             steps: Mutex::new(steps.into_iter().collect()),
             seen: Mutex::new(Vec::new()),
+            seen_tool_choice: Mutex::new(Vec::new()),
         }
     }
 
@@ -290,6 +292,12 @@ impl ScriptedModel {
     /// saw (e.g. that a later turn replayed the prior turns as the prompt suffix).
     pub fn recorded_messages(&self) -> Vec<Vec<Message>> {
         self.seen.lock().clone()
+    }
+
+    /// The `tool_choice` of each `generate` call so far, in order — lets a test assert the loop
+    /// withdraws the tools (`ToolChoice::None`) on its final step.
+    pub fn recorded_tool_choices(&self) -> Vec<ToolChoice> {
+        self.seen_tool_choice.lock().clone()
     }
 }
 
@@ -301,6 +309,7 @@ impl ModelClient for ScriptedModel {
 
     async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
         self.seen.lock().push(request.messages.clone());
+        self.seen_tool_choice.lock().push(request.tool_choice);
         self.steps.lock().pop_front().ok_or(ModelError::Exhausted)
     }
 }

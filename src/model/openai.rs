@@ -65,10 +65,21 @@ impl OpenAiClient {
         if !tools.is_empty() {
             args.tools(tools);
         }
-        if request.tool_choice == ToolChoice::Required {
-            args.tool_choice(ChatCompletionToolChoiceOption::Mode(
-                ToolChoiceOptions::Required,
-            ));
+        // `Auto` is the serving layer's default, so it is left unset; `Required` and `None` are
+        // mapped explicitly (the loop withdraws the tools on its final step with `None`, forcing a
+        // textual answer).
+        match request.tool_choice {
+            ToolChoice::Auto => {}
+            ToolChoice::Required => {
+                args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::Required,
+                ));
+            }
+            ToolChoice::None => {
+                args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::None,
+                ));
+            }
         }
         if let Some(temperature) = self.config.temperature {
             args.temperature(temperature);

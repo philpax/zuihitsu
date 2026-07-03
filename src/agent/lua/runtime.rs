@@ -389,6 +389,12 @@ pub(super) async fn run_memory_search(
     query: &str,
     opts: &SearchOpts,
 ) -> Result<Vec<SearchRow>, MemorySearchError> {
+    // An empty or whitespace query has nothing to match on — reject it before the embedder is called,
+    // so a degenerate "list everything in a namespace" search fails fast and teachably rather than
+    // embedding the empty string and grinding the whole memory through the ranker.
+    if query.trim().is_empty() {
+        return Err(MemorySearchError::EmptyQuery);
+    }
     let Some(retrieval) = &engine.retrieval else {
         return Err(MemorySearchError::NoRetrieval);
     };

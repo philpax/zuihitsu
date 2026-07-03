@@ -58,6 +58,10 @@ impl From<CalendarError> for LuaError {
 pub(super) enum MemorySearchError {
     /// No embedding endpoint is configured, so semantic search is unavailable.
     NoRetrieval,
+    /// The query was empty or whitespace — semantic search needs something to match on. Caught
+    /// before the embedder is called, so a degenerate "enumerate a namespace" query fails fast and
+    /// teachably instead of embedding the empty string and grinding through every memory.
+    EmptyQuery,
     Embed(ModelError),
     NoVector,
     Settings(StoreError),
@@ -67,6 +71,13 @@ pub(super) enum MemorySearchError {
 impl std::fmt::Display for MemorySearchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            MemorySearchError::EmptyQuery => write!(
+                f,
+                "memory.search needs a query to match on — an empty search cannot list a namespace. \
+                 Search for what you are actually after in natural language, narrowing with the \
+                 namespace option if you want to stay within one prefix, e.g. \
+                 memory.search(\"deploy schedule\", {{ namespace = \"topic/\" }})."
+            ),
             MemorySearchError::NoRetrieval => write!(
                 f,
                 "semantic search is unavailable on this instance (no embedding endpoint configured)"

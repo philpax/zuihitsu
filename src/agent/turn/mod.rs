@@ -1168,13 +1168,30 @@ async fn run_steps(
     // since (the buffer is append-only within the loop); `None` until the first call.
     let mut prev_sent_len: Option<usize> = None;
     let outcome = 'cycle: {
-        for _ in 0..max_steps {
+        for step_index in 0..max_steps {
+            // Nearing-budget nudge: two steps from the bound, tell the model to wrap up — once, not
+            // every remaining step. It rides the in-memory step frame as a trailing system message
+            // (like the flush instruction), never recorded to the log; it persists into the following
+            // step's frame, so it appears exactly once from here on.
+            if max_steps >= 2 && step_index == max_steps - 2 {
+                messages.push(Message::system(
+                    "two steps remain in this turn — finish gathering and answer with what you have.",
+                ));
+            }
+            // On the final step the tools are withdrawn (`ToolChoice::None`) so the model must answer
+            // with what it has rather than spend its last step on another tool call. Its text becomes
+            // the turn's reply through the normal terminal path; `MaxStepsExceeded` is then only the
+            // fallback for a model that still fails to produce text.
+            let is_final_step = step_index + 1 == max_steps;
             let request = GenerateRequest {
                 system: system.to_owned(),
                 messages: messages.clone(),
                 tools: tools.clone(),
-                // The loop lets the model choose between calling run_lua and replying.
-                tool_choice: ToolChoice::Auto,
+                tool_choice: if is_final_step {
+                    ToolChoice::None
+                } else {
+                    ToolChoice::Auto
+                },
                 response_format: None,
                 thinking: None,
             };

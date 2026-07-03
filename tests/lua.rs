@@ -1837,6 +1837,34 @@ async fn memory_search_without_an_embedder_is_a_teachable_error() {
 }
 
 #[tokio::test]
+async fn an_empty_search_query_fails_fast_and_teaches_the_listing_shape() {
+    // An empty (or whitespace) query has nothing to match on — the agent reaching for it wants to
+    // *list* a namespace, which search does not do. The guard short-circuits before the embedder is
+    // ever touched: even on a retrieval-less harness, where "anything" reports search unavailable, an
+    // empty query reports the query problem instead, and points at the nearest legitimate shape (a
+    // real query narrowed by the namespace option, since no listing affordance exists).
+    let h = Harness::new();
+    let outcome = h.run(r#"return memory.search("   ")"#).await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("needs a query") && message.contains("cannot list a namespace"),
+                "message was: {message}"
+            );
+            assert!(
+                message.contains("namespace = \"topic/\""),
+                "the error names the namespace-narrowed shape: {message}"
+            );
+            assert!(
+                !message.contains("unavailable"),
+                "the empty-query guard precedes the embedder path: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn the_block_vm_is_sandboxed_against_host_access() {
     // The Lua surface is an orchestration language over the projected API, never a host program: the
     // filesystem, the environment, the process, and arbitrary code on disk must be out of reach, so

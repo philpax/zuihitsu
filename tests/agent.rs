@@ -10,8 +10,8 @@ use zuihitsu::{
     BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Event, EventPayload,
     InferredLink, InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace,
     NewRelationSpec, OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq,
-    TerminalCause, Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns,
-    genesis, run_turn,
+    TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole, Usage,
+    buffer_turns, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -685,6 +685,78 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
         )
     });
     assert!(surfaced);
+}
+
+/// The nearing-budget nudge (a system message telling the model to wrap up) lands exactly once, on
+/// the step two before the bound, and persists into the frames after it — so the model gets the
+/// legibility warning without it being re-appended every remaining step.
+#[tokio::test]
+async fn the_nearing_budget_nudge_lands_once_at_max_minus_two() {
+    let h = Harness::new();
+    // max_steps = 3: the nudge is due before step index 1 (max_steps - 2).
+    let model = ScriptedModel::new([
+        run_lua_call("return 1"),
+        run_lua_call("return 2"),
+        Completion::Reply("done".to_owned()),
+    ]);
+
+    run_turn(h.as_turn(&model, "go", 3)).await.unwrap();
+
+    let nudge = "two steps remain in this turn";
+    let count = |messages: &[Message]| {
+        messages
+            .iter()
+            .filter(|m| m.content.contains(nudge))
+            .count()
+    };
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), 3, "three generate calls");
+    assert_eq!(count(&seen[0]), 0, "no nudge before the max-2 step");
+    assert_eq!(count(&seen[1]), 1, "the nudge lands on the max-2 step");
+    assert_eq!(count(&seen[2]), 1, "it persists once, not re-appended");
+}
+
+/// On the final step the loop withdraws the tools (`ToolChoice::None`) so the model must answer with
+/// what it has, and that text terminates the turn as an ordinary `Reply` — not a `MaxStepsExceeded`.
+#[tokio::test]
+async fn the_final_step_forces_a_textual_answer() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call("return 1"),
+        run_lua_call("return 2"),
+        Completion::Reply("here is what I found".to_owned()),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "go", 3)).await.unwrap();
+
+    assert_eq!(
+        outcome,
+        TurnOutcome::Reply("here is what I found".to_owned())
+    );
+    // The earlier steps let the model choose; only the final step withdraws the tools.
+    assert_eq!(
+        model.recorded_tool_choices(),
+        vec![ToolChoice::Auto, ToolChoice::Auto, ToolChoice::None],
+    );
+}
+
+/// The forced final answer is a nudge, not a guarantee: a model that still produces no text on the
+/// final step (a tool call, defying the withdrawn tools) falls back to the surfaced `MaxStepsExceeded`
+/// terminal — the fallback the loop keeps, not the norm.
+#[tokio::test]
+async fn a_model_that_produces_no_text_on_the_final_step_still_max_steps() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([run_lua_call("return 1"), run_lua_call("return 2")]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "go", 2)).await.unwrap();
+
+    assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    // The final step still had its tools withdrawn, even though the model did not reply.
+    assert_eq!(
+        model.recorded_tool_choices().last(),
+        Some(&ToolChoice::None)
+    );
 }
 
 #[tokio::test]
