@@ -52,9 +52,6 @@ pub enum Authority {
 /// that. The graph is locked transiently per read; no guard is ever held across an `.await`.
 pub struct MemoryBlock {
     engine: Arc<Engine>,
-    /// The conversation this block runs in — the room whose transcript the `convo.turn` link
-    /// resolver reads, scoped so a turn link resolves only within the room the requester is in.
-    conversation: ConversationId,
     /// The turn's teller, attributed to content written this block unless an append opts out.
     teller: Teller,
     /// Whether this block runs under platform or operator authority — gates `self` writes and the
@@ -260,7 +257,6 @@ impl MemoryBlock {
         };
         Ok(MemoryBlock {
             engine,
-            conversation,
             teller,
             authority,
             self_id,
@@ -281,12 +277,13 @@ impl MemoryBlock {
         (self.engine.clone(), self.present_set.clone())
     }
 
-    /// The backends and conversation the `convo.turn` link resolver reads under — the running engine
-    /// (for the event store and graph) and which conversation is current, so a turn link resolves
-    /// only within the room the requester is already in (v1 scope; a turn in another room is not
-    /// found). Returned together so the Lua layer can resolve without holding the block lock.
-    pub fn turn_resolution_handle(&self) -> (Arc<Engine>, ConversationId) {
-        (self.engine.clone(), self.conversation)
+    /// The backends and present set the `convo.turn` link resolver reads under — the running engine
+    /// (for the event store and graph) and who is present in this conversation, so the resolver can
+    /// apply the audience rule: a turn resolves iff everyone present here was in that moment's audience
+    /// (spec §Transcripts). Returned together so the Lua layer can resolve without holding the block
+    /// lock.
+    pub fn turn_resolution_handle(&self) -> (Arc<Engine>, Vec<MemoryId>) {
+        (self.engine.clone(), self.present_set.clone())
     }
 
     /// The current conversation's context memory, or `None` — touches it so it enters the lock set.

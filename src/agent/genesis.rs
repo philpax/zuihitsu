@@ -321,10 +321,13 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
     if features.transcripts {
         scaffold_points.push(
-            "When someone pastes a console link to an earlier moment, it carries a turn id as \
-             ?turn=<id> in the URL — pass that id to convo.turn(id) to pull up that turn and the \
-             exchange around it, then answer from what was actually said there rather than guessing \
-             which moment they mean. It resolves only turns from this room."
+            "When someone references an earlier moment — a [turn:<id>] token, or a console link \
+             carrying ?turn=<id> — pass that id to convo.turn(id) to pull up the turn and the \
+             exchange around it, then answer from what was actually said rather than guessing which \
+             moment they mean. To cite a specific earlier moment yourself, copy the ref field \
+             convo.turn returns (the [turn:<id>] token). A moment resolves only when everyone here \
+             was in its audience; when it can't be shared with who is present, recall through memory \
+             instead of paraphrasing the transcript."
                 .to_owned(),
         );
     }

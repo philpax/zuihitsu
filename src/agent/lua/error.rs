@@ -92,16 +92,20 @@ impl From<MemorySearchError> for LuaError {
     }
 }
 
-/// A failure resolving a `convo.turn` transcript link. `InvalidTurnId` and `NotFound` are teachable
-/// (the agent reads them and adapts); `Store` is an infrastructure read failure surfaced to terminate
-/// the block cleanly, as `memory.search` does — turn resolution is read-only, so a failure corrupts
-/// nothing. `NotFound` deliberately covers both an unknown id and a turn in another conversation, so
-/// the message never reveals that a turn exists in a room the requester is not in.
+/// A failure resolving a `convo.turn` transcript link. `InvalidTurnId`, `AudienceMismatch`, and
+/// `NotFound` are teachable (the agent reads them and adapts); `Store` is an infrastructure read
+/// failure surfaced to terminate the block cleanly, as `memory.search` does — turn resolution is
+/// read-only, so a failure corrupts nothing. The two refusals are deliberately distinct:
+/// `AudienceMismatch` says the id names a real moment the present audience did not all share (safe to
+/// confirm, ULIDs being unguessable) and points at memory as the visibility-filtered channel;
+/// `NotFound` says no such moment exists.
 #[derive(Debug)]
 pub(super) enum TurnResolveError {
     /// `convo.turn` was given a string that is not a ULID.
     InvalidTurnId { id: String, source: UlidError },
-    /// No turn with this id exists in the current conversation (unknown, or in another room).
+    /// The id names a real turn, but someone present here was not in that moment's audience.
+    AudienceMismatch { id: String },
+    /// No turn with this id exists anywhere in the log.
     NotFound { id: String },
     /// The event store could not be read.
     Store(StoreError),
@@ -113,10 +117,16 @@ impl std::fmt::Display for TurnResolveError {
             TurnResolveError::InvalidTurnId { id, source } => {
                 write!(f, "invalid turn id {id:?}: {source}")
             }
+            TurnResolveError::AudienceMismatch { id } => write!(
+                f,
+                "turn {id:?} is a real moment, but its audience did not include everyone present \
+                 here — so it cannot be replayed to this room. Recall it through memory instead, \
+                 which surfaces only what the present audience may see."
+            ),
             TurnResolveError::NotFound { id } => write!(
                 f,
-                "no turn {id:?} in this conversation — a turn link resolves only within this room, \
-                 and the id must be one you were given (the ?turn=<id> of a link pasted here)"
+                "no turn {id:?} exists — the id must be one you were given (the [turn:<id>] or the \
+                 ?turn=<id> of a link pasted here)"
             ),
             TurnResolveError::Store(error) => {
                 write!(f, "could not read the conversation transcript: {error}")

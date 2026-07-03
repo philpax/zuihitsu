@@ -24,7 +24,8 @@ pub mod vector;
 // is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
 pub use zuihitsu_core::{
-    decay, event, graph, ids, instance_features::InstanceFeatures, settings, time, vocabulary,
+    decay, event, graph, ids, instance_features::InstanceFeatures, settings, time, turn_ref,
+    vocabulary,
 };
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
