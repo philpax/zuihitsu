@@ -51,7 +51,7 @@ pub fn scan(text: &str) -> Vec<Segment<'_>> {
             prose_start = i;
             continue;
         }
-        if url_start_at(text, i) {
+        if url_start_at(bytes, i) {
             let end = url_token_end(bytes, i);
             if let Some(turn) = url_ref(&text[i..end]) {
                 flush_prose(&mut segments, &text[prose_start..i]);
@@ -129,13 +129,14 @@ fn bracket_ref_at(text: &str, i: usize) -> Option<(TurnId, usize)> {
 
 /// Whether an `http://`/`https://` URL token begins at byte `i`, and at a token boundary (start of
 /// text or after a non-alphanumeric byte) so a scheme embedded mid-word is not mistaken for a link.
-fn url_start_at(text: &str, i: usize) -> bool {
-    let bytes = text.as_bytes();
+/// Byte-wise on purpose: the scanner's `i` walks every byte, including the middle of a multibyte
+/// character, where a `&text[i..]` slice would panic — matching on bytes cannot land off a boundary,
+/// and a match guarantees `i` sits on ASCII `h`, a boundary, so the caller's slices are safe.
+fn url_start_at(bytes: &[u8], i: usize) -> bool {
     if i > 0 && bytes[i - 1].is_ascii_alphanumeric() {
         return false;
     }
-    let rest = &text[i..];
-    rest.starts_with("http://") || rest.starts_with("https://")
+    bytes[i..].starts_with(b"http://") || bytes[i..].starts_with(b"https://")
 }
 
 /// The byte index one past a URL token starting at `i`: it runs to the next whitespace or URL
@@ -280,6 +281,18 @@ mod tests {
         assert_eq!(scan(text), vec![Segment::Prose(text)]);
     }
 
+    #[test]
+    fn multibyte_prose_scans_without_panicking() {
+        // The scanner walks byte positions, so multibyte characters — an em dash, CJK, an emoji —
+        // must never land it on a non-boundary slice (the wasm `unreachable` regression).
+        let turn = turn_id(11);
+        let text = format!("さっき決めた — {} 🎉 “quotes” everywhere", construct(turn));
+        assert_eq!(extract_ids(&text), vec![turn]);
+        let url = format!("https://host/room?turn={}", turn.0);
+        let text = format!("見て {url} — please");
+        assert_eq!(extract_ids(&text), vec![turn]);
+    }
+
     proptest! {
         /// Constructing then scanning a token round-trips to the same id, and nothing else.
         #[test]
@@ -316,6 +329,36 @@ mod tests {
             let turn = turn_id(bits);
             let url = format!("https://host/room?a=1&turn={}&b=2", turn.0);
             prop_assert_eq!(url_ref(&url), Some(turn));
+        }
+
+        /// Scanning arbitrary text — any Unicode, refs or none — never panics (the wasm
+        /// `unreachable` regression), and ref-free text reassembles verbatim from its segments
+        /// (the scanner is a pure split, lossy nowhere).
+        #[test]
+        fn scan_is_total_and_lossless(text in any::<String>()) {
+            let segments = scan(&text);
+            if extract_ids(&text).is_empty() {
+                let rebuilt: String = segments
+                    .iter()
+                    .map(|segment| match segment {
+                        Segment::Prose(prose) => *prose,
+                        Segment::Ref(_) => unreachable!("no ids extracted"),
+                    })
+                    .collect();
+                prop_assert_eq!(rebuilt, text);
+            }
+        }
+
+        /// A reference embedded in arbitrary Unicode prose still extracts (boundary-safe scanning).
+        #[test]
+        fn a_ref_survives_arbitrary_surrounding_prose(
+            bits in any::<u128>(),
+            before in any::<String>(),
+            after in any::<String>(),
+        ) {
+            let turn = turn_id(bits);
+            let text = format!("{before} {} {after}", construct(turn));
+            prop_assert!(extract_ids(&text).contains(&turn));
         }
     }
 }
