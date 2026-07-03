@@ -134,7 +134,7 @@ Link {
 }
 ```
 
-The materializer canonicalizes direction at write time, so `dave:link("mentor_of", erin)` and `erin:link("mentored_by", dave)` produce the same edge.
+The materializer canonicalizes direction at write time, so `dave:link("mentors", erin)` and `erin:link("mentored_by", dave)` produce the same edge.
 
 ### LinkRelation (the registry)
 
@@ -872,7 +872,7 @@ dave:rename("person/sarah")   -- same memory, new handle: when someone changes t
 dave:entries(); dave:history()
 
 -- Link readers (auto-traverse same_as); each result renders as "relation → name"
-dave:outgoing("mentor_of"); dave:incoming("mentor_of"); dave:links()
+dave:outgoing("mentors"); dave:incoming("mentors"); dave:links()
 ```
 
 `mem:revise(old, new_text[, opts])` collapses the common correction — append the new value, supersede the old — into one atomic call: if the supersede fails because the old entry is not live, the append rolls back with it, so a correction never half-applies into a new value standing beside the stale one. A relation's target on `:link` and `:unlink` may be given as a memory's name string as well as a handle, resolved to its memory like any name.
@@ -897,9 +897,9 @@ dave:tag("hobbies")                           -- errors if missing, suggests nea
 ### Link relation registry
 
 ```lua
-links.register({ name="mentor_of", inverse="mentored_by",
-                 from_card="many", to_card="many", symmetric=false, reflexive=false })
-links.list(); links.get("mentor_of")
+links.register({ name="reports_to", inverse="manages",
+                 from_card="many", to_card="one", symmetric=false, reflexive=false })
+links.list(); links.get("reports_to")
 ```
 
 Registers one relation accessible under either label; the inverse view's cardinality is computed.
@@ -1056,6 +1056,8 @@ LinkTypeRegistered       (knows / known_by)
 LinkTypeRegistered       (same_as / same_as)      -- symmetric; cross-platform identity
 LinkTypeRegistered       (participates_in / has_participant)  -- a person's attendance at an event
 LinkTypeRegistered       (part_of / contains)     -- membership or aboutness: an event, entry-bearing memory, or sub-topic belonging to a topic, project, or workstream (not people, who participates_in)
+LinkTypeRegistered       (mentors / mentored_by)  -- directional mentorship between people: the mentor mentors the mentee; use rather than the generic knows when mentorship is stated
+LinkTypeRegistered       (located_at / hosts)     -- an event's or thing's venue: located_at the place, which hosts it; use rather than part_of, which is membership or hierarchy, not a venue
 ...                      (a small seed set; the agent registers more as needed. `_session_carryover` was once seeded here for compaction carryover; it is retired — the working set is platform-derived — though old logs' registrations and links still materialize)
 ConfigSet                (default behavioral-settings snapshot — see Configuration)
 MemoryCreated            (self)

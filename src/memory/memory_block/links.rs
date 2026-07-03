@@ -15,7 +15,7 @@ use super::{
 
 impl MemoryBlock {
     /// Links out of this memory's whole `same_as` class under `relation`, in the relation's canonical
-    /// forward direction — `mem:outgoing("mentor_of")` is who the identity mentors. A traversing read
+    /// forward direction — `mem:outgoing("mentors")` is who the identity mentors. A traversing read
     /// (locks the class). The relation may be named by either label, but the *method* picks the
     /// direction, not the label: use [`MemoryBlock::incoming`] for the reverse. An unregistered relation
     /// is a teachable error. A symmetric relation has no direction, so `outgoing` and `incoming` return
@@ -24,7 +24,7 @@ impl MemoryBlock {
         self.directed_links(id, relation, LinkDirection::Outgoing)
     }
 
-    /// Links into this memory's whole `same_as` class under `relation` — `mem:incoming("mentor_of")`
+    /// Links into this memory's whole `same_as` class under `relation` — `mem:incoming("mentors")`
     /// is who mentors the identity. The reverse of [`MemoryBlock::outgoing`]; see it for the details.
     pub fn incoming(&mut self, id: MemoryId, relation: &str) -> Result<Vec<LinkRef>, MemoryError> {
         self.directed_links(id, relation, LinkDirection::Incoming)

@@ -326,8 +326,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .required(
             "spec",
             object()
-                .required("name", AT::String, "the relation, e.g. \"mentor_of\"")
-                .required("inverse", AT::String, "its inverse label, e.g. \"mentored_by\"")
+                .required("name", AT::String, "the relation, e.g. \"reports_to\"")
+                .required("inverse", AT::String, "its inverse label, e.g. \"manages\"")
                 .required(
                     "from_card",
                     enum_of(["one", "many"]),

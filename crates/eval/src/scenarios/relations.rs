@@ -5,7 +5,7 @@
 //! `DistinguishesMentorDirection` is the one the readers are uniquely needed for: it puts the subject on
 //! *both* sides of an asymmetric relation, so only reading the edge's direction (not a semantic search
 //! that conflates the two) answers it — and it exercises the write side too, since the agent must
-//! register `mentor_of` and link it the right way round. `AttributesRelationshipToTeller` checks the
+//! link the seeded `mentors` relation the right way round. `AttributesRelationshipToTeller` checks the
 //! link's `told_by` provenance is legible: the agent must attribute a recorded relationship to who
 //! asserted it, not to whoever is currently asking.
 
@@ -160,9 +160,9 @@ impl Scenario for RecallsConnections {
 
 /// Dave sits on *both* sides of a mentorship: he mentors two people and is himself mentored by a
 /// third. Asked who he mentors, only the edge's *direction* answers correctly — a semantic search for
-/// "Dave mentor" conflates the two, so the agent must read outgoing `mentor_of` and exclude the person
-/// who mentors *him*. Also a test of the write side: `mentor_of` is not seeded, so the agent has to
-/// register the relation and link it the right way round for the read to come out right.
+/// "Dave mentor" conflates the two, so the agent must read outgoing `mentors` and exclude the person
+/// who mentors *him*. Also a test of the write side: `mentors`/`mentored_by` is seeded, so the agent
+/// links the seeded relation the right way round for the read to come out right.
 pub struct DistinguishesMentorDirection;
 
 #[async_trait]
@@ -320,23 +320,25 @@ impl Scenario for AttributesRelationshipToTeller {
 
 /// The link-inference pass extracts a relationship implicit in content: a topic whose project was
 /// mentored by Clara (with `person/clara` already existing) has an entry describing the mentoring
-/// but no explicit link — and the inference pass, driven afterward, coins `mentored_by` and creates
-/// the inferred link. The regression test for the link-inference behaviour (spec §Write path
-/// → link inference): a future change that regresses the pass turns this red.
+/// but no explicit link — and the inference pass, driven afterward, links the seeded `mentors`
+/// relation (or coins an equivalent) and creates the inferred link. The regression test for the
+/// link-inference behaviour (spec §Write path → link inference): a future change that regresses the
+/// pass turns this red.
 ///
 /// The state is set up directly via `seed_events` (a synthetic event log) rather than driving the
 /// agent through a conversation, so the test is deterministic: the content is exactly where the
 /// inference pass expects it (on the topic), and the only variable is whether the inference prompt
 /// extracts the relationship. This isolates the inference pass from the agent's content-placement
-/// decisions. A mentorship relation is chosen because none of the seed relations (knows, created_by,
-/// same_as, participates_in, part_of) covers it, so the pass must coin a new relation rather than
-/// reusing one.
+/// decisions. Mentorship is the chosen relationship: the seed set now covers it (`mentors`/
+/// `mentored_by`), so the pass should reuse the seeded vocabulary rather than improvise — though the
+/// oracle also accepts a semantically-equivalent coinage (`mentored`), since the point under test is
+/// the inference, not the exact label.
 ///
-/// The oracle accepts the mentorship expressed either way round, because the pass legitimately coins it
-/// as `person/clara` → `mentored` → `topic/zephyr` or as `topic/zephyr` → `mentored_by` →
-/// `person/clara` — the same fact, read from either end. It blesses exactly those two directed
-/// candidates: it requires (a) a relation registered under `mentored` or `mentored_by` (matched on the
-/// registration's name *or* inverse, since the two are each other's inverse), and (b) an *inferred*
+/// The oracle accepts the mentorship expressed either way round, because the pass legitimately reads it
+/// as `person/clara` → `mentors`/`mentored` → `topic/zephyr` or as `topic/zephyr` → `mentored_by` →
+/// `person/clara` — the same fact, read from either end. It blesses exactly those directed candidates:
+/// it requires (a) a relation registered under `mentors`, `mentored`, or `mentored_by` (matched on the
+/// registration's name *or* inverse, since the pair are each other's inverse), and (b) an *inferred*
 /// link matching one candidate on both endpoints and direction. An unrelated relation, an edge on the
 /// wrong pair, or a reversed edge still fails.
 pub struct InfersLinkFromContent;
@@ -349,8 +351,8 @@ impl Scenario for InfersLinkFromContent {
             category: Category::Relations,
             description:
                 "A topic's project was mentored by Clara — the topic has an entry describing \
-                          the mentoring but no explicit link. The link-inference pass should coin \
-                          mentored_by and create an inferred link."
+                          the mentoring but no explicit link. The link-inference pass should link \
+                          the seeded mentors relation and create an inferred link."
                     .to_owned(),
             bar: Bar::Gating,
         }
@@ -358,9 +360,9 @@ impl Scenario for InfersLinkFromContent {
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
         // Set up the state directly as a synthetic event log: create person/clara, then topic/zephyr
-        // with a public entry describing a mentoring relationship that no registered relation covers.
-        // The seed relations are knows, created_by/operator_of, same_as, participates_in, part_of —
-        // none fits "mentored by," so the inference pass must coin `mentored_by` and create the link.
+        // with a public entry describing a mentoring relationship. The seed relations now include
+        // `mentors`/`mentored_by`, so the inference pass should reuse the seeded vocabulary — or an
+        // equivalent coinage — and create the link.
         //
         // A minimal conversation (room + session + one participant turn) is seeded too, so the
         // console has a room to render the events in — without driving the agent, which would make
@@ -444,16 +446,20 @@ impl Scenario for InfersLinkFromContent {
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
-        // The pass may coin the mentorship either way round — Clara `mentored` the project, or the
-        // project was `mentored_by` Clara — and both name the same fact. The oracle blesses exactly
-        // those two directed candidates: each pins the inferred edge to the correct endpoints
+        // The pass may express the mentorship either way round — Clara `mentors`/`mentored` the
+        // project, or the project was `mentored_by` Clara — and all name the same fact. The oracle
+        // blesses exactly those directed candidates: each pins the inferred edge to the correct endpoints
         // (`person/clara` and `topic/zephyr`) the correct way round, so a wrong relation, a wrong pair,
         // or a reversed edge still fails.
         let zephyr = analysis::memory_id_named(events, "topic/zephyr");
         let clara = analysis::memory_id_named(events, "person/clara");
         let (inferred, registered) = match (clara, zephyr) {
             (Some(clara), Some(zephyr)) => {
-                let candidates = [(clara, "mentored", zephyr), (zephyr, "mentored_by", clara)];
+                let candidates = [
+                    (clara, "mentored", zephyr),
+                    (clara, "mentors", zephyr),
+                    (zephyr, "mentored_by", clara),
+                ];
                 let inferred = candidates.iter().any(|&(from, relation, to)| {
                     analysis::link_inferred_directed(events, from, to, relation)
                 });

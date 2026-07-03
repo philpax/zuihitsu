@@ -111,8 +111,8 @@ pub struct EntryRef {
 }
 
 /// Which way a link runs relative to the memory it was read from. A class-traversing read orients
-/// every edge against the queried identity, so the agent reads `mentor_of →` (this identity mentors)
-/// apart from `mentor_of ←` (this identity is mentored), without reasoning about which stub holds it.
+/// every edge against the queried identity, so the agent reads `mentors →` (this identity mentors)
+/// apart from `mentors ←` (this identity is mentored), without reasoning about which stub holds it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkDirection {
     /// The queried identity is the edge's source: it points outward, at `other`.
