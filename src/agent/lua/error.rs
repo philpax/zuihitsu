@@ -121,8 +121,9 @@ impl std::fmt::Display for TurnResolveError {
                 f,
                 "turn {id:?} is a real moment, but its audience did not include everyone present \
                  here — so it cannot be replayed to this room. If its substance is worth relaying, \
-                 recall it through memory and honor each entry's own audience as you speak — the \
-                 visibility rule governs what you say, not just what you look up."
+                 recall it through memory — reconstruct it from every memory the moment plausibly \
+                 touched, not the first hit — and honor each entry's own audience as you speak — \
+                 the visibility rule governs what you say, not just what you look up."
             ),
             TurnResolveError::NotFound { id } => write!(
                 f,

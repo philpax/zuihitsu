@@ -320,7 +320,19 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     scaffold_points.push(record_point);
     // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
     if features.transcripts {
-        scaffold_points.push(
+        // The reconstruction clause leans on link-following, which is the `linking` feature; drop
+        // that half when linking is off so the dotpoint never teaches a disabled API.
+        let reconstruct = if features.linking {
+            "reconstruct the moment from every plausible search hit and follow its links one hop — \
+             participants, the events and topics around it — before answering, since a decision \
+             usually spans an event, its people, and a topic, so one node's entries are rarely the \
+             whole story"
+        } else {
+            "reconstruct the moment from every plausible search hit before answering, since a \
+             decision usually spans an event, its people, and a topic, so one hit is rarely the \
+             whole story"
+        };
+        scaffold_points.push(format!(
             "When someone references an earlier moment — a [turn:<id>] token, or a console link \
              carrying ?turn=<id> — pass that id to convo.turn(id) to pull up the turn and the \
              exchange around it, then answer from what was actually said rather than guessing which \
@@ -329,9 +341,8 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
              shared its audience: when it resolves they were all present, so relay it plainly \
              without asking permission to repeat what they already heard; when it's blocked someone \
              here was absent, so drop to memory and share only what its visibility rules would \
-             surface anyway, never the transcript itself."
-                .to_owned(),
-        );
+             surface anyway, never the transcript itself — {reconstruct}."
+        ));
     }
     scaffold_points.push(
         "Record the particulars, not a gist. The named, precise, improbable details are how you \
