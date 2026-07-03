@@ -1,4 +1,10 @@
-import initWasm, { Replica as WasmReplica } from "../wasm/console_wasm.js";
+import initWasm, {
+  Replica as WasmReplica,
+  turnRefConstruct,
+  turnRefExtract,
+  turnRefNormalize,
+  turnRefScan,
+} from "../wasm/console_wasm.js";
 import wasmUrl from "../wasm/console_wasm_bg.wasm?url";
 
 import type { Event } from "../types/Event.ts";
@@ -18,6 +24,39 @@ let wasmReady: Promise<unknown> | null = null;
 function ensureWasm(): Promise<unknown> {
   wasmReady ??= initWasm({ module_or_path: wasmUrl });
   return wasmReady;
+}
+
+/// One span of scanned turn-reference text: literal prose, or a reference resolved to its turn's
+/// ULID. The wire shape of the wasm scanner's segments (see `RefSegment` in console-wasm).
+export type TurnRefSegment = { kind: "prose"; text: string } | { kind: "ref"; id: string };
+
+// The turn-reference parser, crossing from `zuihitsu_core::turn_ref` — the same definition the
+// agent's `convo.turn` resolver reads, so what the console highlights, normalizes, and extracts
+// cannot drift from what the agent resolves. These are pure functions of their text, exported free
+// rather than as `Replica` methods; they still require the wasm module, which is guaranteed
+// initialized wherever they are called (every view renders under a `Replica` built by `fromEvents`,
+// which awaits `ensureWasm` first).
+
+/// Split text into prose spans and turn references (`[turn:<ulid>]` tokens and `?turn=<ulid>` URLs).
+export function scanTurnRefs(text: string): TurnRefSegment[] {
+  return turnRefScan(text) as TurnRefSegment[];
+}
+
+/// Rebuild text with every turn reference collapsed to the canonical `[turn:<ulid>]` token — the
+/// composer's send-time normalization.
+export function normalizeTurnRefs(text: string): string {
+  return turnRefNormalize(text);
+}
+
+/// Every turn id referenced in text, in order of appearance.
+export function extractTurnRefIds(text: string): string[] {
+  return turnRefExtract(text) as string[];
+}
+
+/// The canonical `[turn:<ulid>]` token for a turn id — minted by the same constructor the agent's
+/// `ref` field uses. Throws if `id` is not a ULID.
+export function constructTurnRef(id: string): string {
+  return turnRefConstruct(id);
 }
 
 /// A typed handle over the console-wasm `Replica`: an event log folded through the agent's own
