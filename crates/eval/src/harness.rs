@@ -21,7 +21,7 @@ use crate::{
     context::{RunContext, RunDeps},
     error::EvalError,
     judge::Judge,
-    live::EvalSink,
+    live::{EvalSink, now_ms},
     package::{Aggregate, RunMetrics, RunRecord, Stat, TokenStat, Verdict, VerdictKind},
     scenario::Scenario,
 };
@@ -107,7 +107,10 @@ pub async fn run_all(
             let scenario_index = scenario_index as u32;
             set.spawn(async move {
                 let _permit = permit;
-                sink.run_started(scenario_index, run_index)?;
+                // The harness's real wall-clock for the viewer's elapsed/projection, and a monotonic
+                // `Instant` for the drive-cost metric — two clocks, two purposes.
+                let started_at_ms = now_ms();
+                sink.run_started(scenario_index, run_index, started_at_ms)?;
                 let started = Instant::now();
                 let log =
                     drive_streaming(scenario.as_ref(), &deps, &sink, scenario_index, run_index)
@@ -116,7 +119,9 @@ pub async fn run_all(
                     log,
                     wall_clock_ms: started.elapsed().as_millis() as u64,
                 };
-                let record = assess(scenario.as_ref(), run_index, driven, &judge).await;
+                let mut record = assess(scenario.as_ref(), run_index, driven, &judge).await;
+                record.started_at_ms = started_at_ms;
+                record.finished_at_ms = now_ms();
                 sink.run_finished(scenario_index, record)
             });
         }
@@ -198,8 +203,11 @@ async fn assess(
                 .filter(|verdict| matches!(verdict.kind, VerdictKind::Oracle))
                 .all(|verdict| verdict.passed);
             let metrics = run_metrics(&events, gating_passed, wall_clock_ms);
+            // The wall-clock stamps are set by the caller, which holds the harness's real clock.
             RunRecord {
                 index,
+                started_at_ms: 0,
+                finished_at_ms: 0,
                 events,
                 verdicts,
                 metrics,
@@ -209,6 +217,8 @@ async fn assess(
         // a metric, not a gating leak — a flake must not be reported as a safety regression.
         Err(error) => RunRecord {
             index,
+            started_at_ms: 0,
+            finished_at_ms: 0,
             events: Vec::new(),
             verdicts: vec![Verdict::metric(
                 "the run completed",

@@ -11,6 +11,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use parking_lot::Mutex;
@@ -42,8 +43,16 @@ pub enum LiveEvent {
         meta: RunMeta,
         scenarios: Vec<ScenarioMeta>,
     },
-    /// A run began.
-    RunStarted { scenario: u32, run: u32 },
+    /// A run began. `at_ms` is the harness's wall-clock (epoch milliseconds) at the start — the real
+    /// clock, for the viewer's live elapsed and projection. `#[serde(default)]` fills `0` for a
+    /// pre-timing sidecar line.
+    RunStarted {
+        scenario: u32,
+        run: u32,
+        #[serde(default)]
+        #[ts(type = "number")]
+        at_ms: i64,
+    },
     /// One domain event from a run's deliberation, streamed live as it happens. Broadcast-only — it
     /// drives the deep-dive's unfolding view, but is *not* written to the sidecar: the authoritative
     /// record arrives in `RunCompleted`, so a client that joined mid-run (and missed some of these) is
@@ -61,6 +70,12 @@ pub enum LiveEvent {
         run: u32,
         record: RunRecord,
         aggregate: Aggregate,
+        /// The harness's wall-clock (epoch milliseconds) at completion — mirrors `record.finished_at_ms`
+        /// so a viewer folding only the live stream has the finish clock without unpacking the record.
+        /// `#[serde(default)]` fills `0` for a pre-timing sidecar line.
+        #[serde(default)]
+        #[ts(type = "number")]
+        at_ms: i64,
     },
     /// The whole run completed.
     Finished {
@@ -85,10 +100,18 @@ struct Inner {
     package: EvalPackage,
     writer: BufWriter<File>,
     next_id: u64,
-    /// The events of the runs currently driving, by `(scenario, run)` — retained only while a run is
-    /// in flight (dropped when it finishes into the package), so a client that connects mid-run can be
-    /// caught up on the deliberation so far rather than seeing it start partway through.
-    in_flight: BTreeMap<(u32, u32), Vec<Event>>,
+    /// The runs currently driving, by `(scenario, run)` — retained only while a run is in flight
+    /// (dropped when it finishes into the package), so a client that connects mid-run can be caught up
+    /// on the deliberation so far rather than seeing it start partway through. Each carries its start
+    /// wall-clock so the replayed `RunStarted` reproduces the real one.
+    in_flight: BTreeMap<(u32, u32), InFlightRun>,
+}
+
+/// A run's live catch-up state: its start wall-clock (epoch milliseconds) and the deliberation events
+/// seen so far, replayed to a client that joins mid-run.
+struct InFlightRun {
+    started_at_ms: i64,
+    events: Vec<Event>,
 }
 
 impl EvalSink {
@@ -128,11 +151,25 @@ impl EvalSink {
         Ok(sink)
     }
 
-    /// Open a run: record that it is driving (an empty live buffer) and emit `RunStarted`.
-    pub fn run_started(&self, scenario: u32, run: u32) -> Result<(), EvalError> {
+    /// Open a run: record that it is driving (an empty live buffer, stamped with its start wall-clock)
+    /// and emit `RunStarted`.
+    pub fn run_started(&self, scenario: u32, run: u32, at_ms: i64) -> Result<(), EvalError> {
         let mut inner = self.inner.lock();
-        inner.in_flight.insert((scenario, run), Vec::new());
-        self.emit_locked(&mut inner, LiveEvent::RunStarted { scenario, run })
+        inner.in_flight.insert(
+            (scenario, run),
+            InFlightRun {
+                started_at_ms: at_ms,
+                events: Vec::new(),
+            },
+        );
+        self.emit_locked(
+            &mut inner,
+            LiveEvent::RunStarted {
+                scenario,
+                run,
+                at_ms,
+            },
+        )
     }
 
     /// Broadcast one `RunEvent` live — a single event from a run's deliberation as it is recorded.
@@ -143,7 +180,11 @@ impl EvalSink {
         inner
             .in_flight
             .entry((scenario, run))
-            .or_default()
+            .or_insert_with(|| InFlightRun {
+                started_at_ms: 0,
+                events: Vec::new(),
+            })
+            .events
             .push(event.clone());
         self.broadcast_locked(
             &mut inner,
@@ -164,6 +205,7 @@ impl EvalSink {
         let run = record.index;
         // The run is whole now and lives in the package; retire its live catch-up buffer.
         inner.in_flight.remove(&(scenario, run));
+        let at_ms = record.finished_at_ms;
         let report = &mut inner.package.scenarios[scenario as usize];
         report.runs.push(record.clone());
         report.runs.sort_by_key(|run| run.index);
@@ -176,6 +218,7 @@ impl EvalSink {
                 run,
                 record,
                 aggregate,
+                at_ms,
             },
         )?;
         // Flush at the run boundary so a kill never loses a completed run: the sidecar always holds
@@ -205,9 +248,13 @@ impl EvalSink {
     ) {
         let inner = self.inner.lock();
         let mut catch_up = Vec::new();
-        for (&(scenario, run), events) in &inner.in_flight {
-            catch_up.push(LiveEvent::RunStarted { scenario, run });
-            for event in events {
+        for (&(scenario, run), in_flight) in &inner.in_flight {
+            catch_up.push(LiveEvent::RunStarted {
+                scenario,
+                run,
+                at_ms: in_flight.started_at_ms,
+            });
+            for event in &in_flight.events {
                 catch_up.push(LiveEvent::RunEvent {
                     scenario,
                     run,
@@ -366,6 +413,15 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
     })
 }
 
+/// The harness's wall-clock as epoch milliseconds — the real clock that stamps run start and finish
+/// (never the scenario's simulated clock). Falls back to `0` if the system clock predates the epoch.
+pub(crate) fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// Serialize one event as a single JSON line. The sidecar shares the `.jsonl` convention of the
 /// tracked history; each line is one self-contained [`LiveEvent`].
 fn write(writer: &mut BufWriter<File>, event: &LiveEvent) -> Result<(), EvalError> {
@@ -382,4 +438,84 @@ fn flush(writer: &mut BufWriter<File>) -> Result<(), EvalError> {
         path: Path::new("<eval sidecar>").to_path_buf(),
         source,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{EvalSink, LiveEvent, read_sidecar};
+    use crate::package::{Bar, Category, RunMeta, RunMetrics, RunRecord, ScenarioMeta};
+
+    /// A pre-timing sidecar predates `at_ms` on the run boundaries; `#[serde(default)]` must fill `0`
+    /// so an old line still folds.
+    #[test]
+    fn old_run_boundary_lines_default_at_ms_to_zero() {
+        let started: LiveEvent =
+            serde_json::from_str(r#"{"kind":"run_started","scenario":0,"run":2}"#)
+                .expect("old run_started parses");
+        match started {
+            LiveEvent::RunStarted { run, at_ms, .. } => {
+                assert_eq!(run, 2);
+                assert_eq!(at_ms, 0);
+            }
+            other => panic!("expected RunStarted, got {other:?}"),
+        }
+    }
+
+    /// The stamping seam: a run driven through the sink carries its wall-clock stamps into the package
+    /// and onto the `RunCompleted`'s `at_ms`, and survives the sidecar resume round-trip.
+    #[test]
+    fn a_stamped_run_survives_the_sidecar_and_resume() {
+        let dir = std::env::temp_dir().join(format!(
+            "zuihitsu-eval-live-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sidecar = dir.join("run.jsonl");
+
+        let meta = RunMeta {
+            harness_version: "test".to_owned(),
+            git_sha: None,
+            model_id: "test-model".to_owned(),
+            embedding_model: None,
+            started_at_ms: 100,
+            finished_at_ms: 100,
+            runs_per_scenario: 1,
+            concurrency: 1,
+        };
+        let scenario = ScenarioMeta {
+            name: "seam".to_owned(),
+            category: Category::Recall,
+            description: "seam test".to_owned(),
+            bar: Bar::Gating,
+        };
+        let sink = EvalSink::new(meta, vec![scenario], &sidecar).expect("sink opens");
+
+        sink.run_started(0, 0, 1_000).unwrap();
+        let record = RunRecord {
+            index: 0,
+            started_at_ms: 1_000,
+            finished_at_ms: 5_000,
+            events: Vec::new(),
+            verdicts: Vec::new(),
+            metrics: RunMetrics::default(),
+        };
+        sink.run_finished(0, record).unwrap();
+
+        let run = &sink.package().scenarios[0].runs[0];
+        assert_eq!(run.started_at_ms, 1_000);
+        assert_eq!(run.finished_at_ms, 5_000);
+
+        let resumed = read_sidecar(&sidecar).expect("resume reads the sidecar");
+        let (_, resumed_run) = &resumed.completed[0];
+        assert_eq!(resumed_run.started_at_ms, 1_000);
+        assert_eq!(resumed_run.finished_at_ms, 5_000);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

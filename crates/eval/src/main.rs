@@ -22,7 +22,6 @@ use std::{
     path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use clap::{Parser, Subcommand};
@@ -383,7 +382,7 @@ async fn run(
     let active = harness::active_scenarios(scenarios, deps.embedder.is_some());
     let scenario_metas: Vec<ScenarioMeta> = active.iter().map(|scenario| scenario.meta()).collect();
 
-    let started_at_ms = now_ms();
+    let started_at_ms = live::now_ms();
     let meta = RunMeta {
         harness_version: env!("CARGO_PKG_VERSION").to_owned(),
         git_sha: git_sha(),
@@ -431,7 +430,7 @@ async fn run(
     harness::warm_up(&deps).await;
 
     harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
-    sink.finish(now_ms())?;
+    sink.finish(live::now_ms())?;
 
     let package = sink.package();
 
@@ -580,13 +579,6 @@ fn git_sha() -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn init_tracing() {

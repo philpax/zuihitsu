@@ -2,7 +2,14 @@ import { Outlet, useMatch } from "react-router-dom";
 
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { Event } from "../types/Event.ts";
-import { type EvalContext, type LiveEvalStatus, NO_LIVE_RUNS } from "../lib/liveEval.ts";
+import {
+  type EvalContext,
+  type LiveEvalStatus,
+  NO_LIVE_RUNS,
+  projectFinishMs,
+  useNow,
+} from "../lib/liveEval.ts";
+import { formatSpan, formatTime } from "../lib/format.ts";
 import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { Dot } from "./primitives.tsx";
 import { FrameNav } from "./FrameNav.tsx";
@@ -66,7 +73,11 @@ export function EvalFrame({
                 </>
               )}
               {live ? (
-                <LiveProgress pkg={pkg} />
+                <>
+                  <LiveProgress pkg={pkg} />
+                  <Dot />
+                  <LiveTiming pkg={pkg} status={live} />
+                </>
               ) : (
                 <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
               )}
@@ -121,6 +132,34 @@ function LiveProgress({ pkg }: { pkg: EvalPackage }) {
   return (
     <span title="completed runs of the planned total">
       {done}/{total} runs
+    </span>
+  );
+}
+
+/// The live run's clock, quiet beside the progress: elapsed since it began, and — once a scenario has
+/// completed a run to extrapolate from — a projected local finish time (`~HH:MM`). Once the harness
+/// reports `finished`, the projection gives way to the run's total duration. Ticks every 30s while
+/// streaming; frozen once finished.
+function LiveTiming({ pkg, status }: { pkg: EvalPackage; status: LiveEvalStatus }) {
+  const finished = status.status === "finished";
+  const now = useNow(30_000, !finished);
+  const started = pkg.meta.started_at_ms;
+
+  if (finished) {
+    return (
+      <span className="font-mono text-2xs text-ink-faint" title="total run duration">
+        {formatSpan(pkg.meta.finished_at_ms - started)} total
+      </span>
+    );
+  }
+
+  const projected = projectFinishMs(pkg, now);
+  return (
+    <span className="flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
+      <span title="elapsed since the run began">{formatSpan(Math.max(0, now - started))}</span>
+      {projected !== null && (
+        <span title="projected completion (local time)">~{formatTime(projected)}</span>
+      )}
     </span>
   );
 }

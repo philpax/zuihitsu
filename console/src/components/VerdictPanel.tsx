@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { RunRecord } from "../types/RunRecord.ts";
 import type { Verdict } from "../types/Verdict.ts";
-import { formatMs, formatTokenSplit } from "../lib/format.ts";
+import { formatMs, formatTime, formatTokenSplit } from "../lib/format.ts";
 import { Disclosure, Excerpt, Eyebrow } from "./primitives.tsx";
 
 /// The run's verdicts and cost, sitting above the deep views so opening a run answers "did it pass,
@@ -52,6 +52,14 @@ export function VerdictPanel({ run, gating }: { run: RunRecord; gating: boolean 
           <span>{formatMs(metrics.wall_clock_ms)}</span>
           <span>·</span>
           <span>{formatTokenSplit(metrics.prompt_tokens, metrics.completion_tokens)}</span>
+          {run.started_at_ms > 0 && run.finished_at_ms > 0 && (
+            <>
+              <span>·</span>
+              <span className="text-2xs" title="when this run drove, on the harness's wall clock">
+                {formatTime(run.started_at_ms)}–{formatTime(run.finished_at_ms)}
+              </span>
+            </>
+          )}
         </span>
       </button>
 

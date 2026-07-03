@@ -80,6 +80,16 @@ pub enum Bar {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct RunRecord {
     pub index: u32,
+    /// The harness's wall-clock (epoch milliseconds) when the run began driving and when it finished.
+    /// The real clock, not the scenario's simulated one — for the viewer's live elapsed and projection.
+    /// `#[serde(default)]` fills `0` so a pre-timing sidecar or package still deserializes; a `0` reads
+    /// as "unstamped" and the viewer omits the per-run times rather than rendering an epoch.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub started_at_ms: i64,
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub finished_at_ms: i64,
     pub events: Vec<Event>,
     pub verdicts: Vec<Verdict>,
     pub metrics: RunMetrics,
@@ -267,4 +277,37 @@ pub struct TokenStat {
     pub prompt_mean: f64,
     pub completion_mean: f64,
     pub total_mean: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunRecord;
+
+    /// A pre-timing package predates the wall-clock stamps; `#[serde(default)]` must fill `0` so the
+    /// old record still deserializes, and a `0` reads as "unstamped" for the viewer.
+    #[test]
+    fn a_run_record_without_stamps_defaults_them_to_zero() {
+        let old = r#"{"index":3,"events":[],"verdicts":[],"metrics":{"model_calls":0,"steps":0,"wall_clock_ms":0,"total_latency_ms":0,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"gating_passed":true}}"#;
+        let record: RunRecord = serde_json::from_str(old).expect("old-shape record parses");
+        assert_eq!(record.index, 3);
+        assert_eq!(record.started_at_ms, 0);
+        assert_eq!(record.finished_at_ms, 0);
+    }
+
+    /// A stamped record round-trips through JSON, carrying both wall-clock stamps.
+    #[test]
+    fn a_stamped_run_record_round_trips() {
+        let record = RunRecord {
+            index: 1,
+            started_at_ms: 1_700_000_000_000,
+            finished_at_ms: 1_700_000_042_000,
+            events: Vec::new(),
+            verdicts: Vec::new(),
+            metrics: super::RunMetrics::default(),
+        };
+        let json = serde_json::to_string(&record).expect("serializes");
+        let back: RunRecord = serde_json::from_str(&json).expect("round-trips");
+        assert_eq!(back.started_at_ms, 1_700_000_000_000);
+        assert_eq!(back.finished_at_ms, 1_700_000_042_000);
+    }
 }
