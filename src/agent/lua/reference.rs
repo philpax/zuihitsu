@@ -109,9 +109,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                     format!(
                         "when the fact is about a real-world time (distinct from now): a tagged table, \
                          one of {{ instant = <ms> }}, {{ day = \"YYYY-MM-DD\" }}, \
-                         {{ range = {{ start = <ms>, end = <ms> }} }}, \
+                         {{ range = {{ start = <ms>, [\"end\"] = <ms> }} }} (end is a Lua keyword, so \
+                         quote-bracket it as a key), \
                          {{ approx = {{ center = <ms>, fuzz_days = <n> }} }}, {{ recurring = \"<rrule>\" }}, \
-                         or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"{event}...\" }} }}"
+                         or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"{event}...\" }} }}. \
+                         A date object (calendar.today() and its siblings) is itself a valid occurred_at — \
+                         pass it directly — and it may also stand in for a day inside a tagged table, in \
+                         the {{ day = ... }} field or a range's start/end endpoints"
                     ),
                 ),
             "overrides",
@@ -417,8 +421,16 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .returns(AT::Handle.list());
 
     let on = AE::new("calendar.on")
-        .description("Memories with something happening on a given day.")
-        .required("date", AT::String, "the day as \"YYYY-MM-DD\"")
+        .description(
+            "Memories with something happening on a given day. Pass a date object (calendar.today(), \
+             calendar.next(\"friday\"), …) or a \"YYYY-MM-DD\" string — the calendar's own return \
+             values feed straight back in.",
+        )
+        .required(
+            "date",
+            AT::String,
+            "the day — a date object or a \"YYYY-MM-DD\" string",
+        )
         .returns(AT::Handle.list());
 
     let recurring = AE::new("calendar.recurring")
@@ -428,8 +440,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let cal_today = AE::new("calendar.today")
         .description(
             "Today's date as a date object — pass it straight to append as occurred_at, or do \
-             arithmetic on it (:add_days, :add_weeks, :add_months, :weekday). Compute dates this way \
-             rather than working one out yourself.",
+             arithmetic on it (:add_days, :add_weeks, :add_months, :weekday). A date object prints \
+             and concatenates as its \"YYYY-MM-DD\" day (so \"Reminder for \" .. calendar.today() \
+             works), and :to_string() returns that day. Compute dates this way rather than working \
+             one out yourself.",
         )
         .returns(AT::Handle);
 
@@ -482,6 +496,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description("The date's weekday name, e.g. \"Friday\".")
         .returns(AT::String);
 
+    let date_to_string = AE::new("<date>:to_string")
+        .description(
+            "The date as its \"YYYY-MM-DD\" string. A date also prints and concatenates as this text, \
+             so you rarely need to call it explicitly.",
+        )
+        .returns(AT::String);
+
     // Assemble the catalogue, gating each feature group on its flag. The memory group (create,
     // append, supersede, …) is always on — an agent without memory is not an agent — and includes
     // `set_volatility`, which the scaffold references (fixing the pre-existing drift where it was
@@ -529,6 +550,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             date_add_weeks,
             date_add_months,
             date_weekday,
+            date_to_string,
         ]);
     }
     entries.push(abort);

@@ -315,7 +315,8 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
             "For a time relative to now (\"this Friday\", \"in two weeks\"), do not compute it — ask the \
              calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
              Each returns a date object you pass straight as occurred_at (occurred_at = \
-             calendar.in_weeks(2)) — not wrapped in a { day = ... } table."
+             calendar.in_weeks(2)) — not wrapped in a { day = ... } table — and which prints and \
+             concatenates as its date, so \"Reminder for \" .. calendar.next(\"friday\") just works."
                 .to_owned(),
         );
     }

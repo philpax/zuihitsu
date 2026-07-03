@@ -10,7 +10,7 @@ use crate::{
     agent::turn::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn},
     event::TurnRole,
     ids::{MemoryName, TurnId},
-    memory::memory_block::{AppendOptions, RelationSpec},
+    memory::memory_block::RelationSpec,
     time,
     vocabulary::{RelationName, TagName},
 };
@@ -18,10 +18,10 @@ use crate::{
 use super::{
     error::{BlockConsistencyError, CalendarError, TurnResolveError},
     runtime::{
-        BlockApi, SearchOpts, entry_handle_id, handle_id, link_target_id, make_date,
-        make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
-        make_link_handle_list, make_relation_result, render, route_error, run_memory_search,
-        value_text,
+        BlockApi, SearchOpts, append_options_from_lua, date_text, day_string, entry_handle_id,
+        handle_id, link_target_id, make_date, make_entry_handle, make_entry_handle_list,
+        make_handle, make_handle_list, make_link_handle_list, make_relation_result, render,
+        route_error, run_memory_search, value_text,
     },
 };
 
@@ -156,11 +156,7 @@ fn install_handle_methods(
                 async move {
                     let id = handle_id(&this)?;
                     api.lock(id).await;
-                    let opts: AppendOptions = if opts.is_nil() {
-                        AppendOptions::default()
-                    } else {
-                        lua.from_value(opts)?
-                    };
+                    let opts = append_options_from_lua(&lua, opts)?.unwrap_or_default();
                     let entry = {
                         let mut block = api.block.lock();
                         let entry_id = block
@@ -263,11 +259,7 @@ fn install_handle_methods(
                     let id = handle_id(&this)?;
                     let old = entry_handle_id(&old)?;
                     api.lock_class(id).await?;
-                    let opts: AppendOptions = if opts.is_nil() {
-                        AppendOptions::default()
-                    } else {
-                        lua.from_value(opts)?
-                    };
+                    let opts = append_options_from_lua(&lua, opts)?.unwrap_or_default();
                     let entry = {
                         let mut block = api.block.lock();
                         let new = block
@@ -544,18 +536,35 @@ pub(super) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
     Ok(metatable)
 }
 
-/// The metatable backing the date objects `calendar` constructs. `__tostring` renders the ISO day;
-/// the methods are calendar-correct arithmetic returning new date objects (`:add_days`,
-/// `:add_weeks`, `:add_months`), plus `:weekday()`. A date object is `{ day = "YYYY-MM-DD" }`, so it
-/// doubles as an `occurred_at` value — the runtime does the date math the model would otherwise slip
-/// on.
+/// The metatable backing the date objects `calendar` constructs. `__tostring` and `__concat` render
+/// the ISO day (so a date prints and concatenates as `"YYYY-MM-DD"` — `"Reminder for " .. friday`
+/// works — rather than erroring as a bare table), and `:to_string()` returns that same day. The other
+/// methods are calendar-correct arithmetic returning new date objects (`:add_days`, `:add_weeks`,
+/// `:add_months`), plus `:weekday()`. A date object is `{ day = "YYYY-MM-DD" }`, so it doubles as an
+/// `occurred_at` value — the runtime does the date math the model would otherwise slip on.
 pub(super) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     metatable.set(
         "__tostring",
         lua.create_function(|_, this: Table| this.get::<String>("day"))?,
     )?;
+    metatable.set(
+        "__concat",
+        lua.create_function(|lua, (left, right): (Value, Value)| {
+            Ok(format!(
+                "{}{}",
+                date_text(lua, &left)?,
+                date_text(lua, &right)?
+            ))
+        })?,
+    )?;
     let methods = lua.create_table()?;
+    // :to_string() — the ISO day as a string, the explicit form of the `__tostring`/`__concat`
+    // rendering for a script that wants the string in hand.
+    methods.set(
+        "to_string",
+        lua.create_function(|_, this: Table| this.get::<String>("day"))?,
+    )?;
     // :add_days(n) / :add_weeks(n) — shift by whole days (a UTC day plus whole days is exact).
     for (name, per) in [("add_days", 1i64), ("add_weeks", 7)] {
         let mt = metatable.clone();
@@ -881,11 +890,7 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
-                    let opts: Option<AppendOptions> = if opts.is_nil() {
-                        None
-                    } else {
-                        Some(lua.from_value(opts)?)
-                    };
+                    let opts = append_options_from_lua(&lua, opts)?;
                     let id = api
                         .block
                         .lock()
@@ -1233,10 +1238,13 @@ pub(super) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, date: String| {
+            move |lua, date: Value| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
+                    // Accept a date object (`calendar.today()`, `calendar.next(...)`) as readily as a
+                    // `"YYYY-MM-DD"` string, so the calendar's own return value feeds its sibling.
+                    let date = day_string(&date)?;
                     let ids = api
                         .block
                         .lock()

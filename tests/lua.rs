@@ -333,6 +333,120 @@ async fn calendar_date_objects_carry_arithmetic() {
 }
 
 #[tokio::test]
+async fn a_date_object_prints_concatenates_and_stringifies() {
+    // A date object renders as its ISO day through print/tostring, concatenates as that day from either
+    // side, and answers :to_string() with the same — so "Reminder for " .. friday works instead of
+    // erroring on a bare table, the crash the agent hit reaching for to_string/concat on a date.
+    let h = Harness::new(); // clock at Monday 2026-06-08.
+    let outcome = h
+        .run(
+            r#"
+        local friday = calendar.next("friday")
+        return tostring(friday)
+            .. " | " .. ("on " .. friday)
+            .. " | " .. (friday .. " it is")
+            .. " | " .. friday:to_string()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(
+        result,
+        "2026-06-12 | on 2026-06-12 | 2026-06-12 it is | 2026-06-12"
+    );
+}
+
+#[tokio::test]
+async fn calendar_on_accepts_a_date_object() {
+    // calendar.on takes a date object as readily as a "YYYY-MM-DD" string, so the calendar's own
+    // today()/next() return values feed straight into its sibling query rather than crashing on the
+    // string-argument conversion.
+    let h = Harness::new(); // clock at Monday 2026-06-08.
+    h.run(
+        r#"
+        local d = memory.create(EVENT_CLEANING)
+        d:append("dentist", { visibility = "public", occurred_at = calendar.today() })
+        "#,
+    )
+    .await;
+    let outcome = h.run(r#"return #calendar.on(calendar.today())"#).await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "1");
+}
+
+#[tokio::test]
+async fn occurred_at_accepts_a_date_object_in_a_day_field() {
+    // A date object stands in for the string inside a { day = ... } tagged table, so the agent's
+    // natural { day = calendar.next("friday") } deserializes rather than failing the string field.
+    let h = Harness::new(); // clock at Monday 2026-06-08.
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_BOARD_UPDATE)
+        ev:append("Send the board update", { occurred_at = { day = calendar.next("friday") }, visibility = "public" })
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.contains("[2026-06-12"),
+        "the nested date object should land as the day occurrence, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn occurred_at_accepts_a_range_built_from_date_objects() {
+    // A ranged occurred_at accepts date objects for its endpoints, converting each to the day's
+    // bounding instant (start of the first day, end of the last), so the agent builds a date range from
+    // calendar handles instead of hand-computing millisecond timestamps.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_CLEANING)
+        ev:append("Conference", {
+            visibility = "public",
+            occurred_at = { range = { start = calendar.date("2026-06-10"), ["end"] = calendar.date("2026-06-12") } }
+        })
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    // The range spans all of both boundary days and renders as its start–end.
+    assert!(
+        result.contains("2026-06-10 – 2026-06-12"),
+        "the range from date objects should render its span, got: {result}"
+    );
+
+    // And it denormalized to the range's midpoint sort, end to end.
+    let ev = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("cleaning"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
+    assert_eq!(entries.len(), 1);
+    let start = Timestamp::from_millis(20_614 * 86_400_000); // 2026-06-10 midnight UTC.
+    let end = Timestamp::from_millis(20_616 * 86_400_000 + 86_400_000 - 1); // 2026-06-12, last ms.
+    let expected = TemporalRef::Range { start, end }
+        .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
+        .sort;
+    assert_eq!(entries[0].occurred_sort, expected);
+}
+
+#[tokio::test]
 async fn append_records_a_structured_occurred_at() {
     let h = Harness::new();
     let outcome = h

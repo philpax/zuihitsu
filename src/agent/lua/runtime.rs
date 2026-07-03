@@ -16,15 +16,15 @@ use crate::{
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
-        memory_block::{EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryError},
+        memory_block::{AppendOptions, EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryError},
         search::{SearchQuery, search},
     },
     settings::Settings,
-    time::TemporalRef,
+    time::{MILLIS_PER_DAY, TemporalRef, civil_date_to_millis},
     vocabulary::TagName,
 };
 
-use super::error::{HandleError, MemorySearchError};
+use super::error::{HandleError, MemorySearchError, TemporalArgError};
 
 /// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
 /// infrastructure-error slot (`infra`), the per-block lock set (`lock_set`), and the server-wide lock
@@ -557,4 +557,98 @@ pub(super) fn value_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
         .coerce_string(value.clone())?
         .map(|s| s.to_string_lossy())
         .unwrap_or_default())
+}
+
+/// Render a value for a date handle's `__concat`: a date handle (a `{ day = "…" }` table) yields its
+/// ISO day, and any other operand coerces as Lua's `tostring` would — so both `"on " .. friday` and
+/// `friday .. " it is"` read the date while the surrounding text coerces normally.
+pub(super) fn date_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
+    if let Value::Table(table) = value
+        && let Ok(day) = table.get::<String>("day")
+    {
+        return Ok(day);
+    }
+    Ok(lua
+        .coerce_string(value.clone())?
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default())
+}
+
+/// The ISO `YYYY-MM-DD` day a temporal argument names: a date object (a `{ day = "…" }` table) yields
+/// its `day`, a string is taken verbatim, and anything else is a teachable [`TemporalArgError`]. Shared
+/// by `calendar.on` and the `occurred_at` normalization so a date object stands in for a date string
+/// wherever a single day is wanted, without validating the string itself (the caller's block does that).
+pub(super) fn day_string(value: &Value) -> mlua::Result<String> {
+    match value {
+        Value::String(day) => Ok(day.to_string_lossy()),
+        Value::Table(table) => match table.get::<Option<String>>("day")? {
+            Some(day) => Ok(day),
+            None => Err(TemporalArgError::NotADate { type_name: "table" }.into()),
+        },
+        other => Err(TemporalArgError::NotADate {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Deserialize a Lua `opts` table into [`AppendOptions`], first normalizing any date handles inside its
+/// `occurred_at` so a date object stands in for a `"YYYY-MM-DD"` string wherever a day is wanted. This
+/// is the single seam every `occurred_at` taker — `<memory>:append`, `<memory>:revise`, and
+/// `memory.create` — passes through, so accepting a date handle is decided once here rather than at each
+/// call site; a future taker of the tagged table inherits it for free. `nil` opts yield `None`.
+pub(super) fn append_options_from_lua(
+    lua: &Lua,
+    opts: Value,
+) -> mlua::Result<Option<AppendOptions>> {
+    if opts.is_nil() {
+        return Ok(None);
+    }
+    if let Value::Table(table) = &opts
+        && let Value::Table(occurred) = table.get::<Value>("occurred_at")?
+    {
+        normalize_temporal(&occurred)?;
+    }
+    Ok(Some(lua.from_value(opts)?))
+}
+
+/// Rewrite date handles inside an `occurred_at` tagged table into the primitives its [`TemporalRef`]
+/// deserialization expects, in place: a `{ day = <date object> }` field becomes `{ day = "…" }`, and a
+/// range's `start`/`end` date objects become the day's bounding instants (its start for `start`, its
+/// last millisecond for `end`, so a range from Monday to Friday spans all of Friday). A position already
+/// holding a primitive is left untouched. The value itself being a date handle needs no rewrite — a date
+/// handle *is* a `{ day = "…" }` table, so it already deserializes as a `Day`.
+fn normalize_temporal(occurred: &Table) -> mlua::Result<()> {
+    if let day @ Value::Table(_) = occurred.get::<Value>("day")? {
+        occurred.set("day", day_string(&day)?)?;
+    }
+    if let Value::Table(range) = occurred.get::<Value>("range")? {
+        coerce_range_bound(&range, "start", DayBound::Start)?;
+        coerce_range_bound(&range, "end", DayBound::End)?;
+    }
+    Ok(())
+}
+
+/// Which instant of a day a range endpoint resolves to when a date object stands in for a millisecond
+/// timestamp: the day's first millisecond for a `start`, its last for an `end`, so the range covers the
+/// whole of both boundary days.
+enum DayBound {
+    Start,
+    End,
+}
+
+/// Replace a range endpoint given as a date object with the day's bounding instant in epoch
+/// milliseconds; a primitive already there (a millisecond count) is left untouched.
+fn coerce_range_bound(range: &Table, key: &str, bound: DayBound) -> mlua::Result<()> {
+    if let endpoint @ Value::Table(_) = range.get::<Value>(key)? {
+        let day = day_string(&endpoint)?;
+        let midnight =
+            civil_date_to_millis(&day).ok_or(TemporalArgError::InvalidDay { input: day })?;
+        let millis = match bound {
+            DayBound::Start => midnight,
+            DayBound::End => midnight + MILLIS_PER_DAY - 1,
+        };
+        range.set(key, millis)?;
+    }
+    Ok(())
 }

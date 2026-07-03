@@ -52,6 +52,42 @@ impl From<CalendarError> for LuaError {
     }
 }
 
+/// A bad date value handed to a temporal surface — `calendar.on`, or the `occurred_at` option's `day`
+/// and range positions — where a date object (from `calendar.today()` and its siblings) or a
+/// `"YYYY-MM-DD"` string was wanted. Raised at the parsing seam that every `occurred_at` taker passes
+/// through, so a date object stands in for a date string uniformly.
+#[derive(Debug)]
+pub(super) enum TemporalArgError {
+    /// A value that is neither a date object nor a date string where a day was expected.
+    NotADate { type_name: &'static str },
+    /// A date string (or a date object's `day`) that is not a valid `YYYY-MM-DD` calendar date.
+    InvalidDay { input: String },
+}
+
+impl std::fmt::Display for TemporalArgError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TemporalArgError::NotADate { type_name } => write!(
+                f,
+                "expected a date object (from calendar.today(), calendar.next(...), …) or a \
+                 \"YYYY-MM-DD\" string, got {type_name}"
+            ),
+            TemporalArgError::InvalidDay { input } => write!(
+                f,
+                "{input:?} is not a valid date; use YYYY-MM-DD, e.g. \"2026-06-03\""
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TemporalArgError {}
+
+impl From<TemporalArgError> for LuaError {
+    fn from(error: TemporalArgError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// A failure running `memory.search` — the embedder/vector backends, or the absence of retrieval on
 /// the instance. The delegating variants nest their inner error's own `model:`/`search (…):` prefix.
 #[derive(Debug)]
