@@ -114,7 +114,7 @@ function ScenarioRail({
 }) {
   const runsPlanned = pkg.meta.runs_per_scenario;
   return (
-    <aside className="hidden w-40 shrink-0 lg:block">
+    <aside className="hidden w-48 shrink-0 lg:block">
       <div className="sticky top-4 flex flex-col">
         <Eyebrow>scenarios</Eyebrow>
         <nav className="mt-3 flex flex-col gap-0.5">
@@ -137,8 +137,10 @@ function ScenarioRail({
             const status = ongoing ? (
               // The working pulse is the console's established in-flight cue (sage); the tally itself
               // stays neutral ink-faint so it never reads as a point on the clay→sage rate scale.
-              <span className="flex shrink-0 items-center gap-1 text-ink-faint" title="running">
-                <span className="relative flex h-1 w-1">
+              // items-baseline with the dot self-centered: the dot is a baseline-less box, so left to
+              // lead the flex line it would drag the tally off the scenario name's baseline.
+              <span className="flex shrink-0 items-baseline gap-1 text-ink-faint" title="running">
+                <span className="relative flex h-1 w-1 self-center">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
                   <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
                 </span>
