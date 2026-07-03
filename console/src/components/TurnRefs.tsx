@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { formatDateTime, formatTime } from "../lib/format.ts";
@@ -37,7 +37,20 @@ export function RefText({ text }: { text: string }) {
 export function TurnRefChip({ id }: { id: string }) {
   const targets = useContext(TurnRefs);
   const [searchParams] = useSearchParams();
-  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLSpanElement>(null);
+  // The popup's placement is measured at open: it prefers above-left of the chip, but flips to the
+  // right edge or below when that would leave the viewport (a chip near the pane's right edge or the
+  // window's top would otherwise clip its preview).
+  const [open, setOpen] = useState<{ alignRight: boolean; below: boolean } | null>(null);
+  const show = () => {
+    const rect = anchor.current?.getBoundingClientRect();
+    setOpen({
+      // w-80 is 20rem = 320px; 16px of breathing room against the edge.
+      alignRight: rect !== undefined && rect.left + 336 > window.innerWidth,
+      // A generous estimate of the popup's height; a five-line preview runs ~260px.
+      below: rect !== undefined && rect.top < 280,
+    });
+  };
   const target = targets.get(id);
   if (!target) {
     return (
@@ -56,11 +69,12 @@ export function TurnRefChip({ id }: { id: string }) {
   params.set("turn", target.turn.turnId);
   return (
     <span
+      ref={anchor}
       className="relative mx-0.5 inline-block"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
+      onMouseEnter={show}
+      onMouseLeave={() => setOpen(null)}
+      onFocus={show}
+      onBlur={() => setOpen(null)}
     >
       <Link
         to={{ search: params.toString() }}
@@ -71,7 +85,7 @@ export function TurnRefChip({ id }: { id: string }) {
         </span>
         {speakerLabel(target.turn)}
       </Link>
-      {open && <TurnRefPopup target={target} />}
+      {open && <TurnRefPopup target={target} placement={open} />}
     </span>
   );
 }
@@ -79,9 +93,21 @@ export function TurnRefChip({ id }: { id: string }) {
 /// The hover preview: the focal turn and its neighbors as compact transcript lines — speaker,
 /// timestamp, and clamped text. Spans throughout (the chip can sit inside a `<p>`), styled as a
 /// raised card in the house tokens.
-function TurnRefPopup({ target }: { target: TurnRefTarget }) {
+function TurnRefPopup({
+  target,
+  placement,
+}: {
+  target: TurnRefTarget;
+  placement: { alignRight: boolean; below: boolean };
+}) {
   return (
-    <span className="absolute bottom-full left-0 z-20 mb-1.5 block w-80 max-w-[75vw] rounded-sm border border-line bg-paper-raised p-3 shadow-lg">
+    <span
+      className={
+        "absolute z-20 block w-80 max-w-[75vw] rounded-sm border border-line bg-paper-raised p-3 shadow-lg " +
+        (placement.below ? "top-full mt-1.5 " : "bottom-full mb-1.5 ") +
+        (placement.alignRight ? "right-0" : "left-0")
+      }
+    >
       {target.window.map((turn, index) => {
         const focused = index === target.focusIndex;
         return (
