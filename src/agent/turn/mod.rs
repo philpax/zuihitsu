@@ -273,7 +273,15 @@ pub fn resolve_turn(
     let Some(focus) = turns.iter().find(|turn| turn.view.turn_id == turn_id) else {
         return Ok(TurnResolution::NotFound);
     };
-    if !audience_admits(present_set, &focus.audience) {
+    // Resolve every id the audience rule will weigh — the present set and every turn's audience — to
+    // its `same_as` class, so the rule compares identities rather than raw stubs. An operator-asserted
+    // cross-platform merge (`person/maya@direct` same_as `person/maya@discord`) then reads as one
+    // person: the merged identity resolves a turn recorded under either stub, consistent with how
+    // class-wide reads (`class_entries`) already treat a merge (spec §Visibility). Built once off a
+    // single graph lock, taken after the store lock above is released (graph-before-store ordering is
+    // for holding both at once, not for taking them in sequence).
+    let class_of = class_map(engine, present_set, &turns);
+    if !audience_admits(present_set, &focus.audience, &class_of) {
         // The id maps to a real turn, but not one everyone present shared — a distinct, teachable
         // refusal that (safely, ULIDs being unguessable) confirms existence.
         return Ok(TurnResolution::AudienceMismatch);
@@ -298,7 +306,7 @@ pub fn resolve_turn(
     let admitted: Vec<&AudienceTurn> = session_turns[start..end]
         .iter()
         .copied()
-        .filter(|turn| audience_admits(present_set, &turn.audience))
+        .filter(|turn| audience_admits(present_set, &turn.audience, &class_of))
         .collect();
     let focus_position = admitted
         .iter()
@@ -335,10 +343,48 @@ struct AudienceTurn {
     audience: Vec<MemoryId>,
 }
 
-/// Whether every member of `present_set` is in `audience` — the audience rule. An empty present set is
-/// vacuously admitted (there is no one to have been excluded).
-fn audience_admits(present_set: &[MemoryId], audience: &[MemoryId]) -> bool {
-    present_set.iter().all(|member| audience.contains(member))
+/// Whether every member of `present_set` is in `audience` — the audience rule, compared by `same_as`
+/// class rather than by raw id. Each side is mapped through `class_of` (a member with no class in the
+/// graph stands for itself), so a present member is admitted when any of its class siblings was in the
+/// audience. This makes an operator-merged cross-platform identity one person for transcript
+/// resolution, matching how class-wide reads treat a merge. An empty present set is vacuously admitted
+/// (there is no one to have been excluded).
+fn audience_admits(
+    present_set: &[MemoryId],
+    audience: &[MemoryId],
+    class_of: &HashMap<MemoryId, MemoryId>,
+) -> bool {
+    let class = |id: &MemoryId| class_of.get(id).copied().unwrap_or(*id);
+    let audience_classes: BTreeSet<MemoryId> = audience.iter().map(class).collect();
+    present_set
+        .iter()
+        .all(|member| audience_classes.contains(&class(member)))
+}
+
+/// Map every id the audience rule weighs — the present set and every turn's audience — to its
+/// `same_as`-class id, off a single graph lock. A member whose class cannot be read (unknown, soft-
+/// deleted, or a graph error) is simply absent, so [`audience_admits`] falls back to its raw id — the
+/// strict pre-merge behavior, never a looser one. The lock is taken after the resolver's store read is
+/// released, so it never holds the store and graph guards together.
+fn class_map(
+    engine: &Engine,
+    present_set: &[MemoryId],
+    turns: &[AudienceTurn],
+) -> HashMap<MemoryId, MemoryId> {
+    let graph = engine.graph.lock();
+    let mut class_of = HashMap::new();
+    for id in present_set
+        .iter()
+        .copied()
+        .chain(turns.iter().flat_map(|turn| turn.audience.iter().copied()))
+    {
+        if let std::collections::hash_map::Entry::Vacant(entry) = class_of.entry(id)
+            && let Ok(Some(class)) = graph.class_id(id)
+        {
+            entry.insert(class);
+        }
+    }
+    class_of
 }
 
 /// Every `ConversationTurn` in the log, each tagged with the audience in effect at its seq. One
@@ -1337,4 +1383,101 @@ fn append_turn(
         }],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TurnResolution, resolve_turn};
+    use crate::{
+        clock::ManualClock,
+        engine::Engine,
+        event::{Cardinality, EventPayload, Initiation, LinkSource, TurnRole},
+        graph::Graph,
+        ids::{ConversationId, MemoryId, Namespace, SessionId, TurnId},
+        store::{MemoryStore, Store},
+        time::Timestamp,
+        vocabulary::RelationName,
+    };
+
+    /// A single-participant discord session in which `maya@discord` records one turn — the group-room
+    /// moment a later reference points back to. Optionally operator-merges `maya@direct` into the same
+    /// `same_as` class, mirroring how the console confirms a cross-platform identity. Returns the
+    /// booted engine, the direct stub's id (the requester in a solo DM), and the recorded turn's id.
+    fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, TurnId) {
+        let conversation = ConversationId::generate();
+        let session = SessionId::generate();
+        let turn_id = TurnId::generate();
+        let discord = MemoryId::generate();
+        let direct = MemoryId::generate();
+
+        let mut events = vec![
+            EventPayload::LinkTypeRegistered {
+                name: RelationName::SameAs,
+                inverse: RelationName::SameAs,
+                from_card: Cardinality::Many,
+                to_card: Cardinality::Many,
+                symmetric: true,
+                reflexive: false,
+                description: String::new(),
+            },
+            EventPayload::memory_created(discord, Namespace::Person.with_name("maya@discord")),
+            EventPayload::memory_created(direct, Namespace::Person.with_name("maya@direct")),
+            EventPayload::session_started(
+                conversation,
+                session,
+                vec![discord],
+                Timestamp::from_millis(1_000),
+                None,
+                "",
+            ),
+            EventPayload::conversation_turn(
+                conversation,
+                turn_id,
+                TurnRole::Participant,
+                "we're standardizing on Postgres",
+                Some(discord),
+                Initiation::Responding,
+                None,
+            ),
+        ];
+        if merge_direct {
+            events.push(EventPayload::LinkCreated {
+                from: direct,
+                to: discord,
+                relation: RelationName::SameAs,
+                source: LinkSource::Operator,
+                told_by: None,
+            });
+        }
+
+        let mut store = MemoryStore::new();
+        store.append(Timestamp::from_millis(1_000), events).unwrap();
+        let mut graph = Graph::open_in_memory().unwrap();
+        graph.materialize_from(&store).unwrap();
+        let engine = Engine::new(
+            Box::new(store),
+            graph,
+            Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
+        );
+        (engine, direct, turn_id)
+    }
+
+    #[test]
+    fn a_merged_identity_resolves_a_turn_recorded_under_the_other_stub() {
+        // maya's direct stub, operator-merged with her discord stub, is present in a solo DM. She
+        // attended the discord room only under the discord stub, but the merge makes the two one
+        // person, so the audience rule admits her and the moment resolves.
+        let (engine, direct, turn_id) = discord_moment(true);
+        let resolution = resolve_turn(&engine, &[direct], turn_id, 2, 2).unwrap();
+        assert!(matches!(resolution, TurnResolution::Resolved(_)));
+    }
+
+    #[test]
+    fn an_unmerged_direct_stub_is_refused_as_a_different_person() {
+        // Without the merge, the direct stub is a distinct identity that was never in the room's
+        // audience, so the same lookup refuses — the raw-id behavior the class rule falls back to.
+        let (engine, direct, turn_id) = discord_moment(false);
+        let resolution = resolve_turn(&engine, &[direct], turn_id, 2, 2).unwrap();
+        assert!(matches!(resolution, TurnResolution::AudienceMismatch));
+    }
 }

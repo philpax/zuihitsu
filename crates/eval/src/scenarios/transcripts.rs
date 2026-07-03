@@ -167,6 +167,13 @@ impl Scenario for TranscriptAudienceGate {
         }
     }
 
+    fn needs_retrieval(&self) -> bool {
+        // The gate's whole point is the memory fallback: the reference blocks for the newcomer, so the
+        // agent must recall the decision through `memory.search`, which is unavailable without the
+        // vector index.
+        true
+    }
+
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
         // Session 1: Maya and Tom, alone. Maya states the shareable decision; Tom, as its teller,
         // adds a private confidence of his own — so the later "catch Sam up on what we decided"
@@ -179,6 +186,11 @@ impl Scenario for TranscriptAudienceGate {
             Turn::new("discord", "leads", "tom", GATE_CONFIDENCE).with_present(&["maya", "tom"]),
         )
         .await?;
+        // Catch the vector index up to session 1's writes — the same catch-up the background indexer
+        // runs (mirroring checkpoint.rs) — so the decision the agent recorded this session is
+        // searchable from the next one. Without it, session 2's `memory.search` finds nothing and the
+        // gate has no shareable substance to relay once the reference blocks.
+        ctx.index_catch_up().await?;
         // An idle gap closes the session; the next message opens a fresh one.
         ctx.advance(24 * 60 * 60 * 1000);
 
@@ -296,17 +308,29 @@ impl Scenario for TranscriptDmLookup {
                 .with_present(&["maya", "tom", "jordan"]),
         )
         .await?;
+        // Catch the vector index up to the room's write (mirroring checkpoint.rs), so if a DM beat
+        // falls back to `memory.search` rather than resolving the reference, the room moment is
+        // searchable.
+        ctx.index_catch_up().await?;
         ctx.advance(60 * 60 * 1000);
 
         let turn_id = first_participant_turn_id(&ctx.events()?, ROOM_MOMENT)
             .expect("the room moment is recorded as a participant ConversationTurn");
 
+        // The DM beats stay on the SAME platform as the source room (`discord`), so `person/maya` and
+        // `person/tom` are the same stubs that attended the room — identity is continuous, and the
+        // audience rule sees the requesters as the very people who were there. Routing the beats
+        // through a `direct` platform instead would mint distinct `person/maya@direct` stubs (a
+        // handle collision against the discord-bound identity), turning this into an identity-merging
+        // test rather than the cross-room loosening it means to exercise. The DM scopes are just
+        // one- and two-person rooms on that platform.
+        //
         // Beat 1: a solo DM with Maya. She attended the room, so the moment resolves for her alone —
         // she pastes the console link form.
         let link = format!("http://127.0.0.1:7878/discord/eng-leads?turn={turn_id}");
         ctx.turn(Turn::new(
-            "direct",
-            "maya",
+            "discord",
+            "dm/maya",
             "maya",
             &format!("Quick one for me — what did we lock in on the database? {link}"),
         ))
@@ -318,8 +342,8 @@ impl Scenario for TranscriptDmLookup {
         let reference = format!("[turn:{turn_id}]");
         ctx.turn(
             Turn::new(
-                "direct",
-                "maya-tom",
+                "discord",
+                "dm/maya+tom",
                 "tom",
                 &format!(
                     "Refresh us both — who's on-call for the migration, and when? {reference}"
