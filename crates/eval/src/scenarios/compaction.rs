@@ -223,10 +223,23 @@ const REPEATED_SCRIPT: [&str; 8] = [
     "And pencil in a team offsite. That's everything — thanks!",
 ];
 
-/// Sized just above a few turns' worth of prompt (the steps run ~3.1–4k tokens), so the buffer holds
-/// roughly four turns of real continuity before each cut — eight turns then re-segment several times (~3-6),
-/// rather than the every-turn thrash a sub-system-prompt budget forces.
-const REPEATED_BUDGET: i64 = 3_700;
+/// The token budget that trips a cut: a turn compacts when its peak prompt (`observed > token_budget`
+/// in `platform.rs`) crosses this, where the prompt is the frozen prefix (system prompt + brief) plus
+/// the accumulated buffer plus the inbound turn. After a cut the buffer resets, so cuts recur only if
+/// the budget is re-crossed within the remaining turns.
+///
+/// The arithmetic. Turn one's peak prompt is ~3.1k tokens (prefix + one turn); each further buffered
+/// turn adds ~130, so an uncut run climbs to ~4k by turn eight. The former budget of 3700 sat near the
+/// top of that band, so it was first crossed only around turn six — leaving too few turns to re-cross
+/// after the reset, which is why the soak reached just one cut. Sizing it to 3200 puts the first cross
+/// at turn two or three (3.1k + one turn ≈ 3.23k > 3200), and each post-cut session re-crosses within
+/// a turn or two — because its fresh brief carries a longer tail, so its baseline is no lower than the
+/// first's — yielding roughly three to four cuts across the eight scripted turns plus the probe.
+/// That clears the "at least twice" bar with generous margin while staying above turn one's ~3.1k peak,
+/// so the first segment is two turns rather than the every-turn thrash a sub-3.1k budget would force
+/// (a thrashing single-turn segment never reaches `FLUSH_MIN_TURNS`, so its working state is never
+/// flushed before the cut).
+const REPEATED_BUDGET: i64 = 3_200;
 
 pub struct RepeatedCompaction;
 
