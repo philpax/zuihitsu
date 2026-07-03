@@ -1054,6 +1054,8 @@ LinkTypeRegistered       (created_by / created)
 LinkTypeRegistered       (operator_of / operates)   -- current operatorship (whose instance this is); distinct from created_by, which is historical, so operatorship can transfer without rewriting origin
 LinkTypeRegistered       (knows / known_by)
 LinkTypeRegistered       (same_as / same_as)      -- symmetric; cross-platform identity
+LinkTypeRegistered       (participates_in / has_participant)  -- a person's attendance at an event
+LinkTypeRegistered       (part_of / contains)     -- membership or aboutness: an event, entry-bearing memory, or sub-topic belonging to a topic, project, or workstream (not people, who participates_in)
 ...                      (a small seed set; the agent registers more as needed. `_session_carryover` was once seeded here for compaction carryover; it is retired — the working set is platform-derived — though old logs' registrations and links still materialize)
 ConfigSet                (default behavioral-settings snapshot — see Configuration)
 MemoryCreated            (self)

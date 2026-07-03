@@ -632,8 +632,8 @@ struct RelationDef {
 fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, ParticipatesIn,
-        SameAs,
+        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, PartOf,
+        ParticipatesIn, SameAs,
     };
     vec![
         // created_by is historical origin (one creator); distinct from current operatorship.
@@ -688,6 +688,20 @@ fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "A person is in an event — someone who will be there or took part.",
         },
+        // Membership or aboutness: an event, entry-bearing memory, or sub-topic belonging to a
+        // topic, project, or workstream. Not for people — a person participates_in an event rather
+        // than being part_of it.
+        RelationDef {
+            name: PartOf,
+            inverse: Contains,
+            from_card: Many,
+            to_card: Many,
+            symmetric: false,
+            reflexive: false,
+            description: "An event, entry-bearing memory, or sub-topic belongs to a topic, \
+                project, or workstream — membership or aboutness. Not for people, who \
+                participates_in an event instead.",
+        },
     ]
 }
 
@@ -719,6 +733,8 @@ mod tests {
     //! A fresh log rolls out a complete agent, an interrupted one resumes by emitting only what's
     //! missing, and a complete one is left alone — all keyed on the presence of `GenesisCompleted`,
     //! never log emptiness (spec §Initialization).
+    use std::collections::BTreeSet;
+
     use crate::{
         InstanceFeatures,
         agent::genesis::{self, GenesisStatus, Rollout, SeedSelf},
@@ -868,6 +884,108 @@ mod tests {
             .iter()
             .any(|e| matches!(e.payload, EventPayload::LinkCreated { .. }));
         assert!(!any_link);
+    }
+
+    #[test]
+    fn genesis_seeds_the_part_of_membership_relation() {
+        // `part_of`/`contains` is the membership-or-aboutness relation: an event, entry-bearing
+        // memory, or sub-topic belonging to a topic. Seeding it meets the agent where it already
+        // reaches (part_of/contains were the coined names) instead of leaving it to improvise or
+        // stretch created_by.
+        let mut store = MemoryStore::new();
+        genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
+        let events = store.read_from(Seq::ZERO).unwrap();
+
+        let part_of = events.iter().find_map(|e| match &e.payload {
+            EventPayload::LinkTypeRegistered { name, inverse, .. }
+                if name.as_str() == "part_of" =>
+            {
+                Some(inverse.as_str().to_owned())
+            }
+            _ => None,
+        });
+        assert_eq!(
+            part_of.as_deref(),
+            Some("contains"),
+            "genesis must seed part_of with its contains inverse"
+        );
+    }
+
+    #[test]
+    fn every_reference_link_example_is_a_seeded_relation() {
+        // The drift guard: the link/outgoing/incoming/unlink reference entries illustrate their
+        // `relation` argument with example labels. Every such example must name a seeded relation (or
+        // its inverse), so an agent copying the example verbatim never hits an "unknown relation"
+        // crash. `links.register` is excluded — its example is deliberately an *unseeded* relation,
+        // since registering a new one is the whole point of the call.
+        let seeded: BTreeSet<String> = super::seed_relations()
+            .into_iter()
+            .flat_map(|relation| {
+                [
+                    relation.name.as_str().to_owned(),
+                    relation.inverse.as_str().to_owned(),
+                ]
+            })
+            .collect();
+
+        let reference = crate::agent::lua::api_reference(&InstanceFeatures::default());
+        let link_entries = [
+            "<memory>:link",
+            "<memory>:unlink",
+            "<memory>:outgoing",
+            "<memory>:incoming",
+        ];
+        for entry in reference
+            .iter()
+            .filter(|entry| link_entries.contains(&entry.call.as_str()))
+        {
+            let text = std::iter::once(entry.doc.as_str())
+                .chain(entry.params.iter().map(|param| param.doc.as_str()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            for example in relation_examples(&text) {
+                assert!(
+                    seeded.contains(&example),
+                    "{}: example relation {example:?} is not a seeded relation — a copied example \
+                     would crash with \"unknown relation\"",
+                    entry.call
+                );
+            }
+        }
+    }
+
+    /// Extract the relation labels a reference entry illustrates: the value after an `e.g. "…"`
+    /// marker, and any label passed to a `:link("…")` / `:outgoing("…")` / `:incoming("…")` /
+    /// `:unlink("…")` call form in the prose. Every one must resolve to a seeded relation.
+    fn relation_examples(text: &str) -> Vec<String> {
+        let markers = [
+            "e.g. \"",
+            ":link(\"",
+            ":outgoing(\"",
+            ":incoming(\"",
+            ":unlink(\"",
+        ];
+        let mut examples = Vec::new();
+        for marker in markers {
+            let mut rest = text;
+            while let Some(start) = rest.find(marker) {
+                let after = &rest[start + marker.len()..];
+                if let Some(end) = after.find('"') {
+                    examples.push(after[..end].to_owned());
+                    rest = &after[end..];
+                } else {
+                    break;
+                }
+            }
+        }
+        examples
     }
 
     #[test]

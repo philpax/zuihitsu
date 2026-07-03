@@ -63,9 +63,9 @@ impl std::str::FromStr for TagName {
 /// A link relation, by label. The relation registry lives in data (spec §Data model) and the agent
 /// registers relations at runtime, so this is a typed lens over the names: the build's seed
 /// relations are named variants that code can match (`SameAs` drives identity-class merging,
-/// `SessionCarryover` the compaction carryover, `ParticipatesIn` event attendance), and everything
-/// else — including the inverse labels — falls to `Other`. It serializes as its bare name, so the
-/// wire format is just the string.
+/// `SessionCarryover` the compaction carryover, `ParticipatesIn` event attendance, `PartOf`
+/// membership or aboutness), and everything else — including the inverse labels — falls to `Other`.
+/// It serializes as its bare name, so the wire format is just the string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RelationName {
     CreatedBy,
@@ -74,6 +74,7 @@ pub enum RelationName {
     SameAs,
     SessionCarryover,
     ParticipatesIn,
+    PartOf,
     /// The inverse label of [`RelationName::CreatedBy`].
     Created,
     /// The inverse label of [`RelationName::OperatorOf`].
@@ -84,6 +85,8 @@ pub enum RelationName {
     SessionCarries,
     /// The inverse label of [`RelationName::ParticipatesIn`].
     HasParticipant,
+    /// The inverse label of [`RelationName::PartOf`].
+    Contains,
     Other(SmolStr),
 }
 
@@ -100,11 +103,13 @@ impl RelationName {
             "same_as" => RelationName::SameAs,
             "_session_carryover" => RelationName::SessionCarryover,
             "participates_in" => RelationName::ParticipatesIn,
+            "part_of" => RelationName::PartOf,
             "created" => RelationName::Created,
             "operates" => RelationName::Operates,
             "known_by" => RelationName::KnownBy,
             "_session_carries" => RelationName::SessionCarries,
             "has_participant" => RelationName::HasParticipant,
+            "contains" => RelationName::Contains,
             _ => RelationName::Other(SmolStr::new(name)),
         }
     }
@@ -117,11 +122,13 @@ impl RelationName {
             RelationName::SameAs => "same_as",
             RelationName::SessionCarryover => "_session_carryover",
             RelationName::ParticipatesIn => "participates_in",
+            RelationName::PartOf => "part_of",
             RelationName::Created => "created",
             RelationName::Operates => "operates",
             RelationName::KnownBy => "known_by",
             RelationName::SessionCarries => "_session_carries",
             RelationName::HasParticipant => "has_participant",
+            RelationName::Contains => "contains",
             RelationName::Other(name) => name.as_str(),
         }
     }

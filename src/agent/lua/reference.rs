@@ -193,7 +193,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              registry). For a symmetric relation (shown in the registry), link once — the reverse \
              direction is implied, so linking both ways is redundant.",
         )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"active_in\"")
+        .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
         .required(
             "other",
             AT::Handle,
@@ -209,23 +209,23 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let outgoing = AE::new("<memory>:outgoing")
         .description(
             "The memories this one links to under a relation, across its whole merged identity, in the \
-             relation's forward direction — <memory>:outgoing(\"mentor_of\") is who it mentors. Each \
+             relation's forward direction — <memory>:outgoing(\"knows\") is who it knows. Each \
              result is a table { relation, memory, name, direction, source, told_by } that prints as \
              \"relation → name\"; reach the linked memory through result.memory to read or act on it, \
              and result.told_by names who asserted the relationship (the provenance of a belief-bearing \
-             link). Use <memory>:incoming for the reverse direction (who mentors it). For a symmetric \
+             link). Use <memory>:incoming for the reverse direction (who knows it). For a symmetric \
              relation, outgoing and incoming return the same neighbours.",
         )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"mentor_of\"")
+        .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
 
     let incoming = AE::new("<memory>:incoming")
         .description(
             "The memories that link to this one under a relation, across its whole merged identity — \
-             <memory>:incoming(\"mentor_of\") is who mentors it. The reverse of <memory>:outgoing; the \
+             <memory>:incoming(\"knows\") is who knows it. The reverse of <memory>:outgoing; the \
              result shape is the same.",
         )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"mentor_of\"")
+        .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
 
     let links = AE::new("<memory>:links")
