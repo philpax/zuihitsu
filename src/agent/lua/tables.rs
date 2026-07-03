@@ -16,12 +16,13 @@ use crate::{
 };
 
 use super::{
-    error::{BlockConsistencyError, CalendarError, TurnResolveError},
+    error::{BlockConsistencyError, CalendarError, HandleKind, TurnResolveError},
     runtime::{
-        BlockApi, SearchOpts, append_options_from_lua, date_text, day_string, entry_handle_id,
-        handle_id, link_target_id, make_date, make_entry_handle, make_entry_handle_list,
-        make_handle, make_handle_list, make_link_handle_list, make_relation_result, render,
-        route_error, run_memory_search, value_text,
+        BlockApi, HandleSelf, SearchOpts, append_options_from_lua, date_text, day_string,
+        entry_handle_id, handle_id, link_target_id, make_date, make_entry_handle,
+        make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
+        make_relation_result, readonly_newindex, render, route_error, run_memory_search,
+        value_text,
     },
 };
 
@@ -84,6 +85,11 @@ pub(super) fn install_block_api(
             methods.get::<Value>(key)
         })?
     })?;
+    // A memory handle is a read-only view: assigning to a field (`m.occurred_at = ...`) was a silent
+    // no-op that misled the agent into thinking a change landed. The guard raises a teachable error
+    // naming the persisting operation instead. Internal setup writes raw fields with `raw_set` to
+    // bypass it (see `resolve_existing_handle`).
+    metatable.set("__newindex", readonly_newindex(lua, HandleKind::Memory)?)?;
     let globals = lua.globals();
     // `print(...)` captures into the block's output buffer (rendered the same way returned values
     // are), so the agent sees what it prints fed back — Lua's default `print` writes to a process
@@ -150,11 +156,11 @@ fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, (this, text, opts): (Table, String, Value)| {
+            move |lua, (this, text, opts): (HandleSelf, String, Value)| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     api.lock(id).await;
                     let opts = append_options_from_lua(&lua, opts)?.unwrap_or_default();
                     let entry = {
@@ -179,11 +185,11 @@ fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, this: Table| {
+            move |lua, this: HandleSelf| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     api.lock_class(id).await?;
                     let entries = api
                         .block
@@ -204,11 +210,11 @@ fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, this: Table| {
+            move |lua, this: HandleSelf| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     api.lock_class(id).await?;
                     let entries = api
                         .block
@@ -228,10 +234,10 @@ fn install_handle_methods(
         "supersede",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, old, new): (Table, Table, Table)| {
+            move |_, (this, old, new): (HandleSelf, Table, Table)| {
                 let api = api.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     let (old, new) = (entry_handle_id(&old)?, entry_handle_id(&new)?);
                     api.lock_class(id).await?;
                     api.block
@@ -252,11 +258,11 @@ fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, (this, old, text, opts): (Table, Table, String, Value)| {
+            move |lua, (this, old, text, opts): (HandleSelf, Table, String, Value)| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     let old = entry_handle_id(&old)?;
                     api.lock_class(id).await?;
                     let opts = append_options_from_lua(&lua, opts)?.unwrap_or_default();
@@ -282,10 +288,10 @@ fn install_handle_methods(
             "link",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, relation, other): (Table, String, Value)| {
+                move |_, (this, relation, other): (HandleSelf, String, Value)| {
                     let api = api.clone();
                     async move {
-                        let from = handle_id(&this)?;
+                        let from = handle_id(&this.0)?;
                         let to = link_target_id(&api, other)?;
                         api.lock_all([from, to]).await;
                         api.block
@@ -300,10 +306,10 @@ fn install_handle_methods(
             "unlink",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, relation, other): (Table, String, Value)| {
+                move |_, (this, relation, other): (HandleSelf, String, Value)| {
                     let api = api.clone();
                     async move {
-                        let from = handle_id(&this)?;
+                        let from = handle_id(&this.0)?;
                         let to = link_target_id(&api, other)?;
                         api.lock_all([from, to]).await;
                         api.block
@@ -326,12 +332,12 @@ fn install_handle_methods(
                     let api = api.clone();
                     let memory_metatable = memory_metatable.clone();
                     let link_metatable = link_metatable.clone();
-                    move |lua, (this, relation): (Table, String)| {
+                    move |lua, (this, relation): (HandleSelf, String)| {
                         let api = api.clone();
                         let memory_metatable = memory_metatable.clone();
                         let link_metatable = link_metatable.clone();
                         async move {
-                            let id = handle_id(&this)?;
+                            let id = handle_id(&this.0)?;
                             api.lock_class(id).await?;
                             let links = {
                                 let mut block = api.block.lock();
@@ -357,12 +363,12 @@ fn install_handle_methods(
                 let api = api.clone();
                 let memory_metatable = memory_metatable.clone();
                 let link_metatable = link_metatable.clone();
-                move |lua, this: Table| {
+                move |lua, this: HandleSelf| {
                     let api = api.clone();
                     let memory_metatable = memory_metatable.clone();
                     let link_metatable = link_metatable.clone();
                     async move {
-                        let id = handle_id(&this)?;
+                        let id = handle_id(&this.0)?;
                         api.lock_class(id).await?;
                         let links = api
                             .block
@@ -384,10 +390,10 @@ fn install_handle_methods(
             "propose_merge",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, other): (Table, Table)| {
+                move |_, (this, other): (HandleSelf, Table)| {
                     let api = api.clone();
                     async move {
-                        let (from, to) = (handle_id(&this)?, handle_id(&other)?);
+                        let (from, to) = (handle_id(&this.0)?, handle_id(&other)?);
                         api.lock_all([from, to]).await;
                         api.block
                             .lock()
@@ -407,10 +413,10 @@ fn install_handle_methods(
             "tag",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, name): (Table, String)| {
+                move |_, (this, name): (HandleSelf, String)| {
                     let api = api.clone();
                     async move {
-                        let id = handle_id(&this)?;
+                        let id = handle_id(&this.0)?;
                         api.lock(id).await;
                         api.block
                             .lock()
@@ -424,10 +430,10 @@ fn install_handle_methods(
             "untag",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, name): (Table, String)| {
+                move |_, (this, name): (HandleSelf, String)| {
                     let api = api.clone();
                     async move {
-                        let id = handle_id(&this)?;
+                        let id = handle_id(&this.0)?;
                         api.lock(id).await;
                         api.block
                             .lock()
@@ -444,10 +450,10 @@ fn install_handle_methods(
         "set_volatility",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, level): (Table, String)| {
+            move |_, (this, level): (HandleSelf, String)| {
                 let api = api.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     api.lock(id).await;
                     api.block
                         .lock()
@@ -464,10 +470,10 @@ fn install_handle_methods(
         "rename",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, new_name): (Table, String)| {
+            move |_, (this, new_name): (HandleSelf, String)| {
                 let api = api.clone();
                 async move {
-                    let id = handle_id(&this)?;
+                    let id = handle_id(&this.0)?;
                     api.lock(id).await;
                     api.block
                         .lock()
@@ -533,6 +539,10 @@ pub(super) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
             ))
         })?,
     )?;
+    // An entry is a read-only view (its fields carry the read; a change is an append/revise/supersede,
+    // not a field write), so assigning to one raises the teachable error rather than silently doing
+    // nothing.
+    metatable.set("__newindex", readonly_newindex(lua, HandleKind::Entry)?)?;
     Ok(metatable)
 }
 
@@ -599,6 +609,9 @@ pub(super) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     metatable.set("__index", methods)?;
+    // A date object is a read-only value (arithmetic returns a *new* date); assigning to its `day`
+    // field is a silent no-op, so the guard raises the teachable error instead.
+    metatable.set("__newindex", readonly_newindex(lua, HandleKind::Date)?)?;
     Ok(metatable)
 }
 
@@ -642,6 +655,12 @@ fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             }
             Ok(line)
         })?,
+    )?;
+    // A search result is a read-only row; assigning to its fields does nothing, so the guard raises
+    // the teachable error naming the operation that persists a change.
+    metatable.set(
+        "__newindex",
+        readonly_newindex(lua, HandleKind::SearchResult)?,
     )?;
     Ok(metatable)
 }
@@ -874,7 +893,62 @@ pub(super) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     Ok(links)
 }
 
-/// The `memory` global: `create` and `get`, both of which mint handles (hence the metatable).
+/// Resolve an existing memory to an enriched handle, or `None` when nothing resolves. Locks the
+/// resolved stub, mints the handle, and carries the renamed-identity affordances: `former_names` on
+/// any renamed memory, and — when resolved *by* a former name — a `former_handle` field plus an active
+/// rename note into the agent's own output, so an old-name lookup is never mistaken for a second
+/// person. Shared by `memory.get` (which returns nil when this is `None`) and `memory.get_or_create`
+/// (which creates instead), so both read a renamed person identically. The enrichment fields are
+/// written with `raw_set`, bypassing the handle's read-only `__newindex` guard.
+async fn resolve_existing_handle(
+    lua: &Lua,
+    api: &BlockApi,
+    metatable: &Table,
+    name: &str,
+) -> mlua::Result<Option<Table>> {
+    let resolved = api
+        .block
+        .lock()
+        .get(name)
+        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+    let Some((id, via_former)) = resolved else {
+        return Ok(None);
+    };
+    api.lock(id).await;
+    let handle = make_handle(lua, id, metatable)?;
+    // A renamed memory carries its prior handles in `former_names`, so the agent reads it as the same
+    // person under their current `name` and connects its old-name content rather than splitting them.
+    let former = api
+        .block
+        .lock()
+        .former_names(id)
+        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+    if !former.is_empty() {
+        handle.raw_set("former_names", lua.create_sequence_from(former)?)?;
+    }
+    // Resolved *by* a former name: flag which one, and — because the passive fields are easy for a
+    // small model to skip (it reads `e.text` and concludes the old and new handle are two people) —
+    // emit an active note into the agent's own output, so an old-name lookup cannot be mistaken for a
+    // second person however the handle is inspected. The note rides the agent's result only, never a
+    // participant, so it stays deadname-safe.
+    if via_former {
+        handle.raw_set("former_handle", name)?;
+        let current = api
+            .block
+            .lock()
+            .handle_field(id, "name")
+            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+        if let Some(current) = current {
+            api.printed.lock().push_str(&format!(
+                "note: \"{name}\" now goes by \"{current}\" — the same person, renamed.\n"
+            ));
+        }
+    }
+    Ok(Some(handle))
+}
+
+/// The `memory` global: `create`, `get`, and `get_or_create`, all of which mint handles (hence the
+/// metatable).
 pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
     let memory = lua.create_table()?;
     // memory.create(name[, content][, opts]) — create a memory and optionally its first entry,
@@ -903,7 +977,7 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
         })?,
     )?;
     // memory.get(name) — resolve through the block's pending creates, then the graph, locking the
-    // resolved stub.
+    // resolved stub. A renamed person still resolves by a former name (see `resolve_existing_handle`).
     memory.set(
         "get",
         lua.create_async_function({
@@ -913,49 +987,45 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
-                    let resolved = api
-                        .block
-                        .lock()
-                        .get(&name)
-                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                    match resolved {
-                        Some((id, via_former)) => {
-                            api.lock(id).await;
-                            let handle = make_handle(&lua, id, &metatable)?;
-                            // A renamed memory carries its prior handles in `former_names`, so the
-                            // agent reads it as the same person under their current `name` and
-                            // connects its old-name content rather than splitting them in two.
-                            let former = api
-                                .block
-                                .lock()
-                                .former_names(id)
-                                .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                            if !former.is_empty() {
-                                handle.set("former_names", lua.create_sequence_from(former)?)?;
-                            }
-                            // Resolved *by* a former name: flag which one, and — because the passive
-                            // fields are easy for a small model to skip (it reads `e.text` and
-                            // concludes the old and new handle are two people) — emit an active note
-                            // into the agent's own output, so an old-name lookup cannot be mistaken
-                            // for a second person however the handle is inspected. The note rides the
-                            // agent's result only, never a participant, so it stays deadname-safe.
-                            if via_former {
-                                handle.set("former_handle", name.as_str())?;
-                                let current =
-                                    api.block.lock().handle_field(id, "name").map_err(|error| {
-                                        route_error(error, &mut api.infra.lock())
-                                    })?;
-                                if let Some(current) = current {
-                                    api.printed.lock().push_str(&format!(
-                                        "note: \"{name}\" now goes by \"{current}\" — the same \
-                                             person, renamed.\n"
-                                    ));
-                                }
-                            }
-                            Ok(Value::Table(handle))
-                        }
+                    match resolve_existing_handle(&lua, &api, &metatable, &name).await? {
+                        Some(handle) => Ok(Value::Table(handle)),
                         None => Ok(Value::Nil),
                     }
+                }
+            }
+        })?,
+    )?;
+    // memory.get_or_create(name[, content][, opts]) — fetch the memory if it exists, otherwise create
+    // it (with the same optional first entry and overrides as `memory.create`). The idiomatic
+    // `memory.get(name) or memory.create(name, ...)` in one call, so an agent that applies that idiom
+    // inconsistently within a script no longer trips the already-exists error. When the memory exists
+    // its `content`/`opts` are ignored — it is returned as it stands, its description untouched — so a
+    // fetch never silently overwrites what is already recorded. This is distinct from `memory.create`,
+    // whose fail-on-exists strictness is load-bearing: creating a second person stub over an existing
+    // name must stay a deliberate act (merge and identity scenarios rely on it), so `create` keeps
+    // raising while `get_or_create` is the tool for when existence is uncertain.
+    memory.set(
+        "get_or_create",
+        lua.create_async_function({
+            let api = api.clone();
+            let metatable = metatable.clone();
+            move |lua, (name, content, opts): (String, Option<String>, Value)| {
+                let api = api.clone();
+                let metatable = metatable.clone();
+                async move {
+                    if let Some(handle) =
+                        resolve_existing_handle(&lua, &api, &metatable, &name).await?
+                    {
+                        return Ok(handle);
+                    }
+                    let opts = append_options_from_lua(&lua, opts)?;
+                    let id = api
+                        .block
+                        .lock()
+                        .create_with_opts(MemoryName::new(name), content.as_deref(), opts)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                    api.lock(id).await;
+                    make_handle(&lua, id, &metatable)
                 }
             }
         })?,

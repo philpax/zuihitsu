@@ -203,6 +203,12 @@ pub(super) enum HandleError {
     UnknownLinkTarget { name: String },
     /// `:link`/`:unlink` was given a value that is neither a handle nor a name string.
     WrongLinkTargetType { type_name: &'static str },
+    /// A handle method was reached with a dot (`memory.append(...)`) rather than a colon
+    /// (`memory:append(...)`), so the first argument bound to `self` — a string or number where the
+    /// handle was wanted. Raised at the `self` extractor (the method's leftmost argument, converted
+    /// first), so the agent sees this fix rather than mlua's opaque "error converting Lua string to
+    /// table".
+    MethodCalledWithDot { type_name: &'static str },
 }
 
 impl std::fmt::Display for HandleError {
@@ -224,6 +230,12 @@ impl std::fmt::Display for HandleError {
                 "link target must be a memory handle (from memory.get/create) or a memory name, \
                  got {type_name}"
             ),
+            HandleError::MethodCalledWithDot { type_name } => write!(
+                f,
+                "this is a method — call it with a colon (handle:method(...)), not a dot \
+                 (handle.method(...)); the colon passes the handle as self, but the dot bound \
+                 {type_name} there instead"
+            ),
         }
     }
 }
@@ -232,6 +244,69 @@ impl std::error::Error for HandleError {}
 
 impl From<HandleError> for LuaError {
     fn from(error: HandleError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
+/// An attempt to assign to a field on a read-only handle (a memory, an entry, a date, or a search
+/// result). A handle is a view, not a mutable record, so a field assignment silently did nothing —
+/// the footgun behind the stale-date thrash, where `entry.occurred_at = ...` looked like it landed a
+/// date but stored nothing. The message names the operation that actually persists the change.
+#[derive(Debug)]
+pub(super) enum HandleAssignmentError {
+    /// Assigning `occurred_at` — a fact's date lives on an entry and is set when it is recorded, not
+    /// by mutating a handle's field.
+    OccurredAt { kind: HandleKind },
+    /// Assigning any other field.
+    Other { kind: HandleKind, field: String },
+}
+
+/// Which read-only handle an assignment was attempted on, for the assignment error's wording.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum HandleKind {
+    Memory,
+    Entry,
+    Date,
+    SearchResult,
+}
+
+impl HandleKind {
+    fn label(self) -> &'static str {
+        match self {
+            HandleKind::Memory => "memory handle",
+            HandleKind::Entry => "entry",
+            HandleKind::Date => "date object",
+            HandleKind::SearchResult => "search result",
+        }
+    }
+}
+
+impl std::fmt::Display for HandleAssignmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HandleAssignmentError::OccurredAt { kind } => write!(
+                f,
+                "occurred_at is not assignable on a {}: a fact's date is set when you record it, not \
+                 by writing the field. Append the dated entry with occurred_at in its opts \
+                 (mem:append(text, {{ occurred_at = calendar.date(\"YYYY-MM-DD\") }})), or revise the \
+                 dated entry (mem:revise(entry, text, {{ occurred_at = ... }}))",
+                kind.label()
+            ),
+            HandleAssignmentError::Other { kind, field } => write!(
+                f,
+                "{field} is not assignable: a {} is a read-only view, so writing its field does \
+                 nothing. To change what is stored, use the memory methods (mem:append, mem:revise, \
+                 mem:supersede, mem:rename, …) — a field assignment does not persist",
+                kind.label()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for HandleAssignmentError {}
+
+impl From<HandleAssignmentError> for LuaError {
+    fn from(error: HandleAssignmentError) -> Self {
         LuaError::RuntimeError(error.to_string())
     }
 }

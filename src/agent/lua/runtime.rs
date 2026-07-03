@@ -24,7 +24,9 @@ use crate::{
     vocabulary::TagName,
 };
 
-use super::error::{HandleError, MemorySearchError, TemporalArgError};
+use super::error::{
+    HandleAssignmentError, HandleError, HandleKind, MemorySearchError, TemporalArgError,
+};
 
 /// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
 /// infrastructure-error slot (`infra`), the per-block lock set (`lock_set`), and the server-wide lock
@@ -236,6 +238,48 @@ pub(super) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
     Ulid::from_string(&id)
         .map(MemoryId)
         .map_err(|source| HandleError::InvalidMemoryHandle { id, source }.into())
+}
+
+/// The `self` a `mem:*` handle method is invoked on. Extracting it through this newtype — rather than
+/// a bare `Table` — is what turns a dot-call (`memory.append(...)`, which binds the first argument to
+/// `self`) into the teachable colon hint: as the method's leftmost argument, `self` is converted
+/// first, so a non-table `self` fails here (with [`HandleError::MethodCalledWithDot`]) before any
+/// later argument's own type error can mask it. A colon call passes the handle table, which converts
+/// cleanly; the method body then resolves its id through [`handle_id`].
+pub(super) struct HandleSelf(pub(super) Table);
+
+impl mlua::FromLua for HandleSelf {
+    fn from_lua(value: Value, _: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::Table(handle) => Ok(HandleSelf(handle)),
+            other => Err(HandleError::MethodCalledWithDot {
+                type_name: other.type_name(),
+            }
+            .into()),
+        }
+    }
+}
+
+/// The `__newindex` guard shared by every read-only handle metatable (memory, entry, date, and search
+/// result). A handle is a view, so assigning to a field silently did nothing before this — the
+/// stale-date footgun. The guard raises a teachable error naming the operation that persists the
+/// change instead, tailored for `occurred_at` (the traced slip) since a date lives on an entry, not a
+/// handle field. It fires only for keys absent from the raw table, which is every agent-facing field
+/// (they are read through `__index` or carried as data the metamethods read), so internal setup that
+/// must write a raw field uses `raw_set` to bypass it.
+pub(super) fn readonly_newindex(lua: &Lua, kind: HandleKind) -> mlua::Result<mlua::Function> {
+    lua.create_function(move |lua, (_, key, _): (Table, Value, Value)| {
+        let field = lua
+            .coerce_string(key)?
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default();
+        let error = if field == "occurred_at" {
+            HandleAssignmentError::OccurredAt { kind }
+        } else {
+            HandleAssignmentError::Other { kind, field }
+        };
+        Err::<(), mlua::Error>(error.into())
+    })
 }
 
 /// Resolve a `:link`/`:unlink` target to its memory id. The target is normally a memory handle, but a

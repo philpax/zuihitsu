@@ -24,7 +24,12 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let context = Namespace::Context.prefix();
 
     let create = AE::new("memory.create")
-        .description("Create a memory, optionally with a first content entry.")
+        .description(
+            "Create a memory, optionally with a first content entry. It fails if the name is already \
+             taken — creating a second memory over an existing one must be a deliberate act — so \
+             create only when you mean to make a genuinely new memory. When you are unsure whether \
+             one already exists, use memory.get_or_create instead of guessing.",
+        )
         .required(
             "name",
             AT::String,
@@ -40,17 +45,36 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let get = AE::new("memory.get")
         .description(
             format!(
-                "Fetch a memory by name. Read a merged identity through its canonical {person} handle, \
-                 not a per-platform stub. The name must match exactly (case-sensitive); if a lookup \
-                 returns nil, suspect the casing before creating a new memory. A former name still finds \
-                 a renamed person: the result then carries a `former_handle` (the old name you looked up \
-                 by), and any renamed memory carries `former_names` — they now go by `result.name`, so it \
-                 is the same person, and their older entries written under an old name are still theirs. \
-                 Answer under the current name without announcing the old one."
+                "Fetch a memory by name, or nil if there is none. Read a merged identity through its \
+                 canonical {person} handle, not a per-platform stub. The name must match exactly \
+                 (case-sensitive); if a lookup returns nil, suspect the casing before creating a new \
+                 memory. A former name still finds a renamed person: the result then carries a \
+                 `former_handle` (the old name you looked up by), and any renamed memory carries \
+                 `former_names` — they now go by `result.name`, so it is the same person, and their \
+                 older entries written under an old name are still theirs. Answer under the current \
+                 name without announcing the old one. When you intend to fetch-or-make in one step, \
+                 reach for memory.get_or_create rather than get-then-create."
             ),
         )
         .required("name", AT::String, "the memory's handle (or a former one)")
         .returns(AT::Handle.optional());
+
+    let get_or_create = AE::new("memory.get_or_create")
+        .description(
+            "Fetch a memory by name, or create it if there is none — the fetch-or-make idiom in one \
+             call, for when you are not sure whether the memory already exists. If it exists it is \
+             returned as it stands and the content argument is ignored (an existing memory is never \
+             silently overwritten); only an absent one is created, with the given first entry. Use \
+             this rather than memory.get followed by memory.create; reserve memory.create for making \
+             a deliberately new memory, where a name collision should be an error.",
+        )
+        .required("name", AT::String, "the memory's handle")
+        .optional(
+            "content",
+            AT::String,
+            "an optional first entry, used only when the memory is created (ignored if it exists)",
+        )
+        .returns(AT::Handle);
 
     let search = AE::new("memory.search")
         .description(
@@ -511,6 +535,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let mut entries = vec![
         create,
         get,
+        get_or_create,
         search,
         append,
         entries,

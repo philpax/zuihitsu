@@ -68,7 +68,8 @@ impl std::fmt::Display for MemoryError {
         match self {
             MemoryError::NameExists(name) => write!(
                 f,
-                "a memory named {:?} already exists; fetch it with memory.get",
+                "a memory named {:?} already exists; fetch it with memory.get, or use \
+                 memory.get_or_create(name) when you are unsure whether it exists",
                 name.as_str()
             ),
             MemoryError::UnknownRelation(relation) => write!(

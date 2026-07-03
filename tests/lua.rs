@@ -954,6 +954,11 @@ async fn creating_a_duplicate_name_is_a_teachable_error() {
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             assert!(message.contains("already exists"), "message was: {message}");
+            // The wording points at the fetch-or-make idiom for when existence is uncertain.
+            assert!(
+                message.contains("memory.get_or_create"),
+                "message was: {message}"
+            );
         }
         other => panic!("expected a teachable error, got {other:?}"),
     }
@@ -969,6 +974,148 @@ async fn creating_a_duplicate_name_is_a_teachable_error() {
         h.engine.graph.lock().entries_local(plan.id).unwrap().len(),
         1
     );
+}
+
+#[tokio::test]
+async fn get_or_create_returns_the_existing_memory_without_clobbering_it() {
+    // `memory.get_or_create` on a name that already exists returns that memory as it stands: the
+    // content argument is ignored, so an existing memory's entries are never overwritten or appended
+    // to by a fetch-that-happened-to-pass-content.
+    let h = Harness::new();
+    h.run(r#"memory.create(TOPIC_CLIMBING, "Met at the climbing gym")"#)
+        .await;
+    let outcome = h
+        .run(
+            r#"local made = memory.get_or_create(TOPIC_CLIMBING, "this content must be ignored")
+               return made:entries()"#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    // The original entry is intact and the ignored content never landed.
+    assert!(result.contains("Met at the climbing gym"), "{result}");
+    assert!(!result.contains("this content must be ignored"), "{result}");
+
+    // Exactly one entry on the memory — the fetch appended nothing.
+    let climbing = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Topic.with_name("climbing"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        h.engine
+            .graph
+            .lock()
+            .entries_local(climbing.id)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn get_or_create_creates_the_memory_when_it_is_absent() {
+    // With no such memory yet, `memory.get_or_create` creates it with the given first entry — the
+    // create half of the fetch-or-make idiom.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"local made = memory.get_or_create(TOPIC_SOURDOUGH, "A naturally leavened bread")
+               return made:entries()"#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.contains("naturally leavened"), "{result}");
+
+    // The memory was committed and carries its first entry.
+    let sourdough = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Topic.with_name("sourdough"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        h.engine
+            .graph
+            .lock()
+            .entries_local(sourdough.id)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn assigning_occurred_at_on_a_handle_is_a_teachable_error() {
+    // A memory handle is a read-only view: `m.occurred_at = ...` was a silent no-op that misled the
+    // agent into thinking a date landed (the traced gate slip). It now raises a teachable error naming
+    // the operations that actually persist a dated fact.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"local dave = memory.create(PERSON_DAVE)
+               dave.occurred_at = calendar.date("2027-03-15")
+               return "unreached""#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(
+        message.contains("occurred_at is not assignable"),
+        "{message}"
+    );
+    // The guidance names the right moves: append with occurred_at in its opts, or revise.
+    assert!(message.contains("occurred_at in its opts"), "{message}");
+    assert!(message.contains("revise"), "{message}");
+}
+
+#[tokio::test]
+async fn assigning_a_field_on_an_entry_handle_is_a_teachable_error() {
+    // The read-only guard covers entry handles too — assigning to an entry's field does nothing, so it
+    // raises rather than silently dropping the write.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"local topic = memory.create(TOPIC_CLIMBING, "a fact")
+               local es = topic:entries()
+               es[1].occurred_at = calendar.date("2027-03-15")
+               return "unreached""#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(
+        message.contains("occurred_at is not assignable"),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn calling_a_method_with_a_dot_suggests_the_colon() {
+    // `dave.append(...)` binds the string to `self`, which used to fail with mlua's opaque "error
+    // converting Lua string to table". It now raises a teachable error naming the method and the colon
+    // call.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"local dave = memory.create(PERSON_DAVE)
+               dave.append("a fact", { visibility = "public" })
+               return "unreached""#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(message.contains("is a method"), "{message}");
+    assert!(message.contains("colon"), "{message}");
 }
 
 #[tokio::test]
