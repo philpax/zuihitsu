@@ -230,6 +230,10 @@ const WITHHELD_STUB: &str = "(withheld — a confidence not for the present audi
 /// no explicit window.
 const DEFAULT_UPCOMING_DAYS: i64 = 7;
 
+/// How far back `overdue` looks when called with no explicit window — a modest fortnight, long enough
+/// to catch a reminder whose day slipped past over a break, short enough not to dredge up stale dates.
+const DEFAULT_OVERDUE_DAYS: i64 = 14;
+
 impl MemoryBlock {
     /// Open a block for `conversation`: resolve the context it writes in and whether that room is
     /// `#confidential`. Fails only on a graph read error (infrastructure), never on agent input.

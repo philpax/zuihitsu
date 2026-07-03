@@ -267,7 +267,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          arm a wake-up. Default a missing time of day rather than withholding the write for it, since \
          an unrecorded reminder cannot fire. Give the event a generic name (event/standup, not \
          event/standup_friday) and put the date in occurred_at, not in the handle — a dated handle \
-         fragments when the event moves or recurs, and the date already has a home."
+         fragments when the event moves or recurs, and the date already has a home. Asked what you \
+         should be on top of, sweep the recent past too — calendar.overdue() surfaces a reminder whose \
+         day has already passed — not only calendar.on(today) and calendar.upcoming(), which look at \
+         today and ahead."
     );
     let record_point = format!(
         "Record observations under the `agent` teller, and what you learn about a person on that \

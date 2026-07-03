@@ -1273,7 +1273,7 @@ fn turn_window_metatable(lua: &Lua) -> mlua::Result<Table> {
     Ok(metatable)
 }
 
-/// The `calendar` global: `upcoming`, `on`, and `recurring`, each returning a list of memory
+/// The `calendar` global: `upcoming`, `overdue`, `on`, and `recurring`, each returning a list of memory
 /// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own
 /// queries and are not visibility-filtered (like `mem:entries`, the agent sees its whole memory).
 /// Strict locking: each returned memory is locked, since the query read (and touched) it.
@@ -1296,6 +1296,30 @@ pub(super) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
                         .block
                         .lock()
                         .upcoming(within.as_deref())
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                    api.lock_all(ids.iter().copied()).await;
+                    make_handle_list(&lua, ids, &metatable)
+                }
+            }
+        })?,
+    )?;
+    calendar.set(
+        "overdue",
+        lua.create_async_function({
+            let api = api.clone();
+            let metatable = metatable.clone();
+            move |lua, opts: Option<Table>| {
+                let api = api.clone();
+                let metatable = metatable.clone();
+                async move {
+                    let within: Option<String> = match opts {
+                        Some(table) => table.get("within")?,
+                        None => None,
+                    };
+                    let ids = api
+                        .block
+                        .lock()
+                        .overdue(within.as_deref())
                         .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                     api.lock_all(ids.iter().copied()).await;
                     make_handle_list(&lua, ids, &metatable)

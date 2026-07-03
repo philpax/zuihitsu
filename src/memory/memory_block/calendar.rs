@@ -7,7 +7,7 @@ use crate::{
     time::{self, TemporalRef, Timestamp},
 };
 
-use super::{DEFAULT_UPCOMING_DAYS, MemoryBlock, MemoryError};
+use super::{DEFAULT_OVERDUE_DAYS, DEFAULT_UPCOMING_DAYS, MemoryBlock, MemoryError};
 
 impl MemoryBlock {
     /// The current time off the engine clock — the anchor the `calendar` date constructors build
@@ -28,6 +28,28 @@ impl MemoryBlock {
         self.occurrence_memories(
             Timestamp::from_millis(now),
             Timestamp::from_millis(now.saturating_add(within_millis)),
+            true,
+        )
+    }
+
+    /// Memories with a concrete occurrence in the recent past — the ones whose day has already passed,
+    /// so a "what should I be on top of?" check catches what slipped rather than seeing only today and
+    /// the future (`upcoming`/`on`). Looks back `within` from now (e.g. `"14 days"`, `"1 week"`;
+    /// defaults to 14 days), soonest first. Recurring occurrences are deliberately excluded: a
+    /// recurring entry's next instance is always ahead, so it is never "overdue" — its comes-due
+    /// nudging is the wake-up scheduler's job, not this sweep of what a fixed date has slipped past. A
+    /// read, so the results are touched.
+    pub fn overdue(&mut self, within: Option<&str>) -> Result<Vec<MemoryId>, MemoryError> {
+        let within_millis = match within {
+            Some(text) => time::parse_duration_millis(text)
+                .ok_or_else(|| MemoryError::BadCalendarArg(text.to_owned()))?,
+            None => DEFAULT_OVERDUE_DAYS * time::MILLIS_PER_DAY,
+        };
+        let now = self.engine.clock.now().as_millis();
+        self.occurrence_memories(
+            Timestamp::from_millis(now.saturating_sub(within_millis)),
+            Timestamp::from_millis(now),
+            false,
         )
     }
 
@@ -35,7 +57,11 @@ impl MemoryBlock {
     pub fn on(&mut self, date: &str) -> Result<Vec<MemoryId>, MemoryError> {
         let (from, to) =
             time::day_window(date).ok_or_else(|| MemoryError::BadCalendarArg(date.to_owned()))?;
-        self.occurrence_memories(Timestamp::from_millis(from), Timestamp::from_millis(to))
+        self.occurrence_memories(
+            Timestamp::from_millis(from),
+            Timestamp::from_millis(to),
+            true,
+        )
     }
 
     /// Memories that carry a recurring occurrence — a listing; instances are not expanded yet.
@@ -54,13 +80,16 @@ impl MemoryBlock {
         Ok(ids)
     }
 
-    /// The distinct memories with an occurrence in `[from, to]`, soonest first, touched as reads —
-    /// both concrete occurrences and the next in-window instance of a recurring entry (spec §Recurring
-    /// materialization), merged and ordered by instant so a weekly standup interleaves with one-offs.
+    /// The distinct memories with an occurrence in `[from, to]`, soonest first, touched as reads. With
+    /// `include_recurring`, both concrete occurrences and the next in-window instance of a recurring
+    /// entry (spec §Recurring materialization) are merged and ordered by instant so a weekly standup
+    /// interleaves with one-offs; without it, only concrete occurrences participate (the `overdue`
+    /// sweep, where a recurrence has no "missed" instance to surface).
     fn occurrence_memories(
         &mut self,
         from: Timestamp,
         to: Timestamp,
+        include_recurring: bool,
     ) -> Result<Vec<MemoryId>, MemoryError> {
         let mut items: Vec<(Timestamp, MemoryId)> = Vec::new();
         {
@@ -70,8 +99,10 @@ impl MemoryBlock {
                     items.push((sort, memory.id));
                 }
             }
-            for (instant, memory) in graph.recurring_in_window(from, to)? {
-                items.push((instant, memory.id));
+            if include_recurring {
+                for (instant, memory) in graph.recurring_in_window(from, to)? {
+                    items.push((instant, memory.id));
+                }
             }
         }
         items.sort_by_key(|(instant, _)| *instant);

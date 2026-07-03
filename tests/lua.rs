@@ -535,6 +535,80 @@ async fn calendar_upcoming_includes_recurring_instances() {
 }
 
 #[tokio::test]
+async fn calendar_overdue_surfaces_past_excludes_future_and_recurring() {
+    // "What should I be on top of?" a day after a reminder's due date: calendar.overdue surfaces the
+    // dated occurrence that has already passed, while calendar.on(today)/calendar.upcoming — looking
+    // at today and ahead — would miss it. A future occurrence and a recurring one are excluded (a
+    // recurrence's next instance is always ahead, so it is never overdue). Clock at Monday 2026-06-08.
+    let h = Harness::new();
+    h.run(
+        r#"
+        local past = memory.create(EVENT_CLEANING)
+        past:append("dentist", { visibility = "public", occurred_at = { day = "2026-06-05" } })
+        local future = memory.create(EVENT_LAUNCH)
+        future:append("launch", { visibility = "public", occurred_at = { day = "2026-06-11" } })
+        local rec = memory.create(EVENT_STANDUP)
+        rec:append("standup", { visibility = "public", occurred_at = { recurring = "FREQ=WEEKLY" } })
+        "#,
+    )
+    .await;
+    let outcome = h
+        .run(
+            r#"
+        local past = memory.get(EVENT_CLEANING)
+        local future = memory.get(EVENT_LAUNCH)
+        local rec = memory.get(EVENT_STANDUP)
+        local saw_past, saw_future, saw_rec = false, false, false
+        for _, m in ipairs(calendar.overdue()) do
+            if m.id == past.id then saw_past = true end
+            if m.id == future.id then saw_future = true end
+            if m.id == rec.id then saw_rec = true end
+        end
+        return tostring(saw_past) .. "," .. tostring(saw_future) .. "," .. tostring(saw_rec)
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "true,false,false");
+}
+
+#[tokio::test]
+async fn calendar_overdue_respects_the_lookback_bound() {
+    // The default lookback is a fortnight, so an occurrence 19 days back stays hidden until the window
+    // is widened — overdue answers "what did I recently miss?", not "everything ever dated". Clock at
+    // Monday 2026-06-08, so 2026-05-20 is 19 days ago.
+    let h = Harness::new();
+    h.run(
+        r#"
+        local stale = memory.create(EVENT_ALL_HANDS)
+        stale:append("all hands", { visibility = "public", occurred_at = { day = "2026-05-20" } })
+        "#,
+    )
+    .await;
+    let outcome = h
+        .run(
+            r#"
+        local target = memory.get(EVENT_ALL_HANDS)
+        local function sees(list)
+            for _, m in ipairs(list) do
+                if m.id == target.id then return "found" end
+            end
+            return "missing"
+        end
+        return sees(calendar.overdue()) .. "," .. sees(calendar.overdue({ within = "30 days" }))
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    // Outside the default 14-day window, inside a widened 30-day one.
+    assert_eq!(result, "missing,found");
+}
+
+#[tokio::test]
 async fn calendar_rejects_a_malformed_argument() {
     let h = Harness::new();
     let outcome = h.run(r#"return calendar.on("not-a-date")"#).await;

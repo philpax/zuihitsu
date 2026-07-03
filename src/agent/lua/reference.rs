@@ -444,6 +444,25 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         )
         .returns(AT::Handle.list());
 
+    let overdue = AE::new("calendar.overdue")
+        .description(
+            "Memories whose dated occurrence has already passed — what slipped by, soonest first. \
+             Reach for this alongside calendar.on(today) and calendar.upcoming when someone asks what \
+             they should be on top of: those look at today and ahead, so a reminder whose day passed \
+             is invisible without it. Recurring occurrences are excluded (their next instance is \
+             always ahead, so nothing recurring is ever overdue). Each is a memory handle.",
+        )
+        .optional(
+            "opts",
+            object().optional(
+                "within",
+                AT::String,
+                "how far back to look, e.g. \"14 days\" or \"1 week\"; defaults to 14 days",
+            ),
+            "options",
+        )
+        .returns(AT::Handle.list());
+
     let on = AE::new("calendar.on")
         .description(
             "Memories with something happening on a given day. Pass a date object (calendar.today(), \
@@ -564,6 +583,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     if features.calendar {
         entries.extend([
             upcoming,
+            overdue,
             on,
             recurring,
             cal_today,
