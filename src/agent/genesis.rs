@@ -326,8 +326,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
              exchange around it, then answer from what was actually said rather than guessing which \
              moment they mean. To cite a specific earlier moment yourself, copy the ref field \
              convo.turn returns (the [turn:<id>] token). A moment resolves only when everyone here \
-             was in its audience; when it can't be shared with who is present, recall through memory \
-             instead of paraphrasing the transcript."
+             shared its audience: when it resolves they were all present, so relay it plainly \
+             without asking permission to repeat what they already heard; when it's blocked someone \
+             here was absent, so drop to memory and share only what its visibility rules would \
+             surface anyway, never the transcript itself."
                 .to_owned(),
         );
     }

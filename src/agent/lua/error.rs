@@ -120,8 +120,9 @@ impl std::fmt::Display for TurnResolveError {
             TurnResolveError::AudienceMismatch { id } => write!(
                 f,
                 "turn {id:?} is a real moment, but its audience did not include everyone present \
-                 here — so it cannot be replayed to this room. Recall it through memory instead, \
-                 which surfaces only what the present audience may see."
+                 here — so it cannot be replayed to this room. If its substance is worth relaying, \
+                 recall it through memory and honor each entry's own audience as you speak — the \
+                 visibility rule governs what you say, not just what you look up."
             ),
             TurnResolveError::NotFound { id } => write!(
                 f,
