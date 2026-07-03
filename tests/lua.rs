@@ -716,6 +716,63 @@ async fn link_with_an_unregistered_relation_is_a_teachable_error() {
 }
 
 #[tokio::test]
+async fn a_retired_seed_relation_is_gated_by_the_registry_not_the_vocabulary() {
+    // `_session_carryover`/`_session_carries` was retired from the genesis seed set (issue #21), yet
+    // `RelationName::new` still maps both strings to their typed variants so OLD logs' events keep
+    // materializing. The concern: does that hardcoded vocabulary mapping bypass the registry gate in
+    // the fresh-instance link path and silently materialize a link under a relation the system
+    // retired? It must not — the registry (the materialized `relations` table), not the string
+    // recognizer, is the gate. A fresh Harness skips genesis, so its registry never learns
+    // `_session_carryover`: linking under it must fail exactly like any unregistered name.
+    let h = Harness::new();
+    h.run(r#"memory.create(TOPIC_A)"#).await;
+    let outcome = h
+        .run(r#"memory.get(TOPIC_A):link("_session_carryover", memory.get(TOPIC_A))"#)
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("unknown relation"),
+                "a retired seed relation must be a teachable unknown-relation error, got: {message}"
+            );
+        }
+        other => panic!("expected a teachable unknown-relation error, got {other:?}"),
+    }
+    // The rejected block committed nothing: no `LinkCreated` under the retired relation reached the
+    // log, so the vocabulary mapping did not smuggle an edge past the registry.
+    assert!(
+        !h.events().iter().any(|event| matches!(
+            &event.payload,
+            EventPayload::LinkCreated { relation, .. }
+                if *relation == RelationName::SessionCarryover
+        )),
+        "no LinkCreated under the retired relation must land"
+    );
+
+    // The gate is the registry, not a string blocklist: an agent can still deliberately register a
+    // fresh relation and link under it. Generic runtime registration keeps working.
+    h.run(r#"memory.create(TOPIC_ALPHA)"#).await;
+    let outcome = h
+        .run(
+            r#"links.register({ name = "carries_over", inverse = "carried_from", from_card = "many", to_card = "many" })
+               memory.get(TOPIC_A):link("carries_over", memory.get(TOPIC_ALPHA))"#,
+        )
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Committed { .. }),
+        "a freshly registered relation must link and commit, got {outcome:?}"
+    );
+    assert!(
+        h.events().iter().any(|event| matches!(
+            &event.payload,
+            EventPayload::LinkCreated { relation, .. }
+                if relation.as_str() == "carries_over"
+        )),
+        "the deliberately registered relation's link must materialize"
+    );
+}
+
+#[tokio::test]
 async fn link_resolves_a_name_string_target() {
     // A name string in place of a handle is looked up, not rejected with a type error that would roll
     // the whole block back — the cascade that silently dropped a co-located private write (#43). This
