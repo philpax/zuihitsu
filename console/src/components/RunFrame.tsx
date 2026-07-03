@@ -201,8 +201,10 @@ function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
 }
 
 /// The runs of the open scenario, laid out as a horizontal row beneath the summary so the drill-down
-/// reads top to bottom. The open run is marked; a run whose gate regressed shows in clay; the one
-/// driving live (not yet a completed record) shows last, in sage, so any in-flight run is reachable.
+/// reads top to bottom. State color and selection are separate cues: a run whose gate regressed reads
+/// in clay, a clean one stays neutral, and the *open* run — whatever its state — carries a neutral ink
+/// ring, so selection never borrows the clay that means "failed". The one driving live (not yet a
+/// completed record) shows last, in sage, so any in-flight run is reachable.
 function RunPicker({
   scenario,
   active,
@@ -224,22 +226,23 @@ function RunPicker({
           // gates nothing, so its failures show only in the verdicts, not in gating_passed.
           const passed =
             run.metrics.gating_passed && run.verdicts.every((verdict) => verdict.passed);
-          // A regressed run reads in clay (border, tint, and text); the open one is filled.
-          const tone = isActive
-            ? passed
-              ? "border-clay bg-clay-soft/25 text-ink "
-              : "border-clay bg-clay-soft/40 text-clay "
-            : passed
-              ? "border-line text-ink-soft hover:border-ink-faint "
-              : "border-clay/50 bg-clay-soft/15 text-clay hover:border-clay ";
+          // Two independent axes: the *state* color (neutral for a pass, clay for a regression) and
+          // the *selection* affordance. Selection is a neutral ink ring, not more clay — so it
+          // composes over either state, keeping "selected failed", "unselected failed", and
+          // "selected passing" all distinct at the small dot size.
+          const state = passed
+            ? "border-line text-ink-soft hover:border-ink-faint "
+            : "border-clay/60 bg-clay-soft/15 text-clay hover:border-clay ";
+          const selection = isActive ? "ring-1 ring-inset ring-ink font-semibold " : "";
           return (
             <Link
               key={run.index}
               to={runPath(scenario.meta.name, run.index, view)}
-              title={`Run ${run.index} · ${passed ? "passed" : "failed"}`}
+              title={`Run ${run.index} · ${passed ? "passed" : "failed"}${isActive ? " · open" : ""}`}
               className={
                 "flex h-7 min-w-[1.75rem] items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
-                tone
+                state +
+                selection
               }
             >
               {run.index}
@@ -253,7 +256,7 @@ function RunPicker({
             className={
               "flex h-7 min-w-[1.75rem] items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +
               (liveRun === active
-                ? "border-sage bg-sage/15 text-sage "
+                ? "border-sage text-sage ring-1 ring-inset ring-ink font-semibold "
                 : "border-sage/50 text-sage hover:border-sage ")
             }
           >

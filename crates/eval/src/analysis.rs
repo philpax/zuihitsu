@@ -81,23 +81,44 @@ pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     })
 }
 
-/// Whether a relation type named `name` was registered — the structural signal that the link-inference
-/// pass (or the agent) introduced a new typed edge into the registry.
-pub fn link_type_registered(events: &[Event], name: &str) -> bool {
-    events.iter().any(|event| {
-        matches!(&event.payload, EventPayload::LinkTypeRegistered { name: registered, .. } if registered.as_str() == name)
-    })
-}
-
-/// Whether an inferred link of the relation named `relation` was created — the structural signal that
-/// the link-inference pass extracted a relationship from content and asserted it as a link (source is
-/// `Inferred`), distinct from a link the agent or an operator created explicitly.
-pub fn link_inferred_between(events: &[Event], relation: &str) -> bool {
+/// Whether an inferred link of relation `relation` was created directed from `from` to `to` — the
+/// structural signal that the link-inference pass extracted *this specific* relationship from content
+/// (source is `Inferred`), on the right endpoints and the right way round. A caller with two
+/// direction-equivalent candidates (`a mentored_by b` versus `b mentor_of a`) checks each, so a
+/// semantically-equivalent coinage passes while a wrong relation, a wrong pair, or a reversed edge does
+/// not.
+pub fn link_inferred_directed(
+    events: &[Event],
+    from: MemoryId,
+    to: MemoryId,
+    relation: &str,
+) -> bool {
     events.iter().any(|event| {
         matches!(
             &event.payload,
-            EventPayload::LinkCreated { relation: created, source: LinkSource::Inferred, .. }
-            if created.as_str() == relation
+            EventPayload::LinkCreated {
+                from: created_from,
+                to: created_to,
+                relation: created,
+                source: LinkSource::Inferred,
+                ..
+            }
+            if *created_from == from && *created_to == to && created.as_str() == relation
+        )
+    })
+}
+
+/// Whether a relation type was registered under `name`, as either its forward name or its inverse — the
+/// structural signal that the link-inference pass introduced this typed edge into the registry.
+/// Registering a relation defines both its name and its inverse in one event (`mentored_by` with inverse
+/// `mentor_of`, or the reverse), so the same relation is reachable under either name; matching on both
+/// lets a caller name one direction and still recognize the pair coined the other way round.
+pub fn relation_registered(events: &[Event], name: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkTypeRegistered { name: registered, inverse, .. }
+            if registered.as_str() == name || inverse.as_str() == name
         )
     })
 }
@@ -220,6 +241,16 @@ pub fn scheduled_item_surfaced(events: &[Event]) -> bool {
     events
         .iter()
         .any(|event| matches!(&event.payload, EventPayload::ScheduledItemSurfaced { .. }))
+}
+
+/// The id of the memory created under the exact handle `name`, if the run created one — so an oracle
+/// that needs a specific memory's endpoints can resolve it from the log rather than threading run-time
+/// ids into the assessment.
+pub fn memory_id_named(events: &[Event], name: &str) -> Option<MemoryId> {
+    events.iter().find_map(|event| match &event.payload {
+        EventPayload::MemoryCreated { id, name: created } if created.as_str() == name => Some(*id),
+        _ => None,
+    })
 }
 
 /// The id → name map of every memory created in the run.

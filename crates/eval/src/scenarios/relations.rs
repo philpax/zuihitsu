@@ -328,9 +328,17 @@ impl Scenario for AttributesRelationshipToTeller {
 /// agent through a conversation, so the test is deterministic: the content is exactly where the
 /// inference pass expects it (on the topic), and the only variable is whether the inference prompt
 /// extracts the relationship. This isolates the inference pass from the agent's content-placement
-/// decisions. `mentored_by` is chosen because none of the seed relations (knows, created_by,
+/// decisions. A mentorship relation is chosen because none of the seed relations (knows, created_by,
 /// same_as, participates_in, part_of) covers it, so the pass must coin a new relation rather than
 /// reusing one.
+///
+/// The oracle accepts the mentorship expressed either way round, because the pass legitimately coins it
+/// as `person/clara` → `mentored` → `topic/zephyr` or as `topic/zephyr` → `mentored_by` →
+/// `person/clara` — the same fact, read from either end. It blesses exactly those two directed
+/// candidates: it requires (a) a relation registered under `mentored` or `mentored_by` (matched on the
+/// registration's name *or* inverse, since the two are each other's inverse), and (b) an *inferred*
+/// link matching one candidate on both endpoints and direction. An unrelated relation, an edge on the
+/// wrong pair, or a reversed edge still fails.
 pub struct InfersLinkFromContent;
 
 #[async_trait]
@@ -436,20 +444,38 @@ impl Scenario for InfersLinkFromContent {
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
-        let inferred = analysis::link_inferred_between(events, "mentored_by");
-        let registered = analysis::link_type_registered(events, "mentored_by");
+        // The pass may coin the mentorship either way round — Clara `mentored` the project, or the
+        // project was `mentored_by` Clara — and both name the same fact. The oracle blesses exactly
+        // those two directed candidates: each pins the inferred edge to the correct endpoints
+        // (`person/clara` and `topic/zephyr`) the correct way round, so a wrong relation, a wrong pair,
+        // or a reversed edge still fails.
+        let zephyr = analysis::memory_id_named(events, "topic/zephyr");
+        let clara = analysis::memory_id_named(events, "person/clara");
+        let (inferred, registered) = match (clara, zephyr) {
+            (Some(clara), Some(zephyr)) => {
+                let candidates = [(clara, "mentored", zephyr), (zephyr, "mentored_by", clara)];
+                let inferred = candidates.iter().any(|&(from, relation, to)| {
+                    analysis::link_inferred_directed(events, from, to, relation)
+                });
+                let registered = candidates
+                    .iter()
+                    .any(|&(_, relation, _)| analysis::relation_registered(events, relation));
+                (inferred, registered)
+            }
+            _ => (false, false),
+        };
         vec![
             Verdict::oracle_outcome(
-                "inferred a mentored_by link from the content",
+                "inferred a mentorship link from the content",
                 inferred,
-                "the link-inference pass created an inferred mentored_by link",
-                "no inferred mentored_by link was created from the content",
+                "the link-inference pass created an inferred mentorship link between topic/zephyr and person/clara",
+                "no inferred mentorship link between topic/zephyr and person/clara was created from the content",
             ),
             Verdict::oracle_outcome(
-                "registered the mentored_by relation",
+                "registered a mentorship relation",
                 registered,
-                "the mentored_by relation was registered",
-                "the mentored_by relation was not registered",
+                "a mentorship relation was registered",
+                "no mentorship relation was registered",
             ),
         ]
     }
