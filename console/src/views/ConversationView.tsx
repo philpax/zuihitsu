@@ -348,7 +348,7 @@ function Room({
       .some((turn) => turn.role === "Agent");
 
   return (
-    <div className="flex w-full max-w-[46rem] flex-col">
+    <div className="flex w-full min-w-0 max-w-[46rem] flex-col">
       <header className="mb-4">
         <Eyebrow>
           {channel.label}
@@ -400,7 +400,7 @@ function Room({
         <Docked>
           <div className="pb-2.5 pt-2 md:grid md:grid-cols-[12rem_1fr] md:gap-8">
             <div className="hidden md:block" />
-            <div className="w-full max-w-[46rem]">
+            <div className="w-full min-w-0 max-w-[46rem]">
               {participate.atHead ? (
                 <Composer
                   onSend={onSend}
