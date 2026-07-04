@@ -1321,6 +1321,87 @@ async fn link_inference_registers_and_links_from_content() {
 }
 
 #[tokio::test]
+async fn link_inference_honors_a_seeded_inverse_label() {
+    // The model is shown both labels of every registered pair, so it legitimately phrases a link
+    // through the inverse — `mentored_by` for the seeded `mentors` — with no new registration to
+    // propose. The pass must resolve it onto the canonical relation with the direction flipped,
+    // not drop it as unregistered (the smoke-run regression after mentors/mentored_by were seeded).
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+    h.baseline_link_inference();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.create("person/clara", "a person")
+               local zephyr = memory.create("topic/zephyr")
+               zephyr:append("This project was mentored by Clara", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(SynthesizeReply::description("A person.")),
+        synthesize_call(SynthesizeReply::description("The zephyr project.")),
+        // The inference reply names the edge through the seeded inverse, registering nothing new:
+        // zephyr --mentored_by--> clara, the same fact as clara --mentors--> zephyr.
+        link_inference_call(LinkInferenceArgs {
+            new_relations: vec![],
+            links: vec![InferredLink {
+                entry: 1,
+                relation: "mentored_by".to_owned(),
+                target: "person/clara".to_owned(),
+                direction: "to".to_owned(),
+            }],
+        }),
+    ]);
+
+    run_turn(h.as_turn(&model, "This project was mentored by Clara", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+    h.link_inference(&model).await;
+
+    let clara = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Person.with_name("clara"))
+        .unwrap()
+        .unwrap();
+    let zephyr = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Topic.with_name("zephyr"))
+        .unwrap()
+        .unwrap();
+
+    let linked = h.events().iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::LinkCreated { from, to, relation, source, .. }
+            if *from == clara.id && *to == zephyr.id
+              && relation.as_str() == "mentors"
+              && *source == zuihitsu::LinkSource::Inferred
+        )
+    });
+    assert!(
+        linked,
+        "an inverse-labeled inferred link should land on the canonical relation, direction flipped"
+    );
+}
+
+#[tokio::test]
 async fn link_inference_is_idempotent() {
     let h = Harness::new();
     genesis::rollout(
