@@ -518,6 +518,109 @@ async fn a_single_sided_arbitration_is_dropped() {
 }
 
 #[tokio::test]
+async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
+    // The conflicting-accounts shape the eval missed in 3 of 5 runs: two accounts of one fact stand
+    // as sibling public entries, and a neutral third entry (the event's own title) sits alongside
+    // them. The synthesis prompt now closes with an explicit pairwise contradiction check over the
+    // numbered statements, so the scripted model pairs statements 2 and 3 while crediting neither,
+    // and a `BeliefArbitrated` with an empty `credited` lands. Both the emitted event and the shape
+    // of the prompt the pass sent are asserted, since the fix is a prompt change.
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // One neutral title entry and two conflicting location accounts (in the live scenario these
+    // arrive from two tellers across turns; here the memory's public entries are scripted directly).
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local e = memory.create(EVENT_ALL_HANDS)
+               e:append("The all-hands meeting", { by_agent = true, visibility = "public" })
+               e:append("Located in the main auditorium", { by_agent = true, visibility = "public" })
+               e:append("Located in the rooftop terrace", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // The neutral statement 1 stands apart; statements 2 and 3 collide, and neither is yet known
+        // to be right, so `credited` is left empty.
+        synthesize_call(
+            SynthesizeReply::description(
+                "The all-hands meeting, reported in either the main auditorium or the rooftop \
+                 terrace — the accounts disagree.",
+            )
+            .with_arbitration(SynthesizeArbitration {
+                competing: vec![2, 3],
+                credited: vec![],
+                statement: "Two standing accounts of the location: the main auditorium and the \
+                            rooftop terrace, neither retracted."
+                    .to_owned(),
+            }),
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Where is the all-hands?", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let all_hands = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("all-hands"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(all_hands.id).unwrap();
+    let arbitrations = belief_arbitrations(&h.events());
+    assert_eq!(arbitrations.len(), 1);
+    let EventPayload::BeliefArbitrated {
+        memory,
+        competing_entries,
+        resolution,
+        ..
+    } = &arbitrations[0]
+    else {
+        unreachable!();
+    };
+    assert_eq!(*memory, all_hands.id);
+    // The two conflicting statements (2 and 3) resolved to their entries; the neutral first entry is
+    // not among them.
+    assert_eq!(
+        *competing_entries,
+        vec![entries[1].entry_id, entries[2].entry_id]
+    );
+    // Both accounts stand: neither is credited above the other.
+    assert!(resolution.credited.is_empty());
+
+    // The pass posed the contradiction question over the numbered statements: the synthesis prompt
+    // carries the numbered statements and the explicit pairwise contradiction ask.
+    let prompts: Vec<String> = model
+        .recorded_messages()
+        .iter()
+        .flatten()
+        .map(|message| message.content.clone())
+        .collect();
+    assert!(
+        prompts.iter().any(|p| {
+            p.contains("1. The all-hands meeting")
+                && p.contains("2. Located in the main auditorium")
+                && p.contains("3. Located in the rooftop terrace")
+                && p.contains("incompatible values for the same fact")
+        }),
+        "the synthesis prompt must number the statements and pose the contradiction check: {prompts:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     let h = Harness::new();
     genesis::rollout(

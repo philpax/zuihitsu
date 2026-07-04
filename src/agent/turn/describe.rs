@@ -71,6 +71,16 @@ struct SynthesisTemplates {
     system: String,
 }
 
+/// The pass-wide context a single memory's synthesis calls share — the model, the engine, the
+/// recording seam, and the combined system prompt — so a per-memory call passes only what varies
+/// (the memory, its entries, the time, and whether to arbitrate).
+struct SynthesisCall<'a> {
+    model: &'a dyn ModelClient,
+    engine: &'a Engine,
+    recording: Recording,
+    system: &'a str,
+}
+
 /// Describe each candidate stale memory, holding the describer guard **per memory** rather than across
 /// the whole pass: acquire it, describe one memory, append its synthesis events and the
 /// `DescribePassCompleted` that marks it considered, materialize, and release — so a narrow session-open
@@ -190,18 +200,14 @@ async fn describe_one(
         .filter(|entry| entry.visibility == Visibility::Public)
         .cloned()
         .collect();
+    let call = SynthesisCall {
+        model,
+        engine,
+        recording,
+        system: &templates.system,
+    };
     if !public_entries.is_empty() {
-        match synthesize(
-            model,
-            engine,
-            recording,
-            &templates.system,
-            &memory,
-            &public_entries,
-            now,
-        )
-        .await
-        {
+        match synthesize(&call, &memory, &public_entries, now, true).await {
             Ok(Some(synthesis)) => {
                 if !synthesis.description.trim().is_empty() {
                     events.push(EventPayload::memory_description_regenerated(
@@ -257,17 +263,7 @@ async fn describe_one(
             .cloned()
             .collect();
         if !private_untimed.is_empty() {
-            match synthesize(
-                model,
-                engine,
-                recording,
-                &templates.system,
-                &memory,
-                &private_untimed,
-                now,
-            )
-            .await
-            {
+            match synthesize(&call, &memory, &private_untimed, now, false).await {
                 Ok(Some(synthesis)) => resolve_occurrences(
                     synthesis.occurrences,
                     &private_untimed,
@@ -410,17 +406,24 @@ fn compose_synthesis_system(description_body: &str, extraction_body: Option<&str
 /// Ask the model, in one schema-constrained `synthesize` reply, to describe a memory from its entries
 /// and extract the occurrence time of any time-bearing statement. The entries are numbered (1-based) so
 /// the extracted occurrences key back to them, and the current time is stated so relative phrases
-/// ("last Tuesday") resolve. `None` means no usable reply came back, which the caller treats as "leave
-/// the memory unchanged".
+/// ("last Tuesday") resolve. When `arbitrate` is set (the public pass, whose reply feeds
+/// [`arbitration_event`]), the prompt closes with an explicit pairwise contradiction check over the
+/// numbered statements, so the model must answer the contradiction question rather than volunteer it; the
+/// private extraction pass, whose arbitration is discarded, omits the ask. `None` means no usable reply
+/// came back, which the caller treats as "leave the memory unchanged".
 async fn synthesize(
-    model: &dyn ModelClient,
-    engine: &Engine,
-    recording: Recording,
-    system: &str,
+    call: &SynthesisCall<'_>,
     memory: &MemoryView,
     entries: &[EntryView],
     now: Timestamp,
+    arbitrate: bool,
 ) -> Result<Option<SynthesizeArgs>, ModelError> {
+    let &SynthesisCall {
+        model,
+        engine,
+        recording,
+        system,
+    } = call;
     let mut prompt = format!(
         "Memory: {}\nCurrent time: {}\n\nStatements:\n",
         memory.name.as_str(),
@@ -428,6 +431,23 @@ async fn synthesize(
     );
     for (index, entry) in entries.iter().enumerate() {
         prompt.push_str(&format!("{}. {}\n", index + 1, entry.text));
+    }
+    if arbitrate {
+        // The system template carries the general arbitration rules; this closes the concrete
+        // per-call ask over the numbered statements — the lever runs 3/4 of the conflicting-accounts
+        // eval missed, where the model, given no closing question, defaulted to the dominant describe
+        // task and left `arbitration` absent. It poses the contradiction check as a required step,
+        // names the two failure modes that dissolved the conflict (a neutral third statement, and each
+        // value being attributed to a different person), and asks for every colliding pair.
+        prompt.push_str(
+            "\nNow check every pair of the numbered statements above: whenever two of them assert \
+             incompatible values for the same fact — two different locations, dates, employers, or \
+             the like for one thing — that pair contradicts and you must record it in `arbitration`. \
+             A third statement that names no rival value (a neutral label such as the thing's own \
+             title) does not dissolve the conflict between the other two, and two accounts of the \
+             same fact attributed to different people still contradict. Report every contradicting \
+             pair; leave `arbitration` absent only when no two statements collide.\n",
+        );
     }
 
     // Constrain the whole reply to the `SynthesizeArgs` schema (response_format) rather than forcing a
