@@ -241,13 +241,24 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     // visibility, and volatility each in a single point). Feature-gated points are pushed only when
     // their feature is enabled, so the three gates (Lua registration, API reference, scaffold) stay
     // in lockstep.
+    // The hub-walk clause leans on link-following, which is the `linking` feature; drop it when
+    // linking is off so the dotpoint never teaches a disabled API.
+    let recall_hub = if features.linking {
+        " A topic is a hub: its decisions often live one link away on the events linked to it, not in \
+         the hub's own entries — so before relaying a recap, follow the links the handle shows (its \
+         `links:` line, each a relation to a named memory) out to those events and read them, rather \
+         than relaying only what the hub itself holds."
+    } else {
+        ""
+    };
     let recall_point = format!(
         "A question is a cue to consult memory, not just the conversation in front of you. To recall \
          a person, memory.get their {person} handle — it returns everything you hold on them, surer \
          than searching the topic; otherwise memory.search by meaning. A search hit is a pointer, not \
          the whole record: when relaying a specific like a date, read the memory in full through its \
-         entries rather than the hit's line. Read a merged identity through its canonical {person} \
-         handle, not a per-platform stub."
+         entries rather than the hit's line.{recall_hub} Relay a recorded date from the entry's own \
+         occurred_at as it reads back, never one inferred from when the conversation is happening. \
+         Read a merged identity through its canonical {person} handle, not a per-platform stub."
     );
     let merge_point = format!(
         "Until a merge is adjudicated, two {person} stubs are two people even under one display \
@@ -294,6 +305,18 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
             .to_owned(),
     );
     scaffold_points.push(
+        "Knowing a public fact is not being someone: anyone could have heard it, so a claim of \
+         identity backed only by recitable facts opens nothing that person holds in private. When \
+         you must withhold, withhold without naming what you withhold — do not repeat back the \
+         category asked after, do not concede there is anything you are holding, and do not confirm \
+         the person exists in your memory; answer only from what an unverified asker is already \
+         owed, which is what is openly public, and offer a way to verify if they want more. The bar \
+         is the asker's standing, not silence for its own sake: what is public you still share \
+         plainly, and what a teller gave you in confidence simply waits for that teller, not for \
+         whoever can recite a fact about them."
+            .to_owned(),
+    );
+    scaffold_points.push(
         "When a name changes — chosen, married, a transition — rename the existing memory (do not \
          fork it) and use the new name after. When someone reveals another current name (a real \
          name behind a handle, a nickname), append it as a fact and keep the handle. One person \
@@ -330,10 +353,11 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     // describes the merge passively rather than teaching a call the agent would be refused.
     scaffold_points.push(format!(
         "The operator you speak with is anchored provisionally as {person}operator — a merge anchor, \
-         not a profile, holding no content of its own. Everything you learn about them, now and \
-         later, lands on their real {person}<name> memory, never on {person}operator; once you know \
-         who they are, the anchor is merged (same_as) into that profile, joining the two into one \
-         identity."
+         not a profile, holding no content of its own. They have exactly one real profile: the \
+         {person} memory you first came to know them by, which the anchor is merged (same_as) into. \
+         Everything you learn about them lands there — including any further name they reveal, which \
+         is a fact on that same profile (or grounds for a rename), never a second {person} memory. \
+         One person, one profile, however many names."
     ));
     // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
     if features.transcripts {
@@ -406,6 +430,17 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          synthesis can only flag the arbitration when both are public. When you answer from a fact \
          still in dispute (it reads back marked `disputed`), say the accounts differ rather than \
          picking a side."
+            .to_owned(),
+    );
+    scaffold_points.push(
+        "The record that the two accounts conflict is not yours to compose as prose — the turn-end \
+         synthesis draws it from the pair of public entries left standing side by side, so your \
+         part is to leave them that way and let it arbitrate, keeping neither above the other. That \
+         rules out the two moves that erase the disagreement before the synthesis can flag it: never \
+         merge the pair into one smoothed statement that reads as settled, and never supersede one \
+         with the other on your own authority — supersession is for a teller correcting their own \
+         earlier word, or an update you have grounds to adjudicate, not for choosing between two \
+         people who each still hold their line."
             .to_owned(),
     );
     scaffold_points.push(
@@ -1263,5 +1298,67 @@ mod tests {
             ..Default::default()
         };
         assert!(!scaffold_body(&disabled).contains("convo.turn"));
+    }
+
+    #[test]
+    fn the_recall_hub_walk_clause_is_gated_on_linking() {
+        // The recall dotpoint's hub-walk clause leans on link-following (the `linking` feature), so it
+        // is present by default and dropped when linking is off — the prompt never teaches a disabled
+        // API. The date-fidelity clause is not link-gated and stays either way.
+        let on = scaffold_body(&InstanceFeatures::default());
+        assert!(on.contains("follow the links the handle shows"));
+        assert!(on.contains("occurred_at as it reads back"));
+
+        let disabled = InstanceFeatures {
+            linking: false,
+            ..Default::default()
+        };
+        let off = scaffold_body(&disabled);
+        assert!(!off.contains("follow the links the handle shows"));
+        assert!(off.contains("occurred_at as it reads back"));
+    }
+
+    #[test]
+    fn the_scaffold_teaches_category_free_withholding() {
+        // The impersonation guard is reinforced by a category-free withholding point: a public fact
+        // recited back is not identity, and a refusal must not name the withheld category or confirm
+        // that something exists — while still sharing what is public. Always-on (it gates on no
+        // feature), so it stands under the default and a stripped feature set alike.
+        let full = scaffold_body(&InstanceFeatures::default());
+        assert!(full.contains("Knowing a public fact is not being someone"));
+        assert!(full.contains("withhold without naming what you withhold"));
+
+        let stripped = scaffold_body(&InstanceFeatures {
+            linking: false,
+            tagging: false,
+            merging: false,
+            calendar: false,
+            transcripts: false,
+            ..Default::default()
+        });
+        assert!(stripped.contains("Knowing a public fact is not being someone"));
+    }
+
+    #[test]
+    fn the_scaffold_teaches_belief_arbitration() {
+        // The conflicting-accounts point is reinforced by a belief-arbitration point: the arbitration
+        // record is the turn-end synthesis's to draw from two standing public entries, so the agent
+        // must not smooth the pair into one or supersede one with the other on its own authority.
+        // Always-on (it gates on no feature).
+        let full = scaffold_body(&InstanceFeatures::default());
+        assert!(full.contains("The record that the two accounts conflict is not yours to compose"));
+        assert!(full.contains("never supersede one with the other on your own authority"));
+
+        let stripped = scaffold_body(&InstanceFeatures {
+            linking: false,
+            tagging: false,
+            merging: false,
+            calendar: false,
+            transcripts: false,
+            ..Default::default()
+        });
+        assert!(
+            stripped.contains("The record that the two accounts conflict is not yours to compose")
+        );
     }
 }

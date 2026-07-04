@@ -137,6 +137,12 @@ pub struct LinkRef {
     /// for a link with no teller behind it (the adjudicated `same_as`) — the provenance a belief-bearing
     /// relation turns on, the same teller signal a content read carries.
     pub told_by: Option<String>,
+    /// The far memory's representative occurrence — its most recent dated entry's `occurred_at`, or
+    /// `None` when it holds no dated fact. Resolved at read time (like `other_name`) so a link to a
+    /// dated event (a shipped decision, a scheduled meeting) carries *when* alongside the relation, and
+    /// a neighborhood rendered from a hub keeps the spokes' dates without a second read. Not
+    /// visibility-filtered, mirroring the link readers, which surface the agent's whole graph.
+    pub occurred_at: Option<TemporalRef>,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the

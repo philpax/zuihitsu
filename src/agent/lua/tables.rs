@@ -21,8 +21,8 @@ use super::{
         BlockApi, HandleSelf, SearchOpts, append_options_from_lua, date_text, day_string,
         entry_handle_id, handle_id, link_target_id, make_date, make_entry_handle,
         make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
-        make_relation_result, readonly_newindex, render, route_error, run_memory_search,
-        value_text,
+        make_relation_result, readonly_newindex, render, render_neighborhood, route_error,
+        run_memory_search, value_text,
     },
 };
 
@@ -90,6 +90,35 @@ pub(super) fn install_block_api(
     // naming the persisting operation instead. Internal setup writes raw fields with `raw_set` to
     // bypass it (see `resolve_existing_handle`).
     metatable.set("__newindex", readonly_newindex(lua, HandleKind::Memory)?)?;
+    // A memory handle renders self-describingly: its name, its description, and — for a handle minted
+    // by `memory.get`/`memory.get_or_create`, which precompute it (see `resolve_existing_handle`) — a
+    // compact `links:` line naming its neighborhood (each link as `relation → name`, a dated target's
+    // occurrence appended). So printing or returning a topic hub reveals at a glance that its decisions
+    // live one link away on the spokes, rather than the agent reading only the hub's own entries and
+    // dropping a fact that sits on a linked event. `name` and `description` read lazily through
+    // `__index`; `neighborhood` is a raw field present only on the precomputed handles.
+    metatable.set(
+        "__tostring",
+        lua.create_function(|_, this: Table| {
+            let name = this.get::<Option<String>>("name")?.unwrap_or_default();
+            let mut line = name;
+            if let Some(description) = this
+                .get::<Option<String>>("description")?
+                .filter(|d| !d.is_empty())
+            {
+                line.push_str(" — ");
+                line.push_str(&description);
+            }
+            if let Some(neighborhood) = this
+                .get::<Option<String>>("neighborhood")?
+                .filter(|n| !n.is_empty())
+            {
+                line.push_str("\n  links: ");
+                line.push_str(&neighborhood);
+            }
+            Ok(line)
+        })?,
+    )?;
     let globals = lua.globals();
     // `print(...)` captures into the block's output buffer (rendered the same way returned values
     // are), so the agent sees what it prints fed back — Lua's default `print` writes to a process
@@ -694,14 +723,16 @@ fn tag_result_metatable(lua: &Lua) -> mlua::Result<Table> {
 }
 
 /// The metatable backing the link results `mem:outgoing`/`incoming`/`links` return: `__tostring`
-/// renders one as `relation → name` (outgoing) or `relation ← name` (incoming), so a reader's list
-/// reads back as readable relationships while each result keeps its `relation`, `memory` (the far
-/// memory as a handle), `name`, `direction`, and `source` fields for the agent to inspect and act on.
+/// renders one as `relation → name` (outgoing) or `relation ← name` (incoming) — with a dated far
+/// memory's occurrence appended as `[when …]` (the same phrasing a search hit uses) — so a reader's
+/// list reads back as readable relationships that keep the linked event's *when*, while each result
+/// keeps its `relation`, `memory` (the far memory as a handle), `name`, `direction`, `source`, and
+/// `occurred_at` fields for the agent to inspect and act on.
 fn link_result_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     metatable.set(
         "__tostring",
-        lua.create_function(|_, this: Table| {
+        lua.create_function(|lua, this: Table| {
             let relation: String = this.get("relation")?;
             let name: String = this.get("name")?;
             let direction: String = this.get("direction")?;
@@ -710,7 +741,17 @@ fn link_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             } else {
                 "→"
             };
-            Ok(format!("{relation} {arrow} {name}"))
+            let mut line = format!("{relation} {arrow} {name}");
+            // The far memory's occurrence renders inline (like a search hit's date), so a link to a
+            // dated event carries *when* on the line. The stored value is the structured tagged table;
+            // render it back to a date for display.
+            let occurred = this.get::<Value>("occurred_at")?;
+            if !occurred.is_nil()
+                && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
+            {
+                line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
+            }
+            Ok(line)
         })?,
     )?;
     Ok(metatable)
@@ -916,6 +957,22 @@ async fn resolve_existing_handle(
     };
     api.lock(id).await;
     let handle = make_handle(lua, id, metatable)?;
+    // Precompute the memory's link neighborhood and stash it as a rendered line on the handle, so a
+    // recall that fetches a topic hub sees its spokes — the linked events its decisions live on — the
+    // moment the handle renders, rather than reading only the hub's own entries and dropping a
+    // spoke-held fact. A traversing read, so it locks the whole `same_as` class (like the link
+    // readers). Committed-only and not visibility-filtered, mirroring `<memory>:links`. Written with
+    // `raw_set` to bypass the read-only `__newindex` guard; absent (so no line renders) when the memory
+    // has no links.
+    api.lock_class(id).await?;
+    let links = api
+        .block
+        .lock()
+        .links(id)
+        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+    if !links.is_empty() {
+        handle.raw_set("neighborhood", render_neighborhood(&links))?;
+    }
     // A renamed memory carries its prior handles in `former_names`, so the agent reads it as the same
     // person under their current `name` and connects its old-name content rather than splitting them.
     let former = api

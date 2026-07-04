@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use crate::{
     event::{EventPayload, LinkSource, MergeProposalSource, Teller},
-    graph::RelationView,
+    graph::{Graph, RelationView},
     ids::MemoryId,
+    time::TemporalRef,
     vocabulary::RelationName,
 };
 
@@ -161,6 +162,9 @@ impl MemoryBlock {
                             .unwrap_or_else(|| "someone".to_owned()),
                     ),
                 };
+                // The far memory's freshest dated fact, so a link to a dated event carries *when*.
+                // Committed state only and not visibility-filtered, mirroring the link read itself.
+                let occurred_at = latest_dated_occurrence(&graph, other.id)?;
                 refs.push(LinkRef {
                     relation: edge.relation,
                     other: other.id,
@@ -168,6 +172,7 @@ impl MemoryBlock {
                     direction,
                     source: edge.source,
                     told_by,
+                    occurred_at,
                 });
             }
             (members, refs)
@@ -243,4 +248,23 @@ impl MemoryBlock {
         });
         Ok(())
     }
+}
+
+/// The far memory's representative occurrence for a link read: the most recent dated entry's
+/// `occurred_at` over its whole `same_as` class, or `None` when it holds no dated fact. Entries
+/// compose in commit order, so the last dated one wins — the freshest dated fact, which for a linked
+/// event (a shipped decision, a scheduled meeting) is the *when* the agent relays. Not
+/// visibility-filtered: the link readers surface the agent's whole graph, so the occurrence they
+/// carry is not gated on who is present either.
+fn latest_dated_occurrence(
+    graph: &Graph,
+    id: MemoryId,
+) -> Result<Option<TemporalRef>, MemoryError> {
+    let mut latest = None;
+    for entry in graph.class_entries(id)? {
+        if entry.occurred_at.is_some() {
+            latest = entry.occurred_at;
+        }
+    }
+    Ok(latest)
 }

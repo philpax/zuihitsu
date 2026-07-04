@@ -1019,6 +1019,91 @@ async fn link_resolves_a_name_string_target() {
 }
 
 #[tokio::test]
+async fn a_memory_handle_renders_its_link_neighborhood() {
+    // A topic hub prints its links line, so a recall that fetches the hub sees the spokes its
+    // decisions live on — the linked events — rather than reading only the hub's own entries and
+    // dropping a fact that sits one link away (the hub-and-spoke recall gap). The links are committed
+    // in one block, then the hub is fetched in the next (block.links reflects committed state).
+    let h = Harness::new();
+    h.run(
+        r#"
+        links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
+        local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
+        local ship = memory.create(EVENT_LAUNCH, "Ship the migration")
+        ship:link("part_of", topic)
+        "#,
+    )
+    .await;
+
+    let BlockOutcome::Committed { result } = h.run(r#"return memory.get(TOPIC_MIGRATION)"#).await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        result.contains("links:"),
+        "the handle should render a links line, got: {result}"
+    );
+    assert!(
+        result.contains("part_of")
+            && result.contains(MemoryName::from(Namespace::Event.with_name("launch")).as_str()),
+        "the links line should name the relation and the linked event, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_dated_link_target_shows_its_occurrence_on_the_handle() {
+    // A dated spoke carries its date onto the hub's links line (the same `[when …]` phrasing a search
+    // hit uses), so relaying the recap from the handle keeps the *when* without a separate read.
+    let h = Harness::new();
+    h.run(
+        r#"
+        links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
+        local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
+        local ship = memory.create(EVENT_LAUNCH)
+        ship:append("Ship it", { visibility = "public", occurred_at = { day = "2026-08-01" } })
+        ship:link("part_of", topic)
+        "#,
+    )
+    .await;
+
+    let BlockOutcome::Committed { result } = h.run(r#"return memory.get(TOPIC_MIGRATION)"#).await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        result.contains("[when 2026-08-01]"),
+        "the dated spoke should show its occurrence on the links line, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn the_neighborhood_line_caps_and_notes_the_remainder() {
+    // A busy hub does not flood the transcript: the links line shows the first several and elides the
+    // rest with a `(+N more)` note. Nine events linked to the topic exceeds the cap of eight.
+    let h = Harness::new();
+    h.run(
+        r#"
+        links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
+        local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
+        for i = 1, 9 do
+            local ev = memory.create("event/spoke-" .. i)
+            ev:link("part_of", topic)
+        end
+        "#,
+    )
+    .await;
+
+    let BlockOutcome::Committed { result } = h.run(r#"return memory.get(TOPIC_MIGRATION)"#).await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        result.contains("(+1 more)"),
+        "the links line should cap and note the elided remainder, got: {result}"
+    );
+}
+
+#[tokio::test]
 async fn creating_a_duplicate_name_is_a_teachable_error() {
     let h = Harness::new();
     h.run(r#"memory.create(TOPIC_PLAN, "first")"#).await;

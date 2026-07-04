@@ -20,7 +20,7 @@ use crate::{
         search::{SearchQuery, search},
     },
     settings::Settings,
-    time::{MILLIS_PER_DAY, TemporalRef, civil_date_to_millis},
+    time::{MILLIS_PER_DAY, TemporalRef, civil_date_to_millis, format_occurrence},
     vocabulary::TagName,
 };
 
@@ -202,8 +202,55 @@ pub(super) fn make_link_handle(
     if let Some(told_by) = &link.told_by {
         table.set("told_by", told_by.as_str())?;
     }
+    // The far memory's representative occurrence, when it holds a dated fact — the same tagged table
+    // an entry or search hit carries (e.g. `link.occurred_at.day`), so a script reads a linked event's
+    // date, and the metatable's `__tostring` renders it inline on the link line.
+    if let Some(occurred_at) = &link.occurred_at {
+        table.set("occurred_at", lua.to_value(occurred_at)?)?;
+    }
     table.set_metatable(Some(link_metatable.clone()))?;
     Ok(table)
+}
+
+/// How many of a memory's links its rendered handle lists before eliding the rest — enough to reveal
+/// a hub's shape (its events, its people) without flooding the transcript when a busy topic has many.
+const NEIGHBORHOOD_CAP: usize = 8;
+
+/// Render a memory's link neighborhood as the compact line its handle carries: each link as
+/// `relation → name` (`←` for an incoming edge), with a dated far memory's occurrence appended as
+/// `[when …]` (the same phrasing a search hit's date uses), capped at [`NEIGHBORHOOD_CAP`] with a
+/// `(+N more)` note. A name-and-relation list, not the targets' content: it makes the spokes legible
+/// at the hub so a recall follows them rather than relaying only the hub's own entries. Empty when the
+/// memory has no links, so the caller omits the line entirely.
+pub(super) fn render_neighborhood(links: &[LinkRef]) -> String {
+    let mut rendered: Vec<String> = links
+        .iter()
+        .take(NEIGHBORHOOD_CAP)
+        .map(render_link_summary)
+        .collect();
+    let elided = links.len().saturating_sub(NEIGHBORHOOD_CAP);
+    if elided > 0 {
+        rendered.push(format!("(+{elided} more)"));
+    }
+    rendered.join(", ")
+}
+
+/// One link on the neighborhood line: `relation → name` (or `←` for an incoming edge), plus the far
+/// memory's occurrence as `[when …]` when it holds a dated fact.
+fn render_link_summary(link: &LinkRef) -> String {
+    let arrow = match link.direction {
+        LinkDirection::Outgoing => "→",
+        LinkDirection::Incoming => "←",
+    };
+    let mut summary = format!(
+        "{} {arrow} {}",
+        link.relation.as_str(),
+        link.other_name.as_str()
+    );
+    if let Some(occurred_at) = &link.occurred_at {
+        summary.push_str(&format!(" [when {}]", format_occurrence(occurred_at)));
+    }
+    summary
 }
 
 /// Wrap a list of link refs as a Lua sequence of link results, in order — the

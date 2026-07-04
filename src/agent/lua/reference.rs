@@ -52,8 +52,12 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                  `former_handle` (the old name you looked up by), and any renamed memory carries \
                  `former_names` — they now go by `result.name`, so it is the same person, and their \
                  older entries written under an old name are still theirs. Answer under the current \
-                 name without announcing the old one. When you intend to fetch-or-make in one step, \
-                 reach for memory.get_or_create rather than get-then-create."
+                 name without announcing the old one. The handle prints as its name and description \
+                 followed by a `links:` line naming its neighborhood — each link as \"relation → \
+                 name\", a dated target's occurrence appended — so a topic hub shows the events its \
+                 decisions live on; follow those links (its entries are rarely the whole story). When \
+                 you intend to fetch-or-make in one step, reach for memory.get_or_create rather than \
+                 get-then-create."
             ),
         )
         .required("name", AT::String, "the memory's handle (or a former one)")
@@ -66,7 +70,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              returned as it stands and the content argument is ignored (an existing memory is never \
              silently overwritten); only an absent one is created, with the given first entry. Use \
              this rather than memory.get followed by memory.create; reserve memory.create for making \
-             a deliberately new memory, where a name collision should be an error.",
+             a deliberately new memory, where a name collision should be an error. Not an identity \
+             tool: a new name for a person you already hold is a fact on their existing profile (or \
+             grounds for a rename), so fetch that profile — get_or_create on the new name would mint \
+             a duplicate person.",
         )
         .required("name", AT::String, "the memory's handle")
         .optional(
@@ -242,11 +249,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "The memories this one links to under a relation, across its whole merged identity, in the \
              relation's forward direction — <memory>:outgoing(\"knows\") is who it knows. Each \
-             result is a table { relation, memory, name, direction, source, told_by } that prints as \
-             \"relation → name\"; reach the linked memory through result.memory to read or act on it, \
-             and result.told_by names who asserted the relationship (the provenance of a belief-bearing \
-             link). Use <memory>:incoming for the reverse direction (who knows it). For a symmetric \
-             relation, outgoing and incoming return the same neighbours.",
+             result is a table { relation, memory, name, direction, source, told_by, occurred_at } \
+             that prints as \"relation → name\" (with a dated target's occurrence appended as \
+             \"[when …]\"); reach the linked memory through result.memory to read or act on it, \
+             result.told_by names who asserted the relationship (the provenance of a belief-bearing \
+             link), and result.occurred_at is the far memory's date when it holds a dated fact. Use \
+             <memory>:incoming for the reverse direction (who knows it). For a symmetric relation, \
+             outgoing and incoming return the same neighbours.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
@@ -264,8 +273,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Every link from this memory's merged identity out to other memories, in every relation \
              and both directions — the relationship overview. Each result is a table { relation, \
-             memory, name, direction, source } that prints as \"relation → name\" (or \"← name\" for \
-             an incoming link); reach a linked memory through result.memory.",
+             memory, name, direction, source, occurred_at } that prints as \"relation → name\" (or \
+             \"← name\" for an incoming link), a dated target's occurrence appended as \"[when …]\"; \
+             reach a linked memory through result.memory.",
         )
         .returns(AT::Object(Vec::new()).list());
 
