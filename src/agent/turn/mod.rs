@@ -1213,6 +1213,49 @@ async fn run_steps(
                         messages.push(Message::tool_result(call.id.clone(), result));
                     }
                 }
+                Completion::Reply(text) if reply_leaks_special_tokens(&text) => {
+                    // The model emitted chat-template special-token markup as reply text (typically
+                    // at the forced-answer final step, where `ToolChoice::None` forbids a real tool
+                    // call and a weaker model transcribes a pseudo-tool-call instead). Such markup
+                    // must never reach a participant, so resample the same request once — a transient
+                    // decoding artifact usually differs on resample — and take the retry only if it
+                    // comes back a clean reply; anything else falls to the silent terminal.
+                    tracing::warn!(
+                        malformed = %truncate_for_log(&text),
+                        "the model leaked special-token markup in its reply; resampling once"
+                    );
+                    let retry_record = recording.request_record(&request, prev_sent_len);
+                    let retry = recording
+                        .generate(&engine, model, &request, ModelPhase::Step, retry_record)
+                        .await?;
+                    steps += 1;
+                    peak_prompt_tokens = peak_prompt_tokens.max(retry.usage.prompt_tokens);
+                    match retry.completion {
+                        Completion::Reply(retry_text)
+                            if !reply_leaks_special_tokens(&retry_text) =>
+                        {
+                            record_agent_turn(
+                                engine.store.lock().as_mut(),
+                                engine.clock.as_ref(),
+                                retry_text.clone(),
+                            )?;
+                            break 'cycle TurnOutcome::Reply(retry_text);
+                        }
+                        _ => {
+                            tracing::warn!(
+                                malformed = %truncate_for_log(&text),
+                                "the resampled reply is still malformed or not a plain reply; \
+                                 staying silent rather than delivering markup"
+                            );
+                            record_agent_turn(
+                                engine.store.lock().as_mut(),
+                                engine.clock.as_ref(),
+                                String::new(),
+                            )?;
+                            break 'cycle TurnOutcome::Silent;
+                        }
+                    }
+                }
                 Completion::Reply(text) => {
                     record_agent_turn(
                         engine.store.lock().as_mut(),
@@ -1241,6 +1284,28 @@ async fn run_steps(
     };
 
     Ok((outcome, peak_prompt_tokens, steps, blocks))
+}
+
+/// Whether a reply's text leaks model chat-template special-token markup — the `<|` or `|>`
+/// delimiters that wrap a backend's special tokens (`<|tool_call|>`, `<|im_start|>`, and the like).
+/// A well-formed reply is plain prose the participant reads; those delimiters only appear when the
+/// model has transcribed template scaffolding into its answer, so their presence means the reply is
+/// malformed and must not be delivered. The heuristic is deliberately exactly these two two-byte
+/// delimiters: it does not parse tool-call shapes, and ordinary code or prose — Lua `..`, `{}`, or a
+/// comparison like `a < b || b > c` — never contains `<|` or `|>`, so it does not false-positive.
+fn reply_leaks_special_tokens(text: &str) -> bool {
+    text.contains("<|") || text.contains("|>")
+}
+
+/// Clip `text` to a bounded, char-boundary-safe prefix for a log field, so a warn over a malformed
+/// reply never dumps the whole (possibly large) completion into the diagnostic stream.
+fn truncate_for_log(text: &str) -> String {
+    const MAX_CHARS: usize = 200;
+    let mut clipped: String = text.chars().take(MAX_CHARS).collect();
+    if text.chars().nth(MAX_CHARS).is_some() {
+        clipped.push('…');
+    }
+    clipped
 }
 
 /// The distinct memories that gained content (a create or an append) since `cycle_start`, in first-
@@ -1404,7 +1469,7 @@ fn append_turn(
 
 #[cfg(test)]
 mod tests {
-    use super::{TurnResolution, resolve_turn};
+    use super::{TurnResolution, reply_leaks_special_tokens, resolve_turn};
     use crate::{
         clock::ManualClock,
         engine::Engine,
@@ -1477,6 +1542,30 @@ mod tests {
             Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
         );
         (engine, direct, turn_id)
+    }
+
+    #[test]
+    fn special_token_markup_is_flagged_and_ordinary_text_is_not() {
+        // The observed leak: a pseudo-tool-call transcribed with `<|`/`|>` special-token delimiters.
+        assert!(reply_leaks_special_tokens(
+            "<|tool_call>call:run_lua{script:<|\"|>memory.search(\"decided\")<|\"|>}<tool_call|>"
+        ));
+        // A normal reply is plain prose — clean.
+        assert!(!reply_leaks_special_tokens(
+            "Noted — I'll remember that you're standardizing on Postgres."
+        ));
+        // A reply quoting Lua with `..` concatenation and `{}` table syntax — clean.
+        assert!(!reply_leaks_special_tokens(
+            "Run `local t = { a = 1 }; return t.a .. \"!\"` to see it."
+        ));
+        // A comparison with `<`, `>`, and `||` but no adjacent `<|`/`|>` — clean.
+        assert!(!reply_leaks_special_tokens(
+            "guard against a < b || b > c here"
+        ));
+        // The delimiter proper: `<|` (and by symmetry `|>`) is flagged. The `<|` operator does not
+        // occur in prose, so flagging `x <| y` is acceptable.
+        assert!(reply_leaks_special_tokens("x <| y"));
+        assert!(reply_leaks_special_tokens("x |> y"));
     }
 
     #[test]

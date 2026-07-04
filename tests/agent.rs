@@ -87,6 +87,67 @@ async fn tool_call_then_reply_commits_and_replies() {
     );
 }
 
+/// The verbatim special-token leak observed in the wild: a pseudo-tool-call the model transcribed as
+/// plain reply text at the forced-answer step.
+const MALFORMED_REPLY: &str =
+    "<|tool_call>call:run_lua{script:<|\"|>memory.search(\"decided\")<|\"|>}<tool_call|>";
+
+/// Whether any recorded `ConversationTurn` carries the special-token markup — the invariant the guard
+/// protects: such markup must never reach a persisted turn, and so never a participant.
+fn any_turn_contains(events: &[Event], needle: &str) -> bool {
+    events.iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::ConversationTurn { text, .. } if text.contains(needle)
+        )
+    })
+}
+
+#[tokio::test]
+async fn a_malformed_reply_is_resampled_and_the_clean_retry_lands() {
+    let h = Harness::new();
+    // The first completion leaks special-token markup; the guard resamples the same step, and the
+    // clean retry is what the participant receives.
+    let model = ScriptedModel::new([
+        Completion::Reply(MALFORMED_REPLY.to_owned()),
+        Completion::Reply("Noted — I'll remember that.".to_owned()),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "What did we decide?", 8))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        TurnOutcome::Reply("Noted — I'll remember that.".to_owned())
+    );
+    // Exactly one agent turn recorded, and the markup appears in no ConversationTurn.
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    assert!(!any_turn_contains(&h.events(), "<|"));
+    assert!(!any_turn_contains(&h.events(), "|>"));
+}
+
+#[tokio::test]
+async fn two_consecutive_malformed_replies_fall_to_the_silent_terminal() {
+    let h = Harness::new();
+    // Both the initial reply and its resample leak markup; the guard delivers silence rather than
+    // markup, and the malformed text is recorded nowhere.
+    let model = ScriptedModel::new([
+        Completion::Reply(MALFORMED_REPLY.to_owned()),
+        Completion::Reply(MALFORMED_REPLY.to_owned()),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "What did we decide?", 8))
+        .await
+        .unwrap();
+
+    assert_eq!(outcome, TurnOutcome::Silent);
+    // A single (empty) agent turn stands for the silent terminal, and the markup is nowhere in the log.
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    assert!(!any_turn_contains(&h.events(), "<|"));
+    assert!(!any_turn_contains(&h.events(), "|>"));
+}
+
 #[tokio::test]
 async fn descriptions_regenerate_after_a_turn() {
     let h = Harness::new();
