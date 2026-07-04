@@ -20,6 +20,8 @@ __pycache__/
 # just because we forgot to list it.
 /eval/*
 !/eval/history.jsonl
+# The retired v1 trend archive, kept tracked (the v2 writer starts a fresh history.jsonl).
+!/eval/history-v1.jsonl
 
 # Generated wasm-bindgen output for the console bridge (regenerated from the build).
 /crates/console-wasm/pkg/

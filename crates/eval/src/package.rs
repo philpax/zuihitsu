@@ -23,8 +23,17 @@ pub struct RunMeta {
     pub harness_version: String,
     /// The repository commit the harness ran at, when resolvable.
     pub git_sha: Option<String>,
+    /// Whether the working tree had uncommitted changes when the run started. Best-effort like
+    /// `git_sha`: an unavailable or failing git reads as clean. Added additively — an older package
+    /// without the field deserializes as `false`.
+    #[serde(default)]
+    pub git_dirty: bool,
     pub model_id: String,
     pub embedding_model: Option<String>,
+    /// The `--scenario` filter the run was targeted with, verbatim; absent for a full-suite run. Added
+    /// additively — an older package without the field deserializes as `None`.
+    #[serde(default)]
+    pub scenario_filter: Option<String>,
     /// Epoch milliseconds.
     #[ts(type = "number")]
     pub started_at_ms: i64,
@@ -73,6 +82,18 @@ pub enum Category {
 pub enum Bar {
     Gating,
     Metric { threshold: f64 },
+}
+
+impl Bar {
+    /// The bar as judged, rendered for the trend record: `gating`, or `>=<threshold>` for a metric bar
+    /// (e.g. `>=0.6`). The archive keeps the bar each scenario was measured against so a later reader
+    /// can tell a held gate from a met rate without the package.
+    pub fn label(&self) -> String {
+        match self {
+            Bar::Gating => "gating".to_owned(),
+            Bar::Metric { threshold } => format!(">={threshold}"),
+        }
+    }
 }
 
 /// One run: the run's whole event log (the deliberation and resulting state the viewer reconstructs),

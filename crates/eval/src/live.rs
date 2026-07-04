@@ -481,8 +481,10 @@ mod tests {
         let meta = RunMeta {
             harness_version: "test".to_owned(),
             git_sha: None,
+            git_dirty: false,
             model_id: "test-model".to_owned(),
             embedding_model: None,
+            scenario_filter: None,
             started_at_ms: 100,
             finished_at_ms: 100,
             runs_per_scenario: 1,

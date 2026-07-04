@@ -98,7 +98,7 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
   const models = [...new Set(shown.map((e) => e.model_id))];
   const span =
     shown.length > 0
-      ? `${formatDate(shown[0].ts_ms)} – ${formatDate(shown[shown.length - 1].ts_ms)}`
+      ? `${formatDate(shown[0].finished_at_ms)} – ${formatDate(shown[shown.length - 1].finished_at_ms)}`
       : "";
 
   // Only the scenarios whose rate actually moves earn a line; the rest are noted as steady, so the
@@ -112,7 +112,13 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
   const steady = names.length - moving.length;
 
   const rateData = shown.map((entry, index) => {
-    const row: Record<string, number | string> = { run: `${index + 1}` };
+    // `run` labels the x-axis by ordinal; `runName` and `dirty` ride along so the tooltip can name the
+    // run (correlating a point to its `eval/<name>.json`) and flag a dirty working tree with a marker.
+    const row: Record<string, number | string> = {
+      run: `${index + 1}`,
+      runName: entry.name,
+      dirty: entry.git_dirty ? " ✎" : "",
+    };
     for (const scenario of entry.scenarios) row[scenario.name] = scenario.rate;
     return row;
   });
@@ -170,7 +176,12 @@ export function TrendsView({ entries }: { entries: HistoryEntry[] }) {
               wrapperStyle={{ zIndex: 50 }}
               formatter={(value) => formatRate(Number(value))}
               itemStyle={{ color: INK }}
-              labelFormatter={(label) => `run ${label}`}
+              labelFormatter={(label, payload) => {
+                const row = payload?.[0]?.payload as
+                  | { runName?: string; dirty?: string }
+                  | undefined;
+                return row?.runName ? `${row.runName}${row.dirty ?? ""}` : `run ${label}`;
+              }}
             />
             {moving.map((name) => {
               const color = colorForName(name);

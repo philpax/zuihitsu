@@ -326,7 +326,7 @@ fn mean(values: &[f64]) -> f64 {
 }
 
 /// The `q`-quantile by nearest-rank over a copy sorted ascending. Small N, so an exact sort is fine.
-fn percentile(values: &[f64], q: f64) -> f64 {
+pub(crate) fn percentile(values: &[f64], q: f64) -> f64 {
     if values.is_empty() {
         return 0.0;
     }
