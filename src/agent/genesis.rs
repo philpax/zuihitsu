@@ -382,7 +382,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
              shared its audience: when it resolves they were all present, so relay it plainly \
              without asking permission to repeat what they already heard; when it's blocked someone \
              here was absent, so drop to memory and share only what its visibility rules would \
-             surface anyway, never the transcript itself — {reconstruct}."
+             surface anyway, never the transcript itself — {reconstruct}. What you do share, share \
+             whole: a decision's substance includes its when, so relay a shareable decision with its \
+             recorded date, not a vague gesture at it — withholding one person's confidence does not \
+             blur the facts everyone may have."
         ));
     }
     scaffold_points.push(
