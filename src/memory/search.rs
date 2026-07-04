@@ -235,26 +235,36 @@ fn combine_marker(marker: Option<String>, former_names: Vec<MemoryName>) -> Opti
 }
 
 /// The occurrence to surface on a hit: the most recent visible dated entry's `occurred_at`, over the
-/// memory's whole `same_as` class. Entries are scanned in commit order, so the last visible dated one
-/// wins — the freshest dated fact, which for a recall is the scheduled event or decision the agent is
-/// most likely relaying. The visibility predicate gates each entry against the present set, mirroring
-/// the snippet, so a date on a teller-private aside the present set cannot see never leaks onto the
-/// hit. `None` when the memory holds no visible dated entry.
+/// memory's whole `same_as` class, preferring an authored occurrence over an extracted one. An
+/// authored date is ground truth (the agent stamped it at append); an extracted one is inference the
+/// turn-end temporal extraction resolved, which can misfire (anaphora like "that weekend" resolved
+/// against the clock). So the freshest visible authored date wins, and a visible extracted date
+/// surfaces only when the class holds no authored date at all — a guess never shadows a stated fact.
+/// Within each tier, entries are scanned in commit order, so the last one wins — the freshest dated
+/// fact, which for a recall is the scheduled event or decision the agent is most likely relaying. The
+/// visibility predicate gates each entry against the present set, mirroring the snippet, so a date on
+/// a teller-private aside the present set cannot see never leaks onto the hit. `None` when the memory
+/// holds no visible dated entry.
 fn visible_occurrence(
     memory: &MemoryView,
     graph: &Graph,
     present_set: &[MemoryId],
     class_of: &visibility::ClassOf,
 ) -> Result<Option<TemporalRef>, GraphError> {
-    let mut latest = None;
+    let mut latest_authored = None;
+    let mut latest_extracted = None;
     for entry in graph.class_entries(memory.id)? {
         if entry.occurred_at.is_some()
             && visibility::visible(&entry, memory, present_set, class_of)?
         {
-            latest = entry.occurred_at;
+            if entry.occurred_authored {
+                latest_authored = entry.occurred_at;
+            } else {
+                latest_extracted = entry.occurred_at;
+            }
         }
     }
-    Ok(latest)
+    Ok(latest_authored.or(latest_extracted))
 }
 
 /// Keep the best (highest) cosine seen for a memory.
@@ -1117,6 +1127,133 @@ mod tests {
             hit.occurred_at.as_ref(),
             Some(&ship),
             "the hit carries the resolved occurrence: {hit:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_authored_date_outranks_a_newer_extracted_date_on_a_hit() {
+        // Authored is ground truth; extracted is inference. An older authored July date must ride on
+        // the hit over a *newer* extracted June date on a sibling entry — the exact shadowing the
+        // temporal-fidelity defect produced, where "that weekend" was resolved against the clock and
+        // the wrong June range shadowed the stated July cutover.
+        let mut corpus = Corpus::new();
+        let id = MemoryId::generate();
+        let authored = EntryId::generate();
+        let extracted = EntryId::generate();
+        let july = TemporalRef::Day(CivilDate("2026-07-20".into()));
+        let june = TemporalRef::Day(CivilDate("2026-06-08".into()));
+        // Entry 1 carries the authored July cutover; entry 2 (newer) is appended untimed.
+        corpus
+            .commit(
+                1_000,
+                vec![
+                    EventPayload::memory_created(id, Namespace::Event.with_name("billing-cutover")),
+                    EventPayload::MemoryContentAppended {
+                        id,
+                        entry_id: authored,
+                        asserted_at: Timestamp::from_millis(1_000),
+                        occurred_at: Some(july.clone()),
+                        text: "cut billing over to the new Stripe integration".to_owned(),
+                        told_by: Teller::Agent,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
+                    EventPayload::MemoryContentAppended {
+                        id,
+                        entry_id: extracted,
+                        asserted_at: Timestamp::from_millis(1_000),
+                        occurred_at: None,
+                        text: "Devin owns the rollback and makes the call that weekend".to_owned(),
+                        told_by: Teller::Agent,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
+                ],
+            )
+            .await;
+        // The extraction pass later (mis)resolves the second entry to a June date against the clock.
+        corpus
+            .commit(
+                2_000,
+                vec![EventPayload::entry_temporal_resolved(
+                    id,
+                    extracted,
+                    june.clone(),
+                    None,
+                )],
+            )
+            .await;
+
+        let hits = corpus
+            .query_in(
+                "cut billing over to Stripe rollback",
+                None,
+                &[],
+                &[],
+                2_000,
+                5,
+            )
+            .await;
+        let hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == id)
+            .expect("the cutover surfaces on the content match");
+        assert_eq!(
+            hit.occurred_at.as_ref(),
+            Some(&july),
+            "the authored July date must outrank the newer extracted June date: {hit:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_extracted_date_still_surfaces_when_no_authored_date_exists() {
+        // The preference falls back rather than dropping the date: with no authored occurrence in the
+        // class, the most recent visible extracted occurrence still rides on the hit.
+        let mut corpus = Corpus::new();
+        let id = MemoryId::generate();
+        let entry = EntryId::generate();
+        let june = TemporalRef::Day(CivilDate("2026-06-08".into()));
+        corpus
+            .commit(
+                1_000,
+                vec![
+                    EventPayload::memory_created(id, Namespace::Event.with_name("rollback-call")),
+                    EventPayload::MemoryContentAppended {
+                        id,
+                        entry_id: entry,
+                        asserted_at: Timestamp::from_millis(1_000),
+                        occurred_at: None,
+                        text: "Devin makes the rollback call that weekend".to_owned(),
+                        told_by: Teller::Agent,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
+                ],
+            )
+            .await;
+        corpus
+            .commit(
+                2_000,
+                vec![EventPayload::entry_temporal_resolved(
+                    id,
+                    entry,
+                    june.clone(),
+                    None,
+                )],
+            )
+            .await;
+
+        let hits = corpus
+            .query_in("Devin makes the rollback call", None, &[], &[], 2_000, 5)
+            .await;
+        let hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == id)
+            .expect("the rollback call surfaces on the content match");
+        assert_eq!(
+            hit.occurred_at.as_ref(),
+            Some(&june),
+            "the extracted date surfaces when there is no authored one: {hit:?}"
         );
     }
 

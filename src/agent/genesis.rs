@@ -532,15 +532,33 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            version: 1,
+            // Version 2: the anchor rule. A relative phrase is resolved against the current time only
+            // when it is anchored to the moment of speaking; a phrase whose referent is another stated
+            // date or event ("that weekend", "the day after the launch") must not be resolved against
+            // the clock, since a fabricated now-relative date reads back as fact and is worse than no
+            // date. Bumping the version keeps a v1 `produced_by` naming the old body.
+            version: 2,
             body: "Alongside the description, extract when each numbered statement is *about* in the \
                    real world. For every statement that refers to a real-world time, add an entry to \
                    `occurrences` keyed by its statement number; omit statements with no temporal \
-                   reference. Resolve relative phrases (\"last Tuesday\", \"next Friday\", \"a couple \
-                   of years ago\") against the stated current time. Use the most specific form you \
-                   can justify: a single `day`; a `range` between two days; an `approx` center with a \
-                   tolerance in `fuzz_days`; a `recurring` rule; or `before_after` relative to another \
-                   memory named as its `anchor` (e.g. event/dave-wedding). All dates are YYYY-MM-DD."
+                   reference. Use the most specific form you can justify: a single `day`; a `range` \
+                   between two days; an `approx` center with a tolerance in `fuzz_days`; a `recurring` \
+                   rule; or `before_after` relative to another memory named as its `anchor` (e.g. \
+                   event/dave-wedding). All dates are YYYY-MM-DD.\n\n\
+                   Resolve a relative phrase against the current time only when it is anchored to the \
+                   moment of speaking — \"last Tuesday\", \"next Friday\", \"a couple of years ago\", \
+                   \"this week\" — where the speaker's now is plainly the reference point. A phrase \
+                   whose referent is another stated time is not such a case: \"that weekend\", \"the \
+                   day after the launch\", \"the following Monday\", or any anaphora pointing back at a \
+                   date already given in another numbered statement, is anchored to THAT date, never to \
+                   the current time. When a sibling statement plainly supplies the anchor, resolve \
+                   against it — as a `before_after` relative to the anchoring memory when you can name \
+                   it, otherwise as the day the anchor's own date implies. When no sibling anchors it \
+                   and the phrase is not tied to the moment of speaking, leave the statement \
+                   unextracted: emit no occurrence for it. Never resolve such a phrase against the \
+                   current time — a date invented from the wrong anchor reads back as fact and is \
+                   relayed as one, so a fabricated now-relative date is worse than no date, which \
+                   simply sends the reader to the entry."
                 .to_owned(),
         },
         TemplateDef {
@@ -1151,6 +1169,51 @@ mod tests {
             !flush_body.contains("_session_carryover"),
             "the Flush template must not teach _session_carryover; body was: {flush_body}"
         );
+    }
+
+    #[test]
+    fn the_temporal_extraction_template_teaches_the_anchor_rule() {
+        // The temporal-extraction pass must not resolve anaphora against the clock: a phrase whose
+        // referent is another stated date or event ("that weekend") is anchored to THAT date, and when
+        // nothing anchors it the statement is left unextracted — a fabricated now-relative date reads
+        // back as fact and is worse than no date. The body is bumped to v2 so a v1 `produced_by` keeps
+        // naming the old body.
+        let mut store = MemoryStore::new();
+        genesis::rollout(
+            &mut store,
+            &clock(),
+            &seed(),
+            None,
+            &InstanceFeatures::default(),
+        )
+        .unwrap();
+        let (version, body) = store
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .into_iter()
+            .find_map(|event| match event.payload {
+                EventPayload::PromptTemplateRegistered {
+                    name: PromptTemplateName::TemporalExtraction,
+                    version,
+                    body,
+                    ..
+                } => Some((version, body)),
+                _ => None,
+            })
+            .expect("genesis registers a TemporalExtraction template");
+
+        assert_eq!(version, 2, "the anchor-rule body is registered at v2");
+        // The utterance-anchored cases are still resolved against the current time.
+        assert!(body.contains("anchored to the moment of speaking"));
+        // Anaphora pointing at a sibling statement's date is anchored to THAT date, never the clock.
+        assert!(body.contains("that weekend"));
+        assert!(body.contains("anchored to THAT date, never to the current time"));
+        // When nothing anchors it, the statement is left unextracted rather than clock-resolved.
+        assert!(body.contains("leave the statement unextracted"));
+        // The stated principle: a wrong now-relative date is worse than no date.
+        assert!(body.contains("a fabricated now-relative date is worse than no date"));
+        // The `before_after` form is offered for a nameable anchoring memory (the schema supports it).
+        assert!(body.contains("`before_after` relative to the anchoring memory"));
     }
 
     #[test]

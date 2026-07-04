@@ -339,6 +339,7 @@ mod tests {
             asserted_at: Timestamp::from_millis(0),
             occurred_sort: None,
             occurred_at: None,
+            occurred_authored: false,
             text: "an aside".to_owned(),
             told_by,
             told_in: None,

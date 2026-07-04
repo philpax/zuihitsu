@@ -58,6 +58,12 @@ pub struct EntryView {
     /// not just its sort instant), letting the agent see *when* on read instead of inspecting a
     /// structured field or searching for a date that lives outside the entry text.
     pub occurred_at: Option<TemporalRef>,
+    /// Whether `occurred_at` was authored at append — the agent stamped it — rather than inferred
+    /// later by the turn-end temporal extraction. Authored is ground truth; extracted is inference,
+    /// so a representative-date projection prefers an authored occurrence over an extracted one, and a
+    /// guessed date never shadows a stated one. `false` for an undated entry (it has no occurrence to
+    /// classify) and for one whose occurrence was resolved by extraction.
+    pub occurred_authored: bool,
     pub text: String,
     pub told_by: Teller,
     pub told_in: Option<MemoryId>,
@@ -255,6 +261,11 @@ impl Graph {
                  occurred_sort INTEGER,
                  occurred_lo   INTEGER,
                  occurred_hi   INTEGER,
+                 -- Whether this entry's occurrence was authored at append (the agent stamped
+                 -- occurred_at) rather than inferred later by the turn-end temporal extraction. Authored
+                 -- is ground truth; extracted is a guess. Representative-date projections prefer an
+                 -- authored occurrence so a wrong extracted date never shadows a stated one.
+                 occurred_authored INTEGER NOT NULL DEFAULT 0,
                  fired_at      INTEGER,
                  surfaced_at   INTEGER,
                  text          TEXT    NOT NULL,

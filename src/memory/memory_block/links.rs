@@ -251,20 +251,142 @@ impl MemoryBlock {
 }
 
 /// The far memory's representative occurrence for a link read: the most recent dated entry's
-/// `occurred_at` over its whole `same_as` class, or `None` when it holds no dated fact. Entries
-/// compose in commit order, so the last dated one wins — the freshest dated fact, which for a linked
-/// event (a shipped decision, a scheduled meeting) is the *when* the agent relays. Not
-/// visibility-filtered: the link readers surface the agent's whole graph, so the occurrence they
-/// carry is not gated on who is present either.
+/// `occurred_at` over its whole `same_as` class, preferring an authored occurrence over an extracted
+/// one, or `None` when it holds no dated fact. An authored date is ground truth (the agent stamped it
+/// at append); an extracted one is inference the turn-end temporal extraction resolved, which can
+/// misfire (anaphora like "that weekend" resolved against the clock). So the freshest authored date
+/// wins, and an extracted date carries onto the handle only when the class holds no authored date at
+/// all — a guess never shadows a stated fact. Within each tier, entries compose in commit order, so
+/// the last dated one wins — the freshest dated fact, which for a linked event (a shipped decision, a
+/// scheduled meeting) is the *when* the agent relays. Not visibility-filtered: the link readers
+/// surface the agent's whole graph, so the occurrence they carry is not gated on who is present either.
 fn latest_dated_occurrence(
     graph: &Graph,
     id: MemoryId,
 ) -> Result<Option<TemporalRef>, MemoryError> {
-    let mut latest = None;
+    let mut latest_authored = None;
+    let mut latest_extracted = None;
     for entry in graph.class_entries(id)? {
         if entry.occurred_at.is_some() {
-            latest = entry.occurred_at;
+            if entry.occurred_authored {
+                latest_authored = entry.occurred_at;
+            } else {
+                latest_extracted = entry.occurred_at;
+            }
         }
     }
-    Ok(latest)
+    Ok(latest_authored.or(latest_extracted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::latest_dated_occurrence;
+    use crate::{
+        event::{Event, EventPayload, Teller, Visibility},
+        graph::Graph,
+        ids::{EntryId, MemoryId, Namespace, Seq},
+        time::{CivilDate, TemporalRef, Timestamp},
+    };
+
+    fn event(seq: u64, payload: EventPayload) -> Event {
+        Event {
+            seq: Seq(seq),
+            recorded_at: Timestamp::from_millis(1),
+            payload,
+        }
+    }
+
+    #[test]
+    fn a_link_targets_authored_date_outranks_a_newer_extracted_one() {
+        // The neighborhood line's `[when …]` must carry the target's authored date over a newer
+        // extracted one: an authored July cutover outranks a June date the extraction later resolved
+        // for a sibling "that weekend" statement, so a recap relayed from the handle keeps the stated
+        // when rather than a clock-anchored guess.
+        let mut graph = Graph::open_in_memory().unwrap();
+        let id = MemoryId::generate();
+        let authored = EntryId::generate();
+        let extracted = EntryId::generate();
+        let july = TemporalRef::Day(CivilDate("2026-07-20".into()));
+        let june = TemporalRef::Day(CivilDate("2026-06-08".into()));
+        let append = |seq, entry, occurred_at, text: &str| {
+            event(
+                seq,
+                EventPayload::MemoryContentAppended {
+                    id,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at,
+                    text: text.to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            )
+        };
+        graph
+            .apply(&event(
+                1,
+                EventPayload::memory_created(id, Namespace::Event.with_name("cutover")),
+            ))
+            .unwrap();
+        graph
+            .apply(&append(2, authored, Some(july.clone()), "cut billing over"))
+            .unwrap();
+        graph
+            .apply(&append(
+                3,
+                extracted,
+                None,
+                "Devin owns the rollback that weekend",
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                4,
+                EventPayload::entry_temporal_resolved(id, extracted, june.clone(), None),
+            ))
+            .unwrap();
+
+        // Authored wins even though the extracted entry is newer.
+        assert_eq!(
+            latest_dated_occurrence(&graph, id).unwrap().as_ref(),
+            Some(&july),
+        );
+
+        // With no authored date in the class, the extracted one still surfaces (the fallback).
+        let mut graph = Graph::open_in_memory().unwrap();
+        let only = MemoryId::generate();
+        let entry = EntryId::generate();
+        graph
+            .apply(&event(
+                1,
+                EventPayload::memory_created(only, Namespace::Event.with_name("call")),
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                2,
+                EventPayload::MemoryContentAppended {
+                    id: only,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at: None,
+                    text: "that weekend".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                3,
+                EventPayload::entry_temporal_resolved(only, entry, june.clone(), None),
+            ))
+            .unwrap();
+        assert_eq!(
+            latest_dated_occurrence(&graph, only).unwrap().as_ref(),
+            Some(&june),
+        );
+    }
 }

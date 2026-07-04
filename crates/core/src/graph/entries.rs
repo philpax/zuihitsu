@@ -19,7 +19,7 @@ impl Graph {
     /// read; the class read carries the deleted filter).
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries WHERE memory_id = ?1 AND superseded_by IS NULL ORDER BY seq",
             id,
@@ -31,7 +31,7 @@ impl Graph {
     /// bypass the live filter (spec §Visibility → superseded entries are not live).
     pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
@@ -46,7 +46,7 @@ impl Graph {
     /// soft-deleted member, and superseded entries, are excluded.
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries
              WHERE memory_id IN (
@@ -99,7 +99,7 @@ impl Graph {
     /// for `mem:history()` and the console (spec §Visibility → superseded entries are not live).
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries
              WHERE memory_id IN (
@@ -144,8 +144,8 @@ impl Graph {
         entry_id: EntryId,
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, text, told_by,
-                    told_in, visibility, superseded_by
+            "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, occurred_authored,
+                    text, told_by, told_in, visibility, superseded_by
              FROM content_entries WHERE entry_id = ?1",
         )?;
         let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
@@ -190,6 +190,7 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
         occurred_at: occurred_at
             .map(|json| serde_json::from_str(&json))
             .transpose()?,
+        occurred_authored: row.get("occurred_authored")?,
         text: row.get("text")?,
         told_by: serde_json::from_str(&told_by)?,
         told_in: told_in

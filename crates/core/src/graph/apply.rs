@@ -188,12 +188,17 @@ impl Graph {
                 // Denormalize the typed `occurred_at` into sortable columns at materialization time
                 // (spec §Time); see `occurrence_columns`.
                 let occurrence = self.occurrence_columns(occurred_at.as_ref())?;
+                // An occurrence carried by the append is authored — the agent stamped it — and so is
+                // ground truth a later extracted occurrence must never shadow (an untimed append has no
+                // occurrence to classify, so it is not authored).
+                let occurred_authored = i64::from(occurred_at.is_some());
                 self.conn
                     .execute(
                         "INSERT INTO content_entries \
                          (entry_id, memory_id, asserted_at, occurred_at, occurred_sort, \
-                          occurred_lo, occurred_hi, text, told_by, told_in, visibility, seq)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                          occurred_lo, occurred_hi, occurred_authored, text, told_by, told_in, \
+                          visibility, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                         params![
                             entry_id.0.to_string(),
                             id.0.to_string(),
@@ -202,6 +207,7 @@ impl Graph {
                             occurrence.sort,
                             occurrence.lo,
                             occurrence.hi,
+                            occurred_authored,
                             text,
                             serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
                             told_in.map(|memory| memory.0.to_string()),
@@ -255,12 +261,15 @@ impl Graph {
                 ..
             } => {
                 // The extraction pass resolved this entry's occurrence after it was appended;
-                // recompute its denormalized columns in place (text and FTS are untouched).
+                // recompute its denormalized columns in place (text and FTS are untouched). This
+                // occurrence is inferred, not authored, so `occurred_authored` stays 0 — a
+                // representative-date projection must not let this guess shadow a stated date.
                 let occurrence = self.occurrence_columns(Some(occurred_at))?;
                 self.conn
                     .execute(
                         "UPDATE content_entries
-                         SET occurred_at = ?1, occurred_sort = ?2, occurred_lo = ?3, occurred_hi = ?4
+                         SET occurred_at = ?1, occurred_sort = ?2, occurred_lo = ?3, occurred_hi = ?4,
+                             occurred_authored = 0
                          WHERE entry_id = ?5",
                         params![
                             occurrence.json,
@@ -883,6 +892,79 @@ mod tests {
             .apply(&event(8, EventPayload::memory_superseded(memory, a, c)))
             .unwrap();
         assert!(graph.disputed_entries(memory).unwrap().is_empty());
+    }
+
+    /// The `occurred_authored` flag distinguishes an occurrence stamped at append (ground truth) from
+    /// one resolved later by the temporal extraction (inference): an authored append reads back
+    /// authored, an untimed append resolved by `EntryTemporalResolved` reads back not-authored, and an
+    /// undated entry is never authored.
+    #[test]
+    fn occurred_authored_distinguishes_authored_from_extracted() {
+        let mut graph = Graph::open_in_memory().unwrap();
+        let memory = MemoryId::generate();
+        let authored = EntryId::generate();
+        let extracted = EntryId::generate();
+        let undated = EntryId::generate();
+        let append = |seq, entry, occurred_at| {
+            event(
+                seq,
+                EventPayload::MemoryContentAppended {
+                    id: memory,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at,
+                    text: "fact".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            )
+        };
+        graph
+            .apply(&event(
+                1,
+                EventPayload::memory_created(memory, Namespace::Event.with_name("cutover")),
+            ))
+            .unwrap();
+        graph
+            .apply(&append(
+                2,
+                authored,
+                Some(TemporalRef::Day(CivilDate("2026-07-20".into()))),
+            ))
+            .unwrap();
+        graph.apply(&append(3, extracted, None)).unwrap();
+        graph.apply(&append(4, undated, None)).unwrap();
+        // The extraction pass resolves the untimed entry's occurrence.
+        graph
+            .apply(&event(
+                5,
+                EventPayload::entry_temporal_resolved(
+                    memory,
+                    extracted,
+                    TemporalRef::Day(CivilDate("2026-06-08".into())),
+                    None,
+                ),
+            ))
+            .unwrap();
+
+        let authored_of = |entry_id: EntryId| {
+            graph
+                .entry_by_id(entry_id)
+                .unwrap()
+                .expect("the entry projects")
+                .1
+                .occurred_authored
+        };
+        assert!(authored_of(authored), "an authored append is ground truth");
+        assert!(
+            !authored_of(extracted),
+            "an extracted occurrence is inference, not authored"
+        );
+        assert!(
+            !authored_of(undated),
+            "an undated entry has no occurrence to classify"
+        );
     }
 
     /// A weekly recurring memory surfaces in `recurring_in_window` when its next virtual instance falls
