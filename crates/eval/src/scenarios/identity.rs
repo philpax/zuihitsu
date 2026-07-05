@@ -44,7 +44,7 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
                           which they share another of their names should record it on that profile, \
                           not mint a second person/* memory."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

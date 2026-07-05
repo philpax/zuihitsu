@@ -218,7 +218,7 @@ impl Scenario for LinksExistingMemories {
                           says they know each other. The agent should retrieve both existing memories \
                           and link them, not mint fresh stubs to link."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

@@ -494,7 +494,7 @@ mod tests {
             name: "seam".to_owned(),
             category: Category::Recall,
             description: "seam test".to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         };
         let sink = EvalSink::new(meta, vec![scenario], &sidecar).expect("sink opens");
 

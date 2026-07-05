@@ -56,7 +56,7 @@ impl Scenario for Knows {
             description: "Told two people are close friends, the agent should record a structured \
                           link between them (the seeded `knows` relation), not only prose."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 
@@ -425,7 +425,7 @@ impl Scenario for InfersLinkFromContent {
                           link. The link-inference pass should register a mentorship relation itself \
                           (it is not seeded) and create the inferred link between the two people."
                     .to_owned(),
-            bar: Bar::RateGate { threshold: 0.85 },
+            bar: Bar::gating_at(0.85),
         }
     }
 

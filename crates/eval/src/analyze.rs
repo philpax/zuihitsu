@@ -83,8 +83,8 @@ fn load(path: &Path) -> Result<EvalPackage, EvalError> {
 
 fn bar_label(bar: &Bar) -> String {
     match bar {
-        Bar::Gating => "gate".to_owned(),
-        Bar::RateGate { threshold } => format!("gate>={threshold}"),
+        Bar::Gating { min_rate } if *min_rate >= 1.0 => "gate".to_owned(),
+        Bar::Gating { min_rate } => format!("gate>={min_rate}"),
         Bar::Metric { threshold } => format!(">={threshold}"),
     }
 }
@@ -93,10 +93,10 @@ fn bar_label(bar: &Bar) -> String {
 /// threshold, or a metric rate at or above its reporting threshold.
 fn clears_bar(report: &ScenarioReport) -> bool {
     match report.meta.bar {
-        Bar::Gating => report.aggregate.gating_passed,
-        Bar::RateGate { threshold } | Bar::Metric { threshold } => {
-            report.aggregate.rate >= threshold
+        bar @ Bar::Gating { .. } => {
+            bar.holds(report.aggregate.gating_rate, report.aggregate.gating_passed)
         }
+        Bar::Metric { threshold } => report.aggregate.rate >= threshold,
     }
 }
 
@@ -799,7 +799,7 @@ mod tests {
                 name: name.to_owned(),
                 category: Category::Relations,
                 description: "synthetic".to_owned(),
-                bar: Bar::Gating,
+                bar: Bar::gating(),
             },
             runs: vec![RunRecord {
                 index: 0,

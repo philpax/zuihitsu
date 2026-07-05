@@ -81,7 +81,7 @@ impl Scenario for FlushVisibility {
                           about an absent third party, the pre-compaction flush must not durably write \
                           that aside as a Public entry."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

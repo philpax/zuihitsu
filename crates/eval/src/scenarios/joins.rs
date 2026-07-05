@@ -53,7 +53,7 @@ impl Scenario for JoinBriefHoldsTheAside {
                           must not surface once she is present — the join-brief's subject-guard \
                           working end to end."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

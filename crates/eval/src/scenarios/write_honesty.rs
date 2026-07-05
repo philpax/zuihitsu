@@ -45,7 +45,7 @@ impl Scenario for AClaimedWriteActuallyLanded {
                           pass, and only claim-without-commit fails. The corrected value should reach \
                           the recall, and the stale value should be superseded."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

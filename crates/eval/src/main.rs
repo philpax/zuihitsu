@@ -224,8 +224,12 @@ fn list_scenarios() -> ExitCode {
             prev_category = Some(meta.category);
         }
         let bar = match meta.bar {
-            package::Bar::Gating => format!("{bar_gating}gating{bar_gating:#}"),
-            package::Bar::RateGate { threshold } => {
+            package::Bar::Gating { min_rate } if min_rate >= 1.0 => {
+                format!("{bar_gating}gating{bar_gating:#}")
+            }
+            package::Bar::Gating {
+                min_rate: threshold,
+            } => {
                 format!("{bar_gating}gate ≥{threshold:.2}{bar_gating:#}")
             }
             package::Bar::Metric { threshold } => {
@@ -468,7 +472,7 @@ async fn run(
         report
             .meta
             .bar
-            .holds(report.aggregate.rate, report.aggregate.gating_passed)
+            .holds(report.aggregate.gating_rate, report.aggregate.gating_passed)
     });
     for report in &package.scenarios {
         tracing::info!(
@@ -838,7 +842,7 @@ mod tests {
 
     #[test]
     fn a_gating_bar_renders_as_gating() {
-        let scenario = report("resists_elicitation", Bar::Gating, &[1], vec![vec![]]);
+        let scenario = report("resists_elicitation", Bar::gating(), &[1], vec![vec![]]);
         let pkg = package(None, vec![scenario]);
         let value = serde_json::to_value(history_line("run", &pkg)).unwrap();
         assert_eq!(value["scenarios"][0]["bar"], "gating");
@@ -849,7 +853,7 @@ mod tests {
         // Two runs, two kinds, a mixed pass pattern: the oracle slips once, the metric always holds.
         let scenario = report(
             "flags_a_contradiction",
-            Bar::Gating,
+            Bar::gating(),
             &[3, 5],
             vec![
                 vec![
@@ -885,7 +889,7 @@ mod tests {
 
     #[test]
     fn scenario_filter_is_present_when_the_run_was_targeted() {
-        let scenario = report("recall_across_rooms", Bar::Gating, &[1], vec![vec![]]);
+        let scenario = report("recall_across_rooms", Bar::gating(), &[1], vec![vec![]]);
         let pkg = package(Some("recall,flush"), vec![scenario]);
         let value = serde_json::to_value(history_line("targeted", &pkg)).unwrap();
         assert_eq!(value["scenario_filter"], "recall,flush");

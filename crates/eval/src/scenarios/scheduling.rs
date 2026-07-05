@@ -129,7 +129,7 @@ impl Scenario for RecurringEmission {
             description: "From a plainly recurring phrase (\"every Tuesday\"), the agent emits a \
                           recurring temporal reference rather than flattening it to a single day."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

@@ -53,7 +53,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
                           the plan must not acquire a fabricated now-relative date, and a later recall \
                           probe should answer relatively rather than assert an invented calendar date."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 
@@ -254,7 +254,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
                           relays October 3rd, and no extraction clobbers the demo fact with a near-now \
                           guess."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

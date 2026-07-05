@@ -66,7 +66,7 @@ impl Scenario for CheckpointSyncsParallelRooms {
                           ride along (gating), and the first room's post-checkpoint replies must \
                           not betray that a flush ran (metric)."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

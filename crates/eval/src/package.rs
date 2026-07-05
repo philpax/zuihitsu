@@ -74,40 +74,61 @@ pub enum Category {
     Description,
 }
 
-/// How a scenario's runs are judged (spec §Validation → gating versus measurement). A `Gating` bar is a
-/// must-not-surface safety oracle — one regression across N fails the harness. A `RateGate` bar fails
-/// the harness when the aggregate rate falls below its threshold rather than on a single slip — for
-/// model-judgment behaviors with a known error band, where an occasional miss is expected but a
-/// systematic slide must still fail the run. A `Metric` bar is a should-mark/should-surface rate that
-/// is reported against `threshold` but never fails the run.
+/// How a scenario's runs are judged (spec §Validation → gating versus measurement). A `Gating` bar
+/// fails the harness when the rate of held gating-kind verdicts falls below `min_rate`: at the
+/// default of 1.0 that is the one-slip discipline for must-not-surface safety properties, while a
+/// tolerance below 1.0 suits model-judgment behaviors with a known error band, where an occasional
+/// miss is expected but a systematic slide must still fail the run. A `Metric` bar is a
+/// should-mark/should-surface rate that is reported against `threshold` but never fails the run.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Bar {
-    Gating,
-    RateGate { threshold: f64 },
-    Metric { threshold: f64 },
+    Gating {
+        #[serde(default = "full_rate")]
+        min_rate: f64,
+    },
+    Metric {
+        threshold: f64,
+    },
+}
+
+/// The default gating tolerance: every gating verdict must hold.
+fn full_rate() -> f64 {
+    1.0
 }
 
 impl Bar {
-    /// The bar as judged, rendered for the trend record: `gating`, `gate>=<threshold>` for a rate
-    /// gate, or `>=<threshold>` for a metric bar (e.g. `>=0.6`). The archive keeps the bar each
-    /// scenario was measured against so a later reader can tell a held gate from a met rate without
-    /// the package.
+    /// The one-slip gating bar — every gating verdict must hold across every run.
+    pub fn gating() -> Self {
+        Bar::Gating { min_rate: 1.0 }
+    }
+
+    /// A gating bar with tolerance: the harness fails when the held rate of gating verdicts falls
+    /// below `min_rate`.
+    pub fn gating_at(min_rate: f64) -> Self {
+        Bar::Gating { min_rate }
+    }
+
+    /// The bar as judged, rendered for the trend record: `gating`, `gating>=<min_rate>` for a
+    /// tolerant gate, or `>=<threshold>` for a metric bar (e.g. `>=0.6`). The archive keeps the bar
+    /// each scenario was measured against so a later reader can tell a held gate from a met rate
+    /// without the package.
     pub fn label(&self) -> String {
         match self {
-            Bar::Gating => "gating".to_owned(),
-            Bar::RateGate { threshold } => format!("gate>={threshold}"),
+            Bar::Gating { min_rate } if *min_rate >= 1.0 => "gating".to_owned(),
+            Bar::Gating { min_rate } => format!("gating>={min_rate}"),
             Bar::Metric { threshold } => format!(">={threshold}"),
         }
     }
 
-    /// Whether a scenario's aggregate holds this bar for the harness's exit signal: a `Gating` bar
-    /// needs every gating verdict held, a `RateGate` needs the rate at or above its threshold, and a
+    /// Whether a scenario's aggregate holds this bar for the harness's exit signal. At the default
+    /// tolerance the boolean gating signal decides (so packages predating `gating_rate` judge
+    /// correctly); below it, the held rate of gating verdicts is compared against `min_rate`. A
     /// `Metric` bar never fails the run.
-    pub fn holds(&self, rate: f64, gating_passed: bool) -> bool {
+    pub fn holds(&self, gating_rate: f64, gating_passed: bool) -> bool {
         match self {
-            Bar::Gating => gating_passed,
-            Bar::RateGate { threshold } => rate >= *threshold,
+            Bar::Gating { min_rate } if *min_rate >= 1.0 => gating_passed,
+            Bar::Gating { min_rate } => gating_rate >= *min_rate,
             Bar::Metric { .. } => true,
         }
     }
@@ -294,6 +315,11 @@ pub struct Aggregate {
     pub rate: f64,
     /// True iff every gating oracle held in every run (the safety invariant; drives the exit code).
     pub gating_passed: bool,
+    /// The rate of runs whose gating oracles all held — what a tolerant gating bar's `min_rate` is
+    /// judged against. Defaults to 1.0 for packages predating the field; those are only ever judged
+    /// at the default tolerance, where the boolean signal decides.
+    #[serde(default = "full_rate")]
+    pub gating_rate: f64,
     /// The per-run drive wall-clock distribution (the truthful cost; see [`RunMetrics::wall_clock_ms`]).
     pub wall_clock_ms: Stat,
     pub latency_ms: Stat,

@@ -41,7 +41,7 @@ impl Scenario for DescriptionLeak {
                           the agent's synthesized descriptions (the always-visible summaries) must not \
                           convey the private aside."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

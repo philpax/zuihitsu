@@ -163,7 +163,7 @@ impl Scenario for TranscriptAudienceGate {
                  withheld. The gating property is that the confidence must not reach the newcomer, \
                  through the transcript or the memory fallback."
                     .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

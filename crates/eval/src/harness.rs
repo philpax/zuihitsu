@@ -272,6 +272,8 @@ pub(crate) fn aggregate(runs: &[RunRecord]) -> Aggregate {
         .filter(|run| run.verdicts.iter().all(|verdict| verdict.passed))
         .count();
     let gating_passed = runs.iter().all(|run| run.metrics.gating_passed);
+    let gating_held = runs.iter().filter(|run| run.metrics.gating_passed).count();
+    let gating_rate = gating_held as f64 / n;
 
     let wall_clocks: Vec<f64> = runs
         .iter()
@@ -299,6 +301,7 @@ pub(crate) fn aggregate(runs: &[RunRecord]) -> Aggregate {
         runs: runs.len() as u32,
         rate: passed as f64 / n,
         gating_passed,
+        gating_rate,
         wall_clock_ms: stat(&wall_clocks),
         latency_ms: stat(&latencies),
         tokens: TokenStat {

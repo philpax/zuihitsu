@@ -60,7 +60,7 @@ impl Scenario for AWeekWithTheTeam {
                           the confided-about person in company — exercising relations, scheduling, \
                           recall, and the gating no-leak in one conversation."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 
