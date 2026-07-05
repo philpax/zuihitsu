@@ -66,6 +66,34 @@ pub fn agent_replies_with_turn(events: &[Event]) -> Vec<(TurnId, &str)> {
         .collect()
 }
 
+/// As [`agent_replies_with_turn`], with each reply also paired to the inbound participant turn it
+/// answers — the most recent `Participant` turn preceding it in the stream. This lets an oracle
+/// condition on what was *asked* (a turn requesting a durable write versus small talk) as well as on
+/// what the reply claims. A reply with no preceding participant turn (unusual) pairs with an empty
+/// inbound.
+pub fn agent_replies_with_inbound(events: &[Event]) -> Vec<(TurnId, &str, &str)> {
+    let mut inbound = "";
+    let mut replies = Vec::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Participant,
+                text,
+                ..
+            } => inbound = text.as_str(),
+            EventPayload::ConversationTurn {
+                turn_id,
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } => replies.push((*turn_id, inbound, text.as_str())),
+            _ => {}
+        }
+    }
+    replies
+}
+
 /// Whether any block belonging to `turn_id` committed a durable write — a `LuaExecuted` for that turn
 /// whose `result` carries the `Committed:` summary the runtime folds in only when the block's buffer
 /// actually landed events. Two outcomes read as `false`, and both are the honest signal that the turn's
