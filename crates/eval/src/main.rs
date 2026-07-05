@@ -103,6 +103,11 @@ enum Command {
         /// Dump the failed runs' deliberation traces instead of the summary.
         #[arg(long, short)]
         failures: bool,
+        /// Print the relation-vocabulary projection instead of the summary: every relation used, whether
+        /// it was seeded at genesis, its use count and namespace shapes, and the relations coined outside
+        /// genesis (the drift signal). Respects `--scenario`.
+        #[arg(long, short = 'r')]
+        relations: bool,
         /// Restrict to scenarios whose name contains this substring.
         #[arg(long, short)]
         scenario: Option<String>,
@@ -130,19 +135,21 @@ async fn main() -> ExitCode {
             package,
             baseline,
             failures,
+            relations,
             scenario,
             events,
             limit,
             truncate,
-        } => match analyze::analyze(
-            &package,
-            baseline.as_deref(),
+        } => match analyze::analyze(analyze::AnalyzeRequest {
+            package: &package,
+            baseline: baseline.as_deref(),
             failures,
-            scenario.as_deref(),
-            events.as_deref(),
+            relations,
+            scenario: scenario.as_deref(),
+            events: events.as_deref(),
             limit,
             truncate,
-        ) {
+        }) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 tracing::error!("{error}");
