@@ -22,6 +22,9 @@ pub(super) enum CalendarError {
     /// A date object's `day` field could not be interpreted — only reachable if one was corrupted,
     /// since the constructors validate before minting a date.
     InvalidDay { input: String },
+    /// `calendar.upcoming`/`overdue` was given a window that is neither a duration string, an opts
+    /// table, nor nil.
+    NotAWindow { type_name: &'static str },
 }
 
 impl std::fmt::Display for CalendarError {
@@ -40,6 +43,11 @@ impl std::fmt::Display for CalendarError {
                 "{input:?} is not a valid date; use YYYY-MM-DD, e.g. \"2026-06-03\""
             ),
             CalendarError::InvalidDay { input } => write!(f, "{input:?} is not a valid day"),
+            CalendarError::NotAWindow { type_name } => write!(
+                f,
+                "the window is a duration — pass it directly (\"31 days\", \"2 weeks\") or as \
+                 {{ within = \"…\" }}, or omit it for the default; got {type_name}"
+            ),
         }
     }
 }

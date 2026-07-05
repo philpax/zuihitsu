@@ -1357,14 +1357,11 @@ pub(super) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, opts: Option<Table>| {
+            move |lua, opts: Value| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
-                    let within: Option<String> = match opts {
-                        Some(table) => table.get("within")?,
-                        None => None,
-                    };
+                    let within = within_arg(opts)?;
                     let ids = api
                         .block
                         .lock()
@@ -1381,14 +1378,11 @@ pub(super) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, opts: Option<Table>| {
+            move |lua, opts: Value| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
-                    let within: Option<String> = match opts {
-                        Some(table) => table.get("within")?,
-                        None => None,
-                    };
+                    let within = within_arg(opts)?;
                     let ids = api
                         .block
                         .lock()
@@ -1493,4 +1487,21 @@ pub(super) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
         })?
     })?;
     Ok(calendar)
+}
+
+/// The window argument `calendar.upcoming` and `calendar.overdue` share: a bare duration string
+/// ("31 days", "2 weeks") stands for the window directly — the shape the agent naturally writes —
+/// while `{ within = "…" }` and `nil` (the default window) keep working. Anything else is a teachable
+/// [`CalendarError`] rather than an opaque conversion failure; an unparseable duration string still
+/// errors downstream where the duration is parsed, with its own teachable message.
+fn within_arg(opts: Value) -> mlua::Result<Option<String>> {
+    match opts {
+        Value::Nil => Ok(None),
+        Value::String(within) => Ok(Some(within.to_string_lossy())),
+        Value::Table(table) => Ok(table.get("within")?),
+        other => Err(CalendarError::NotAWindow {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
 }

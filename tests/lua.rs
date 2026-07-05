@@ -774,6 +774,49 @@ async fn calendar_overdue_respects_the_lookback_bound() {
 }
 
 #[tokio::test]
+async fn calendar_windows_take_a_bare_duration_string() {
+    // `calendar.upcoming("31 days")` is the shape the agent naturally writes — the bare duration
+    // stands for `{ within = … }` on both window functions, and a wrong-typed window teaches the
+    // accepted shapes instead of failing the mlua conversion opaquely.
+    let h = Harness::new(); // clock at Monday 2026-06-08.
+    h.run(
+        r#"
+        local e = memory.create(EVENT_ALL_HANDS)
+        e:append("all hands", { visibility = "public", occurred_at = { day = "2026-07-01" } })
+        "#,
+    )
+    .await;
+    let outcome = h
+        .run(
+            r#"
+        local target = memory.get(EVENT_ALL_HANDS)
+        local function sees(list)
+            for _, m in ipairs(list) do
+                if m.id == target.id then return "found" end
+            end
+            return "missing"
+        end
+        return sees(calendar.upcoming("31 days")) .. "," .. sees(calendar.upcoming("7 days"))
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    // July 1st is 23 days out: inside a 31-day window, outside a 7-day one.
+    assert_eq!(result, "found,missing");
+
+    let outcome = h.run(r#"return calendar.upcoming(31)"#).await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable failure, got {outcome:?}");
+    };
+    assert!(
+        message.contains("duration") && message.contains("31 days"),
+        "the window error should teach the accepted shapes, got: {message}"
+    );
+}
+
+#[tokio::test]
 async fn calendar_rejects_a_malformed_argument() {
     let h = Harness::new();
     let outcome = h.run(r#"return calendar.on("not-a-date")"#).await;

@@ -472,7 +472,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             object().optional(
                 "within",
                 AT::String,
-                "how far ahead to look, e.g. \"7 days\" or \"2 weeks\"; defaults to 7 days",
+                "how far ahead to look — a duration string (\"7 days\", \"2 weeks\"), passable directly \
+                 in place of the table; defaults to 7 days",
             ),
             "options",
         )
@@ -491,7 +492,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             object().optional(
                 "within",
                 AT::String,
-                "how far back to look, e.g. \"14 days\" or \"1 week\"; defaults to 14 days",
+                "how far back to look — a duration string (\"14 days\", \"1 week\"), passable directly \
+                 in place of the table; defaults to 14 days",
             ),
             "options",
         )
