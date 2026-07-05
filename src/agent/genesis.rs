@@ -664,7 +664,12 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         },
         TemplateDef {
             name: PromptTemplateName::LinkInference,
-            version: 1,
+            // Version 2: the direction discipline — the pass reads the edge back as a sentence
+            // before choosing `direction`. Under a coined directional relation it reversed the edge
+            // in a quarter of runs ("Clara has been mentoring Theo" linked as clara mentored_by
+            // theo); restating the edge as subject-relation-object catches the flip before it
+            // commits.
+            version: 2,
             body: "You identify relationships implicit in a memory's content and assert them as links \
                    to other memories. You are given the memory's numbered statements, its existing \
                    links, the registered relations, and a list of candidate target memories (by \
@@ -673,6 +678,13 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
                    is grounded in (1-based, as numbered in the prompt), the `relation` label, the \
                    target memory's `target` handle, and a `direction` of \"to\" (this memory → the \
                    target) or \"from\" (the target → this memory). \n\n\
+                   Get the direction right by reading the edge back as a sentence before you choose \
+                   it: the link asserts \"<from> <relation> <to>\", so `direction` \"to\" reads \
+                   \"<this memory> <relation> <target>\" and \"from\" reads \"<target> <relation> \
+                   <this memory>\". If that sentence does not restate the grounding statement, flip \
+                   the direction or use the relation's other label — \"Clara has been mentoring \
+                   Theo\" is Theo mentored_by Clara (or Clara mentors Theo), never Clara \
+                   mentored_by Theo. \n\n\
                    Reuse an existing registered relation when one genuinely matches — do not stretch \
                    a relation to cover a relationship it does not name. If none of the registered \
                    relations describes the relationship, coin a new one: add it to `new_relations` \
