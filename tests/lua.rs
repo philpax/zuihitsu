@@ -140,7 +140,7 @@ async fn a_dated_entry_reads_with_its_date() {
         .run(
             r#"
         local ev = memory.create(EVENT_PRODUCT_LAUNCH)
-        ev:append("Penciled in by Phil", { visibility = "public", occurred_at = { day = "2027-03-15" } })
+        ev:append("Penciled in by Marcus", { visibility = "public", occurred_at = { day = "2027-03-15" } })
         return ev:entries()
         "#,
         )
@@ -149,7 +149,7 @@ async fn a_dated_entry_reads_with_its_date() {
         panic!("expected commit");
     };
     assert!(
-        result.contains("[2027-03-15") && result.contains("Penciled in by Phil"),
+        result.contains("[2027-03-15") && result.contains("Penciled in by Marcus"),
         "the dated entry should render its date inline, got: {result}"
     );
 }
@@ -804,13 +804,13 @@ async fn append_carries_teller_context_and_default_visibility() {
         &ConversationLocator::new("discord", "leads"),
     )
     .unwrap();
-    let phil = MemoryId::generate();
+    let marcus = MemoryId::generate();
     let erin = MemoryId::generate();
     store
         .append(
             clock.now(),
             vec![
-                EventPayload::memory_created(phil, Namespace::Person.with_name("phil")),
+                EventPayload::memory_created(marcus, Namespace::Person.with_name("marcus")),
                 EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
             ],
         )
@@ -843,13 +843,13 @@ async fn append_carries_teller_context_and_default_visibility() {
             .unwrap();
     }
 
-    // Erin, in the room, relays something about Phil: attributed to her, told in this context, and
-    // defaulted private to its teller because the subject (Phil) is not the teller.
+    // Erin, in the room, relays something about Marcus: attributed to her, told in this context, and
+    // defaulted private to its teller because the subject (Marcus) is not the teller.
     exec(
         &session,
         &engine,
         erin,
-        r#"memory.get(PERSON_PHIL):append("is being managed out")"#,
+        r#"memory.get(PERSON_MARCUS):append("is being managed out")"#,
     )
     .await;
     // `by_agent` records the agent's own observation about a person, which has no protective default
@@ -858,18 +858,18 @@ async fn append_carries_teller_context_and_default_visibility() {
         &session,
         &engine,
         erin,
-        r#"memory.get(PERSON_PHIL):append("seems stressed", { by_agent = true, visibility = "public" })"#,
+        r#"memory.get(PERSON_MARCUS):append("seems stressed", { by_agent = true, visibility = "public" })"#,
     )
     .await;
     exec(
         &session,
         &engine,
         erin,
-        r#"memory.get(PERSON_PHIL):append("got promoted", { visibility = "public" })"#,
+        r#"memory.get(PERSON_MARCUS):append("got promoted", { visibility = "public" })"#,
     )
     .await;
 
-    let entries = engine.graph.lock().entries_local(phil).unwrap();
+    let entries = engine.graph.lock().entries_local(marcus).unwrap();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0].told_by, Teller::Participant(erin));
     assert_eq!(entries[0].told_in, Some(context));
@@ -890,97 +890,6 @@ async fn append_carries_teller_context_and_default_visibility() {
     let context_entries = engine.graph.lock().entries_local(context).unwrap();
     assert_eq!(context_entries.len(), 1);
     assert_eq!(context_entries[0].text, "kept in confidence");
-}
-
-#[tokio::test]
-async fn link_flags_a_memory_session_carryover_the_context_and_unlink_clears_it() {
-    let mut store = MemoryStore::new();
-    let clock = ManualClock::new(common::time::EARLY);
-    let mut graph = Graph::open_in_memory().unwrap();
-
-    // A room (with its context memory), the _session_carryover relation, and a thread memory.
-    let conversation = resolve_or_mint_conversation(
-        &mut store,
-        &clock,
-        &graph,
-        &ConversationLocator::new("discord", "leads"),
-    )
-    .unwrap();
-    let roadmap = MemoryId::generate();
-    store
-        .append(
-            clock.now(),
-            vec![
-                EventPayload::LinkTypeRegistered {
-                    name: RelationName::SessionCarryover,
-                    inverse: RelationName::SessionCarries,
-                    from_card: Cardinality::Many,
-                    to_card: Cardinality::Many,
-                    symmetric: false,
-                    reflexive: false,
-                    description: String::new(),
-                },
-                EventPayload::memory_created(roadmap, Namespace::Topic.with_name("roadmap")),
-            ],
-        )
-        .unwrap();
-    graph.materialize_from(&store).unwrap();
-    let context = graph
-        .context_for_conversation(conversation)
-        .unwrap()
-        .unwrap();
-    let session = Session::new(conversation, InstanceFeatures::default());
-
-    let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
-    let context_block = || BlockContext {
-        teller: Teller::Agent,
-        authority: Authority::Platform,
-        turn_id: TurnId::generate(),
-        block_timeout: TEST_BLOCK_TIMEOUT,
-        max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
-        present_set: Vec::new(),
-        dry_run: false,
-    };
-
-    // The agent flags the thread _session_carryover the current context.
-    let outcome = session
-        .execute(
-            &engine,
-            &context_block(),
-            &common::prepare_script(
-                r#"memory.get(TOPIC_ROADMAP):link("_session_carryover", context.current())"#,
-            ),
-        )
-        .await
-        .unwrap();
-    assert!(matches!(outcome, BlockOutcome::Committed { .. }));
-    // Read back through the _session_carries inverse: the context now carries the thread.
-    let active = engine
-        .graph
-        .lock()
-        .outgoing(context, RelationName::SessionCarries.as_str())
-        .unwrap();
-    assert!(active.iter().any(|memory| memory.id == roadmap));
-
-    // Unlinking clears it.
-    session
-        .execute(
-            &engine,
-            &context_block(),
-            &common::prepare_script(
-                r#"memory.get(TOPIC_ROADMAP):unlink("_session_carryover", context.current())"#,
-            ),
-        )
-        .await
-        .unwrap();
-    assert!(
-        engine
-            .graph
-            .lock()
-            .outgoing(context, RelationName::SessionCarries.as_str())
-            .unwrap()
-            .is_empty()
-    );
 }
 
 #[tokio::test]
@@ -1068,63 +977,6 @@ async fn link_with_an_unregistered_relation_is_a_teachable_error() {
         }
         other => panic!("expected a teachable error, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn a_retired_seed_relation_is_gated_by_the_registry_not_the_vocabulary() {
-    // `_session_carryover`/`_session_carries` was retired from the genesis seed set (issue #21), yet
-    // `RelationName::new` still maps both strings to their typed variants so OLD logs' events keep
-    // materializing. The concern: does that hardcoded vocabulary mapping bypass the registry gate in
-    // the fresh-instance link path and silently materialize a link under a relation the system
-    // retired? It must not — the registry (the materialized `relations` table), not the string
-    // recognizer, is the gate. A fresh Harness skips genesis, so its registry never learns
-    // `_session_carryover`: linking under it must fail exactly like any unregistered name.
-    let h = Harness::new();
-    h.run(r#"memory.create(TOPIC_A)"#).await;
-    let outcome = h
-        .run(r#"memory.get(TOPIC_A):link("_session_carryover", memory.get(TOPIC_A))"#)
-        .await;
-    match outcome {
-        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
-            assert!(
-                message.contains("unknown relation"),
-                "a retired seed relation must be a teachable unknown-relation error, got: {message}"
-            );
-        }
-        other => panic!("expected a teachable unknown-relation error, got {other:?}"),
-    }
-    // The rejected block committed nothing: no `LinkCreated` under the retired relation reached the
-    // log, so the vocabulary mapping did not smuggle an edge past the registry.
-    assert!(
-        !h.events().iter().any(|event| matches!(
-            &event.payload,
-            EventPayload::LinkCreated { relation, .. }
-                if *relation == RelationName::SessionCarryover
-        )),
-        "no LinkCreated under the retired relation must land"
-    );
-
-    // The gate is the registry, not a string blocklist: an agent can still deliberately register a
-    // fresh relation and link under it. Generic runtime registration keeps working.
-    h.run(r#"memory.create(TOPIC_ALPHA)"#).await;
-    let outcome = h
-        .run(
-            r#"links.register({ name = "carries_over", inverse = "carried_from", from_card = "many", to_card = "many" })
-               memory.get(TOPIC_A):link("carries_over", memory.get(TOPIC_ALPHA))"#,
-        )
-        .await;
-    assert!(
-        matches!(outcome, BlockOutcome::Committed { .. }),
-        "a freshly registered relation must link and commit, got {outcome:?}"
-    );
-    assert!(
-        h.events().iter().any(|event| matches!(
-            &event.payload,
-            EventPayload::LinkCreated { relation, .. }
-                if relation.as_str() == "carries_over"
-        )),
-        "the deliberately registered relation's link must materialize"
-    );
 }
 
 #[tokio::test]

@@ -591,9 +591,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            // Version 2: the `_session_carryover` link teaching is retired (issue #21). Distinct
-            // bodies must not share a version across instances' logs — a flush turn's `produced_by`
-            // records the template version, so a v1 reference keeps naming the old body.
+            // Version 2: the flush teaching was revised (issue #21) — it no longer manages any
+            // session-lifetime graph flag. Distinct bodies must not share a version across instances'
+            // logs — a flush turn's `produced_by` records the template version, so a v1 reference
+            // keeps naming the old body.
             version: 2,
             body: flush_template_body(),
         },
@@ -682,9 +683,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
 
 /// The Flush template body. A flush turn — whether the pre-compaction end-flush or a mid-session
 /// checkpoint — writes durable working state to memory with the turn's own visibility discipline.
-/// It no longer teaches any `_session_carryover` link flag: the working set carried across a
-/// compaction seam is platform-derived (the session's touched set), so the agent has no session-
-/// lifetime flags to manage on the semantic graph.
+/// It teaches no session-lifetime link flag: the working set carried across a compaction seam is
+/// platform-derived (the session's touched set), so the agent has no such flags to manage on the
+/// semantic graph.
 fn flush_template_body() -> String {
     "Before this conversation's live transcript scrolls out of view, write to memory — by \
      emitting Lua through the run_lua tool — anything from it worth keeping that you have not \
@@ -1155,48 +1156,6 @@ mod tests {
             }
         }
         examples
-    }
-
-    #[test]
-    fn a_fresh_instance_neither_seeds_nor_teaches_session_carryover() {
-        // Issue #21: `_session_carryover` is retired. A fresh genesis registers no such relation, and
-        // the Flush template teaches no carryover link — the flush's job is to write durable state to
-        // memory with the turn's visibility discipline, nothing more.
-        let mut store = MemoryStore::new();
-        genesis::rollout(
-            &mut store,
-            &clock(),
-            &seed(),
-            None,
-            &InstanceFeatures::default(),
-        )
-        .unwrap();
-        let events = store.read_from(Seq::ZERO).unwrap();
-
-        let carryover_relation = events.iter().any(|e| {
-            matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. }
-                if name.as_str() == "_session_carryover" || name.as_str() == "_session_carries")
-        });
-        assert!(
-            !carryover_relation,
-            "a fresh genesis must not seed the _session_carryover relation"
-        );
-
-        let flush_body = events
-            .iter()
-            .find_map(|e| match &e.payload {
-                EventPayload::PromptTemplateRegistered { name, body, .. }
-                    if *name == PromptTemplateName::Flush =>
-                {
-                    Some(body.clone())
-                }
-                _ => None,
-            })
-            .expect("genesis registers a Flush template");
-        assert!(
-            !flush_body.contains("_session_carryover"),
-            "the Flush template must not teach _session_carryover; body was: {flush_body}"
-        );
     }
 
     #[test]

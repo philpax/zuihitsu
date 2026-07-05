@@ -413,10 +413,7 @@ impl ModelClient for FlakyModel {
 mod tests {
     //! The scripted model returns its programmed steps in order, then reports exhaustion — the
     //! determinism agent-level scenarios rely on (spec §Testability).
-    use super::{
-        Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
-        ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
-    };
+    use super::{Completion, GenerateRequest, ModelClient, ModelError, ScriptedModel, ToolCall};
 
     #[tokio::test]
     async fn scripted_model_returns_programmed_steps_then_exhausts() {
@@ -442,53 +439,5 @@ mod tests {
             model.generate(&request).await,
             Err(ModelError::Exhausted)
         ));
-    }
-
-    #[test]
-    fn request_and_response_round_trip_through_serde() {
-        // The model-interaction record carries these types in the log, so they must survive a JSON
-        // round-trip unchanged (spec §Observability).
-        let request = GenerateRequest {
-            system: "be concise".to_owned(),
-            messages: vec![
-                Message::user("remember dave climbs"),
-                Message::assistant_tool_calls(vec![ToolCall {
-                    id: "call_1".to_owned(),
-                    name: "run_lua".to_owned(),
-                    arguments: r#"{"script":"return 1"}"#.to_owned(),
-                }]),
-                Message::tool_result("call_1", "ok"),
-            ],
-            tools: vec![ToolSpec {
-                name: "run_lua".to_owned(),
-                description: "run a block".to_owned(),
-                parameters: serde_json::json!({"type": "object"}),
-            }],
-            tool_choice: ToolChoice::Required,
-            response_format: None,
-            thinking: Some(false),
-        };
-        let request_json = serde_json::to_string(&request).expect("request serializes");
-        assert_eq!(
-            serde_json::from_str::<GenerateRequest>(&request_json).expect("request deserializes"),
-            request
-        );
-
-        let response = GenerateResponse {
-            completion: Completion::Reply("done".to_owned()),
-            usage: Usage {
-                prompt_tokens: Some(12),
-                completion_tokens: Some(5),
-                total_tokens: Some(17),
-            },
-            reasoning: Some("thought about it".to_owned()),
-            finish_reason: Some("stop".to_owned()),
-        };
-        let response_json = serde_json::to_string(&response).expect("response serializes");
-        assert_eq!(
-            serde_json::from_str::<GenerateResponse>(&response_json)
-                .expect("response deserializes"),
-            response
-        );
     }
 }

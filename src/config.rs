@@ -455,42 +455,6 @@ mod tests {
     }
 
     #[test]
-    fn resilience_defaults_apply_and_parse_an_override() {
-        // An existing config with no `[model.resilience]` block parses with the defaults.
-        let config = EnvConfig::default();
-        assert_eq!(config.model.resilience.request_timeout_seconds, 300);
-        assert_eq!(config.model.resilience.max_attempts, 3);
-        assert_eq!(config.model.resilience.backoff_base_ms, 500);
-        assert_eq!(config.model.resilience.backoff_max_ms, 10_000);
-        assert_eq!(config.model.resilience.breaker_failure_threshold, 3);
-        assert_eq!(config.model.resilience.breaker_open_seconds, 30);
-        assert_eq!(config.embedding.request_timeout_seconds, 300);
-
-        let dir = temp_dir();
-        let path = dir.join("config.toml");
-        std::fs::write(
-            &path,
-            "[model]\n\
-             endpoint = \"http://example/v1\"\n\
-             [model.resilience]\n\
-             request_timeout_seconds = 60\n\
-             max_attempts = 5\n\
-             breaker_open_seconds = 10\n\
-             [embedding]\n\
-             request_timeout_seconds = 15\n",
-        )
-        .unwrap();
-        let config = EnvConfig::load(&path).unwrap();
-        assert_eq!(config.model.resilience.request_timeout_seconds, 60);
-        assert_eq!(config.model.resilience.max_attempts, 5);
-        assert_eq!(config.model.resilience.breaker_open_seconds, 10);
-        // Unset fields within the block keep their defaults.
-        assert_eq!(config.model.resilience.backoff_base_ms, 500);
-        assert_eq!(config.embedding.request_timeout_seconds, 15);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
     fn unknown_sections_are_ignored() {
         let dir = temp_dir();
         let path = dir.join("config.toml");

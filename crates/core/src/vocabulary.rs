@@ -63,17 +63,15 @@ impl std::str::FromStr for TagName {
 /// A link relation, by label. The relation registry lives in data (spec §Data model) and the agent
 /// registers relations at runtime, so this is a typed lens over the names: the build's seed
 /// relations are named variants that code can match (`SameAs` drives identity-class merging,
-/// `SessionCarryover` the compaction carryover, `ParticipatesIn` event attendance, `PartOf`
-/// membership or aboutness, `Mentors` a directional mentorship, `LocatedAt` an event's venue), and
-/// everything else — including the inverse labels — falls to `Other`. It serializes as its bare
-/// name, so the wire format is just the string.
+/// `ParticipatesIn` event attendance, `PartOf` membership or aboutness, `Mentors` a directional
+/// mentorship, `LocatedAt` an event's venue), and everything else — including the inverse labels —
+/// falls to `Other`. It serializes as its bare name, so the wire format is just the string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RelationName {
     CreatedBy,
     OperatorOf,
     Knows,
     SameAs,
-    SessionCarryover,
     ParticipatesIn,
     PartOf,
     Mentors,
@@ -84,8 +82,6 @@ pub enum RelationName {
     Operates,
     /// The inverse label of [`RelationName::Knows`].
     KnownBy,
-    /// The inverse label of [`RelationName::SessionCarryover`].
-    SessionCarries,
     /// The inverse label of [`RelationName::ParticipatesIn`].
     HasParticipant,
     /// The inverse label of [`RelationName::PartOf`].
@@ -108,7 +104,6 @@ impl RelationName {
             "operator_of" => RelationName::OperatorOf,
             "knows" => RelationName::Knows,
             "same_as" => RelationName::SameAs,
-            "_session_carryover" => RelationName::SessionCarryover,
             "participates_in" => RelationName::ParticipatesIn,
             "part_of" => RelationName::PartOf,
             "mentors" => RelationName::Mentors,
@@ -116,7 +111,6 @@ impl RelationName {
             "created" => RelationName::Created,
             "operates" => RelationName::Operates,
             "known_by" => RelationName::KnownBy,
-            "_session_carries" => RelationName::SessionCarries,
             "has_participant" => RelationName::HasParticipant,
             "contains" => RelationName::Contains,
             "mentored_by" => RelationName::MentoredBy,
@@ -131,7 +125,6 @@ impl RelationName {
             RelationName::OperatorOf => "operator_of",
             RelationName::Knows => "knows",
             RelationName::SameAs => "same_as",
-            RelationName::SessionCarryover => "_session_carryover",
             RelationName::ParticipatesIn => "participates_in",
             RelationName::PartOf => "part_of",
             RelationName::Mentors => "mentors",
@@ -139,7 +132,6 @@ impl RelationName {
             RelationName::Created => "created",
             RelationName::Operates => "operates",
             RelationName::KnownBy => "known_by",
-            RelationName::SessionCarries => "_session_carries",
             RelationName::HasParticipant => "has_participant",
             RelationName::Contains => "contains",
             RelationName::MentoredBy => "mentored_by",

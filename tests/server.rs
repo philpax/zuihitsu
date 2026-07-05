@@ -1579,10 +1579,9 @@ async fn the_working_set_carries_into_the_next_session_brief() {
 
 #[tokio::test]
 async fn the_compaction_working_set_is_the_touched_set_only() {
-    // The `_session_carryover` link source is retired (issue #21): the compacted session's working set
-    // is purely its touched memories. A thread the agent flagged for carryover in an earlier session
-    // but never touched in the session that compacts does not carry, since no agent-managed graph flag
-    // feeds the working set anymore — only the platform-derived touched set does.
+    // The compacted session's working set is purely its touched memories. A thread worked in an
+    // earlier session but never touched in the session that compacts does not carry, since only the
+    // platform-derived touched set feeds the working set.
     let (server, clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
@@ -1590,15 +1589,12 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
 
     let leads = ConversationLocator::new("discord", "leads");
     let model = ScriptedModel::with_usage([
-        // Session 1: create a thread and (as an old agent might) flag it — an ordinary turn, under budget.
-        // The link still materializes; it simply no longer feeds the carryover working set.
+        // Session 1: create a thread — an ordinary turn, under budget.
         (
-            run_lua_call(
-                r#"local t = memory.create("topic/migration", "Plan the DB migration"); t:link("_session_carryover", context.current())"#,
-            ),
+            run_lua_call(r#"memory.create("topic/migration", "Plan the DB migration")"#),
             10,
         ),
-        (Completion::Reply("flagged".to_owned()), 0),
+        (Completion::Reply("noted".to_owned()), 0),
         // Session 2 (after an idle reopen) crosses the budget without touching the migration thread.
         (Completion::Reply("on something else".to_owned()), 200),
         // Session 3 opens; nothing carried, so no describe pass fires for the migration thread.
@@ -1625,7 +1621,7 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
         .unwrap();
 
     // Session 2 never touched the migration thread, so it does not carry into session 3's brief — the
-    // working set is the touched set alone, with no `_session_carryover` contribution.
+    // working set is the touched set alone.
     let sessions = server.control().sessions(&leads).unwrap();
     let latest = sessions.last().unwrap();
     assert!(
@@ -1712,20 +1708,20 @@ async fn imprint_records_the_creator_and_links_created_by() {
     let (server, clock) = born_agent();
     let imprint = ConversationLocator::new("operator", "imprint");
     // Under operator authority the agent may write `self`: it creates the creator's person memory,
-    // merges the operator stub into it with `same_as`, asserts `self created_by person/phil`, and
+    // merges the operator stub into it with `same_as`, asserts `self created_by person/marcus`, and
     // records a self-observation — the writes that platform authority would bar.
     let script = r#"
-        local phil = memory.create("person/phil", "Phil, who created me to keep his memory.")
-        memory.get("person/operator"):link("same_as", phil)
-        memory.get("self"):link("created_by", phil)
-        memory.get("self"):append("I exist to keep Phil's memory.", { by_agent = true })
+        local marcus = memory.create("person/marcus", "Marcus, who created me to keep his memory.")
+        memory.get("person/operator"):link("same_as", marcus)
+        memory.get("self"):link("created_by", marcus)
+        memory.get("self"):append("I exist to keep Marcus's memory.", { by_agent = true })
     "#;
     let model = ScriptedModel::new([
         run_lua_call(script),
-        Completion::Reply("Hello, Phil. I'll remember.".to_owned()),
+        Completion::Reply("Hello, Marcus. I'll remember.".to_owned()),
         // The two memories that gained content regenerate their descriptions.
-        describe_call("Phil, my creator."),
-        describe_call("Kestrel, created by Phil."),
+        describe_call("Marcus, my creator."),
+        describe_call("Kestrel, created by Marcus."),
         // A later imprint turn, whose freshly-frozen brief we inspect.
         Completion::Reply("Still here.".to_owned()),
     ]);
@@ -1734,16 +1730,16 @@ async fn imprint_records_the_creator_and_links_created_by() {
         .control()
         .imprint(
             &model,
-            "Hi, I'm Phil. I built you to remember things for me.",
+            "Hi, I'm Marcus. I built you to remember things for me.",
         )
         .await
         .unwrap();
     assert_eq!(
         outcome,
-        TurnOutcome::Reply("Hello, Phil. I'll remember.".to_owned())
+        TurnOutcome::Reply("Hello, Marcus. I'll remember.".to_owned())
     );
     // The creator is now a memory of its own (the operator stub was merged into it).
-    assert!(server.control().memory("person/phil").unwrap().is_some());
+    assert!(server.control().memory("person/marcus").unwrap().is_some());
 
     // A later imprint turn (after the idle gap) opens a fresh session, whose frozen brief surfaces the
     // `created_by` link in the self block — the structural assertion the interview exists to make.
@@ -2184,7 +2180,7 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
 
 #[tokio::test]
 async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator() {
-    // An agent-authored hearsay stub: `person/philpax` exists (written from conversation) but is bound
+    // An agent-authored hearsay stub: `person/nadia` exists (written from conversation) but is bound
     // to no platform — the operator/agent has never confirmed which platform account it belongs to.
     let (server, _clock) = born_agent();
     let hearsay = MemoryId::generate();
@@ -2192,28 +2188,28 @@ async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator()
         .control()
         .seed_events(vec![EventPayload::memory_created(
             hearsay,
-            Namespace::Person.with_name("philpax"),
+            Namespace::Person.with_name("nadia"),
         )])
         .unwrap();
 
-    // Philpax then arrives on Discord. The handle matches the unbound stub, so the arrival mints its own
+    // Nadia then arrives on Discord. The handle matches the unbound stub, so the arrival mints its own
     // platform-qualified stub (it is *not* merged onto the hearsay one from a bare handle match), and an
     // orchestration-sourced merge is proposed to reunite them.
     let model = ScriptedModel::new([Completion::Reply("Hello.".to_owned())]);
     let leads = ConversationLocator::new("discord", "leads");
     server
         .platform()
-        .route_message(&model, &leads, "philpax", "hi there", &["philpax"])
+        .route_message(&model, &leads, "nadia", "hi there", &["nadia"])
         .await
         .unwrap();
 
     // Both stubs exist and stay distinct: the fresh qualified one and the untouched hearsay one.
     let arrival = server
         .control()
-        .memory("person/philpax@discord")
+        .memory("person/nadia@discord")
         .unwrap()
         .expect("the arrival minted a platform-qualified stub");
-    assert!(server.control().memory("person/philpax").unwrap().is_some());
+    assert!(server.control().memory("person/nadia").unwrap().is_some());
 
     // The log carries the orchestration-sourced proposal reuniting the two.
     let proposal = server
@@ -2237,8 +2233,8 @@ async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator()
     // rather than silently dropped or auto-merged.
     let surfaced = server.control().merge_proposals().unwrap();
     assert_eq!(surfaced.len(), 1);
-    assert_eq!(surfaced[0].from.as_str(), "person/philpax@discord");
-    assert_eq!(surfaced[0].to.as_str(), "person/philpax");
+    assert_eq!(surfaced[0].from.as_str(), "person/nadia@discord");
+    assert_eq!(surfaced[0].to.as_str(), "person/nadia");
     assert_eq!(surfaced[0].source, MergeProposalSource::Orchestration);
     assert!(!surfaced[0].refused);
 }
