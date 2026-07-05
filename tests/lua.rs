@@ -359,6 +359,104 @@ async fn a_date_object_prints_concatenates_and_stringifies() {
 }
 
 #[tokio::test]
+async fn table_concat_renders_a_handle_list_rather_than_crashing() {
+    // The recurring recall confusion: the agent reaches for table.concat on a reader's list as if its
+    // elements were strings. Stock Lua 5.4 table.concat crashes on the handle tables ("invalid value
+    // (at index 1) in table for 'concat'") since it joins only strings and numbers and invokes no
+    // __tostring; the sandbox's lenient concat renders each element as its own text instead, so the
+    // natural call joins the entries rather than terminating the block.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("Met at the climbing gym", { visibility = "public" })
+        dave:append("Got a new job at Hooli", { visibility = "public" })
+        return table.concat(dave:entries(), " || ")
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.contains("Met at the climbing gym"), "got: {result}");
+    assert!(result.contains("Got a new job at Hooli"), "got: {result}");
+    assert!(
+        result.contains(" || "),
+        "the separator should join the two rendered entries, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn table_concat_joins_a_link_readers_list() {
+    // The same lenient concat over a link reader's result: hub:links() returns link objects that print
+    // as "relation → name", and table.concat joins them rather than crashing on the handle tables. The
+    // link is committed in the first block, so the second block's :links() sees it.
+    let h = Harness::new();
+    h.run(
+        r#"
+        links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
+        local topic = memory.create(TOPIC_A)
+        local ev = memory.create(EVENT_LAUNCH)
+        ev:link("part_of", topic)
+        return "ok"
+        "#,
+    )
+    .await;
+    let outcome = h
+        .run(r#"return table.concat(memory.get(EVENT_LAUNCH):links(), "; ")"#)
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.contains("part_of"),
+        "the link should render its relation, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn table_concat_on_a_reader_method_is_a_teachable_error() {
+    // The field-vs-method slip: the agent passes hub.links (the method itself, a function) to
+    // table.concat instead of hub:links() (its result). The lenient concat catches the non-table first
+    // argument and redirects to the colon call rather than surfacing an opaque Lua error.
+    let h = Harness::new();
+    h.run(r#"memory.create(TOPIC_A)"#).await;
+    let outcome = h
+        .run(r#"return table.concat(memory.get(TOPIC_A).links, ", ")"#)
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("call it with a colon"),
+                "message was: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn table_concat_preserves_stock_behavior_on_primitives() {
+    // The lenient concat must not disturb ordinary joins: strings and numbers join as before, the
+    // default separator is empty, and the optional i/j range still selects a sub-span.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        return table.concat({ "a", "b", "c" }, "-")
+            .. " | " .. table.concat({ 1, 2, 3 })
+            .. " | " .. table.concat({ "a", "b", "c", "d" }, ",", 2, 3)
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(result, "a-b-c | 123 | b,c");
+}
+
+#[tokio::test]
 async fn calendar_on_accepts_a_date_object() {
     // calendar.on takes a date object as readily as a "YYYY-MM-DD" string, so the calendar's own
     // today()/next() return values feed straight into its sibling query rather than crashing on the

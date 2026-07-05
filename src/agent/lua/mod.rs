@@ -37,7 +37,8 @@ use crate::{
 
 use super::BlockContext;
 use runtime::{
-    BlockApi, LockSet, combine_output, install_inspect, release_locks, render, timed_out_cause,
+    BlockApi, LockSet, combine_output, install_inspect, install_table_concat, release_locks,
+    render, timed_out_cause,
 };
 
 pub use reference::{api_reference, render_api_reference};
@@ -406,6 +407,7 @@ fn sandboxed_lua() -> Lua {
     }
     drop(globals);
     install_inspect(&lua).expect("installing the inspect global");
+    install_table_concat(&lua).expect("installing the lenient table.concat");
     lua
 }
 

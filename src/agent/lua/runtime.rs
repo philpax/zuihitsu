@@ -25,7 +25,8 @@ use crate::{
 };
 
 use super::error::{
-    HandleAssignmentError, HandleError, HandleKind, MemorySearchError, TemporalArgError,
+    ConcatError, HandleAssignmentError, HandleError, HandleKind, MemorySearchError,
+    TemporalArgError,
 };
 
 /// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
@@ -633,6 +634,68 @@ pub(super) fn install_inspect(lua: &Lua) -> mlua::Result<()> {
     let module: Table = lua.load(INSPECT_LUA).set_name("inspect.lua").eval()?;
     let inspect: mlua::Function = module.get("inspect")?;
     lua.globals().set("inspect", inspect)?;
+    Ok(())
+}
+
+/// Install a lenient `table.concat` over the stdlib one. Stock Lua 5.4 `table.concat` joins only
+/// strings and numbers and invokes no `__tostring`, so a reader's handle list — `mem:entries()`,
+/// `hub:links()` — crashes it with an opaque "invalid value (at index …) for 'concat'", one of the
+/// recurring recall confusions. This override renders any element that carries a `__tostring` (an
+/// entry, a link, a search result, a date object) through it before joining, so
+/// `table.concat(mem:entries(), ", ")` joins the entries' own text — the same text `print` and a bare
+/// return already show. Strings and numbers join exactly as before, so an ordinary
+/// `table.concat(names, ",")` over a list the agent built is unchanged; the two remaining slips become
+/// teachable errors (see [`ConcatError`]) — the whole list argument being a reader *method* rather than
+/// its result, and an element with no text form.
+pub(super) fn install_table_concat(lua: &Lua) -> mlua::Result<()> {
+    let table_lib: Table = lua.globals().get("table")?;
+    table_lib.set(
+        "concat",
+        lua.create_function(
+            |lua, (list, sep, i, j): (Value, Option<String>, Option<i64>, Option<i64>)| {
+                let Value::Table(list) = list else {
+                    return Err(ConcatError::NotAList {
+                        type_name: list.type_name(),
+                    }
+                    .into());
+                };
+                let sep = sep.unwrap_or_default();
+                let start = i.unwrap_or(1);
+                let end = j.unwrap_or_else(|| list.raw_len() as i64);
+                let mut out = String::new();
+                let mut index = start;
+                while index <= end {
+                    if index > start {
+                        out.push_str(&sep);
+                    }
+                    let value: Value = list.get(index)?;
+                    let text = match &value {
+                        Value::String(s) => s.to_string_lossy(),
+                        Value::Integer(n) => n.to_string(),
+                        Value::Number(n) => n.to_string(),
+                        // A handle that renders itself (an entry, a link, a date, a search result)
+                        // joins as its text; a plain table with no `__tostring` has no text form.
+                        Value::Table(table) => tostring_via_metamethod(lua, &value, table).ok_or(
+                            ConcatError::Element {
+                                index,
+                                type_name: value.type_name(),
+                            },
+                        )?,
+                        other => {
+                            return Err(ConcatError::Element {
+                                index,
+                                type_name: other.type_name(),
+                            }
+                            .into());
+                        }
+                    };
+                    out.push_str(&text);
+                    index += 1;
+                }
+                Ok(out)
+            },
+        )?,
+    )?;
     Ok(())
 }
 

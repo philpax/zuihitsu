@@ -163,7 +163,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              date and reuse it. Hold onto the object if you intend to supersede it. Capture the list \
              to see it — `local es = <memory>:entries()`, or iterate/print it; a bare \
              `<memory>:entries()` whose result you discard returns nothing to you, not an empty \
-             memory.",
+             memory. Each element renders as its own text, so join a list into one string with \
+             table.concat(<memory>:entries(), \", \") or render each with tostring(e) in a loop — \
+             the elements are entry objects, not bare strings.",
         )
         .returns(AT::Entry.list());
 
@@ -275,7 +277,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              and both directions — the relationship overview. Each result is a table { relation, \
              memory, name, direction, source, occurred_at } that prints as \"relation → name\" (or \
              \"← name\" for an incoming link), a dated target's occurrence appended as \"[when …]\"; \
-             reach a linked memory through result.memory.",
+             reach a linked memory through result.memory. Call it with a colon — <memory>:links() — \
+             since <memory>.links is the method itself, not the list; each result renders as its own \
+             text, so join a list with table.concat(<memory>:links(), \"; \") or tostring(link).",
         )
         .returns(AT::Object(Vec::new()).list());
 

@@ -248,6 +248,48 @@ impl From<HandleError> for LuaError {
     }
 }
 
+/// A bad argument to `table.concat`, the sandbox's lenient join. Stock Lua 5.4 `table.concat` joins
+/// only strings and numbers and invokes neither `__tostring` nor `__concat`, so a reader's handle list
+/// — `mem:entries()`, `hub:links()` — crashes it with an opaque "invalid value (at index …) for
+/// 'concat'". The override renders any element carrying a `__tostring` (an entry, a link, a search
+/// result, a date object) through it before joining, so a reader's list joins to its readable text;
+/// these two variants name what it still cannot, and redirect the two observed slips.
+#[derive(Debug)]
+pub(super) enum ConcatError {
+    /// The list argument was not a table at all — most often a reader *method* passed in place of its
+    /// result (`hub.links`, a function, rather than `hub:links()`).
+    NotAList { type_name: &'static str },
+    /// An element has no text form — neither a string, a number, nor a handle that renders itself.
+    Element { index: i64, type_name: &'static str },
+}
+
+impl std::fmt::Display for ConcatError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConcatError::NotAList { type_name } => write!(
+                f,
+                "table.concat joins a list, but its first argument is {type_name}, not a table. If \
+                 you meant a memory reader like hub:links() or mem:entries(), call it with a colon \
+                 and parentheses — hub.links is the method itself, hub:links() is the list it returns"
+            ),
+            ConcatError::Element { index, type_name } => write!(
+                f,
+                "table.concat can only join strings, numbers, and handles that render themselves, \
+                 but element {index} is {type_name}. Build the string yourself — render each element \
+                 with tostring(e) in a loop — or return or print the value directly"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConcatError {}
+
+impl From<ConcatError> for LuaError {
+    fn from(error: ConcatError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// An attempt to assign to a field on a read-only handle (a memory, an entry, a date, or a search
 /// result). A handle is a view, not a mutable record, so a field assignment silently did nothing —
 /// the footgun behind the stale-date thrash, where `entry.occurred_at = ...` looked like it landed a
