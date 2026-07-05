@@ -346,8 +346,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Set a memory's volatility — how fast its facts drift. \"high\" for fast-changing facts \
              (a current role, where someone is, what they are working on), \"medium\" the default, \
-             \"low\" for durable facts like a name. A high-volatility memory surfaces later flagged as \
-             possibly out of date.",
+             \"low\" for durable facts like a name. A high-volatility memory surfaces later flagged \
+             `stale — no newer entry` once it ages out: possibly out of date, and nothing has replaced \
+             it, so hedge or reconfirm rather than hunting memory for a fresher version.",
         )
         .required(
             "level",

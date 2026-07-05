@@ -513,7 +513,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         "A fact you marked fast-changing is one you expect to drift: when you later surface it, give \
          it as possibly out of date — \"last I heard …\", or offer to confirm — not as a settled \
          current fact, even before it reads back marked `stale`. Read entries as they render, the \
-         stale and disputed markers riding the text."
+         stale and disputed markers riding the text. A `stale — no newer entry` marker means exactly \
+         that: the fact aged out and nothing has replaced it — hedge it or reconfirm with the person. \
+         Do not go hunting memory for a fresher version; the marker is already telling you there is \
+         none."
             .to_owned(),
     );
 

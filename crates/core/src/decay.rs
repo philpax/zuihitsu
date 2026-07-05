@@ -4,19 +4,31 @@
 //! by age over its volatility-scaled `tau` (so an old fact merely ranks lower). Staleness is a binary
 //! legibility signal that fires only for a memory the agent deliberately marked `High` volatility —
 //! one that holds fast-changing facts like a current location or a status. Once such an entry ages
-//! past the staleness horizon it reads with a `[stale]` marker, so the agent surfaces it as possibly
-//! out of date ("last I heard …") rather than asserting it as current. `Medium` (the default) and
-//! `Low` never go stale, so the marker is opt-in and never a false alarm on a durable fact.
+//! past the staleness horizon it reads with a `[stale — no newer entry]` marker, so the agent surfaces
+//! it as possibly out of date ("last I heard …") rather than asserting it as current. `Medium` (the
+//! default) and `Low` never go stale, so the marker is opt-in and never a false alarm on a durable fact.
+//!
+//! The marker only ever rides an *unreplaced* entry: a live surface excludes superseded entries, and
+//! the render layer suppresses the marker on the one place a superseded entry still shows (history),
+//! so the "no newer entry" claim always holds. This is the point of the wording — an aged fact that
+//! nothing replaced is one to hedge or reconfirm with the person, not one whose newer version to hunt
+//! for in memory, because there is none.
 
 use crate::{
     event::Volatility,
     time::{self, Timestamp},
 };
 
-/// The inline marker an aged `High`-volatility entry carries when surfaced, so the agent hedges rather
-/// than asserting a fading fact as current. Rendered like the other entry markers (`[disputed]`,
-/// `[via …]`), appended to the fact on every live surface.
-pub const STALE_MARKER: &str = "[stale]";
+/// The inline label an aged, unreplaced `High`-volatility entry carries when surfaced, so the agent
+/// hedges the fading fact rather than asserting it as current — and, crucially, does not go hunting
+/// memory for a newer version that does not exist. Rendered as a segment inside the entry's bracket
+/// beside the other markers (`disputed`, `private · from …`); see [`STALE_MARKER`] for the standalone
+/// bracketed form a search line appends.
+pub const STALE_LABEL: &str = "stale — no newer entry";
+
+/// The standalone bracketed marker a search line appends for an aged, unreplaced `High`-volatility
+/// hit — [`STALE_LABEL`] wrapped in the brackets the search render expects, kept in sync with it.
+pub const STALE_MARKER: &str = "[stale — no newer entry]";
 
 /// Whether an entry is stale: its memory is `High` volatility and its effective time — its occurrence
 /// if dated, else when it was asserted — is older than the staleness horizon. Only `High` ever goes

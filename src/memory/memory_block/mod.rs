@@ -103,10 +103,12 @@ pub struct EntryRef {
     /// by whom and when, without being handed content it must not relay to who is present. Only ever
     /// set on a direct read with an audience present; a solo read sees everything.
     pub withheld: bool,
-    /// Whether the entry has aged past usefulness: its memory is `High` volatility and the fact is
-    /// older than the staleness horizon (spec §Recency and volatility). A read marks it `[stale]` so the agent
-    /// surfaces it as possibly out of date rather than asserting it as current. Always `false` for the
-    /// default `Medium` and durable `Low` memories, so the marker is opt-in.
+    /// Whether the entry has aged past usefulness *and nothing has replaced it*: its memory is `High`
+    /// volatility, the fact is older than the staleness horizon (spec §Recency and volatility), and it
+    /// is unsuperseded. A read marks it `[stale — no newer entry]` so the agent surfaces it as possibly
+    /// out of date and reconfirms rather than hunting memory for a fresher version that does not exist.
+    /// Always `false` for the default `Medium` and durable `Low` memories, so the marker is opt-in, and
+    /// always `false` for a superseded entry (its successor is the newer version).
     pub stale: bool,
 }
 
@@ -505,7 +507,9 @@ impl MemoryBlock {
     /// superseded entry yet still withholds one that was a confidence not for who is present.
     ///
     /// *Stale* is independent of who is present — it is a fact about the entry's age on a `High`
-    /// volatility memory (spec §Recency and volatility) — so it is computed for every read, audience or not.
+    /// volatility memory (spec §Recency and volatility) — so it is computed for every read, audience or
+    /// not. It rides only an *unreplaced* entry, though: the marker reads "no newer entry", so a
+    /// superseded entry (surfaced only by history, its successor beside it) must not carry it.
     pub(super) fn annotate(
         &self,
         graph: &Graph,
@@ -524,7 +528,11 @@ impl MemoryBlock {
             .into_iter()
             .map(|entry| {
                 let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
-                let stale = decay::is_stale(volatility, effective, now);
+                // Only an unreplaced entry carries the marker: a superseded one (surfaced only by
+                // history) has its newer version right there in the same list, so marking it "no newer
+                // entry" would lie. A live read never reaches here with a superseded entry.
+                let stale =
+                    entry.superseded_by.is_none() && decay::is_stale(volatility, effective, now);
                 let withheld = match (audience, &memory) {
                     (true, Some(memory)) => {
                         let mut probe = entry.clone();

@@ -551,7 +551,7 @@ pub(super) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
                 segments.push("disputed".to_owned());
             }
             if this.get::<Option<bool>>("stale")?.unwrap_or(false) {
-                segments.push("stale".to_owned());
+                segments.push(crate::decay::STALE_LABEL.to_owned());
             }
             if let (Some(visibility), Some(teller)) = (
                 this.get::<Option<String>>("visibility")?,

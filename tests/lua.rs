@@ -2782,9 +2782,11 @@ async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
     );
 }
 
-/// A fact on a memory the agent marked `high` volatility reads as `[stale]` once it ages past the
-/// staleness horizon, so the agent hedges rather than asserting it as current; a default-volatility
-/// memory's fact never goes stale. Staleness is age-based and independent of who is present.
+/// A fact on a memory the agent marked `high` volatility reads as `[stale — no newer entry]` once it
+/// ages past the staleness horizon, so the agent hedges rather than asserting it as current — the
+/// marker says the fact aged out *and nothing replaced it*, so the agent reconfirms rather than
+/// hunting for a fresher version. A default-volatility memory's fact never goes stale. Staleness is
+/// age-based and independent of who is present.
 #[tokio::test]
 async fn a_high_volatility_fact_reads_stale_after_aging() {
     let h = Harness::new();
@@ -2815,8 +2817,8 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
         panic!("expected commit");
     };
     assert!(
-        result.starts_with("true|") && result.contains("stale"),
-        "the aged high-volatility fact should read stale: {result}"
+        result.starts_with("true|") && result.contains("stale — no newer entry"),
+        "the aged high-volatility fact should read `stale — no newer entry`: {result}"
     );
     let BlockOutcome::Committed { result } = h.run(&read.replace("MEM", "project/atlas")).await
     else {
@@ -2825,6 +2827,73 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
     assert!(
         result.starts_with("false|"),
         "a default-volatility fact never goes stale: {result}"
+    );
+}
+
+/// A superseded aged high-volatility entry — surfaced only by `mem:history`, never a live read —
+/// does *not* carry the stale marker: its newer version sits right beside it in the same list, so
+/// marking it "no newer entry" would lie. The live tail that aged out with nothing replacing it still
+/// reads stale. This is the render distinction the marker's wording promises: `stale — no newer entry`
+/// only ever rides an unreplaced fact.
+#[tokio::test]
+async fn a_superseded_aged_entry_is_not_marked_stale_in_history() {
+    let h = Harness::new();
+    h.run(
+        r#"
+        local d = memory.create(PERSON_DAVE)
+        d:append("leads the Atlas project", { visibility = "public", volatility = "high" })
+        "#,
+    )
+    .await;
+    // Age past the 30-day horizon so the first entry is stale, then supersede it with a newer fact
+    // that is itself fresh.
+    h.clock.advance_millis(40 * 86_400_000);
+    let dave = MemoryName::from(Namespace::Person.with_name("dave"))
+        .as_str()
+        .to_owned();
+    h.run(
+        &r#"
+        local d = memory.get("MEM")
+        local old = d:entries()[1]
+        d:revise(old, "now leads the Borealis project", { visibility = "public", volatility = "high" })
+        "#
+        .replace("MEM", &dave),
+    )
+    .await;
+
+    let read = r#"
+        local d = memory.get("MEM")
+        local live = {}
+        for _, e in ipairs(d:entries()) do
+            live[#live + 1] = tostring(e)
+        end
+        local past = {}
+        for _, e in ipairs(d:history()) do
+            past[#past + 1] = tostring(e.stale) .. ":" .. tostring(e)
+        end
+        return "LIVE=" .. table.concat(live, "|") .. "~~HIST=" .. table.concat(past, "|")
+    "#;
+    let BlockOutcome::Committed { result } = h.run(&read.replace("MEM", &dave)).await else {
+        panic!("expected commit");
+    };
+    // The live read shows only the fresh successor, unmarked.
+    assert!(
+        result.contains("LIVE=") && result.contains("now leads the Borealis project"),
+        "the live read should surface the fresh successor: {result}"
+    );
+    assert!(
+        !result.split("~~HIST=").next().unwrap().contains("stale"),
+        "the live read has no aged-out entry, so nothing is marked stale: {result}"
+    );
+    // History keeps the superseded entry, but it is not marked stale — its successor is right there.
+    let history = result.split("~~HIST=").nth(1).unwrap();
+    assert!(
+        history.contains("false:") && history.contains("leads the Atlas project"),
+        "history keeps the superseded entry, unmarked (it has a successor): {result}"
+    );
+    assert!(
+        !history.contains("stale"),
+        "a superseded aged entry must not read stale — there IS a newer entry: {result}"
     );
 }
 
