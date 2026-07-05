@@ -3094,6 +3094,7 @@ fn turn_event(
         participant,
         initiation: Initiation::Responding,
         produced_by: None,
+        brief: None,
     }
 }
 

@@ -1462,6 +1462,9 @@ fn append_turn(
             participant: record.participant,
             initiation: record.initiation,
             produced_by: record.produced_by,
+            // Only a mid-session join carries a structured brief; the turns this records — inbound,
+            // agent reply, flush — do not.
+            brief: None,
         }],
     )?;
     Ok(())

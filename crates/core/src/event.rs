@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 use crate::{
+    brief::Brief,
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
     },
@@ -731,6 +732,14 @@ pub enum EventPayload {
         participant: Option<MemoryId>,
         initiation: Initiation,
         produced_by: Option<ProducedBy>,
+        /// The structured brief behind a mid-session join's `system` turn (spec §Mid-conversation
+        /// joins): the same content `text` carries as rendered markup, kept as data so a structured
+        /// consumer (the console) renders it as a proper entrance treatment rather than surfacing the
+        /// raw markup. `None` for every other turn — an inbound message, the agent's reply, a wake-up
+        /// surface — and defaulted so version-1 payloads (written before the field existed) replay
+        /// without one.
+        #[serde(default)]
+        brief: Option<Brief>,
     },
     /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
     /// the room then persists across sessions for the agent's life (spec §Conversations).
@@ -1040,6 +1049,7 @@ impl EventPayload {
             participant,
             initiation,
             produced_by,
+            brief: None,
         }
     }
 
@@ -1141,6 +1151,8 @@ impl EventPayload {
     pub fn version(&self) -> u32 {
         match self {
             EventPayload::MergeProposed { .. } => 3,
+            // Version 2 since gaining the structured `brief`; version-1 payloads replay via its default.
+            EventPayload::ConversationTurn { .. } => 2,
             _ => 1,
         }
     }
@@ -1211,13 +1223,64 @@ pub struct Event {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConversationId, EntryId, EventPayload, MemoryId, MergeProposalSource, ModelPhase,
-        RequestRecord, SessionId, Teller, Timestamp, TurnId, Visibility,
+        ConversationId, EntryId, EventPayload, Initiation, MemoryId, MergeProposalSource,
+        ModelPhase, RequestRecord, SessionId, Teller, Timestamp, TurnId, TurnRole, Visibility,
     };
     use crate::{
+        brief::{Brief, BriefFact, BriefRelationship},
+        ids::MemoryName,
         model::{Completion, Message, ToolChoice, Usage},
         time::{CivilDate, TemporalRef},
+        vocabulary::RelationName,
     };
+
+    fn join_turn(brief: Option<Brief>) -> EventPayload {
+        EventPayload::ConversationTurn {
+            conversation: ConversationId::generate(),
+            turn_id: TurnId::generate(),
+            role: TurnRole::System,
+            text: "## person/priya\n".to_owned(),
+            participant: Some(MemoryId::generate()),
+            initiation: Initiation::Responding,
+            produced_by: None,
+            brief,
+        }
+    }
+
+    fn representative_brief() -> Brief {
+        Brief {
+            subject: MemoryName::new("person/priya"),
+            summary: Some("Priya, staff engineer".to_owned()),
+            recent_facts: vec![BriefFact {
+                text: "weighing an offer".to_owned(),
+                markers: vec!["[via person/erin]".to_owned()],
+            }],
+            relationships: vec![BriefRelationship {
+                relation: RelationName::new("knows"),
+                subject: MemoryName::new("person/erin"),
+            }],
+        }
+    }
+
+    #[test]
+    fn conversation_turn_round_trips_a_structured_brief() {
+        let event = join_turn(Some(representative_brief()));
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+
+    #[test]
+    fn conversation_turn_without_a_brief_replays_as_none() {
+        // A version-1 `ConversationTurn` predates the `brief` field; dropping the key models an old
+        // log. `serde(default)` must fill `None` so the historical turn deserializes unchanged.
+        let mut value = serde_json::to_value(join_turn(Some(representative_brief()))).unwrap();
+        value.as_object_mut().unwrap().remove("brief");
+        let replayed: EventPayload = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            replayed,
+            EventPayload::ConversationTurn { brief: None, .. }
+        ));
+    }
 
     fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
         EventPayload::MemoryContentAppended {

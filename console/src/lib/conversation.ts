@@ -1,4 +1,5 @@
 import type { Event } from "../types/Event.ts";
+import type { Brief } from "../types/Brief.ts";
 import type { Completion } from "../types/Completion.ts";
 import type { EventPayload } from "../types/EventPayload.ts";
 import type { Initiation } from "../types/Initiation.ts";
@@ -79,6 +80,10 @@ export interface TurnModel {
   /// The memory a scheduled wake-up surfaced from, when this `Initiated` turn was the agent speaking
   /// to a fired reminder rather than responding (spec §Agent-initiated speech).
   wakeup: string | null;
+  /// The structured join-brief a mid-session join's `system` turn carries (spec §Mid-conversation
+  /// joins): the same content `text` holds as rendered markup, kept as data so the transcript renders
+  /// a proper entrance treatment rather than the raw markup. `null` for every other turn.
+  brief: Brief | null;
 }
 
 /// One graph-mutating event a turn produced, summarized for the transcript and carrying the full
@@ -153,6 +158,7 @@ export function buildConversations(
         outcomes: [],
         entrance: false,
         wakeup: null,
+        brief: null,
       };
       turns.set(turnId, model);
       conversation(conversationId).turns.push(model);
@@ -214,6 +220,7 @@ export function buildConversations(
         model.text = payload.text;
         model.speaker = name(payload.participant);
         model.initiation = payload.initiation;
+        model.brief = payload.brief;
         // Outcomes belong to the agent's response cycle; an inbound or system turn closes the prior
         // one so its post-reply synthesis attributes correctly and later setup does not.
         currentTurnId = payload.role === "Agent" ? payload.turn_id : null;

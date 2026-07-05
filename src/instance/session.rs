@@ -285,13 +285,21 @@ impl Instance {
             present_set.push(joiner);
         }
         let now = self.engine.clock.now();
-        let join_brief = brief::compose_participant(
+        // Compose the join-brief as structured data: the `system` turn carries the rendered markup as
+        // its `text` (the prompt-build reads turn text verbatim, so the agent path is unchanged) and
+        // the struct alongside, so a structured consumer renders a proper entrance rather than the raw
+        // markup (spec §Mid-conversation joins).
+        let join_brief = brief::compose_participant_brief(
             &self.engine.graph.lock(),
             joiner,
             &present_set,
             &Settings::from_store(self.engine.store.lock().as_ref())?.brief,
             now,
         )?;
+        let text = join_brief
+            .as_ref()
+            .map(brief::Brief::render)
+            .unwrap_or_default();
 
         let turn_id = TurnId::generate();
         self.engine.store.lock().append(
@@ -302,10 +310,11 @@ impl Instance {
                     conversation,
                     turn_id,
                     role: TurnRole::System,
-                    text: join_brief,
+                    text,
                     participant: Some(joiner),
                     initiation: Initiation::Responding,
                     produced_by: None,
+                    brief: join_brief,
                 },
             ],
         )?;
@@ -607,6 +616,7 @@ impl Instance {
                 participant: None,
                 initiation: Initiation::Initiated,
                 produced_by: None,
+                brief: None,
             }];
             for (entry_id, memory) in drained.entries {
                 payloads.push(EventPayload::scheduled_item_surfaced(

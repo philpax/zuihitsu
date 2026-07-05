@@ -24,7 +24,7 @@ use crate::{
     ids::{MemoryId, MemoryName},
     settings::BriefSettings,
     time::{self, Timestamp},
-    vocabulary::TagName,
+    vocabulary::{RelationName, TagName},
 };
 
 use crate::{
@@ -57,6 +57,99 @@ impl std::error::Error for BriefError {
 impl From<GraphError> for BriefError {
     fn from(error: GraphError) -> BriefError {
         BriefError::Graph(error)
+    }
+}
+
+/// A single participant's brief, as structured data rather than as flattened markup: the subject
+/// (the memory the block is about), a prose summary, the visible recent facts each with their
+/// provenance/staleness markers kept beside the text, and the key relationships. This is the source
+/// of truth a mid-session join carries on its `system` turn; [`Brief::render`] is the projection that
+/// produces the exact markup the agent's prompt reads, so a structured consumer (the console) sees the
+/// parts without parsing them back out of the text (spec §Mid-conversation joins).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Brief {
+    /// The memory this block is about — the `## <subject>` header of the rendered form.
+    pub subject: MemoryName,
+    /// The memory's prose description, absent when it has none.
+    pub summary: Option<String>,
+    /// The visible recent facts, oldest first, in the same recency window the composer applies.
+    pub recent_facts: Vec<BriefFact>,
+    /// The memory's key relationships, each `relation → subject`.
+    pub relationships: Vec<BriefRelationship>,
+}
+
+/// One recent fact in a [`Brief`]: the fact text and the provenance/staleness markers that trail it —
+/// the teller-private `[via …]`/`[private · …]` attribution and the staleness note. The markers are
+/// kept beside the text (rather than baked into one string) so the console can style them quietly; the
+/// markup projection appends them space-separated, reproducing the flat line the agent reads.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct BriefFact {
+    pub text: String,
+    /// The markers appended after the fact text, in order (the visibility marker, then staleness).
+    pub markers: Vec<String>,
+}
+
+/// One relationship in a [`Brief`]: the relation label and the neighbour it points to, rendered as
+/// `relation: subject`. `relation` serializes as its bare label (the wire form [`RelationName`] keeps),
+/// so it is typed as a `string` on the console side.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct BriefRelationship {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub relation: RelationName,
+    pub subject: MemoryName,
+}
+
+impl Brief {
+    /// Render the brief as the `## <subject>` participant block — byte-identical to what
+    /// [`compose_participant`] produced before the struct became the source of truth, so the agent's
+    /// prompt and the evals that pin the brief surface are unaffected.
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        let _ = writeln!(out, "## {}", self.subject.as_str());
+        self.render_body(&mut out);
+        out
+    }
+
+    /// Render just the body — summary, recent facts, and relationships — without the `## <subject>`
+    /// header, the shape [`compose`] writes under a header it has already emitted itself.
+    fn render_body(&self, out: &mut String) {
+        if let Some(summary) = &self.summary {
+            let _ = writeln!(out, "<summary>{summary}</summary>");
+        }
+        if !self.recent_facts.is_empty() {
+            out.push_str("<recent_facts>\n");
+            for fact in &self.recent_facts {
+                let _ = writeln!(out, "- {}", fact.render());
+            }
+            out.push_str("</recent_facts>\n");
+        }
+        if !self.relationships.is_empty() {
+            out.push_str("<relationships>\n");
+            for relationship in &self.relationships {
+                let _ = writeln!(
+                    out,
+                    "- {}: {}",
+                    relationship.relation.as_str(),
+                    relationship.subject.as_str()
+                );
+            }
+            out.push_str("</relationships>\n");
+        }
+    }
+}
+
+impl BriefFact {
+    /// The flat line the markup carries: the fact text with each marker appended, space-separated.
+    fn render(&self) -> String {
+        let mut line = self.text.clone();
+        for marker in &self.markers {
+            line.push(' ');
+            line.push_str(marker);
+        }
+        line
     }
 }
 
@@ -370,26 +463,44 @@ pub fn compose_participant(
     settings: &BriefSettings,
     now: Timestamp,
 ) -> Result<String, BriefError> {
+    Ok(
+        match compose_participant_brief(graph, participant, present_set, settings, now)? {
+            Some(brief) => brief.render(),
+            None => String::new(),
+        },
+    )
+}
+
+/// Compose a single participant's [`Brief`] as structured data, against `present_set`. The structured
+/// form a mid-session join carries on its `system` turn: the caller renders it to markup for the
+/// agent's prompt (via [`Brief::render`], the projection [`compose_participant`] returns) and carries
+/// the struct itself for structured consumers. `None` when the participant is unknown — the same empty
+/// result the string form yields.
+pub fn compose_participant_brief(
+    graph: &Graph,
+    participant: MemoryId,
+    present_set: &[MemoryId],
+    settings: &BriefSettings,
+    now: Timestamp,
+) -> Result<Option<Brief>, BriefError> {
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
     let recent = settings.recent_facts.max(0) as usize;
-    let mut out = String::new();
-    if let Some(memory) = graph.memory_by_id(participant)? {
-        let _ = writeln!(out, "## {}", memory.name.as_str());
-        render_memory_body(
-            &mut out,
+    match graph.memory_by_id(participant)? {
+        Some(memory) => Ok(Some(memory_brief(
             graph,
             &memory,
             present_set,
             &class_of,
             recent,
             now,
-        )?;
+        )?)),
+        None => Ok(None),
     }
-    Ok(out)
 }
 
 /// Render a memory's body in the per-participant shape: summary, visible recent facts (with the
-/// teller-private marker baked in), and key relationships.
+/// teller-private marker beside the text), and key relationships. Delegates to [`Brief::render_body`]
+/// so the composer and the join path project identical markup from the same structured source.
 fn render_memory_body(
     out: &mut String,
     graph: &Graph,
@@ -399,34 +510,31 @@ fn render_memory_body(
     recent: usize,
     now: Timestamp,
 ) -> Result<(), BriefError> {
-    if !memory.description.is_empty() {
-        let _ = writeln!(out, "<summary>{}</summary>", memory.description);
-    }
-
-    let facts = visible_recent_facts(graph, memory, present_set, class_of, recent, now)?;
-    if !facts.is_empty() {
-        out.push_str("<recent_facts>\n");
-        for fact in &facts {
-            let _ = writeln!(out, "- {fact}");
-        }
-        out.push_str("</recent_facts>\n");
-    }
-
-    let relationships = relationships(graph, memory.id)?;
-    if !relationships.is_empty() {
-        out.push_str("<relationships>\n");
-        for relationship in &relationships {
-            let _ = writeln!(out, "- {relationship}");
-        }
-        out.push_str("</relationships>\n");
-    }
-
+    memory_brief(graph, memory, present_set, class_of, recent, now)?.render_body(out);
     Ok(())
 }
 
+/// Assemble a memory's [`Brief`] — subject, summary, visible recent facts, and relationships — the
+/// structured form both [`compose`] (via [`render_memory_body`]) and the join path draw from.
+fn memory_brief(
+    graph: &Graph,
+    memory: &MemoryView,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+    recent: usize,
+    now: Timestamp,
+) -> Result<Brief, BriefError> {
+    Ok(Brief {
+        subject: memory.name.clone(),
+        summary: (!memory.description.is_empty()).then(|| memory.description.clone()),
+        recent_facts: visible_recent_facts(graph, memory, present_set, class_of, recent, now)?,
+        relationships: relationships(graph, memory.id)?,
+    })
+}
+
 /// A memory's last `recent` content entries that are visible to `present_set`, in commit order, each
-/// rendered as text with the inline teller-private marker appended when it is a surviving private
-/// entry (resolving its `told_in` room and `#confidential` flag at build time).
+/// carrying the inline teller-private marker when it is a surviving private entry (resolving its
+/// `told_in` room and `#confidential` flag at build time) and the staleness marker when decayed.
 fn visible_recent_facts(
     graph: &Graph,
     memory: &MemoryView,
@@ -434,47 +542,47 @@ fn visible_recent_facts(
     class_of: &ClassOf,
     recent: usize,
     now: Timestamp,
-) -> Result<Vec<String>, BriefError> {
+) -> Result<Vec<BriefFact>, BriefError> {
     let mut facts = Vec::new();
     for entry in graph.class_entries(memory.id)? {
         if !visibility::visible(&entry, memory, present_set, class_of)? {
             continue;
         }
-        let mut line = entry.text.clone();
+        let mut markers = Vec::new();
         if entry.visibility != Visibility::Public {
             let teller = graph.teller_display(&entry.told_by)?;
             let room = graph.marker_room(entry.told_in)?;
             if let Some(marker) =
                 visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
             {
-                line.push(' ');
-                line.push_str(&marker);
+                markers.push(marker);
             }
         }
         let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
         if decay::is_stale(memory.volatility, effective, now) {
-            line.push(' ');
-            line.push_str(decay::STALE_MARKER);
+            markers.push(decay::STALE_MARKER.to_owned());
         }
-        facts.push(line);
+        facts.push(BriefFact {
+            text: entry.text.clone(),
+            markers,
+        });
     }
     let start = facts.len().saturating_sub(recent);
     Ok(facts.split_off(start))
 }
 
-/// A memory's key relationships, rendered as `relation: other-handle`, skipping soft-deleted
-/// neighbours. The full ranking by recency × type-weight (spec §Per-participant brief) is a later
-/// refinement; this lists the live edges touching the memory.
-fn relationships(graph: &Graph, id: MemoryId) -> Result<Vec<String>, BriefError> {
+/// A memory's key relationships, as `relation → other-handle`, skipping soft-deleted neighbours. The
+/// full ranking by recency × type-weight (spec §Per-participant brief) is a later refinement; this
+/// lists the live edges touching the memory.
+fn relationships(graph: &Graph, id: MemoryId) -> Result<Vec<BriefRelationship>, BriefError> {
     let mut relationships = Vec::new();
     for link in graph.links(id)? {
         let other = if link.from == id { link.to } else { link.from };
         if let Some(memory) = graph.memory_by_id(other)? {
-            relationships.push(format!(
-                "{}: {}",
-                link.relation.as_str(),
-                memory.name.as_str()
-            ));
+            relationships.push(BriefRelationship {
+                relation: link.relation.clone(),
+                subject: memory.name.clone(),
+            });
         }
     }
     Ok(relationships)
@@ -542,14 +650,14 @@ mod tests {
     //! present set, and asserts a fact is present or absent — model-free, because composition is
     //! deterministic.
     use crate::{
-        brief::{self, BriefRequest},
-        event::{EventPayload, Teller, Visibility},
+        brief::{self, Brief, BriefFact, BriefRelationship, BriefRequest},
+        event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName},
         settings::{BriefSettings, Settings},
         store::{MemoryStore, Store},
         time::{CivilDate, TemporalRef, Timestamp},
-        vocabulary::TagName,
+        vocabulary::{RelationName, TagName},
     };
 
     /// Compose a brief at the epoch (these deterministic tests don't exercise the time-relative
@@ -835,6 +943,117 @@ mod tests {
         assert!(out.contains("# Upcoming"));
         assert!(out.contains("cleaning"));
         assert!(!out.contains("annual review")); // beyond the 7-day window
+    }
+
+    #[test]
+    fn the_structured_join_brief_projects_to_the_frozen_markup() {
+        // A representative participant brief — a summary, a public fact, an attributed fact carrying a
+        // `[via …]` provenance marker, and a relationship — assembled as a `Brief` and rendered. The
+        // structured parts are pinned, and the rendered markup is pinned against the exact text the
+        // string composer produces, so the projection stays byte-identical to what the agent's prompt
+        // reads (and a later change that drifts either apart goes red).
+        let priya = MemoryId::generate();
+        let erin = MemoryId::generate();
+        let (_store, graph) = materialized(vec![
+            EventPayload::LinkTypeRegistered {
+                name: RelationName::new("knows"),
+                inverse: RelationName::new("known_by"),
+                from_card: Cardinality::Many,
+                to_card: Cardinality::Many,
+                symmetric: false,
+                reflexive: false,
+                description: String::new(),
+            },
+            created(priya, "person/priya"),
+            created(erin, "person/erin"),
+            EventPayload::memory_description_regenerated(
+                priya,
+                "Priya, staff engineer on the platform team",
+                None,
+            ),
+            appended(
+                priya,
+                1_000,
+                "leads the platform migration",
+                Teller::Agent,
+                Visibility::Public,
+            ),
+            appended(
+                priya,
+                1_100,
+                "weighing an offer from a competitor",
+                Teller::Participant(erin),
+                Visibility::Attributed,
+            ),
+            EventPayload::LinkCreated {
+                from: priya,
+                to: erin,
+                relation: RelationName::new("knows"),
+                source: LinkSource::Agent,
+                told_by: None,
+            },
+        ]);
+        let settings = Settings::default().brief;
+        // The join present set includes the joiner (Priya): her attributed fact still surfaces (an
+        // attributed entry is visible to anyone), carrying its `[via …]` marker.
+        let present_set = [priya, erin];
+
+        let brief = brief::compose_participant_brief(
+            &graph,
+            priya,
+            &present_set,
+            &settings,
+            Timestamp::from_millis(0),
+        )
+        .unwrap()
+        .expect("Priya is a known memory, so her brief is composed");
+
+        assert_eq!(
+            brief,
+            Brief {
+                subject: MemoryName::new("person/priya"),
+                summary: Some("Priya, staff engineer on the platform team".to_owned()),
+                recent_facts: vec![
+                    BriefFact {
+                        text: "leads the platform migration".to_owned(),
+                        markers: vec![],
+                    },
+                    BriefFact {
+                        text: "weighing an offer from a competitor".to_owned(),
+                        markers: vec!["[via person/erin]".to_owned()],
+                    },
+                ],
+                relationships: vec![BriefRelationship {
+                    relation: RelationName::new("knows"),
+                    subject: MemoryName::new("person/erin"),
+                }],
+            }
+        );
+
+        let expected = "\
+## person/priya
+<summary>Priya, staff engineer on the platform team</summary>
+<recent_facts>
+- leads the platform migration
+- weighing an offer from a competitor [via person/erin]
+</recent_facts>
+<relationships>
+- knows: person/erin
+</relationships>
+";
+        assert_eq!(brief.render(), expected);
+        // The projection is exactly what the string composer produces — the agent-facing format.
+        assert_eq!(
+            brief.render(),
+            brief::compose_participant(
+                &graph,
+                priya,
+                &present_set,
+                &settings,
+                Timestamp::from_millis(0)
+            )
+            .unwrap()
+        );
     }
 
     #[test]
