@@ -84,15 +84,19 @@ fn load(path: &Path) -> Result<EvalPackage, EvalError> {
 fn bar_label(bar: &Bar) -> String {
     match bar {
         Bar::Gating => "gate".to_owned(),
+        Bar::RateGate { threshold } => format!("gate>={threshold}"),
         Bar::Metric { threshold } => format!(">={threshold}"),
     }
 }
 
-/// Whether a scenario's aggregate clears its bar — a held gate, or a rate at or above the threshold.
+/// Whether a scenario's aggregate clears its bar — a held gate, a rate at or above a rate gate's
+/// threshold, or a metric rate at or above its reporting threshold.
 fn clears_bar(report: &ScenarioReport) -> bool {
     match report.meta.bar {
         Bar::Gating => report.aggregate.gating_passed,
-        Bar::Metric { threshold } => report.aggregate.rate >= threshold,
+        Bar::RateGate { threshold } | Bar::Metric { threshold } => {
+            report.aggregate.rate >= threshold
+        }
     }
 }
 

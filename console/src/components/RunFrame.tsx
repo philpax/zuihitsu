@@ -72,7 +72,7 @@ export function RunFrame() {
           <VerdictPanel
             key={`verdict:${runKey}`}
             run={completed}
-            gating={scenario.meta.bar.kind === "gating"}
+            gating={scenario.meta.bar.kind !== "metric"}
           />
         )}
         {!ready ? (

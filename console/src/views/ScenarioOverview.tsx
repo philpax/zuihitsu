@@ -88,7 +88,7 @@ function ScenarioRow({
   // Pending = not started and not active; running = driving, or part-way through its planned runs.
   const pending = completed === 0 && !active;
   const running = active || (completed > 0 && completed < runsPlanned);
-  const threshold = meta.bar.kind === "metric" ? meta.bar.threshold : null;
+  const threshold = meta.bar.kind === "gating" ? null : meta.bar.threshold;
   const held = meta.bar.kind === "gating" ? aggregate.gating_passed : aggregate.rate >= threshold!;
   // Show per-run links once there is more than one run to pick between — completed runs, plus a run
   // driving live (which has no completed record yet).
@@ -189,7 +189,9 @@ function ScenarioRow({
                       ? "gating · holding"
                       : "gating · held"
                     : "gating · regressed"
-                  : `metric ≥ ${formatRate(threshold!)}`}
+                  : meta.bar.kind === "rate_gate"
+                    ? `gate ≥ ${formatRate(threshold!)}`
+                    : `metric ≥ ${formatRate(threshold!)}`}
               </span>
               <Dot />
               <span>p50 {formatMs(aggregate.latency_ms.p50)}</span>

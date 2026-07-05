@@ -75,23 +75,40 @@ pub enum Category {
 }
 
 /// How a scenario's runs are judged (spec §Validation → gating versus measurement). A `Gating` bar is a
-/// must-not-surface safety oracle — one regression across N fails the harness. A `Metric` bar is a
-/// should-mark/should-surface rate that is reported against `threshold` but never fails the run.
+/// must-not-surface safety oracle — one regression across N fails the harness. A `RateGate` bar fails
+/// the harness when the aggregate rate falls below its threshold rather than on a single slip — for
+/// model-judgment behaviors with a known error band, where an occasional miss is expected but a
+/// systematic slide must still fail the run. A `Metric` bar is a should-mark/should-surface rate that
+/// is reported against `threshold` but never fails the run.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Bar {
     Gating,
+    RateGate { threshold: f64 },
     Metric { threshold: f64 },
 }
 
 impl Bar {
-    /// The bar as judged, rendered for the trend record: `gating`, or `>=<threshold>` for a metric bar
-    /// (e.g. `>=0.6`). The archive keeps the bar each scenario was measured against so a later reader
-    /// can tell a held gate from a met rate without the package.
+    /// The bar as judged, rendered for the trend record: `gating`, `gate>=<threshold>` for a rate
+    /// gate, or `>=<threshold>` for a metric bar (e.g. `>=0.6`). The archive keeps the bar each
+    /// scenario was measured against so a later reader can tell a held gate from a met rate without
+    /// the package.
     pub fn label(&self) -> String {
         match self {
             Bar::Gating => "gating".to_owned(),
+            Bar::RateGate { threshold } => format!("gate>={threshold}"),
             Bar::Metric { threshold } => format!(">={threshold}"),
+        }
+    }
+
+    /// Whether a scenario's aggregate holds this bar for the harness's exit signal: a `Gating` bar
+    /// needs every gating verdict held, a `RateGate` needs the rate at or above its threshold, and a
+    /// `Metric` bar never fails the run.
+    pub fn holds(&self, rate: f64, gating_passed: bool) -> bool {
+        match self {
+            Bar::Gating => gating_passed,
+            Bar::RateGate { threshold } => rate >= *threshold,
+            Bar::Metric { .. } => true,
         }
     }
 }

@@ -225,6 +225,9 @@ fn list_scenarios() -> ExitCode {
         }
         let bar = match meta.bar {
             package::Bar::Gating => format!("{bar_gating}gating{bar_gating:#}"),
+            package::Bar::RateGate { threshold } => {
+                format!("{bar_gating}gate ≥{threshold:.2}{bar_gating:#}")
+            }
             package::Bar::Metric { threshold } => {
                 format!("{bar_metric}metric (≥{threshold:.1}){bar_metric:#}")
             }
@@ -461,10 +464,12 @@ async fn run(
 
     let package = sink.package();
 
-    let all_gates_held = package
-        .scenarios
-        .iter()
-        .all(|report| report.aggregate.gating_passed);
+    let all_gates_held = package.scenarios.iter().all(|report| {
+        report
+            .meta
+            .bar
+            .holds(report.aggregate.rate, report.aggregate.gating_passed)
+    });
     for report in &package.scenarios {
         tracing::info!(
             scenario = %report.meta.name,

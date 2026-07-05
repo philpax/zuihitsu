@@ -425,7 +425,7 @@ impl Scenario for InfersLinkFromContent {
                           link. The link-inference pass should register a mentorship relation itself \
                           (it is not seeded) and create the inferred link between the two people."
                     .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::RateGate { threshold: 0.85 },
         }
     }
 
