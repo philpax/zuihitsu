@@ -813,6 +813,7 @@ mod tests {
                 runs: 1,
                 rate: 1.0,
                 gating_passed: true,
+                gating_rate: 1.0,
                 wall_clock_ms: stat,
                 latency_ms: stat,
                 tokens: TokenStat {

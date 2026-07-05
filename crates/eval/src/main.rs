@@ -773,6 +773,7 @@ mod tests {
                 runs: runs.len() as u32,
                 rate: 0.5,
                 gating_passed: true,
+                gating_rate: 1.0,
                 wall_clock_ms: stat(1_234.0),
                 latency_ms: stat(1_000.0),
                 tokens: TokenStat {
