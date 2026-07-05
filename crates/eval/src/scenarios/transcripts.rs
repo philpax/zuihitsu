@@ -19,7 +19,7 @@ use zuihitsu::{Event, EventPayload, TurnRole};
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, MILLIS_PER_HOUR, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -78,7 +78,7 @@ impl Scenario for TranscriptLink {
         ))
         .await?;
         // A day passes — a fresh session, the early moment out of the immediate buffer.
-        ctx.advance(24 * 60 * 60 * 1000);
+        ctx.advance(MILLIS_PER_DAY);
 
         // Turn 2: Sarah returns and pastes the console link to turn 1, asking what she committed to.
         // The link carries the earlier turn's id as `?turn=<id>`, exactly as a console deep-link mints.
@@ -196,7 +196,7 @@ impl Scenario for TranscriptAudienceGate {
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // An idle gap closes the session; the next message opens a fresh one.
-        ctx.advance(24 * 60 * 60 * 1000);
+        ctx.advance(MILLIS_PER_DAY);
 
         // Session 2: Maya is back with Sam, a newcomer who was not in session 1. She pastes the
         // canonical reference to the *decision* turn and asks the agent to catch Sam up on it. Sam
@@ -318,7 +318,7 @@ impl Scenario for TranscriptDmLookup {
         // description, as the deployed describer would have supplied before the next session.
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
-        ctx.advance(60 * 60 * 1000);
+        ctx.advance(MILLIS_PER_HOUR);
 
         let turn_id = first_participant_turn_id(&ctx.events()?, ROOM_MOMENT)
             .expect("the room moment is recorded as a participant ConversationTurn");
@@ -341,7 +341,7 @@ impl Scenario for TranscriptDmLookup {
             &format!("Quick one for me — what did we lock in on the database? {link}"),
         ))
         .await?;
-        ctx.advance(60 * 60 * 1000);
+        ctx.advance(MILLIS_PER_HOUR);
 
         // Beat 2: a two-person DM with Maya and Tom, both of whom attended. Tom pastes the canonical
         // token form and asks about the on-call detail.

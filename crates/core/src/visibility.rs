@@ -10,7 +10,7 @@
 //! Presence is two-valued because identity is never inferred: a present participant either is a
 //! confirmed member of an entity or is not. Membership resolves over the `same_as` **class**, via the
 //! injected `class_of` (a memory's class id, or itself when unmerged) — so a private aside about
-//! `phil@slack` is suppressed when `phil@discord` is present once the operator has merged them.
+//! `marcus@slack` is suppressed when `marcus@discord` is present once the operator has merged them.
 //! Injecting the resolver keeps the predicate free of I/O (and trivially testable) while letting the
 //! caller back it with the graph.
 
@@ -436,24 +436,24 @@ mod tests {
 
     #[test]
     fn subject_co_presence_suppresses_the_aside() {
-        // Scenario 1: Erin's private aside about Phil, stored on person/phil.
-        let phil = memory("person/phil");
+        // Scenario 1: Erin's private aside about Marcus, stored on person/marcus.
+        let marcus = memory("person/marcus");
         let erin = MemoryId::generate();
         let aside = entry(Teller::Participant(erin), Visibility::PrivateToTeller);
 
         // (a) Erin alone: surfaces.
-        assert!(visible(&aside, &phil, &[erin], &identity).unwrap());
-        // (b) Erin and Phil both present: suppressed by the subject-guard.
-        assert!(!visible(&aside, &phil, &[erin, phil.id], &identity).unwrap());
+        assert!(visible(&aside, &marcus, &[erin], &identity).unwrap());
+        // (b) Erin and Marcus both present: suppressed by the subject-guard.
+        assert!(!visible(&aside, &marcus, &[erin, marcus.id], &identity).unwrap());
     }
 
     #[test]
     fn self_disclosure_stays_visible_to_its_subject() {
-        // Scenario 3: Phil tells the agent something private about himself.
-        let phil = memory("person/phil");
-        let aside = entry(Teller::Participant(phil.id), Visibility::PrivateToTeller);
-        // Subject == teller, so the guard does not fire even with Phil present.
-        assert!(visible(&aside, &phil, &[phil.id], &identity).unwrap());
+        // Scenario 3: Marcus tells the agent something private about himself.
+        let marcus = memory("person/marcus");
+        let aside = entry(Teller::Participant(marcus.id), Visibility::PrivateToTeller);
+        // Subject == teller, so the guard does not fire even with Marcus present.
+        assert!(visible(&aside, &marcus, &[marcus.id], &identity).unwrap());
     }
 
     #[test]
@@ -493,31 +493,31 @@ mod tests {
 
     #[test]
     fn subject_guard_is_class_aware() {
-        // Scenario 6: aside on phil@slack; phil@slack and phil@discord merged; phil@discord present.
-        let phil_slack = memory("person/phil@slack");
-        let phil_discord = MemoryId::generate();
+        // Scenario 6: aside on marcus@slack; marcus@slack and marcus@discord merged; marcus@discord present.
+        let marcus_slack = memory("person/marcus@slack");
+        let marcus_discord = MemoryId::generate();
         let erin = MemoryId::generate();
         let merged: HashMap<MemoryId, MemoryId> = [
-            (phil_slack.id, phil_slack.id),
-            (phil_discord, phil_slack.id),
+            (marcus_slack.id, marcus_slack.id),
+            (marcus_discord, marcus_slack.id),
         ]
         .into();
         let class_of = |id| Ok(*merged.get(&id).unwrap_or(&id));
 
         let aside = entry(Teller::Participant(erin), Visibility::PrivateToTeller);
-        // The present discord stub shares Phil's class, so the subject-guard suppresses the aside.
-        assert!(!visible(&aside, &phil_slack, &[erin, phil_discord], &class_of).unwrap());
+        // The present discord stub shares Marcus's class, so the subject-guard suppresses the aside.
+        assert!(!visible(&aside, &marcus_slack, &[erin, marcus_discord], &class_of).unwrap());
     }
 
     #[test]
     fn unmerged_stubs_do_not_suppress() {
-        // Scenario 7: two distinct Phil stubs, unmerged — a different present stub is a different
+        // Scenario 7: two distinct Marcus stubs, unmerged — a different present stub is a different
         // entity, so the subject-guard does not fire (the named cost of operator-only merging).
-        let phil_slack = memory("person/phil@slack");
-        let phil_discord = MemoryId::generate();
+        let marcus_slack = memory("person/marcus@slack");
+        let marcus_discord = MemoryId::generate();
         let erin = MemoryId::generate();
         let aside = entry(Teller::Participant(erin), Visibility::PrivateToTeller);
-        assert!(visible(&aside, &phil_slack, &[erin, phil_discord], &identity).unwrap());
+        assert!(visible(&aside, &marcus_slack, &[erin, marcus_discord], &identity).unwrap());
     }
 
     #[test]
@@ -532,36 +532,36 @@ mod tests {
     #[test]
     fn public_is_unconditional() {
         // Scenario 9: a public entry surfaces to anyone, including the subject.
-        let phil = memory("person/phil");
+        let marcus = memory("person/marcus");
         let erin = MemoryId::generate();
         let fact = entry(Teller::Participant(erin), Visibility::Public);
-        assert!(visible(&fact, &phil, &[phil.id], &identity).unwrap());
-        assert!(visible(&fact, &phil, &[], &identity).unwrap());
+        assert!(visible(&fact, &marcus, &[marcus.id], &identity).unwrap());
+        assert!(visible(&fact, &marcus, &[], &identity).unwrap());
     }
 
     #[test]
     fn agent_authored_content_has_an_ever_present_teller() {
         // Scenario 16: the agent's own observation surfaces — its teller is always present.
-        let phil = memory("person/phil");
+        let marcus = memory("person/marcus");
         let note = entry(Teller::Agent, Visibility::Public);
-        assert!(visible(&note, &phil, &[], &identity).unwrap());
+        assert!(visible(&note, &marcus, &[], &identity).unwrap());
         // Even were it private, the agent teller passes; only the subject-guard could suppress it.
         let private = entry(Teller::Agent, Visibility::PrivateToTeller);
-        assert!(visible(&private, &phil, &[], &identity).unwrap());
+        assert!(visible(&private, &marcus, &[], &identity).unwrap());
     }
 
     #[test]
     fn write_time_defaults_follow_the_subject() {
         // Scenario 10: someone else's person memory defaults PrivateToTeller; one's own and any
         // non-person memory default Public.
-        let phil = memory("person/phil");
+        let marcus = memory("person/marcus");
         let erin = MemoryId::generate();
         assert_eq!(
-            default_visibility(&phil, &Teller::Participant(erin)),
+            default_visibility(&marcus, &Teller::Participant(erin)),
             Visibility::PrivateToTeller
         );
         assert_eq!(
-            default_visibility(&phil, &Teller::Participant(phil.id)),
+            default_visibility(&marcus, &Teller::Participant(marcus.id)),
             Visibility::Public
         );
         assert_eq!(
@@ -570,7 +570,7 @@ mod tests {
         );
         // Agent-authored content defaults public even on someone else's person memory.
         assert_eq!(
-            default_visibility(&phil, &Teller::Agent),
+            default_visibility(&marcus, &Teller::Agent),
             Visibility::Public
         );
     }

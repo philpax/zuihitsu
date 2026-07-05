@@ -56,11 +56,11 @@ async fn lightpanda_spawns_lists_tools_and_extracts_markdown() {
     assert!(tools.contains(&"navigate"), "tools were {tools:?}");
     assert!(tools.contains(&"markdown"), "tools were {tools:?}");
 
-    // Navigate to philpax.me, then extract its markdown from the loaded page.
+    // Navigate to example.com, then extract its markdown from the loaded page.
     instance
         .call(
             "navigate",
-            serde_json::json!({ "url": "https://philpax.me" }),
+            serde_json::json!({ "url": "https://example.com" }),
         )
         .await
         .expect("navigate should succeed");
@@ -75,8 +75,8 @@ async fn lightpanda_spawns_lists_tools_and_extracts_markdown() {
         &rendered[..rendered.len().min(400)]
     );
     assert!(
-        rendered.to_lowercase().contains("philpax"),
-        "extracted markdown should mention philpax: {rendered:?}"
+        rendered.to_lowercase().contains("example"),
+        "extracted markdown should mention example: {rendered:?}"
     );
 
     instance.shutdown().await;
@@ -124,7 +124,7 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
                 dry_run: false,
             },
             r#"
-            mcp.lightpanda.navigate{ url = "https://philpax.me" }
+            mcp.lightpanda.navigate{ url = "https://example.com" }
             return mcp.lightpanda.markdown{}
             "#,
         )
@@ -141,7 +141,7 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
         &result[..result.len().min(400)]
     );
     assert!(
-        result.to_lowercase().contains("philpax"),
-        "the projected markdown should mention philpax: {result:?}"
+        result.to_lowercase().contains("example"),
+        "the projected markdown should mention example: {result:?}"
     );
 }

@@ -98,12 +98,12 @@ fn an_aside_about_another_person_defaults_private() {
         Teller::Participant(speaker),
         Authority::Platform,
     );
-    // The speaker (the teller) is not the subject of person/phil, so the default is private.
-    let phil = block
-        .create(Namespace::Person.with_name("phil"), None)
+    // The speaker (the teller) is not the subject of person/marcus, so the default is private.
+    let marcus = block
+        .create(Namespace::Person.with_name("marcus"), None)
         .unwrap();
     block
-        .append(phil, "is being managed out", AppendOptions::default())
+        .append(marcus, "is being managed out", AppendOptions::default())
         .unwrap();
 
     let visibility = block
@@ -124,7 +124,7 @@ fn platform_authority_cannot_write_self() {
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
     let other = block
-        .create(Namespace::Person.with_name("phil"), None)
+        .create(Namespace::Person.with_name("marcus"), None)
         .unwrap();
 
     // Appending to self, and a link with self at either endpoint, are all barred.
@@ -182,13 +182,13 @@ fn content_writes_to_the_operator_anchor_are_forbidden_but_links_are_not() {
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
     let real = block
-        .create(Namespace::Person.with_name("phil"), None)
+        .create(Namespace::Person.with_name("marcus"), None)
         .unwrap();
 
     // Recording content on the anchor is barred — even under operator authority.
     assert!(matches!(
         block
-            .append(operator_id, "Real name is Phil", AppendOptions::default())
+            .append(operator_id, "Real name is Marcus", AppendOptions::default())
             .unwrap_err(),
         MemoryError::OperatorWriteForbidden
     ));
@@ -201,19 +201,21 @@ fn operator_authority_may_write_self_and_links_carry_operator() {
     let (graph, self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
-    let phil = block
-        .create(Namespace::Person.with_name("phil"), None)
+    let marcus = block
+        .create(Namespace::Person.with_name("marcus"), None)
         .unwrap();
 
     // The same writes that platform authority bars all succeed from the console.
     block
         .append(
             self_id,
-            "I exist to keep Phil's memory.",
+            "I exist to keep Marcus's memory.",
             AppendOptions::default(),
         )
         .unwrap();
-    block.link(self_id, phil, RelationName::CreatedBy).unwrap();
+    block
+        .link(self_id, marcus, RelationName::CreatedBy)
+        .unwrap();
 
     // The operator-authored link carries operator provenance, not the agent's own.
     let source = block

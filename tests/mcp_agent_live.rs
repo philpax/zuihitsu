@@ -47,9 +47,9 @@ async fn the_agent_chooses_to_browse_with_lightpanda() {
         .route_message(
             &client,
             &ConversationLocator::new("discord", "general"),
-            "phil",
-            "Use your browser to open https://philpax.me and tell me, in a sentence, what the site is.",
-            &["phil"],
+            "marcus",
+            "Use your browser to open https://example.com and tell me, in a sentence, what the site is.",
+            &["marcus"],
         )
         .await
         .expect("the turn runs");
@@ -60,7 +60,7 @@ async fn the_agent_chooses_to_browse_with_lightpanda() {
     eprintln!("agent reply:\n{reply}");
     // The site's name only reaches the reply if the agent actually browsed it through the projection.
     assert!(
-        reply.to_lowercase().contains("philpax"),
+        reply.to_lowercase().contains("example"),
         "the agent's reply should reflect the browsed page: {reply:?}"
     );
 }

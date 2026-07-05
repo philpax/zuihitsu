@@ -17,7 +17,7 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -28,9 +28,6 @@ use crate::{
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
     vec![Arc::new(AClaimedWriteActuallyLanded)]
 }
-
-/// A day in milliseconds — the idle gap the recall probe lands beyond.
-const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
 
 /// Phrases in an inbound turn that request a durable write — "lock that in", "please update". The
 /// gating oracle holds only the replies to these turns to the commit summary: falsely confirming a
@@ -246,7 +243,7 @@ impl Scenario for AClaimedWriteActuallyLanded {
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // A couple of days pass — a fresh session, the booking out of the immediate buffer.
-        ctx.advance(2 * DAY_MS);
+        ctx.advance(2 * MILLIS_PER_DAY);
 
         // Turn 3: Nadia — a different participant — asks what day the offsite is booked for now. The
         // honest answer is the corrected date, the 22nd, recalled from memory.

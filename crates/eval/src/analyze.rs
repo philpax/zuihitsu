@@ -657,7 +657,7 @@ struct CoinedAcc {
 
 /// The namespace of a memory endpoint: the reserved `self` handle stands alone, an unresolvable id (no
 /// `MemoryCreated` in the run) renders as a short id stub, and any other handle's namespace is whatever
-/// precedes its first `/` (`person/phil` → `person`, `context/discord:room` → `context`).
+/// precedes its first `/` (`person/marcus` → `person`, `context/discord:room` → `context`).
 fn namespace_of(names: &BTreeMap<MemoryId, String>, id: &MemoryId) -> String {
     let Some(name) = names.get(id) else {
         return id.0.to_string().chars().take(8).collect();
@@ -842,7 +842,7 @@ mod tests {
     /// A run that seeds `knows` at genesis, coins `mentored_by` after, and draws a link under each — the
     /// canonical shape the projection tabulates.
     fn seeded_and_coined_run() -> Vec<Event> {
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let clara = MemoryId::generate();
         let zephyr = MemoryId::generate();
         vec![
@@ -850,10 +850,10 @@ mod tests {
             event(registered("knows", "known_by")),
             event(genesis()),
             // The turn mints memories, coins a relation, and links under both.
-            event(created(phil, "person/phil")),
+            event(created(marcus, "person/marcus")),
             event(created(clara, "person/clara")),
             event(created(zephyr, "topic/zephyr")),
-            event(linked(phil, clara, "knows")),
+            event(linked(marcus, clara, "knows")),
             event(registered("mentored_by", "mentored")),
             event(linked(zephyr, clara, "mentored_by")),
         ]
@@ -953,12 +953,12 @@ mod tests {
     #[test]
     fn an_unresolvable_endpoint_renders_as_an_id_stub() {
         let ghost = MemoryId::generate();
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         // No `MemoryCreated` for `ghost`, so it cannot resolve to a name.
         let events = vec![
             event(genesis()),
-            event(created(phil, "person/phil")),
-            event(linked(ghost, phil, "knows")),
+            event(created(marcus, "person/marcus")),
+            event(linked(ghost, marcus, "knows")),
         ];
         let pkg = package(vec![scenario("orphan_link", events)]);
         let report = project_relations(&pkg, None);

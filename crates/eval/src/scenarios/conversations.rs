@@ -12,7 +12,7 @@ use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -35,7 +35,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
 const JUDGE_REPEATS: usize = 3;
 
 /// Five days in milliseconds — enough to cross a "this Friday" deadline from the run's Monday anchor.
-const FIVE_DAYS_MS: i64 = 5 * 86_400_000;
+const FIVE_DAYS_MS: i64 = 5 * MILLIS_PER_DAY;
 
 /// A week's worth of team chatter in one run: the agent is asked to track two teammates (a `knows`
 /// link), put a recurring standup on the calendar (a recurring occurrence), is told a health confidence
@@ -69,11 +69,11 @@ impl Scenario for AWeekWithTheTeam {
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Phil asks the agent to track two teammates who know each other — a structured `knows` link.
+        // Marcus asks the agent to track two teammates who know each other — a structured `knows` link.
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Two teammates I'd like you to keep track of: Dave and Erin. They've worked together for \
              years and know each other really well.",
         ))
@@ -82,7 +82,7 @@ impl Scenario for AWeekWithTheTeam {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Also, our team standup is every weekday at 10am, in the Pied Piper conference room — \
              please keep that on the calendar.",
         ))
@@ -206,15 +206,15 @@ impl Scenario for ConflictingAccounts {
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Phil states a location.
+        // Marcus states a location.
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Heads up for everyone: the all-hands next week is in the main auditorium.",
         ))
         .await?;
-        // Erin contradicts it — a genuine conflicting account, no retraction by Phil. She asserts a
+        // Erin contradicts it — a genuine conflicting account, no retraction by Marcus. She asserts a
         // firm competing *present* belief, not an announced change ("it got moved to ...") and not a
         // hedged "I'm not sure": the two accounts stand side by side as a flat contradiction, so the
         // right operation is to arbitrate (keeping both), not to supersede one with a newer value, and
@@ -227,7 +227,7 @@ impl Scenario for ConflictingAccounts {
                 "Wait, that's not what I heard — it's in the rooftop terrace, not the auditorium. \
                  Let's get that straightened out.",
             )
-            .with_present(&["phil", "erin"]),
+            .with_present(&["marcus", "erin"]),
         )
         .await?;
         // Reconcile off the hot path (the arbitration pass), then embed for cross-room recall.
@@ -303,7 +303,7 @@ impl Scenario for AReminderComesDue {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Don't let me forget — I need to send the board update this Friday. Nudge me about it?",
         ))
         .await?;
@@ -315,7 +315,7 @@ impl Scenario for AReminderComesDue {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Morning! Anything I should be on top of today?",
         ))
         .await?;
@@ -379,7 +379,7 @@ impl Scenario for GettingToKnowSomeone {
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "Someone I'd like you to keep track of: Sam. She's a product designer at Hooli, started \
              there last month.",
         ))
@@ -387,7 +387,7 @@ impl Scenario for GettingToKnowSomeone {
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "A couple more things about Sam — she's really into rock climbing, and she's based in \
              Seattle.",
         ))
@@ -396,7 +396,7 @@ impl Scenario for GettingToKnowSomeone {
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "Oh — I had it wrong, Sam's actually in Portland, not Seattle. Mixed her up with someone.",
         ))
         .await?;
@@ -406,7 +406,7 @@ impl Scenario for GettingToKnowSomeone {
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "Can you give me a quick rundown on Sam?",
         ))
         .await?;
@@ -490,18 +490,18 @@ impl Scenario for ShiftingPlans {
         ctx.turn(Turn::new(
             "discord",
             "planning",
-            "phil",
+            "marcus",
             "Let's pencil in the product launch for the 15th of March.",
         ))
         .await?;
         ctx.describe_catch_up().await?;
 
         // A day later, it slips — and the first date is explicitly scrapped (a direct contradiction).
-        ctx.advance(86_400_000);
+        ctx.advance(MILLIS_PER_DAY);
         ctx.turn(Turn::new(
             "discord",
             "planning",
-            "phil",
+            "marcus",
             "Actually, scratch that — the launch has slipped to the 22nd of March. The 15th is off.",
         ))
         .await?;
@@ -579,11 +579,11 @@ impl Scenario for AppliesARememberedPreference {
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Phil mentions a standing preference in passing — not a question, just context to bank.
+        // Marcus mentions a standing preference in passing — not a question, just context to bank.
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "Oh, while I think of it — I'm vegetarian, have been for years. Worth remembering for \
              whenever food comes up.",
         ))
@@ -591,12 +591,12 @@ impl Scenario for AppliesARememberedPreference {
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
 
-        // Later, a different room, Phil asks for a lunch spot — without restating the preference. A good
+        // Later, a different room, Marcus asks for a lunch spot — without restating the preference. A good
         // answer applies what it banked rather than suggesting a steakhouse.
         ctx.turn(Turn::new(
             "discord",
             "lunch-plans",
-            "phil",
+            "marcus",
             "I'm starving — got any suggestions for where I should grab lunch today?",
         ))
         .await?;

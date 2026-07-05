@@ -12,7 +12,7 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// A couple of days between phases, so each lands in its own session and the clock plainly moves on.
-const PHASE_GAP_MS: i64 = 2 * 24 * 60 * 60 * 1000;
+const PHASE_GAP_MS: i64 = 2 * MILLIS_PER_DAY;
 
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
@@ -94,7 +94,7 @@ impl Scenario for ARenameHoldsUp {
         ctx.turn(Turn::new(
             "discord",
             "hallway",
-            "phil",
+            "marcus",
             "I keep hearing the name Sarah around here — who is she, and does anyone know her well?",
         ))
         .await?;

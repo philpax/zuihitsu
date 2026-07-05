@@ -18,7 +18,7 @@ use zuihitsu::Event;
 
 use crate::{
     analysis::{self, EntryOccurrence},
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, RUN_START_MS, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -33,14 +33,11 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
     ]
 }
 
-/// A day in milliseconds — the unit the timing windows and clock advances are expressed in.
-const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
-
 /// How close to a conversation's own now a concrete resolution has to land to read as clock-anchored
 /// fabrication. Generous: a phrase mis-resolved against the speaking moment ("a few days after") lands
 /// within a couple of weeks of now, while the honest far-future or `before_after` outcomes sit well
 /// outside it. Forty-five days.
-const NEAR_NOW_WINDOW_MS: i64 = 45 * DAY_MS;
+const NEAR_NOW_WINDOW_MS: i64 = 45 * MILLIS_PER_DAY;
 
 pub struct AnchorsARelativePlanHonestly;
 
@@ -121,7 +118,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // A couple of days pass — a fresh session, the plan out of the immediate buffer.
-        ctx.advance(2 * DAY_MS);
+        ctx.advance(2 * MILLIS_PER_DAY);
 
         // Session 2: Dave asks when the retro is. The only honest answer is relative — after the audit
         // wraps — because no date was ever fixed.
@@ -238,12 +235,12 @@ pub struct AnAuthoredDateSurvivesExtraction;
 /// Oct 3 2026 midnight UTC, in epoch milliseconds — the demo's stated date. The run starts at
 /// 2026-06-08 (`context::RUN_START_MS`); Oct 3 is 117 days on, so it sits far outside `NEAR_NOW_WINDOW`,
 /// which is what lets an oracle tell the authored date from a near-now misresolution. Computed as
-/// `RUN_START_MS + 117 * DAY_MS`.
-const OCT_3_2026_MS: i64 = 1_780_876_800_000 + 117 * DAY_MS;
+/// `RUN_START_MS + 117 * MILLIS_PER_DAY`.
+const OCT_3_2026_MS: i64 = RUN_START_MS + 117 * MILLIS_PER_DAY;
 
 /// How close to Oct 3 an authored occurrence has to land to count as "recorded the stated date" — a few
 /// days of slack, so a `Day`, an `Instant`, or a tight `Range` on Oct 3 all qualify.
-const OCT_3_WINDOW_MS: i64 = 3 * DAY_MS;
+const OCT_3_WINDOW_MS: i64 = 3 * MILLIS_PER_DAY;
 
 #[async_trait]
 impl Scenario for AnAuthoredDateSurvivesExtraction {
@@ -306,7 +303,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // A few days pass — a fresh session in a different room.
-        ctx.advance(3 * DAY_MS);
+        ctx.advance(3 * MILLIS_PER_DAY);
 
         // Session 2, a different room: Jon asks when the demo is. Relaying it means searching memory and
         // reporting the authored October date — not a near-now date the extraction might have guessed.

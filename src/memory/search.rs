@@ -883,26 +883,26 @@ mod tests {
 
     #[tokio::test]
     async fn search_applies_the_predicate_to_entry_hits() {
-        // Scenario 17: Erin's private aside about Phil is embedded as an entry vector. The query matches
-        // only that aside (the wording appears nowhere public), so Phil surfaces solely through it.
+        // Scenario 17: Erin's private aside about Marcus is embedded as an entry vector. The query matches
+        // only that aside (the wording appears nowhere public), so Marcus surfaces solely through it.
         let mut corpus = Corpus::new();
         let erin_name = Namespace::Person.with_name("erin");
         let erin = corpus
             .add(&erin_name, "A colleague", "We work together", 1_000)
             .await;
-        let phil = corpus
+        let marcus = corpus
             .add(
-                Namespace::Person.with_name("phil"),
+                Namespace::Person.with_name("marcus"),
                 "A teammate",
                 "On the same team",
                 1_000,
             )
             .await;
         corpus
-            .tell_private(phil, "the quarterly review went badly", erin, 1_000)
+            .tell_private(marcus, "the quarterly review went badly", erin, 1_000)
             .await;
 
-        // Erin present, Phil absent: the aside surfaces Phil, flagged teller-private.
+        // Erin present, Marcus absent: the aside surfaces Marcus, flagged teller-private.
         let hits = corpus
             .query_in(
                 "the quarterly review went badly",
@@ -913,24 +913,27 @@ mod tests {
                 5,
             )
             .await;
-        let phil_hit = hits
+        let marcus_hit = hits
             .iter()
-            .find(|hit| hit.memory.id == phil)
-            .expect("Phil surfaces via the aside");
-        let marker = phil_hit.marker.as_deref().expect("a teller-private marker");
+            .find(|hit| hit.memory.id == marcus)
+            .expect("Marcus surfaces via the aside");
+        let marker = marcus_hit
+            .marker
+            .as_deref()
+            .expect("a teller-private marker");
         assert!(marker.contains("teller-private"));
         assert!(marker.contains(&erin_name.to_string()));
 
-        // Phil present too: the subject-guard suppresses the aside. It's the *same* predicate as the
+        // Marcus present too: the subject-guard suppresses the aside. It's the *same* predicate as the
         // brief, so the private entry survives in no hit — no result carries a teller-private marker.
-        // (The fake embedder gives every text a faint nonzero cosine, so Phil still appears via his
+        // (The fake embedder gives every text a faint nonzero cosine, so Marcus still appears via his
         // public vectors; the load-bearing fact is that the private aside no longer surfaces.)
         let hits = corpus
             .query_in(
                 "the quarterly review went badly",
                 None,
                 &[],
-                &[erin, phil],
+                &[erin, marcus],
                 1_000,
                 5,
             )
@@ -951,9 +954,9 @@ mod tests {
                 1_000,
             )
             .await;
-        let phil = corpus
+        let marcus = corpus
             .add(
-                Namespace::Person.with_name("phil"),
+                Namespace::Person.with_name("marcus"),
                 "A teammate",
                 "On the same team",
                 1_000,
@@ -973,21 +976,21 @@ mod tests {
             .await;
         corpus.tag(leads, "confidential", 1_000);
 
-        // Erin, in #leads, says something private about Phil.
+        // Erin, in #leads, says something private about Marcus.
         corpus
-            .tell_private_in(phil, "is being managed out", erin, leads, 1_000)
+            .tell_private_in(marcus, "is being managed out", erin, leads, 1_000)
             .await;
 
-        // Erin present, Phil absent: Phil surfaces, the marker naming the room and its confidentiality.
+        // Erin present, Marcus absent: Marcus surfaces, the marker naming the room and its confidentiality.
         let hits = corpus
             .query_in("is being managed out", None, &[], &[erin], 1_000, 5)
             .await;
-        let phil_hit = hits
+        let marcus_hit = hits
             .iter()
-            .find(|hit| hit.memory.id == phil)
-            .expect("Phil surfaces via the aside");
+            .find(|hit| hit.memory.id == marcus)
+            .expect("Marcus surfaces via the aside");
         assert_eq!(
-            phil_hit.marker.as_deref(),
+            marcus_hit.marker.as_deref(),
             Some("[teller-private, told by person/erin in #leads (confidential)]")
         );
     }
@@ -1042,16 +1045,16 @@ mod tests {
                 1_000,
             )
             .await;
-        let phil = corpus
+        let marcus = corpus
             .add(
-                Namespace::Person.with_name("phil"),
+                Namespace::Person.with_name("marcus"),
                 "A teammate",
                 "On the same team",
                 1_000,
             )
             .await;
         corpus
-            .tell_private(phil, "the quarterly review went badly", erin, 1_000)
+            .tell_private(marcus, "the quarterly review went badly", erin, 1_000)
             .await;
 
         // Erin absent: the aside's teller is not present, so it never surfaces — and no snippet on any
@@ -1061,7 +1064,7 @@ mod tests {
                 "the quarterly review went badly",
                 None,
                 &[],
-                &[phil],
+                &[marcus],
                 1_000,
                 5,
             )
@@ -1085,17 +1088,17 @@ mod tests {
                 5,
             )
             .await;
-        let phil_hit = hits
+        let marcus_hit = hits
             .iter()
-            .find(|hit| hit.memory.id == phil)
-            .expect("Phil surfaces via the aside");
+            .find(|hit| hit.memory.id == marcus)
+            .expect("Marcus surfaces via the aside");
         assert!(
-            phil_hit
+            marcus_hit
                 .snippet
                 .as_deref()
                 .expect("the surviving aside carries a snippet")
                 .contains("quarterly review"),
-            "the surfaced aside's snippet quotes its content: {phil_hit:?}"
+            "the surfaced aside's snippet quotes its content: {marcus_hit:?}"
         );
     }
 
@@ -1271,20 +1274,20 @@ mod tests {
                 1_000,
             )
             .await;
-        let phil = corpus
+        let marcus = corpus
             .add(
-                Namespace::Person.with_name("phil"),
+                Namespace::Person.with_name("marcus"),
                 "A teammate",
                 "On the same team",
                 1_000,
             )
             .await;
-        // The only dated entry on Phil is Erin's private aside, so any date on his hit can come only
+        // The only dated entry on Marcus is Erin's private aside, so any date on his hit can come only
         // from it — an unambiguous probe for a leak.
         let review = TemporalRef::Day(CivilDate("2026-07-20".into()));
         corpus
             .tell_private_dated(
-                phil,
+                marcus,
                 "his review is on the 20th",
                 erin,
                 review.clone(),
@@ -1294,25 +1297,25 @@ mod tests {
 
         // Erin absent: the aside is not visible, so no hit may carry its date.
         let hits = corpus
-            .query_in("his review is on the 20th", None, &[], &[phil], 1_000, 5)
+            .query_in("his review is on the 20th", None, &[], &[marcus], 1_000, 5)
             .await;
         assert!(
             hits.iter().all(|hit| hit.occurred_at.is_none()),
             "a private aside's date leaked onto a hit: {hits:?}"
         );
 
-        // Positive control: with Erin present the aside surfaces, so its date rides on Phil's hit.
+        // Positive control: with Erin present the aside surfaces, so its date rides on Marcus's hit.
         let hits = corpus
             .query_in("his review is on the 20th", None, &[], &[erin], 1_000, 5)
             .await;
-        let phil_hit = hits
+        let marcus_hit = hits
             .iter()
-            .find(|hit| hit.memory.id == phil)
-            .expect("Phil surfaces via the aside");
+            .find(|hit| hit.memory.id == marcus)
+            .expect("Marcus surfaces via the aside");
         assert_eq!(
-            phil_hit.occurred_at.as_ref(),
+            marcus_hit.occurred_at.as_ref(),
             Some(&review),
-            "the surfaced aside's date rides on the hit: {phil_hit:?}"
+            "the surfaced aside's date rides on the hit: {marcus_hit:?}"
         );
     }
 

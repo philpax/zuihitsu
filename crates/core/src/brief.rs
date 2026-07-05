@@ -630,23 +630,23 @@ mod tests {
 
     #[test]
     fn current_room_brief_shows_confidential_regardless_of_present_set() {
-        // Scenario 14: #leads is #confidential. A later session has Phil and Dave but not the teller;
+        // Scenario 14: #leads is #confidential. A later session has Marcus and Dave but not the teller;
         // the current-context brief still shows confidential — it's a memory-level tag, not teller-gated.
         let leads = MemoryId::generate();
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let dave = MemoryId::generate();
         let (_store, graph) = materialized(vec![
             created(leads, "context/leads"),
             EventPayload::tag_created(TagName::new("confidential"), "confidential room"),
             EventPayload::tag_applied_to_memory(leads, TagName::new("confidential")),
-            created(phil, "person/phil"),
+            created(marcus, "person/marcus"),
             created(dave, "person/dave"),
         ]);
 
         let out = compose_at_epoch(
             &graph,
             &Settings::default().brief,
-            &[phil, dave],
+            &[marcus, dave],
             Some(leads),
             &[],
         );
@@ -655,23 +655,23 @@ mod tests {
 
     #[test]
     fn an_aside_about_a_present_subject_is_suppressed_in_the_brief() {
-        // Scenario 2 (composition half): Erin's private aside about Phil. With Phil present, his brief
+        // Scenario 2 (composition half): Erin's private aside about Marcus. With Marcus present, his brief
         // block renders his public fact but the subject-guard suppresses the aside. (The surfaces-while-
         // absent half and the join injection complete at the join increment.)
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let erin = MemoryId::generate();
         let (_store, graph) = materialized(vec![
-            created(phil, "person/phil"),
+            created(marcus, "person/marcus"),
             created(erin, "person/erin"),
             appended(
-                phil,
+                marcus,
                 1_000,
                 "on the platform team",
                 Teller::Agent,
                 Visibility::Public,
             ),
             appended(
-                phil,
+                marcus,
                 1_100,
                 "is being managed out",
                 Teller::Participant(erin),
@@ -679,23 +679,29 @@ mod tests {
             ),
         ]);
 
-        let out = compose_at_epoch(&graph, &Settings::default().brief, &[erin, phil], None, &[]);
-        assert!(out.contains("on the platform team")); // Phil's block renders
+        let out = compose_at_epoch(
+            &graph,
+            &Settings::default().brief,
+            &[erin, marcus],
+            None,
+            &[],
+        );
+        assert!(out.contains("on the platform team")); // Marcus's block renders
         assert!(!out.contains("is being managed out")); // ...but the aside is suppressed
     }
 
     #[test]
     fn a_subject_joining_suppresses_asides_about_them() {
-        // Scenario 2 (join half): Erin's private aside about Phil. While only Erin is present it is
-        // visible (it would surface to her). Phil's join-brief is built against the now-present set
-        // {Erin, Phil}, where the subject-guard suppresses it — the dangerous direction is closed.
-        let phil = MemoryId::generate();
+        // Scenario 2 (join half): Erin's private aside about Marcus. While only Erin is present it is
+        // visible (it would surface to her). Marcus's join-brief is built against the now-present set
+        // {Erin, Marcus}, where the subject-guard suppresses it — the dangerous direction is closed.
+        let marcus = MemoryId::generate();
         let erin = MemoryId::generate();
         let (_store, graph) = materialized(vec![
-            created(phil, "person/phil"),
+            created(marcus, "person/marcus"),
             created(erin, "person/erin"),
             appended(
-                phil,
+                marcus,
                 1_000,
                 "is being managed out",
                 Teller::Participant(erin),
@@ -704,10 +710,10 @@ mod tests {
         ]);
         let settings = Settings::default().brief;
 
-        // Before Phil joins (only Erin present): the aside is visible.
+        // Before Marcus joins (only Erin present): the aside is visible.
         let before = brief::compose_participant(
             &graph,
-            phil,
+            marcus,
             &[erin],
             &settings,
             Timestamp::from_millis(2_000),
@@ -715,11 +721,11 @@ mod tests {
         .unwrap();
         assert!(before.contains("is being managed out"));
 
-        // Phil's join-brief, built against {Erin, Phil}: the subject-guard suppresses it.
+        // Marcus's join-brief, built against {Erin, Marcus}: the subject-guard suppresses it.
         let join_brief = brief::compose_participant(
             &graph,
-            phil,
-            &[erin, phil],
+            marcus,
+            &[erin, marcus],
             &settings,
             Timestamp::from_millis(2_000),
         )
@@ -730,16 +736,16 @@ mod tests {
     #[test]
     fn the_working_set_is_re_filtered_against_the_new_present_set() {
         // The working set carried across a compaction is re-filtered through `visible` against the *new*
-        // present set, never trusted from the old session: Erin's private aside about Phil surfaces in
-        // active threads while only Erin is present, but is suppressed once Phil is present at the new
+        // present set, never trusted from the old session: Erin's private aside about Marcus surfaces in
+        // active threads while only Erin is present, but is suppressed once Marcus is present at the new
         // segment boundary (the safety property fixture 22 guards, at the deterministic level).
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let erin = MemoryId::generate();
         let (_store, graph) = materialized(vec![
-            created(phil, "person/phil"),
+            created(marcus, "person/marcus"),
             created(erin, "person/erin"),
             appended(
-                phil,
+                marcus,
                 1_000,
                 "is being managed out",
                 Teller::Participant(erin),
@@ -748,44 +754,44 @@ mod tests {
         ]);
         let settings = Settings::default().brief;
 
-        // Phil is in the working set. With only Erin present, the aside is visible in active threads.
-        let only_erin = compose_at_epoch(&graph, &settings, &[erin], None, &[phil]);
+        // Marcus is in the working set. With only Erin present, the aside is visible in active threads.
+        let only_erin = compose_at_epoch(&graph, &settings, &[erin], None, &[marcus]);
         assert!(only_erin.contains("# Active threads"));
         assert!(only_erin.contains("is being managed out"));
 
-        // With Phil present at the new boundary, the aside is suppressed — the working-set copy is
-        // re-filtered against {Erin, Phil} just like any other block.
-        let with_phil = compose_at_epoch(&graph, &settings, &[erin, phil], None, &[phil]);
-        assert!(!with_phil.contains("is being managed out"));
+        // With Marcus present at the new boundary, the aside is suppressed — the working-set copy is
+        // re-filtered against {Erin, Marcus} just like any other block.
+        let with_marcus = compose_at_epoch(&graph, &settings, &[erin, marcus], None, &[marcus]);
+        assert!(!with_marcus.contains("is being managed out"));
     }
 
     #[test]
     fn the_present_set_cap_does_not_narrow_the_predicate() {
         // Scenario 21: with the present-set cap set to 1, Dave is present but ranks below the cap (only a
-        // name-only entry, no full block). A fact on Phil (in the cap, rendered) excludes Dave; the
+        // name-only entry, no full block). A fact on Marcus (in the cap, rendered) excludes Dave; the
         // exclude must still fire, because the predicate resolves against the full present set — not the
-        // capped one. Told by Phil himself, so the subject-guard does not also suppress it: the exclude
+        // capped one. Told by Marcus himself, so the subject-guard does not also suppress it: the exclude
         // is the only thing gating it, isolating the cap-vs-predicate separation.
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let dave = MemoryId::generate();
         let (_store, graph) = materialized(vec![
-            created(phil, "person/phil"),
+            created(marcus, "person/marcus"),
             created(dave, "person/dave"),
-            // Phil has the more recent activity, so he ranks into the cap of 1; Dave falls below it.
+            // Marcus has the more recent activity, so he ranks into the cap of 1; Dave falls below it.
             appended(
-                phil,
+                marcus,
                 2_000,
                 "joined the climbing gym",
-                Teller::Participant(phil),
+                Teller::Participant(marcus),
                 Visibility::Public,
             ),
             EventPayload::MemoryContentAppended {
-                id: phil,
+                id: marcus,
                 entry_id: EntryId::generate(),
                 asserted_at: Timestamp::from_millis(2_100),
                 occurred_at: None,
                 text: "thinking of leaving, keep it from Dave".to_owned(),
-                told_by: Teller::Participant(phil),
+                told_by: Teller::Participant(marcus),
                 told_in: None,
                 visibility: Visibility::Exclude(vec![dave]),
             },
@@ -793,9 +799,9 @@ mod tests {
 
         let mut settings = Settings::default().brief;
         settings.present_set_cap = 1;
-        let out = compose_at_epoch(&graph, &settings, &[phil, dave], None, &[]);
+        let out = compose_at_epoch(&graph, &settings, &[marcus, dave], None, &[]);
 
-        assert!(out.contains("joined the climbing gym")); // Phil's block renders (in the cap)
+        assert!(out.contains("joined the climbing gym")); // Marcus's block renders (in the cap)
         assert!(out.contains("person/dave (present)")); // Dave is present but below the cap (name-only)
         // The exclude fires because Dave is in the full present set, despite ranking below the cap.
         assert!(!out.contains("keep it from Dave"));
@@ -833,15 +839,15 @@ mod tests {
 
     #[test]
     fn upcoming_respects_the_subject_guard() {
-        // A private aside about Phil with a near-future occurrence, told by Erin: visible in <upcoming/>
-        // while only Erin is present, suppressed once Phil (its subject) is present.
-        let phil = MemoryId::generate();
+        // A private aside about Marcus with a near-future occurrence, told by Erin: visible in <upcoming/>
+        // while only Erin is present, suppressed once Marcus (its subject) is present.
+        let marcus = MemoryId::generate();
         let erin = MemoryId::generate();
         let (_store, graph) = materialized(vec![
-            created(phil, "person/phil"),
+            created(marcus, "person/marcus"),
             created(erin, "person/erin"),
             appended_at(
-                phil,
+                marcus,
                 TemporalRef::Day(CivilDate("1970-01-04".into())),
                 "farewell lunch",
                 Teller::Participant(erin),
@@ -851,7 +857,7 @@ mod tests {
         let settings = Settings::default().brief;
         let only_erin = compose_at_epoch(&graph, &settings, &[erin], None, &[]);
         assert!(only_erin.contains("farewell lunch"));
-        let with_phil = compose_at_epoch(&graph, &settings, &[erin, phil], None, &[]);
-        assert!(!with_phil.contains("farewell lunch"));
+        let with_marcus = compose_at_epoch(&graph, &settings, &[erin, marcus], None, &[]);
+        assert!(!with_marcus.contains("farewell lunch"));
     }
 }

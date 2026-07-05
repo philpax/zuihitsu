@@ -249,28 +249,28 @@ mod tests {
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let mut graph = Graph::open_in_memory().unwrap();
 
-        // An agent-authored hearsay stub: `person/philpax` exists but is bound to no platform.
+        // An agent-authored hearsay stub: `person/nadia` exists but is bound to no platform.
         let hearsay = MemoryId::generate();
         store
             .append(
                 Timestamp::from_millis(1_000),
                 vec![EventPayload::memory_created(
                     hearsay,
-                    Namespace::Person.with_name("philpax"),
+                    Namespace::Person.with_name("nadia"),
                 )],
             )
             .unwrap();
         graph.materialize_from(&store).unwrap();
 
-        // Philpax then arrives on a platform: the qualified stub is minted (not merged onto the hearsay
+        // Nadia then arrives on a platform: the qualified stub is minted (not merged onto the hearsay
         // one), and an orchestration-sourced merge is proposed to reunite them for adjudication.
         let arrival =
-            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "philpax").unwrap();
+            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "nadia").unwrap();
         graph.materialize_from(&store).unwrap();
         assert_ne!(arrival, hearsay);
         assert_eq!(
             graph.memory_by_id(arrival).unwrap().unwrap().name,
-            Namespace::Person.with_name("philpax@discord").into()
+            Namespace::Person.with_name("nadia@discord").into()
         );
 
         let proposals: Vec<_> = store

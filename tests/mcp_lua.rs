@@ -399,9 +399,9 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
         .route_message(
             &model,
             &ConversationLocator::new("discord", "general"),
-            "phil",
+            "marcus",
             "save the page",
-            &["phil"],
+            &["marcus"],
         )
         .await
         .unwrap();
@@ -467,9 +467,9 @@ async fn a_turn_runs_on_a_worker_thread() {
                 .route_message(
                     &model,
                     &ConversationLocator::new("discord", "general"),
-                    "phil",
+                    "marcus",
                     "save the page",
-                    &["phil"],
+                    &["marcus"],
                 )
                 .await
         }
@@ -533,7 +533,7 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
     };
 
     let (a, b) = tokio::join!(
-        tokio::spawn(turn("general", "alpha", "phil")),
+        tokio::spawn(turn("general", "alpha", "marcus")),
         tokio::spawn(turn("random", "beta", "sam")),
     );
     assert!(matches!(

@@ -56,7 +56,7 @@ impl Scenario for UpdatesAnExistingEvent {
         ctx.turn(Turn::new(
             "discord",
             "planning",
-            "phil",
+            "marcus",
             "Let's get the product launch on the calendar — it's set for the 15th of March.",
         ))
         .await?;
@@ -67,7 +67,7 @@ impl Scenario for UpdatesAnExistingEvent {
         ctx.turn(Turn::new(
             "discord",
             "standup",
-            "phil",
+            "marcus",
             "Update on the product launch — it's moved to the 22nd of March now.",
         ))
         .await?;
@@ -140,7 +140,7 @@ impl Scenario for AddsToAnExistingPerson {
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "Someone to keep track of: Dave — he's a product designer at Hooli.",
         ))
         .await?;
@@ -150,7 +150,7 @@ impl Scenario for AddsToAnExistingPerson {
         ctx.turn(Turn::new(
             "discord",
             "standup",
-            "phil",
+            "marcus",
             "Heads up — Dave just got promoted to engineering lead.",
         ))
         .await?;
@@ -230,7 +230,7 @@ impl Scenario for LinksExistingMemories {
         ctx.turn(Turn::new(
             "discord",
             "general",
-            "phil",
+            "marcus",
             "Someone to remember: Dave, a product designer at Hooli.",
         ))
         .await?;
@@ -240,7 +240,7 @@ impl Scenario for LinksExistingMemories {
         ctx.turn(Turn::new(
             "discord",
             "intros",
-            "phil",
+            "marcus",
             "Another to remember: Erin, a product manager on the platform team.",
         ))
         .await?;
@@ -250,7 +250,7 @@ impl Scenario for LinksExistingMemories {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "By the way, Dave and Erin know each other well — they've worked together for years.",
         ))
         .await?;

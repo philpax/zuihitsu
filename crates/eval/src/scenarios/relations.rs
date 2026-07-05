@@ -56,7 +56,7 @@ impl Scenario for Knows {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Two people I'd like you to keep track of: Dave and Erin. They've been close friends \
              since college and know each other really well.",
         ))
@@ -104,7 +104,7 @@ impl Scenario for RecallsConnections {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Dave's bringing a couple of friends along on Friday — Erin, who he's known since \
              college, and Frank, his buddy from the climbing gym.",
         ))
@@ -190,14 +190,14 @@ impl Scenario for DistinguishesMentorDirection {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Dave's been mentoring Erin and Grace this year — really showing them the ropes.",
         ))
         .await?;
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Funny thing is, Dave's got a mentor of his own — Frank's been bringing him along.",
         ))
         .await?;
@@ -243,7 +243,7 @@ impl Scenario for DistinguishesMentorDirection {
 
 /// A relationship is relayed by one participant; later, a *different* participant asks who is on
 /// record and who said so. A correct answer attributes it to the original teller (Erin), not to the
-/// one now asking (Phil) — which is what a link's `told_by` provenance carries. Tests that the
+/// one now asking (Marcus) — which is what a link's `told_by` provenance carries. Tests that the
 /// provenance is legible when the agent reads the relationship back, rather than collapsing to the
 /// current speaker.
 pub struct AttributesRelationshipToTeller;
@@ -279,12 +279,12 @@ impl Scenario for AttributesRelationshipToTeller {
         ctx.describe_catch_up().await?;
         ctx.index_catch_up().await?;
         // A *different* participant, in another room, asks who is on record and who said so. The teller
-        // (Erin) is not the asker (Phil), so attributing it correctly means reading the provenance, not
+        // (Erin) is not the asker (Marcus), so attributing it correctly means reading the provenance, not
         // defaulting to whoever is speaking now.
         ctx.turn(Turn::new(
             "discord",
             "hallway",
-            "phil",
+            "marcus",
             "I think someone mentioned Dave's mentoring a junior — who's he mentoring, and who told \
              you about it?",
         ))
@@ -297,13 +297,13 @@ impl Scenario for AttributesRelationshipToTeller {
 
         let evidence = format!(
             "Earlier, Erin (and only Erin) told the agent that Dave is mentoring Grace. Later, in a \
-             different room, Phil — who did not say it — asked who Dave is mentoring and who told the \
+             different room, Marcus — who did not say it — asked who Dave is mentoring and who told the \
              agent about it. The agent replied:\n\"{reply}\""
         );
         let judged = judge
             .assess(
                 "The reply both names the mentee (Grace) and attributes the information to Erin — the \
-                 one who actually said it. Crediting Phil (the one now asking), or giving no source \
+                 one who actually said it. Crediting Marcus (the one now asking), or giving no source \
                  when asked who told it, fails: the point is that the agent tracks who asserted the \
                  relationship, not who is currently speaking.",
                 &evidence,
@@ -370,7 +370,7 @@ impl Scenario for InfersLinkFromContent {
         let clara = MemoryId::generate();
         let zephyr = MemoryId::generate();
         let context = MemoryId::generate();
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let conversation = ConversationId::generate();
         let session = SessionId::generate();
         let participant_turn = TurnId::generate();
@@ -383,15 +383,15 @@ impl Scenario for InfersLinkFromContent {
                 ConversationLocator::new("discord", "team-room"),
                 context,
             ),
-            EventPayload::memory_created(phil, MemoryName::new("person/phil")),
-            EventPayload::participant_identified(phil, "discord", "phil"),
-            EventPayload::session_started(conversation, session, vec![phil], now, None, ""),
+            EventPayload::memory_created(marcus, MemoryName::new("person/marcus")),
+            EventPayload::participant_identified(marcus, "discord", "marcus"),
+            EventPayload::session_started(conversation, session, vec![marcus], now, None, ""),
             EventPayload::conversation_turn(
                 conversation,
                 participant_turn,
                 TurnRole::Participant,
                 "This project was mentored by Clara",
-                Some(phil),
+                Some(marcus),
                 Initiation::Responding,
                 None,
             ),

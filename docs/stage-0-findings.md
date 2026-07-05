@@ -58,7 +58,7 @@ presence 0.0), which is the wrong choice for a conversational agent.
 On the write-path fixtures the model picked `visibility = "private"` and
 `context.current():tag("confidential")` itself; this wasn't the judge being lenient, since I read
 the scripts. On the leak fixture the clean replies deflected, gave vague reassurance, or pointed
-Dave at asking Phil directly. None of them gave away the layoff.
+Dave at asking Marcus directly. None of them gave away the layoff.
 
 ## The degeneracy
 

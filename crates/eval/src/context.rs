@@ -17,6 +17,10 @@ use crate::error::EvalError;
 /// reproducible; scenarios advance from here.
 pub(crate) const RUN_START_MS: i64 = 1_780_876_800_000;
 
+/// The shared day/hour units every scenario expresses its clock advances and windows in, re-exported
+/// from core so the derivation lives in one place rather than being redefined per scenario module.
+pub(crate) use zuihitsu::time::{MILLIS_PER_DAY, MILLIS_PER_HOUR};
+
 /// A human's pause before sending a message — applied before each inbound turn so consecutive turns in
 /// a busy room are spaced apart, not stacked at one instant. Small against the day-scale advances a
 /// scheduling scenario makes, so it does not perturb those.

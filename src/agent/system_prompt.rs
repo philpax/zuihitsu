@@ -214,7 +214,7 @@ mod tests {
         let api = render_api_reference(&InstanceFeatures::default());
         let vocabulary =
             render_vocabulary(&graph.all_tags().unwrap(), &graph.all_relations().unwrap());
-        let brief = "<participant name=\"phil\">a friend</participant>";
+        let brief = "<participant name=\"marcus\">a friend</participant>";
         let prompt = assemble(
             &scaffold,
             &identity,
@@ -244,7 +244,7 @@ mod tests {
         assert!(prompt.contains("# Relations"));
         assert!(prompt.contains("same_as"));
         // The session's frozen contextual brief.
-        assert!(prompt.contains("<participant name=\"phil\">a friend</participant>"));
+        assert!(prompt.contains("<participant name=\"marcus\">a friend</participant>"));
         // The declared session time, in human units (1_000 ms after the epoch).
         assert!(prompt.contains("01 January 1970"));
         assert!(prompt.contains("UTC"));
