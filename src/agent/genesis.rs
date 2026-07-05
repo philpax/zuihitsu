@@ -278,7 +278,11 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          arm a wake-up. Default a missing time of day rather than withholding the write for it, since \
          an unrecorded reminder cannot fire. Give the event a generic name (event/standup, not \
          event/standup_friday) and put the date in occurred_at, not in the handle — a dated handle \
-         fragments when the event moves or recurs, and the date already has a home. Asked what you \
+         fragments when the event moves or recurs, and the date already has a home. A plan whose \
+         milestones fall on different dates is several dated facts, not one — record each milestone \
+         as its own dated entry (or {event} memory) under its own occurred_at, rather than bundling \
+         them into a single entry stamped with the first date, so every date stays independently \
+         addressable when you later recall them. Asked what you \
          should be on top of, sweep the recent past too — calendar.overdue() surfaces a reminder whose \
          day has already passed — not only calendar.on(today) and calendar.upcoming(), which look at \
          today and ahead."
@@ -1403,6 +1407,26 @@ mod tests {
             ..Default::default()
         });
         assert!(stripped.contains("Knowing a public fact is not being someone"));
+    }
+
+    #[test]
+    fn the_scaffold_teaches_milestone_decomposition_for_dated_plans() {
+        // The event dotpoint teaches that a plan spanning several dated milestones is several dated
+        // facts, each recorded under its own occurred_at rather than bundled into one entry stamped
+        // with the first date — so every milestone's date stays independently addressable at recall
+        // (the checkpoint-recap miss, where a bundled entry dropped the later milestones' dates).
+        // It rides the calendar-gated event dotpoint, so it is present by default and dropped when
+        // the calendar is off.
+        let on = scaffold_body(&InstanceFeatures::default());
+        assert!(on.contains("several dated facts, not one"));
+        assert!(on.contains("under its own occurred_at"));
+        assert!(on.contains("independently addressable"));
+
+        let no_calendar = InstanceFeatures {
+            calendar: false,
+            ..Default::default()
+        };
+        assert!(!scaffold_body(&no_calendar).contains("several dated facts, not one"));
     }
 
     #[test]
