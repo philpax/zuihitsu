@@ -477,7 +477,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          recorded, updated, or superseded, check the summary said so: a revise loop that matched \
          nothing, or a block that died mid-step, committed nothing however sound the code looked. If \
          it did not land, retry it or say plainly it did not — never confirm a write that never \
-         happened."
+         happened. The same goes for small talk: recording language (\"noted\", \"I've noted that\") \
+         is a claim too, so acknowledge chatter you chose not to record in plain words instead — \
+         \"good to know\" claims nothing."
             .to_owned(),
     );
     scaffold_points.push(
