@@ -118,6 +118,21 @@ pub struct ClassLinkView {
     pub told_by: Option<Teller>,
 }
 
+/// A neighbor on a memory's out-of-class relation surface — the raw material for the salient-relations
+/// line a search hit carries. It names the relation, whether the edge runs *into* this class
+/// (`incoming`) or out of it, and the far memory (id plus its resolved name, so a caller renders
+/// `relation → name` without a second lookup). The query returns only edges leaving the class — an edge
+/// internal to the `same_as` class is identity plumbing, not a relationship — ordered most-recently
+/// created first (by the link's insertion `rowid`). Committed state; not visibility-filtered, mirroring
+/// the link readers, since the agent's own whole-graph surface is not gated on who is present.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NeighborLinkView {
+    pub relation: RelationName,
+    pub incoming: bool,
+    pub other: MemoryId,
+    pub other_name: MemoryName,
+}
+
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via
 /// compaction), the captured brief, and its participants (the present set at open, plus anyone who
 /// joined mid-session).

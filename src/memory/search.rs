@@ -19,12 +19,13 @@ use crate::{
     decay,
     event::{Visibility, Volatility},
     graph::{Graph, GraphError, LexicalHit, MemoryView},
-    ids::{MemoryId, MemoryName},
+    ids::{MemoryId, MemoryName, Namespace},
+    memory::memory_block::LinkDirection,
     model::index::VectorKey,
     settings::SearchSettings,
     time::{self, TemporalRef, Timestamp},
     vector::{VectorError, VectorIndex},
-    vocabulary::TagName,
+    vocabulary::{RelationName, TagName},
 };
 
 use super::visibility;
@@ -42,6 +43,13 @@ use super::visibility;
 /// occurrence (see [`visible_occurrence`]) — and the agent recalls the full set of occurrences through
 /// `entries()`. Like the snippet, it is visibility-filtered: a date from an entry the present set
 /// cannot see never leaks onto the hit.
+///
+/// `relations` are the memory's most salient out-of-class links (see [`salient_relations`]), so a hit
+/// passively carries the cast that already participates in it — the recognition signal that lets an
+/// agent searching "book club" pick the existing `event/book_club` its present people are on, rather
+/// than minting a name-guessed duplicate. `more_relations` counts the salient links elided past the cap,
+/// for the trailing `(+N more)` note. Unlike the snippet and occurrence, these are *not*
+/// visibility-filtered — they mirror the link readers, which surface the agent's own whole graph.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchHit {
     pub memory: MemoryView,
@@ -49,6 +57,18 @@ pub struct SearchHit {
     pub marker: Option<String>,
     pub snippet: Option<String>,
     pub occurred_at: Option<TemporalRef>,
+    pub relations: Vec<SalientRelation>,
+    pub more_relations: usize,
+}
+
+/// One salient relation on a hit: the relation, which way it runs relative to the hit's `same_as`
+/// class (`Incoming` when the far end points at the identity), and the far memory's name — enough for
+/// the agent to recognize the neighbourhood and `memory.get` a far end by name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SalientRelation {
+    pub relation: RelationName,
+    pub direction: LinkDirection,
+    pub other_name: MemoryName,
 }
 
 /// A search failure, from either the graph projection or the vector index.
@@ -206,12 +226,17 @@ pub fn search(
         // Filtered by the same predicate as the snippet: a date on an entry the present set cannot see
         // never leaks.
         let occurred_at = visible_occurrence(&memory, graph, query.present_set, &class_of)?;
+        // The most salient out-of-class links, so the hit line reveals the cast already on this memory
+        // (spec §Search → informed creation). One class-traversing read per hit, bounded by `limit`.
+        let (relations, more_relations) = salient_relations(&memory, graph)?;
         hits.push(SearchHit {
             memory,
             score,
             marker,
             snippet: snippets.get(&id).cloned(),
             occurred_at,
+            relations,
+            more_relations,
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -265,6 +290,46 @@ fn visible_occurrence(
         }
     }
     Ok(latest_authored.or(latest_extracted))
+}
+
+/// How many salient relations a hit carries before the rest are elided behind a `(+N more)` note —
+/// small on purpose, enough to reveal the memory's cast (its people, its recent links) without
+/// flooding a result line.
+const SALIENCE_CAP: usize = 3;
+
+/// The salient relations to surface on a hit, with the count of any elided past the cap. Salience is
+/// deliberately simple and legible: of the memory's out-of-class links, a far end that is a `person/`
+/// memory comes first — people anchor identity, so seeing who participates is what lets the agent
+/// recognize the event or topic it already holds — and within that, the most recently created links
+/// come first. The set is capped at [`SALIENCE_CAP`]; the remainder feeds the `(+N more)` note.
+/// Committed-only and not visibility-filtered, mirroring the link readers (the agent's own whole-graph
+/// surface). One class-traversing read per hit, so the cost is bounded by the search `limit`, as
+/// [`visible_occurrence`] is.
+fn salient_relations(
+    memory: &MemoryView,
+    graph: &Graph,
+) -> Result<(Vec<SalientRelation>, usize), GraphError> {
+    let person = Namespace::Person.prefix();
+    let mut neighbors = graph.class_neighbor_links(memory.id)?;
+    // `class_neighbor_links` already orders most-recently-created first; a *stable* sort then floats
+    // person far ends ahead without disturbing that recency order within each group.
+    neighbors.sort_by_key(|neighbor| !neighbor.other_name.as_str().starts_with(person));
+    let total = neighbors.len();
+    let relations: Vec<SalientRelation> = neighbors
+        .into_iter()
+        .take(SALIENCE_CAP)
+        .map(|neighbor| SalientRelation {
+            relation: neighbor.relation,
+            direction: if neighbor.incoming {
+                LinkDirection::Incoming
+            } else {
+                LinkDirection::Outgoing
+            },
+            other_name: neighbor.other_name,
+        })
+        .collect();
+    let more = total.saturating_sub(relations.len());
+    Ok((relations, more))
 }
 
 /// Keep the best (highest) cosine seen for a memory.
@@ -351,14 +416,15 @@ fn recency_bonus(
 
 #[cfg(test)]
 mod tests {
-    use super::{SearchHit, SearchQuery, recency_bonus, search};
+    use super::{SALIENCE_CAP, SearchHit, SearchQuery, recency_bonus, search};
     use crate::{
         InstanceFeatures,
         agent::genesis::{self, SeedSelf},
         clock::ManualClock,
-        event::{Event, EventPayload, Teller, Visibility, Volatility},
+        event::{Cardinality, Event, EventPayload, LinkSource, Teller, Visibility, Volatility},
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
+        memory::memory_block::LinkDirection,
         model::{
             embed::{Embedder, FakeEmbedder},
             index::Indexer,
@@ -367,7 +433,7 @@ mod tests {
         store::{MemoryStore, Store},
         time::{CivilDate, TemporalRef, Timestamp},
         vector::InMemoryVectorIndex,
-        vocabulary::TagName,
+        vocabulary::{RelationName, TagName},
     };
 
     const DAY: i64 = 86_400_000;
@@ -694,6 +760,33 @@ mod tests {
                 )
                 .unwrap();
             self.graph.materialize_from(&self.store).unwrap();
+        }
+
+        /// Register `relation` (idempotent — the materializer upserts) and create a `from -> to` edge
+        /// under it, so a search hit's salient relations have something to carry.
+        async fn link(&mut self, from: MemoryId, to: MemoryId, relation: &str, at_ms: i64) {
+            self.commit(
+                at_ms,
+                vec![
+                    EventPayload::LinkTypeRegistered {
+                        name: RelationName::new(relation),
+                        inverse: RelationName::new(&format!("{relation}_of")),
+                        from_card: Cardinality::Many,
+                        to_card: Cardinality::Many,
+                        symmetric: false,
+                        reflexive: false,
+                        description: format!("the {relation} relation"),
+                    },
+                    EventPayload::LinkCreated {
+                        from,
+                        to,
+                        relation: RelationName::new(relation),
+                        source: LinkSource::Agent,
+                        told_by: Some(Teller::Agent),
+                    },
+                ],
+            )
+            .await;
         }
 
         async fn query(&self, text: &str, now_ms: i64, limit: usize) -> Vec<MemoryId> {
@@ -1317,6 +1410,129 @@ mod tests {
             Some(&review),
             "the surfaced aside's date rides on the hit: {marcus_hit:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_hit_carries_its_salient_relations_people_first() {
+        // The informed-creation surface: a hit for a linked memory passively carries its most salient
+        // relations, people first, so a search for the book club shows the cast already on it — the
+        // recognition signal that steers a recall toward reuse over a name-guessed duplicate.
+        let mut corpus = Corpus::new();
+        let club = corpus
+            .add(
+                Namespace::Event.with_name("book_club"),
+                "The monthly book club",
+                "we discussed the book",
+                1_000,
+            )
+            .await;
+        let maya = corpus
+            .add(
+                Namespace::Person.with_name("maya"),
+                "A reader",
+                "reads a lot",
+                1_000,
+            )
+            .await;
+        let nadia = corpus
+            .add(
+                Namespace::Person.with_name("nadia"),
+                "A reader",
+                "reads a lot",
+                1_000,
+            )
+            .await;
+        let venue = corpus
+            .add(
+                Namespace::Topic.with_name("library"),
+                "The venue",
+                "meets there",
+                1_000,
+            )
+            .await;
+        let snacks = corpus
+            .add(
+                Namespace::Topic.with_name("snacks"),
+                "The snacks",
+                "brings snacks",
+                1_000,
+            )
+            .await;
+
+        // Link the two non-person memories first (older rows), then the two people (newest rows). With
+        // person-first salience the people float ahead of the more-recent non-person, and the cap of 3
+        // elides the last non-person behind a `(+1 more)` note.
+        corpus.link(venue, club, "hosts", 1_000).await;
+        corpus.link(snacks, club, "supplies", 1_000).await;
+        corpus.link(maya, club, "participates_in", 1_000).await;
+        corpus.link(nadia, club, "participates_in", 1_000).await;
+
+        let hits = corpus
+            .query_in("The monthly book club", None, &[], &[], 1_000, 8)
+            .await;
+        let hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == club)
+            .expect("the book club surfaces on its description");
+
+        assert_eq!(hit.relations.len(), SALIENCE_CAP);
+        assert_eq!(
+            hit.more_relations, 1,
+            "one salient link elided past the cap"
+        );
+        let person = Namespace::Person.prefix();
+        assert!(
+            hit.relations[0].other_name.as_str().starts_with(person)
+                && hit.relations[1].other_name.as_str().starts_with(person),
+            "people anchor identity, so they come first: {:?}",
+            hit.relations
+        );
+        // The two people participate in the club — the edge runs into the club's class, so it reads as
+        // incoming, which the hit line renders with a `←`.
+        assert!(
+            hit.relations
+                .iter()
+                .take(2)
+                .all(|relation| relation.direction == LinkDirection::Incoming
+                    && relation.relation == RelationName::new("participates_in")),
+        );
+        let names: Vec<&str> = hit
+            .relations
+            .iter()
+            .map(|relation| relation.other_name.as_str())
+            .collect();
+        assert!(names.contains(&MemoryName::from(Namespace::Person.with_name("maya")).as_str()));
+        assert!(names.contains(&MemoryName::from(Namespace::Person.with_name("nadia")).as_str()));
+        // The third salient link is the most-recently created non-person (snacks over library).
+        assert_eq!(
+            hit.relations[2].other_name.as_str(),
+            MemoryName::from(Namespace::Topic.with_name("snacks")).as_str(),
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unlinked_hit_carries_no_relations() {
+        // A memory with no out-of-class links carries no salient relations, so the hit line stays bare
+        // rather than trailing an empty `— ` segment.
+        let mut corpus = Corpus::new();
+        let solo = corpus
+            .add(
+                Namespace::Topic.with_name("sourdough"),
+                "Naturally leavened bread",
+                "fed the starter",
+                1_000,
+            )
+            .await;
+
+        let hits = corpus
+            .query_in("Naturally leavened bread", None, &[], &[], 1_000, 8)
+            .await;
+        let hit = hits
+            .iter()
+            .find(|hit| hit.memory.id == solo)
+            .expect("the topic surfaces on its description");
+        assert!(hit.relations.is_empty());
+        assert_eq!(hit.more_relations, 0);
     }
 
     #[test]

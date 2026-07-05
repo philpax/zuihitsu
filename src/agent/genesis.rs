@@ -285,7 +285,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          arm a wake-up. Default a missing time of day rather than withholding the write for it, since \
          an unrecorded reminder cannot fire. Give the event a generic name (event/standup, not \
          event/standup_friday) and put the date in occurred_at, not in the handle — a dated handle \
-         fragments when the event moves or recurs, and the date already has a home. A plan whose \
+         fragments when the event moves or recurs, and the date already has a home. A recurring or \
+         repeating gathering is ONE memory under its generic name (event/book_club), each occurrence \
+         dated on its own entries — never a month- or date-stamped clone (event/book-club-july, \
+         event/book-club-may) minted per mention. A plan whose \
          milestones fall on different dates is several dated facts, not one — record each milestone \
          as its own dated entry (or {event} memory) under its own occurred_at, rather than bundling \
          them into a single entry stamped with the first date, so every date stays independently \
@@ -414,9 +417,11 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     );
     scaffold_points.push(
         "Give a non-person thing one memory. Look for the memory a fact belongs on before creating \
-         one — a second for the same event or topic splits its facts, so a read finds half and \
-         contradictions cannot be weighed. (Per-platform person stubs are the exception, kept apart \
-         until the merge gate joins them.)"
+         one — memory.search by name and meaning and reuse a hit (its relations line shows the cast \
+         already on it) rather than guessing a fresh handle, since a guessed name that misses the \
+         existing memory mints a second for the same event or topic and splits its facts, so a read \
+         finds half and contradictions cannot be weighed. (Per-platform person stubs are the \
+         exception, kept apart until the merge gate joins them.)"
             .to_owned(),
     );
     // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
@@ -534,11 +539,13 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 2: the preamble now names the sandbox language as Luau (Lua with string
-            // interpolation), and the code examples throughout demonstrate backtick interpolation
-            // rather than `..` concatenation, so the agent adopts the idiom from the examples.
-            // Bumping the version keeps a v1 `produced_by` naming the old body.
-            version: 2,
+            // Version 3: informed creation. The reuse dotpoint now teaches search-before-create (a
+            // guessed handle that misses the existing memory mints a duplicate), and the event
+            // dotpoint teaches that a recurring gathering is one memory under its generic name rather
+            // than a date-stamped clone per mention. (Version 2 named the sandbox language as Luau and
+            // switched the examples to backtick interpolation.) Bumping the version keeps an older
+            // `produced_by` naming the body it was generated under.
+            version: 3,
             body: scaffold_body,
         },
         TemplateDef {
@@ -1247,7 +1254,7 @@ mod tests {
                         // The current Scaffold version, so the idempotent rollout recognizes it as
                         // already present and does not re-emit it.
                         PromptTemplateName::Scaffold,
-                        2,
+                        3,
                         "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
                             .to_owned(),
                         EventSource::Orchestration,
@@ -1365,8 +1372,8 @@ mod tests {
 
         let scaffold = template(PromptTemplateName::Scaffold);
         assert_eq!(
-            scaffold.version, 2,
-            "the Luau-naming scaffold is registered at v2"
+            scaffold.version, 3,
+            "the informed-creation scaffold is registered at v3 (v2 introduced the Luau naming)"
         );
         assert!(
             scaffold
@@ -1466,6 +1473,50 @@ mod tests {
             ..Default::default()
         };
         assert!(!scaffold_body(&no_calendar).contains("several dated facts, not one"));
+    }
+
+    #[test]
+    fn the_scaffold_teaches_search_before_creating() {
+        // The reuse dotpoint teaches informed creation: search a non-person thing by name and meaning
+        // and reuse a hit rather than guessing a fresh handle, since a guessed name that misses the
+        // existing memory mints a duplicate (the book-club fragmentation the eval surfaced). Always-on
+        // (it gates on no feature), so it stands under the default and a stripped feature set alike.
+        let full = scaffold_body(&InstanceFeatures::default());
+        assert!(full.contains("memory.search by name and meaning and reuse a hit"));
+        assert!(full.contains("a guessed name that misses the existing memory mints a second"));
+
+        let stripped = scaffold_body(&InstanceFeatures {
+            linking: false,
+            tagging: false,
+            merging: false,
+            calendar: false,
+            transcripts: false,
+            ..Default::default()
+        });
+        assert!(stripped.contains("memory.search by name and meaning and reuse a hit"));
+    }
+
+    #[test]
+    fn the_event_dotpoint_teaches_a_recurring_event_is_one_memory() {
+        // The undated-name teaching now covers recurring events explicitly: a repeating gathering is
+        // one memory under its generic name, each occurrence dated on its entries — never a date-stamped
+        // clone per mention (the fragmentation the eval surfaced). It rides the calendar-gated event
+        // dotpoint, so it is present by default and dropped when the calendar is off.
+        let on = scaffold_body(&InstanceFeatures::default());
+        assert!(
+            on.contains("A recurring or repeating gathering is ONE memory under its generic name")
+        );
+        assert!(on.contains("never a month- or date-stamped clone"));
+
+        let no_calendar = InstanceFeatures {
+            calendar: false,
+            ..Default::default()
+        };
+        assert!(
+            !scaffold_body(&no_calendar).contains(
+                "A recurring or repeating gathering is ONE memory under its generic name"
+            )
+        );
     }
 
     #[test]

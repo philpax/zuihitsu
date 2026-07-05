@@ -17,7 +17,7 @@ use crate::{
     ids::{EntryId, MemoryId},
     memory::{
         memory_block::{AppendOptions, EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryError},
-        search::{SearchQuery, search},
+        search::{SalientRelation, SearchQuery, search},
     },
     settings::Settings,
     time::{MILLIS_PER_DAY, TemporalRef, civil_date_to_millis, format_occurrence},
@@ -254,6 +254,43 @@ fn render_link_summary(link: &LinkRef) -> String {
     summary
 }
 
+/// Render a search hit's salient relations as the compact segment its result line carries: each
+/// relation as `relation → name` (`←` for an incoming edge), in the salience order (people first, then
+/// recency), with a run of same-relation neighbours eliding the repeated label so
+/// `participates_in ← person/maya, ← person/nadia` reads cleanly, and a trailing `(+N more)` when links
+/// were elided past the cap. The same `relation → name` house style the neighborhood line uses, so a hit
+/// passively reveals the cast already on the memory — the recognition signal that steers a search toward
+/// reuse over a name-guessed duplicate. `None` when the hit carries no relations, so the caller omits the
+/// segment.
+pub(super) fn render_salient_relations(
+    relations: &[SalientRelation],
+    more: usize,
+) -> Option<String> {
+    if relations.is_empty() {
+        return None;
+    }
+    let mut rendered: Vec<String> = Vec::with_capacity(relations.len() + 1);
+    let mut previous: Option<&str> = None;
+    for relation in relations {
+        let arrow = match relation.direction {
+            LinkDirection::Outgoing => "→",
+            LinkDirection::Incoming => "←",
+        };
+        let name = relation.other_name.as_str();
+        let segment = if previous == Some(relation.relation.as_str()) {
+            format!("{arrow} {name}")
+        } else {
+            format!("{} {arrow} {name}", relation.relation.as_str())
+        };
+        rendered.push(segment);
+        previous = Some(relation.relation.as_str());
+    }
+    if more > 0 {
+        rendered.push(format!("(+{more} more)"));
+    }
+    Some(rendered.join(", "))
+}
+
 /// Wrap a list of link refs as a Lua sequence of link results, in order — the
 /// `mem:outgoing()`/`incoming()`/`links()` return shape.
 pub(super) fn make_link_handle_list(
@@ -462,11 +499,14 @@ pub(super) struct SearchOpts {
 }
 
 /// One ranked search result handed back to Lua as
-/// `{ name, description, score, marker?, snippet?, occurred_at? }`. `snippet` is the matched content
-/// that produced the hit, so a result stays legible even when the memory's description is stale or
-/// empty; `occurred_at` is the memory's representative occurrence (the same tagged table `append`
+/// `{ name, description, score, marker?, snippet?, occurred_at?, relations? }`. `snippet` is the matched
+/// content that produced the hit, so a result stays legible even when the memory's description is stale
+/// or empty; `occurred_at` is the memory's representative occurrence (the same tagged table `append`
 /// takes), so a scheduled or dated fact's date rides on the result rather than surfacing only through
-/// a separate `entries()` read.
+/// a separate `entries()` read; `relations` are the memory's most salient links (its cast), so the hit
+/// passively carries who already participates in it — the recognition signal that steers a search
+/// toward reusing the memory it found rather than minting a duplicate. `more_relations` counts the
+/// salient links elided past the render cap, for the trailing `(+N more)` note.
 pub(super) struct SearchRow {
     pub(super) name: String,
     pub(super) description: String,
@@ -474,6 +514,8 @@ pub(super) struct SearchRow {
     pub(super) marker: Option<String>,
     pub(super) snippet: Option<String>,
     pub(super) occurred_at: Option<TemporalRef>,
+    pub(super) relations: Vec<SalientRelation>,
+    pub(super) more_relations: usize,
 }
 
 /// Run a `memory.search`: embed the query off every lock, read the search settings, then rank under a
@@ -535,6 +577,8 @@ pub(super) async fn run_memory_search(
             marker: hit.marker,
             snippet: hit.snippet,
             occurred_at: hit.occurred_at,
+            relations: hit.relations,
+            more_relations: hit.more_relations,
         })
         .collect())
 }

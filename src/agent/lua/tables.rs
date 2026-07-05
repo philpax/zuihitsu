@@ -10,7 +10,7 @@ use crate::{
     agent::turn::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn},
     event::TurnRole,
     ids::{MemoryName, TurnId},
-    memory::memory_block::RelationSpec,
+    memory::memory_block::{LinkDirection, RelationSpec},
     time,
     vocabulary::{RelationName, TagName},
 };
@@ -21,8 +21,8 @@ use super::{
         BlockApi, HandleSelf, SearchOpts, append_options_from_lua, concat_via_tostring, date_text,
         day_string, entry_handle_id, handle_id, link_target_id, make_date, make_entry_handle,
         make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
-        make_relation_result, readonly_newindex, render, render_neighborhood, route_error,
-        run_memory_search, value_text,
+        make_relation_result, readonly_newindex, render, render_neighborhood,
+        render_salient_relations, route_error, run_memory_search, value_text,
     },
 };
 
@@ -656,12 +656,14 @@ pub(super) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
 }
 
 /// The metatable backing `memory.search` result objects: `__tostring` renders one as a readable
-/// line (name, score, description, the matched-content snippet, the representative occurrence, and any
-/// teller-private marker), so returning the result list reads back as text rather than `<table>` while
-/// each result keeps its fields for the agent to inspect (`result.name` to fetch, `result.score` to
-/// weigh, `result.occurred_at.day` to read a date). The snippet is the content that produced the hit,
-/// so a result stays triageable even when the description is stale or empty; the occurrence carries a
-/// scheduled or dated fact's date so a recall relayed from the line keeps the *when*.
+/// line (name, score, description, the matched-content snippet, the representative occurrence, the
+/// salient relations, and any teller-private marker), so returning the result list reads back as text
+/// rather than `<table>` while each result keeps its fields for the agent to inspect (`result.name` to
+/// fetch, `result.score` to weigh, `result.occurred_at.day` to read a date, `result.relations` to read
+/// the cast). The snippet is the content that produced the hit, so a result stays triageable even when
+/// the description is stale or empty; the occurrence carries a scheduled or dated fact's date so a recall
+/// relayed from the line keeps the *when*; the relations carry the memory's most salient links, so the
+/// hit reveals who already participates in it — the recognition signal that steers a search toward reuse.
 fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     metatable.set(
@@ -688,6 +690,14 @@ fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
                 && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
             {
                 line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
+            }
+            // The salient relations (its cast) render inline as `relation → name`, pre-rendered when the
+            // result was built, so the printed hit reveals who already participates in this memory —
+            // the recognition signal that steers a recall toward reuse over a name-guessed duplicate.
+            let relations_line: Option<String> = this.get("relations_line")?;
+            if let Some(relations_line) = relations_line.filter(|line| !line.is_empty()) {
+                line.push_str(" — ");
+                line.push_str(&relations_line);
             }
             if let Some(marker) = marker {
                 line.push(' ');
@@ -1106,9 +1116,10 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
     // memory.search(query[, opts]) — semantic + lexical recall over the agent's whole memory,
     // visibility-filtered against who is present (a teller-private hit only surfaces while its
     // teller is here, with a marker). Embeds the query off any lock, then ranks under a brief read
-    // lock. Returns a list of result objects (`{ name, description, score, marker? }`), best first;
-    // each prints as a readable line so `return memory.search(...)` reads back the results rather
-    // than `<table>`.
+    // lock. Returns a list of result objects
+    // (`{ name, description, score, marker?, snippet?, occurred_at?, relations? }`), best first; each
+    // prints as a readable line so `return memory.search(...)` reads back the results rather than
+    // `<table>`.
     let result_metatable = search_result_metatable(lua)?;
     memory.set(
         "search",
@@ -1143,6 +1154,33 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                         // metatable's `__tostring` renders the date on the result line.
                         if let Some(occurred_at) = row.occurred_at {
                             table.set("occurred_at", lua.to_value(&occurred_at)?)?;
+                        }
+                        // The salient relations as a structural array the agent can read
+                        // (`result.relations[1].name` to recognize the cast, `.relation`/`.direction`
+                        // to read the edge), plus a pre-rendered line the metatable's `__tostring`
+                        // appends — so the hit passively carries who already participates in this
+                        // memory. Absent when the memory has no out-of-class links.
+                        if !row.relations.is_empty() {
+                            let relations = lua.create_table()?;
+                            for (position, relation) in row.relations.iter().enumerate() {
+                                let entry = lua.create_table()?;
+                                entry.set("relation", relation.relation.as_str())?;
+                                entry.set("name", relation.other_name.as_str())?;
+                                entry.set(
+                                    "direction",
+                                    match relation.direction {
+                                        LinkDirection::Incoming => "incoming",
+                                        LinkDirection::Outgoing => "outgoing",
+                                    },
+                                )?;
+                                relations.set(position + 1, entry)?;
+                            }
+                            table.set("relations", relations)?;
+                        }
+                        if let Some(line) =
+                            render_salient_relations(&row.relations, row.more_relations)
+                        {
+                            table.raw_set("relations_line", line)?;
                         }
                         table.set_metatable(Some(result_metatable.clone()))?;
                         list.set(index + 1, table)?;

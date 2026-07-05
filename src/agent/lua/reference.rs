@@ -27,8 +27,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Create a memory, optionally with a first content entry. It fails if the name is already \
              taken — creating a second memory over an existing one must be a deliberate act — so \
-             create only when you mean to make a genuinely new memory. When you are unsure whether \
-             one already exists, use memory.get_or_create instead of guessing.",
+             create only when you mean to make a genuinely new memory. Creation should almost always \
+             follow a search: if the referent plausibly already exists — a person, an event, a topic \
+             others have mentioned before — memory.search for it first and reuse what you find, \
+             creating only when the search comes up empty. When you are unsure whether one already \
+             exists, use memory.get_or_create instead of guessing.",
         )
         .required(
             "name",
@@ -66,14 +69,17 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let get_or_create = AE::new("memory.get_or_create")
         .description(
             "Fetch a memory by name, or create it if there is none — the fetch-or-make idiom in one \
-             call, for when you are not sure whether the memory already exists. If it exists it is \
-             returned as it stands and the content argument is ignored (an existing memory is never \
-             silently overwritten); only an absent one is created, with the given first entry. Use \
-             this rather than memory.get followed by memory.create; reserve memory.create for making \
-             a deliberately new memory, where a name collision should be an error. Not an identity \
-             tool: a new name for a person you already hold is a fact on their existing profile (or \
-             grounds for a rename), so fetch that profile — get_or_create on the new name would mint \
-             a duplicate person.",
+             call. It is for a name you have READ — off a search hit, a brief, or a handle — not one \
+             you guess: on a name that does not match, it does not find the memory you meant, it mints \
+             a fresh duplicate under the guessed name. So search first and pass a name you saw; reach \
+             here to fetch-or-make that read name in one step. If it exists it is returned as it \
+             stands and the content argument is ignored (an existing memory is never silently \
+             overwritten); only an absent one is created, with the given first entry. Use this rather \
+             than memory.get followed by memory.create; reserve memory.create for making a \
+             deliberately new memory, where a name collision should be an error. Not an identity tool: \
+             a new name for a person you already hold is a fact on their existing profile (or grounds \
+             for a rename), so fetch that profile — get_or_create on the new name would mint a \
+             duplicate person.",
         )
         .required("name", AT::String, "the memory's handle")
         .optional(
@@ -88,11 +94,14 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             "Recall memories by meaning and wording, across your whole memory, ranked best-first. \
              Results are filtered to what may surface to who is present, so a teller-private aside \
              appears only while its teller is here (with a marker noting it). Each result is a table \
-             { name, description, score, marker?, snippet?, occurred_at? } — snippet is the matched \
-             content that produced the hit, so you can triage a result even when its description is \
-             thin, and occurred_at is the memory's representative date (the same tagged table append \
-             takes, e.g. occurred_at.day) when it holds a dated fact. A hit is a pointer, not the \
-             whole record: fetch a name with memory.get to read every entry and occurrence in full.",
+             { name, description, score, marker?, snippet?, occurred_at?, relations? } — snippet is \
+             the matched content that produced the hit, so you can triage a result even when its \
+             description is thin; occurred_at is the memory's representative date (the same tagged \
+             table append takes, e.g. occurred_at.day) when it holds a dated fact; and relations are \
+             its most salient links (each { relation, name, direction }), so a hit shows the cast \
+             already on it — the people and events that let you recognize the memory you already hold \
+             and reuse it rather than making a near-duplicate. A hit is a pointer, not the whole \
+             record: fetch a name with memory.get to read every entry and occurrence in full.",
         )
         .required("query", AT::String, "what to look for, in natural language")
         .optional(
@@ -724,6 +733,72 @@ mod tests {
                 .contains("why you think the two are the same person"),
             "the rationale param should say when to use it: {}",
             rationale_param.doc
+        );
+    }
+
+    #[test]
+    fn create_teaches_search_before_creating() {
+        // memory.create teaches that creation should almost always follow a search — if the referent
+        // plausibly already exists, search and reuse before minting a fresh handle.
+        let create = api_reference(&InstanceFeatures::default())
+            .into_iter()
+            .find(|entry| entry.call == "memory.create")
+            .expect("memory.create is present");
+        assert!(
+            create
+                .doc
+                .contains("Creation should almost always follow a search"),
+            "create should teach search-first: {}",
+            create.doc
+        );
+        assert!(
+            create.doc.contains("reuse what you find"),
+            "create should teach reuse: {}",
+            create.doc
+        );
+    }
+
+    #[test]
+    fn get_or_create_is_for_a_read_name_not_a_guess() {
+        // memory.get_or_create is repositioned: it is for a name you have READ (a search hit, a brief,
+        // a handle), not one you guess — a guessed name that misses mints a duplicate.
+        let get_or_create = api_reference(&InstanceFeatures::default())
+            .into_iter()
+            .find(|entry| entry.call == "memory.get_or_create")
+            .expect("memory.get_or_create is present");
+        assert!(
+            get_or_create.doc.contains("a name you have READ"),
+            "get_or_create should be for a read name: {}",
+            get_or_create.doc
+        );
+        assert!(
+            get_or_create
+                .doc
+                .contains("mints a fresh duplicate under the guessed name"),
+            "get_or_create should warn that a guessed miss duplicates: {}",
+            get_or_create.doc
+        );
+    }
+
+    #[test]
+    fn search_documents_the_relations_field() {
+        // The memory.search result shape documents `relations` and why it is there — recognizing the
+        // memory you already hold, to reuse it rather than make a near-duplicate.
+        let search = api_reference(&InstanceFeatures::default())
+            .into_iter()
+            .find(|entry| entry.call == "memory.search")
+            .expect("memory.search is present");
+        assert!(
+            search
+                .doc
+                .contains("marker?, snippet?, occurred_at?, relations?"),
+            "the result shape should list relations?: {}",
+            search.doc
+        );
+        assert!(
+            search.doc.contains("recognize the memory you already hold"),
+            "search should say why relations are there: {}",
+            search.doc
         );
     }
 

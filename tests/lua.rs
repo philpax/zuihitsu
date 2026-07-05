@@ -2335,6 +2335,70 @@ async fn memory_search_carries_a_dated_hits_occurrence() {
 }
 
 #[tokio::test]
+async fn memory_search_carries_salient_relations_on_a_hit() {
+    // A hit passively carries its most salient relations — people first — so a search for a recurring
+    // event reveals the cast already participating in it, the recognition signal that steers a recall
+    // toward reusing the memory it found rather than minting a name-guessed duplicate.
+    let h = Harness::with_retrieval();
+    let seeded = h
+        .run(
+            r#"
+        links.register({ name = "participates_in", inverse = "has_participant", from_card = "many", to_card = "many" })
+        local club = memory.create(EVENT_STANDUP, "The weekly standup")
+        local marcus = memory.create(PERSON_MARCUS)
+        local erin = memory.create(PERSON_ERIN)
+        marcus:link("participates_in", club)
+        erin:link("participates_in", club)
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(matches!(seeded, BlockOutcome::Committed { .. }));
+    h.index().await;
+
+    // The structural field: the agent reads the cast off the hit as { relation, name, direction }.
+    let field = h
+        .run(
+            r#"
+        local results = memory.search("The weekly standup")
+        for _, r in ipairs(results) do
+            if r.name == EVENT_STANDUP and r.relations then
+                local first = r.relations[1]
+                return first.relation .. " " .. first.direction .. " " .. first.name
+            end
+        end
+        return "none"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = field else {
+        panic!("expected commit, got {field:?}");
+    };
+    assert!(
+        result.starts_with(&format!(
+            "participates_in incoming {}",
+            Namespace::Person.prefix()
+        )),
+        "the structural relation reads people-first as {{ relation, name, direction }}: {result}"
+    );
+
+    // The rendered line shows the relations inline in the `relation ← name` house style.
+    let rendered = h.run(r#"return memory.search("The weekly standup")"#).await;
+    let BlockOutcome::Committed { result } = rendered else {
+        panic!("expected commit, got {rendered:?}");
+    };
+    assert!(
+        result.contains("participates_in ← "),
+        "the hit line renders its salient relations: {result:?}"
+    );
+    assert!(
+        result.contains(MemoryName::from(Namespace::Person.with_name("marcus")).as_str())
+            && result.contains(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
+        "the relations line names the participants: {result:?}"
+    );
+}
+
+#[tokio::test]
 async fn search_finds_a_renamed_person_by_an_old_name() {
     let h = Harness::with_retrieval();
     // A public fact that does *not* mention the name, then a rename — so only the alias-aware indexing
