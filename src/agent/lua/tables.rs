@@ -411,22 +411,30 @@ fn install_handle_methods(
         )?;
     }
 
-    // mem:propose_merge(other) — record that this memory and `other` may be the same person across
-    // platforms, for the adjudication pass to weigh on the evidence. Not a merge: it surfaces nothing
-    // until adjudicated. Locks both endpoints.
+    // mem:propose_merge(other[, opts]) — record that this memory and `other` may be the same person
+    // across platforms, for the adjudication pass to weigh on the evidence. `opts.rationale` states the
+    // grounds for the match, which the adjudicator weighs as the proposer's claim, not as evidence. Not
+    // a merge: it surfaces nothing until adjudicated. Locks both endpoints.
     if features.merging {
         methods.set(
             "propose_merge",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, other): (HandleSelf, Table)| {
+                move |_, (this, other, opts): (HandleSelf, Table, Option<Table>)| {
                     let api = api.clone();
                     async move {
                         let (from, to) = (handle_id(&this.0)?, handle_id(&other)?);
+                        let rationale = match opts {
+                            Some(opts) => opts
+                                .get::<Option<String>>("rationale")?
+                                .map(|text| text.trim().to_owned())
+                                .filter(|text| !text.is_empty()),
+                            None => None,
+                        };
                         api.lock_all([from, to]).await;
                         api.block
                             .lock()
-                            .propose_merge(from, to)
+                            .propose_merge(from, to, rationale)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))
                     }
                 }

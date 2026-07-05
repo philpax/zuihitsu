@@ -222,8 +222,7 @@ impl std::fmt::Display for HandleError {
             }
             HandleError::UnknownLinkTarget { name } => write!(
                 f,
-                "link target \"{name}\" is not a known memory — pass a handle from memory.get or \
-                 memory.create, or an existing memory's name"
+                "no memory named \"{name}\" — create it first, or check the casing"
             ),
             HandleError::WrongLinkTargetType { type_name } => write!(
                 f,

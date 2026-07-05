@@ -133,6 +133,7 @@ pub fn resolve_or_mint_participant(
                 id,
                 existing,
                 MergeProposalSource::Orchestration,
+                None,
             ));
             tracing::info!(
                 %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
@@ -277,7 +278,9 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter_map(|event| match event.payload {
-                EventPayload::MergeProposed { from, to, source } => Some((from, to, source)),
+                EventPayload::MergeProposed {
+                    from, to, source, ..
+                } => Some((from, to, source)),
                 _ => None,
             })
             .collect();

@@ -1662,12 +1662,13 @@ async fn a_platform_conversation_cannot_write_self() {
 }
 
 #[tokio::test]
-async fn a_platform_conversation_cannot_merge_identities() {
+async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
     let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
-    // Steered by a participant, the agent tries to merge two identities with `same_as`. Cross-platform
-    // identity is operator-asserted only, so the block is barred (a teachable error) and discarded
-    // whole — the agent replies, and nothing the block buffered (not even the creates) persists.
+    // Steered by a participant, the agent tries to bind two identities with `same_as`. A direct merge
+    // from a turn is refused — cross-platform identity is operator-asserted only — but the agent reads
+    // `link("same_as", …)` as "these are the same person", so it routes to an inert merge proposal for
+    // the adjudication gate rather than crashing the block and rolling back the innocent creates.
     let model = ScriptedModel::new([
         run_lua_call(
             r#"local a = memory.create("person/alpha")
@@ -1690,9 +1691,20 @@ async fn a_platform_conversation_cannot_merge_identities() {
         .unwrap();
     assert_eq!(outcome, TurnOutcome::Reply("understood".to_owned()));
 
-    // The whole block rolled back, so the merge — and the creates that accompanied it — left no trace.
-    assert!(server.control().memory("person/alpha").unwrap().is_none());
-    assert!(server.control().memory("person/beta").unwrap().is_none());
+    // The block survived: both creates persist rather than rolling back with the refused merge.
+    assert!(server.control().memory("person/alpha").unwrap().is_some());
+    assert!(server.control().memory("person/beta").unwrap().is_some());
+
+    // The same_as surfaced as a pending, unweighed merge proposal — not a completed merge, and not
+    // silently dropped. The two stubs stay in separate classes until the gate decides.
+    let proposals = server.control().merge_proposals().unwrap();
+    assert!(
+        proposals.iter().any(|proposal| {
+            let pair = (proposal.from.as_str(), proposal.to.as_str());
+            pair == ("person/alpha", "person/beta") || pair == ("person/beta", "person/alpha")
+        }),
+        "the same_as link should surface as a pending merge proposal: {proposals:?}"
+    );
 }
 
 #[tokio::test]
@@ -2210,7 +2222,9 @@ async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator()
         .unwrap()
         .into_iter()
         .find_map(|event| match event.payload {
-            EventPayload::MergeProposed { from, to, source } => Some((from, to, source)),
+            EventPayload::MergeProposed {
+                from, to, source, ..
+            } => Some((from, to, source)),
             _ => None,
         })
         .expect("a merge was proposed for the handle match");

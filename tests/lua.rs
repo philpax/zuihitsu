@@ -500,10 +500,11 @@ async fn occurred_at_accepts_a_date_object_in_a_day_field() {
 }
 
 #[tokio::test]
-async fn occurred_at_accepts_a_range_built_from_date_objects() {
-    // A ranged occurred_at accepts date objects for its endpoints, converting each to the day's
-    // bounding instant (start of the first day, end of the last), so the agent builds a date range from
-    // calendar handles instead of hand-computing millisecond timestamps.
+async fn occurred_at_accepts_a_range_from_date_objects_or_strings() {
+    // A ranged occurred_at accepts date objects *or* bare "YYYY-MM-DD" strings for its endpoints,
+    // converting each to the day's bounding instant (start of the first day, end of the last), so the
+    // agent builds a date range from calendar handles or from the days it already has as strings, instead
+    // of hand-computing millisecond timestamps or being turned away with an i64 deserialize error.
     let h = Harness::new();
     let outcome = h
         .run(
@@ -539,6 +540,74 @@ async fn occurred_at_accepts_a_range_built_from_date_objects() {
     let start = Timestamp::from_millis(20_614 * 86_400_000); // 2026-06-10 midnight UTC.
     let end = Timestamp::from_millis(20_616 * 86_400_000 + 86_400_000 - 1); // 2026-06-12, last ms.
     let expected = TemporalRef::Range { start, end }
+        .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
+        .sort;
+    assert_eq!(entries[0].occurred_sort, expected);
+
+    // The same endpoints given as bare "YYYY-MM-DD" strings coerce identically — start to the first ms,
+    // end to the last — so a script that writes the days as strings lands the same range rather than
+    // failing the endpoints' i64 deserialize.
+    let string_outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_LAUNCH)
+        ev:append("Conference", {
+            visibility = "public",
+            occurred_at = { range = { start = "2026-06-10", ["end"] = "2026-06-12" } }
+        })
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = string_outcome else {
+        panic!("expected commit, got {string_outcome:?}");
+    };
+    assert!(
+        result.contains("2026-06-10 – 2026-06-12"),
+        "the range from date strings should render the same span, got: {result}"
+    );
+    let launch = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("launch"))
+        .unwrap()
+        .unwrap();
+    let launch_entries = h.engine.graph.lock().entries_local(launch.id).unwrap();
+    assert_eq!(launch_entries.len(), 1);
+    assert_eq!(launch_entries[0].occurred_sort, expected);
+}
+
+#[tokio::test]
+async fn occurred_at_accepts_an_instant_as_a_date_string() {
+    // A bare "YYYY-MM-DD" string in the instant position coerces to the day's first millisecond rather
+    // than failing the i64 deserialize the Instant variant expects, so an agent that hands a date where a
+    // millisecond timestamp is wanted is met by the coercion, not a crash. It coerces like a range start.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_CLEANING)
+        ev:append("Kickoff", { visibility = "public", occurred_at = { instant = "2026-06-10" } })
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Committed { .. }),
+        "an instant given as a date string must commit, got {outcome:?}"
+    );
+    let ev = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("cleaning"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
+    assert_eq!(entries.len(), 1);
+    // The string landed at the day's first millisecond, as a precise Instant (not a whole-day Day).
+    let expected = TemporalRef::Instant(Timestamp::from_millis(20_614 * 86_400_000)) // 2026-06-10 midnight UTC.
         .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
         .sort;
     assert_eq!(entries[0].occurred_sort, expected);
@@ -1059,10 +1128,11 @@ async fn a_retired_seed_relation_is_gated_by_the_registry_not_the_vocabulary() {
 }
 
 #[tokio::test]
-async fn link_resolves_a_name_string_target() {
+async fn link_and_unlink_resolve_a_name_string_target() {
     // A name string in place of a handle is looked up, not rejected with a type error that would roll
     // the whole block back — the cascade that silently dropped a co-located private write (#43). This
-    // block links via a string *and* appends a confidence in one go; both must survive together.
+    // block links via a string *and* appends a confidence in one go; both must survive together. Unlink
+    // shares the same resolution seam, so a name string clears the edge too.
     let h = Harness::new();
     // The Harness skips genesis, so register the `knows` relation the link instantiates.
     h.engine
@@ -1114,6 +1184,48 @@ async fn link_resolves_a_name_string_target() {
         !result.trim().is_empty(),
         "a knows edge should exist, got empty: {result:?}"
     );
+
+    // Unlink through the same seam: a name string clears the edge just as it made it.
+    let unlink_outcome = h
+        .run(r#"memory.get(PERSON_DAVE):unlink("knows", PERSON_ERIN)"#)
+        .await;
+    assert!(
+        matches!(unlink_outcome, BlockOutcome::Committed { .. }),
+        "a string-target unlink must commit, got {unlink_outcome:?}"
+    );
+    let BlockOutcome::Committed { result } = h
+        .run(r#"return memory.get(PERSON_DAVE):outgoing("knows")"#)
+        .await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        !result.contains("erin"),
+        "the knows edge should be gone after unlinking by name, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn link_to_an_unknown_name_teaches_creation() {
+    // A name string that names no memory is a teachable miss — it says the name is unknown and points at
+    // creating it or checking the casing, rather than lecturing about handles, so the agent's fix is to
+    // create the memory (or correct a typo), not to reach for a handle it does not have.
+    let h = Harness::new();
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    let outcome = h
+        .run(r#"memory.get(PERSON_DAVE):link("knows", "person/nobody")"#)
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("no memory named \"person/nobody\"")
+                    && message.contains("create it first")
+                    && message.contains("casing"),
+                "the unknown name should teach creation/casing, got: {message}"
+            );
+        }
+        other => panic!("expected a teachable unknown-name error, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -2616,6 +2728,57 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
             }
         )),
         "a refusing verdict should be recorded for the operator"
+    );
+}
+
+#[tokio::test]
+async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
+    // The rationale the agent states with propose_merge rides the MergeProposed event and is injected
+    // into the adjudicator's prompt as the proposer's claim — so the adjudicator weighs the stated
+    // grounds against the two stubs' persisted entries rather than seeing only the entries.
+    let h = Harness::new();
+    register_adjudication_template(&h);
+    h.run(
+        r#"
+        local a = memory.create(PERSON_DAVE_SLACK)
+        a:append("At the Reykjavik conference in June", { visibility = "public" })
+        local b = memory.create(PERSON_DAVE_DISCORD)
+        b:append("Was on a research trip to Iceland", { visibility = "public" })
+        a:propose_merge(b, { rationale = "Both mention the same volcanology trip and the same wedding." })
+        return "ok"
+        "#,
+    )
+    .await;
+
+    // The stated grounds ride the event.
+    assert!(
+        h.events().iter().any(|e| matches!(
+            &e.payload,
+            EventPayload::MergeProposed { rationale: Some(text), .. }
+                if text == "Both mention the same volcanology trip and the same wedding."
+        )),
+        "the rationale must ride the MergeProposed event"
+    );
+
+    let model = ScriptedModel::new([Completion::Reply(
+        r#"{"accepted": false, "rationale": "Weighed the claim against the facts; not enough."}"#
+            .to_owned(),
+    )]);
+    h.adjudicate(&model).await;
+
+    // ... and reach the adjudicator's prompt, labeled as the proposer's claim rather than as evidence.
+    let prompts: Vec<String> = model
+        .recorded_messages()
+        .iter()
+        .flatten()
+        .map(|message| message.content.clone())
+        .collect();
+    assert!(
+        prompts.iter().any(|p| {
+            p.contains("Both mention the same volcanology trip and the same wedding.")
+                && p.contains("their claim, not evidence")
+        }),
+        "the adjudication prompt must carry the proposer's stated rationale as a claim: {prompts:?}"
     );
 }
 

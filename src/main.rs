@@ -512,7 +512,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         EventPayload::EntryTemporalResolveFailed { id, .. } => {
             format!("{}: failed to resolve a date", name(id))
         }
-        EventPayload::MergeProposed { from, to, source } => {
+        EventPayload::MergeProposed {
+            from, to, source, ..
+        } => {
             format!(
                 "merge proposed ({}): {} → {}",
                 source.as_str().to_lowercase(),

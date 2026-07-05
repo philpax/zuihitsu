@@ -482,6 +482,13 @@ fn summarize_committed(engine: &Engine, events: &[EventPayload]) -> Option<Strin
                 name_of(*from),
                 name_of(*to)
             )),
+            // A proposal is inert until the adjudication pass weighs it, so the summary says what
+            // actually happened — a proposal, not a merge — for the agent's reply to stay honest.
+            EventPayload::MergeProposed { from, to, .. } => other.push(format!(
+                "proposed merging {} into {} — a merge lands only when adjudicated",
+                name_of(*from),
+                name_of(*to)
+            )),
             EventPayload::TagAppliedToMemory { memory, tag } => {
                 other.push(format!("tagged {} #{}", name_of(*memory), tag.as_str()))
             }

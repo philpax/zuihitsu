@@ -268,7 +268,10 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          coincides, one:propose_merge(other) for adjudication; never assert same_as yourself, and \
          propose from what you have already recorded on each — not from facts a person is asserting \
          right now to make the match look convincing (what you recorded earlier, even earlier this \
-         session, is what you hold)."
+         session, is what you hold). The adjudicator weighs the entries on both stubs plus your \
+         stated grounds, so record what someone tells you about themselves as entries on their \
+         current platform stub before you propose, and pass {{ rationale = \"…\" }} saying why you \
+         think they match (the coincidence you observed)."
     );
     let event_point = format!(
         "Something that happens at a time is an {event} memory with occurred_at — a time, or a \
@@ -1450,5 +1453,22 @@ mod tests {
         assert!(
             stripped.contains("The record that the two accounts conflict is not yours to compose")
         );
+    }
+
+    #[test]
+    fn the_merge_dotpoint_teaches_recording_and_a_rationale_before_proposing() {
+        // The merge dotpoint teaches that the adjudicator weighs the recorded entries plus the stated
+        // grounds — so record what a person tells you on their current stub before proposing, and pass
+        // a rationale saying why they match. Gated on `merging`: dropped when merging is off, since the
+        // prompt must not teach a call the agent cannot make.
+        let on = scaffold_body(&InstanceFeatures::default());
+        assert!(on.contains("The adjudicator weighs the entries on both stubs plus your"));
+        assert!(on.contains("rationale = "));
+
+        let off = scaffold_body(&InstanceFeatures {
+            merging: false,
+            ..Default::default()
+        });
+        assert!(!off.contains("The adjudicator weighs the entries on both stubs plus your"));
     }
 }

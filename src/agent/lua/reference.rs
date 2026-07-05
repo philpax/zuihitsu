@@ -145,8 +145,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                          {{ approx = {{ center = <ms>, fuzz_days = <n> }} }}, {{ recurring = \"<rrule>\" }}, \
                          or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"{event}...\" }} }}. \
                          A date object (calendar.today() and its siblings) is itself a valid occurred_at — \
-                         pass it directly — and it may also stand in for a day inside a tagged table, in \
-                         the {{ day = ... }} field or a range's start/end endpoints"
+                         pass it directly — and a date object or a \"YYYY-MM-DD\" string may also stand in \
+                         for a millisecond position: the instant, or a range's start/end endpoints (the \
+                         endpoint covers its whole day), as well as the {{ day = ... }} field"
                     ),
                 ),
             "overrides",
@@ -245,7 +246,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let unlink = AE::new("<memory>:unlink")
         .description("Remove a link made with <memory>:link when the relationship no longer holds.")
         .required("relation", AT::String, "the relation")
-        .required("other", AT::Handle, "the memory the link points to");
+        .required(
+            "other",
+            AT::Handle,
+            "the memory the link points to — a handle or its name as a string, which is looked up",
+        );
 
     let outgoing = AE::new("<memory>:outgoing")
         .description(
@@ -290,10 +295,23 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                  adjudication on the evidence. This does not merge them and surfaces nothing on its own — \
                  it is your judgment, weighed against the independently-recorded facts. Propose only from \
                  what you already hold about each, never from claims made to convince you in the moment. \
-                 You cannot merge by asserting same_as yourself."
+                 You cannot merge by asserting same_as yourself. The adjudicator weighs the entries \
+                 recorded on both stubs; pass opts.rationale to state why you think they match (the \
+                 observed coincidence — a shared wedding, the same volcanology trip), and it is weighed \
+                 as your claim against those facts."
             ),
         )
-        .required("other", AT::Handle, format!("the other {person} stub"));
+        .required("other", AT::Handle, format!("the other {person} stub"))
+        .optional(
+            "opts",
+            object().optional(
+                "rationale",
+                AT::String,
+                "why you think the two are the same person — the observed coincidence, stated as your \
+                 grounds for the adjudicator to weigh against the recorded facts",
+            ),
+            "options",
+        );
 
     let tag = AE::new("<memory>:tag")
         .description(
@@ -670,6 +688,39 @@ mod tests {
         };
         let entries = names(&features);
         assert!(!entries.contains(&"<memory>:propose_merge".to_owned()));
+    }
+
+    #[test]
+    fn propose_merge_documents_the_rationale_option() {
+        // The propose_merge entry documents opts.rationale and when to state it (the observed
+        // coincidence), so the agent learns to pass its stated grounds for the adjudicator to weigh.
+        let propose_merge = api_reference(&InstanceFeatures::default())
+            .into_iter()
+            .find(|entry| entry.call == "<memory>:propose_merge")
+            .expect("propose_merge is present by default");
+        assert!(
+            propose_merge.doc.contains("opts.rationale"),
+            "the description should mention opts.rationale: {}",
+            propose_merge.doc
+        );
+        let rationale_param = propose_merge
+            .params
+            .iter()
+            .find(|param| param.name == "opts")
+            .and_then(|opts| match &opts.ty {
+                super::ApiType::Object(fields) => {
+                    fields.iter().find(|field| field.name == "rationale")
+                }
+                _ => None,
+            })
+            .expect("opts carries a rationale field");
+        assert!(
+            rationale_param
+                .doc
+                .contains("why you think the two are the same person"),
+            "the rationale param should say when to use it: {}",
+            rationale_param.doc
+        );
     }
 
     #[test]

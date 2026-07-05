@@ -537,8 +537,10 @@ pub enum EventPayload {
     /// off-hot-path adjudication pass to weigh (spec §Cross-platform identity → adjudicated merge).
     /// `source` records who raised it: the agent from a turn (`mem:propose_merge`), or the
     /// identity-resolution orchestration when a platform arrival's handle matched an existing but
-    /// platform-unbound stub. Deliberately *not* a `same_as` link and not projected into the graph: a
-    /// proposal is inert — it leaves both stubs in their own classes and surfaces nothing — so nothing
+    /// platform-unbound stub. `rationale` carries the proposer's stated grounds for the adjudicator to
+    /// weigh against the evidence, when the agent gave any. Deliberately *not* a `same_as` link and not
+    /// projected into the graph: a proposal is inert — it leaves both stubs in their own classes and
+    /// surfaces nothing — so nothing
     /// crosses the would-be merge until an adjudication accepts it, and an orchestration proposal in
     /// particular never asserts identity from a bare handle match.
     MergeProposed {
@@ -548,6 +550,14 @@ pub enum EventPayload {
         /// agent-sourced, which every proposal then was.
         #[serde(default)]
         source: MergeProposalSource,
+        /// The proposer's stated grounds for the match, if any — the coincidence the agent reasoned
+        /// from (a shared wedding, the same volcanology trip). The adjudication pass reads it as the
+        /// proposer's *claim*, not as evidence, weighing it against the two stubs' independently-recorded
+        /// facts rather than rubber-stamping it. `None` for a proposal with no stated grounds — an
+        /// orchestration handle match, or a `same_as`-via-link routed here — and defaulted so
+        /// version-2 payloads (written before the field existed) replay without one.
+        #[serde(default)]
+        rationale: Option<String>,
     },
     /// The adjudication pass's verdict on a `MergeProposed`: whether the two stubs' independently-
     /// recorded facts coincide improbably enough to be one person, given the confidences at risk (spec
@@ -904,8 +914,14 @@ impl EventPayload {
         from: MemoryId,
         to: MemoryId,
         source: MergeProposalSource,
+        rationale: Option<String>,
     ) -> EventPayload {
-        EventPayload::MergeProposed { from, to, source }
+        EventPayload::MergeProposed {
+            from,
+            to,
+            source,
+            rationale,
+        }
     }
 
     pub fn memory_volatility_set(id: MemoryId, volatility: Volatility) -> EventPayload {
@@ -1119,11 +1135,12 @@ impl EventPayload {
         }
     }
 
-    /// The payload-schema version; higher versions add fields. `MergeProposed` is `2` since gaining
-    /// `source` (version-1 payloads deserialize via its default); everything else is `1`.
+    /// The payload-schema version; higher versions add fields. `MergeProposed` is `3` since gaining
+    /// `source` (version 2) and then `rationale` (version 3); earlier payloads deserialize via those
+    /// fields' defaults. Everything else is `1`.
     pub fn version(&self) -> u32 {
         match self {
-            EventPayload::MergeProposed { .. } => 2,
+            EventPayload::MergeProposed { .. } => 3,
             _ => 1,
         }
     }
@@ -1374,8 +1391,8 @@ mod tests {
 
     #[test]
     fn a_version_one_merge_proposed_reads_as_agent_sourced() {
-        // A payload written before `source` existed must replay: the field defaults to `Agent`,
-        // which every proposal then was.
+        // A payload written before `source` and `rationale` existed must replay: both fields default
+        // (to `Agent` and no stated grounds), which every early proposal was.
         let from = MemoryId::generate();
         let to = MemoryId::generate();
         let legacy = format!(
@@ -1388,6 +1405,27 @@ mod tests {
                 from,
                 to,
                 source: MergeProposalSource::Agent,
+                rationale: None,
+            }
+        );
+    }
+
+    #[test]
+    fn a_version_two_merge_proposed_reads_with_no_rationale() {
+        // A payload written after `source` but before `rationale` replays with the rationale absent.
+        let from = MemoryId::generate();
+        let to = MemoryId::generate();
+        let legacy = format!(
+            r#"{{"type":"MergeProposed","from":"{}","to":"{}","source":"Orchestration"}}"#,
+            from.0, to.0
+        );
+        assert_eq!(
+            serde_json::from_str::<EventPayload>(&legacy).unwrap(),
+            EventPayload::MergeProposed {
+                from,
+                to,
+                source: MergeProposalSource::Orchestration,
+                rationale: None,
             }
         );
     }

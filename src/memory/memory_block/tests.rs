@@ -2,7 +2,7 @@ use super::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice
 use crate::{
     clock::ManualClock,
     engine::Engine,
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, LinkSource, MergeProposalSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{ConversationId, MemoryId, MemoryName, Namespace, NamespacedMemoryName},
     store::{MemoryStore, Store},
@@ -229,7 +229,7 @@ fn operator_authority_may_write_self_and_links_carry_operator() {
 }
 
 #[test]
-fn platform_authority_cannot_assert_a_same_as_merge() {
+fn platform_authority_same_as_link_routes_to_a_merge_proposal() {
     let (graph, _self_id) = graph_with_self();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
@@ -240,19 +240,58 @@ fn platform_authority_cannot_assert_a_same_as_merge() {
         .create(Namespace::Person.with_name("dave@discord"), None)
         .unwrap();
 
-    // Merging two identities — or splitting one — is operator-only, regardless of the endpoints.
-    assert!(matches!(
-        block
-            .link(dave, dave_discord, RelationName::SameAs)
-            .unwrap_err(),
-        MemoryError::MergeForbidden
-    ));
+    // A sibling append rides in the same block; it must survive the same_as handling.
+    block
+        .append(
+            dave,
+            "handles the deploys",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    // The agent reading `link("same_as", …)` as an identity binding does not crash the block: the
+    // create routes to the proposal path, buffering an inert `MergeProposed` (no `same_as`, no rollback).
+    block
+        .link(dave, dave_discord, RelationName::SameAs)
+        .unwrap();
+
+    // A retraction, by contrast, stays operator-only — the agent can neither assert nor undo a merge.
     assert!(matches!(
         block
             .unlink(dave, dave_discord, RelationName::SameAs)
             .unwrap_err(),
         MemoryError::MergeForbidden
     ));
+
+    // The block commits a `MergeProposed` (agent-sourced, no rationale) rather than a `same_as`
+    // `LinkCreated`, and the innocent sibling append survives alongside it.
+    let events = block.into_effects().events;
+    let proposed = events.iter().any(|event| {
+        matches!(
+            event,
+            EventPayload::MergeProposed {
+                from,
+                to,
+                source: MergeProposalSource::Agent,
+                rationale: None,
+            } if *from == dave && *to == dave_discord
+        )
+    });
+    assert!(proposed, "the same_as link routes to a MergeProposed");
+    let no_same_as = !events.iter().any(|event| {
+        matches!(
+            event,
+            EventPayload::LinkCreated { relation, .. } if *relation == RelationName::SameAs
+        )
+    });
+    assert!(no_same_as, "no same_as link is authored from a turn");
+    let sibling_survived = events.iter().any(
+        |event| matches!(event, EventPayload::MemoryContentAppended { id, .. } if *id == dave),
+    );
+    assert!(sibling_survived, "the sibling append is not rolled back");
 }
 
 #[test]

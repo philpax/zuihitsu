@@ -62,10 +62,17 @@ impl MemoryBlock {
     /// Propose that two stubs are the same human across platforms, for the adjudication pass to weigh
     /// (spec §Cross-platform identity → adjudicated merge). This is *not* a merge: it buffers an inert
     /// `MergeProposed` — no `same_as`, no class change, nothing surfaces across the would-be merge — so
-    /// the agent records its judgment without itself collapsing two identities' visibility. A proposal
-    /// naming one memory twice is rejected as a teachable error; everything else (whether the two are
-    /// truly the same) is the adjudicator's call, on the evidence.
-    pub fn propose_merge(&mut self, from: MemoryId, to: MemoryId) -> Result<(), MemoryError> {
+    /// the agent records its judgment without itself collapsing two identities' visibility. `rationale`
+    /// carries the proposer's stated grounds for the coincidence, if any, which the adjudicator weighs
+    /// against the two stubs' independently-recorded facts. A proposal naming one memory twice is
+    /// rejected as a teachable error; everything else (whether the two are truly the same) is the
+    /// adjudicator's call, on the evidence.
+    pub fn propose_merge(
+        &mut self,
+        from: MemoryId,
+        to: MemoryId,
+        rationale: Option<String>,
+    ) -> Result<(), MemoryError> {
         if from == to {
             return Err(MemoryError::MergeProposalInvalid);
         }
@@ -75,6 +82,7 @@ impl MemoryBlock {
             from,
             to,
             MergeProposalSource::Agent,
+            rationale,
         ));
         Ok(())
     }
@@ -217,8 +225,15 @@ impl MemoryBlock {
         }
         // Cross-platform identity is operator-asserted only: a participant must not be able to steer
         // the agent into merging (or splitting) two identities, which would collapse their visibility
-        // classes (spec §Cross-platform identity is operator-asserted only).
+        // classes (spec §Cross-platform identity is operator-asserted only). The agent nonetheless reads
+        // for `link("same_as", other)` as "these are the same person" — its stated intent is a merge —
+        // so a create routes to the proposal path (an inert `MergeProposed` the adjudication pass weighs)
+        // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
+        // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
         if relation == RelationName::SameAs && self.authority == Authority::Platform {
+            if create {
+                return self.propose_merge(from, to, None);
+            }
             return Err(MemoryError::MergeForbidden);
         }
         // A link from or to `self` modifies the self model — barred outside the console.

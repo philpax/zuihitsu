@@ -766,12 +766,18 @@ pub(super) fn append_options_from_lua(
     Ok(Some(lua.from_value(opts)?))
 }
 
-/// Rewrite date handles inside an `occurred_at` tagged table into the primitives its [`TemporalRef`]
-/// deserialization expects, in place: a `{ day = <date object> }` field becomes `{ day = "…" }`, and a
-/// range's `start`/`end` date objects become the day's bounding instants (its start for `start`, its
-/// last millisecond for `end`, so a range from Monday to Friday spans all of Friday). A position already
-/// holding a primitive is left untouched. The value itself being a date handle needs no rewrite — a date
-/// handle *is* a `{ day = "…" }` table, so it already deserializes as a `Day`.
+/// Rewrite date-shaped values inside an `occurred_at` tagged table into the primitives its
+/// [`TemporalRef`] deserialization expects, in place, so a day named as a date object *or* a bare
+/// `"YYYY-MM-DD"` string stands in wherever a millisecond timestamp is wanted:
+/// - a `{ day = <date object> }` field becomes `{ day = "…" }`;
+/// - a range's `start`/`end` — a date object or a date string — becomes the day's bounding instant (its
+///   first millisecond for `start`, its last for `end`, so a range from Monday to Friday spans all of
+///   Friday);
+/// - an `instant` given as a date object or date string becomes the day's first millisecond.
+///
+/// A position already holding a primitive is left untouched, so a millisecond count passes through. The
+/// value itself being a date handle needs no rewrite — a date handle *is* a `{ day = "…" }` table, so it
+/// already deserializes as a `Day`.
 fn normalize_temporal(occurred: &Table) -> mlua::Result<()> {
     if let day @ Value::Table(_) = occurred.get::<Value>("day")? {
         occurred.set("day", day_string(&day)?)?;
@@ -780,29 +786,39 @@ fn normalize_temporal(occurred: &Table) -> mlua::Result<()> {
         coerce_range_bound(&range, "start", DayBound::Start)?;
         coerce_range_bound(&range, "end", DayBound::End)?;
     }
+    let instant = occurred.get::<Value>("instant")?;
+    if matches!(instant, Value::Table(_) | Value::String(_)) {
+        occurred.set("instant", day_bound_millis(&instant, DayBound::Start)?)?;
+    }
     Ok(())
 }
 
-/// Which instant of a day a range endpoint resolves to when a date object stands in for a millisecond
-/// timestamp: the day's first millisecond for a `start`, its last for an `end`, so the range covers the
-/// whole of both boundary days.
+/// Which instant of a day a millisecond-typed position resolves to when a date stands in for it: the
+/// day's first millisecond for a `Start`, its last for an `End`, so a range covers the whole of both
+/// boundary days and a bare instant lands at the start of its day.
 enum DayBound {
     Start,
     End,
 }
 
-/// Replace a range endpoint given as a date object with the day's bounding instant in epoch
-/// milliseconds; a primitive already there (a millisecond count) is left untouched.
+/// Replace a range endpoint given as a date object or a `"YYYY-MM-DD"` string with the day's bounding
+/// instant in epoch milliseconds; a primitive already there (a millisecond count) is left untouched.
 fn coerce_range_bound(range: &Table, key: &str, bound: DayBound) -> mlua::Result<()> {
-    if let endpoint @ Value::Table(_) = range.get::<Value>(key)? {
-        let day = day_string(&endpoint)?;
-        let midnight =
-            civil_date_to_millis(&day).ok_or(TemporalArgError::InvalidDay { input: day })?;
-        let millis = match bound {
-            DayBound::Start => midnight,
-            DayBound::End => midnight + MILLIS_PER_DAY - 1,
-        };
-        range.set(key, millis)?;
+    let endpoint = range.get::<Value>(key)?;
+    if matches!(endpoint, Value::Table(_) | Value::String(_)) {
+        range.set(key, day_bound_millis(&endpoint, bound)?)?;
     }
     Ok(())
+}
+
+/// Resolve a date object or `"YYYY-MM-DD"` string to one of its day's bounding instants in epoch
+/// milliseconds — the shared coercion behind a range endpoint and a bare `instant`. An unparseable day
+/// is a teachable [`TemporalArgError::InvalidDay`].
+fn day_bound_millis(value: &Value, bound: DayBound) -> mlua::Result<i64> {
+    let day = day_string(value)?;
+    let midnight = civil_date_to_millis(&day).ok_or(TemporalArgError::InvalidDay { input: day })?;
+    Ok(match bound {
+        DayBound::Start => midnight,
+        DayBound::End => midnight + MILLIS_PER_DAY - 1,
+    })
 }

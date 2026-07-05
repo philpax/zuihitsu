@@ -364,6 +364,7 @@ impl Control<'_> {
                     from,
                     to,
                     source: raised_by,
+                    ..
                 } => {
                     let pair = canonical_pair(from, to);
                     if source.insert(pair, raised_by).is_none() {
