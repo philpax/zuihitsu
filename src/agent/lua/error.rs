@@ -276,10 +276,9 @@ impl std::fmt::Display for ConcatError {
             ConcatError::NonJoinable => write!(
                 f,
                 "table.concat joins only strings and numbers, but this list holds values it cannot — \
-                 a handle list like mem:entries() or hub:links(), most likely. To compose text from \
-                 entries, links, or dates, interpolate them into a backtick string — \
-                 `latest: {{es[1]}}` renders a handle as its own text — or render each with \
-                 tostring(e) in a loop"
+                 a handle list like mem:entries() or hub:links(), most likely. Handles concatenate \
+                 directly (\"- \" .. e renders one as its text), so build the string with .. in a \
+                 loop, or interpolate into a backtick string: `latest: {{es[1]}}`"
             ),
         }
     }

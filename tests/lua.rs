@@ -1111,6 +1111,46 @@ async fn a_memory_handle_renders_its_link_neighborhood() {
 }
 
 #[tokio::test]
+async fn memory_and_link_handles_concatenate_as_their_rendered_text() {
+    // `"Topic: " .. topic` and `"- " .. link` are the joins the agent actually writes when composing
+    // a reply from a read (the Luau validation's residual crashes) — a memory handle and a link
+    // result now concatenate as the same text printing shows, from either side, instead of erroring
+    // as bare tables.
+    let h = Harness::new();
+    h.run(
+        r#"
+        links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
+        local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
+        local ship = memory.create(EVENT_LAUNCH, "Ship the migration")
+        ship:link("part_of", topic)
+        "#,
+    )
+    .await;
+
+    let BlockOutcome::Committed { result } = h
+        .run(
+            r#"
+        local topic = memory.get(TOPIC_MIGRATION)
+        local line = "Topic: " .. topic
+        for _, link in ipairs(topic:links()) do
+            line = line .. " // " .. ("- " .. link)
+        end
+        return line
+        "#,
+        )
+        .await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        result.starts_with("Topic: ")
+            && result.contains(MemoryName::from(Namespace::Topic.with_name("migration")).as_str())
+            && result.contains("// - part_of ← "),
+        "handles should concatenate as their rendered text, got: {result}"
+    );
+}
+
+#[tokio::test]
 async fn a_dated_link_target_shows_its_occurrence_on_the_handle() {
     // A dated spoke carries its date onto the hub's links line (the same `[when …]` phrasing a search
     // hit uses), so relaying the recap from the handle keeps the *when* without a separate read.

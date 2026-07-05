@@ -18,8 +18,8 @@ use crate::{
 use super::{
     error::{BlockConsistencyError, CalendarError, HandleKind, TurnResolveError},
     runtime::{
-        BlockApi, HandleSelf, SearchOpts, append_options_from_lua, date_text, day_string,
-        entry_handle_id, handle_id, link_target_id, make_date, make_entry_handle,
+        BlockApi, HandleSelf, SearchOpts, append_options_from_lua, concat_via_tostring, date_text,
+        day_string, entry_handle_id, handle_id, link_target_id, make_date, make_entry_handle,
         make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
         make_relation_result, readonly_newindex, render, render_neighborhood, route_error,
         run_memory_search, value_text,
@@ -90,6 +90,9 @@ pub(super) fn install_block_api(
     // naming the persisting operation instead. Internal setup writes raw fields with `raw_set` to
     // bypass it (see `resolve_existing_handle`).
     metatable.set("__newindex", readonly_newindex(lua, HandleKind::Memory)?)?;
+    // `"Topic: " .. topic` composes the handle's rendered text — the join the agent writes when
+    // assembling a reply — rather than erroring as a bare table.
+    metatable.set("__concat", concat_via_tostring(lua)?)?;
     // A memory handle renders self-describingly: its name, its description, and — for a handle minted
     // by `memory.get`/`memory.get_or_create`, which precompute it (see `resolve_existing_handle`) — a
     // compact `links:` line naming its neighborhood (each link as `relation → name`, a dated target's
@@ -699,6 +702,8 @@ fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
         "__newindex",
         readonly_newindex(lua, HandleKind::SearchResult)?,
     )?;
+    // A hit concatenates as its rendered line, mirroring how it prints.
+    metatable.set("__concat", concat_via_tostring(lua)?)?;
     Ok(metatable)
 }
 
@@ -762,6 +767,9 @@ fn link_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             Ok(line)
         })?,
     )?;
+    // `"- " .. link` composes the link's rendered line — the join the agent writes when listing a
+    // memory's relationships — rather than erroring as a bare table.
+    metatable.set("__concat", concat_via_tostring(lua)?)?;
     Ok(metatable)
 }
 

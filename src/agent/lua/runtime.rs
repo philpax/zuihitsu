@@ -683,6 +683,35 @@ pub(super) fn value_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
         .unwrap_or_default())
 }
 
+/// The `__concat` metamethod shared by the read-surface handles (a memory, a link result, a search
+/// result): each operand renders through its own `__tostring`, so `"Topic: " .. topic` and
+/// `"- " .. link` compose the same text printing already shows, rather than erroring as a bare
+/// table — the join the agent actually writes when assembling a reply. A plain string or number
+/// operand coerces as Lua's `tostring` would.
+pub(super) fn concat_via_tostring(lua: &Lua) -> mlua::Result<mlua::Function> {
+    lua.create_function(|lua, (left, right): (Value, Value)| {
+        Ok(format!(
+            "{}{}",
+            tostring_text(lua, &left)?,
+            tostring_text(lua, &right)?
+        ))
+    })
+}
+
+/// One `__concat` operand's text: a table with a `__tostring` renders through it; everything else
+/// coerces as Lua's `tostring` would (strings and numbers directly, otherwise empty).
+fn tostring_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
+    if let Value::Table(table) = value
+        && let Some(text) = tostring_via_metamethod(lua, value, table)
+    {
+        return Ok(text);
+    }
+    Ok(lua
+        .coerce_string(value.clone())?
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default())
+}
+
 /// Render a value for a date handle's `__concat`: a date handle (a `{ day = "…" }` table) yields its
 /// ISO day, and any other operand coerces as Lua's `tostring` would — so both `"on " .. friday` and
 /// `friday .. " it is"` read the date while the surrounding text coerces normally.
