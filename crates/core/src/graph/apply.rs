@@ -1,5 +1,5 @@
 //! The materializer: folding committed events into the graph projection in `Seq` order. Dispatch is
-//! on the payload's `(type, version)`; a wrong arm is a silent-leak class the eval harness backstops.
+//! on the payload's `(type, version)`; a wrong arm silently mis-projects, so the arms warrant care.
 
 use std::collections::BTreeMap;
 

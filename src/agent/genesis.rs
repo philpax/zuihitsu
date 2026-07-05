@@ -664,11 +664,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         },
         TemplateDef {
             name: PromptTemplateName::LinkInference,
-            // Version 2: the direction discipline — the pass reads the edge back as a sentence
-            // before choosing `direction`. Under a coined directional relation it reversed the edge
-            // in a quarter of runs ("Clara has been mentoring Theo" linked as clara mentored_by
-            // theo); restating the edge as subject-relation-object catches the flip before it
-            // commits.
+            // Version 2 adds the direction discipline: a coined directional relation is easy to
+            // link the wrong way round, so the pass restates the edge as a sentence before choosing
+            // `direction`, catching a flipped edge before it commits.
             version: 2,
             body: "You identify relationships implicit in a memory's content and assert them as links \
                    to other memories. You are given the memory's numbered statements, its existing \
@@ -769,8 +767,8 @@ struct RelationDef {
 /// deliberately *not* seeded. They belong to the agent's own operating environment, so the agent
 /// coins them itself (`links.register`) with names and directions that fit what it actually
 /// encounters. Per-instance registrations persist in the log, so one agent's coined vocabulary is
-/// stable across its whole life; cross-run variance in which label an eval instance mints (e.g.
-/// `mentors` versus `mentored_by`) is expected and fine — the point under test is that the agent
+/// stable across its whole life; which label a given instance mints (e.g. `mentors` versus
+/// `mentored_by`) may vary between instances, and that is fine — what matters is that the agent
 /// reaches for a typed relation at all, not that it lands on a build-blessed spelling.
 fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
@@ -1469,7 +1467,7 @@ mod tests {
     fn the_scaffold_teaches_search_before_creating() {
         // The reuse dotpoint teaches informed creation: search a non-person thing by name and meaning
         // and reuse a hit rather than guessing a fresh handle, since a guessed name that misses the
-        // existing memory mints a duplicate (the book-club fragmentation the eval surfaced). Always-on
+        // existing memory mints a duplicate and splits one referent's facts across variants. Always-on
         // (it gates on no feature), so it stands under the default and a stripped feature set alike.
         let full = scaffold_body(&InstanceFeatures::default());
         assert!(full.contains("memory.search by name and meaning and reuse a hit"));
@@ -1490,7 +1488,7 @@ mod tests {
     fn the_event_dotpoint_teaches_a_recurring_event_is_one_memory() {
         // The undated-name teaching now covers recurring events explicitly: a repeating gathering is
         // one memory under its generic name, each occurrence dated on its entries — never a date-stamped
-        // clone per mention (the fragmentation the eval surfaced). It rides the calendar-gated event
+        // clone per mention, which splits one gathering's record across variants. It rides the calendar-gated event
         // dotpoint, so it is present by default and dropped when the calendar is off.
         let on = scaffold_body(&InstanceFeatures::default());
         assert!(

@@ -1211,7 +1211,7 @@ impl EventPayload {
 
 /// A committed event: a payload assigned a position in the log's total order and stamped with the
 /// wall-clock time it was recorded. This is what a read returns; it is immutable. Serializable so it
-/// rides verbatim in an eval package and (later) over the console's wire (spec §Observability).
+/// rides verbatim over the observability surfaces (spec §Observability).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Event {

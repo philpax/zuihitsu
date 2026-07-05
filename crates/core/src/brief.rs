@@ -103,9 +103,8 @@ pub struct BriefRelationship {
 }
 
 impl Brief {
-    /// Render the brief as the `## <subject>` participant block — byte-identical to what
-    /// [`compose_participant`] produced before the struct became the source of truth, so the agent's
-    /// prompt and the evals that pin the brief surface are unaffected.
+    /// Render the brief as the `## <subject>` participant block — the agent-facing projection of
+    /// the structured form, and the one place the block's markup is written.
     pub fn render(&self) -> String {
         let mut out = String::new();
         let _ = writeln!(out, "## {}", self.subject.as_str());
