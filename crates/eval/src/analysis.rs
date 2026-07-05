@@ -46,31 +46,13 @@ pub fn last_agent_reply(events: &[Event]) -> Option<&str> {
     agent_replies(events).into_iter().last()
 }
 
-/// Every agent reply paired with the `turn_id` its `run_lua` blocks share — a block commits (and
-/// records its `LuaExecuted`) before the agent's reply turn, both stamped with the same `turn_id`, so
-/// this ties a reply's claim to whether that same turn actually committed a write (see
-/// [`turn_committed_write`]). Only `Responding` turns count, exactly as [`agent_replies`].
-pub fn agent_replies_with_turn(events: &[Event]) -> Vec<(TurnId, &str)> {
-    events
-        .iter()
-        .filter_map(|event| match &event.payload {
-            EventPayload::ConversationTurn {
-                turn_id,
-                role: TurnRole::Agent,
-                initiation: Initiation::Responding,
-                text,
-                ..
-            } => Some((*turn_id, text.as_str())),
-            _ => None,
-        })
-        .collect()
-}
-
-/// As [`agent_replies_with_turn`], with each reply also paired to the inbound participant turn it
-/// answers — the most recent `Participant` turn preceding it in the stream. This lets an oracle
-/// condition on what was *asked* (a turn requesting a durable write versus small talk) as well as on
-/// what the reply claims. A reply with no preceding participant turn (unusual) pairs with an empty
-/// inbound.
+/// Every responding agent reply paired with the `turn_id` its `run_lua` blocks share and the inbound
+/// participant turn it answers — the most recent `Participant` turn preceding it in the stream. A
+/// block commits (and records its `LuaExecuted`) before the agent's reply turn, both stamped with the
+/// same `turn_id`, so this ties a reply's claim to whether that same turn actually committed a write
+/// (see [`turn_committed_write`]), while the inbound lets an oracle condition on what was *asked* (a
+/// turn requesting a durable write versus small talk). A reply with no preceding participant turn
+/// (unusual) pairs with an empty inbound.
 pub fn agent_replies_with_inbound(events: &[Event]) -> Vec<(TurnId, &str, &str)> {
     let mut inbound = "";
     let mut replies = Vec::new();
