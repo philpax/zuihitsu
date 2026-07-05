@@ -63,9 +63,10 @@ impl std::str::FromStr for TagName {
 /// A link relation, by label. The relation registry lives in data (spec §Data model) and the agent
 /// registers relations at runtime, so this is a typed lens over the names: the build's seed
 /// relations are named variants that code can match (`SameAs` drives identity-class merging,
-/// `ParticipatesIn` event attendance, `PartOf` membership or aboutness, `Mentors` a directional
-/// mentorship, `LocatedAt` an event's venue), and everything else — including the inverse labels —
-/// falls to `Other`. It serializes as its bare name, so the wire format is just the string.
+/// `ParticipatesIn` event attendance, `PartOf` membership or aboutness), and everything else —
+/// including the inverse labels and every relation the agent coins for its own environment
+/// (mentorship, venues, employment) — falls to `Other`. It serializes as its bare name, so the wire
+/// format is just the string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RelationName {
     CreatedBy,
@@ -74,8 +75,6 @@ pub enum RelationName {
     SameAs,
     ParticipatesIn,
     PartOf,
-    Mentors,
-    LocatedAt,
     /// The inverse label of [`RelationName::CreatedBy`].
     Created,
     /// The inverse label of [`RelationName::OperatorOf`].
@@ -86,10 +85,6 @@ pub enum RelationName {
     HasParticipant,
     /// The inverse label of [`RelationName::PartOf`].
     Contains,
-    /// The inverse label of [`RelationName::Mentors`].
-    MentoredBy,
-    /// The inverse label of [`RelationName::LocatedAt`].
-    Hosts,
     Other(SmolStr),
 }
 
@@ -106,15 +101,11 @@ impl RelationName {
             "same_as" => RelationName::SameAs,
             "participates_in" => RelationName::ParticipatesIn,
             "part_of" => RelationName::PartOf,
-            "mentors" => RelationName::Mentors,
-            "located_at" => RelationName::LocatedAt,
             "created" => RelationName::Created,
             "operates" => RelationName::Operates,
             "known_by" => RelationName::KnownBy,
             "has_participant" => RelationName::HasParticipant,
             "contains" => RelationName::Contains,
-            "mentored_by" => RelationName::MentoredBy,
-            "hosts" => RelationName::Hosts,
             _ => RelationName::Other(SmolStr::new(name)),
         }
     }
@@ -127,15 +118,11 @@ impl RelationName {
             RelationName::SameAs => "same_as",
             RelationName::ParticipatesIn => "participates_in",
             RelationName::PartOf => "part_of",
-            RelationName::Mentors => "mentors",
-            RelationName::LocatedAt => "located_at",
             RelationName::Created => "created",
             RelationName::Operates => "operates",
             RelationName::KnownBy => "known_by",
             RelationName::HasParticipant => "has_participant",
             RelationName::Contains => "contains",
-            RelationName::MentoredBy => "mentored_by",
-            RelationName::Hosts => "hosts",
             RelationName::Other(name) => name.as_str(),
         }
     }

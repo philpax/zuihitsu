@@ -1487,9 +1487,9 @@ async fn link_inference_registers_and_links_from_content() {
 #[tokio::test]
 async fn link_inference_honors_a_seeded_inverse_label() {
     // The model is shown both labels of every registered pair, so it legitimately phrases a link
-    // through the inverse — `mentored_by` for the seeded `mentors` — with no new registration to
+    // through the inverse — `created` for the seeded `created_by` — with no new registration to
     // propose. The pass must resolve it onto the canonical relation with the direction flipped,
-    // not drop it as unregistered (the smoke-run regression after mentors/mentored_by were seeded).
+    // not drop it as unregistered.
     let h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
@@ -1511,25 +1511,25 @@ async fn link_inference_honors_a_seeded_inverse_label() {
         run_lua_call(
             r#"memory.create("person/clara", "a person")
                local zephyr = memory.create("topic/zephyr")
-               zephyr:append("This project was mentored by Clara", { by_agent = true, visibility = "public" })"#,
+               zephyr:append("This project was created by Clara", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(SynthesizeReply::description("A person.")),
         synthesize_call(SynthesizeReply::description("The zephyr project.")),
         // The inference reply names the edge through the seeded inverse, registering nothing new:
-        // zephyr --mentored_by--> clara, the same fact as clara --mentors--> zephyr.
+        // clara --created--> zephyr, the same fact as zephyr --created_by--> clara.
         link_inference_call(LinkInferenceArgs {
             new_relations: vec![],
             links: vec![InferredLink {
                 entry: 1,
-                relation: "mentored_by".to_owned(),
+                relation: "created".to_owned(),
                 target: "person/clara".to_owned(),
-                direction: "to".to_owned(),
+                direction: "from".to_owned(),
             }],
         }),
     ]);
 
-    run_turn(h.as_turn(&model, "This project was mentored by Clara", 8))
+    run_turn(h.as_turn(&model, "This project was created by Clara", 8))
         .await
         .unwrap();
     h.describe(&model).await;
@@ -1554,8 +1554,8 @@ async fn link_inference_honors_a_seeded_inverse_label() {
         matches!(
             &e.payload,
             EventPayload::LinkCreated { from, to, relation, source, .. }
-            if *from == clara.id && *to == zephyr.id
-              && relation.as_str() == "mentors"
+            if *from == zephyr.id && *to == clara.id
+              && relation.as_str() == "created_by"
               && *source == zuihitsu::LinkSource::Inferred
         )
     });

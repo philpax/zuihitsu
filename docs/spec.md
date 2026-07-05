@@ -1056,9 +1056,7 @@ LinkTypeRegistered       (knows / known_by)
 LinkTypeRegistered       (same_as / same_as)      -- symmetric; cross-platform identity
 LinkTypeRegistered       (participates_in / has_participant)  -- a person's attendance at an event
 LinkTypeRegistered       (part_of / contains)     -- membership or aboutness: an event, entry-bearing memory, or sub-topic belonging to a topic, project, or workstream (not people, who participates_in)
-LinkTypeRegistered       (mentors / mentored_by)  -- directional mentorship between people: the mentor mentors the mentee; use rather than the generic knows when mentorship is stated
-LinkTypeRegistered       (located_at / hosts)     -- an event's or thing's venue: located_at the place, which hosts it; use rather than part_of, which is membership or hierarchy, not a venue
-...                      (a small seed set; the agent registers more as needed)
+...                      (a minimum-viable ontology of structural universals; social and environmental semantics — mentorship, venues, employment — are the agent's to coin with links.register as its environment calls for them)
 ConfigSet                (default behavioral-settings snapshot — see Configuration)
 MemoryCreated            (self)
 MemoryContentAppended    (self <- the persona, then any seed disposition entries — the charter)

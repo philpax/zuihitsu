@@ -745,11 +745,26 @@ struct RelationDef {
     description: &'static str,
 }
 
+/// The seed relations are a minimum-viable ontology: the structural universals the system itself
+/// leans on — identity (`same_as`), participation (`participates_in`/`has_participant`), composition
+/// (`part_of`/`contains`), origin (`created_by`/`created`), operatorship (`operator_of`/`operates`),
+/// and acquaintance (`knows`/`known_by`). These earn seeding because they are domain-independent
+/// scaffolding that any instance's graph is built out of, and because code matches on several of them
+/// (`same_as` drives identity-class merging, and the rest anchor the reference examples and the
+/// scaffold's placement teaching).
+///
+/// Social and environmental semantics — mentorship, venues, employment, and the rest — are
+/// deliberately *not* seeded. They belong to the agent's own operating environment, so the agent
+/// coins them itself (`links.register`) with names and directions that fit what it actually
+/// encounters. Per-instance registrations persist in the log, so one agent's coined vocabulary is
+/// stable across its whole life; cross-run variance in which label an eval instance mints (e.g.
+/// `mentors` versus `mentored_by`) is expected and fine — the point under test is that the agent
+/// reaches for a typed relation at all, not that it lands on a build-blessed spelling.
 fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        Contains, Created, CreatedBy, HasParticipant, Hosts, KnownBy, Knows, LocatedAt, MentoredBy,
-        Mentors, Operates, OperatorOf, PartOf, ParticipatesIn, SameAs,
+        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, PartOf,
+        ParticipatesIn, SameAs,
     };
     vec![
         // created_by is historical origin (one creator); distinct from current operatorship.
@@ -817,35 +832,6 @@ fn seed_relations() -> Vec<RelationDef> {
             description: "An event, entry-bearing memory, or sub-topic belongs to a topic, \
                 project, or workstream — membership or aboutness. Not for people, who \
                 participates_in an event instead.",
-        },
-        // Directional mentorship between people: mentor/ --mentors--> mentee/, inverse
-        // mentee/ --mentored_by--> mentor/. Distinct from knows (a symmetric-feeling acquaintance):
-        // reach for this whenever mentorship is stated rather than flattening it to knows, which
-        // loses the direction of who guides whom.
-        RelationDef {
-            name: Mentors,
-            inverse: MentoredBy,
-            from_card: Many,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "One person mentors another — the mentor mentors the mentee; the mentee \
-                is mentored_by the mentor. Use this when mentorship is stated, rather than the \
-                generic knows, so the direction of who guides whom is kept.",
-        },
-        // An event's or thing's venue: event/ --located_at--> place/, inverse
-        // place/ --hosts--> event/. Distinct from part_of (membership or hierarchy): a venue is
-        // where something happens, not a topic or project it belongs to.
-        RelationDef {
-            name: LocatedAt,
-            inverse: Hosts,
-            from_card: One,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "An event or thing is located at a place — its venue. The place hosts the \
-                event. Use this to link an event to where it happens, not part_of, which is for \
-                membership or hierarchy rather than a venue.",
         },
     ]
 }
@@ -1064,11 +1050,10 @@ mod tests {
     }
 
     #[test]
-    fn genesis_seeds_the_mentorship_and_location_relations() {
-        // `mentors`/`mentored_by` and `located_at`/`hosts` meet the agent where it already reaches —
-        // it improvised these two concepts (mentor_of/mentored_by, located_at/has_location) with real
-        // directional ambiguity — rather than leaving it to coin inconsistent labels or overload
-        // knows and part_of.
+    fn genesis_does_not_seed_learned_social_relations() {
+        // Mentorship and venue semantics are the agent's to coin for its own environment, not seeded
+        // universals — so genesis must register neither. A minimal-seed instance leaves `mentors` and
+        // `located_at` to `links.register`, and a run that reaches for them coins its own.
         let mut store = MemoryStore::new();
         genesis::rollout(
             &mut store,
@@ -1080,25 +1065,18 @@ mod tests {
         .unwrap();
         let events = store.read_from(Seq::ZERO).unwrap();
 
-        let inverse_of = |forward: &str| {
-            events.iter().find_map(|e| match &e.payload {
-                EventPayload::LinkTypeRegistered { name, inverse, .. }
-                    if name.as_str() == forward =>
-                {
-                    Some(inverse.as_str().to_owned())
-                }
-                _ => None,
+        let seeded = |forward: &str| {
+            events.iter().any(|e| {
+                matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. } if name.as_str() == forward)
             })
         };
-        assert_eq!(
-            inverse_of("mentors").as_deref(),
-            Some("mentored_by"),
-            "genesis must seed mentors with its mentored_by inverse"
+        assert!(
+            !seeded("mentors"),
+            "mentorship is learned, not seeded — genesis must not register mentors"
         );
-        assert_eq!(
-            inverse_of("located_at").as_deref(),
-            Some("hosts"),
-            "genesis must seed located_at with its hosts inverse"
+        assert!(
+            !seeded("located_at"),
+            "venue semantics are learned, not seeded — genesis must not register located_at"
         );
     }
 

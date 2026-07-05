@@ -130,6 +130,23 @@ pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     })
 }
 
+/// Whether a link of relation `relation` was created directed from `from` to `to`, regardless of its
+/// source — the structural signal that the agent (or a pass) recorded *this specific* typed edge on
+/// the right endpoints and the right way round. Unlike [`link_inferred_directed`], it accepts any
+/// [`LinkSource`], so it recognizes an agent-authored `mem:link` as well as an inferred edge. A caller
+/// with a coined relation whose direction is label-dependent (the agent may register `mentors` and
+/// link `dave → erin`, or register `mentored_by` and link `erin → dave`) checks each direction-and-label
+/// candidate, so a reversed edge or a wrong pair still fails.
+pub fn link_directed(events: &[Event], from: MemoryId, to: MemoryId, relation: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkCreated { from: created_from, to: created_to, relation: created, .. }
+            if *created_from == from && *created_to == to && created.as_str() == relation
+        )
+    })
+}
+
 /// Whether an inferred link of relation `relation` was created directed from `from` to `to` — the
 /// structural signal that the link-inference pass extracted *this specific* relationship from content
 /// (source is `Inferred`), on the right endpoints and the right way round. A caller with two
