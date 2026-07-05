@@ -221,6 +221,34 @@ impl Platform<'_> {
             .await
     }
 
+    /// Force the live session in `locator`'s room to end and compact right now, through the exact path
+    /// the token-budget trigger drives — the pre-compaction flush, the raw-transcript and working-set
+    /// carryover staging, and a fresh session seeded from that carryover on the next message. This
+    /// states the intent "cut here" directly, so a caller that wants a compaction seam at a chosen
+    /// point does not have to size a token budget so the organic trigger *happens* to fire. Returns
+    /// whether a live session was compacted — `false` if the room has never been seen or has no live
+    /// session.
+    pub async fn force_compaction(
+        &self,
+        model: &dyn ModelClient,
+        locator: &ConversationLocator,
+    ) -> Result<bool, InstanceError> {
+        let Some(conversation) = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .conversation_for_locator(locator)?
+        else {
+            return Ok(false);
+        };
+        if self.server.sessions.get(conversation).is_none() {
+            return Ok(false);
+        }
+        self.end_session_for_compaction(conversation, model).await?;
+        Ok(true)
+    }
+
     /// End the live session because the buffer crossed the token budget, running the budget-gated
     /// pre-compaction flush and staging a raw-transcript carryover for the next message to re-segment
     /// from (spec §Compaction). The working-set carryover lands in a later stage.

@@ -191,6 +191,21 @@ impl RunContext {
         Ok(())
     }
 
+    /// Force a compaction of the open session in `platform`/`scope` right now, through the same path
+    /// the organic token-budget trigger drives (the pre-compaction flush, the carryover staging, and a
+    /// fresh session seeded from that carryover on the next turn). This states the cut point directly,
+    /// so a scenario probing survival across several seams forces its cuts rather than sizing a token
+    /// budget so the trigger *happens* to fire the right number of times. Returns whether a live
+    /// session was actually compacted.
+    pub async fn force_compaction(&self, platform: &str, scope: &str) -> Result<bool, EvalError> {
+        let locator = ConversationLocator::new(platform, scope);
+        Ok(self
+            .server
+            .platform()
+            .force_compaction(self.model.as_ref(), &locator)
+            .await?)
+    }
+
     /// Tune the checkpoint gates so a scripted two-room exchange trips them: the substance threshold
     /// and the cooldown, leaving the enable flag and the rest of the settings as seeded.
     pub fn tune_checkpoint(

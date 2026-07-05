@@ -137,7 +137,12 @@ impl Scenario for FlushVisibility {
     }
 }
 
-/// Fixture 23: the same session, then a probe for a thread the agent worked before the cut.
+/// Fixture 23: the same session, then a probe for a thread the agent worked before the cut. This
+/// scenario keeps the compaction ORGANIC — [`drive_session`] tightens the token budget and the
+/// scripted turns cross it, so the natural token trigger fires the cut. That covers the trigger
+/// arithmetic (a real turn's peak prompt crossing a real budget). Its sibling
+/// [`RepeatedCompaction`] takes the complementary half: it FORCES its cuts explicitly, so it can
+/// probe survival across several seams without depending on where a budget happens to land.
 pub struct WorkingState;
 
 #[async_trait]
@@ -207,10 +212,10 @@ async fn drive_session(ctx: &RunContext) -> Result<(), EvalError> {
     Ok(())
 }
 
-/// A longer scripted session that crosses the token budget twice, to probe whether working state
-/// survives more than one compaction seam — a machinery bound, not a judgment one. The earliest fact
-/// (the Q3 "big rock") is stated up front, then seven more topics push through several cuts before a probe
-/// asks for it back.
+/// A longer scripted session that is cut several times, to probe whether working state survives more
+/// than one compaction seam — a machinery bound, not a judgment one. The earliest fact (the Q3 "big
+/// rock") is stated up front, then seven more topics are worked while the session is compacted at
+/// [`FORCED_CUT_AFTER`] points, before a probe asks the earliest fact back.
 const REPEATED_SCRIPT: [&str; 8] = [
     "Morning! Let's lock the Q3 plan. The single most important thing — the big rock — is the database \
      migration. Everything else is secondary to it.",
@@ -223,23 +228,19 @@ const REPEATED_SCRIPT: [&str; 8] = [
     "And pencil in a team offsite. That's everything — thanks!",
 ];
 
-/// The token budget that trips a cut: a turn compacts when its peak prompt (`observed > token_budget`
-/// in `platform.rs`) crosses this, where the prompt is the frozen prefix (system prompt + brief) plus
-/// the accumulated buffer plus the inbound turn. After a cut the buffer resets, so cuts recur only if
-/// the budget is re-crossed within the remaining turns.
-///
-/// The arithmetic. Turn one's peak prompt is ~3.1k tokens (prefix + one turn); each further buffered
-/// turn adds ~130, so an uncut run climbs to ~4k by turn eight. The former budget of 3700 sat near the
-/// top of that band, so it was first crossed only around turn six — leaving too few turns to re-cross
-/// after the reset, which is why the soak reached just one cut. Sizing it to 3200 puts the first cross
-/// at turn two or three (3.1k + one turn ≈ 3.23k > 3200), and each post-cut session re-crosses within
-/// a turn or two — because its fresh brief carries a longer tail, so its baseline is no lower than the
-/// first's — yielding roughly three to four cuts across the eight scripted turns plus the probe.
-/// That clears the "at least twice" bar with generous margin while staying above turn one's ~3.1k peak,
-/// so the first segment is two turns rather than the every-turn thrash a sub-3.1k budget would force
-/// (a thrashing single-turn segment never reaches `FLUSH_MIN_TURNS`, so its working state is never
-/// flushed before the cut).
-const REPEATED_BUDGET: i64 = 3_200;
+/// A token budget high enough that the organic trigger never fires over this scripted session, so the
+/// only cuts are the ones [`RepeatedCompaction`] forces — the seam count is exactly the number of
+/// forced cuts, not a hostage to where a real prompt's tokens happen to land. This scenario is the
+/// forced complement to `compaction_preserves_working_state`, which keeps its single cut organic to
+/// cover the trigger arithmetic; here the point is survival across *several* seams, so the cuts are
+/// stated explicitly rather than dialed in.
+const REPEATED_NO_ORGANIC_BUDGET: i64 = 1_000_000;
+
+/// The turns (0-based indices into [`REPEATED_SCRIPT`]) after which the session is force-compacted.
+/// Each cut opens on a segment of at least [`FLUSH_MIN_TURNS`] turns, so the pre-compaction flush runs
+/// every seam — the earliest fact is written to memory in the first segment's flush and must then
+/// survive being carried across the later seams. Three cuts clears the "at least twice" sanity bar.
+const FORCED_CUT_AFTER: &[usize] = &[1, 3, 5];
 
 pub struct RepeatedCompaction;
 
@@ -250,20 +251,26 @@ impl Scenario for RepeatedCompaction {
             name: "working_state_survives_repeated_compaction".to_owned(),
             category: Category::Compaction,
             description:
-                "A working-state fact stated before the buffer re-segments several times under a \
-                          tight budget is still recoverable after all the cuts — the carryover \
-                          preserving it across many seams, not just the most recent. A machinery \
-                          bound on the carryover."
+                "A working-state fact stated before the session is compacted several times is still \
+                          recoverable after all the cuts — the carryover preserving it across many \
+                          seams, not just the most recent. A machinery bound on the carryover, with \
+                          the cuts forced explicitly rather than dialed in via the token budget."
                     .to_owned(),
             bar: Bar::Metric { threshold: 0.6 },
         }
     }
 
     async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.tighten_compaction(REPEATED_BUDGET, FLUSH_MIN_TURNS)?;
-        for message in REPEATED_SCRIPT {
+        // A budget the organic trigger never crosses, so the seam count is exactly the forced cuts.
+        ctx.tighten_compaction(REPEATED_NO_ORGANIC_BUDGET, FLUSH_MIN_TURNS)?;
+        for (index, message) in REPEATED_SCRIPT.into_iter().enumerate() {
             ctx.turn(Turn::new("discord", "leads", "dave", message))
                 .await?;
+            // Force the cut at the chosen points, through the same flush-and-carryover path the organic
+            // trigger drives — the segment just closed has at least `FLUSH_MIN_TURNS` turns, so it flushes.
+            if FORCED_CUT_AFTER.contains(&index) {
+                ctx.force_compaction("discord", "leads").await?;
+            }
         }
         ctx.describe_catch_up().await?;
         // Probe the earliest fact, after all the cuts.
@@ -296,7 +303,10 @@ impl Scenario for RepeatedCompaction {
                 "the session compacted at least twice",
                 cuts >= 2,
                 format!("{cuts} compaction cuts occurred"),
-                format!("only {cuts} cut(s) reached — tune REPEATED_BUDGET to force repeated cuts"),
+                format!(
+                    "only {cuts} cut(s) reached — a forced cut in FORCED_CUT_AFTER did not land \
+                     (was the session open when force_compaction ran?)"
+                ),
             ),
             Verdict::from_judge_outcome(
                 "recovered the pre-cut priority after repeated compactions",
