@@ -193,10 +193,13 @@ export function ConversationView({
     <ModelCalls.Provider value={modelCalls}>
       <Names.Provider value={names}>
         <TurnRefs.Provider value={refTargets}>
-          {/* The sidebar-and-transcript grid; the docked composer below mirrors it, so keep the two
-            template strings in step. */}
-          <div className="grid grid-cols-1 gap-1 md:grid-cols-[12rem_1fr] md:gap-8">
-            <div className="md:sticky md:top-4 md:self-start">
+          {/* The transcript-and-rooms grid — the room list sits to the right, so the horizontal read
+            is content first, navigation second (and the eval frame's scenario rail keeps the left
+            edge to itself). The docked composer below mirrors it, so keep the two template strings
+            in step. On mobile the DOM order stands (dropdown above the transcript); md moves the
+            list to the second column via order. */}
+          <div className="grid grid-cols-1 gap-1 md:grid-cols-[1fr_12rem] md:gap-8">
+            <div className="md:sticky md:top-4 md:order-last md:self-start">
               <aside className="hidden flex-col gap-4 md:flex">
                 {participate && (
                   <RoomControls
@@ -212,7 +215,7 @@ export function ConversationView({
                 {groups.length === 0 ? (
                   <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
                 ) : (
-                  <div className="flex flex-col gap-4 border-t border-line pt-4">
+                  <div className="flex flex-col gap-4">
                     {groups.map((group) => (
                       <div key={group.key} className="flex flex-col gap-1.5">
                         <Eyebrow>{group.key}</Eyebrow>
@@ -405,12 +408,11 @@ function Room({
       {thinking && <ThinkingIndicator />}
 
       {/* The composer floats in the workspace's bottom dock, so you can start typing from anywhere
-          in the transcript. It mirrors the view's sidebar grid so the writing line sits exactly
-          under the transcript column. */}
+          in the transcript. It mirrors the view's transcript-and-rooms grid so the writing line
+          sits exactly under the transcript column, with the spacer standing in for the room list. */}
       {participate && (
         <Docked>
-          <div className="pb-2.5 pt-2 md:grid md:grid-cols-[12rem_1fr] md:gap-8">
-            <div className="hidden md:block" />
+          <div className="pb-2.5 pt-2 md:grid md:grid-cols-[1fr_12rem] md:gap-8">
             <div className="w-full min-w-0 max-w-[46rem]">
               {participate.atHead ? (
                 <Composer
