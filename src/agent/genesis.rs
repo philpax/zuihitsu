@@ -218,7 +218,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     // under the preamble. Feature-gated points are included only when their feature is on, so the
     // prompt never teaches a practice the runtime rejects.
     let scaffold_preamble = "You act through a persistent memory that you read and write by \
-        emitting Lua through the run_lua tool. A turn is a loop of steps: at each step you either \
+        emitting Luau through the run_lua tool. A turn is a loop of steps: at each step you either \
         call run_lua or give a reply. What you write to memory persists across sessions; your \
         in-block scratchpad does not. You speak with several participants, who do not all see the \
         same things. Hold to these practices as you read and write that memory:";
@@ -353,7 +353,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
              calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
              Each returns a date object you pass straight as occurred_at (occurred_at = \
              calendar.in_weeks(2)) — not wrapped in a { day = ... } table — and which prints and \
-             concatenates as its date, so \"Reminder for \" .. calendar.next(\"friday\") just works."
+             concatenates as its date, so `Reminder for {calendar.next(\"friday\")}` just works."
                 .to_owned(),
         );
     }
@@ -534,7 +534,11 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 1,
+            // Version 2: the preamble now names the sandbox language as Luau (Lua with string
+            // interpolation), and the code examples throughout demonstrate backtick interpolation
+            // rather than `..` concatenation, so the agent adopts the idiom from the examples.
+            // Bumping the version keeps a v1 `produced_by` naming the old body.
+            version: 2,
             body: scaffold_body,
         },
         TemplateDef {
@@ -593,11 +597,12 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            // Version 2: the flush teaching was revised (issue #21) — it no longer manages any
-            // session-lifetime graph flag. Distinct bodies must not share a version across instances'
-            // logs — a flush turn's `produced_by` records the template version, so a v1 reference
-            // keeps naming the old body.
-            version: 2,
+            // Version 3: the preamble now names the sandbox language as Luau, matching the scaffold.
+            // (Version 2 revised the flush teaching for issue #21 — it no longer manages any
+            // session-lifetime graph flag.) Distinct bodies must not share a version across
+            // instances' logs — a flush turn's `produced_by` records the template version, so an
+            // earlier reference keeps naming the old body.
+            version: 3,
             body: flush_template_body(),
         },
         TemplateDef {
@@ -690,7 +695,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
 /// semantic graph.
 fn flush_template_body() -> String {
     "Before this conversation's live transcript scrolls out of view, write to memory — by \
-     emitting Lua through the run_lua tool — anything from it worth keeping that you have not \
+     emitting Luau through the run_lua tool — anything from it worth keeping that you have not \
      already recorded: facts you learned, decisions made, and commitments given. Record your own \
      observations and inferences under the `agent` teller, and record what you learned about a \
      person on that person's own memory under their canonical person/ handle — not on the memory \
@@ -1239,8 +1244,10 @@ mod tests {
                 Timestamp::from_millis(500),
                 vec![
                     EventPayload::prompt_template_registered(
+                        // The current Scaffold version, so the idempotent rollout recognizes it as
+                        // already present and does not re-emit it.
                         PromptTemplateName::Scaffold,
-                        1,
+                        2,
                         "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
                             .to_owned(),
                         EventSource::Orchestration,
@@ -1341,6 +1348,53 @@ mod tests {
             .find(|template| template.name == PromptTemplateName::Scaffold)
             .map(|template| template.body)
             .expect("default_templates includes the scaffold")
+    }
+
+    #[test]
+    fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
+        // The agent-facing prompt surfaces own the Luau identity: the scaffold preamble and the flush
+        // template both name Luau (not Lua) as the language emitted through run_lua, and each is bumped
+        // to the version that introduced the rename so an older `produced_by` keeps naming its body.
+        let templates = super::default_templates(&InstanceFeatures::default());
+        let template = |name| {
+            templates
+                .iter()
+                .find(|t| t.name == name)
+                .unwrap_or_else(|| panic!("default_templates includes {name:?}"))
+        };
+
+        let scaffold = template(PromptTemplateName::Scaffold);
+        assert_eq!(
+            scaffold.version, 2,
+            "the Luau-naming scaffold is registered at v2"
+        );
+        assert!(
+            scaffold
+                .body
+                .contains("emitting Luau through the run_lua tool")
+        );
+        assert!(!scaffold.body.contains("emitting Lua through"));
+
+        let flush = template(PromptTemplateName::Flush);
+        assert_eq!(
+            flush.version, 3,
+            "the Luau-naming flush is registered at v3"
+        );
+        assert!(
+            flush
+                .body
+                .contains("emitting Luau through the run_lua tool")
+        );
+        assert!(!flush.body.contains("emitting Lua through"));
+    }
+
+    #[test]
+    fn the_calendar_dotpoint_demonstrates_interpolation_not_concatenation() {
+        // The calendar-date dotpoint's reminder example uses a backtick interpolation, so the agent
+        // adopts the idiom from the example rather than the `..` concatenation it replaced.
+        let scaffold = scaffold_body(&InstanceFeatures::default());
+        assert!(scaffold.contains("`Reminder for {calendar.next(\"friday\")}`"));
+        assert!(!scaffold.contains("\"Reminder for \" .. calendar.next"));
     }
 
     #[test]

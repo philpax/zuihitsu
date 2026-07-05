@@ -1417,15 +1417,15 @@ impl From<TerminalCause> for ToolError {
 /// model and the parser can't drift.
 #[derive(Deserialize, JsonSchema)]
 struct RunLuaArgs {
-    /// Lua source to execute.
+    /// Luau source to execute.
     script: String,
 }
 
 fn run_lua_tool() -> ToolSpec {
     ToolSpec {
         name: "run_lua".to_owned(),
-        description: "Execute a Lua block against your memory; returns the value of its final \
-                      expression."
+        description: "Execute a Luau block (Lua with string interpolation: `like {this}`) against \
+                      your memory; returns the value of its final expression."
             .to_owned(),
         parameters: schema_of::<RunLuaArgs>(),
     }
