@@ -1239,9 +1239,12 @@ pub(super) fn context_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlu
     Ok(context)
 }
 
-/// The `convo` global: `turn(id)` resolves a conversation turn link — either the `[turn:<ulid>]` token
-/// or the `?turn=<ulid>` a console deep-link carries — to that moment and a small window of the
-/// surrounding turns in its session. The result is a table `{ id, ref, text, speaker, role, at,
+/// The `convo` global: `turn(id)` resolves a conversation turn link — the id carried in a
+/// `[turn:<ulid>]` token, the canonical agent-facing reference form — to that moment and a small
+/// window of the surrounding turns in its session. A console deep-link's `?turn=<ulid>` never reaches
+/// here: the connector normalizes any pasted URL to the token before the message reaches the agent
+/// (see [`turn_ref`](zuihitsu_core::turn_ref)), so this resolver reads a bare ULID and nothing more.
+/// The result is a table `{ id, ref, text, speaker, role, at,
 /// window }` — the focal turn's fields at the top (`ref` the canonical `[turn:…]` to cite it by), and
 /// `window` the ordered surrounding turns (the focal one included, flagged `focused`) — that prints as
 /// a readable transcript excerpt so `return convo.turn(id)` reads back as the exchange. Resolution

@@ -9,6 +9,17 @@
 //! token, [`scan`] splits prose from references (recognizing both forms), [`normalize`] collapses
 //! every reference to the canonical token, and [`extract_ids`] pulls the ids out.
 //!
+//! # The token/URL split
+//!
+//! The two forms are not peers on the agent's side of the boundary. The `[turn:<ulid>]` token is the
+//! **canonical agent-facing form**: the agent's resolver (`convo.turn(id)` in `src/agent/lua`) reads a
+//! bare ULID that it only ever sees inside a token, and a console URL never reaches it. URL awareness
+//! exists **for connectors to normalize *from*** — a frontend or platform integration converts a
+//! pasted deep-link into the token *before* the message reaches the agent. The console composer is one
+//! such connector: it calls [`normalize`] (through `console-wasm`) at send time, so a message that
+//! leaves the console carries only token syntax. The URL-recognizing half of [`scan`] therefore serves
+//! the composer and the console's pretty projection, never the agent-facing resolver.
+//!
 //! The module is deliberately dependency-light — no URL crate, no regex, only ULID parsing — so it
 //! compiles to wasm and drives the console through `console-wasm`.
 
@@ -82,7 +93,8 @@ pub fn normalize(text: &str) -> String {
 }
 
 /// Every turn id referenced in `text`, in order of appearance — the extract-all-ids path (the console's
-/// pretty projection, an agent's "resolve every link pasted here").
+/// pretty projection, and a connector resolving every reference pasted into a message before it reaches
+/// the agent).
 pub fn extract_ids(text: &str) -> Vec<TurnId> {
     scan(text)
         .into_iter()
@@ -273,6 +285,26 @@ mod tests {
         let text = "[turn:IIIIIIIIIIIIIIIIIIIIIIIIII]";
         assert!(extract_ids(text).is_empty());
         assert_eq!(scan(text), vec![Segment::Prose(text)]);
+    }
+
+    #[test]
+    fn the_agent_side_resolver_reads_a_bare_id_that_no_url_form_satisfies() {
+        // The agent-facing resolver (`convo.turn(id)`) parses a bare ULID — the value carried inside a
+        // `[turn:<ulid>]` token. URL awareness lives on the connector side (scan/normalize) only, so
+        // the token's body round-trips as a bare ULID while a whole console deep-link does not, which
+        // is why a URL can never resolve on the agent's side of the boundary.
+        let turn = turn_id(5);
+        let token = construct(turn);
+        let body = token
+            .strip_prefix(BRACKET_OPEN)
+            .and_then(|rest| rest.strip_suffix(']'))
+            .expect("the canonical token is [turn:<ulid>]");
+        assert_eq!(parse_ulid(body), Some(turn));
+
+        let url = format!("https://host/room?turn={}", turn.0);
+        assert_eq!(parse_ulid(&url), None);
+        // The connector-side scanner still resolves that URL — the awareness the agent lacks.
+        assert_eq!(extract_ids(&url), vec![turn]);
     }
 
     #[test]

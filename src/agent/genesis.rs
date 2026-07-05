@@ -388,8 +388,8 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
              whole story"
         };
         scaffold_points.push(format!(
-            "When someone references an earlier moment — a [turn:<id>] token, or a console link \
-             carrying ?turn=<id> — pass that id to convo.turn(id) to pull up the turn and the \
+            "When someone references an earlier moment — a [turn:<id>] token — pass that id to \
+             convo.turn(id) to pull up the turn and the \
              exchange around it, then answer from what was actually said rather than guessing which \
              moment they mean. To cite a specific earlier moment yourself, copy the ref field \
              convo.turn returns (the [turn:<id>] token). A moment resolves only when everyone here \
@@ -539,13 +539,14 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 3: informed creation. The reuse dotpoint now teaches search-before-create (a
-            // guessed handle that misses the existing memory mints a duplicate), and the event
-            // dotpoint teaches that a recurring gathering is one memory under its generic name rather
-            // than a date-stamped clone per mention. (Version 2 named the sandbox language as Luau and
-            // switched the examples to backtick interpolation.) Bumping the version keeps an older
-            // `produced_by` naming the body it was generated under.
-            version: 3,
+            // Version 4: token-only transcript references. The transcript dotpoint now teaches only
+            // the [turn:<id>] token — the connector normalizes a pasted console link to that token
+            // before the message reaches the agent, so the agent-facing surface never mentions or
+            // handles a URL. (Version 3 taught informed creation: search-before-create in the reuse
+            // dotpoint, and one memory per recurring gathering under its generic name. Version 2 named
+            // the sandbox language as Luau and switched the examples to backtick interpolation.)
+            // Bumping the version keeps an older `produced_by` naming the body it was generated under.
+            version: 4,
             body: scaffold_body,
         },
         TemplateDef {
@@ -1242,7 +1243,7 @@ mod tests {
                         // The current Scaffold version, so the idempotent rollout recognizes it as
                         // already present and does not re-emit it.
                         PromptTemplateName::Scaffold,
-                        3,
+                        4,
                         "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
                             .to_owned(),
                         EventSource::Orchestration,
@@ -1360,8 +1361,8 @@ mod tests {
 
         let scaffold = template(PromptTemplateName::Scaffold);
         assert_eq!(
-            scaffold.version, 3,
-            "the informed-creation scaffold is registered at v3 (v2 introduced the Luau naming)"
+            scaffold.version, 4,
+            "the token-only-transcript scaffold is registered at v4 (v3 taught informed creation, v2 the Luau naming)"
         );
         assert!(
             scaffold
@@ -1402,6 +1403,17 @@ mod tests {
             ..Default::default()
         };
         assert!(!scaffold_body(&disabled).contains("convo.turn"));
+    }
+
+    #[test]
+    fn the_transcripts_dotpoint_teaches_only_the_token_not_a_console_url() {
+        // The connector contract: a console URL never reaches the agent, so the scaffold's
+        // agent-facing surface teaches only the `[turn:<id>]` token and never mentions a console link
+        // or the `?turn=` query form.
+        let scaffold = scaffold_body(&InstanceFeatures::default());
+        assert!(scaffold.contains("[turn:<id>] token"));
+        assert!(!scaffold.contains("console link"));
+        assert!(!scaffold.contains("?turn="));
     }
 
     #[test]

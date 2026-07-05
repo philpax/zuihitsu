@@ -1,5 +1,5 @@
-//! Transcript references: a participant references an earlier moment — a `[turn:<ulid>]` token or a
-//! console `?turn=<ulid>` link — and asks about it. The agent resolves it with `convo.turn` and
+//! Transcript references: a participant references an earlier moment as a `[turn:<ulid>]` token (the
+//! connector normalizes any pasted console link to it) and asks about it. The agent resolves it with `convo.turn` and
 //! answers from that moment's actual content, *when* the audience rule permits it (spec §Transcripts).
 //!
 //! Three scenarios cover the surface:
@@ -81,10 +81,11 @@ impl Scenario for TranscriptLink {
         ctx.advance(MILLIS_PER_DAY);
 
         // Turn 2: Sarah returns and pastes the console link to turn 1, asking what she committed to.
-        // The link carries the earlier turn's id as `?turn=<id>`, exactly as a console deep-link mints.
+        // The reference arrives as the canonical token: the connector contract has any pasted
+        // console link normalized to `[turn:<id>]` before a message reaches the agent.
         let turn_id = first_participant_turn_id(&ctx.events()?, DECISION)
             .expect("turn 1 is recorded as a participant ConversationTurn");
-        let link = format!("http://127.0.0.1:7878/discord/q3-planning?turn={turn_id}");
+        let link = format!("[turn:{turn_id}]");
         ctx.turn(Turn::new(
             "discord",
             "q3-planning",
@@ -333,7 +334,7 @@ impl Scenario for TranscriptDmLookup {
         //
         // Beat 1: a solo DM with Maya. She attended the room, so the moment resolves for her alone —
         // she pastes the console link form.
-        let link = format!("http://127.0.0.1:7878/discord/eng-leads?turn={turn_id}");
+        let link = format!("[turn:{turn_id}]");
         ctx.turn(Turn::new(
             "discord",
             "dm/maya",

@@ -182,8 +182,8 @@ impl std::fmt::Display for TurnResolveError {
             ),
             TurnResolveError::NotFound { id } => write!(
                 f,
-                "no turn {id:?} exists — the id must be one you were given (the [turn:<id>] or the \
-                 ?turn=<id> of a link pasted here)"
+                "no turn {id:?} exists — the id must be one you were given (the value inside a \
+                 [turn:<id>] token)"
             ),
             TurnResolveError::Store(error) => {
                 write!(f, "could not read the conversation transcript: {error}")

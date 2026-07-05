@@ -450,8 +450,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let convo_turn = AE::new("convo.turn")
         .description(
             "Resolve a reference to an earlier moment to that turn and the exchange around it. \
-             References arrive two ways: a [turn:<id>] token, or a console link carrying the id as \
-             ?turn=<id> — pass the id from either here. The result is a table { id, ref, text, \
+             A reference arrives as a [turn:<id>] token — pass the id here. The result is a table { id, ref, text, \
              speaker, role, at, window } — the linked turn's fields (ref is the canonical [turn:<id>] \
              to cite it by, copy it into your reply), and window the surrounding turns (the linked \
              one flagged focused) — that prints as a transcript excerpt with the moment marked. A \
@@ -462,7 +461,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .required(
             "id",
             AT::String,
-            "the turn id — the value inside a [turn:<id>] token or the ?turn=<id> of a pasted link",
+            "the turn id — the value inside a [turn:<id>] token",
         )
         .returns(AT::Object(Vec::new()));
 

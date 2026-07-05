@@ -329,10 +329,12 @@ function Room({
 
   async function onSend(text: string) {
     if (!participate) return;
-    // Send-time normalization: any pasted turn URL collapses to the canonical `[turn:<ulid>]` token
-    // before the POST, so the log — and every downstream consumer, the agent's resolver included —
-    // sees only ref syntax from console-originated messages. The optimistic echo shows the
-    // normalized text, matching the turn the live tail will fold in.
+    // The connector contract: a console URL must never reach the agent. The console is a connector,
+    // so it converts any pasted turn deep-link into the canonical `[turn:<ulid>]` token here, before
+    // the POST — the single send path for both authorities below (participant message and operator
+    // imprint), so no console-originated message escapes normalization. The log, and every downstream
+    // consumer including the agent's token-only resolver, then sees only ref syntax. The optimistic
+    // echo shows the normalized text, matching the turn the live tail will fold in.
     const message = normalizeTurnRefs(text);
     const baseline = channel.conversation?.turns.length ?? 0;
     setOptimistic({ text: message, baseline });
