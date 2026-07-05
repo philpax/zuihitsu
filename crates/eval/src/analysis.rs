@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
     BEFORE_AFTER_EPSILON_MILLIS, ConversationId, EntryId, Event, EventPayload, Initiation,
-    LinkSource, MemoryId, MemoryName, MergeProposalSource, Teller, TemporalRef, Timestamp,
+    LinkSource, MemoryId, MemoryName, MergeProposalSource, Teller, TemporalRef, Timestamp, TurnId,
     TurnRole, Visibility, Volatility,
 };
 
@@ -44,6 +44,44 @@ pub fn agent_replies(events: &[Event]) -> Vec<&str> {
 /// The agent's last reply, if it spoke.
 pub fn last_agent_reply(events: &[Event]) -> Option<&str> {
     agent_replies(events).into_iter().last()
+}
+
+/// Every agent reply paired with the `turn_id` its `run_lua` blocks share — a block commits (and
+/// records its `LuaExecuted`) before the agent's reply turn, both stamped with the same `turn_id`, so
+/// this ties a reply's claim to whether that same turn actually committed a write (see
+/// [`turn_committed_write`]). Only `Responding` turns count, exactly as [`agent_replies`].
+pub fn agent_replies_with_turn(events: &[Event]) -> Vec<(TurnId, &str)> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                turn_id,
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } => Some((*turn_id, text.as_str())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether any block belonging to `turn_id` committed a durable write — a `LuaExecuted` for that turn
+/// whose `result` carries the `Committed:` summary the runtime folds in only when the block's buffer
+/// actually landed events. Two outcomes read as `false`, and both are the honest signal that the turn's
+/// reply may not claim a write: a block that crashed or aborted (its `terminal_cause` set and `result`
+/// `None`, its writes rolled back with it), and one that ran clean but wrote nothing (a `result`
+/// present with no `Committed:` line — a revise loop that matched nothing, or a read-only block). A turn
+/// that never reached a committing block at all (a max-steps death) has no such `LuaExecuted` either, so
+/// it too reads as `false`.
+pub fn turn_committed_write(events: &[Event], turn_id: TurnId) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LuaExecuted { turn_id: id, result: Some(result), .. }
+            if *id == turn_id && result.contains("Committed:")
+        )
+    })
 }
 
 /// Every Lua block the agent executed, in order.

@@ -20,6 +20,7 @@ mod scheduling;
 mod tagging;
 mod temporal;
 mod transcripts;
+mod write_honesty;
 
 use std::sync::Arc;
 
@@ -46,6 +47,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         compaction::scenarios(),
         checkpoint::scenarios(),
         conversations::scenarios(),
+        write_honesty::scenarios(),
     ]
     .into_iter()
     .flatten()

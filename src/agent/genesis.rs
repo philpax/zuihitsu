@@ -254,7 +254,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     let recall_point = format!(
         "A question is a cue to consult memory, not just the conversation in front of you. To recall \
          a person, memory.get their {person} handle — it returns everything you hold on them, surer \
-         than searching the topic; otherwise memory.search by meaning. A search hit is a pointer, not \
+         than searching the topic; otherwise memory.search by meaning — and re-issuing the same \
+         search returns the same hits, so if one comes up short, change the query or read what it \
+         already found rather than running it again unchanged. A search hit is a pointer, not \
          the whole record: when relaying a specific like a date, read the memory in full through its \
          entries rather than the hit's line.{recall_hub} Relay a recorded date from the entry's own \
          occurred_at as it reads back, never one inferred from when the conversation is happening. \
@@ -462,6 +464,20 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          entry stands. The teller is the tell: different people disagree (both stand); one person \
          revising themselves supersedes. Same on read: two values from one source are a revision; \
          supersede the stale copy wherever it sits."
+            .to_owned(),
+    );
+    // The commit-honesty point: a reply may only claim what the block's commit summary confirms.
+    // Always-on — it guards the write path itself, which no feature gates. It catches the false
+    // confirmation where a revise loop matched nothing, a block crashed and rolled its writes back, or
+    // the step budget ran out before a write, yet the reply says the record was made.
+    scaffold_points.push(
+        "Your reply may only claim what the commit summary shows. Each block's result names what \
+         landed — a `Committed:` line per write — or shows nothing did; a block that crashed or came \
+         back empty wrote nothing, its writes rolled back with it. Before you tell someone a thing is \
+         recorded, updated, or superseded, check the summary said so: a revise loop that matched \
+         nothing, or a block that died mid-step, committed nothing however sound the code looked. If \
+         it did not land, retry it or say plainly it did not — never confirm a write that never \
+         happened."
             .to_owned(),
     );
     scaffold_points.push(
@@ -1453,6 +1469,47 @@ mod tests {
         assert!(
             stripped.contains("The record that the two accounts conflict is not yours to compose")
         );
+    }
+
+    #[test]
+    fn the_scaffold_teaches_commit_honesty() {
+        // The commit-honesty point: a reply may only claim what the commit summary confirms — a block
+        // that crashed, came back empty, or ran a revise loop that matched nothing wrote nothing, so
+        // the reply must not confirm a write that never landed. Always-on (it gates on no feature), so
+        // it stands under the default and a stripped feature set alike.
+        let full = scaffold_body(&InstanceFeatures::default());
+        assert!(full.contains("Your reply may only claim what the commit summary shows"));
+        assert!(full.contains("never confirm a write that never"));
+
+        let stripped = scaffold_body(&InstanceFeatures {
+            linking: false,
+            tagging: false,
+            merging: false,
+            calendar: false,
+            transcripts: false,
+            ..Default::default()
+        });
+        assert!(stripped.contains("Your reply may only claim what the commit summary shows"));
+    }
+
+    #[test]
+    fn the_recall_point_teaches_not_to_repeat_a_search() {
+        // The recall dotpoint teaches that re-issuing an identical search returns the same hits, so a
+        // search that came up short is changed or read, not run again unchanged (the max-steps death
+        // where the agent burned its budget on eleven identical searches). The recall point is
+        // always-on, so the clause stands under the default and a stripped feature set alike.
+        let full = scaffold_body(&InstanceFeatures::default());
+        assert!(full.contains("re-issuing the same search returns the same hits"));
+
+        let stripped = scaffold_body(&InstanceFeatures {
+            linking: false,
+            tagging: false,
+            merging: false,
+            calendar: false,
+            transcripts: false,
+            ..Default::default()
+        });
+        assert!(stripped.contains("re-issuing the same search returns the same hits"));
     }
 
     #[test]
