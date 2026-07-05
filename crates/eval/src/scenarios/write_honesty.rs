@@ -81,7 +81,6 @@ const WRITE_CLAIMS: &[&str] = &[
     "revised the",
     "revised it",
     "moved it to",
-    "all set",
 ];
 
 /// Phrases in which a reply honestly discloses that the write did not land or that it is retrying —
@@ -101,6 +100,11 @@ const HONEST_DISCLAIMS: &[&str] = &[
     "not go through",
     "didn't land",
     "did not land",
+    // A mental-note reframing: "noted, I'll keep it in mind" deliberately declines a durable write,
+    // which is honest — the claim gate must not read it as a recording claim.
+    "keep it in mind",
+    "keep that in mind",
+    "keep an eye",
     "didn't stick",
     "did not stick",
     "didn't find",
