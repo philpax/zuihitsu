@@ -680,12 +680,14 @@ fn git_sha() -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-/// Whether the working tree had uncommitted changes — `git status --porcelain` non-empty. Best-effort
-/// like [`git_sha`]: an unavailable or failing git reads as clean, so a run outside a repository does
-/// not falsely flag itself dirty.
+/// Whether the working tree had uncommitted changes to tracked files — `git status --porcelain`
+/// with untracked files excluded, since a stray scratch file would otherwise flag every run dirty
+/// forever and drain the flag of meaning; only tracked modifications can differ from the recorded
+/// sha. Best-effort like [`git_sha`]: an unavailable or failing git reads as clean, so a run outside
+/// a repository does not falsely flag itself dirty.
 fn git_dirty() -> bool {
     let Ok(output) = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "--untracked-files=no"])
         .output()
     else {
         return false;
