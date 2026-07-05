@@ -58,9 +58,11 @@ pub fn day_window(date: &str) -> Option<(i64, i64)> {
     Some((midnight, midnight + MILLIS_PER_DAY - 1))
 }
 
-/// Parse a small calendar duration (`"7 days"`, `"2 weeks"`, singular accepted) to milliseconds, or
-/// `None` if it is not `<non-negative integer> day(s)|week(s)`. Deliberately narrow; richer durations
-/// can follow if the agent needs them.
+/// Parse a small calendar duration (`"7 days"`, `"2 weeks"`, `"6 months"`, singular accepted) to
+/// milliseconds, or `None` if it is not `<non-negative integer> day(s)|week(s)|month(s)`. A month is
+/// thirty days: these durations bound fuzzy windows (how far a calendar query looks), not civil-date
+/// arithmetic, so a fixed width serves better than month-length pedantry. Deliberately narrow beyond
+/// that; richer durations can follow if the agent needs them.
 pub fn parse_duration_millis(text: &str) -> Option<i64> {
     let mut parts = text.split_whitespace();
     let count: i64 = parts.next()?.parse().ok()?;
@@ -71,6 +73,7 @@ pub fn parse_duration_millis(text: &str) -> Option<i64> {
     let per_unit = match unit {
         "day" | "days" => MILLIS_PER_DAY,
         "week" | "weeks" => MILLIS_PER_WEEK,
+        "month" | "months" => 30 * MILLIS_PER_DAY,
         _ => return None,
     };
     count.checked_mul(per_unit)
