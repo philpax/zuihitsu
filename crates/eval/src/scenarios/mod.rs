@@ -18,6 +18,7 @@ mod rename;
 mod reuse;
 mod scheduling;
 mod tagging;
+mod temporal;
 mod transcripts;
 
 use std::sync::Arc;
@@ -37,6 +38,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         rename::scenarios(),
         decay::scenarios(),
         scheduling::scenarios(),
+        temporal::scenarios(),
         arbitration::scenarios(),
         privacy::scenarios(),
         joins::scenarios(),
