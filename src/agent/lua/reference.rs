@@ -164,9 +164,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              date and reuse it. Hold onto the object if you intend to supersede it. Capture the list \
              to see it — `local es = <memory>:entries()`, or iterate/print it; a bare \
              `<memory>:entries()` whose result you discard returns nothing to you, not an empty \
-             memory. Each element renders as its own text, so join a list into one string with \
-             table.concat(<memory>:entries(), \", \") or render each with tostring(e) in a loop — \
-             the elements are entry objects, not bare strings.",
+             memory. Each element is an entry object, not a bare string, and renders as its own text: \
+             interpolate one into a backtick string — `latest: {es[1]}` stringifies the entry — to \
+             compose a reply, and iterate the list to fold in several. This is the way to build text \
+             from entries, links, and dates; table.concat joins only strings and numbers.",
         )
         .returns(AT::Entry.list());
 
@@ -284,7 +285,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              \"← name\" for an incoming link), a dated target's occurrence appended as \"[when …]\"; \
              reach a linked memory through result.memory. Call it with a colon — <memory>:links() — \
              since <memory>.links is the method itself, not the list; each result renders as its own \
-             text, so join a list with table.concat(<memory>:links(), \"; \") or tostring(link).",
+             text, so interpolate one into a backtick string — `{link}` — to compose a line from it.",
         )
         .returns(AT::Object(Vec::new()).list());
 

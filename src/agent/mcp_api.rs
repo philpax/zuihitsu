@@ -551,7 +551,9 @@ fn escape_tool_name(raw: &str) -> String {
     escaped
 }
 
-/// Whether `word` is a Lua 5.4 reserved keyword.
+/// Whether `word` is a Luau reserved keyword. Luau does not reserve `goto` (it has no goto), but
+/// keeping it in the set is a harmless over-escape — a superset of the reserved words only ever
+/// suffixes a tool name that did not strictly need it.
 fn is_lua_keyword(word: &str) -> bool {
     matches!(
         word,

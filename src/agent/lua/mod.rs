@@ -387,12 +387,21 @@ impl Session {
 /// must not reach the filesystem, the environment, the process, or arbitrary code on disk. MCP is the
 /// only sanctioned outward reach (spec §External I/O via MCP).
 ///
-/// Only the pure libraries are loaded — string, table, math, utf8, and coroutine — so `os`, `io`,
-/// `package` (and thus `require`), `debug`, and the FFI/JIT escapes are never present. The base library
-/// is always loaded, so the code-loading globals it still carries (`load`, `loadfile`, `dofile`,
-/// `loadstring`, `require`) are then removed by hand. Dropping `os` also keeps blocks deterministic
-/// under replay: there is no wall-clock `os.time`/`os.date`, so time only ever comes from the injected
-/// clock. `print` and `inspect` are installed per block; here we only fix the global environment.
+/// The VM is Luau, whose sandboxing-first design suits executing model-written code. Only the pure
+/// libraries are loaded — string, table, math, utf8, and coroutine — so `os`, `io`, `package` (and thus
+/// `require`), `debug`, and the FFI/JIT escapes are never present. Dropping `os` also keeps blocks
+/// deterministic under replay: there is no wall-clock `os.time`/`os.date`, so time only ever comes from
+/// the injected clock. Luau already omits the dynamic code-loading globals (`load`, `loadstring`,
+/// `dofile`, `loadfile`) and has no `require`, so the surface is narrow to begin with; we defensively
+/// clear any a future revision might reintroduce.
+///
+/// After the environment is fixed, [`Lua::sandbox`] freezes it: the global table and the standard
+/// libraries become read-only to scripts, so a block cannot monkey-patch `string`/`table` to reshape
+/// the API or smuggle state across blocks through a mutated library. Host-side installs still write
+/// globals freely (the read-only bar is on scripts, not the Rust API), so the per-block memory API and
+/// the persistent scratchpad both keep working — a script's own new globals persist across the session's
+/// blocks as before. `print` and `inspect` are installed per block; the lenient-error `table.concat`
+/// shell and `inspect` are installed here, before the freeze, so they are part of the frozen surface.
 fn sandboxed_lua() -> Lua {
     let lua = Lua::new_with(
         StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE,
@@ -407,7 +416,9 @@ fn sandboxed_lua() -> Lua {
     }
     drop(globals);
     install_inspect(&lua).expect("installing the inspect global");
-    install_table_concat(&lua).expect("installing the lenient table.concat");
+    install_table_concat(&lua).expect("installing the table.concat error shell");
+    lua.sandbox(true)
+        .expect("enabling the Luau sandbox for the global environment");
     lua
 }
 

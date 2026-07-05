@@ -260,7 +260,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          the whole record: when relaying a specific like a date, read the memory in full through its \
          entries rather than the hit's line.{recall_hub} Relay a recorded date from the entry's own \
          occurred_at as it reads back, never one inferred from when the conversation is happening. \
-         Read a merged identity through its canonical {person} handle, not a per-platform stub."
+         Read a merged identity through its canonical {person} handle, not a per-platform stub. When \
+         you relay, interpolate the entry or memory straight into a backtick string — `next: {{entry}}` \
+         renders its text — rather than retyping the fact."
     );
     let merge_point = format!(
         "Until a merge is adjudicated, two {person} stubs are two people even under one display \

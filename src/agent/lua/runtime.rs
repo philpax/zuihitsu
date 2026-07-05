@@ -637,64 +637,34 @@ pub(super) fn install_inspect(lua: &Lua) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Install a lenient `table.concat` over the stdlib one. Stock Lua 5.4 `table.concat` joins only
-/// strings and numbers and invokes no `__tostring`, so a reader's handle list — `mem:entries()`,
-/// `hub:links()` — crashes it with an opaque "invalid value (at index …) for 'concat'", one of the
-/// recurring recall confusions. This override renders any element that carries a `__tostring` (an
-/// entry, a link, a search result, a date object) through it before joining, so
-/// `table.concat(mem:entries(), ", ")` joins the entries' own text — the same text `print` and a bare
-/// return already show. Strings and numbers join exactly as before, so an ordinary
-/// `table.concat(names, ",")` over a list the agent built is unchanged; the two remaining slips become
-/// teachable errors (see [`ConcatError`]) — the whole list argument being a reader *method* rather than
-/// its result, and an element with no text form.
+/// Wrap stock `table.concat` so a reader's handle list fails *legibly*. Stock Luau `table.concat` joins
+/// only strings and numbers, so a handle list — `mem:entries()`, `hub:links()` — fails it with the
+/// opaque "invalid value (table) at index … in table for 'concat'", one of the recurring recall
+/// confusions. This shell keeps stock semantics exactly — it delegates the join to the original
+/// function untouched, so an ordinary `table.concat(names, ",")` over a list the agent built joins as
+/// before — and only rewrites the error, redirecting the two observed slips to teachable messages (see
+/// [`ConcatError`]): the whole list argument being a reader *method* rather than its result, and a
+/// handle list, which now points at string interpolation (a backtick string stringifies a handle) as
+/// the way to compose text from entries, links, and dates. Installed before `Lua::sandbox(true)` freezes
+/// the `table` library read-only, so the override is part of the frozen surface.
 pub(super) fn install_table_concat(lua: &Lua) -> mlua::Result<()> {
     let table_lib: Table = lua.globals().get("table")?;
+    let stock: mlua::Function = table_lib.get("concat")?;
     table_lib.set(
         "concat",
-        lua.create_function(
-            |lua, (list, sep, i, j): (Value, Option<String>, Option<i64>, Option<i64>)| {
-                let Value::Table(list) = list else {
-                    return Err(ConcatError::NotAList {
-                        type_name: list.type_name(),
-                    }
-                    .into());
-                };
-                let sep = sep.unwrap_or_default();
-                let start = i.unwrap_or(1);
-                let end = j.unwrap_or_else(|| list.raw_len() as i64);
-                let mut out = String::new();
-                let mut index = start;
-                while index <= end {
-                    if index > start {
-                        out.push_str(&sep);
-                    }
-                    let value: Value = list.get(index)?;
-                    let text = match &value {
-                        Value::String(s) => s.to_string_lossy(),
-                        Value::Integer(n) => n.to_string(),
-                        Value::Number(n) => n.to_string(),
-                        // A handle that renders itself (an entry, a link, a date, a search result)
-                        // joins as its text; a plain table with no `__tostring` has no text form.
-                        Value::Table(table) => tostring_via_metamethod(lua, &value, table).ok_or(
-                            ConcatError::Element {
-                                index,
-                                type_name: value.type_name(),
-                            },
-                        )?,
-                        other => {
-                            return Err(ConcatError::Element {
-                                index,
-                                type_name: other.type_name(),
-                            }
-                            .into());
-                        }
-                    };
-                    out.push_str(&text);
-                    index += 1;
+        lua.create_function(move |_, args: mlua::Variadic<Value>| {
+            let list_type = args.first().map(Value::type_name).unwrap_or("nil");
+            match stock.call::<Value>(args) {
+                Ok(joined) => Ok(joined),
+                // A table that stock concat rejected holds a non-joinable element (a handle list);
+                // any other first argument is not a list at all (a reader method, most often).
+                Err(_) if list_type == "table" => Err(ConcatError::NonJoinable.into()),
+                Err(_) => Err(ConcatError::NotAList {
+                    type_name: list_type,
                 }
-                Ok(out)
-            },
-        )?,
+                .into()),
+            }
+        })?,
     )?;
     Ok(())
 }

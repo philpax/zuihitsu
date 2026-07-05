@@ -359,12 +359,10 @@ async fn a_date_object_prints_concatenates_and_stringifies() {
 }
 
 #[tokio::test]
-async fn table_concat_renders_a_handle_list_rather_than_crashing() {
-    // The recurring recall confusion: the agent reaches for table.concat on a reader's list as if its
-    // elements were strings. Stock Lua 5.4 table.concat crashes on the handle tables ("invalid value
-    // (at index 1) in table for 'concat'") since it joins only strings and numbers and invokes no
-    // __tostring; the sandbox's lenient concat renders each element as its own text instead, so the
-    // natural call joins the entries rather than terminating the block.
+async fn interpolation_renders_a_handle_list_element() {
+    // Composing text from a reader's list is interpolation's job under Luau: a backtick string
+    // stringifies an entry handle through its __tostring, so `{es[1]}` renders the entry's own text —
+    // the natural, crash-free way to fold a recalled fact into a reply.
     let h = Harness::new();
     let outcome = h
         .run(
@@ -372,7 +370,8 @@ async fn table_concat_renders_a_handle_list_rather_than_crashing() {
         local dave = memory.create(PERSON_DAVE)
         dave:append("Met at the climbing gym", { visibility = "public" })
         dave:append("Got a new job at Hooli", { visibility = "public" })
-        return table.concat(dave:entries(), " || ")
+        local es = dave:entries()
+        return `first: {es[1]} || second: {es[2]}`
         "#,
         )
         .await;
@@ -382,43 +381,41 @@ async fn table_concat_renders_a_handle_list_rather_than_crashing() {
     assert!(result.contains("Met at the climbing gym"), "got: {result}");
     assert!(result.contains("Got a new job at Hooli"), "got: {result}");
     assert!(
-        result.contains(" || "),
-        "the separator should join the two rendered entries, got: {result}"
+        result.contains("first:") && result.contains("|| second:"),
+        "the surrounding literal text should frame the interpolated entries, got: {result}"
     );
 }
 
 #[tokio::test]
-async fn table_concat_joins_a_link_readers_list() {
-    // The same lenient concat over a link reader's result: hub:links() returns link objects that print
-    // as "relation → name", and table.concat joins them rather than crashing on the handle tables. The
-    // link is committed in the first block, so the second block's :links() sees it.
+async fn table_concat_on_a_handle_list_is_a_teachable_error() {
+    // Stock Luau table.concat joins only strings and numbers, so a reader's handle list fails it with
+    // the opaque "invalid value (table) at index 1 in table for 'concat'". The thin error shell keeps
+    // stock semantics but rewrites that error, pointing the agent at interpolation instead.
     let h = Harness::new();
-    h.run(
-        r#"
-        links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
-        local topic = memory.create(TOPIC_A)
-        local ev = memory.create(EVENT_LAUNCH)
-        ev:link("part_of", topic)
-        return "ok"
-        "#,
-    )
-    .await;
     let outcome = h
-        .run(r#"return table.concat(memory.get(EVENT_LAUNCH):links(), "; ")"#)
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("Met at the climbing gym", { visibility = "public" })
+        return table.concat(dave:entries(), " || ")
+        "#,
+        )
         .await;
-    let BlockOutcome::Committed { result } = outcome else {
-        panic!("expected commit, got {outcome:?}");
-    };
-    assert!(
-        result.contains("part_of"),
-        "the link should render its relation, got: {result}"
-    );
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("interpolate") && message.contains("backtick"),
+                "the concat-of-handles error should redirect to interpolation, got: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
 }
 
 #[tokio::test]
 async fn table_concat_on_a_reader_method_is_a_teachable_error() {
     // The field-vs-method slip: the agent passes hub.links (the method itself, a function) to
-    // table.concat instead of hub:links() (its result). The lenient concat catches the non-table first
+    // table.concat instead of hub:links() (its result). The error shell catches the non-table first
     // argument and redirects to the colon call rather than surfacing an opaque Lua error.
     let h = Harness::new();
     h.run(r#"memory.create(TOPIC_A)"#).await;
@@ -438,8 +435,9 @@ async fn table_concat_on_a_reader_method_is_a_teachable_error() {
 
 #[tokio::test]
 async fn table_concat_preserves_stock_behavior_on_primitives() {
-    // The lenient concat must not disturb ordinary joins: strings and numbers join as before, the
-    // default separator is empty, and the optional i/j range still selects a sub-span.
+    // The error shell must not disturb ordinary joins: it delegates to stock concat, so strings and
+    // numbers join as before, the default separator is empty, and the optional i/j range still selects
+    // a sub-span.
     let h = Harness::new();
     let outcome = h
         .run(

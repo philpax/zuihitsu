@@ -1755,15 +1755,16 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
         .unwrap();
 
     // Now attempt a `:link` call directly — it must fail because `:link` is not installed when
-    // linking is disabled. The block terminates with the standard Lua nil-call error.
+    // linking is disabled. The block terminates with Luau's absent-method call error, which names
+    // the missing method ("attempt to call missing method 'link' of table").
     let link_outcome = h
         .run(r#"memory.get("topic/zephyr"):link("authored_by", memory.get(PERSON_DAVE))"#)
         .await;
     match link_outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             assert!(
-                message.contains("nil"),
-                "a disabled :link should surface a nil-call error, got: {message}"
+                message.contains("'link'") && message.contains("missing method"),
+                "a disabled :link should surface an absent-method call error, got: {message}"
             );
         }
         other => panic!("expected the :link call to terminate, got {other:?}"),

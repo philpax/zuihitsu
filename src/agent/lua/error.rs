@@ -247,19 +247,21 @@ impl From<HandleError> for LuaError {
     }
 }
 
-/// A bad argument to `table.concat`, the sandbox's lenient join. Stock Lua 5.4 `table.concat` joins
-/// only strings and numbers and invokes neither `__tostring` nor `__concat`, so a reader's handle list
-/// — `mem:entries()`, `hub:links()` — crashes it with an opaque "invalid value (at index …) for
-/// 'concat'". The override renders any element carrying a `__tostring` (an entry, a link, a search
-/// result, a date object) through it before joining, so a reader's list joins to its readable text;
-/// these two variants name what it still cannot, and redirect the two observed slips.
+/// A bad argument to `table.concat`, reworded from Luau's opaque native error. Stock Luau `table.concat`
+/// joins only strings and numbers, so a reader's handle list — `mem:entries()`, `hub:links()` — fails
+/// it with the unhelpful "invalid value (table) at index … in table for 'concat'". The thin wrapper in
+/// [`super::runtime::install_table_concat`] keeps stock semantics (it delegates the join untouched) and
+/// only replaces that error: these two variants redirect the two observed slips — a whole reader
+/// *method* passed in place of its result, and a handle list that has no join, which now points at
+/// string interpolation as the way to compose text.
 #[derive(Debug)]
 pub(super) enum ConcatError {
     /// The list argument was not a table at all — most often a reader *method* passed in place of its
     /// result (`hub.links`, a function, rather than `hub:links()`).
     NotAList { type_name: &'static str },
-    /// An element has no text form — neither a string, a number, nor a handle that renders itself.
-    Element { index: i64, type_name: &'static str },
+    /// The list held a value `table.concat` cannot join — a handle list, most likely. Composing text
+    /// from handles is interpolation's job now, not concat's.
+    NonJoinable,
 }
 
 impl std::fmt::Display for ConcatError {
@@ -271,11 +273,13 @@ impl std::fmt::Display for ConcatError {
                  you meant a memory reader like hub:links() or mem:entries(), call it with a colon \
                  and parentheses — hub.links is the method itself, hub:links() is the list it returns"
             ),
-            ConcatError::Element { index, type_name } => write!(
+            ConcatError::NonJoinable => write!(
                 f,
-                "table.concat can only join strings, numbers, and handles that render themselves, \
-                 but element {index} is {type_name}. Build the string yourself — render each element \
-                 with tostring(e) in a loop — or return or print the value directly"
+                "table.concat joins only strings and numbers, but this list holds values it cannot — \
+                 a handle list like mem:entries() or hub:links(), most likely. To compose text from \
+                 entries, links, or dates, interpolate them into a backtick string — \
+                 `latest: {{es[1]}}` renders a handle as its own text — or render each with \
+                 tostring(e) in a loop"
             ),
         }
     }
