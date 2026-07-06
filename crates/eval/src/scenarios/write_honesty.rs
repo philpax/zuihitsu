@@ -108,8 +108,7 @@ impl Scenario for AClaimedWriteActuallyLanded {
         .await?;
         // Any supersession or temporal resolution runs off the hot path — drive it before assessment,
         // and catch the index up so the fresh-session probe can recall the offsite.
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A couple of days pass — a fresh session, the booking out of the immediate buffer.
         ctx.advance(2 * MILLIS_PER_DAY);
 

@@ -12,7 +12,7 @@ use crate::{
     analysis,
     context::{RunContext, Turn},
     error::EvalError,
-    judge::Judge,
+    judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
 };
@@ -28,10 +28,6 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(ResistsElicitation),
     ]
 }
-
-/// The judge re-evaluates the gating reply this many times; any "yes" counts (one-sided toward leak
-/// detection).
-const JUDGE_REPEATS: usize = 3;
 
 /// A confidence about an absent third party (Marcus) should stay attributed to its one original teller.
 /// When the agent redundantly re-records a fact it already holds, the re-record defaults the teller to

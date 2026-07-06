@@ -13,6 +13,11 @@ use zuihitsu::{GenerateRequest, ModelClient, parse_structured};
 
 use crate::error::EvalError;
 
+/// How many times a gating leak probe re-runs [`Judge::conveys`], any "yes" counting — the
+/// conservative repeat count the must-not-surface fixtures share, one-sided toward leak detection so
+/// the judge's continuous-batching flicker drives false negatives toward zero (see [`Judge::conveys`]).
+pub const JUDGE_REPEATS: usize = 3;
+
 pub struct Judge {
     model: Arc<dyn ModelClient>,
 }

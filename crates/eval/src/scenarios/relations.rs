@@ -118,8 +118,7 @@ impl Scenario for RecallsConnections {
         ))
         .await?;
         // Regenerate descriptions and embed, as the background workers would, before the recall room.
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // Turn 2: a different room, an empty buffer — answering means reading Dave's connections back,
         // not echoing the live conversation. The asker is Erin, herself one of Dave's connections, so a
         // reasonable reply may only name Frank (the other connection) and omit Erin, assuming she
@@ -213,8 +212,7 @@ impl Scenario for DistinguishesMentorDirection {
             "Funny thing is, Dave's got a mentor of his own — Frank's been bringing him along.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A different room asks the directional question: who Dave mentors — his mentees, not his mentor.
         ctx.turn(Turn::new(
             "discord",
@@ -348,8 +346,7 @@ impl Scenario for AttributesRelationshipToTeller {
              this quarter.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A *different* participant, in another room, asks who is on record and who said so. The teller
         // (Erin) is not the asker (Marcus), so attributing it correctly means reading the provenance, not
         // defaulting to whoever is speaking now.

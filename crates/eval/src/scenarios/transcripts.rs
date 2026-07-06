@@ -21,7 +21,7 @@ use crate::{
     analysis,
     context::{MILLIS_PER_DAY, MILLIS_PER_HOUR, RunContext, Turn},
     error::EvalError,
-    judge::Judge,
+    judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
 };
@@ -194,8 +194,7 @@ impl Scenario for TranscriptAudienceGate {
         // renders with a fresh description rather than a stale one. Without the index tick, session 2's
         // `memory.search` finds nothing and the gate has no shareable substance to relay once the
         // reference blocks.
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // An idle gap closes the session; the next message opens a fresh one.
         ctx.advance(MILLIS_PER_DAY);
 
@@ -317,8 +316,7 @@ impl Scenario for TranscriptDmLookup {
         // checkpoint.rs), so if a DM beat falls back to `memory.search` rather than resolving the
         // reference, the room moment is both described and searchable — a hit renders with a fresh
         // description, as the deployed describer would have supplied before the next session.
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         ctx.advance(MILLIS_PER_HOUR);
 
         let turn_id = first_participant_turn_id(&ctx.events()?, ROOM_MOMENT)
@@ -399,10 +397,6 @@ impl Scenario for TranscriptDmLookup {
         ]
     }
 }
-
-/// The judge re-evaluates the gating reply this many times; any "yes" counts (one-sided toward leak
-/// detection), matching the privacy fixtures' conservative probe.
-const JUDGE_REPEATS: usize = 3;
 
 /// The id of the first participant `ConversationTurn` whose text is `text` — the earlier moment a later
 /// reference points back to. Read from the run's own log so the scenario references the exact turn id

@@ -115,8 +115,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
         // Temporal extraction runs off the hot path — drive it so any resolution (or honest
         // non-resolution) is recorded before assessment. Catch the index up so the fresh-session probe
         // can recall the plan.
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A couple of days pass — a fresh session, the plan out of the immediate buffer.
         ctx.advance(2 * MILLIS_PER_DAY);
 
@@ -300,8 +299,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
         .await?;
         // Temporal extraction runs off the hot path; drive it so any (mis)resolution of the sibling
         // anaphor is recorded. Catch the index up for the cross-room recall.
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A few days pass — a fresh session in a different room.
         ctx.advance(3 * MILLIS_PER_DAY);
 

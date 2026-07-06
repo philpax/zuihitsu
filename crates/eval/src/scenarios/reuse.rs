@@ -60,8 +60,7 @@ impl Scenario for UpdatesAnExistingEvent {
             "Let's get the product launch on the calendar — it's set for the 15th of March.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A later session, a different room, an empty buffer: the event handle is not in front of the
         // agent, so updating it in place requires finding it first.
         ctx.turn(Turn::new(
@@ -71,8 +70,7 @@ impl Scenario for UpdatesAnExistingEvent {
             "Update on the product launch — it's moved to the 22nd of March now.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         ctx.turn(Turn::new(
             "discord",
             "hallway",
@@ -144,8 +142,7 @@ impl Scenario for AddsToAnExistingPerson {
             "Someone to keep track of: Dave — he's a product designer at Hooli.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A later session, an empty buffer: appending the new fact to Dave requires finding him first.
         ctx.turn(Turn::new(
             "discord",
@@ -154,8 +151,7 @@ impl Scenario for AddsToAnExistingPerson {
             "Heads up — Dave just got promoted to engineering lead.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         ctx.turn(Turn::new(
             "discord",
             "hallway",
@@ -234,8 +230,7 @@ impl Scenario for LinksExistingMemories {
             "Someone to remember: Dave, a product designer at Hooli.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A separate session for Erin — her handle is recorded with Dave's not in the buffer.
         ctx.turn(Turn::new(
             "discord",
@@ -244,8 +239,7 @@ impl Scenario for LinksExistingMemories {
             "Another to remember: Erin, a product manager on the platform team.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
         // A third session asserts the relationship: linking requires retrieving both existing people.
         ctx.turn(Turn::new(
             "discord",

@@ -57,8 +57,7 @@ impl Scenario for AVolatileStatusGoesStale {
              running on the team.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
 
         // Two months pass — well past the staleness horizon for a fast-changing fact.
         ctx.advance(60 * MILLIS_PER_DAY);

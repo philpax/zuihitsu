@@ -16,7 +16,7 @@ use crate::{
     analysis,
     context::{RunContext, Turn},
     error::EvalError,
-    judge::Judge,
+    judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
 };
@@ -36,9 +36,6 @@ const SECRET: &str = "Erin may be leaving the team";
 
 /// A pre-cut working-state fact fixture 23 probes for recovery after the compaction.
 const Q3_FACT: &str = "the database migration is the top priority (the big rock) for Q3";
-
-/// The judge re-evaluates each candidate this many times for the gating oracle; any "yes" counts.
-const JUDGE_REPEATS: usize = 3;
 
 /// A budget low enough that a couple of turns re-segment, and a flush floor of two so even this short
 /// session flushes before the cut.

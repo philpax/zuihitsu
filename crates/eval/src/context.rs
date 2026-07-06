@@ -26,6 +26,11 @@ pub(crate) use zuihitsu::time::{MILLIS_PER_DAY, MILLIS_PER_HOUR};
 /// scheduling scenario makes, so it does not perturb those.
 const HUMAN_PAUSE_MS: i64 = 10_000;
 
+/// Just past the default idle gap (1800s), so the next turn after an [`RunContext::advance`] of this
+/// much opens a fresh session. Shared by the scenarios that cross the idle seam without a day-scale
+/// advance (an operator imprint lapsing, a room going quiet between sessions).
+pub(crate) const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
+
 /// The shared, build-once inputs every run needs: the model, and — when an embedding endpoint is
 /// configured — the embedder and its dimensionality (a fresh vector index is built per run).
 #[derive(Clone)]
@@ -235,6 +240,17 @@ impl RunContext {
     /// same catch-up the background indexer runs).
     pub async fn index_catch_up(&self) -> Result<(), EvalError> {
         self.server.index_catch_up().await?;
+        Ok(())
+    }
+
+    /// Let both background synthesis passes settle: the describer (descriptions, arbitration, temporal
+    /// extraction) and then the vector indexer, in that order. This is the pair scenarios run together
+    /// after a turn that wrote content — before advancing the clock across a gap or asserting on the
+    /// synthesized-and-searchable state — folded into one call. A scenario that needs only one of the
+    /// two (no retrieval, or a description-only probe) calls the specific catch-up directly.
+    pub async fn settle(&self) -> Result<(), EvalError> {
+        self.describe_catch_up().await?;
+        self.index_catch_up().await?;
         Ok(())
     }
 
