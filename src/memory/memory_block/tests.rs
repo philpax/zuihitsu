@@ -343,10 +343,8 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
             erin,
             "may be leaving the team",
             AppendOptions {
-                by_agent: false,
                 visibility: Some(VisibilityChoice::Private),
-                occurred_at: None,
-                volatility: None,
+                ..AppendOptions::default()
             },
         )
         .unwrap();

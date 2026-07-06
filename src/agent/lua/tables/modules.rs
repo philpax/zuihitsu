@@ -242,7 +242,7 @@ pub(in crate::agent::lua) fn memory_table(
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
-                    let opts = append_options_from_lua(&lua, opts)?;
+                    let opts = append_options_from_lua(&api, &lua, opts)?;
                     let id = api
                         .block
                         .lock()
@@ -301,7 +301,7 @@ pub(in crate::agent::lua) fn memory_table(
                     {
                         return Ok(handle);
                     }
-                    let opts = append_options_from_lua(&lua, opts)?;
+                    let opts = append_options_from_lua(&api, &lua, opts)?;
                     let id = api
                         .block
                         .lock()

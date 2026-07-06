@@ -204,12 +204,15 @@ impl VolatilityChoice {
 }
 
 /// The overrides an append accepts: `by_agent` records it as the agent's own observation rather than
-/// the speaker's; `visibility` forces the visibility instead of the write-time default; `occurred_at`
-/// records the real-world time the entry is *about*, distinct from when it is recorded (spec §Time);
-/// `volatility` classifies how fast the memory's facts age, set inline rather than via a separate
-/// `set_volatility` call. Deserialized from the Lua `opts` table, except `occurred_at`: it is resolved
-/// at the Lua boundary (a bare date string, a date handle, or a tagged table) and set on the struct
-/// after, so it carries the resolved [`TemporalRef`] rather than a raw Lua value serde cannot decode.
+/// the speaker's; `told_by` attributes it to a specific teller other than the current speaker (a
+/// relayed claim's source), overriding both `by_agent` and the speaker default; `visibility` forces
+/// the visibility instead of the write-time default; `occurred_at` records the real-world time the
+/// entry is *about*, distinct from when it is recorded (spec §Time); `volatility` classifies how fast
+/// the memory's facts age, set inline rather than via a separate `set_volatility` call. Deserialized
+/// from the Lua `opts` table, except `occurred_at` and `told_by`: those are resolved at the Lua
+/// boundary (a bare date string or handle for `occurred_at`, a handle or name for `told_by`) and set
+/// on the struct after, so they carry the resolved [`TemporalRef`] and [`Teller`] rather than a raw
+/// Lua value serde cannot decode.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct AppendOptions {
@@ -218,6 +221,8 @@ pub struct AppendOptions {
     #[serde(skip)]
     pub occurred_at: Option<TemporalRef>,
     pub volatility: Option<VolatilityChoice>,
+    #[serde(skip)]
+    pub told_by: Option<Teller>,
 }
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities

@@ -43,11 +43,7 @@ impl MemoryBlock {
             let first_entry = match content {
                 Some(text) => {
                     let opts = opts.unwrap_or_default();
-                    let teller = if opts.by_agent {
-                        Teller::Agent
-                    } else {
-                        block.teller.clone()
-                    };
+                    let teller = entry_teller(&opts, &block.teller);
                     let visibility = block.resolve_visibility(
                         Some(name.as_str()),
                         id,
@@ -111,9 +107,10 @@ impl MemoryBlock {
         Ok(())
     }
 
-    /// Append a content entry to `id`. `opts.by_agent` attributes it to the agent; `opts.visibility`
-    /// forces the visibility; otherwise the write-time default applies (a `#confidential` room, or an
-    /// aside about an absent third party, defaults private to the teller).
+    /// Append a content entry to `id`. `opts.told_by` stamps a specific teller (a relayed claim's
+    /// source); `opts.by_agent` attributes it to the agent; with neither, it is the current speaker.
+    /// `opts.visibility` forces the visibility; otherwise the write-time default applies (a
+    /// `#confidential` room, or an aside about an absent third party, defaults private to the teller).
     pub fn append(
         &mut self,
         id: MemoryId,
@@ -122,11 +119,7 @@ impl MemoryBlock {
     ) -> Result<EntryId, MemoryError> {
         self.guard_self(id)?;
         self.guard_operator(id)?;
-        let told_by = if opts.by_agent {
-            Teller::Agent
-        } else {
-            self.teller.clone()
-        };
+        let told_by = entry_teller(&opts, &self.teller);
         let name = self.resolve_name(id)?;
         let visibility = self.resolve_visibility(
             name.as_ref().map(MemoryName::as_str),
@@ -211,4 +204,18 @@ impl MemoryBlock {
             .push(EventPayload::memory_volatility_set(id, volatility));
         Ok(())
     }
+}
+
+/// The teller a content entry is stamped with: an explicit `told_by` (a relayed claim attributed to
+/// its source) wins over everything, then `by_agent` (the agent's own observation), and otherwise the
+/// current speaker. Shared by `append` and `create_with_opts` so a created memory's first entry and a
+/// later append attribute identically.
+fn entry_teller(opts: &AppendOptions, speaker: &Teller) -> Teller {
+    opts.told_by.clone().unwrap_or_else(|| {
+        if opts.by_agent {
+            Teller::Agent
+        } else {
+            speaker.clone()
+        }
+    })
 }

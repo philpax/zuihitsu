@@ -254,6 +254,10 @@ pub(super) enum HandleError {
     UnknownLinkTarget { name: String },
     /// `:link`/`:unlink` was given a value that is neither a handle nor a name string.
     WrongLinkTargetType { type_name: &'static str },
+    /// An append's `told_by` was given a name string that is not a known memory.
+    UnknownTeller { name: String },
+    /// An append's `told_by` was given a value that is neither a memory handle nor a name string.
+    WrongTellerType { type_name: &'static str },
     /// `memory.get`/`get_or_create` was given a handle whose id resolves to no memory.
     UnknownMemoryHandle { id: String },
     /// `memory.get`/`get_or_create` was given a value that is neither a name string nor a memory
@@ -283,6 +287,17 @@ impl std::fmt::Display for HandleError {
             HandleError::WrongLinkTargetType { type_name } => write!(
                 f,
                 "link target must be a memory handle (from memory.get/create) or a memory name, \
+                 got {type_name}"
+            ),
+            HandleError::UnknownTeller { name } => write!(
+                f,
+                "no memory named \"{name}\" to attribute this entry to — told_by names the teller \
+                 the fact came from (a person handle, or their memory name); create it first, or \
+                 check the casing"
+            ),
+            HandleError::WrongTellerType { type_name } => write!(
+                f,
+                "told_by must be a person handle (from memory.get/create) or a memory name, \
                  got {type_name}"
             ),
             HandleError::UnknownMemoryHandle { id } => write!(

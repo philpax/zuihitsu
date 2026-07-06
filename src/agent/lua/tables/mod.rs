@@ -202,7 +202,7 @@ fn install_handle_methods(
                 async move {
                     let id = handle_id(&this.0)?;
                     api.lock(id).await;
-                    let opts = append_options_from_lua(&lua, opts)?.unwrap_or_default();
+                    let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
                     let entry = {
                         let mut block = api.block.lock();
                         let entry_id = block
@@ -342,7 +342,7 @@ fn install_handle_methods(
                     let id = handle_id(&this.0)?;
                     let old = entry_handle_id(&old)?;
                     api.lock_class(id).await?;
-                    let opts = append_options_from_lua(&lua, opts)?.unwrap_or_default();
+                    let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
                     let entry = {
                         let mut block = api.block.lock();
                         let new = block

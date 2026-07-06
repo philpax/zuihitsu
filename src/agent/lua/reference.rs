@@ -161,6 +161,17 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                     "record it as your own observation instead of the speaker's",
                 )
                 .optional(
+                    "told_by",
+                    AT::Handle,
+                    "attribute the entry to a specific teller other than the current speaker — a \
+                     person handle (from memory.get/create) or their name as a string, which is \
+                     looked up. Reach for it to record a relayed claim (\"X said that …\") with X as \
+                     its source rather than the person relaying it, or on any deferred or cross-turn \
+                     write where the speaker is not who the fact came from. It sets the entry's \
+                     provenance, so the fact reads and is governed as that teller's — overriding \
+                     by_agent and the speaker default",
+                )
+                .optional(
                     "visibility",
                     enum_of(["public", "private"]),
                     "force the visibility; required for an entry you author about a person",

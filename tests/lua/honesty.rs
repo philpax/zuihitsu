@@ -103,6 +103,71 @@ async fn append_carries_teller_context_and_default_visibility() {
 }
 
 #[tokio::test]
+async fn told_by_stamps_a_relayed_claims_source() {
+    // told_by attributes an entry to a teller other than the current speaker: Erin, speaking, relays
+    // something Marcus is the source of about Dave. The fact is stamped with Marcus as its provenance,
+    // not Erin who relayed it, so it reads and is governed as Marcus's. Both a name string and a handle
+    // resolve to the same teller.
+    let h = Harness::new();
+    h.run(
+        r#"memory.create(PERSON_DAVE); memory.create(PERSON_ERIN); memory.create(PERSON_MARCUS)"#,
+    )
+    .await;
+    let id = |name: &str| {
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name(MemoryName::new(name))
+            .unwrap()
+            .unwrap()
+            .id
+    };
+    let (dave, erin, marcus) = (
+        id(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("marcus")).as_str()),
+    );
+
+    // Erin is the speaker; the first append names Marcus by name string, the second by handle.
+    h.run_as(
+        Teller::Participant(erin),
+        vec![erin],
+        r#"
+        memory.get(PERSON_DAVE):append("is moving to the Atlas team", { visibility = "public", told_by = PERSON_MARCUS })
+        memory.get(PERSON_DAVE):append("prefers async standups", { visibility = "public", told_by = memory.get(PERSON_MARCUS) })
+        "#,
+    )
+    .await;
+
+    let entries = h.engine.graph.lock().entries_local(dave).unwrap();
+    assert_eq!(entries.len(), 2);
+    // Both are stamped with Marcus (the source), not Erin (the speaker) — via name and via handle.
+    assert_eq!(entries[0].told_by, Teller::Participant(marcus));
+    assert_eq!(entries[1].told_by, Teller::Participant(marcus));
+    assert_ne!(entries[0].told_by, Teller::Participant(erin));
+}
+
+#[tokio::test]
+async fn told_by_an_unknown_name_is_a_teachable_error() {
+    // told_by names a teller that must exist: an unknown name is a teachable error naming the option,
+    // not a silent attribution to a nonexistent memory.
+    let h = Harness::new();
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    let outcome = h
+        .run(
+            r#"memory.get(PERSON_DAVE):append("relayed", { visibility = "public", told_by = PERSON_NOBODY })"#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(
+        message.contains("told_by") && message.contains("person/nobody"),
+        "the error should name told_by and the unknown teller: {message}"
+    );
+}
+
+#[tokio::test]
 async fn a_write_in_a_confidential_room_defaults_private() {
     let mut store = MemoryStore::new();
     let clock = ManualClock::new(common::time::EARLY);

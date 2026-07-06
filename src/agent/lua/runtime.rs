@@ -12,7 +12,7 @@ use ulid::Ulid;
 
 use crate::{
     engine::{Engine, MemoryLocks},
-    event::{TerminalCause, Visibility},
+    event::{Teller, TerminalCause, Visibility},
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
@@ -981,6 +981,7 @@ pub(super) fn day_string(value: &Value) -> mlua::Result<String> {
 /// `memory.create` — passes through, so accepting a date handle is decided once here rather than at each
 /// call site; a future taker of the tagged table inherits it for free. `nil` opts yield `None`.
 pub(super) fn append_options_from_lua(
+    api: &BlockApi,
     lua: &Lua,
     opts: Value,
 ) -> mlua::Result<Option<AppendOptions>> {
@@ -991,15 +992,20 @@ pub(super) fn append_options_from_lua(
         // A non-nil, non-table opts is a shape slip the agent should see named; serde surfaces it.
         return Ok(Some(lua.from_value(opts)?));
     };
-    // Resolve the option serde cannot decode from a raw Lua value: `occurred_at` may be a bare date
-    // string or a date handle. The rest deserializes from a copy with that key dropped — the agent's
-    // own opts table is never mutated, so a table reused across appends keeps its fields.
+    // Resolve the two options serde cannot decode from a raw Lua value: `occurred_at` may be a bare
+    // date string or a date handle, and `told_by` is a handle or name naming a teller. The rest
+    // deserializes from a copy with those two keys dropped — the agent's own opts table is never
+    // mutated, so a table reused across appends keeps its fields.
     let occurred_at = occurred_at_from_lua(lua, table)?;
+    let told_by = match table.get::<Value>("told_by")? {
+        Value::Nil => None,
+        other => Some(resolve_teller(api, other)?),
+    };
     let rest = lua.create_table()?;
     for pair in table.pairs::<Value, Value>() {
         let (key, value) = pair?;
         if let Value::String(name) = &key
-            && name.to_string_lossy().as_str() == "occurred_at"
+            && matches!(name.to_string_lossy().as_str(), "occurred_at" | "told_by")
         {
             continue;
         }
@@ -1007,6 +1013,7 @@ pub(super) fn append_options_from_lua(
     }
     let mut options: AppendOptions = lua.from_value(Value::Table(rest))?;
     options.occurred_at = occurred_at;
+    options.told_by = told_by;
     Ok(Some(options))
 }
 
@@ -1047,6 +1054,41 @@ fn occurred_at_from_lua(lua: &Lua, table: &Table) -> mlua::Result<Option<Tempora
         }
         .into()),
     }
+}
+
+/// Resolve an append's `told_by` option to the participant [`Teller`] it attributes the entry to.
+/// Dual-accepts a person handle (from `memory.get`/`memory.create`) or a name string, mirroring
+/// `:link`'s target resolution, so a relayed claim recorded while someone else speaks is stamped with
+/// its real source — "X said …" told by X, not the current speaker. An unknown name is a teachable
+/// error; so is a value that is neither a handle nor a name.
+pub(super) fn resolve_teller(api: &BlockApi, value: Value) -> mlua::Result<Teller> {
+    let id = match value {
+        Value::Table(handle) => handle_id(&handle)?,
+        Value::String(name) => {
+            let name = name.to_string_lossy();
+            match api
+                .block
+                .lock()
+                .get(&name)
+                .map_err(|error| route_error(error, &mut api.infra.lock()))?
+            {
+                Some((id, _)) => id,
+                None => {
+                    return Err(HandleError::UnknownTeller {
+                        name: name.to_string(),
+                    }
+                    .into());
+                }
+            }
+        }
+        other => {
+            return Err(HandleError::WrongTellerType {
+                type_name: other.type_name(),
+            }
+            .into());
+        }
+    };
+    Ok(Teller::Participant(id))
 }
 
 /// Rewrite date-shaped values inside an `occurred_at` tagged table into the primitives its
