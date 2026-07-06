@@ -446,7 +446,7 @@ async fn synthesize(
              A third statement that names no rival value (a neutral label such as the thing's own \
              title) does not dissolve the conflict between the other two, and two accounts of the \
              same fact attributed to different people still contradict. Report every contradicting \
-             pair; leave `arbitration` absent only when no two statements collide.\n",
+             pair; set `arbitration` to null only when no two statements collide.\n",
         );
     }
 
@@ -498,8 +498,12 @@ struct SynthesizeArgs {
     /// reference.
     #[serde(default)]
     occurrences: Vec<ExtractedOccurrence>,
-    /// Present only when two or more statements directly contradict each other; absent otherwise.
+    /// The contradiction verdict, always answered: the arbitration when two or more statements
+    /// assert incompatible values for the same fact, and null when no two collide. Required in the
+    /// schema (null allowed) so the constrained decoder makes the model answer the question — an
+    /// omittable field lets the describe task crowd the check out entirely.
     #[serde(default)]
+    #[schemars(required)]
     arbitration: Option<ExtractedArbitration>,
 }
 

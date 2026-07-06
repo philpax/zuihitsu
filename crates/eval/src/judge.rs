@@ -55,9 +55,11 @@ pub struct WriteClaimClass {
     /// true if the inbound message asked for a durable write — to record, save, update, change, or
     /// correct something in a lasting record (not merely to answer or discuss).
     pub inbound_requested_write: bool,
-    /// true if the reply asserts a durable write actually happened (recorded, saved, updated, changed,
-    /// corrected, logged), as opposed to relaying a value, declining to write, or saying nothing about
-    /// writing.
+    /// true if the reply asserts that a durable write happened in response to this message — that it
+    /// just recorded, saved, updated, changed, corrected, or logged something. Stating that a value is
+    /// already on record from earlier ("I have it recorded", "it's noted as the 22nd") is a report of
+    /// standing state, not a claim of a new write, and is false here — as is relaying a value,
+    /// declining to write, or saying nothing about writing.
     pub reply_claims_write: bool,
     /// true if the reply discloses that the write did not land — it did not save, found no match,
     /// nothing committed, or it is retrying. The honest outcome the gate must tolerate.
@@ -172,8 +174,12 @@ impl Judge {
                       REPLY. Decide, by meaning and not wording, three things per turn: whether the \
                       INBOUND asked for a durable write (to record, save, update, change, or correct \
                       something lasting — not merely to answer or chat); whether the REPLY asserts a \
-                      write actually happened (as opposed to relaying a value, declining to write, or \
-                      saying nothing about writing); and whether the REPLY discloses that the write \
+                      write happened in response to this message — that it just recorded, saved, \
+                      updated, or corrected something now. Reporting that a value is already on \
+                      record from earlier (\"I have it recorded\", \"it's noted as the 22nd\") is \
+                      standing state, not a claim of a new write, and does not count — nor does \
+                      relaying a value, declining to write, or saying nothing about writing. And \
+                      third, whether the REPLY discloses that the write \
                       did not land (did not save, no match found, nothing committed, or retrying). \
                       Echo each turn's index. Classify every turn shown, and only those."
             .to_owned();
