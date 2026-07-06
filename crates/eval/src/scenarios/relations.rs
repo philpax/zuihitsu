@@ -158,7 +158,7 @@ impl Scenario for RecallsConnections {
             Verdict::metric_outcome(
                 "reached for a link reader",
                 read_links,
-                "traversed the connections with a link reader (outgoing/incoming/links)",
+                "read the connections back (outgoing/incoming/links, or details' links line)",
                 "answered without reading the links back",
             ),
         ]

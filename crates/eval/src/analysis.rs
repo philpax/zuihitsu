@@ -189,13 +189,17 @@ pub fn relation_registered(events: &[Event], name: &str) -> bool {
     })
 }
 
-/// Whether any executed block reached for a link reader — `mem:outgoing`, `mem:incoming`, or
-/// `mem:links` — the structural signal that the agent traversed the relationship graph to answer,
-/// rather than reconstructing the connections from prose. (`links` here is the `:links()` reader; the
-/// `links.*` registry calls are `links.list`/`get`/`register`, which `script_calls` does not match on
-/// the bare `links(`.)
+/// Whether any executed block read recorded links back — a link reader (`mem:outgoing`,
+/// `mem:incoming`, or `mem:links`) or the whole-record `mem:details`, whose render includes the
+/// links line with directions — the structural signal that the agent consulted the relationship
+/// graph to answer, rather than reconstructing the connections from prose. (`links` here is the
+/// `:links()` reader; the `links.*` registry calls are `links.list`/`get`/`register`, which
+/// `script_calls` does not match on the bare `links(`.)
 pub fn link_reader_called(events: &[Event]) -> bool {
-    lua_called(events, "outgoing") || lua_called(events, "incoming") || lua_called(events, "links")
+    lua_called(events, "outgoing")
+        || lua_called(events, "incoming")
+        || lua_called(events, "links")
+        || lua_called(events, "details")
 }
 
 /// Whether the agent renamed a memory's handle (a `MemoryRenamed`) — the structural signal that it
