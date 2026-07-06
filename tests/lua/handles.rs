@@ -338,3 +338,26 @@ async fn an_undecorated_table_renders_as_its_structure_not_an_opaque_token() {
         "every key should be visible: {result}"
     );
 }
+
+#[tokio::test]
+async fn a_returned_map_renders_nested_handles_as_their_text() {
+    // Returning a map of results — `return { list = memory.list(...) }` — goes through the
+    // structural inspector, which must render a nested handle as its own text (its name and
+    // description read lazily, so the raw structure shows neither) and omit metatable noise: an
+    // id-and-metatable blob is illegible at exactly the moment the agent is comparing handles.
+    let h = Harness::new();
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    let BlockOutcome::Committed { result } =
+        h.run(r#"return { people = memory.list("person/") }"#).await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        result.contains("person/dave"),
+        "the nested handle should render its name, got: {result}"
+    );
+    assert!(
+        !result.contains("<metatable>") && !result.contains("__tostring"),
+        "metatable noise should be omitted, got: {result}"
+    );
+}

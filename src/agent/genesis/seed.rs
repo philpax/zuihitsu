@@ -196,8 +196,11 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
          handles already exist, and reuse what you find (a hit's relations line shows the cast already \
          on it) rather than guessing a fresh handle, since a guessed name that misses the existing \
          memory mints a second and splits its facts, so a read finds half and contradictions cannot be \
-         weighed. (Per-platform person stubs are the exception, kept apart until the merge gate joins \
-         them.)"
+         weighed. A fuzzy hit is a candidate, not a match: when someone is introduced by name, the \
+         handle must name that same person — a near-name hit (one person surfacing for another's \
+         introduction) is a different referent, so list the stem and create the named handle rather \
+         than folding two people into one. (Per-platform person stubs are the exception, kept apart \
+         until the merge gate joins them.)"
             .to_owned(),
     );
     // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
@@ -302,7 +305,7 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             // connector still normalizing a pasted console link to the [turn:<id>] token before the agent
             // sees it.) Bumping the version keeps an older `produced_by` naming the body it was generated
             // under.
-            version: 7,
+            version: 8,
             body: scaffold_body,
         },
         TemplateDef {

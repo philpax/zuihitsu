@@ -764,16 +764,41 @@ fn inspect_table(lua: &Lua, value: &Value) -> String {
 /// receives an opaque `<table>` it cannot read.
 const INSPECT_LUA: &str = include_str!("../../../vendor/inspect.lua/inspect.lua");
 
-/// Evaluate `inspect.lua` and bind its pretty-printer as the `inspect` global. The chunk ends in
-/// `return inspect`, yielding the module — a *callable table* (it pretty-prints via a `__call`
-/// metamethod). We bind its underlying `inspect.inspect` function rather than the table itself, so the
-/// global is a plain function: `inspect(value)` still works from Lua, and the render fallback can fetch
-/// it as an `mlua::Function` (a callable table is not one). Done once at VM construction, like the MCP
-/// projection.
+/// Evaluate `inspect.lua` and bind a wrapped pretty-printer as the `inspect` global. The wrapper
+/// passes a `process` hook that keeps the structural dump legible where it matters most: a nested
+/// table carrying a `__tostring` — a memory handle, an entry, a search hit — renders as its own text
+/// rather than as a bare id-and-metatable blob (a handle's name and description read lazily through
+/// `__index`, so the raw structure shows neither), and metatable entries are omitted outright, since
+/// `<metatable> = { __concat = <function 1>, … }` is noise the agent cannot act on. The root value is
+/// left to the hook's callers ([`render`] tries `__tostring` first, so a decorated root never reaches
+/// the inspector). Done once at VM construction, like the MCP projection.
 pub(super) fn install_inspect(lua: &Lua) -> mlua::Result<()> {
     let module: Table = lua.load(INSPECT_LUA).set_name("inspect.lua").eval()?;
-    let inspect: mlua::Function = module.get("inspect")?;
-    lua.globals().set("inspect", inspect)?;
+    let wrapper: mlua::Function = lua
+        .load(
+            r#"
+            local inspect = ...
+            return function(value)
+                return inspect(value, {
+                    process = function(item, path)
+                        if path[#path] == inspect.METATABLE then
+                            return nil
+                        end
+                        if type(item) == "table" and #path > 0 then
+                            local mt = getmetatable(item)
+                            if mt and mt.__tostring then
+                                return tostring(item)
+                            end
+                        end
+                        return item
+                    end,
+                })
+            end
+            "#,
+        )
+        .set_name("inspect-wrapper")
+        .call(&module)?;
+    lua.globals().set("inspect", wrapper)?;
     Ok(())
 }
 

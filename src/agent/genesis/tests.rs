@@ -367,7 +367,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
                     // The current Scaffold version, so the idempotent rollout recognizes it as
                     // already present and does not re-emit it.
                     PromptTemplateName::Scaffold,
-                    7,
+                    8,
                     "<draft system-prompt scaffold — see docs/spec.md §System prompt>".to_owned(),
                     EventSource::Orchestration,
                 ),
@@ -484,7 +484,7 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 7,
+        scaffold.version, 8,
         "the scaffold is registered at v7 (v6 added the record-or-plain-words branch; v7 threads \
          <memory>:details() and memory.list into the recall and deduplication points)"
     );
