@@ -26,20 +26,19 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let create = AE::new("memory.create")
         .description(
             "Create a memory, optionally with a first content entry. It fails if the name is already \
-             taken — creating a second memory over an existing one must be a deliberate act — so \
-             create only when you mean to make a genuinely new memory. Creation should almost always \
-             follow a search: if the referent plausibly already exists — a person, an event, a topic \
-             others have mentioned before — memory.search for it first and reuse what you find, \
-             creating only when the search comes up empty. When you are unsure whether one already \
-             exists, use memory.get_or_create instead of guessing.",
+             taken, so create only when you mean to make a genuinely new memory. Creation should \
+             almost always follow a search: if the referent plausibly already exists — a person, an \
+             event, or a topic mentioned before — memory.search for it first and reuse what you find, \
+             creating only when the search comes up empty. When unsure whether one exists, use \
+             memory.get_or_create instead of guessing.",
         )
         .required(
             "name",
             AT::String,
             format!(
-                "the namespaced handle, e.g. \"{person}<name>\" or \"{topic}<subject>\". Names match \
-                 exactly (case-sensitive), so prefer lowercase — \"{person}dave\", not \"{person}Dave\" — \
-                 to avoid splitting one subject across casings"
+                "the namespaced handle, e.g. \"{person}<name>\" or \"{topic}<subject>\". Match is \
+                 exact (case-sensitive), so prefer lowercase — \"{person}dave\", not \"{person}Dave\" — \
+                 or one subject splits across casings"
             ),
         )
         .optional("content", AT::String, "an optional first content entry")
@@ -51,16 +50,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                 "Fetch a memory by name, or nil if there is none. Read a merged identity through its \
                  canonical {person} handle, not a per-platform stub. The name must match exactly \
                  (case-sensitive); if a lookup returns nil, suspect the casing before creating a new \
-                 memory. A former name still finds a renamed person: the result then carries a \
-                 `former_handle` (the old name you looked up by), and any renamed memory carries \
-                 `former_names` — they now go by `result.name`, so it is the same person, and their \
-                 older entries written under an old name are still theirs. Answer under the current \
-                 name without announcing the old one. The handle prints as its name and description \
-                 followed by a `links:` line naming its neighborhood — each link as \"relation → \
-                 name\", a dated target's occurrence appended — so a topic hub shows the events its \
-                 decisions live on; follow those links (its entries are rarely the whole story). When \
-                 you intend to fetch-or-make in one step, reach for memory.get_or_create rather than \
-                 get-then-create."
+                 memory. A former name still finds a renamed person: the result carries \
+                 `former_handle` (the old name) and the memory carries `former_names` — they now go by \
+                 `result.name`, their older entries still theirs, so answer under the current name \
+                 without announcing the old one. The handle prints its name, description, and a \
+                 `links:` line naming its neighborhood (each \"relation → name\", a dated target's \
+                 occurrence appended), so a topic hub shows the events its decisions live on; follow \
+                 those links, its own entries rarely being the whole story."
             ),
         )
         .required("name", AT::String, "the memory's handle (or a former one)")
@@ -70,16 +66,12 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Fetch a memory by name, or create it if there is none — the fetch-or-make idiom in one \
              call. It is for a name you have READ — off a search hit, a brief, or a handle — not one \
-             you guess: on a name that does not match, it does not find the memory you meant, it mints \
-             a fresh duplicate under the guessed name. So search first and pass a name you saw; reach \
-             here to fetch-or-make that read name in one step. If it exists it is returned as it \
-             stands and the content argument is ignored (an existing memory is never silently \
-             overwritten); only an absent one is created, with the given first entry. Use this rather \
-             than memory.get followed by memory.create; reserve memory.create for making a \
-             deliberately new memory, where a name collision should be an error. Not an identity tool: \
-             a new name for a person you already hold is a fact on their existing profile (or grounds \
-             for a rename), so fetch that profile — get_or_create on the new name would mint a \
-             duplicate person.",
+             you guess: a name that does not match mints a fresh duplicate under the guessed name \
+             rather than finding the one you meant. So search first and pass a name you saw. If it \
+             exists it is returned as-is and the content argument ignored; only an absent one is \
+             created. Reserve memory.create for a deliberately new memory, where a collision should \
+             error. Not an identity tool: a new name for a person you already hold is a fact on their \
+             existing profile (or grounds for a rename) — get_or_create on it would mint a duplicate.",
         )
         .required("name", AT::String, "the memory's handle")
         .optional(
@@ -91,17 +83,15 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
     let search = AE::new("memory.search")
         .description(
-            "Recall memories by meaning and wording, across your whole memory, ranked best-first. \
-             Results are filtered to what may surface to who is present, so a teller-private aside \
-             appears only while its teller is here (with a marker noting it). Each result is a table \
-             { name, description, score, marker?, snippet?, occurred_at?, relations? } — snippet is \
-             the matched content that produced the hit, so you can triage a result even when its \
-             description is thin; occurred_at is the memory's representative date (the same tagged \
-             table append takes, e.g. occurred_at.day) when it holds a dated fact; and relations are \
-             its most salient links (each { relation, name, direction }), so a hit shows the cast \
-             already on it — the people and events that let you recognize the memory you already hold \
-             and reuse it rather than making a near-duplicate. A hit is a pointer, not the whole \
-             record: fetch a name with memory.get to read every entry and occurrence in full.",
+            "Recall memories by meaning, across your whole memory, ranked best-first. Results are \
+             filtered to who is present, so a teller-private aside appears only while its teller is \
+             here (with a marker). Each result is a table { name, description, score, marker?, \
+             snippet?, occurred_at?, relations? } — snippet is the matched content, so you can triage \
+             even when the description is thin; occurred_at is the memory's representative date when \
+             dated; relations are its most salient links (each { relation, name, direction }), so a \
+             hit shows the cast already on it — letting you recognize the memory you already hold and \
+             reuse it rather than making a near-duplicate. A hit is a pointer, not the whole record: \
+             memory.get a name to read every entry and occurrence in full.",
         )
         .required("query", AT::String, "what to look for, in natural language")
         .optional(
@@ -125,9 +115,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let append = AE::new("<memory>:append")
         .description(
             "Append a content entry. By default it is attributed to the current speaker, and an \
-             aside about someone else defaults private to that speaker. When you record an entry \
-             about a person as your own observation (a synthesis or a flush), there is no default — \
-             you must set its visibility yourself, public or private.",
+             aside about someone else defaults private to that speaker. An entry you record as your \
+             own observation (a synthesis or a flush) has no default — set its visibility yourself, \
+             public or private.",
         )
         .required("text", AT::String, "the entry text")
         .optional(
@@ -149,14 +139,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                     format!(
                         "when the fact is about a real-world time (distinct from now): a tagged table, \
                          one of {{ instant = <ms> }}, {{ day = \"YYYY-MM-DD\" }}, \
-                         {{ range = {{ start = <ms>, [\"end\"] = <ms> }} }} (end is a Lua keyword, so \
-                         quote-bracket it as a key), \
-                         {{ approx = {{ center = <ms>, fuzz_days = <n> }} }}, {{ recurring = \"<rrule>\" }}, \
-                         or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"{event}...\" }} }}. \
-                         A date object (calendar.today() and its siblings) is itself a valid occurred_at — \
-                         pass it directly — and a date object or a \"YYYY-MM-DD\" string may also stand in \
-                         for a millisecond position: the instant, or a range's start/end endpoints (the \
-                         endpoint covers its whole day), as well as the {{ day = ... }} field"
+                         {{ range = {{ start = <ms>, [\"end\"] = <ms> }} }} (end is a Lua keyword, \
+                         quote-bracket it), {{ approx = {{ center = <ms>, fuzz_days = <n> }} }}, \
+                         {{ recurring = \"<rrule>\" }}, or \
+                         {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"{event}...\" }} }}. \
+                         A date object (calendar.today() and siblings) or a \"YYYY-MM-DD\" string is \
+                         itself a valid occurred_at — pass it directly — and may also stand in for any \
+                         <ms> position, its endpoint covering the whole day"
                     ),
                 ),
             "overrides",
@@ -166,17 +155,14 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let entries = AE::new("<memory>:entries")
         .description(
             "The memory's live content entries, across its whole merged identity. Each is an entry \
-             object — read its text with entry.text (it also prints as its text, prefixed by its \
-             date, visibility, teller, and a disputed marker when contested), and pass the object \
-             itself to <memory>:supersede to replace it. entry.occurred_at, when dated, is the same \
-             tagged table append takes (e.g. entry.occurred_at.day), so you can match an entry by its \
-             date and reuse it. Hold onto the object if you intend to supersede it. Capture the list \
-             to see it — `local es = <memory>:entries()`, or iterate/print it; a bare \
-             `<memory>:entries()` whose result you discard returns nothing to you, not an empty \
-             memory. Each element is an entry object, not a bare string, and renders as its own text: \
-             interpolate one into a backtick string — `latest: {es[1]}` stringifies the entry — to \
-             compose a reply, and iterate the list to fold in several. This is the way to build text \
-             from entries, links, and dates; table.concat joins only strings and numbers.",
+             object — read its text with entry.text (it also prints as its text, prefixed by date, \
+             visibility, teller, and a disputed marker when contested), and pass the object to \
+             <memory>:supersede to replace it. entry.occurred_at, when dated, is the same tagged \
+             table append takes (e.g. entry.occurred_at.day), so you can match an entry by its date. \
+             Capture the list — `local es = <memory>:entries()`; a bare call whose result you discard \
+             returns nothing, not an empty memory. Each element renders as its own text: interpolate \
+             one into a backtick string — `latest: {es[1]}` — to compose a reply, and iterate to fold \
+             in several. table.concat joins only strings and numbers.",
         )
         .returns(AT::Entry.list());
 
@@ -191,14 +177,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let supersede = AE::new("<memory>:supersede")
         .description(
             "Correct or retract a fact: mark an old entry superseded by a new one. Append the \
-             correction first to get the new entry object, then call supersede with the old entry \
-             object (from <memory>:entries) and the new one. The old entry drops from live reads but \
-             stays in <memory>:history. Use this only when the same fact has genuinely changed — a \
-             correction, a retraction, or an update to newer information (often a teller revising \
-             their own earlier statement). When two participants give conflicting accounts of the \
-             same thing, do not supersede one with the other: record both as separate entries and \
-             leave the disagreement standing, so the conflict stays visible to be reconciled rather \
-             than silently resolved to whoever spoke last.",
+             correction first to get the new entry object, then supersede with the old entry object \
+             (from <memory>:entries) and the new one. The old entry drops from live reads but stays \
+             in <memory>:history. Use this only when the same fact genuinely changed — a correction, \
+             a retraction, or an update (often a teller revising their own earlier statement). For \
+             two participants' conflicting accounts, do not supersede one with the other: record both \
+             separately and leave the disagreement standing, to be reconciled rather than silently \
+             resolved to whoever spoke last.",
         )
         .required(
             "old",
@@ -214,12 +199,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let revise = AE::new("<memory>:revise")
         .description(
             "Correct a fact in one call: append new_text as a new entry and supersede the old entry \
-             with it, returning the new entry. The same intent as append-then-supersede but without \
-             the two-step — and it cannot half-apply: if the old entry is not a live one, the whole \
-             revision (the new entry included) is rejected, so a correction never leaves the stale \
-             value standing. Use it for a genuine change to the same fact (a teller revising their \
-             own earlier statement, newer information replacing older); for two people's conflicting \
-             accounts, record both separately instead and leave the disagreement standing.",
+             with it, returning the new entry. Same intent as append-then-supersede without the \
+             two-step, and it cannot half-apply: if the old entry is not live, the whole revision is \
+             rejected, so a correction never leaves the stale value standing. Use it for a genuine \
+             change to the same fact; for two people's conflicting accounts, record both separately \
+             and leave the disagreement standing.",
         )
         .required(
             "old",
@@ -239,11 +223,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let link = AE::new("<memory>:link")
         .description(
             "Record a relationship between this memory and another under a registered relation. When \
-             you learn that two memories relate — two people who know each other, an event that \
-             belongs to a topic — capture it with link rather than only describing it in their text, \
-             so the connection is queryable and can be traversed (pick the fitting relation from the \
-             registry). For a symmetric relation (shown in the registry), link once — the reverse \
-             direction is implied, so linking both ways is redundant.",
+             two memories relate — two people who know each other, an event that belongs to a topic — \
+             capture it with link rather than only describing it in prose, so the connection is \
+             queryable and traversable (pick the fitting relation from the registry). For a symmetric \
+             relation (shown in the registry), link once — the reverse direction is implied.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
         .required(
@@ -264,15 +247,13 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
     let outgoing = AE::new("<memory>:outgoing")
         .description(
-            "The memories this one links to under a relation, across its whole merged identity, in the \
-             relation's forward direction — <memory>:outgoing(\"knows\") is who it knows. Each \
-             result is a table { relation, memory, name, direction, source, told_by, occurred_at } \
-             that prints as \"relation → name\" (with a dated target's occurrence appended as \
-             \"[when …]\"); reach the linked memory through result.memory to read or act on it, \
-             result.told_by names who asserted the relationship (the provenance of a belief-bearing \
-             link), and result.occurred_at is the far memory's date when it holds a dated fact. Use \
-             <memory>:incoming for the reverse direction (who knows it). For a symmetric relation, \
-             outgoing and incoming return the same neighbours.",
+            "The memories this one links to under a relation, across its whole merged identity, \
+             forward — <memory>:outgoing(\"knows\") is who it knows. Each result is a table \
+             { relation, memory, name, direction, source, told_by, occurred_at } printing as \
+             \"relation → name\" (a dated occurrence appended); reach the linked memory through \
+             result.memory, result.told_by is who asserted the relationship, result.occurred_at the \
+             far memory's date when dated. Use <memory>:incoming for the reverse (who knows it). For \
+             a symmetric relation, both return the same neighbours.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
@@ -290,11 +271,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Every link from this memory's merged identity out to other memories, in every relation \
              and both directions — the relationship overview. Each result is a table { relation, \
-             memory, name, direction, source, occurred_at } that prints as \"relation → name\" (or \
-             \"← name\" for an incoming link), a dated target's occurrence appended as \"[when …]\"; \
-             reach a linked memory through result.memory. Call it with a colon — <memory>:links() — \
-             since <memory>.links is the method itself, not the list; each result renders as its own \
-             text, so interpolate one into a backtick string — `{link}` — to compose a line from it.",
+             memory, name, direction, source, occurred_at } printing as \"relation → name\" (or \
+             \"← name\" incoming), a dated occurrence appended; reach a linked memory through \
+             result.memory, and each result renders as its own text for interpolation into a reply. \
+             Call it with a colon — <memory>:links() — since <memory>.links is the method itself.",
         )
         .returns(AT::Object(Vec::new()).list());
 
@@ -304,11 +284,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                 "Record that this {person} stub and another are the same human across platforms, for \
                  adjudication on the evidence. This does not merge them and surfaces nothing on its own — \
                  it is your judgment, weighed against the independently-recorded facts. Propose only from \
-                 what you already hold about each, never from claims made to convince you in the moment. \
-                 You cannot merge by asserting same_as yourself. The adjudicator weighs the entries \
-                 recorded on both stubs; pass opts.rationale to state why you think they match (the \
-                 observed coincidence — a shared wedding, the same volcanology trip), and it is weighed \
-                 as your claim against those facts."
+                 what you already hold about each, never from claims made to convince you in the moment; \
+                 you cannot merge by asserting same_as yourself. Pass opts.rationale to state why you \
+                 think they match (the observed coincidence — a shared wedding, the same volcanology \
+                 trip), weighed against the entries on both stubs."
             ),
         )
         .required("other", AT::Handle, format!("the other {person} stub"))
@@ -343,11 +322,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             format!(
                 "Give this memory a new handle, keeping it the same memory — when someone changes the \
                  name they go by (a new chosen name, a married name), rename their {person} memory rather \
-                 than creating a new one. The memory keeps all its facts, links, and history under the new \
-                 handle; a fresh memory would split the person in two. The old name stops resolving and is \
-                 not surfaced again, so refer to them by the new name from now on. Renaming onto a handle \
-                 that already belongs to a different memory is an error — that is two separate people, not \
-                 a rename."
+                 than creating a new one, which would split the person in two. It keeps all its facts, \
+                 links, and history; the old name stops resolving, so use the new name from now on. \
+                 Renaming onto a handle that already belongs to a different memory is an error — that is \
+                 two people, not a rename."
             ),
         )
         .required("name", AT::String, format!("the new handle, e.g. \"{person}sarah\""));
@@ -357,8 +335,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
             "Set a memory's volatility — how fast its facts drift. \"high\" for fast-changing facts \
              (a current role, where someone is, what they are working on), \"medium\" the default, \
              \"low\" for durable facts like a name. A high-volatility memory surfaces later flagged \
-             `stale — no newer entry` once it ages out: possibly out of date, and nothing has replaced \
-             it, so hedge or reconfirm rather than hunting memory for a fresher version.",
+             `stale — no newer entry` once it ages out: possibly out of date with nothing to replace \
+             it, so hedge or reconfirm rather than hunting for a fresher version.",
         )
         .required(
             "level",
@@ -390,9 +368,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
     let links_register = AE::new("links.register")
         .description(
-            "Register a link relation, usable thereafter under either label by <memory>:link. Edges \
-             are made with <memory>:link; this declares the relation they instantiate. \
-             Re-registering a name updates it.",
+            "Register a link relation, usable thereafter under either label by <memory>:link — this \
+             declares the relation that edges instantiate. Re-registering a name updates it.",
         )
         .required(
             "spec",
@@ -449,14 +426,14 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
     let convo_turn = AE::new("convo.turn")
         .description(
-            "Resolve a reference to an earlier moment to that turn and the exchange around it. \
-             A reference arrives as a [turn:<id>] token — pass the id here. The result is a table { id, ref, text, \
-             speaker, role, at, window } — the linked turn's fields (ref is the canonical [turn:<id>] \
-             to cite it by, copy it into your reply), and window the surrounding turns (the linked \
-             one flagged focused) — that prints as a transcript excerpt with the moment marked. A \
-             moment resolves only when everyone present here was in its audience; if it wasn't, that \
-             is an error naming the audience problem — recall through memory instead of replaying the \
-             transcript. A malformed id and an unknown id are likewise errors.",
+            "Resolve a reference to an earlier moment — a [turn:<id>] token, pass the id here — to \
+             that turn and the exchange around it. The result is a table { id, ref, text, speaker, \
+             role, at, window }: ref is the canonical [turn:<id>] to cite it by (copy it into your \
+             reply), window the surrounding turns (the linked one flagged focused), printing as a \
+             transcript excerpt with the moment marked. A moment resolves only when everyone present \
+             here was in its audience; otherwise it is an error naming the audience problem — recall \
+             through memory instead of replaying the transcript. A malformed or unknown id is \
+             likewise an error.",
         )
         .required(
             "id",
@@ -493,7 +470,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              Reach for this alongside calendar.on(today) and calendar.upcoming when someone asks what \
              they should be on top of: those look at today and ahead, so a reminder whose day passed \
              is invisible without it. Recurring occurrences are excluded (their next instance is \
-             always ahead, so nothing recurring is ever overdue). Each is a memory handle.",
+             always ahead). Each is a memory handle.",
         )
         .optional(
             "opts",
@@ -528,9 +505,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Today's date as a date object — pass it straight to append as occurred_at, or do \
              arithmetic on it (:add_days, :add_weeks, :add_months, :weekday). A date object prints \
-             and concatenates as its \"YYYY-MM-DD\" day (so `Reminder for {calendar.today()}` \
-             works), and :to_string() returns that day. Compute dates this way rather than working \
-             one out yourself.",
+             and concatenates as its \"YYYY-MM-DD\" day (so `Reminder for {calendar.today()}` works), \
+             and :to_string() returns that day. Compute dates this way rather than working one out \
+             yourself.",
         )
         .returns(AT::Handle);
 

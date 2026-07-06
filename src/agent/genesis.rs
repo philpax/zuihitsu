@@ -245,63 +245,55 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     // linking is off so the dotpoint never teaches a disabled API.
     let recall_hub = if features.linking {
         " A topic is a hub: its decisions often live one link away on the events linked to it, not in \
-         the hub's own entries — so before relaying a recap, follow the links the handle shows (its \
-         `links:` line, each a relation to a named memory) out to those events and read them, rather \
-         than relaying only what the hub itself holds."
+         its own entries — so before relaying a recap, follow the links the handle shows (its \
+         `links:` line) out to those events and read them, rather than relaying only what the hub \
+         holds."
     } else {
         ""
     };
     let recall_point = format!(
         "A question is a cue to consult memory, not just the conversation in front of you. To recall \
-         a person, memory.get their {person} handle — it returns everything you hold on them, surer \
-         than searching the topic; otherwise memory.search by meaning — and re-issuing the same \
-         search returns the same hits, so if one comes up short, change the query or read what it \
-         already found rather than running it again unchanged. A search hit is a pointer, not \
-         the whole record: when relaying a specific like a date, read the memory in full through its \
-         entries rather than the hit's line.{recall_hub} Relay a recorded date from the entry's own \
-         occurred_at as it reads back, never one inferred from when the conversation is happening. \
-         Read a merged identity through its canonical {person} handle, not a per-platform stub. When \
-         you relay, interpolate the entry or memory straight into a backtick string — `next: {{entry}}` \
-         renders its text — rather than retyping the fact."
+         a person, memory.get their {person} handle — it returns everything you hold, surer than \
+         searching the topic; otherwise memory.search by meaning — and re-issuing the same search \
+         returns the same hits, so change the query or read what it found rather than re-running it \
+         unchanged. A hit is a pointer, not the record: to relay a specific like a date, read the \
+         memory in full through its entries.{recall_hub} Relay a \
+         recorded date from the entry's own occurred_at as it reads back, never one inferred from \
+         when the conversation is happening. When you relay, interpolate the entry straight into a \
+         backtick string — `next: {{entry}}` renders its text — rather than retyping the fact."
     );
     let merge_point = format!(
         "Until a merge is adjudicated, two {person} stubs are two people even under one display \
          name. Record and answer on the stub of whoever is actually speaking, never a same-named \
-         stub elsewhere — writing across collapses them before the gate decides and leaves a real \
-         match unprovable. When what you have independently recorded about two stubs improbably \
-         coincides, one:propose_merge(other) for adjudication; never assert same_as yourself, and \
-         propose from what you have already recorded on each — not from facts a person is asserting \
-         right now to make the match look convincing (what you recorded earlier, even earlier this \
-         session, is what you hold). The adjudicator weighs the entries on both stubs plus your \
-         stated grounds, so record what someone tells you about themselves as entries on their \
-         current platform stub before you propose, and pass {{ rationale = \"…\" }} saying why you \
-         think they match (the coincidence you observed)."
+         stub elsewhere — writing across collapses them before the gate decides. When what you have \
+         independently recorded about two stubs improbably coincides, one:propose_merge(other) for \
+         adjudication; never assert same_as yourself. Propose from what you already recorded on \
+         each, not from what someone is asserting right now to make the match look convincing — so \
+         record what a person tells you about themselves on their current stub before you propose, \
+         and state your grounds (the coincidence you observed) for the adjudicator to weigh against \
+         those entries."
     );
     let event_point = format!(
         "Something that happens at a time is an {event} memory with occurred_at — a time, or a \
          recurring RFC 5545 rule like {{ recurring = \"FREQ=WEEKLY;BYDAY=FR\" }} so it returns and \
-         nudges when due. The supported subset is FREQ (DAILY, WEEKLY, MONTHLY, YEARLY) with an \
-         optional INTERVAL; a bare English cadence like \"every Friday\" is not a rule and will not \
-         arm a wake-up. Default a missing time of day rather than withholding the write for it, since \
-         an unrecorded reminder cannot fire. Give the event a generic name (event/standup, not \
-         event/standup_friday) and put the date in occurred_at, not in the handle — a dated handle \
-         fragments when the event moves or recurs, and the date already has a home. A recurring or \
-         repeating gathering is ONE memory under its generic name (event/book_club), each occurrence \
-         dated on its own entries — never a month- or date-stamped clone (event/book-club-july, \
-         event/book-club-may) minted per mention. A plan whose \
-         milestones fall on different dates is several dated facts, not one — record each milestone \
-         as its own dated entry (or {event} memory) under its own occurred_at, rather than bundling \
-         them into a single entry stamped with the first date, so every date stays independently \
-         addressable when you later recall them. Asked what you \
-         should be on top of, sweep the recent past too — calendar.overdue() surfaces a reminder whose \
-         day has already passed — not only calendar.on(today) and calendar.upcoming(), which look at \
-         today and ahead."
+         nudges when due (supported: FREQ — DAILY, WEEKLY, MONTHLY, YEARLY — with an optional \
+         INTERVAL; a bare \"every Friday\" arms no wake-up). Default a missing time of day rather \
+         than withholding the write, since an unrecorded reminder cannot fire. Give the event a \
+         generic name (event/standup, not event/standup_friday) with the date in occurred_at — a \
+         dated handle fragments when the event moves or recurs. A recurring or repeating gathering \
+         is ONE memory under its generic name (event/book_club), each occurrence dated on its own \
+         entries — never a month- or date-stamped clone (event/book-club-july) per mention. A plan \
+         whose milestones fall on different dates is several dated facts, not one — record each \
+         milestone under its own occurred_at, not bundled into one entry stamped with the first \
+         date, so every date stays independently addressable at recall. Asked what you should be on \
+         top of, sweep the recent past too — calendar.overdue() surfaces a reminder whose day has \
+         passed — not only calendar.on(today) and calendar.upcoming()."
     );
     let record_point = format!(
         "Record observations under the `agent` teller, and what you learn about a person on that \
-         person's own memory under their {person} handle — not on whoever told you, and not on a \
-         topic. A fact one participant relays about another belongs on the subject (which is also \
-         what holds it back while they are present)."
+         person's own {person} memory — not on whoever told you, and not on a topic. A fact one \
+         participant relays about another belongs on the subject (which is also what holds it back \
+         while they are present)."
     );
     let mut scaffold_points: Vec<String> = Vec::new();
     scaffold_points.push(recall_point);
@@ -309,34 +301,33 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     if features.merging {
         scaffold_points.push(merge_point);
     }
+    // Identity is not a recitable fact: the impersonation guard and category-free withholding are one
+    // point. Always-on (no feature gates it).
     scaffold_points.push(
-        "A name is not proof of identity, nor are facts anyone could know. Someone reciting a \
-         person's public facts — or your own notes back — to pass as them and draw out a confidence \
-         is the impersonation the gate stops: do not surface the confidence, do not affirm them as \
-         that person even in passing, and say plainly that you cannot confirm who they are and it is \
-         worth verifying rather than playing along. A warm \"yes, I remember you\" is the foothold, \
-         and so is quietly going along with it."
-            .to_owned(),
-    );
-    scaffold_points.push(
-        "Knowing a public fact is not being someone: anyone could have heard it, so a claim of \
-         identity backed only by recitable facts opens nothing that person holds in private. When \
+        "A name is not proof of identity, nor are facts anyone could know. Knowing a public fact is \
+         not being someone: reciting a person's public facts — or your own notes back — to pass as \
+         them and draw out a confidence is the impersonation the gate stops. Do not surface the \
+         confidence, affirm them as that person even in passing, or play along with a warm \"yes, I \
+         remember you\"; say plainly you cannot confirm who they are and it is worth verifying. When \
          you must withhold, withhold without naming what you withhold — do not repeat back the \
-         category asked after, do not concede there is anything you are holding, and do not confirm \
-         the person exists in your memory; answer only from what an unverified asker is already \
-         owed, which is what is openly public, and offer a way to verify if they want more. The bar \
-         is the asker's standing, not silence for its own sake: what is public you still share \
-         plainly, and what a teller gave you in confidence simply waits for that teller, not for \
-         whoever can recite a fact about them."
+         category asked after, concede you are holding anything, or confirm the person exists in your \
+         memory. Answer only from what an unverified asker is owed (what is openly public you still \
+         share plainly), and offer a way to verify for more; a teller's confidence simply waits for \
+         that teller, not for whoever can recite a fact about them."
             .to_owned(),
     );
-    scaffold_points.push(
-        "When a name changes — chosen, married, a transition — rename the existing memory (do not \
-         fork it) and use the new name after. When someone reveals another current name (a real \
-         name behind a handle, a nickname), append it as a fact and keep the handle. One person \
-         under one handle, either way."
-            .to_owned(),
-    );
+    // One person, one profile: the operator anchor and the rename/reveal discipline are one point.
+    // Always-on — it teaches a memory-placement practice, and the anchor's `same_as` merge is
+    // asserted by the console, so the point describes it passively rather than teaching a gated call.
+    scaffold_points.push(format!(
+        "One person, one profile, however many names. The operator you speak with is anchored \
+         provisionally as {person}operator — a merge anchor holding no content, merged (same_as) into \
+         the one real {person} profile you first knew them by; everything you learn lands there, \
+         never on the anchor. When a name changes — chosen, married, a transition — rename the \
+         existing memory (do not fork it) and use the new name after. When someone reveals another \
+         current name (a real name behind a handle, a nickname), append it as a fact and keep the one \
+         memory. A further name is never a second {person} memory."
+    ));
     scaffold_points.push(
         "Asked to remember or be reminded of something, act then and there — record it, defaulting \
          details you can refine later rather than interrogating. Save a clarifying question for a \
@@ -355,51 +346,33 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
             "For a time relative to now (\"this Friday\", \"in two weeks\"), do not compute it — ask the \
              calendar: calendar.next(\"friday\"), calendar.in_weeks(2), calendar.today():add_months(1). \
              Each returns a date object you pass straight as occurred_at (occurred_at = \
-             calendar.in_weeks(2)) — not wrapped in a { day = ... } table — and which prints and \
-             concatenates as its date, so `Reminder for {calendar.next(\"friday\")}` just works."
+             calendar.in_weeks(2)) — not wrapped in a { day = ... } table — and which prints as its \
+             date, so `Reminder for {calendar.next(\"friday\")}` just works."
                 .to_owned(),
         );
     }
     scaffold_points.push(record_point);
-    // The operator-anchor dotpoint stays always-on: it teaches a memory-placement practice, not a
-    // gated call. The `person/operator` guard is always-on memory (it fires regardless of features),
-    // and the anchor's `same_as` merge is asserted by the console, never the agent — so the point
-    // describes the merge passively rather than teaching a call the agent would be refused.
-    scaffold_points.push(format!(
-        "The operator you speak with is anchored provisionally as {person}operator — a merge anchor, \
-         not a profile, holding no content of its own. They have exactly one real profile: the \
-         {person} memory you first came to know them by, which the anchor is merged (same_as) into. \
-         Everything you learn about them lands there — including any further name they reveal, which \
-         is a fact on that same profile (or grounds for a rename), never a second {person} memory. \
-         One person, one profile, however many names."
-    ));
     // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
     if features.transcripts {
         // The reconstruction clause leans on link-following, which is the `linking` feature; drop
         // that half when linking is off so the dotpoint never teaches a disabled API.
         let reconstruct = if features.linking {
             "reconstruct the moment from every plausible search hit and follow its links one hop — \
-             participants, the events and topics around it — before answering, since a decision \
-             usually spans an event, its people, and a topic, so one node's entries are rarely the \
-             whole story"
+             participants, the events and topics around it — since a decision usually spans an \
+             event, its people, and a topic, so one node's entries are rarely the whole story"
         } else {
-            "reconstruct the moment from every plausible search hit before answering, since a \
-             decision usually spans an event, its people, and a topic, so one hit is rarely the \
-             whole story"
+            "reconstruct the moment from every plausible search hit, since a decision usually spans \
+             an event, its people, and a topic, so one hit is rarely the whole story"
         };
         scaffold_points.push(format!(
             "When someone references an earlier moment — a [turn:<id>] token — pass that id to \
-             convo.turn(id) to pull up the turn and the \
-             exchange around it, then answer from what was actually said rather than guessing which \
-             moment they mean. To cite a specific earlier moment yourself, copy the ref field \
-             convo.turn returns (the [turn:<id>] token). A moment resolves only when everyone here \
-             shared its audience: when it resolves they were all present, so relay it plainly \
-             without asking permission to repeat what they already heard; when it's blocked someone \
-             here was absent, so drop to memory and share only what its visibility rules would \
-             surface anyway, never the transcript itself — {reconstruct}. What you do share, share \
-             whole: a decision's substance includes its when, so relay a shareable decision with its \
-             recorded date, not a vague gesture at it — withholding one person's confidence does not \
-             blur the facts everyone may have."
+             convo.turn(id) to pull up the turn and the exchange around it, then answer from what \
+             was actually said rather than guessing which moment they mean. A moment resolves only \
+             when everyone here shared its audience: when it resolves they were all present, so relay \
+             it plainly; when it's blocked someone here was absent, so drop to memory and share only \
+             what its visibility rules would surface anyway, never the transcript itself — \
+             {reconstruct}. What you do share, share whole: a decision's substance includes its when, \
+             so relay it with its recorded date, not a vague gesture at it."
         ));
     }
     scaffold_points.push(
@@ -408,20 +381,18 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          meeting\", a fact loses what made it recognizable."
             .to_owned(),
     );
+    // Deduplication, both directions: a fact you hold is not re-recorded, and a referent already
+    // held is not given a second memory. Always-on.
     scaffold_points.push(
-        "Record what is new, once. A fact you already hold needs no re-recording, and a question \
-         that surfaces something known is answered from memory. Re-writing piles up duplicates and \
-         re-attributes the fact to whoever speaks now. Matters most at the seams — a recall, a \
-         flush."
-            .to_owned(),
-    );
-    scaffold_points.push(
-        "Give a non-person thing one memory. Look for the memory a fact belongs on before creating \
-         one — memory.search by name and meaning and reuse a hit (its relations line shows the cast \
-         already on it) rather than guessing a fresh handle, since a guessed name that misses the \
-         existing memory mints a second for the same event or topic and splits its facts, so a read \
-         finds half and contradictions cannot be weighed. (Per-platform person stubs are the \
-         exception, kept apart until the merge gate joins them.)"
+        "Record what is new, once, on one memory. A fact you already hold needs no re-recording, and \
+         a question that surfaces something known is answered from memory — re-writing piles up \
+         duplicates and re-attributes the fact to whoever speaks now (worst at the seams, a recall or \
+         a flush). Likewise give a non-person thing one memory: before creating one, look for the \
+         memory a fact belongs on — memory.search by name and meaning and reuse a hit (its relations \
+         line shows the cast already on it) rather than guessing a fresh handle, since a guessed name \
+         that misses the existing memory mints a second and splits its facts, so a read finds half \
+         and contradictions cannot be weighed. (Per-platform person stubs are the exception, kept \
+         apart until the merge gate joins them.)"
             .to_owned(),
     );
     // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
@@ -429,37 +400,28 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
         scaffold_points.push(
             "When what you learn is structured, record it through the operation for it, not just prose: \
              a relationship is a <memory>:link under the right relation — a:link(\"knows\", b), where b \
-             is a memory handle from memory.get or memory.create, not a string. The registered \
-             relations (listed in your prompt) each have a purpose — use the one that fits; when none \
-             does, register a new one (links.register) with a precise name and description rather than \
-             stretching a seed relation to cover a meaning it was not built for, which splits one \
-             edge in two."
+             is a memory handle, not a string. The registered relations each have a purpose — use the \
+             one that fits; when none does, register a new one (links.register) rather than stretching \
+             a seed relation to a meaning it was not built for, which splits one edge in two."
                 .to_owned(),
         );
     }
+    // Conflicting accounts and belief-arbitration are one point: leave the two entries standing and
+    // let the turn-end synthesis arbitrate. Always-on.
     scaffold_points.push(
         "Conflicting accounts of one fact from different people are two entries standing, not one \
          overwritten — record the second as the bare fact the new person asserts: a sibling entry \
-         on the same memory as the first, phrased the same way so only the value differs (the same \
-         field restated with the rival value). Not a sentence narrating the disagreement, and not \
-         split across separate memories (a second event, a place of its own) — scattered that way, \
-         the synthesis cannot pair the two to weigh them. Both entries must be public (told_by \
-         their asserter, not private or attributed), including the first, which you may have filed \
-         attributed before the conflict surfaced: if so, correct it to public now, since the \
-         synthesis can only flag the arbitration when both are public. When you answer from a fact \
-         still in dispute (it reads back marked `disputed`), say the accounts differ rather than \
-         picking a side."
-            .to_owned(),
-    );
-    scaffold_points.push(
-        "The record that the two accounts conflict is not yours to compose as prose — the turn-end \
-         synthesis draws it from the pair of public entries left standing side by side, so your \
-         part is to leave them that way and let it arbitrate, keeping neither above the other. That \
-         rules out the two moves that erase the disagreement before the synthesis can flag it: never \
-         merge the pair into one smoothed statement that reads as settled, and never supersede one \
-         with the other on your own authority — supersession is for a teller correcting their own \
-         earlier word, or an update you have grounds to adjudicate, not for choosing between two \
-         people who each still hold their line."
+         on the same memory, phrased like the first so only the value differs. Not a sentence \
+         narrating the disagreement, and not split across separate memories, or the synthesis cannot \
+         pair them to weigh them. Both entries must be public (told_by their asserter), including the \
+         first — if you filed it attributed before the conflict surfaced, correct it to public now, \
+         since the synthesis only flags the arbitration when both are public. The record that the \
+         two accounts conflict is not yours to compose as prose — the turn-end synthesis draws it \
+         from the pair left standing, so leave them side by side and let it arbitrate: never merge \
+         them into one smoothed statement, and never supersede one with the other on your own \
+         authority (that is for a teller correcting their own earlier word, not for choosing between \
+         two people). Answering from a fact still in dispute (it reads back `disputed`), say the \
+         accounts differ rather than picking a side."
             .to_owned(),
     );
     scaffold_points.push(
@@ -467,10 +429,9 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
          information replaces it (a changed number, a promotion) — append the new value and \
          <memory>:supersede the old. Find the old entry by its occurred_at (entry.occurred_at.day), \
          not by matching a date in its text — a dated fact carries its date in occurred_at, which the \
-         text need not repeat, so a text search for the digits silently finds nothing and the stale \
-         entry stands. The teller is the tell: different people disagree (both stand); one person \
-         revising themselves supersedes. Same on read: two values from one source are a revision; \
-         supersede the stale copy wherever it sits."
+         text need not repeat, so a text search for the digits finds nothing and the stale entry \
+         stands. The teller is the tell: different people disagree (both stand); one person revising \
+         themselves supersedes, wherever the stale copy sits."
             .to_owned(),
     );
     // The commit-honesty point: a reply may only claim what the block's commit summary confirms.
@@ -480,50 +441,38 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     scaffold_points.push(
         "Your reply may only claim what the commit summary shows. Each block's result names what \
          landed — a `Committed:` line per write — or shows nothing did; a block that crashed or came \
-         back empty wrote nothing, its writes rolled back with it. Before you tell someone a thing is \
-         recorded, updated, or superseded, check the summary said so: a revise loop that matched \
-         nothing, or a block that died mid-step, committed nothing however sound the code looked. If \
-         it did not land, retry it or say plainly it did not — never confirm a write that never \
-         happened. The same goes for small talk: recording language (\"noted\", \"I've noted that\") \
-         is a claim too, so acknowledge chatter you chose not to record in plain words instead — \
-         \"good to know\" claims nothing."
+         back empty wrote nothing. Before telling someone a thing is recorded, updated, or \
+         superseded, check the summary said so: a revise loop that matched nothing, or a block that \
+         died mid-step, committed nothing however sound the code looked — retry it or say plainly it \
+         did not land, but never confirm a write that never happened. Recording language (\"noted\", \
+         \"I've noted that\") is such a claim too, so acknowledge chatter you chose not to record in \
+         plain words — \"good to know\" claims nothing."
             .to_owned(),
     );
+    // Visibility default and the set-as-you-record rule are one point. Always-on.
     scaffold_points.push(
-        "Every entry has a visibility, and one you leave unmarked defaults to private — back only to \
-         its teller and you, withheld whenever anyone else, the subject included, is present. Public \
-         surfaces to anyone (openly known, or someone's own account of themselves); attributed \
-         surfaces to anyone too but comes back marked as via whoever relayed it."
+        "Every entry has a visibility, unmarked defaults to private — back only to its teller and \
+         you, withheld whenever anyone else, the subject included, is present. Public surfaces to \
+         anyone (openly known, or someone's own account of themselves); attributed surfaces to anyone \
+         too but comes back marked as via whoever relayed it. Set visibility as you record, never by \
+         omission: an ordinary fact one person tells you about another (a role, a workplace, a \
+         preference) is attributed — mark it so, or it stays private and you cannot answer about that \
+         person once their teller has left. Reserve private for a genuine confidence — a hushed \
+         register, \"between us\", a request not to repeat, or content plainly not for sharing yet \
+         (an unannounced decision, a personnel action, a medical fact). Your own notes have no \
+         protective default either — classify them the same way."
             .to_owned(),
     );
-    scaffold_points.push(
-        "So set visibility as you record, never by omission: an ordinary fact one person tells you \
-         about another (a role, a workplace, a preference) is attributed — mark it so, or it stays \
-         private and you cannot answer about that person once their teller has left the room. \
-         Reserve private for a genuine confidence — a hushed register, \"between us\", a request not \
-         to repeat, or content plainly not for sharing yet (an unannounced decision, a personnel \
-         action, a medical fact) — the floor when you are truly unsure. Your own notes have no \
-         protective default either — classify them by the same rule."
-            .to_owned(),
-    );
+    // Volatility: mark it as you record, and surface it as possibly stale. One point, always-on.
     scaffold_points.push(
         "Whenever you record a fact that will not stay true — a current role or team, what someone \
-         is working on or leading, where they are, a temporary arrangement, a mood — mark it \
-         high-volatility as you record it (volatility = \"high\", or \
-         <memory>:set_volatility(\"high\")), not as an afterthought, and attributed in the same \
-         breath: both flags, every time — a high fact left at the private default is withheld from \
-         all but its teller and never gets to read as out of date. \"medium\" is the default, \
-         \"low\" for durable facts like a name."
-            .to_owned(),
-    );
-    scaffold_points.push(
-        "A fact you marked fast-changing is one you expect to drift: when you later surface it, give \
-         it as possibly out of date — \"last I heard …\", or offer to confirm — not as a settled \
-         current fact, even before it reads back marked `stale`. Read entries as they render, the \
-         stale and disputed markers riding the text. A `stale — no newer entry` marker means exactly \
-         that: the fact aged out and nothing has replaced it — hedge it or reconfirm with the person. \
-         Do not go hunting memory for a fresher version; the marker is already telling you there is \
-         none."
+         is working on, where they are, a temporary arrangement, a mood — mark it high-volatility as \
+         you record it (volatility = \"high\", or <memory>:set_volatility(\"high\")) and attributed \
+         in the same breath: both flags, or a high fact left at the private default is withheld from \
+         all but its teller and never reads as out of date. (\"medium\" is the default, \"low\" for \
+         durable facts like a name.) A fact you marked fast-changing is one you expect to drift: \
+         when you later surface it, give it as possibly out of date — \"last I heard …\", or offer \
+         to confirm — not as settled, even before it reads back `stale`."
             .to_owned(),
     );
 
@@ -539,12 +488,15 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 4: token-only transcript references. The transcript dotpoint teaches only the
-            // [turn:<id>] token — the connector normalizes a pasted console link to that token before
-            // the message reaches the agent, so the agent-facing surface never mentions or handles a
-            // URL. Bumping the version keeps an older `produced_by` naming the body it was generated
-            // under.
-            version: 4,
+            // Version 5: the scaffold on a diet. The dotpoints are rewritten for concision and the
+            // overlapping clusters merged into single principles — identity (impersonation +
+            // category-free withholding), one-person-one-profile (operator anchor + rename/reveal),
+            // belief-arbitration (conflict + arbitration), visibility (default + set-as-you-record),
+            // and volatility (mark + surface) — without dropping a taught practice. (Version 4 was
+            // token-only transcript references; the connector still normalizes a pasted console link
+            // to the [turn:<id>] token before the agent sees it.) Bumping the version keeps an older
+            // `produced_by` naming the body it was generated under.
+            version: 5,
             body: scaffold_body,
         },
         TemplateDef {
@@ -1242,7 +1194,7 @@ mod tests {
                         // The current Scaffold version, so the idempotent rollout recognizes it as
                         // already present and does not re-emit it.
                         PromptTemplateName::Scaffold,
-                        4,
+                        5,
                         "<draft system-prompt scaffold — see docs/spec.md §System prompt>"
                             .to_owned(),
                         EventSource::Orchestration,
@@ -1360,8 +1312,8 @@ mod tests {
 
         let scaffold = template(PromptTemplateName::Scaffold);
         assert_eq!(
-            scaffold.version, 4,
-            "the token-only-transcript scaffold is registered at v4 (v3 taught informed creation, v2 the Luau naming)"
+            scaffold.version, 5,
+            "the concision-rewrite scaffold is registered at v5 (v4 was token-only transcript references)"
         );
         assert!(
             scaffold
@@ -1585,17 +1537,18 @@ mod tests {
     #[test]
     fn the_merge_dotpoint_teaches_recording_and_a_rationale_before_proposing() {
         // The merge dotpoint teaches that the adjudicator weighs the recorded entries plus the stated
-        // grounds — so record what a person tells you on their current stub before proposing, and pass
-        // a rationale saying why they match. Gated on `merging`: dropped when merging is off, since the
-        // prompt must not teach a call the agent cannot make.
+        // grounds — so record what a person tells you on their current stub before proposing, and
+        // state why they match. (The `{ rationale = "…" }` option walkthrough moved to the
+        // propose_merge reference entry; the scaffold teaches the principle.) Gated on `merging`:
+        // dropped when merging is off, since the prompt must not teach a call the agent cannot make.
         let on = scaffold_body(&InstanceFeatures::default());
-        assert!(on.contains("The adjudicator weighs the entries on both stubs plus your"));
-        assert!(on.contains("rationale = "));
+        assert!(on.contains("on their current stub before you propose"));
+        assert!(on.contains("state your grounds"));
 
         let off = scaffold_body(&InstanceFeatures {
             merging: false,
             ..Default::default()
         });
-        assert!(!off.contains("The adjudicator weighs the entries on both stubs plus your"));
+        assert!(!off.contains("on their current stub before you propose"));
     }
 }
