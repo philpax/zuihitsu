@@ -254,17 +254,21 @@ pub(in crate::agent::lua) fn memory_table(
             }
         })?,
     )?;
-    // memory.get(name) — resolve through the block's pending creates, then the graph, locking the
-    // resolved stub. A renamed person still resolves by a former name (see `resolve_existing_handle`).
+    // memory.get(name_or_handle) — resolve through the block's pending creates, then the graph,
+    // locking the resolved stub. Accepts a name string or an existing memory handle (the natural
+    // `memory.get(h)` over a handle from `memory.list`/`memory.create`), a handle resolving by its
+    // current name so the lookup is identical either way. A renamed person still resolves by a former
+    // name (see `resolve_existing_handle`).
     memory.set(
         "get",
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, name: String| {
+            move |lua, target: Value| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
+                    let name = get_argument_name(&api, target)?;
                     match resolve_existing_handle(&lua, &api, &metatable, &name).await? {
                         Some(handle) => Ok(Value::Table(handle)),
                         None => Ok(Value::Nil),
@@ -287,10 +291,11 @@ pub(in crate::agent::lua) fn memory_table(
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, (name, content, opts): (String, Option<String>, Value)| {
+            move |lua, (target, content, opts): (Value, Option<String>, Value)| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
+                    let name = get_argument_name(&api, target)?;
                     if let Some(handle) =
                         resolve_existing_handle(&lua, &api, &metatable, &name).await?
                     {

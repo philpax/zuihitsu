@@ -29,8 +29,12 @@ use crate::{
 
 use super::error::{
     ConcatError, HandleAssignmentError, HandleError, HandleKind, MemorySearchError,
-    TemporalArgError,
+    MissingReturnError, TemporalArgError,
 };
+
+/// The chunk name given to an agent block, so a syntax or runtime error names the block rather than
+/// leaking mlua's default (the Rust caller's `file:line`, which the agent should never see).
+pub(super) const BLOCK_CHUNK_NAME: &str = "block";
 
 /// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
 /// infrastructure-error slot (`infra`), the per-block lock set (`lock_set`), and the server-wide lock
@@ -490,6 +494,67 @@ pub(super) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<Memor
             type_name: other.type_name(),
         }
         .into()),
+    }
+}
+
+/// Resolve a `memory.get` / `memory.get_or_create` argument to the name to look up. The argument is
+/// normally a name string, but an existing memory handle (from `memory.list`, `memory.create`, or a
+/// prior `memory.get`) is accepted too — so the natural `memory.get(h)` over a handle the agent
+/// already holds works rather than failing the string-to-handle conversion and rolling the whole block
+/// back. A handle resolves by its current name (through the block's pending creates, then the graph),
+/// so the lookup that follows keeps read semantics identical to `memory.get("name")` — including the
+/// renamed-identity affordances. An unknown handle (its id resolves to no memory) is a clear error, as
+/// is any other value.
+pub(super) fn get_argument_name(api: &BlockApi, value: Value) -> mlua::Result<String> {
+    match value {
+        Value::String(name) => Ok(name.to_string_lossy()),
+        Value::Table(handle) => {
+            let id = handle_id(&handle)?;
+            match api
+                .block
+                .lock()
+                .handle_field(id, "name")
+                .map_err(|error| route_error(error, &mut api.infra.lock()))?
+            {
+                Some(name) => Ok(name),
+                None => Err(HandleError::UnknownMemoryHandle {
+                    id: id.0.to_string(),
+                }
+                .into()),
+            }
+        }
+        other => Err(HandleError::WrongGetArgType {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Load and evaluate one agent block, naming its chunk `block` so a syntax or runtime error names the
+/// block rather than leaking mlua's default caller location, and rewording Luau's incomplete-statement
+/// syntax error into the teachable [`MissingReturnError`]. Every other load or runtime error passes
+/// through untouched.
+pub(super) async fn eval_block(lua: &Lua, script: &str) -> mlua::Result<Value> {
+    lua.load(script)
+        .set_name(BLOCK_CHUNK_NAME)
+        .eval_async::<Value>()
+        .await
+        .map_err(teach_block_load_error)
+}
+
+/// Reword the incomplete-statement syntax error Luau raises when a block ends in a bare trailing
+/// expression (`results` on its own last line, as if the VM echoed input like a REPL) into a teachable
+/// one that names the fix: yield the value with an explicit `return`. A pure rewrite — the script is
+/// never re-parsed or mutated — that touches only that syntax error; anything else is returned as-is.
+fn teach_block_load_error(error: mlua::Error) -> mlua::Error {
+    match &error {
+        mlua::Error::SyntaxError { message, .. } if message.contains("Incomplete statement") => {
+            MissingReturnError {
+                message: message.clone(),
+            }
+            .into()
+        }
+        _ => error,
     }
 }
 

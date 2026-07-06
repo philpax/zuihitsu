@@ -19,10 +19,11 @@ pub(super) use super::{
     error::{BlockConsistencyError, CalendarError, HandleKind, ListError, TurnResolveError},
     runtime::{
         BlockApi, HandleSelf, SearchOpts, append_options_from_lua, concat_via_tostring, date_text,
-        day_string, entry_handle_id, handle_id, link_target_id, make_capped_handle_list, make_date,
-        make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
-        make_link_handle_list, make_relation_result, readonly_newindex, render, render_details,
-        render_neighborhood, render_salient_relations, route_error, run_memory_search, value_text,
+        day_string, entry_handle_id, get_argument_name, handle_id, link_target_id,
+        make_capped_handle_list, make_date, make_entry_handle, make_entry_handle_list, make_handle,
+        make_handle_list, make_link_handle_list, make_relation_result, readonly_newindex, render,
+        render_details, render_neighborhood, render_salient_relations, route_error,
+        run_memory_search, value_text,
     },
 };
 

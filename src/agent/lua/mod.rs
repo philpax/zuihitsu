@@ -37,8 +37,8 @@ use crate::{
 
 use super::BlockContext;
 use runtime::{
-    BlockApi, LockSet, combine_output, install_inspect, install_table_concat, release_locks,
-    render, timed_out_cause,
+    BlockApi, LockSet, combine_output, eval_block, install_inspect, install_table_concat,
+    release_locks, render, timed_out_cause,
 };
 
 pub use reference::{api_reference, render_api_reference};
@@ -220,11 +220,8 @@ impl Session {
             // times this attempt's eval for the console's turn timeline (the final attempt's, since a
             // retry restarts it).
             let started = Instant::now();
-            let timed = tokio::time::timeout(
-                context.block_timeout,
-                self.lua.load(script).eval_async::<Value>(),
-            )
-            .await;
+            let timed =
+                tokio::time::timeout(context.block_timeout, eval_block(&self.lua, script)).await;
 
             let Ok(evaluated) = timed else {
                 // Timed out. Release the locks (so a retry, or another conversation, can take them) and

@@ -47,7 +47,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     let get = AE::new("memory.get")
         .description(
             format!(
-                "Fetch a memory by name, or nil if there is none. Read a merged identity through its \
+                "Fetch a memory by name or by an existing handle, or nil if there is none. Pass a \
+                 handle straight through — memory.get(h) over one from memory.list or memory.create \
+                 re-reads it. Read a merged identity through its \
                  canonical {person} handle, not a per-platform stub. The name must match exactly \
                  (case-sensitive); if a lookup returns nil, suspect the casing before creating a new \
                  memory. A former name still finds a renamed person: the result carries \
@@ -59,7 +61,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
                  those links, its own entries rarely being the whole story."
             ),
         )
-        .required("name", AT::String, "the memory's handle (or a former one)")
+        .required(
+            "name",
+            AT::String,
+            "the memory's handle (or a former one), or an existing memory handle",
+        )
         .returns(AT::Handle.optional());
 
     let get_or_create = AE::new("memory.get_or_create")
@@ -73,7 +79,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              error. Not an identity tool: a new name for a person you already hold is a fact on their \
              existing profile (or grounds for a rename) — get_or_create on it would mint a duplicate.",
         )
-        .required("name", AT::String, "the memory's handle")
+        .required(
+            "name",
+            AT::String,
+            "the memory's handle, or an existing memory handle",
+        )
         .optional(
             "content",
             AT::String,
@@ -90,8 +100,11 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              even when the description is thin; occurred_at is the memory's representative date when \
              dated; relations are its most salient links (each { relation, name, direction }), so a \
              hit shows the cast already on it — letting you recognize the memory you already hold and \
-             reuse it rather than making a near-duplicate. A hit is a pointer, not the whole record: \
-             memory.get a name to read every entry and occurrence in full.",
+             reuse it rather than making a near-duplicate. Ranked best-first means nearest in \
+             meaning, not confirmed to be the referent: a top hit can be a similar but different \
+             thing entirely, so check a hit's name against what you mean before writing to it. A \
+             hit is a pointer, not the whole record: memory.get a name to read every entry and \
+             occurrence in full.",
         )
         .required("query", AT::String, "what to look for, in natural language")
         .optional(

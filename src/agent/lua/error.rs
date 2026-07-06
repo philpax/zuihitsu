@@ -240,6 +240,11 @@ pub(super) enum HandleError {
     UnknownLinkTarget { name: String },
     /// `:link`/`:unlink` was given a value that is neither a handle nor a name string.
     WrongLinkTargetType { type_name: &'static str },
+    /// `memory.get`/`get_or_create` was given a handle whose id resolves to no memory.
+    UnknownMemoryHandle { id: String },
+    /// `memory.get`/`get_or_create` was given a value that is neither a name string nor a memory
+    /// handle.
+    WrongGetArgType { type_name: &'static str },
     /// A handle method was reached with a dot (`memory.append(...)`) rather than a colon
     /// (`memory:append(...)`), so the first argument bound to `self` — a string or number where the
     /// handle was wanted. Raised at the `self` extractor (the method's leftmost argument, converted
@@ -265,6 +270,16 @@ impl std::fmt::Display for HandleError {
                 f,
                 "link target must be a memory handle (from memory.get/create) or a memory name, \
                  got {type_name}"
+            ),
+            HandleError::UnknownMemoryHandle { id } => write!(
+                f,
+                "this memory handle (id {id:?}) resolves to no memory — it may name one that no \
+                 longer exists"
+            ),
+            HandleError::WrongGetArgType { type_name } => write!(
+                f,
+                "memory.get takes a memory name or an existing memory handle (from memory.list, \
+                 memory.create, or a prior memory.get), got {type_name}"
             ),
             HandleError::MethodCalledWithDot { type_name } => write!(
                 f,
@@ -326,6 +341,37 @@ impl std::error::Error for ConcatError {}
 
 impl From<ConcatError> for LuaError {
     fn from(error: ConcatError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
+/// Luau's incomplete-statement syntax error, reworded to teach the explicit `return`. A block that
+/// ends in a bare trailing expression — `results` on its own last line, as if the VM echoed input like
+/// a REPL — fails Luau's parser with "Incomplete statement: expected assignment or a function call",
+/// which never points at the fix: a block yields its value with an explicit `return`. The rewrite keeps
+/// Luau's own position info (the chunk is named `block`, so no host path leaks) and appends the lesson;
+/// the script is never re-parsed or mutated.
+#[derive(Debug)]
+pub(super) struct MissingReturnError {
+    /// Luau's original message, carrying the `[string "block"]:line:col:` position.
+    pub message: String,
+}
+
+impl std::fmt::Display for MissingReturnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "syntax error: {}. A block does not echo a trailing expression the way a REPL does — \
+             yield its value with an explicit return (e.g. `return results` on the last line).",
+            self.message
+        )
+    }
+}
+
+impl std::error::Error for MissingReturnError {}
+
+impl From<MissingReturnError> for LuaError {
+    fn from(error: MissingReturnError) -> Self {
         LuaError::RuntimeError(error.to_string())
     }
 }

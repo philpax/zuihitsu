@@ -361,3 +361,87 @@ async fn a_returned_map_renders_nested_handles_as_their_text() {
         "metatable noise should be omitted, got: {result}"
     );
 }
+
+#[tokio::test]
+async fn memory_get_accepts_a_handle_from_list() {
+    // memory.list yields handles, so the natural `memory.get(h)` while iterating a list must re-read
+    // the memory rather than failing the string-to-handle conversion. The re-read carries the full
+    // record, so a follow-up :details() reads its entry back.
+    let h = Harness::new();
+    h.run(
+        r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("Leads 5.11 routes", { visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+
+    let BlockOutcome::Committed { result } = h
+        .run(
+            r#"
+        local lines = {}
+        for _, m in ipairs(memory.list("person/")) do
+            local got = memory.get(m)
+            table.insert(lines, got:details())
+        end
+        return table.concat(lines, "\n---\n")
+        "#,
+        )
+        .await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(result.contains("person/dave"), "got: {result}");
+    assert!(result.contains("Leads 5.11 routes"), "got: {result}");
+}
+
+#[tokio::test]
+async fn memory_get_accepts_a_handle_from_create_in_the_same_block() {
+    // A handle freshly minted by memory.create in the same block resolves through the block's pending
+    // create, so `memory.get(memory.create(...))` reads the just-made memory back rather than erroring.
+    let h = Harness::new();
+    let BlockOutcome::Committed { result } = h
+        .run(
+            r#"
+        local made = memory.create(TOPIC_MIGRATION, "The billing migration")
+        local got = memory.get(made)
+        return `re-read: {got.name}`
+        "#,
+        )
+        .await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(result.contains("re-read: topic/migration"), "got: {result}");
+}
+
+#[tokio::test]
+async fn a_block_ending_in_a_bare_expression_teaches_return() {
+    // Luau rejects a block that ends in a bare trailing expression (as if the VM echoed input like a
+    // REPL) with "Incomplete statement: expected assignment or a function call", which never points at
+    // the fix. The reworded error names it — yield the value with an explicit `return` — and must not
+    // leak the Rust caller location mlua uses as the default chunk name.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.list("person/")
+        results
+        "#,
+        )
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("return"),
+                "the error should teach an explicit return, got: {message}"
+            );
+            assert!(
+                !message.contains("src/agent/lua"),
+                "the error must not leak the Rust caller location, got: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+}
