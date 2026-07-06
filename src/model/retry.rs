@@ -2,7 +2,7 @@
 //! backend failures with exponential backoff and jitter, and a circuit breaker that fails fast
 //! while the backend stays down.
 //!
-//! Retries the agent never saw are infra-transparent (spec §Event sourcing): they emit nothing to
+//! Retries the agent never saw are infra-transparent (spec §Transport resilience): they emit nothing to
 //! the event log — tracing and metrics only — so replay never depends on the retry policy. The
 //! policy itself is operational config ([`ResilienceConfig`], `[model.resilience]` in
 //! `config.toml`), not behavioral `Settings`. The serving host wraps the real OpenAI client in
