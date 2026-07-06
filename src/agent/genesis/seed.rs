@@ -218,9 +218,12 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         scaffold_points.push(
             "When what you learn is structured, record it through the operation for it, not just prose: \
              a relationship is a <memory>:link under the right relation — a:link(\"knows\", b), where b \
-             is a memory handle, not a string. The registered relations each have a purpose — use the \
-             one that fits; when none does, register a new one (links.register) rather than stretching \
-             a seed relation to a meaning it was not built for, which splits one edge in two."
+             is a memory handle or an exact memory name. A link is directional: a:link(rel, b) asserts \
+             \"a <rel> b\", so read the edge back as a sentence before committing it — when the \
+             sentence comes out backwards, link from the other end, or under the inverse label. The \
+             registered relations each have a purpose — use the one that fits; when none does, \
+             register a new one (links.register) rather than stretching a seed relation to a meaning \
+             it was not built for, which splits one edge in two."
                 .to_owned(),
         );
     }
@@ -307,16 +310,16 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 9 splits identity lookups from recall: the deduplication point now teaches that
-            // a name is checked exactly (memory.list the stem, memory.get the handle) while
-            // memory.search recalls by meaning and never decides whether a name exists, and a new
-            // look-before-acting point requires a lookup's results to be read across a block boundary
-            // before anything writes against them. (Version 8 taught a fuzzy hit as a candidate, not a
-            // match; version 7 threaded the whole-record read; version 6 added the record-or-plain-words
-            // branch; version 5 was the concision rewrite; version 4 was token-only transcript
-            // references.) Bumping the version keeps an older `produced_by` naming the body it was
-            // generated under.
-            version: 9,
+            // Version 10 teaches the write side of link direction: a:link(rel, b) asserts "a <rel> b",
+            // read back as a sentence before committing, linking from the other end (or under the
+            // inverse label) when it comes out backwards — and corrects the linking point to say a
+            // target may be a handle or an exact name. (Version 9 split identity lookups from recall —
+            // a name is checked exactly, search never decides name existence — and added the
+            // look-before-acting point; version 8 taught a fuzzy hit as a candidate, not a match;
+            // version 7 threaded the whole-record read; version 6 added the record-or-plain-words
+            // branch; version 5 was the concision rewrite.) Bumping the version keeps an older
+            // `produced_by` naming the body it was generated under.
+            version: 10,
             body: scaffold_body,
         },
         TemplateDef {

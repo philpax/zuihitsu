@@ -309,7 +309,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              \"relation → name\" (a dated occurrence appended); reach the linked memory through \
              result.memory, result.told_by is who asserted the relationship, result.occurred_at the \
              far memory's date when dated. Use <memory>:incoming for the reverse (who knows it). For \
-             a symmetric relation, both return the same neighbours.",
+             a symmetric relation, both return the same neighbours. A stored edge's direction \
+             reflects how the fact was told, so for a who-is-connected question, prefer \
+             <memory>:links or <memory>:details, which read both directions — betting on one \
+             direction can miss edges told the other way.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
