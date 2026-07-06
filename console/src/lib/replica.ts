@@ -15,6 +15,7 @@ import type {
   ConversationDetail,
   MemoryDetail,
   MemoryView,
+  MergeProposalView,
   RelationView,
   TagVocabularyEntry,
 } from "./graph.ts";
@@ -125,6 +126,12 @@ export class Replica {
 
   relations(): RelationView[] {
     return this.#inner.relations() as RelationView[];
+  }
+
+  /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with
+  /// its resolution state (pending, merged, or rejected) at the current fold cursor.
+  mergeProposals(): MergeProposalView[] {
+    return this.#inner.mergeProposals() as MergeProposalView[];
   }
 
   conversations(): ConversationDetail[] {

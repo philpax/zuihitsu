@@ -19,8 +19,8 @@ use crate::{
         templates,
     },
     event::{
-        Event, EventPayload, EventSource, MergeProposalSource, ModelPhase, PromptTemplateName,
-        RequestRecord, Teller, TerminalCause,
+        Event, EventPayload, EventSource, LinkSource, MergeProposalSource, ModelPhase,
+        PromptTemplateName, RequestRecord, Teller, TerminalCause,
     },
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Seq, TurnId},
@@ -29,6 +29,7 @@ use crate::{
     model::{Completion, ModelClient, Usage},
     settings::Settings,
     time::Timestamp,
+    vocabulary::RelationName,
 };
 
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
@@ -409,6 +410,46 @@ impl Control<'_> {
             });
         }
         Ok(out)
+    }
+
+    /// Resolve a pending cross-platform merge proposal as the operator would from the console (spec
+    /// §Cross-platform identity → operator-asserted merge). On `accept`, author the merging `same_as`
+    /// link directly (`LinkSource::Operator`) — the console-only path to a merge that does not run
+    /// through the adjudicator, the same operator authority that lets the console assert identity the
+    /// agent's own `mem:link("same_as")` may not. On refusal, record a `MergeAdjudicated` decline (no
+    /// `produced_by` — the operator decided, not a model) so the proposal reads as settled and the
+    /// adjudicator does not weigh it again. Either way the graph is re-materialized so a subsequent read
+    /// reflects the decision.
+    pub fn resolve_merge(
+        &self,
+        from: MemoryId,
+        to: MemoryId,
+        accept: bool,
+    ) -> Result<(), InstanceError> {
+        let now = self.server.engine.clock.now();
+        let event = if accept {
+            EventPayload::LinkCreated {
+                from,
+                to,
+                relation: RelationName::SameAs,
+                source: LinkSource::Operator,
+                // No teller behind it: the operator authored this from the console, not a participant.
+                told_by: None,
+            }
+        } else {
+            EventPayload::MergeAdjudicated {
+                from,
+                to,
+                accepted: false,
+                rationale: "declined by the operator".to_owned(),
+                produced_by: None,
+            }
+        };
+        self.server.engine.store.lock().append(now, vec![event])?;
+        // Graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(())
     }
 
     /// The model interactions recorded on the log, oldest first — each call's request (delta-encoded),

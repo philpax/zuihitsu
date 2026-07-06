@@ -11,8 +11,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, EntryView, EnvConfig, Event,
-    LuaConsoleOutcome, MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout, SeedSelf,
-    Seq, SessionView, Settings, TurnOutcome, genesis::GenesisStatus,
+    LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout,
+    SeedSelf, Seq, SessionView, Settings, TurnOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
@@ -171,6 +171,30 @@ pub(super) async fn merge_proposals(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<MergeProposal>>, ApiError> {
     Ok(Json(state.server.control().merge_proposals()?))
+}
+
+/// The body of a `POST /control/merge` — the two stubs of a pending proposal (by memory id) and
+/// whether the operator accepts the merge (`accept: true`) or declines it.
+#[derive(Deserialize)]
+pub(super) struct MergeResolution {
+    from: MemoryId,
+    to: MemoryId,
+    accept: bool,
+}
+
+/// `POST /control/merge` — resolve a pending cross-platform merge proposal as the operator: `accept`
+/// authors the merging `same_as` (the console-only merge path), a decline records the operator's
+/// refusal so the proposal settles. Operator authority (the whole `/control` surface is key-gated); the
+/// two stubs ride as their memory ids.
+pub(super) async fn resolve_merge(
+    State(state): State<AppState>,
+    Json(request): Json<MergeResolution>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .server
+        .control()
+        .resolve_merge(request.from, request.to, request.accept)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `GET /control/interactions` — the recorded model interactions, oldest first (the deliberation

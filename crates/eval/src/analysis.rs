@@ -215,6 +215,52 @@ pub fn merge_proposed(events: &[Event]) -> bool {
         .any(|event| matches!(&event.payload, EventPayload::MergeProposed { .. }))
 }
 
+/// Whether the agent proposed a cross-platform merge *and stated its grounds* — a `MergeProposed`
+/// carrying a non-empty rationale, the coincidence the agent reasoned from, which the adjudicator reads
+/// as the proposer's claim and weighs against the recorded facts. Stricter than [`merge_proposed`],
+/// which counts a bare proposal too: this asserts the agent said *why*.
+pub fn merge_proposed_with_rationale(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::MergeProposed { rationale: Some(rationale), .. } if !rationale.trim().is_empty()
+        )
+    })
+}
+
+/// The agent's responding replies recorded after the first cross-platform merge was proposed and before
+/// the first adjudication settled it — the window in which the two stubs are proposed-but-not-yet-merged.
+/// A reply here that already treats the two as one person is premature merged awareness: the gate exists
+/// precisely so nothing crosses the would-be merge until an adjudication (or the operator) accepts it. An
+/// initiated turn (a flush, a wake-up) is not a reply, so only `Responding` turns count. Empty when no
+/// merge was proposed (nothing to check), and open-ended when a proposal was never adjudicated.
+pub fn replies_between_proposal_and_adjudication(events: &[Event]) -> Vec<&str> {
+    let Some(proposed_at) = events.iter().find_map(|event| {
+        matches!(&event.payload, EventPayload::MergeProposed { .. }).then_some(event.seq)
+    }) else {
+        return Vec::new();
+    };
+    let adjudicated_at = events.iter().find_map(|event| {
+        matches!(&event.payload, EventPayload::MergeAdjudicated { .. }).then_some(event.seq)
+    });
+    events
+        .iter()
+        .filter(|event| match adjudicated_at {
+            Some(settled) => event.seq > proposed_at && event.seq < settled,
+            None => event.seq > proposed_at,
+        })
+        .filter_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether the identity-resolution orchestration proposed a merge (a `MergeProposed` sourced
 /// `Orchestration`) — the signal that a platform arrival's handle matched an existing but
 /// platform-unbound stub, raising a candidate reunion for the operator rather than asserting identity.

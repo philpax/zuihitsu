@@ -1,3 +1,4 @@
+import type { MemoryId } from "../types/MemoryId.ts";
 import type { TurnOutcome } from "../types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
@@ -48,6 +49,25 @@ export async function imprint(connection: LiveConnection, text: string): Promise
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as TurnOutcome;
+}
+
+/// Resolve a pending cross-platform merge proposal as the operator (spec §Cross-platform identity →
+/// operator-asserted merge). `accept` authors the merging `same_as` between the two stubs — the
+/// console-only merge path — while a decline records the operator's refusal so the proposal settles.
+/// The resulting event arrives through the live tail, so the derived proposal list updates on the next
+/// poll. Throws with the agent's reason on failure.
+export async function resolveMerge(
+  connection: LiveConnection,
+  from: MemoryId,
+  to: MemoryId,
+  accept: boolean,
+): Promise<void> {
+  const response = await fetch(`${connection.baseUrl}/control/merge`, {
+    method: "POST",
+    headers: authHeaders(connection),
+    body: JSON.stringify({ from, to, accept }),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
 }
 
 /// Write a graph snapshot now — the operator's take-one-before-an-experiment trigger. Returns the file

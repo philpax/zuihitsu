@@ -11,12 +11,14 @@
 //! serializer, so numbers land as JS numbers rather than `BigInt` — matching the ts-rs bindings,
 //! which type `Seq` and the timestamps as `number`.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde::Serialize;
 use ulid::Ulid;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{
     brief::{BriefRequest, compose_traced},
-    event::{Event, EventPayload},
+    event::{Event, EventPayload, MergeProposalSource},
     graph::{EntryView, Graph, LinkView, MemoryView},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Namespace, Seq, SessionId, TurnId},
     settings::BriefSettings,
@@ -42,6 +44,35 @@ struct MemoryDetail {
     /// The entry ids currently under an unresolved belief arbitration, so the view can mark a contested
     /// fact as disputed (the same signal the agent sees on a read).
     disputed: Vec<EntryId>,
+}
+
+/// One cross-platform merge proposal as the console surfaces it (spec §Cross-platform identity →
+/// adjudicated merge): the two stubs by handle *and* id (so the view can name them and deep-link into
+/// State), who raised it, the proposer's stated grounds if any, and where the proposal now stands. Unlike
+/// the operator backstop — which drops a settled proposal — the console keeps every proposal so it can
+/// show the whole adjudication record: what identity calls were made and which still await one.
+#[derive(Serialize)]
+struct MergeProposalView {
+    from: MemoryName,
+    to: MemoryName,
+    from_id: MemoryId,
+    to_id: MemoryId,
+    source: MergeProposalSource,
+    /// The proposer's stated grounds for the match — the coincidence the agent reasoned from. `None` for
+    /// an orchestration handle match or a `same_as`-via-link, which carry no rationale.
+    rationale: Option<String>,
+    status: MergeStatus,
+}
+
+/// Where a merge proposal stands at the current fold horizon: still awaiting a decision, merged (the two
+/// stubs now share a `same_as` class, whether an adjudication or an operator authored it), or rejected (an
+/// adjudication or an operator refused it, and the stubs stay distinct).
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum MergeStatus {
+    Pending,
+    Merged,
+    Rejected,
 }
 
 /// One item on the agent's agenda: when it occurs, the memory it lives in, the text, and whether it
@@ -278,6 +309,91 @@ impl Replica {
         to_js(&self.graph.all_relations().map_err(graph_error)?)
     }
 
+    /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with
+    /// where it now stands — pending, merged, or rejected (spec §Cross-platform identity → adjudicated
+    /// merge). `MergeProposed`/`MergeAdjudicated` are log-only, so this reads them from the events (up to
+    /// the fold horizon) and resolves the resolution: an accepted or operator merge shows as a shared
+    /// `same_as` class in the graph, a refusal as the latest `MergeAdjudicated` verdict, everything else
+    /// as still pending. A pair is keyed by its canonical (order-independent) form since `same_as` is
+    /// symmetric, but the first proposal's direction and stated grounds are kept for a stable display.
+    #[wasm_bindgen(js_name = mergeProposals)]
+    pub fn merge_proposals(&self) -> Result<JsValue, JsError> {
+        let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
+        let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
+        let mut rationale: BTreeMap<(MemoryId, MemoryId), Option<String>> = BTreeMap::new();
+        // The pairs whose latest adjudication verdict refused the merge; an accept clears it.
+        let mut refused: BTreeSet<(MemoryId, MemoryId)> = BTreeSet::new();
+        for event in self.events.iter().filter(|event| event.seq <= self.head) {
+            match &event.payload {
+                EventPayload::MergeProposed {
+                    from,
+                    to,
+                    source: raised_by,
+                    rationale: grounds,
+                } => {
+                    let pair = canonical_pair(*from, *to);
+                    match rationale.get_mut(&pair) {
+                        // A later proposal fills a rationale an earlier bare one lacked; a bare
+                        // re-proposal never erases stated grounds already recorded.
+                        Some(existing) if existing.is_none() && grounds.is_some() => {
+                            *existing = grounds.clone();
+                        }
+                        Some(_) => {}
+                        None => {
+                            order.push((*from, *to));
+                            source.insert(pair, *raised_by);
+                            rationale.insert(pair, grounds.clone());
+                        }
+                    }
+                }
+                EventPayload::MergeAdjudicated {
+                    from, to, accepted, ..
+                } => {
+                    let pair = canonical_pair(*from, *to);
+                    if *accepted {
+                        refused.remove(&pair);
+                    } else {
+                        refused.insert(pair);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let name = |id: MemoryId| -> Result<MemoryName, JsError> {
+            Ok(self
+                .graph
+                .memory_by_id(id)
+                .map_err(graph_error)?
+                .map(|memory| memory.name)
+                .unwrap_or_else(|| MemoryName::new("<unknown>")))
+        };
+        let mut out = Vec::new();
+        for (from, to) in order {
+            let pair = canonical_pair(from, to);
+            let from_class = self.graph.class_id(from).map_err(graph_error)?;
+            let merged = from_class.is_some()
+                && from_class == self.graph.class_id(to).map_err(graph_error)?;
+            let status = if merged {
+                MergeStatus::Merged
+            } else if refused.contains(&pair) {
+                MergeStatus::Rejected
+            } else {
+                MergeStatus::Pending
+            };
+            out.push(MergeProposalView {
+                from: name(from)?,
+                to: name(to)?,
+                from_id: from,
+                to_id: to,
+                source: source[&pair],
+                rationale: rationale[&pair].clone(),
+                status,
+            });
+        }
+        to_js(&out)
+    }
+
     /// Re-derive a session's contextual brief and the trace of how it was composed — every memory the
     /// composer considered and, per entry, the visibility verdict and whether it reached the brief.
     /// The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
@@ -471,6 +587,12 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
 /// Render a core graph error as a JS error, leading with the console context.
 fn graph_error(error: zuihitsu_core::graph::GraphError) -> JsError {
     JsError::new(&format!("console: {error}"))
+}
+
+/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
+/// adjudication key on the same canonical pair regardless of which stub each named first.
+fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {
+    if from <= to { (from, to) } else { (to, from) }
 }
 
 /// Parse a memory id (a ULID string, as the frontend serializes it) back into a [`MemoryId`].

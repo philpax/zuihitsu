@@ -11,6 +11,7 @@ import type { ConversationId } from "../types/ConversationId.ts";
 import type { EntryId } from "../types/EntryId.ts";
 import type { MemoryId } from "../types/MemoryId.ts";
 import type { MemoryName } from "../types/MemoryName.ts";
+import type { MergeProposalSource } from "../types/MergeProposalSource.ts";
 import type { SessionId } from "../types/SessionId.ts";
 import type { Teller } from "../types/Teller.ts";
 import type { Timestamp } from "../types/Timestamp.ts";
@@ -82,6 +83,22 @@ export interface ConversationDetail {
   scope_path: string;
   context_name: string | null;
   sessions: SessionSummary[];
+}
+
+/// Where a merge proposal stands at the fold cursor — pending an operator or adjudicator decision,
+/// merged (the two stubs now share a `same_as` class), or rejected (a refusal was recorded).
+export type MergeStatus = "pending" | "merged" | "rejected";
+
+/// One cross-platform merge proposal as the replica derives it from the folded log: the two stubs
+/// (by handle and id), who raised it, the proposer's stated grounds if any, and its resolution state.
+export interface MergeProposalView {
+  from: MemoryName;
+  to: MemoryName;
+  from_id: MemoryId;
+  to_id: MemoryId;
+  source: MergeProposalSource;
+  rationale: string | null;
+  status: MergeStatus;
 }
 
 export interface AgendaItem {
