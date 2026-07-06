@@ -1,5 +1,5 @@
 //! The CLI's HTTP client: the operator subcommands reach the running server's `/control` API over
-//! loopback (spec §Clients → control clients). The CLI no longer opens the store itself — only the
+//! loopback (spec §Clients → control clients). The CLI does not open the store itself — only the
 //! server holds the single-writer log lock — so every command is a request to the running instance.
 
 use std::net::SocketAddr;

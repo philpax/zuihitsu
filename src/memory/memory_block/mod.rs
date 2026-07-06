@@ -64,7 +64,7 @@ pub struct MemoryBlock {
     /// with a cheap id compare. `None` before the first imprint mints it (or in a non-operator
     /// instance). Content belongs on the operator's real profile, not this provisional anchor.
     operator_id: Option<MemoryId>,
-    /// The current conversation's `context/*` memory (where content is told in), if any.
+    /// The current conversation's [`Namespace::Context`] memory (where content is told in), if any.
     told_in: Option<MemoryId>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
     confidential_context: bool,
@@ -380,7 +380,7 @@ impl MemoryBlock {
     /// agent-authored entry about a *person* (a subject-bearing memory) has no protective default —
     /// the participant-aside mechanism keys on a participant teller, not the agent, so silently
     /// defaulting to public is how a re-recorded confidence leaks — and must be classified. Any other
-    /// write (a participant teller, or a non-subject memory like `self`/`topic/*`) takes the
+    /// write (a participant teller, or a non-subject memory like `self`/[`Namespace::Topic`]) takes the
     /// namespace/subject default.
     pub(super) fn resolve_visibility(
         &self,

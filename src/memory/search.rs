@@ -298,10 +298,11 @@ fn visible_occurrence(
 const SALIENCE_CAP: usize = 3;
 
 /// The salient relations to surface on a hit, with the count of any elided past the cap. Salience is
-/// deliberately simple and legible: of the memory's out-of-class links, a far end that is a `person/`
-/// memory comes first — people anchor identity, so seeing who participates is what lets the agent
-/// recognize the event or topic it already holds — and within that, the most recently created links
-/// come first. The set is capped at [`SALIENCE_CAP`]; the remainder feeds the `(+N more)` note.
+/// deliberately simple and legible: of the memory's out-of-class links, a far end that is a
+/// [`Namespace::Person`] memory comes first — people anchor identity, so seeing who participates is
+/// what lets the agent recognize the event or topic it already holds — and within that, the most
+/// recently created links come first. The set is capped at [`SALIENCE_CAP`]; the remainder feeds the
+/// `(+N more)` note.
 /// Committed-only and not visibility-filtered, mirroring the link readers (the agent's own whole-graph
 /// surface). One class-traversing read per hit, so the cost is bounded by the search `limit`, as
 /// [`visible_occurrence`] is.
@@ -949,7 +950,8 @@ mod tests {
             )
             .await;
 
-        // The topic matches lexically and semantically, but the person/ prefix excludes it.
+        // The topic matches lexically and semantically, but the [`Namespace::Person`] prefix excludes
+        // it.
         let ranked: Vec<MemoryId> = corpus
             .query_in(
                 "shared marker text",
@@ -1020,7 +1022,7 @@ mod tests {
         // Marcus present too: the subject-guard suppresses the aside. It's the *same* predicate as the
         // brief, so the private entry survives in no hit — no result carries a teller-private marker.
         // (The fake embedder gives every text a faint nonzero cosine, so Marcus still appears via his
-        // public vectors; the load-bearing fact is that the private aside no longer surfaces.)
+        // public vectors; the load-bearing fact is that the private aside does not surface.)
         let hits = corpus
             .query_in(
                 "the quarterly review went badly",
@@ -1229,9 +1231,9 @@ mod tests {
     #[tokio::test]
     async fn an_authored_date_outranks_a_newer_extracted_date_on_a_hit() {
         // Authored is ground truth; extracted is inference. An older authored July date must ride on
-        // the hit over a *newer* extracted June date on a sibling entry — the exact shadowing the
-        // temporal-fidelity defect produced, where "that weekend" was resolved against the clock and
-        // the wrong June range shadowed the stated July cutover.
+        // the hit over a *newer* extracted June date on a sibling entry — the exact shadowing that
+        // occurs when a relative phrase like "that weekend" is resolved against the clock and the
+        // wrong June range shadows the stated July cutover.
         let mut corpus = Corpus::new();
         let id = MemoryId::generate();
         let authored = EntryId::generate();

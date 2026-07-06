@@ -1,6 +1,6 @@
-//! A scriptable in-memory MCP host for tests — the seam fake (spec §Testability). A scenario scripts
+//! A scriptable in-memory MCP host for tests — the seam fake (spec §Testability). A test scripts
 //! each server's tool catalogue and per-tool results, plus the lifecycle knobs the real host can
-//! exhibit (injected latency, spawn failure, and death), so a `mcp.<server>.*` scenario needs no
+//! exhibit (injected latency, spawn failure, and death), so a `mcp.<server>.*` test needs no
 //! subprocess or network. Mirrors `ScriptedModel`/`FakeEmbedder`.
 
 use std::{collections::HashMap, time::Duration};

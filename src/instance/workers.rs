@@ -1,5 +1,5 @@
 //! The background catch-up workers: the indexer, describer, adjudicator, and link-inference pass.
-//! Each has a synchronous `catch_up` (driven explicitly by tests and the eval harness) and a
+//! Each has a synchronous `catch_up` (driven explicitly by tests) and a
 //! background `run_*` loop (driven on a timer by the served runtime). All are cursor-resumed and
 //! idempotent, so an idle tick is cheap.
 
@@ -141,7 +141,7 @@ impl BackgroundPasses {
     /// arbitration, and temporal extraction) — one whose content has changed since the describer last
     /// considered it (spec §Write path → regenerate off the hot path, as a catch-up). The synchronous
     /// counterpart to the background describer — the same dual-mode shape as `index_catch_up` — driven
-    /// explicitly by tests and the eval harness so a caller can force regeneration and then read fresh
+    /// explicitly by tests so a caller can force regeneration and then read fresh
     /// descriptions. Returns how many memories it considered. The describer guard is held per memory,
     /// not across the whole pass, so a narrow session-open pass interleaves rather than waiting behind
     /// this backlog.
@@ -168,7 +168,7 @@ impl BackgroundPasses {
 
     /// Catch merge adjudications up to the log off the hot path (spec §Cross-platform identity →
     /// adjudicated merge): weigh every proposed merge written since the cursor, advancing it. Driven on
-    /// a timer by the served runtime and explicitly by tests and the eval harness. Returns how many
+    /// a timer by the served runtime and explicitly by tests. Returns how many
     /// proposals it considered.
     pub async fn adjudicate_catch_up(
         &self,
@@ -192,8 +192,8 @@ impl BackgroundPasses {
 
     /// Catch link inference up to the log off the hot path (spec §Write path → link inference):
     /// identify relationships implicit in every memory whose content changed since the cursor,
-    /// advancing it. Driven on a timer by the served runtime and explicitly by tests and the eval
-    /// harness. Returns how many memories it considered.
+    /// advancing it. Driven on a timer by the served runtime and explicitly by tests. Returns how many
+    /// memories it considered.
     pub async fn link_inference_catch_up(
         &self,
         engine: &Engine,

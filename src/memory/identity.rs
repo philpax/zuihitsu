@@ -2,8 +2,9 @@
 //! contact (spec §Identity, §Conversations).
 //!
 //! This is the single writer's boundary logic: a platform participant or a room locator the agent
-//! has never seen is created here, lazily, the first time it appears — a participant as a `person/*`
-//! stub bound to its `(platform, platform_user_id)` key, a room as a `ConversationStarted`. The
+//! has never seen is created here, lazily, the first time it appears — a participant as a
+//! [`Namespace::Person`] stub bound to its `(platform, platform_user_id)` key, a room as a
+//! `ConversationStarted`. The
 //! resolvers append to the log and return the id; the caller materializes the graph so a freshly
 //! minted id is visible to subsequent reads, mirroring the genesis-then-materialize discipline.
 
@@ -15,8 +16,9 @@ use crate::{
     store::{Store, StoreError},
 };
 
-/// The provisional name of the `context/*` memory minted for a freshly opened room, derived from its
-/// locator. The agent or operator renames it to a friendly handle (`context/acme-leads`) later.
+/// The provisional name of the [`Namespace::Context`] memory minted for a freshly opened room,
+/// derived from its locator. The agent or operator renames it to a friendly handle
+/// (`context/acme-leads`) later.
 fn context_name(locator: &ConversationLocator) -> MemoryName {
     Namespace::Context
         .with_name(format!("{}:{}", locator.platform, locator.scope_path))
@@ -90,8 +92,9 @@ impl From<GraphError> for IdentityError {
     }
 }
 
-/// Resolve a platform participant to their `person/*` memory, minting one on first contact. Returns
-/// the memory's id (the caller materializes the graph to see a freshly minted one). A mint appends a
+/// Resolve a platform participant to their [`Namespace::Person`] memory, minting one on first
+/// contact. Returns the memory's id (the caller materializes the graph to see a freshly minted
+/// one). A mint appends a
 /// `MemoryCreated` and a `ParticipantIdentified` binding the `(platform, platform_user_id)` key to it.
 ///
 /// The name is the clean `person/<platform_user_id>`, so a person is one coherent memory the agent
@@ -149,8 +152,9 @@ pub fn resolve_or_mint_participant(
 
 /// Resolve a room locator to its conversation, opening one on first contact. Returns the
 /// conversation's id (the caller materializes the graph to see a freshly opened room). Opening a
-/// room eagerly mints its `context/*` memory under a provisional locator-derived name and records
-/// it on the `ConversationStarted`, so the locator resolves to a first-class memory the agent can
+/// room eagerly mints its [`Namespace::Context`] memory under a provisional locator-derived name
+/// and records it on the `ConversationStarted`, so the locator resolves to a first-class memory
+/// the agent can
 /// tag and reason about (spec §Contexts are first-class memories).
 pub fn resolve_or_mint_conversation(
     store: &mut dyn Store,

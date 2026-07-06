@@ -34,8 +34,8 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(ConversationId)).transpose()
     }
 
-    /// Resolve a platform participant `(platform, platform_user_id)` to its `person/*` stub, or
-    /// `None` if that identity has never been seen.
+    /// Resolve a platform participant `(platform, platform_user_id)` to its [`Namespace::Person`]
+    /// stub, or `None` if that identity has never been seen.
     pub fn participant_for(
         &self,
         platform: &str,
@@ -54,8 +54,9 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
     }
 
-    /// The memory name a freshly minted `person/*` participant would receive, given their platform
-    /// handle and the platform they arrived on. The name half of [`Graph::participant_mint`]: shared by
+    /// The memory name a freshly minted [`Namespace::Person`] participant would receive, given
+    /// their platform handle and the platform they arrived on. The name half of
+    /// [`Graph::participant_mint`]: shared by
     /// the console's optimistic preview, so the name the console shows before the event lands is the
     /// same name the server will assign.
     pub fn participant_name(
@@ -66,8 +67,9 @@ impl Graph {
         Ok(self.participant_mint(platform, platform_user_id)?.name)
     }
 
-    /// The plan for minting a fresh `person/*` stub for `(platform, platform_user_id)`: the name it
-    /// receives, and whether the mint should also propose a `same_as` merge (spec §Identity →
+    /// The plan for minting a fresh [`Namespace::Person`] stub for `(platform, platform_user_id)`:
+    /// the name it receives, and whether the mint should also propose a `same_as` merge (spec
+    /// §Identity →
     /// cross-platform-explicit). Keying the collision on *identity*, not name, distinguishes three cases
     /// when the clean `person/<handle>` is already taken:
     ///
@@ -139,8 +141,9 @@ impl Graph {
         Ok(query_map_into(stmt, params![platform], |row| row.get(0))?)
     }
 
-    /// The `context/*` memory minted with a conversation, or `None` if the conversation is unknown.
-    /// The locator resolves to the room and thence to its context (spec §Contexts are first-class).
+    /// The [`Namespace::Context`] memory minted with a conversation, or `None` if the conversation
+    /// is unknown. The locator resolves to the room and thence to its context (spec §Contexts are
+    /// first-class).
     pub fn context_for_conversation(
         &self,
         conversation: ConversationId,

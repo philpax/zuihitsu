@@ -12,7 +12,7 @@
 //! which is exactly the "a knob that didn't exist at this agent's genesis adopts the build default"
 //! behavior the configuration design calls for (spec §Initialization → configuration). This is a
 //! grouped, typed struct, deliberately not a per-context policy language: per-context variation, if
-//! ever wanted, belongs in the agent's reasoning over the `context/*` memory, not here.
+//! ever wanted, belongs in the agent's reasoning over the [`Namespace::Context`] memory, not here.
 
 use serde::{Deserialize, Serialize};
 

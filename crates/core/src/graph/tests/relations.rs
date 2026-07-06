@@ -8,9 +8,9 @@ use crate::{
 
 #[test]
 fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
-    // A merge adjudication weighs a person's own events (which the agent files on separate event/
-    // memories, reached off the stub's links) — but never a linked *person's* facts, which are someone
-    // else's confidences, not this person's identity.
+    // A merge adjudication weighs a person's own events (which the agent files on separate
+    // [`Namespace::Event`] memories, reached off the stub's links) — but never a linked *person's*
+    // facts, which are someone else's confidences, not this person's identity.
     let dave = MemoryId::generate();
     let trip = MemoryId::generate();
     let erin = MemoryId::generate();

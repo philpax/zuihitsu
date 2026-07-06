@@ -36,7 +36,7 @@ use templates::PromptTemplate;
 /// as a catch-up): describe every stale memory — one whose content has changed since the describer
 /// last considered it — regenerating its description, arbitrating its beliefs, and resolving any
 /// occurrences it left untimed, then return how many memories it considered. The whole-log pass the
-/// served runtime drives on a timer and tests and the eval harness drive explicitly. Its synthesis
+/// served runtime drives on a timer and tests drive explicitly. Its synthesis
 /// calls carry no conversation, so they record no `ModelCalled` telemetry; the emitted events still
 /// carry their `produced_by`. Idempotent: a memory already fresh is skipped, so an idle tick is cheap.
 pub async fn run_describe_catch_up(
@@ -434,9 +434,9 @@ async fn synthesize(
     }
     if arbitrate {
         // The system template carries the general arbitration rules; this closes the concrete
-        // per-call ask over the numbered statements — the lever runs 3/4 of the conflicting-accounts
-        // eval missed, where the model, given no closing question, defaulted to the dominant describe
-        // task and left `arbitration` absent. It poses the contradiction check as a required step,
+        // per-call ask over the numbered statements — the lever for the conflicting-accounts failure
+        // mode, where the model, given no closing question, defaults to the dominant describe
+        // task and leaves `arbitration` absent. It poses the contradiction check as a required step,
         // names the two failure modes that dissolved the conflict (a neutral third statement, and each
         // value being attributed to a different person), and asks for every colliding pair.
         prompt.push_str(

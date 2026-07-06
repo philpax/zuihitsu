@@ -539,13 +539,11 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 4: token-only transcript references. The transcript dotpoint now teaches only
-            // the [turn:<id>] token — the connector normalizes a pasted console link to that token
-            // before the message reaches the agent, so the agent-facing surface never mentions or
-            // handles a URL. (Version 3 taught informed creation: search-before-create in the reuse
-            // dotpoint, and one memory per recurring gathering under its generic name. Version 2 named
-            // the sandbox language as Luau and switched the examples to backtick interpolation.)
-            // Bumping the version keeps an older `produced_by` naming the body it was generated under.
+            // Version 4: token-only transcript references. The transcript dotpoint teaches only the
+            // [turn:<id>] token — the connector normalizes a pasted console link to that token before
+            // the message reaches the agent, so the agent-facing surface never mentions or handles a
+            // URL. Bumping the version keeps an older `produced_by` naming the body it was generated
+            // under.
             version: 4,
             body: scaffold_body,
         },
@@ -578,7 +576,7 @@ fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
             // when it is anchored to the moment of speaking; a phrase whose referent is another stated
             // date or event ("that weekend", "the day after the launch") must not be resolved against
             // the clock, since a fabricated now-relative date reads back as fact and is worse than no
-            // date. Bumping the version keeps a v1 `produced_by` naming the old body.
+            // date. Bumping the version keeps a v1 `produced_by` naming the body it was generated under.
             version: 2,
             body: "Alongside the description, extract when each numbered statement is *about* in the \
                    real world. For every statement that refers to a real-world time, add an entry to \
@@ -818,9 +816,10 @@ fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "Two platform stubs are the same person — cross-platform identity.",
         },
-        // A person's involvement in an event: person/ --participates_in--> event/, inverse
-        // event/ --has_participant--> person/. Distinct from knows (person-to-person): the people at
-        // an event are participants, not acquaintances of the event.
+        // A person's involvement in an event: [`Namespace::Person`] --participates_in-->
+        // [`Namespace::Event`], inverse [`Namespace::Event`] --has_participant--> [`Namespace::Person`].
+        // Distinct from knows (person-to-person): the people at an event are participants, not
+        // acquaintances of the event.
         RelationDef {
             name: ParticipatesIn,
             inverse: HasParticipant,
@@ -1166,8 +1165,8 @@ mod tests {
         // The temporal-extraction pass must not resolve anaphora against the clock: a phrase whose
         // referent is another stated date or event ("that weekend") is anchored to THAT date, and when
         // nothing anchors it the statement is left unextracted — a fabricated now-relative date reads
-        // back as fact and is worse than no date. The body is bumped to v2 so a v1 `produced_by` keeps
-        // naming the old body.
+        // back as fact and is worse than no date. The body is v2 so a v1 `produced_by` keeps naming
+        // the body v1 was generated under.
         let mut store = MemoryStore::new();
         genesis::rollout(
             &mut store,

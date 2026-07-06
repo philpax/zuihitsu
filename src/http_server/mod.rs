@@ -510,8 +510,8 @@ struct Console;
 
 /// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link
 /// or a refresh lands in the app rather than on a 404. The HTML shell is served in `agent` mode, so
-/// the one shared bundle boots into the agent's live view — the eval binary serves the same bundle in
-/// `eval` mode (see `console`'s `App`).
+/// the one shared bundle boots into the agent's live view; the same bundle supports other host modes
+/// selected at serve time (see `console`'s `App`).
 async fn console(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };

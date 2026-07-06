@@ -494,8 +494,7 @@ impl Control<'_> {
     }
 
     /// The whole event log, oldest first — the raw record everything else is derived from (spec
-    /// §Observability → the Events view). The eval harness embeds this per run, and the console
-    /// reconstructs its views from it.
+    /// §Observability → the Events view). The console reconstructs its views from it.
     pub fn events(&self) -> Result<Vec<Event>, InstanceError> {
         self.events_from(Seq::ZERO)
     }
@@ -598,9 +597,9 @@ impl Control<'_> {
         }
     }
 
-    /// Append raw events to the store and materialize the graph, for scenarios that set up
+    /// Append raw events to the store and materialize the graph, for callers that set up
     /// deterministic state directly rather than driving the agent through a conversation. The events
-    /// are appended as-is (the caller constructs them), so a scenario controls exactly what state
+    /// are appended as-is (the caller constructs them), so the caller controls exactly what state
     /// exists — no agent or Lua in the loop. The clock advances to the store head afterward, so a
     /// subsequent catch-up pass sees the seeded state.
     pub fn seed_events(&self, events: Vec<EventPayload>) -> Result<(), InstanceError> {

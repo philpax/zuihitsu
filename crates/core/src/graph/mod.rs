@@ -159,8 +159,9 @@ pub struct OpenSessionView {
     pub seeded: bool,
 }
 
-/// The plan for minting a fresh `person/*` participant stub: the name it receives, and — when the
-/// clean handle is already taken by an existing but platform-unbound memory (an agent-authored hearsay
+/// The plan for minting a fresh [`Namespace::Person`] participant stub: the name it receives, and
+/// — when the clean handle is already taken by an existing but platform-unbound memory (an
+/// agent-authored hearsay
 /// stub) — the id of that memory, so the mint path can propose a `same_as` merge between the new
 /// qualified stub and it for the adjudicator or operator to weigh (spec §Identity → cross-platform-explicit).
 /// The name is the clean `person/<handle>` when the handle is free, and the platform-qualified

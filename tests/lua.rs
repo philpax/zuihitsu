@@ -250,9 +250,9 @@ async fn calendar_computes_dates_for_occurred_at() {
 
 #[tokio::test]
 async fn memory_create_accepts_occurred_at_in_its_options_table() {
-    // `memory.create` previously only accepted `(name, content)` and silently ignored a third options
-    // table, so reminders created in one call lost their `occurred_at` and never fired. The options table
-    // now flows through to the first entry exactly like `mem:append`.
+    // `memory.create` accepts an options table as its third argument and flows it through to the first
+    // entry exactly like `mem:append`, so a reminder created in one call keeps its `occurred_at` and
+    // fires.
     let h = Harness::new(); // clock at Monday 2026-06-08.
     let outcome = h
         .run(
@@ -1402,8 +1402,8 @@ async fn assigning_a_field_on_an_entry_handle_is_a_teachable_error() {
 
 #[tokio::test]
 async fn calling_a_method_with_a_dot_suggests_the_colon() {
-    // `dave.append(...)` binds the string to `self`, which used to fail with mlua's opaque "error
-    // converting Lua string to table". It now raises a teachable error naming the method and the colon
+    // `dave.append(...)` binds the string to `self`; rather than failing with mlua's opaque "error
+    // converting Lua string to table", it raises a teachable error naming the method and the colon
     // call.
     let h = Harness::new();
     let outcome = h

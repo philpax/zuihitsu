@@ -65,7 +65,7 @@ pub(super) fn install_block_api(
     // minted from only an id — a `calendar.*` or relation result — still reads its name, not just
     // one the agent already named via `memory.get`. Any other key dispatches to the methods table
     // (`handle:append`, `handle:entries`, …). Without this a script iterating calendar results and
-    // reading `m.name` got nil and concluded the calendar was empty.
+    // reading `m.name` gets nil and concludes the calendar is empty.
     metatable.set("__index", {
         let methods = methods.clone();
         let api = api.clone();
@@ -85,9 +85,9 @@ pub(super) fn install_block_api(
             methods.get::<Value>(key)
         })?
     })?;
-    // A memory handle is a read-only view: assigning to a field (`m.occurred_at = ...`) was a silent
-    // no-op that misled the agent into thinking a change landed. The guard raises a teachable error
-    // naming the persisting operation instead. Internal setup writes raw fields with `raw_set` to
+    // A memory handle is a read-only view: assigning to a field (`m.occurred_at = ...`) would be a
+    // silent no-op that misleads the agent into thinking a change landed. The guard raises a teachable
+    // error naming the persisting operation instead. Internal setup writes raw fields with `raw_set` to
     // bypass it (see `resolve_existing_handle`).
     metatable.set("__newindex", readonly_newindex(lua, HandleKind::Memory)?)?;
     // `"Topic: " .. topic` composes the handle's rendered text — the join the agent writes when
@@ -1081,11 +1081,11 @@ pub(super) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
     // memory.get_or_create(name[, content][, opts]) — fetch the memory if it exists, otherwise create
     // it (with the same optional first entry and overrides as `memory.create`). The idiomatic
     // `memory.get(name) or memory.create(name, ...)` in one call, so an agent that applies that idiom
-    // inconsistently within a script no longer trips the already-exists error. When the memory exists
+    // inconsistently within a script does not trip the already-exists error. When the memory exists
     // its `content`/`opts` are ignored — it is returned as it stands, its description untouched — so a
     // fetch never silently overwrites what is already recorded. This is distinct from `memory.create`,
     // whose fail-on-exists strictness is load-bearing: creating a second person stub over an existing
-    // name must stay a deliberate act (merge and identity scenarios rely on it), so `create` keeps
+    // name must stay a deliberate act (the merge and identity flows rely on it), so `create` keeps
     // raising while `get_or_create` is the tool for when existence is uncertain.
     memory.set(
         "get_or_create",
@@ -1210,7 +1210,7 @@ pub(super) fn block_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     Ok(block_tbl)
 }
 
-/// The `context` global: `current()`, the current conversation's `context/*` memory (its
+/// The `context` global: `current()`, the current conversation's [`Namespace::Context`] memory (its
 /// `#confidential` tag tells the agent whether the room is confidential), or nil if there is none.
 /// The resolved context memory is locked like any other touched memory.
 pub(super) fn context_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {

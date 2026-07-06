@@ -25,7 +25,8 @@ struct OccurrenceColumns {
 
 impl Graph {
     /// Fold a single event into the projection, then advance the head. The match arm is the
-    /// `(type, version)` dispatch; a wrong arm is a silent-leak class the eval harness backstops.
+    /// `(type, version)` dispatch; a wrong arm is a silent-leak class — a mis-dispatched event folds
+    /// into the wrong projection state with no error, so the match must stay exhaustive and exact.
     pub fn apply(&mut self, event: &Event) -> Result<(), GraphError> {
         match &event.payload {
             // No graph projection: orchestration/behavioral config which the server reads from the log

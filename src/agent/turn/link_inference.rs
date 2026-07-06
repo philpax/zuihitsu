@@ -137,8 +137,9 @@ async fn infer_links(
                 });
             }
             let relations = graph.all_relations()?;
-            // Candidates span all namespaces: a `topic/*` memory's "authored by Clara" entry points
-            // to a `person/*` memory, so limiting to namespace siblings would exclude the target.
+            // Candidates span all namespaces: a [`Namespace::Topic`] memory's "authored by Clara"
+            // entry points to a [`Namespace::Person`] memory, so limiting to namespace siblings
+            // would exclude the target.
             let candidates = graph.memories_in_namespace("")?;
             InferenceContext {
                 memory,

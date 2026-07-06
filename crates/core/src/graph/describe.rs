@@ -54,8 +54,8 @@ impl Graph {
         })
     }
 
-    /// The count of stale memories — the describer's backlog depth, reported as a gauge in place of
-    /// the old seq-lag (spec §Observability → metrics). A `COUNT(*)` so a scrape stays cheap.
+    /// The count of stale memories — the describer's backlog depth, reported as a gauge (spec
+    /// §Observability → metrics). A `COUNT(*)` so a scrape stays cheap.
     pub fn stale_memory_count(&self) -> Result<u64, GraphError> {
         Ok(self.conn.query_row(
             "SELECT COUNT(*) FROM memories

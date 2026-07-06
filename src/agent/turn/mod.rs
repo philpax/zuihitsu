@@ -595,8 +595,8 @@ pub struct BlockContext {
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
 /// `engine` backends), the `inbound` participant message and its `inbound_participant` (the
-/// speaker's `person/*` stub, whose content the turn's writes are attributed to), and the step
-/// budget.
+/// speaker's [`Namespace::Person`] stub, whose content the turn's writes are attributed to), and
+/// the step budget.
 pub struct Turn<'a> {
     pub session: &'a Session,
     pub model: &'a dyn ModelClient,
@@ -831,8 +831,8 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     };
     // Frame the flush with the SAME scaffold system prompt the session's live turns used, so the
     // identical system-plus-buffer prefix is already in the serving layer's cache. Swapping in a
-    // distinct flush system prompt (the old shape) changed token zero and forced a full re-encode of
-    // the whole buffer at max context — the worst-case latency on the hot path.
+    // distinct flush system prompt would change token zero and force a full re-encode of the whole
+    // buffer at max context — the worst-case latency on the hot path.
     let scaffold =
         templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Scaffold)?
             .map(|template| template.body)
@@ -983,8 +983,8 @@ fn participant_names(
     names
 }
 
-/// A participant's conversational display name: the `person/` namespace and any `@platform` stub
-/// suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
+/// A participant's conversational display name: the [`Namespace::Person`] prefix and any `@platform`
+/// stub suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
 /// operational noise irrelevant to who is speaking.
 fn speaker_display(memory_name: &str) -> String {
     let handle = memory_name

@@ -2,9 +2,9 @@
 //!
 //! A [`Replica`] holds an event log and the graph it folds into, using `zuihitsu-core`'s real
 //! materializer — the same projection the live agent runs (see `console/PLAN.md`). The frontend
-//! constructs one from a run's `Event[]` (an eval package now, a live `/control` stream later) and
+//! constructs one from a run's `Event[]` (a stored run's events, or a live `/control` stream) and
 //! queries it for the State and Time-travel views. The event-stream views (Events, Conversation)
-//! and the eval-package chrome render off the JSON directly, so they need nothing here.
+//! and the surrounding chrome render off the JSON directly, so they need nothing here.
 //!
 //! The boundary discipline: events come in as raw JSON bytes parsed by `serde` *inside* the module
 //! (one copy across the boundary), and results go out through `serde-wasm-bindgen`'s JSON-compatible
@@ -92,7 +92,8 @@ struct AgendaItem {
 
 /// A durable conversation (room) with its sessions, the backbone of the Conversation view. The
 /// turns themselves render off the event stream; this supplies the structure and the names the raw
-/// log only carries as ids — the room's `context/*` name and each session's participant handles.
+/// log only carries as ids — the room's [`Namespace::Context`] name and each session's participant
+/// handles.
 #[derive(Serialize)]
 struct ConversationDetail {
     id: ConversationId,
@@ -396,8 +397,9 @@ impl Replica {
 
     /// Re-derive a session's contextual brief and the trace of how it was composed — every memory the
     /// composer considered and, per entry, the visibility verdict and whether it reached the brief.
-    /// The inputs are the session's present set (memory ids), its room's `context/*` memory (if any),
-    /// and its start time; the brief is composed against the graph at the current fold horizon.
+    /// The inputs are the session's present set (memory ids), its room's [`Namespace::Context`]
+    /// memory (if any), and its start time; the brief is composed against the graph at the current
+    /// fold horizon.
     pub fn brief(
         &self,
         present_set: Vec<String>,
@@ -468,8 +470,8 @@ impl Replica {
     }
 
     /// Every durable conversation up to the current fold horizon, each with its sessions — the
-    /// structure behind the Conversation view, with the `context/*` room name and the per-session
-    /// participant handles resolved from ids the raw log only carries opaquely.
+    /// structure behind the Conversation view, with the [`Namespace::Context`] room name and the
+    /// per-session participant handles resolved from ids the raw log only carries opaquely.
     pub fn conversations(&self) -> Result<JsValue, JsError> {
         let mut conversations = Vec::new();
         for event in self.events.iter().filter(|event| event.seq <= self.head) {
@@ -514,8 +516,9 @@ impl Replica {
         to_js(&conversations)
     }
 
-    /// The memory name a freshly minted `person/*` participant would receive, given their platform
-    /// handle and the platform they arrived on. Delegates to the graph's own name-resolution logic
+    /// The memory name a freshly minted [`Namespace::Person`] participant would receive, given
+    /// their platform handle and the platform they arrived on. Delegates to the graph's own
+    /// name-resolution logic
     /// (the same path the server's mint uses), so the optimistic preview shows the exact name the
     /// real turn will resolve to — including the `@platform` disambiguation on collision.
     pub fn participant_name(
@@ -530,8 +533,9 @@ impl Replica {
         to_js(&name)
     }
 
-    /// All live `person/*` memories at the current fold horizon — the namespace prefix is owned by
-    /// Rust ([`Namespace::Person`]), so the frontend never hardcodes `person/` to scope the query.
+    /// All live [`Namespace::Person`] memories at the current fold horizon — the namespace prefix
+    /// is owned by Rust ([`Namespace::Person`]), so the frontend never hardcodes `person/` to
+    /// scope the query.
     pub fn person_memories(&self) -> Result<JsValue, JsError> {
         let mut memories = self
             .graph

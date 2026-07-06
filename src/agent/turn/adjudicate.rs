@@ -2,7 +2,7 @@
 //! independently-recorded facts and accept or refuse it (spec §Cross-platform identity → adjudicated
 //! merge).
 //!
-//! A turn records the agent's judgment that two `person/*` stubs may be one human as an inert
+//! A turn records the agent's judgment that two [`Namespace::Person`] stubs may be one human as an inert
 //! `MergeProposed` (no `same_as`, nothing surfaces). This background pass catches those proposals up:
 //! for each, it reads both stubs' *already-recorded* facts — never the conversation that prompted the
 //! proposal, which is the structural defense against a participant feeding the agent matching facts to
@@ -246,8 +246,8 @@ struct Stub<'a> {
     memory: &'a MemoryView,
     entries: &'a [EntryView],
     /// The facts of the non-person memories this person owns (their events), reached off the stub's
-    /// links — the specifics the agent often files on a separate `event/` memory rather than the stub
-    /// itself, where the improbable coincidence that justifies a merge usually lives.
+    /// links — the specifics the agent often files on a separate [`Namespace::Event`] memory rather
+    /// than the stub itself, where the improbable coincidence that justifies a merge usually lives.
     context: &'a [EntryView],
 }
 

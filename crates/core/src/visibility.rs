@@ -196,8 +196,9 @@ pub fn attributed_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
     }
 }
 
-/// The marker display name of a `context/*` memory: its handle with the namespace stripped and a `#`
-/// prefix (`context/leads` → `#leads`), the room reference the agent sees in a teller-private marker.
+/// The marker display name of a [`Namespace::Context`] memory: its handle with the namespace
+/// stripped and a `#` prefix (`context/leads` → `#leads`), the room reference the agent sees in a
+/// teller-private marker.
 pub fn room_display(context_name: &str) -> String {
     let subject = context_name
         .strip_prefix(Namespace::Context.prefix())
@@ -205,8 +206,9 @@ pub fn room_display(context_name: &str) -> String {
     format!("#{subject}")
 }
 
-/// The participant a memory is *about*: a `person/*` stub, or `None` for every other namespace and
-/// for `self` (which therefore get no subject-guard). The bare stub id; the predicate resolves it to
+/// The participant a memory is *about*: a [`Namespace::Person`] stub, or `None` for every other
+/// namespace and for `self` (which therefore get no subject-guard). The bare stub id; the
+/// predicate resolves it to
 /// its class through `class_of`. Public so the write path can ask "does this memory have a subject?"
 /// — the case where an agent-authored entry has no protective default (see the main crate's `memory_block`).
 pub fn subject_participant(name: &str, id: MemoryId) -> Option<MemoryId> {
@@ -231,7 +233,7 @@ fn is_present(
 }
 
 /// Whether a wake-up on `entry`/`memory` is *for* someone present (spec §Agent-initiated speech). Its
-/// target is the memory's subject (a `person/*` stub) together with the entry's teller when a
+/// target is the memory's subject (a [`Namespace::Person`] stub) together with the entry's teller when a
 /// participant; an item with no such target — agent-authored on a non-person memory — targets no one
 /// and is never delivered. Class-aware, like the predicate.
 pub fn targets_present(

@@ -181,7 +181,7 @@ impl std::str::FromStr for LinkSource {
 /// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec
 /// §Cross-platform identity). `Agent` is the agent's own judgment from a turn (`mem:propose_merge`);
 /// `Orchestration` is the identity-resolution layer flagging that a platform arrival's handle matches
-/// an existing but platform-unbound `person/*` stub (an agent-authored hearsay memory). An
+/// an existing but platform-unbound [`Namespace::Person`] stub (an agent-authored hearsay memory). An
 /// orchestration proposal is never an assertion of identity — only a flag that the two may be one, for
 /// the adjudicator or operator to weigh, so a handle match never itself merges two stubs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -395,7 +395,7 @@ pub enum RequestRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Teller {
-    /// A conversation participant, identified by their `person/*` memory.
+    /// A conversation participant, identified by their [`Namespace::Person`] memory.
     Participant(MemoryId),
     /// The agent's own observations and inferences. Defined as always present to itself.
     Agent,
@@ -447,8 +447,9 @@ pub enum EventPayload {
     /// Soft delete: contents are preserved for replay and audit; the projection sets a flag.
     MemoryDeleted { id: MemoryId },
     /// Records a content entry. `told_by` is the teller, `told_in` the context it was told in (a
-    /// `context/*` memory, resolved to its confidentiality at Stage 8; `None` until contexts exist),
-    /// and `visibility` governs the read-time predicate. `asserted_at` is when the agent recorded the
+    /// [`Namespace::Context`] memory, resolved to its confidentiality at Stage 8; `None` until
+    /// contexts exist), and `visibility` governs the read-time predicate. `asserted_at` is when
+    /// the agent recorded the
     /// fact; `occurred_at` is the optional real-world time the fact is *about* (spec §Time →
     /// bi-temporality). `occurred_at` is `#[serde(default)]` so pre-Stage-9 logs, which lack the
     /// field, replay as `None`.
@@ -534,8 +535,9 @@ pub enum EventPayload {
         resolution: ArbitrationResolution,
         produced_by: Option<ProducedBy>,
     },
-    /// A judgment that two `person/*` stubs may be the same human across platforms, recorded for the
-    /// off-hot-path adjudication pass to weigh (spec §Cross-platform identity → adjudicated merge).
+    /// A judgment that two [`Namespace::Person`] stubs may be the same human across platforms,
+    /// recorded for the off-hot-path adjudication pass to weigh (spec §Cross-platform identity →
+    /// adjudicated merge).
     /// `source` records who raised it: the agent from a turn (`mem:propose_merge`), or the
     /// identity-resolution orchestration when a platform arrival's handle matched an existing but
     /// platform-unbound stub. `rationale` carries the proposer's stated grounds for the adjudicator to
@@ -743,8 +745,9 @@ pub enum EventPayload {
     },
     /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
     /// the room then persists across sessions for the agent's life (spec §Conversations).
-    /// `context_memory` is the `context/*` memory minted eagerly alongside the room, so the locator
-    /// resolves to a first-class memory the agent can tag (`#confidential`) and reason about.
+    /// `context_memory` is the [`Namespace::Context`] memory minted eagerly alongside the room, so
+    /// the locator resolves to a first-class memory the agent can tag (`#confidential`) and reason
+    /// about.
     ConversationStarted {
         id: ConversationId,
         locator: ConversationLocator,
@@ -776,8 +779,9 @@ pub enum EventPayload {
         participant: MemoryId,
         at_turn: TurnId,
     },
-    /// Binds a `person/*` stub to a platform identity, seeding the `(platform, platform_user_id) ->
-    /// memory_id` operational mapping (spec §Identity). Emitted on first contact (with the
+    /// Binds a [`Namespace::Person`] stub to a platform identity, seeding the `(platform,
+    /// platform_user_id) -> memory_id` operational mapping (spec §Identity). Emitted on first
+    /// contact (with the
     /// `MemoryCreated` that mints the stub) and whenever an existing stub gains a further platform
     /// identity. The mapping is operational, not a memory-graph fact, so it lives in this event
     /// rather than as a relation.

@@ -108,7 +108,7 @@ pub use memory::{
 };
 pub use model::openai::{OpenAiClient, OpenAiEmbedder};
 
-// Compatibility aliases for the old `Server` naming. New code should prefer `Instance`.
+// Compatibility aliases: `Server` and `ServerError` name the `Instance` and `InstanceError` types.
 pub type Server = Instance;
 pub type ServerError = InstanceError;
 pub use store::SqliteStore;

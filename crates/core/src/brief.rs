@@ -158,7 +158,7 @@ impl BriefFact {
 pub struct BriefRequest<'a> {
     /// The full present set — the visibility predicate always resolves against all of it.
     pub present_set: &'a [MemoryId],
-    /// The room's `context/*` memory, if any.
+    /// The room's [`Namespace::Context`] memory, if any.
     pub current_context: Option<MemoryId>,
     /// Memories carried across a compaction seam (empty otherwise), rendered as active threads.
     pub working_set: &'a [MemoryId],
@@ -356,7 +356,7 @@ pub struct BriefSectionTrace {
 pub enum SectionKind {
     /// The agent's own `self` memory.
     SelfBrief,
-    /// The current room's `context/*` memory.
+    /// The current room's [`Namespace::Context`] memory.
     CurrentRoom,
     /// A present participant.
     Participant,

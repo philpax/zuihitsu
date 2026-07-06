@@ -214,9 +214,8 @@ pub(super) struct FromQuery {
 }
 
 /// `GET /control/events?from=` — the event log from `from` onward, in order (the whole log when
-/// `from` is omitted). The eval package embeds the full log per run; the live console seeds its
-/// replica with one `from=0` read, then polls the tail with `from=<head + 1>` (spec §Observability →
-/// live phase).
+/// `from` is omitted). The live console seeds its replica with one `from=0` read, then polls the tail
+/// with `from=<head + 1>` (spec §Observability → live phase).
 pub(super) async fn events(
     State(state): State<AppState>,
     Query(query): Query<FromQuery>,

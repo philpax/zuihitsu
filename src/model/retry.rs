@@ -6,7 +6,7 @@
 //! the event log — tracing and metrics only — so replay never depends on the retry policy. The
 //! policy itself is operational config ([`ResilienceConfig`], `[model.resilience]` in
 //! `config.toml`), not behavioral `Settings`. The serving host wraps the real OpenAI client in
-//! this at construction; the eval harness and tests keep their raw models unless they opt in.
+//! this at construction; a directly constructed model stays raw unless its caller opts in.
 
 use std::{
     sync::Arc,

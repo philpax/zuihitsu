@@ -1318,7 +1318,7 @@ async fn real_model_supersedes_a_corrected_fact() {
         })
         .collect();
 
-    // The current person/* memories and their live/superseded entries.
+    // The current [`Namespace::Person`] memories and their live/superseded entries.
     let people = h
         .engine
         .graph

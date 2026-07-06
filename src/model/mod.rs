@@ -1,6 +1,6 @@
 //! The model-client seam: structured text generation. The real client (the local model over the
 //! OpenAI-compatible endpoint) is wired in Stage 5; tests use a scripted fake that returns
-//! predetermined steps, so an agent-level scenario is deterministic and needs no GPU (spec
+//! predetermined steps, so an agent-level test is deterministic and needs no GPU (spec
 //! §Testability). The request/response shape is deliberately small here and grows with the agent
 //! loop and tool protocol in Stage 4.
 //!
@@ -227,7 +227,7 @@ impl std::fmt::Display for ModelError {
 
 impl std::error::Error for ModelError {}
 
-/// A deterministic fake returning programmed responses in order. Drives agent-loop scenarios
+/// A deterministic fake returning programmed responses in order. Drives agent-loop tests
 /// without a real model; `generate` records the request's messages (so a test can assert what the
 /// model saw — e.g. that a later turn replayed the live buffer), then pops the next scripted step.
 pub struct ScriptedModel {
@@ -237,7 +237,7 @@ pub struct ScriptedModel {
 }
 
 impl ScriptedModel {
-    /// Script the completions a turn will see, each reporting no usage. The common case for scenarios
+    /// Script the completions a turn will see, each reporting no usage. The common case for tests
     /// that don't exercise the compaction trigger.
     pub fn new(steps: impl IntoIterator<Item = Completion>) -> ScriptedModel {
         ScriptedModel::with_responses(steps.into_iter().map(|completion| GenerateResponse {
@@ -412,7 +412,7 @@ impl ModelClient for FlakyModel {
 #[cfg(test)]
 mod tests {
     //! The scripted model returns its programmed steps in order, then reports exhaustion — the
-    //! determinism agent-level scenarios rely on (spec §Testability).
+    //! determinism agent-level tests rely on (spec §Testability).
     use super::{Completion, GenerateRequest, ModelClient, ModelError, ScriptedModel, ToolCall};
 
     #[tokio::test]

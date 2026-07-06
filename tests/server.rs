@@ -2124,8 +2124,8 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
     assert_eq!(seen.len(), seams as usize);
 
     // The buffer is bounded: a seeded session sees only the prior session's carried tail plus its own
-    // inbound. It must not grow with the number of seams — the pre-fix buffer grew by two messages each
-    // seam (reaching 15 at the eighth message), so this bound (four) fails against the old code.
+    // inbound. It must not grow with the number of seams — this bound (four) holds regardless of how
+    // many seams precede the session, rather than growing by two messages each seam.
     for (turn_index, messages) in seen.iter().enumerate() {
         assert!(
             messages.len() <= 4,

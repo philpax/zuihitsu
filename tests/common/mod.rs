@@ -205,7 +205,7 @@ mod harness {
         /// Mark every currently-stale memory described — call after `genesis::rollout` so a later
         /// [`Harness::describe`] only regenerates what the test itself wrote, not the seeded `self`
         /// (whose description genesis already provided). Records a `DescribePassCompleted` over the
-        /// current stale set, the log-derived analogue of the old "baseline the cursor at head".
+        /// current stale set, so the baseline is derived from the log rather than a cursor position.
         pub fn baseline_descriptions(&self) {
             let stale = self.engine.graph.lock().stale_memories().unwrap();
             if stale.is_empty() {

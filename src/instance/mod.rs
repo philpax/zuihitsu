@@ -453,7 +453,7 @@ impl Instance {
     }
 
     // Background-pass facade methods: delegate to `self.passes` with `&self.engine`. These preserve
-    // the public API consumed by the eval crate, the http server, tests, and the control facet.
+    // the public API consumed by the http server, tests, and the control facet.
 
     pub async fn index_catch_up(&self) -> Result<usize, InstanceError> {
         self.passes.index_catch_up(&self.engine).await

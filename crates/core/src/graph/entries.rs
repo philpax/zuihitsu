@@ -60,12 +60,13 @@ impl Graph {
         )
     }
 
-    /// The recorded facts of the non-person memories this person *owns* — the `event/`s and the like
-    /// reached by the links off their class — so a merge adjudication can weigh the specifics the agent
-    /// filed on separate event memories, not only the facts written directly on the stub (spec
-    /// §Cross-platform identity → adjudicated merge). Other `person/` memories the person is merely
-    /// linked to (a friend, a mentor) are excluded: those are someone else's facts, not this person's
-    /// identity, and pulling them in would weigh a stranger's confidences in the wrong person's merge.
+    /// The recorded facts of the non-person memories this person *owns* — the [`Namespace::Event`]
+    /// memories and the like reached by the links off their class — so a merge adjudication can weigh
+    /// the specifics the agent filed on separate event memories, not only the facts written directly
+    /// on the stub (spec §Cross-platform identity → adjudicated merge). Other [`Namespace::Person`]
+    /// memories the person is merely linked to (a friend, a mentor) are excluded: those are someone
+    /// else's facts, not this person's identity, and pulling them in would weigh a stranger's
+    /// confidences in the wrong person's merge.
     /// Each linked memory contributes once, in link order.
     pub fn owned_context_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         let members: BTreeSet<MemoryId> = self.class_members(id)?.into_iter().collect();
