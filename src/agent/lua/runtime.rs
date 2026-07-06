@@ -16,7 +16,10 @@ use crate::{
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
-        memory_block::{AppendOptions, EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryError},
+        memory_block::{
+            AppendOptions, EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryDetails,
+            MemoryError,
+        },
         search::{SalientRelation, SearchQuery, search},
     },
     settings::Settings,
@@ -181,6 +184,99 @@ pub(super) fn make_handle_list(
         list.set(index + 1, make_handle(lua, id, metatable)?)?;
     }
     Ok(Value::Table(list))
+}
+
+/// Wrap a capped list of memory ids as a Lua sequence of handles — the `memory.list` return shape.
+/// The value stays a plain sequence the agent can iterate (each element a handle, `handle.name`
+/// readable), so `for _, m in ipairs(memory.list("person/")) do … end` works; the truncation note
+/// rides only the *rendered* form, through the list metatable's `__tostring` reading the `more`
+/// field this stores when matches were elided past the cap. So the returned value is unadorned data
+/// while printing or returning it shows the `(+N more — narrow the prefix)` hint.
+pub(super) fn make_capped_handle_list(
+    lua: &Lua,
+    ids: Vec<MemoryId>,
+    more: usize,
+    metatable: &Table,
+    list_metatable: &Table,
+) -> mlua::Result<Value> {
+    let list = lua.create_table()?;
+    for (index, id) in ids.into_iter().enumerate() {
+        list.set(index + 1, make_handle(lua, id, metatable)?)?;
+    }
+    if more > 0 {
+        list.set("more", more as i64)?;
+    }
+    list.set_metatable(Some(list_metatable.clone()))?;
+    Ok(Value::Table(list))
+}
+
+/// Render a memory's whole record to the one string `mem:details` returns: a header line (its name,
+/// its description, and a `formerly …` line when it has been renamed), the live entries under a count
+/// header, every link in both directions, the applied tags, and the volatility — the sections joined by
+/// blank lines. Entries and links render through the *same* handle rendering `mem:entries`/`mem:links`
+/// use (each row minted as its handle and stringified through its metatable), so the record reads back
+/// exactly as those readers show their rows — date, stale, disputed, visibility, and teller markers on
+/// an entry; `relation → name` with a dated occurrence on a link. There is no entry cap: the render is
+/// the whole record, which is what lets the agent conclude it holds nothing on a topic after one look.
+pub(super) fn render_details(
+    lua: &Lua,
+    details: &MemoryDetails,
+    entry_metatable: &Table,
+    memory_metatable: &Table,
+    link_metatable: &Table,
+) -> mlua::Result<String> {
+    let mut sections: Vec<String> = Vec::new();
+
+    let mut header = details.name.clone();
+    if !details.description.is_empty() {
+        header.push_str(" — ");
+        header.push_str(&details.description);
+    }
+    if !details.former_names.is_empty() {
+        header.push_str(&format!("\nformerly {}", details.former_names.join(", ")));
+    }
+    sections.push(header);
+
+    // The entries under a count header, each rendered as its own entry handle — the whole class read,
+    // teller-private entries marked rather than omitted (this is the agent's own read).
+    let count = details.entries.len();
+    let mut entry_block = if count == 0 {
+        "no entries".to_owned()
+    } else {
+        format!("{count} {}:", if count == 1 { "entry" } else { "entries" })
+    };
+    for entry in &details.entries {
+        let handle = make_entry_handle(lua, entry, entry_metatable)?;
+        entry_block.push('\n');
+        entry_block.push_str(&render(lua, &Value::Table(handle)));
+    }
+    sections.push(entry_block);
+
+    // Every link out of the merged identity in both directions, committed-only — the section is omitted
+    // entirely when the memory has none.
+    if !details.links.is_empty() {
+        let mut link_block = String::from("links:");
+        for link in &details.links {
+            let handle = make_link_handle(lua, link, memory_metatable, link_metatable)?;
+            link_block.push('\n');
+            link_block.push_str(&render(lua, &Value::Table(handle)));
+        }
+        sections.push(link_block);
+    }
+
+    if !details.tags.is_empty() {
+        let tags = details
+            .tags
+            .iter()
+            .map(|tag| format!("#{}", tag.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sections.push(format!("tags: {tags}"));
+    }
+
+    sections.push(format!("volatility: {}", details.volatility));
+
+    Ok(sections.join("\n\n"))
 }
 
 /// Build a link result `{ relation, memory, name, direction, source }` backed by the link metatable,

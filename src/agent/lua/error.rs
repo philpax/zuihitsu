@@ -200,6 +200,35 @@ impl From<TurnResolveError> for LuaError {
     }
 }
 
+/// A bad argument to `memory.list`. The prefix is required and must be non-empty: an empty or
+/// whitespace stem would list the whole graph, which is not what discovery-by-stem is for, so it is a
+/// teachable error naming the shape and pointing at `memory.search` for recall-by-meaning.
+#[derive(Debug)]
+pub(super) enum ListError {
+    /// `memory.list` was called with no prefix, or a blank one.
+    EmptyPrefix,
+}
+
+impl std::fmt::Display for ListError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ListError::EmptyPrefix => write!(
+                f,
+                "list finds handles by stem — pass a name prefix like \"person/\" or \"person/dav\"; \
+                 to recall by meaning, memory.search"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ListError {}
+
+impl From<ListError> for LuaError {
+    fn from(error: ListError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// A bad handle or link target passed to a memory operation.
 #[derive(Debug)]
 pub(super) enum HandleError {

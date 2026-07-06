@@ -16,13 +16,13 @@ pub(super) use crate::{
 };
 
 pub(super) use super::{
-    error::{BlockConsistencyError, CalendarError, HandleKind, TurnResolveError},
+    error::{BlockConsistencyError, CalendarError, HandleKind, ListError, TurnResolveError},
     runtime::{
         BlockApi, HandleSelf, SearchOpts, append_options_from_lua, concat_via_tostring, date_text,
-        day_string, entry_handle_id, handle_id, link_target_id, make_date, make_entry_handle,
-        make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
-        make_relation_result, readonly_newindex, render, render_neighborhood,
-        render_salient_relations, route_error, run_memory_search, value_text,
+        day_string, entry_handle_id, handle_id, link_target_id, make_capped_handle_list, make_date,
+        make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
+        make_link_handle_list, make_relation_result, readonly_newindex, render, render_details,
+        render_neighborhood, render_salient_relations, route_error, run_memory_search, value_text,
     },
 };
 
@@ -261,6 +261,43 @@ fn install_handle_methods(
                         .history(id)
                         .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                     make_entry_handle_list(&lua, entries, &entry_metatable)
+                }
+            }
+        })?,
+    )?;
+
+    // mem:details() — the memory's whole record in one string: header (name, description, former
+    // names), every entry under a count header, links in both directions, tags, and volatility, each
+    // section reusing the same rendering the dedicated readers use. A class-traversing read, so it
+    // locks the whole `same_as` class. Always installed (like `entries`); its link and tag sections are
+    // simply empty on an instance without those features.
+    methods.set(
+        "details",
+        lua.create_async_function({
+            let api = api.clone();
+            let entry_metatable = entry_metatable.clone();
+            let memory_metatable = memory_metatable.clone();
+            let link_metatable = link_metatable.clone();
+            move |lua, this: HandleSelf| {
+                let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
+                let memory_metatable = memory_metatable.clone();
+                let link_metatable = link_metatable.clone();
+                async move {
+                    let id = handle_id(&this.0)?;
+                    api.lock_class(id).await?;
+                    let details = api
+                        .block
+                        .lock()
+                        .details(id)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                    render_details(
+                        &lua,
+                        &details,
+                        &entry_metatable,
+                        &memory_metatable,
+                        &link_metatable,
+                    )
                 }
             }
         })?,

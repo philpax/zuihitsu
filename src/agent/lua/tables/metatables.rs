@@ -288,6 +288,31 @@ pub(super) fn relation_result_metatable(lua: &Lua) -> mlua::Result<Table> {
     Ok(metatable)
 }
 
+/// The metatable backing a `memory.list` result: `__tostring` renders the handle lines (each memory
+/// handle as its own `name — description`) and, when matches were elided past the cap, appends a
+/// `(+N more — narrow the prefix)` note read from the list's `more` field. The list stays a plain
+/// sequence of handles the agent iterates; only its rendered form carries the note, so a returned or
+/// printed list reveals the truncation while `ipairs` still walks the handles.
+pub(super) fn handle_list_metatable(lua: &Lua) -> mlua::Result<Table> {
+    let metatable = lua.create_table()?;
+    metatable.set(
+        "__tostring",
+        lua.create_function(|lua, this: Table| {
+            let mut lines: Vec<String> = this
+                .clone()
+                .sequence_values::<Value>()
+                .filter_map(Result::ok)
+                .map(|value| render(lua, &value))
+                .collect();
+            if let Some(more) = this.get::<Option<i64>>("more")?.filter(|more| *more > 0) {
+                lines.push(format!("(+{more} more — narrow the prefix)"));
+            }
+            Ok(lines.join("\n"))
+        })?,
+    )?;
+    Ok(metatable)
+}
+
 /// The metatable backing a `convo.turn` window line: `__tostring` renders it as `[at] speaker: text`,
 /// with a `»` marker on the focal turn, so a window reads back as a transcript excerpt with the linked
 /// moment called out.

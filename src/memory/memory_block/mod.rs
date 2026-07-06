@@ -147,6 +147,22 @@ pub struct LinkRef {
     pub occurred_at: Option<TemporalRef>,
 }
 
+/// A memory's whole record, assembled for `mem:details` — the one-render read that licenses "I don't
+/// hold that" after a single look. It carries the memory's header (its current name, its description,
+/// and any handles it used to go by), its live entries across the merged identity, every link out of
+/// that identity in both directions, its applied tags, and its volatility. The Lua layer renders it to
+/// one string, reusing the same entry and link rendering `mem:entries`/`mem:links` use, so the record
+/// reads back exactly as those readers show their rows.
+pub struct MemoryDetails {
+    pub name: String,
+    pub description: String,
+    pub former_names: Vec<String>,
+    pub entries: Vec<EntryRef>,
+    pub links: Vec<LinkRef>,
+    pub tags: Vec<TagName>,
+    pub volatility: Volatility,
+}
+
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
 /// buffered side effects, the memories touched (the lock set, for compaction's working-set), and the
 /// abort reason if [`MemoryBlock::abort`] was called.

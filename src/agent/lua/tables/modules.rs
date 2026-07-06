@@ -385,8 +385,51 @@ pub(in crate::agent::lua) fn memory_table(
             }
         })?,
     )?;
+    // memory.list(prefix) — the live memories whose handle begins with `prefix`, alphabetical, as
+    // lightweight handles (name/description read lazily, full methods, the list printing as its lines).
+    // Discovery by stem — which spellings of a name already exist — where memory.search is recall by
+    // meaning; reach for it before minting a handle so an existing one is reused, not duplicated under a
+    // guessed variant. The prefix is required and matched literally (its `%`/`_` do not wildcard); a
+    // blank one is a teachable error. Capped at [`LIST_CAP`], the remainder noted in the rendered form.
+    let list_metatable = handle_list_metatable(lua)?;
+    memory.set(
+        "list",
+        lua.create_async_function({
+            let api = api.clone();
+            let metatable = metatable.clone();
+            let list_metatable = list_metatable.clone();
+            move |lua, prefix: Option<String>| {
+                let api = api.clone();
+                let metatable = metatable.clone();
+                let list_metatable = list_metatable.clone();
+                async move {
+                    let prefix = prefix.unwrap_or_default();
+                    if prefix.trim().is_empty() {
+                        return Err(ListError::EmptyPrefix.into());
+                    }
+                    let ids = api
+                        .block
+                        .lock()
+                        .list_by_prefix(&prefix)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                    let total = ids.len();
+                    let capped: Vec<_> = ids.into_iter().take(LIST_CAP).collect();
+                    let more = total.saturating_sub(capped.len());
+                    // Lock the handles the list hands back, like the calendar readers: the query read
+                    // them and each is actionable, so a concurrent write serializes on them.
+                    api.lock_all(capped.iter().copied()).await;
+                    make_capped_handle_list(&lua, capped, more, &metatable, &list_metatable)
+                }
+            }
+        })?,
+    )?;
     Ok(memory)
 }
+
+/// How many handles `memory.list` returns before eliding the rest — enough to reveal which stems
+/// exist without flooding the transcript when a broad prefix matches many. The elided count rides the
+/// rendered form as a `(+N more — narrow the prefix)` note.
+const LIST_CAP: usize = 50;
 
 /// The `block` global: `abort(reason)`, which discards the buffer and ends the block. It touches no
 /// memory, so it stays a synchronous function and takes no lock.

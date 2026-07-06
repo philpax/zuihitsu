@@ -25,6 +25,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(UpdatesAnExistingEvent),
         Arc::new(AddsToAnExistingPerson),
         Arc::new(LinksExistingMemories),
+        Arc::new(DiscoversHandlesByStem),
     ]
 }
 
@@ -272,5 +273,112 @@ impl Scenario for LinksExistingMemories {
                 "duplicated a stub or did not link ({dave} Dave, {erin} Erin, linked={linked})"
             ),
         )]
+    }
+}
+
+/// Two people whose handles share a stem — David and Davina — are recorded in separate earlier
+/// sessions. A later session asks, without naming either, who "the Davs" on the team are. The referent
+/// is not a single guessable handle but a *family* of them, so the recognizing move is to discover the
+/// existing handles under the stem (memory.list("person/dav"), or a search that surfaces both) and
+/// answer from what is there — not to guess a handle like person/dave and mint a phantom variant that
+/// belongs to neither real person.
+pub struct DiscoversHandlesByStem;
+
+#[async_trait]
+impl Scenario for DiscoversHandlesByStem {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "discovers_handles_by_stem".to_owned(),
+            category: Category::Recall,
+            description: "Two people who share a name stem — David and Davina — are recorded in \
+                          separate earlier sessions. A later session asks who \"the Davs\" are without \
+                          naming either. The agent should discover the existing handles under the stem \
+                          and answer from them, not guess a handle and mint a phantom variant."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.7 },
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+        // Session 1: David recorded.
+        ctx.turn(Turn::new(
+            "discord",
+            "general",
+            "marcus",
+            "Someone to keep track of: David — he's our new backend lead, came over from Hooli.",
+        ))
+        .await?;
+        ctx.settle().await?;
+        // Unrelated chatter, a different room — noise between the two introductions.
+        ctx.turn(Turn::new(
+            "discord",
+            "random",
+            "erin",
+            "Whoever's been restocking the good coffee in the kitchen — you're doing the lord's work.",
+        ))
+        .await?;
+        ctx.settle().await?;
+        // Session 2: Davina recorded — a different person, the same stem.
+        ctx.turn(Turn::new(
+            "discord",
+            "intros",
+            "marcus",
+            "Another one for the roster: Davina — she's leading the new design-system work.",
+        ))
+        .await?;
+        ctx.settle().await?;
+        // Session 3: an empty buffer, neither handle in front of the agent. Answering "the Davs"
+        // without naming them rewards enumerating the stem over guessing a single handle.
+        ctx.turn(Turn::new(
+            "discord",
+            "planning",
+            "marcus",
+            "Quick one — who are all the Davs on the team again? I always get them mixed up.",
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        // The person memories under the shared stem: exactly the two real people if no phantom variant
+        // was minted, more if a guessed handle (person/dave, …) started a third.
+        let dav_memories: Vec<String> = analysis::memories_in_namespace(events, "person/")
+            .into_iter()
+            .filter(|name| name.to_lowercase().contains("dav"))
+            .collect();
+        let no_phantom = dav_memories.len() == 2;
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let judged = judge
+            .assess(
+                "The reply names both David and Davina as the two distinct people (David the backend \
+                 lead, Davina leading the design-system work) and does not invent a third person such \
+                 as a 'Dave' who was never recorded.",
+                &format!(
+                    "Two teammates who share a name stem were recorded earlier — David, the backend \
+                     lead, and Davina, leading the design-system work. Asked who all \"the Davs\" on \
+                     the team are, the agent replied:\n\"{reply}\""
+                ),
+            )
+            .await;
+
+        vec![
+            Verdict::metric_outcome(
+                "did not mint a phantom handle variant for the shared stem",
+                no_phantom,
+                format!("exactly the two real people under the stem: {dav_memories:?}"),
+                format!(
+                    "a phantom or duplicate variant was created under the stem: {dav_memories:?}"
+                ),
+            ),
+            Verdict::from_judge_outcome(
+                "named both real people under the stem, inventing none",
+                VerdictKind::Metric,
+                judged,
+            ),
+        ]
     }
 }

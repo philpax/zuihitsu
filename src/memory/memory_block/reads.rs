@@ -3,12 +3,12 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    event::EventPayload,
+    event::{EventPayload, Volatility},
     graph::EntryView,
     ids::{EntryId, MemoryId, MemoryName},
 };
 
-use super::{EntryRef, MemoryBlock, MemoryError};
+use super::{EntryRef, MemoryBlock, MemoryDetails, MemoryError};
 
 impl MemoryBlock {
     /// Resolve a name to a memory id, or `None`, for `memory.get` — touches the result so it enters
@@ -83,6 +83,53 @@ impl MemoryBlock {
             .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
+    }
+
+    /// The memory's whole record in one read — the data behind `mem:details`. Gathers the header
+    /// (current name, description, and any former handles), the live entries and every link across the
+    /// merged identity, the applied tags, and the volatility, so the agent reads the complete record at
+    /// a glance and can honestly conclude absence after one look. A class-traversing read (through
+    /// [`MemoryBlock::entries`] and [`MemoryBlock::links`]), so it touches the whole class. Committed-only
+    /// for the links, matching the link readers; the entries carry this block's pending writes like a
+    /// direct [`MemoryBlock::entries`] read. The name honors a pending create, so details on a
+    /// just-created memory still reads its name; description, tags, and volatility come from the graph
+    /// projection (a pending create has none of those synthesized yet).
+    pub fn details(&mut self, id: MemoryId) -> Result<MemoryDetails, MemoryError> {
+        let view = self.engine.graph.lock().memory_by_id(id)?;
+        let name = self
+            .resolve_name(id)?
+            .map(|name| name.as_str().to_owned())
+            .or_else(|| view.as_ref().map(|memory| memory.name.as_str().to_owned()))
+            .unwrap_or_default();
+        let (description, tags, volatility) = match view {
+            Some(memory) => (memory.description, memory.tags, memory.volatility),
+            None => (String::new(), Vec::new(), Volatility::default()),
+        };
+        let former_names = self.former_names(id)?;
+        let entries = self.entries(id)?;
+        let links = self.links(id)?;
+        Ok(MemoryDetails {
+            name,
+            description,
+            former_names,
+            entries,
+            links,
+            tags,
+            volatility,
+        })
+    }
+
+    /// The ids of every live memory whose name begins with `prefix`, ordered by name — the read behind
+    /// `memory.list`, the handle-discovery-by-stem lookup. A committed-only graph read (like the link
+    /// readers and search): a memory created but not yet committed this block does not list. The prefix
+    /// is matched literally, its LIKE metacharacters escaped in the graph, so a `%` in the stem does not
+    /// wildcard. Returns every match uncapped; the Lua layer caps the list and notes the remainder.
+    pub fn list_by_prefix(&self, prefix: &str) -> Result<Vec<MemoryId>, MemoryError> {
+        Ok(self
+            .engine
+            .graph
+            .lock()
+            .memory_ids_with_name_prefix(prefix)?)
     }
 
     /// The live members of `id`'s `same_as` class (including `id`), for the Lua lock layer to acquire

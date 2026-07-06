@@ -58,7 +58,10 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
          searching the topic; otherwise memory.search by meaning — and re-issuing the same search \
          returns the same hits, so change the query or read what it found rather than re-running it \
          unchanged. A hit is a pointer, not the record: to relay a specific like a date, read the \
-         memory in full through its entries.{recall_hub} Relay a \
+         memory in full — <memory>:details() is its whole record in one look (entries, links, tags, \
+         and all), where <memory>:entries() is only the entries. Once you have read the canonical \
+         handle's details and a search or two still surface nothing, that absence is the answer: say \
+         plainly you do not hold it rather than searching on for what is not there.{recall_hub} Relay a \
          recorded date from the entry's own occurred_at as it reads back, never one inferred from \
          when the conversation is happening. When you relay, interpolate the entry straight into a \
          backtick string — `next: {{entry}}` renders its text — rather than retyping the fact."
@@ -189,11 +192,12 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
          a question that surfaces something known is answered from memory — re-writing piles up \
          duplicates and re-attributes the fact to whoever speaks now (worst at the seams, a recall or \
          a flush). Likewise give a non-person thing one memory: before creating one, look for the \
-         memory a fact belongs on — memory.search by name and meaning and reuse a hit (its relations \
-         line shows the cast already on it) rather than guessing a fresh handle, since a guessed name \
-         that misses the existing memory mints a second and splits its facts, so a read finds half \
-         and contradictions cannot be weighed. (Per-platform person stubs are the exception, kept \
-         apart until the merge gate joins them.)"
+         memory a fact belongs on — memory.search by meaning, or memory.list the stem to see which \
+         handles already exist, and reuse what you find (a hit's relations line shows the cast already \
+         on it) rather than guessing a fresh handle, since a guessed name that misses the existing \
+         memory mints a second and splits its facts, so a read finds half and contradictions cannot be \
+         weighed. (Per-platform person stubs are the exception, kept apart until the merge gate joins \
+         them.)"
             .to_owned(),
     );
     // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
@@ -290,15 +294,15 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 5: the scaffold on a diet. The dotpoints are rewritten for concision and the
-            // overlapping clusters merged into single principles — identity (impersonation +
-            // category-free withholding), one-person-one-profile (operator anchor + rename/reveal),
-            // belief-arbitration (conflict + arbitration), visibility (default + set-as-you-record),
-            // and volatility (mark + surface) — without dropping a taught practice. (Version 4 was
-            // token-only transcript references; the connector still normalizes a pasted console link
-            // to the [turn:<id>] token before the agent sees it.) Bumping the version keeps an older
-            // `produced_by` naming the body it was generated under.
-            version: 6,
+            // Version 7 threads the whole-record read into the scaffold: the recall point now teaches
+            // <memory>:details() as the way to read a memory whole and to conclude honest absence after
+            // one look, and the deduplication point teaches memory.list to discover which handles a stem
+            // already spells before minting a variant. (Version 6 added the record-or-plain-words branch;
+            // version 5 was the concision rewrite; version 4 was token-only transcript references, the
+            // connector still normalizing a pasted console link to the [turn:<id>] token before the agent
+            // sees it.) Bumping the version keeps an older `produced_by` naming the body it was generated
+            // under.
+            version: 7,
             body: scaffold_body,
         },
         TemplateDef {

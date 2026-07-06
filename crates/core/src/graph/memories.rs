@@ -105,6 +105,23 @@ impl Graph {
         })
     }
 
+    /// The ids of every live memory whose name begins with `prefix`, ordered by name — the read
+    /// behind `memory.list`, the handle-discovery-by-stem lookup. The prefix is matched *literally*:
+    /// its LIKE metacharacters (`%`, `_`, `\`) are escaped and matched with an explicit `ESCAPE`
+    /// clause, so a stem like `person/dav_` matches a literal underscore rather than wildcarding any
+    /// character. Returns ids only — no per-memory tag subquery — so listing a broad stem stays cheap;
+    /// the caller caps the result and mints the handles.
+    pub fn memory_ids_with_name_prefix(&self, prefix: &str) -> Result<Vec<MemoryId>, GraphError> {
+        let pattern = format!("{}%", escape_like(prefix));
+        let stmt = self.conn.prepare(
+            "SELECT id FROM memories WHERE name LIKE ?1 ESCAPE '\\' AND deleted = 0 ORDER BY name",
+        )?;
+        query_map_into(stmt, params![pattern], |row| {
+            let id: String = row.get(0)?;
+            Ok::<_, GraphError>(MemoryId(parse_ulid(&id)?))
+        })
+    }
+
     /// The count of live (non-deleted) memories — the agent's knowledge footprint, surfaced as a
     /// gauge. A `COUNT(*)` rather than materializing the memories, so a metrics scrape stays cheap
     /// on a large graph.
@@ -133,4 +150,19 @@ impl Graph {
             .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, i64>(0))?
             as u64)
     }
+}
+
+/// Escape a `memory.list` prefix's LIKE metacharacters so the stem matches literally. `%`, `_`, and
+/// the escape character `\` itself are each backslash-prefixed, to be paired with an `ESCAPE '\'`
+/// clause; every other character passes through. So a prefix carrying a `%` matches that percent sign
+/// rather than wildcarding the rest of the name.
+fn escape_like(prefix: &str) -> String {
+    let mut escaped = String::with_capacity(prefix.len());
+    for ch in prefix.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }

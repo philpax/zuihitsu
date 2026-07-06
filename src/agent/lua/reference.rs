@@ -112,6 +112,25 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         )
         .returns(AT::Object(Vec::new()).list());
 
+    let list = AE::new("memory.list")
+        .description(
+            format!(
+                "The existing memories whose handle begins with a name prefix — handle discovery by \
+                 stem, alphabetical. Where memory.search recalls by meaning, list answers which \
+                 spellings already exist: pass \"{person}dav\" to see {person}dave and {person}david \
+                 before assuming a handle. Reach for it in identity work before you create or propose — \
+                 list the stem to reuse an existing handle rather than minting a variant that splits \
+                 the referent. Each result is a memory handle (read m.name, m.description, or call its \
+                 methods); the list is capped, the remainder noted when a broad prefix matches more."
+            ),
+        )
+        .required(
+            "prefix",
+            AT::String,
+            format!("the name prefix to match, e.g. \"{person}\" or \"{person}dav\"; matched literally"),
+        )
+        .returns(AT::Handle.list());
+
     let append = AE::new("<memory>:append")
         .description(
             "Append a content entry. By default it is attributed to the current speaker, and an \
@@ -173,6 +192,18 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              text).",
         )
         .returns(AT::Entry.list());
+
+    let details = AE::new("<memory>:details")
+        .description(
+            "The memory's whole record as one text: its header (name, description, any former names), \
+             every live entry, its links in both directions, its tags, and its volatility — each \
+             section rendered as the dedicated readers show it. This is the way to answer \"what do I \
+             hold on X\": read the canonical handle's details and the complete record is in front of \
+             you in one look, so when the answer is not there — and a search or two also comes up short \
+             — you can say plainly you do not hold it rather than guessing. Distinct from \
+             <memory>:entries, which is only the entries; details is the whole memory at a glance.",
+        )
+        .returns(AT::String);
 
     let supersede = AE::new("<memory>:supersede")
         .description(
@@ -577,8 +608,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         get,
         get_or_create,
         search,
+        list,
         append,
         entries,
+        details,
         history,
         supersede,
         revise,
