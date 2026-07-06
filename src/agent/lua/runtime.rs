@@ -667,8 +667,12 @@ pub(super) struct SearchOpts {
 /// a separate `entries()` read; `relations` are the memory's most salient links (its cast), so the hit
 /// passively carries who already participates in it — the recognition signal that steers a search
 /// toward reusing the memory it found rather than minting a duplicate. `more_relations` counts the
-/// salient links elided past the render cap, for the trailing `(+N more)` note.
+/// salient links elided past the render cap, for the trailing `(+N more)` note. `id` backs the row's
+/// double life as a memory handle: it rides as the hit table's `id` field so the hit's metatable can
+/// fall through to the handle methods, letting `hit:append(…)`, `hit:details()`, and `hit:link(…)`
+/// act on the found memory without a `memory.get` round-trip.
 pub(super) struct SearchRow {
+    pub(super) id: MemoryId,
     pub(super) name: String,
     pub(super) description: String,
     pub(super) score: f32,
@@ -732,6 +736,7 @@ pub(super) async fn run_memory_search(
     Ok(hits
         .into_iter()
         .map(|hit| SearchRow {
+            id: hit.memory.id,
             name: hit.memory.name.as_str().to_owned(),
             description: hit.memory.description,
             score: hit.score,

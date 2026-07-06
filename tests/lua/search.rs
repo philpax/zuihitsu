@@ -256,6 +256,192 @@ async fn printed_search_results_recall_the_fact() {
 }
 
 #[tokio::test]
+async fn a_search_hit_still_renders_with_its_score_and_snippet() {
+    // Making a hit a usable handle changes method/field ACCESS only — how it prints is unchanged. The
+    // rendered line still leads with the name and score and carries the matched-content snippet.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let rendered = h
+        .run(r#"return memory.search("An avid rock climber")"#)
+        .await;
+    let BlockOutcome::Committed { result } = rendered else {
+        panic!("expected commit, got {rendered:?}");
+    };
+    assert!(
+        result.contains("(score "),
+        "the hit still renders its score: {result:?}"
+    );
+    assert!(
+        result.contains(r#"match: "An avid rock climber""#),
+        "the hit still renders its snippet: {result:?}"
+    );
+    assert!(!result.contains("<table>"), "rendered: {result:?}");
+}
+
+#[tokio::test]
+async fn a_search_hit_appends_directly() {
+    // A hit is also a usable memory handle: `hits[1]:append(…)` writes to the found memory without a
+    // `memory.get(hits[1].name)` round-trip. The method locks the memory itself, so a read-only search
+    // followed by a write on its hit commits cleanly.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let appended = h
+        .run(
+            r#"
+        local results = memory.search("An avid rock climber")
+        if #results == 0 then return "none" end
+        results[1]:append("Also boulders on weekends", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = appended else {
+        panic!("expected commit, got {appended:?}");
+    };
+    assert!(result.contains("wrote"), "{result:?}");
+
+    // The entry landed on Dave: a fresh block reads it back off the memory itself.
+    let read_back = h.run(r#"return memory.get(PERSON_DAVE):details()"#).await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        result.contains("Also boulders on weekends"),
+        "the hit's append should land on Dave: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_search_hit_reads_details_and_keeps_its_own_fields() {
+    // Handle methods and lazy fields fall through to the memory-handle metatable, so `hit:details()`
+    // reads the full record — while the hit's OWN carried fields (`score`, `snippet`) still read as the
+    // search machinery set them, never shadowed by the handle fallback.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.search("An avid rock climber")
+        if #results == 0 then return "none" end
+        local hit = results[1]
+        local detail = hit:details()
+        return `score:{hit.score > 0} snippet:{hit.snippet} detail:{detail:find("An avid rock climber") ~= nil}`
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.contains("score:true"),
+        "the hit keeps its score: {result}"
+    );
+    assert!(
+        result.contains("snippet:An avid rock climber"),
+        "the hit keeps its own snippet, unshadowed: {result}"
+    );
+    assert!(
+        result.contains("detail:true"),
+        "the handle method reads the full record through the fallback: {result}"
+    );
+}
+
+#[tokio::test]
+async fn memory_get_on_a_search_hit_resolves_the_same_memory() {
+    // The dual-accept `memory.get` reads a handle's `id` field; a hit carries it too, so
+    // `memory.get(hit)` resolves the same memory the hit points at.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.search("An avid rock climber")
+        if #results == 0 then return "none" end
+        return memory.get(results[1]).name
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(
+        result,
+        MemoryName::from(Namespace::Person.with_name("dave")).as_str()
+    );
+}
+
+#[tokio::test]
+async fn assigning_to_a_search_hit_field_is_a_teachable_error() {
+    // A hit shares the read-only `__newindex` posture of every handle: assigning to a field it does not
+    // carry — `occurred_at`, the traced date footgun — does not persist, so it raises the teachable
+    // error rather than silently doing nothing. (The hit's own carried fields are raw entries the
+    // guard cannot intercept; the posture is verified through a key the guard actually sees.)
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("An avid rock climber", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local results = memory.search("An avid rock climber")
+        results[1].occurred_at = calendar.date("2027-03-15")
+        return "unreached"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(
+        message.contains("occurred_at is not assignable"),
+        "{message}"
+    );
+}
+
+#[tokio::test]
 async fn memory_search_without_an_embedder_is_a_teachable_error() {
     // A graph-only harness has no retrieval, so search reports itself unavailable rather than failing
     // obscurely — and commits nothing.

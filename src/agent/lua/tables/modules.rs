@@ -321,6 +321,13 @@ pub(in crate::agent::lua) fn memory_table(
     // prints as a readable line so `return memory.search(...)` reads back the results rather than
     // `<table>`.
     let result_metatable = search_result_metatable(lua)?;
+    // A hit is also a usable memory handle: any key it does not carry itself (a method like `append`,
+    // or a lazy `name`/`description` read) falls through to the memory-handle metatable's `__index`,
+    // so `hits[1]:append(…)`/`:details()`/`:link(…)` work without a `memory.get` round-trip. The hit's
+    // own fields (`name`, `description`, `score`, `snippet`, …) are real table entries, so `__index` is
+    // only consulted for the handle behaviour and never shadows the hit's carried data. The handle
+    // `__index` is fully wired by the time `memory.search` is installed (see `install_block_api`).
+    result_metatable.raw_set("__index", metatable.raw_get::<Value>("__index")?)?;
     memory.set(
         "search",
         lua.create_async_function({
@@ -340,6 +347,11 @@ pub(in crate::agent::lua) fn memory_table(
                     let list = lua.create_table()?;
                     for (index, row) in rows.into_iter().enumerate() {
                         let table = lua.create_table()?;
+                        // The memory's id backs the hit's double life as a handle: the result
+                        // metatable's `__index` falls through to the memory-handle methods, which
+                        // resolve their memory from this field (see `handle_id`). It is a raw field
+                        // so the readonly `__newindex` never intercepts writing it here.
+                        table.raw_set("id", row.id.0.to_string())?;
                         table.set("name", row.name)?;
                         table.set("description", row.description)?;
                         table.set("score", row.score)?;
