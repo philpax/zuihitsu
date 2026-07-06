@@ -289,6 +289,103 @@ async fn append_records_a_structured_occurred_at() {
 }
 
 #[tokio::test]
+async fn occurred_at_accepts_a_bare_date_string() {
+    // The intuitive `occurred_at = "2026-06-03"` — a bare top-level date string, not a tagged table —
+    // lands the same `Day` occurrence as `{ day = "2026-06-03" }`, instead of failing serde with a raw
+    // enum-variant list. It is the shape the agent reaches for first.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_CLEANING)
+        ev:append("Scheduled cleaning", { visibility = "public", occurred_at = "2026-06-03" })
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Committed { .. }),
+        "a bare date string must commit, got {outcome:?}"
+    );
+    let ev = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("cleaning"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
+    assert_eq!(entries.len(), 1);
+    // Identical to the tagged `{ day = "2026-06-03" }` form: a whole-day Day, sorting at its noon.
+    let expected = TemporalRef::Day(CivilDate("2026-06-03".into()))
+        .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
+        .sort;
+    assert_eq!(entries[0].occurred_sort, expected);
+    assert!(expected.is_some());
+}
+
+#[tokio::test]
+async fn an_opts_table_reused_across_appends_keeps_its_fields() {
+    // The boundary resolves occurred_at and told_by out of the opts table itself, and must do so
+    // without mutating the agent's table: a script that builds one opts table and reuses it across
+    // appends keeps the occurrence on every entry, not just the first.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_CLEANING)
+        local opts = { visibility = "public", occurred_at = "2026-06-03" }
+        ev:append("First pass", opts)
+        ev:append("Second pass", opts)
+        return ev:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert_eq!(
+        result.matches("[2026-06-03").count(),
+        2,
+        "both appends should carry the shared opts table's occurrence, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_bogus_occurred_at_teaches_the_accepted_shapes() {
+    // An occurred_at value that names no occurrence — here a non-date string — raises a teachable error
+    // naming the accepted shapes (a bare date, a date object, or a tagged table), never leaking serde's
+    // enum-variant phrasing ("unknown variant, expected instant/day/range/…").
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local ev = memory.create(EVENT_CLEANING)
+        ev:append("Scheduled cleaning", { visibility = "public", occurred_at = "sometime next week" })
+        return "unreached"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected a teachable error, got {outcome:?}");
+    };
+    assert!(
+        message.contains("occurred_at does not name an occurrence"),
+        "the error should name the failing option: {message}"
+    );
+    // It teaches the shapes the agent can use instead.
+    assert!(
+        message.contains("YYYY-MM-DD") && message.contains("{ day =") && message.contains("range"),
+        "the error should enumerate the accepted shapes: {message}"
+    );
+    // And it does not leak serde's enum-variant soup.
+    assert!(
+        !message.contains("unknown variant") && !message.contains("expected one of"),
+        "the error must not surface serde's variant list: {message}"
+    );
+}
+
+#[tokio::test]
 async fn assigning_occurred_at_on_a_handle_is_a_teachable_error() {
     // A memory handle is a read-only view: `m.occurred_at = ...` was a silent no-op that misled the
     // agent into thinking a date landed (the traced gate slip). It now raises a teachable error naming

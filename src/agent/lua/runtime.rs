@@ -23,7 +23,7 @@ use crate::{
         search::{SalientRelation, SearchQuery, search},
     },
     settings::Settings,
-    time::{MILLIS_PER_DAY, TemporalRef, civil_date_to_millis, format_occurrence},
+    time::{CivilDate, MILLIS_PER_DAY, TemporalRef, civil_date_to_millis, format_occurrence},
     vocabulary::TagName,
 };
 
@@ -987,12 +987,66 @@ pub(super) fn append_options_from_lua(
     if opts.is_nil() {
         return Ok(None);
     }
-    if let Value::Table(table) = &opts
-        && let Value::Table(occurred) = table.get::<Value>("occurred_at")?
-    {
-        normalize_temporal(&occurred)?;
+    let Value::Table(table) = &opts else {
+        // A non-nil, non-table opts is a shape slip the agent should see named; serde surfaces it.
+        return Ok(Some(lua.from_value(opts)?));
+    };
+    // Resolve the option serde cannot decode from a raw Lua value: `occurred_at` may be a bare date
+    // string or a date handle. The rest deserializes from a copy with that key dropped — the agent's
+    // own opts table is never mutated, so a table reused across appends keeps its fields.
+    let occurred_at = occurred_at_from_lua(lua, table)?;
+    let rest = lua.create_table()?;
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair?;
+        if let Value::String(name) = &key
+            && name.to_string_lossy().as_str() == "occurred_at"
+        {
+            continue;
+        }
+        rest.set(key, value)?;
     }
-    Ok(Some(lua.from_value(opts)?))
+    let mut options: AppendOptions = lua.from_value(Value::Table(rest))?;
+    options.occurred_at = occurred_at;
+    Ok(Some(options))
+}
+
+/// Resolve an `occurred_at` option to its [`TemporalRef`]: a bare `"YYYY-MM-DD"` string coerces to the
+/// day shape, so the intuitive `occurred_at = "2026-06-15"` lands the same `Day` as
+/// `{ day = "2026-06-15" }`; a tagged table is normalized (a date handle or string in a day/range/
+/// instant position stands in for its primitive, see [`normalize_temporal`]) and then decoded. A value
+/// that names no occurrence — a non-date string, a number, or a table with no recognized tag — is a
+/// teachable [`TemporalArgError::UnknownOccurrence`] naming the accepted shapes, never serde's raw
+/// enum-variant list. `nil` yields `None`.
+fn occurred_at_from_lua(lua: &Lua, table: &Table) -> mlua::Result<Option<TemporalRef>> {
+    match table.get::<Value>("occurred_at")? {
+        Value::Nil => Ok(None),
+        Value::String(day) => {
+            let day = day.to_string_lossy();
+            if civil_date_to_millis(&day).is_some() {
+                Ok(Some(TemporalRef::Day(CivilDate(day.into()))))
+            } else {
+                Err(TemporalArgError::UnknownOccurrence {
+                    got: format!("the string {day:?}"),
+                }
+                .into())
+            }
+        }
+        Value::Table(occurred) => {
+            normalize_temporal(&occurred)?;
+            lua.from_value::<TemporalRef>(Value::Table(occurred))
+                .map(Some)
+                .map_err(|_| {
+                    TemporalArgError::UnknownOccurrence {
+                        got: "a table with no recognized tag".to_owned(),
+                    }
+                    .into()
+                })
+        }
+        other => Err(TemporalArgError::UnknownOccurrence {
+            got: format!("a {}", other.type_name()),
+        }
+        .into()),
+    }
 }
 
 /// Rewrite date-shaped values inside an `occurred_at` tagged table into the primitives its

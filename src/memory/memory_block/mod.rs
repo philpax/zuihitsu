@@ -207,13 +207,15 @@ impl VolatilityChoice {
 /// the speaker's; `visibility` forces the visibility instead of the write-time default; `occurred_at`
 /// records the real-world time the entry is *about*, distinct from when it is recorded (spec §Time);
 /// `volatility` classifies how fast the memory's facts age, set inline rather than via a separate
-/// `set_volatility` call. Deserialized straight from the Lua `opts` table — `occurred_at` is a tagged
-/// table (see [`TemporalRef`]).
+/// `set_volatility` call. Deserialized from the Lua `opts` table, except `occurred_at`: it is resolved
+/// at the Lua boundary (a bare date string, a date handle, or a tagged table) and set on the struct
+/// after, so it carries the resolved [`TemporalRef`] rather than a raw Lua value serde cannot decode.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct AppendOptions {
     pub by_agent: bool,
     pub visibility: Option<VisibilityChoice>,
+    #[serde(skip)]
     pub occurred_at: Option<TemporalRef>,
     pub volatility: Option<VolatilityChoice>,
 }

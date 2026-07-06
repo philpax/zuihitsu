@@ -70,6 +70,11 @@ pub(super) enum TemporalArgError {
     NotADate { type_name: &'static str },
     /// A date string (or a date object's `day`) that is not a valid `YYYY-MM-DD` calendar date.
     InvalidDay { input: String },
+    /// An `occurred_at` option that names no occurrence at all — neither a bare `"YYYY-MM-DD"` string,
+    /// a date object, nor a recognized tagged table. `got` describes the offending value. Names the
+    /// accepted shapes so the agent reissues with one, rather than reading serde's raw enum-variant
+    /// list (`unknown variant, expected instant/day/range/…`).
+    UnknownOccurrence { got: String },
 }
 
 impl std::fmt::Display for TemporalArgError {
@@ -83,6 +88,15 @@ impl std::fmt::Display for TemporalArgError {
             TemporalArgError::InvalidDay { input } => write!(
                 f,
                 "{input:?} is not a valid date; use YYYY-MM-DD, e.g. \"2026-06-03\""
+            ),
+            TemporalArgError::UnknownOccurrence { got } => write!(
+                f,
+                "occurred_at does not name an occurrence ({got}). Pass a bare \"YYYY-MM-DD\" string \
+                 or a date object (calendar.today(), calendar.date(\"…\")) for a single day, or a \
+                 tagged table for a richer occurrence: {{ day = \"YYYY-MM-DD\" }}, \
+                 {{ instant = <epoch ms> }}, {{ range = {{ start = …, [\"end\"] = … }} }}, \
+                 {{ approx = {{ center = …, fuzz_days = N }} }}, {{ recurring = \"FREQ=WEEKLY\" }}, \
+                 or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"<memory name>\" }} }}"
             ),
         }
     }
