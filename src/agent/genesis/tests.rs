@@ -367,7 +367,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
                     // The current Scaffold version, so the idempotent rollout recognizes it as
                     // already present and does not re-emit it.
                     PromptTemplateName::Scaffold,
-                    5,
+                    6,
                     "<draft system-prompt scaffold — see docs/spec.md §System prompt>".to_owned(),
                     EventSource::Orchestration,
                 ),
@@ -484,8 +484,8 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 5,
-        "the concision-rewrite scaffold is registered at v5 (v4 was token-only transcript references)"
+        scaffold.version, 6,
+        "the scaffold is registered at v6 (v5 was the concision rewrite; v6 adds the record-or-plain-words branch)"
     );
     assert!(
         scaffold

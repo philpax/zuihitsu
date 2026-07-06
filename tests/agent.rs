@@ -672,9 +672,12 @@ async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
         .collect();
     assert!(
         prompts.iter().any(|p| {
-            p.contains("1. The all-hands meeting")
-                && p.contains("2. Located in the main auditorium")
-                && p.contains("3. Located in the rooftop terrace")
+            p.contains("1. [from ")
+                && p.contains("] The all-hands meeting")
+                && p.contains("] Located in the main auditorium")
+                && p.contains("] Located in the rooftop terrace")
+                && p.contains("2. [from ")
+                && p.contains("3. [from ")
                 && p.contains("incompatible values for the same fact")
         }),
         "the synthesis prompt must number the statements and pose the contradiction check: {prompts:?}"
@@ -804,7 +807,7 @@ async fn agent_turns_record_their_provenance() {
         .expect("the agent turn records its provenance");
     assert_eq!(provenance.model_id, "scripted-model");
     assert_eq!(provenance.template_name, PromptTemplateName::Scaffold);
-    assert_eq!(provenance.template_version, 5);
+    assert_eq!(provenance.template_version, 6);
 }
 
 #[tokio::test]

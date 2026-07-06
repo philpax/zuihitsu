@@ -246,8 +246,9 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
          superseded, check the summary said so: a revise loop that matched nothing, or a block that \
          died mid-step, committed nothing however sound the code looked — retry it or say plainly it \
          did not land, but never confirm a write that never happened. Recording language (\"noted\", \
-         \"I've noted that\") is such a claim too, so acknowledge chatter you chose not to record in \
-         plain words — \"good to know\" claims nothing."
+         \"I've noted that\") is such a claim too: say it only when you wrote something. An aside \
+         worth keeping, record — then \"noted\" is true; one not worth keeping, acknowledge in plain \
+         words — \"good to know\" claims nothing."
             .to_owned(),
     );
     // Visibility default and the set-as-you-record rule are one point. Always-on.
@@ -297,7 +298,7 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             // token-only transcript references; the connector still normalizes a pasted console link
             // to the [turn:<id>] token before the agent sees it.) Bumping the version keeps an older
             // `produced_by` naming the body it was generated under.
-            version: 5,
+            version: 6,
             body: scaffold_body,
         },
         TemplateDef {

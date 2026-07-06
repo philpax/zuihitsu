@@ -18,7 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     engine::Engine,
     event::{
-        ArbitrationResolution, EventPayload, ModelPhase, ProducedBy, PromptTemplateName, Visibility,
+        ArbitrationResolution, EventPayload, ModelPhase, ProducedBy, PromptTemplateName, Teller,
+        Visibility,
     },
     graph::{EntryView, MemoryView},
     ids::{EntryId, MemoryId, MemoryName, Seq, TurnId},
@@ -178,7 +179,7 @@ async fn describe_one(
     // described, with a transient lock released before the synthesis `.await` — no graph guard is held
     // across a suspension point. A class-wide read gives a merged identity one unified description
     // (spec §Visibility); the untimed window filters to this memory's own entries.
-    let (memory, entries, eligible) = {
+    let (memory, entries, eligible, teller_names) = {
         let graph = engine.graph.lock();
         let Some(memory) = graph.memory_by_id(id)? else {
             return Ok(());
@@ -189,7 +190,19 @@ async fn describe_one(
             .into_iter()
             .map(|entry_id| (entry_id, id))
             .collect();
-        (memory, entries, eligible)
+        // Resolve each participant teller's handle while the graph is at hand, so the synthesis
+        // prompt can attribute every numbered statement — the arbitration rules turn on who holds
+        // which account, which the bare text cannot show.
+        let mut teller_names: BTreeMap<MemoryId, String> = BTreeMap::new();
+        for entry in &entries {
+            if let Teller::Participant(teller) = entry.told_by
+                && let std::collections::btree_map::Entry::Vacant(slot) = teller_names.entry(teller)
+                && let Some(view) = graph.memory_by_id(teller)?
+            {
+                slot.insert(view.name.as_str().to_owned());
+            }
+        }
+        (memory, entries, eligible, teller_names)
     };
 
     // The description and arbitration are synthesized over the memory's PUBLIC entries only, so a
@@ -207,7 +220,7 @@ async fn describe_one(
         system: &templates.system,
     };
     if !public_entries.is_empty() {
-        match synthesize(&call, &memory, &public_entries, now, true).await {
+        match synthesize(&call, &memory, &public_entries, &teller_names, now, true).await {
             Ok(Some(synthesis)) => {
                 if !synthesis.description.trim().is_empty() {
                     events.push(EventPayload::memory_description_regenerated(
@@ -263,7 +276,7 @@ async fn describe_one(
             .cloned()
             .collect();
         if !private_untimed.is_empty() {
-            match synthesize(&call, &memory, &private_untimed, now, false).await {
+            match synthesize(&call, &memory, &private_untimed, &teller_names, now, false).await {
                 Ok(Some(synthesis)) => resolve_occurrences(
                     synthesis.occurrences,
                     &private_untimed,
@@ -415,6 +428,7 @@ async fn synthesize(
     call: &SynthesisCall<'_>,
     memory: &MemoryView,
     entries: &[EntryView],
+    teller_names: &BTreeMap<MemoryId, String>,
     now: Timestamp,
     arbitrate: bool,
 ) -> Result<Option<SynthesizeArgs>, ModelError> {
@@ -429,9 +443,29 @@ async fn synthesize(
         memory.name.as_str(),
         time::format_datetime(now),
     );
+    // Each statement carries its attribution and assertion date, so the arbitration rules — which
+    // turn on who holds which account, and when — have the facts they judge by; the bracketed
+    // metadata is for the model's judgment, never content to restate.
     for (index, entry) in entries.iter().enumerate() {
-        prompt.push_str(&format!("{}. {}\n", index + 1, entry.text));
+        let teller = match entry.told_by {
+            Teller::Participant(id) => teller_names
+                .get(&id)
+                .map(String::as_str)
+                .unwrap_or("a participant"),
+            Teller::Agent => "the agent",
+            Teller::Bootstrap => "genesis",
+        };
+        prompt.push_str(&format!(
+            "{}. [from {teller} · {}] {}\n",
+            index + 1,
+            time::format_day(entry.asserted_at),
+            entry.text
+        ));
     }
+    prompt.push_str(
+        "\nThe bracketed attribution on each statement is metadata for your judgment, not content \
+         to restate in the description.\n",
+    );
     if arbitrate {
         // The system template carries the general arbitration rules; this closes the concrete
         // per-call ask over the numbered statements — the lever for the conflicting-accounts failure
