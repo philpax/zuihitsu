@@ -80,8 +80,8 @@ fn propose_merge_documents_the_rationale_option() {
 
 #[test]
 fn create_teaches_search_before_creating() {
-    // memory.create teaches that creation should almost always follow a search — if the referent
-    // plausibly already exists, search and reuse before minting a fresh handle.
+    // memory.create teaches that creation follows an existence check with the tool that fits the
+    // referent: exact lookups for a name, memory.search by meaning for one it cannot name.
     let create = api_reference(&InstanceFeatures::default())
         .into_iter()
         .find(|entry| entry.call == "memory.create")
@@ -89,13 +89,13 @@ fn create_teaches_search_before_creating() {
     assert!(
         create
             .doc
-            .contains("Creation should almost always follow a search"),
+            .contains("Creation should follow a check that the referent does not already exist"),
         "create should teach search-first: {}",
         create.doc
     );
     assert!(
-        create.doc.contains("reuse what you find"),
-        "create should teach reuse: {}",
+        create.doc.contains("Create only when nothing matches"),
+        "create should teach reuse of a match: {}",
         create.doc
     );
 }

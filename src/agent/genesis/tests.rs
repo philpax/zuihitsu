@@ -367,7 +367,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
                     // The current Scaffold version, so the idempotent rollout recognizes it as
                     // already present and does not re-emit it.
                     PromptTemplateName::Scaffold,
-                    8,
+                    9,
                     "<draft system-prompt scaffold — see docs/spec.md §System prompt>".to_owned(),
                     EventSource::Orchestration,
                 ),
@@ -484,7 +484,7 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 8,
+        scaffold.version, 9,
         "the scaffold is registered at v7 (v6 added the record-or-plain-words branch; v7 threads \
          <memory>:details() and memory.list into the recall and deduplication points)"
     );
@@ -601,14 +601,19 @@ fn the_scaffold_teaches_milestone_decomposition_for_dated_plans() {
 
 #[test]
 fn the_scaffold_teaches_search_before_creating() {
-    // The reuse dotpoint teaches informed creation: search a non-person thing by meaning, or list the
-    // stem to see which handles already exist, and reuse what is found rather than guessing a fresh
-    // handle, since a guessed name that misses the existing memory mints a duplicate and splits one
-    // referent's facts across variants. Always-on (it gates on no feature), so it stands under the
-    // default and a stripped feature set alike.
+    // The reuse dotpoint teaches informed creation, split by how the referent arrived: a name is
+    // checked exactly (list the stem, get the handle) while memory.search recalls by meaning and
+    // never decides whether a name exists, since a guessed or fuzzy-matched handle that misses the
+    // existing memory mints a duplicate and splits one referent's facts across variants. The
+    // look-before-acting dotpoint requires a lookup's results to be read across a block boundary
+    // before anything writes against them. Both are always-on (they gate on no feature), so they
+    // stand under the default and a stripped feature set alike.
     let full = scaffold_body(&InstanceFeatures::default());
-    assert!(full.contains("memory.search by meaning, or memory.list the stem"));
-    assert!(full.contains("a guessed name that misses the existing memory mints a second"));
+    assert!(full.contains("A name is checked exactly"));
+    assert!(full.contains("never decides whether a name exists"));
+    assert!(full.contains("A guessed handle that misses the existing memory mints a second"));
+    assert!(full.contains("Act on results you have read"));
+    assert!(full.contains("write in your next block"));
 
     let stripped = scaffold_body(&InstanceFeatures {
         linking: false,
@@ -618,7 +623,8 @@ fn the_scaffold_teaches_search_before_creating() {
         transcripts: false,
         ..Default::default()
     });
-    assert!(stripped.contains("memory.search by meaning, or memory.list the stem"));
+    assert!(stripped.contains("A name is checked exactly"));
+    assert!(stripped.contains("Act on results you have read"));
 }
 
 #[test]

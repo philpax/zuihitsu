@@ -191,16 +191,26 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         "Record what is new, once, on one memory. A fact you already hold needs no re-recording, and \
          a question that surfaces something known is answered from memory — re-writing piles up \
          duplicates and re-attributes the fact to whoever speaks now (worst at the seams, a recall or \
-         a flush). Likewise give a non-person thing one memory: before creating one, look for the \
-         memory a fact belongs on — memory.search by meaning, or memory.list the stem to see which \
-         handles already exist, and reuse what you find (a hit's relations line shows the cast already \
-         on it) rather than guessing a fresh handle, since a guessed name that misses the existing \
-         memory mints a second and splits its facts, so a read finds half and contradictions cannot be \
-         weighed. A fuzzy hit is a candidate, not a match: when someone is introduced by name, the \
-         handle must name that same person — a near-name hit (one person surfacing for another's \
-         introduction) is a different referent, so list the stem and create the named handle rather \
-         than folding two people into one. (Per-platform person stubs are the exception, kept apart \
-         until the merge gate joins them.)"
+         a flush). Before creating, check what exists with the tool that fits how the referent \
+         arrived. A name is checked exactly: memory.list its stem for the spellings already held, or \
+         memory.get the handle. memory.search recalls by meaning — for facts, and for things you \
+         cannot yet name — and never decides whether a name exists: its top hit is the nearest in \
+         meaning, which for a name is often a different referent entirely, so when someone is \
+         introduced by name, the handle must name that same person — create the named handle rather \
+         than folding two people into one. A guessed handle that misses the existing memory mints a \
+         second and splits its facts, so a read finds half and contradictions cannot be weighed; a \
+         hit's relations line shows the cast already on it. (Per-platform person stubs are the \
+         exception, kept apart until the merge gate joins them.)"
+            .to_owned(),
+    );
+    // Look before acting: a lookup's results are read across a block boundary before anything writes
+    // against them, so a write never lands on a result the model has not seen. Always-on.
+    scaffold_points.push(
+        "Act on results you have read, not on results you expect. A search or list result is unknown \
+         until you have looked at it: end the block that looks things up by returning the results, \
+         read what actually came back, and write in your next block. A block that fetches hits and \
+         writes to one in the same breath acts on a memory it never saw — the shape behind most \
+         mistaken-identity writes."
             .to_owned(),
     );
     // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
@@ -297,15 +307,16 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 7 threads the whole-record read into the scaffold: the recall point now teaches
-            // <memory>:details() as the way to read a memory whole and to conclude honest absence after
-            // one look, and the deduplication point teaches memory.list to discover which handles a stem
-            // already spells before minting a variant. (Version 6 added the record-or-plain-words branch;
-            // version 5 was the concision rewrite; version 4 was token-only transcript references, the
-            // connector still normalizing a pasted console link to the [turn:<id>] token before the agent
-            // sees it.) Bumping the version keeps an older `produced_by` naming the body it was generated
-            // under.
-            version: 8,
+            // Version 9 splits identity lookups from recall: the deduplication point now teaches that
+            // a name is checked exactly (memory.list the stem, memory.get the handle) while
+            // memory.search recalls by meaning and never decides whether a name exists, and a new
+            // look-before-acting point requires a lookup's results to be read across a block boundary
+            // before anything writes against them. (Version 8 taught a fuzzy hit as a candidate, not a
+            // match; version 7 threaded the whole-record read; version 6 added the record-or-plain-words
+            // branch; version 5 was the concision rewrite; version 4 was token-only transcript
+            // references.) Bumping the version keeps an older `produced_by` naming the body it was
+            // generated under.
+            version: 9,
             body: scaffold_body,
         },
         TemplateDef {

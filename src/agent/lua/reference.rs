@@ -27,9 +27,10 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         .description(
             "Create a memory, optionally with a first content entry. It fails if the name is already \
              taken, so create only when you mean to make a genuinely new memory. Creation should \
-             almost always follow a search: if the referent plausibly already exists — a person, an \
-             event, or a topic mentioned before — memory.search for it first and reuse what you find, \
-             creating only when the search comes up empty. When unsure whether one exists, use \
+             follow a check that the referent does not already exist, with the tool that fits it: \
+             for a named referent, memory.list the stem or memory.get the handle (exact); for one \
+             you cannot name — a topic phrased differently before — memory.search by meaning. \
+             Create only when nothing matches. When unsure whether one exists, use \
              memory.get_or_create instead of guessing.",
         )
         .required(
@@ -103,8 +104,8 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
              reuse it rather than making a near-duplicate. Ranked best-first means nearest in \
              meaning, not confirmed to be the referent: a top hit can be a similar but different \
              thing entirely, so check a hit's name against what you mean before writing to it. A \
-             hit is a pointer, not the whole record: memory.get a name to read every entry and \
-             occurrence in full.",
+             hit doubles as the memory's handle — hit:details() reads every entry and occurrence \
+             in full, and the other handle methods work on it directly, no memory.get round-trip.",
         )
         .required("query", AT::String, "what to look for, in natural language")
         .optional(
