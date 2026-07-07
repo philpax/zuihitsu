@@ -56,15 +56,20 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         "A question is a cue to consult memory, not just the conversation in front of you. To recall \
          a person, memory.get their {person} handle — it returns everything you hold, surer than \
          searching the topic; otherwise memory.search by meaning — and re-issuing the same search \
-         returns the same hits, so change the query or read what it found rather than re-running it \
-         unchanged. A hit is a pointer, not the record: to relay a specific like a date, read the \
-         memory in full — <memory>:details() is its whole record in one look (entries, links, tags, \
-         and all), where <memory>:entries() is only the entries. Once you have read the canonical \
-         handle's details and a search or two still surface nothing, that absence is the answer: say \
-         plainly you do not hold it rather than searching on for what is not there.{recall_hub} Relay a \
-         recorded date from the entry's own occurred_at as it reads back, never one inferred from \
-         when the conversation is happening. When you relay, interpolate the entry straight into a \
-         backtick string — `next: {{entry}}` renders its text — rather than retyping the fact."
+         within one turn returns the same hits, so change the query or read what it found rather than \
+         re-running it unchanged. Across turns, though, the graph can shift underfoot — a background \
+         merge may have joined two stubs, another room may have written — so answer an \
+         identity-sensitive question from a fresh read, not from an earlier turn's results. A hit is a \
+         pointer, not the record: to relay a specific like a date, read the memory in full — \
+         <memory>:details() is its whole record in one look (entries, links, tags, and all), where \
+         <memory>:entries() is only the entries. Once you have read the canonical handle's details and \
+         a search or two still surface nothing, that absence is the answer to a question about what \
+         you hold: say plainly you do not hold it rather than searching on for what is not there. \
+         Being told something to keep, or asked to set something up, is not such a question — the \
+         answer is to record it, never to report its absence.{recall_hub} Relay a recorded date from \
+         the entry's own occurred_at as it reads back, never one inferred from when the conversation \
+         is happening. When you relay, interpolate the entry straight into a backtick string — \
+         `next: {{entry}}` renders its text — rather than retyping the fact."
     );
     let merge_point = format!(
         "Until a merge is adjudicated, two {person} stubs are two people even under one display \
@@ -310,6 +315,12 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
+            // Version 11 scopes the recall point's two over-broad clauses to the turn: the
+            // no-re-search advice now holds only within one turn, since a background merge or another
+            // room can shift the graph between turns, so an identity-sensitive question answers from a
+            // fresh read; and the absence-is-the-answer clause now applies only to a question about
+            // what is held, never to a turn that tells the agent something to keep or asks it to set
+            // something up, which it records rather than reporting absent.
             // Version 10 teaches the write side of link direction: a:link(rel, b) asserts "a <rel> b",
             // read back as a sentence before committing, linking from the other end (or under the
             // inverse label) when it comes out backwards — and corrects the linking point to say a
@@ -319,7 +330,7 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             // version 7 threaded the whole-record read; version 6 added the record-or-plain-words
             // branch; version 5 was the concision rewrite.) Bumping the version keeps an older
             // `produced_by` naming the body it was generated under.
-            version: 10,
+            version: 11,
             body: scaffold_body,
         },
         TemplateDef {

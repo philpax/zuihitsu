@@ -375,7 +375,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
                     // The current Scaffold version, so the idempotent rollout recognizes it as
                     // already present and does not re-emit it.
                     PromptTemplateName::Scaffold,
-                    10,
+                    11,
                     "<draft system-prompt scaffold — see docs/spec.md §System prompt>".to_owned(),
                     EventSource::Orchestration,
                 ),
@@ -492,7 +492,7 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 10,
+        scaffold.version, 11,
         "the scaffold is registered at v7 (v6 added the record-or-plain-words branch; v7 threads \
          <memory>:details() and memory.list into the recall and deduplication points)"
     );
@@ -699,12 +699,14 @@ fn the_scaffold_teaches_commit_honesty() {
 
 #[test]
 fn the_recall_point_teaches_not_to_repeat_a_search() {
-    // The recall dotpoint teaches that re-issuing an identical search returns the same hits, so a
-    // search that came up short is changed or read, not run again unchanged (the max-steps death
-    // where the agent burned its budget on eleven identical searches). The recall point is
-    // always-on, so the clause stands under the default and a stripped feature set alike.
+    // The recall dotpoint teaches that re-issuing an identical search within one turn returns the same
+    // hits, so a search that came up short is changed or read, not run again unchanged (the max-steps
+    // death where the agent burned its budget on eleven identical searches) — while across turns the
+    // graph can shift, so an identity-sensitive question answers from a fresh read. The recall point is
+    // always-on, so the clauses stand under the default and a stripped feature set alike.
     let full = scaffold_body(&InstanceFeatures::default());
-    assert!(full.contains("re-issuing the same search returns the same hits"));
+    assert!(full.contains("re-issuing the same search within one turn returns the same hits"));
+    assert!(full.contains("answer an identity-sensitive question from a fresh read"));
 
     let stripped = scaffold_body(&InstanceFeatures {
         linking: false,
@@ -714,7 +716,7 @@ fn the_recall_point_teaches_not_to_repeat_a_search() {
         transcripts: false,
         ..Default::default()
     });
-    assert!(stripped.contains("re-issuing the same search returns the same hits"));
+    assert!(stripped.contains("re-issuing the same search within one turn returns the same hits"));
 }
 
 #[test]
