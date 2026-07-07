@@ -73,8 +73,9 @@ struct SynthesisTemplates {
 }
 
 /// The pass-wide context a single memory's synthesis calls share — the model, the engine, the
-/// recording seam, and the combined system prompt — so a per-memory call passes only what varies
-/// (the memory, its entries, the time, and whether to arbitrate).
+/// recording seam, and the combined description-and-extraction system prompt — so a per-memory call
+/// passes only what varies (the memory, its entries, and the time). The focused arbitration call
+/// carries its own self-contained system prompt and so ignores this `system`.
 struct SynthesisCall<'a> {
     model: &'a dyn ModelClient,
     engine: &'a Engine,
@@ -220,7 +221,7 @@ async fn describe_one(
         system: &templates.system,
     };
     if !public_entries.is_empty() {
-        match synthesize(&call, &memory, &public_entries, &teller_names, now, true).await {
+        match synthesize(&call, &memory, &public_entries, &teller_names, now).await {
             Ok(Some(synthesis)) => {
                 if !synthesis.description.trim().is_empty() {
                     events.push(EventPayload::memory_description_regenerated(
@@ -232,16 +233,6 @@ async fn describe_one(
                             template_version: templates.description.version,
                         }),
                     ));
-                }
-                if let Some(event) = arbitration_event(
-                    id,
-                    &memory,
-                    synthesis.arbitration,
-                    &public_entries,
-                    model.model_id(),
-                    templates.description.version,
-                ) {
-                    events.push(event);
                 }
                 if let Some(provenance) = &extraction_provenance {
                     resolve_occurrences(
@@ -264,9 +255,38 @@ async fn describe_one(
         }
     }
 
+    // The pairwise-contradiction check is its own focused model call, separate from the description
+    // rewrite above: bundled into one reply, the mandatory description crowds the conditional
+    // arbitration out and the model omits it entirely (spec §Write path → arbitration). It runs
+    // whenever two or more public entries could collide — the arbitration is over the same numbered
+    // statements the description saw — and its verdict, validated by [`arbitration_event`], is what
+    // emits `BeliefArbitrated`.
+    if public_entries.len() >= 2 {
+        match arbitrate(&call, &memory, &public_entries, &teller_names, now).await {
+            Ok(arbitration) => {
+                if let Some(event) = arbitration_event(
+                    id,
+                    &memory,
+                    arbitration,
+                    &public_entries,
+                    model.model_id(),
+                    templates.description.version,
+                ) {
+                    events.push(event);
+                }
+            }
+            Err(error) => tracing::warn!(
+                memory = %memory.name.as_str(),
+                %error,
+                "belief arbitration failed; leaving the beliefs unarbitrated"
+            ),
+        }
+    }
+
     // Private entries the agent left untimed still need temporal extraction — a private reminder must
     // still become a wake-up — but must never enter the description. A focused extract-only pass
-    // resolves their occurrences; its description and arbitration are discarded.
+    // resolves their occurrences; its description is discarded and it is never arbitrated (a private
+    // aside is not a public belief).
     if let Some(provenance) = &extraction_provenance {
         let private_untimed: Vec<EntryView> = entries
             .iter()
@@ -276,7 +296,7 @@ async fn describe_one(
             .cloned()
             .collect();
         if !private_untimed.is_empty() {
-            match synthesize(&call, &memory, &private_untimed, &teller_names, now, false).await {
+            match synthesize(&call, &memory, &private_untimed, &teller_names, now).await {
                 Ok(Some(synthesis)) => resolve_occurrences(
                     synthesis.occurrences,
                     &private_untimed,
@@ -419,33 +439,78 @@ fn compose_synthesis_system(description_body: &str, extraction_body: Option<&str
 /// Ask the model, in one schema-constrained `synthesize` reply, to describe a memory from its entries
 /// and extract the occurrence time of any time-bearing statement. The entries are numbered (1-based) so
 /// the extracted occurrences key back to them, and the current time is stated so relative phrases
-/// ("last Tuesday") resolve. When `arbitrate` is set (the public pass, whose reply feeds
-/// [`arbitration_event`]), the prompt closes with an explicit pairwise contradiction check over the
-/// numbered statements, so the model must answer the contradiction question rather than volunteer it; the
-/// private extraction pass, whose arbitration is discarded, omits the ask. `None` means no usable reply
-/// came back, which the caller treats as "leave the memory unchanged".
+/// ("last Tuesday") resolve. The pairwise contradiction check is a separate focused call ([`arbitrate`]),
+/// not a rider on this reply. `None` means no usable reply came back, which the caller treats as "leave
+/// the memory unchanged".
 async fn synthesize(
     call: &SynthesisCall<'_>,
     memory: &MemoryView,
     entries: &[EntryView],
     teller_names: &BTreeMap<MemoryId, String>,
     now: Timestamp,
-    arbitrate: bool,
 ) -> Result<Option<SynthesizeArgs>, ModelError> {
-    let &SynthesisCall {
-        model,
-        engine,
-        recording,
-        system,
-    } = call;
+    let prompt = statements_prompt(memory, entries, teller_names, now);
+    // Constrain the whole reply to the `SynthesizeArgs` schema (response_format) rather than forcing a
+    // tool call: serving layers that grammar-constrain the response-format path leave forced tool-call
+    // *arguments* unconstrained (the Gemma 4 case), so a weak tool-caller free-forms a schema-wrong
+    // shape through a tool. One fixed schema, no tool-selection needed.
+    let request = GenerateRequest::structured::<SynthesizeArgs>(call.system, prompt, "synthesize");
+    ask_structured(call, &request, memory, "synthesis", synthesize_argument).await
+}
+
+/// Ask the model, in its own focused schema-constrained reply, which of the numbered statements assert
+/// incompatible values for the same fact (spec §Write path → arbitration). This is deliberately a
+/// separate call from [`synthesize`]: bundled with the mandatory description rewrite, the conditional
+/// contradiction check was crowded out and the model omitted it; alone, the check is the reply's whole
+/// job. The statements are the same numbered, teller-annotated list the description saw, so the returned
+/// 1-based numbers key back to `entries` in [`arbitration_event`]. `Ok(None)` means no usable reply came
+/// back; a returned [`ExtractedArbitration`] is validated (>= 2 competing, non-empty statement) before
+/// it emits anything.
+async fn arbitrate(
+    call: &SynthesisCall<'_>,
+    memory: &MemoryView,
+    entries: &[EntryView],
+    teller_names: &BTreeMap<MemoryId, String>,
+    now: Timestamp,
+) -> Result<Option<ExtractedArbitration>, ModelError> {
+    let mut prompt = statements_prompt(memory, entries, teller_names, now);
+    // The concrete per-call ask over the numbered statements: it poses the contradiction check as the
+    // reply's whole job, names the two failure modes that spuriously dissolved the conflict (a neutral
+    // third statement, and each value being attributed to a different person), and asks for every
+    // colliding pair. The general rules live in [`ARBITRATION_SYSTEM`].
+    prompt.push_str(
+        "\nCheck every pair of the numbered statements above: whenever two of them assert \
+         incompatible values for the same fact — two different locations, dates, employers, or the \
+         like for one thing — that pair contradicts and you must record it. A third statement that \
+         names no rival value (a neutral label such as the thing's own title) does not dissolve the \
+         conflict between the other two, and two accounts of the same fact attributed to different \
+         people still contradict. List every contradicting pair in `competing`; when no two \
+         statements collide, return an empty `competing`.\n",
+    );
+    let request = GenerateRequest::structured::<ExtractedArbitration>(
+        ARBITRATION_SYSTEM,
+        prompt,
+        "arbitrate",
+    );
+    ask_structured(call, &request, memory, "arbitration", arbitrate_argument).await
+}
+
+/// The prompt body both synthesis calls share: the memory's name, the current time (so relative
+/// phrases resolve), and the numbered, teller-annotated statements. Each statement carries its
+/// attribution and assertion date, so the arbitration rules — which turn on who holds which account,
+/// and when — have the facts they judge by; the bracketed metadata is for the model's judgment, never
+/// content to restate.
+fn statements_prompt(
+    memory: &MemoryView,
+    entries: &[EntryView],
+    teller_names: &BTreeMap<MemoryId, String>,
+    now: Timestamp,
+) -> String {
     let mut prompt = format!(
         "Memory: {}\nCurrent time: {}\n\nStatements:\n",
         memory.name.as_str(),
         time::format_datetime(now),
     );
-    // Each statement carries its attribution and assertion date, so the arbitration rules — which
-    // turn on who holds which account, and when — have the facts they judge by; the bracketed
-    // metadata is for the model's judgment, never content to restate.
     for (index, entry) in entries.iter().enumerate() {
         let teller = match entry.told_by {
             Teller::Participant(id) => teller_names
@@ -464,66 +529,80 @@ async fn synthesize(
     }
     prompt.push_str(
         "\nThe bracketed attribution on each statement is metadata for your judgment, not content \
-         to restate in the description.\n",
+         to restate.\n",
     );
-    if arbitrate {
-        // The system template carries the general arbitration rules; this closes the concrete
-        // per-call ask over the numbered statements — the lever for the conflicting-accounts failure
-        // mode, where the model, given no closing question, defaults to the dominant describe
-        // task and leaves `arbitration` absent. It poses the contradiction check as a required step,
-        // names the two failure modes that dissolved the conflict (a neutral third statement, and each
-        // value being attributed to a different person), and asks for every colliding pair.
-        prompt.push_str(
-            "\nNow check every pair of the numbered statements above: whenever two of them assert \
-             incompatible values for the same fact — two different locations, dates, employers, or \
-             the like for one thing — that pair contradicts and you must record it in `arbitration`. \
-             A third statement that names no rival value (a neutral label such as the thing's own \
-             title) does not dissolve the conflict between the other two, and two accounts of the \
-             same fact attributed to different people still contradict. Report every contradicting \
-             pair in `arbitration`; omit `arbitration` only when no two statements collide.\n",
-        );
-    }
+    prompt
+}
 
-    // Constrain the whole reply to the `SynthesizeArgs` schema (response_format) rather than forcing a
-    // tool call: serving layers that grammar-constrain the response-format path leave forced tool-call
-    // *arguments* unconstrained (the Gemma 4 case), so a weak tool-caller free-forms a schema-wrong
-    // shape through a tool. One fixed schema, no tool-selection needed.
-    let request = GenerateRequest::structured::<SynthesizeArgs>(system, prompt, "synthesize");
-    // The model can still emit unusable JSON (or wrap it oddly); retry a few times before giving up
-    // (this pass is off the hot path, so a couple of extra attempts is cheap).
+/// Drive one structured synthesis `request` through the shared recording seam, retrying a few times on
+/// an unusable reply before giving up (this pass is off the hot path, so a couple of extra attempts is
+/// cheap). `parse` decodes the reply's content; the first reply it accepts is returned, else `None`
+/// after `ATTEMPTS`. Shared by [`synthesize`] and [`arbitrate`] so both retry identically. `label`
+/// names the call in the diagnostics.
+async fn ask_structured<T>(
+    call: &SynthesisCall<'_>,
+    request: &GenerateRequest,
+    memory: &MemoryView,
+    label: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Result<Option<T>, ModelError> {
+    let &SynthesisCall {
+        model,
+        engine,
+        recording,
+        ..
+    } = call;
     const ATTEMPTS: usize = 3;
     for attempt in 1..=ATTEMPTS {
         // An off-buffer structured call; its usage must not move the conversational compaction
         // trigger, so it is read and discarded here. Each attempt is its own `Base` (a fresh
         // single-message buffer), recorded under the synthesis phase.
-        let record = recording.request_record(&request, None);
+        let record = recording.request_record(request, None);
         let GenerateResponse { completion, .. } = recording
-            .generate(engine, model, &request, ModelPhase::Synthesis, record)
+            .generate(engine, model, request, ModelPhase::Synthesis, record)
             .await?;
         if let Completion::Reply(content) = completion
-            && let Some(args) = synthesize_argument(&content)
+            && let Some(args) = parse(&content)
         {
             if attempt > 1 {
-                tracing::debug!(memory = %memory.name.as_str(), attempt, "synthesis succeeded after a retry");
+                tracing::debug!(memory = %memory.name.as_str(), attempt, label, "a synthesis call succeeded after a retry");
             }
             return Ok(Some(args));
         }
         tracing::debug!(
             memory = %memory.name.as_str(),
             attempt,
-            "synthesis returned no usable JSON"
+            label,
+            "a synthesis call returned no usable JSON"
         );
     }
     tracing::warn!(
         memory = %memory.name.as_str(),
         attempts = ATTEMPTS,
-        "synthesis gave up after retries; keeping the memory unchanged"
+        label,
+        "a synthesis call gave up after retries"
     );
     Ok(None)
 }
 
+/// The self-contained system prompt for the focused [`arbitrate`] call. It carries the whole
+/// contradiction rule, since the arbitration call has no genesis template of its own: it is split out
+/// of the description synthesis precisely so the check is a reply's whole job rather than a rider on the
+/// mandatory description rewrite, where it was crowded out and omitted.
+const ARBITRATION_SYSTEM: &str = "You audit a numbered set of statements about one thing for genuine \
+    contradictions. A contradiction is two or more statements that assert incompatible values for the \
+    same fact — two different locations, dates, or employers for one thing. When you find one, record \
+    the colliding statement numbers in `competing`, the number(s) you judge correct in `credited` \
+    (leave `credited` empty when neither is yet known to be right), and a one-line reconciling note in \
+    `statement`. Two accounts of the same fact attributed to different people still contradict; do not \
+    treat them as compatible merely because each holds as someone's account. Only genuine \
+    contradictions count — not a fact being added, refined, or updated over time. When no two \
+    statements collide, return an empty `competing`.";
+
 /// The `synthesize` argument shape (turn-end description + temporal extraction); doubles as the
-/// tool's parameter schema, so the schema sent to the model and the parser can't drift.
+/// response-format schema, so the schema sent to the model and the parser can't drift. The
+/// contradiction verdict is a separate focused call ([`arbitrate`]/[`ExtractedArbitration`]), not a
+/// field here.
 #[derive(Deserialize, JsonSchema)]
 struct SynthesizeArgs {
     /// The memory's description as plain third-person prose — no preamble, headings, or notes.
@@ -532,13 +611,6 @@ struct SynthesizeArgs {
     /// reference.
     #[serde(default)]
     occurrences: Vec<ExtractedOccurrence>,
-    /// The contradiction verdict: the arbitration when two or more statements assert incompatible
-    /// values for the same fact, omitted when no two collide. The field carries no `null` variant and
-    /// is not in the schema's `required` set, so the prompt — not the schema — is what drives the model
-    /// to populate it on a real conflict; [`synthesize_argument`] salvages it leniently so a both-stand
-    /// verdict is not dropped when the model omits or nulls `credited`.
-    #[serde(default)]
-    arbitration: Option<ExtractedArbitration>,
 }
 
 /// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt) and
@@ -549,13 +621,22 @@ struct ExtractedOccurrence {
     occurred_at: ExtractedTime,
 }
 
-/// A conflict the synthesis found among the numbered statements (spec §Write path → arbitration):
-/// which statements collide, which the model credits, and a one-line reconciling note. Statement
-/// numbers are 1-based, the same numbering [`ExtractedOccurrence`] keys off.
+/// A conflict the focused [`arbitrate`] call found among the numbered statements (spec §Write path →
+/// arbitration): which statements collide, which the model credits, and a one-line reconciling note. It
+/// doubles as that call's response-format schema. Statement numbers are 1-based, the same numbering
+/// [`ExtractedOccurrence`] keys off.
 #[derive(Deserialize, JsonSchema)]
 struct ExtractedArbitration {
+    /// The statement numbers (1-based) that assert incompatible values for the same fact; empty when
+    /// nothing collides.
+    #[serde(default)]
     competing: Vec<usize>,
+    /// The statement number(s) judged correct; empty when neither account is yet known to be right, so
+    /// both stand.
+    #[serde(default)]
     credited: Vec<usize>,
+    /// A one-line note reconciling the conflict.
+    #[serde(default)]
     statement: String,
 }
 
@@ -634,13 +715,13 @@ fn civil_date(text: &str) -> Option<CivilDate> {
     date.midnight_millis().map(|_| date)
 }
 
-/// Parse the structured-output `synthesize` reply leniently: the description and any arbitration are
-/// salvaged even when an `occurrence` is malformed, rather than discarding the whole reply on one bad
-/// field. A smaller model often mis-shapes an occurrence (flattening the nested time, or inventing one
-/// for a statement with no temporal reference) while getting the description and arbitration right; a
-/// strict whole-struct parse would throw all of that away. Malformed occurrences are skipped, not
-/// fatal; a missing or empty description is, since that is the reply's whole point. The model emits the
-/// schema as a fenced JSON block, so the object is located with [`extract_json_object`] before parsing.
+/// Parse the structured-output `synthesize` reply leniently: the description is salvaged even when an
+/// `occurrence` is malformed, rather than discarding the whole reply on one bad field. A smaller model
+/// often mis-shapes an occurrence (flattening the nested time, or inventing one for a statement with no
+/// temporal reference) while getting the description right; a strict whole-struct parse would throw all
+/// of that away. Malformed occurrences are skipped, not fatal; a missing or empty description is, since
+/// that is the reply's whole point. The model emits the schema as a fenced JSON block, so the object is
+/// located with [`extract_json_object`] before parsing.
 fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
     let value: serde_json::Value = serde_json::from_str(extract_json_object(content)?).ok()?;
 
@@ -658,42 +739,42 @@ fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
                 .collect()
         })
         .unwrap_or_default();
-    // Salvage the arbitration field by field, mirroring the lenient occurrence handling above rather
-    // than strict-parsing the whole sub-object: a both-stand verdict credits neither side, and a model
-    // asked to "leave `credited` empty" routinely expresses that by omitting the key or emitting
-    // `null` — a strict parse throws the whole conflict away over exactly the shape this field exists
-    // to record. A null (or absent) `arbitration` stays `None`; a present object contributes whatever
-    // it holds, and [`arbitration_event`] validates it (two competing statements, a reconciling note).
-    let arbitration = value
-        .get("arbitration")
-        .filter(|value| !value.is_null())
-        .map(|value| {
-            let statements = |key: &str| {
-                value
-                    .get(key)
-                    .and_then(serde_json::Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|item| item.as_u64().map(|number| number as usize))
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            };
-            ExtractedArbitration {
-                competing: statements("competing"),
-                credited: statements("credited"),
-                statement: value
-                    .get("statement")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-            }
-        });
     Some(SynthesizeArgs {
         description,
         occurrences,
-        arbitration,
+    })
+}
+
+/// Parse the focused `arbitrate` reply leniently, field by field, rather than strict-parsing the whole
+/// object: a both-stand verdict credits neither side, and a model asked to "leave `credited` empty"
+/// routinely expresses that by omitting the key or emitting `null` — a strict `Vec<usize>` parse throws
+/// the whole conflict away over exactly the shape this call exists to record. Every field defaults, so
+/// an empty `competing` (no conflict) or a null `credited` (both stand) parses cleanly; the returned
+/// arbitration is then validated by [`arbitration_event`] (>= 2 competing, a reconciling note). `None`
+/// means no JSON object came back at all. The model emits the schema as a fenced JSON block, so the
+/// object is located with [`extract_json_object`] before parsing.
+fn arbitrate_argument(content: &str) -> Option<ExtractedArbitration> {
+    let value: serde_json::Value = serde_json::from_str(extract_json_object(content)?).ok()?;
+    let statements = |key: &str| {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_u64().map(|number| number as usize))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Some(ExtractedArbitration {
+        competing: statements("competing"),
+        credited: statements("credited"),
+        statement: value
+            .get("statement")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
     })
 }
 
