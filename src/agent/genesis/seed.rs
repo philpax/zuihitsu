@@ -444,10 +444,13 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::LinkInference,
-            // Version 2 adds the direction discipline: a coined directional relation is easy to
-            // link the wrong way round, so the pass restates the edge as a sentence before choosing
-            // `direction`, catching a flipped edge before it commits.
-            version: 2,
+            // Version 3 ties the direction discipline to the rendered relations: each registered
+            // relation is now shown with its sentence reading ("A mentored_by B" restates as "B
+            // mentors A"), so the body tells the model to match the grounding statement to that
+            // reading and take the direction from it. (Version 2 introduced the direction discipline:
+            // a coined directional relation is easy to link the wrong way round, so the pass restates
+            // the edge as a sentence before choosing `direction`.)
+            version: 3,
             body: "You identify relationships implicit in a memory's content and assert them as links \
                    to other memories. You are given the memory's numbered statements, its existing \
                    links, the registered relations, and a list of candidate target memories (by \

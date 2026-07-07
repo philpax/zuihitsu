@@ -471,15 +471,20 @@ fn render_prompt(
         prompt.push_str("  (none)\n");
     } else {
         for relation in relations {
+            // Give each relation its directional reading, not just its label pair: a link asserts
+            // "<from> <name> <to>", which restates as "<to> <inverse> <from>". Showing the sentence
+            // form pre-built is what keeps the pass from flipping a coined directional relation —
+            // "Clara mentors Theo" grounded as the reversed "Clara mentored_by Theo".
             prompt.push_str(&format!(
-                "- {}/{} (from: {}, to: {}, symmetric: {}, reflexive: {}): {}\n",
-                relation.name.as_str(),
-                relation.inverse.as_str(),
-                relation.from_card.as_str(),
-                relation.to_card.as_str(),
-                relation.symmetric,
-                relation.reflexive,
-                relation.description,
+                "- {name}/{inverse} — a link \"A {name} B\" restates as \"B {inverse} A\" \
+                 (from: {from}, to: {to}, symmetric: {symmetric}, reflexive: {reflexive}): {desc}\n",
+                name = relation.name.as_str(),
+                inverse = relation.inverse.as_str(),
+                from = relation.from_card.as_str(),
+                to = relation.to_card.as_str(),
+                symmetric = relation.symmetric,
+                reflexive = relation.reflexive,
+                desc = relation.description,
             ));
         }
     }
