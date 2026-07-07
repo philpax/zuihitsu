@@ -26,150 +26,17 @@ use zuihitsu_core::{
     turn_ref,
 };
 
+/// A materializing read replica: an event log plus the graph state it folds into. The log is
+/// retained so the graph can be re-folded to any earlier `Seq` for time-travel.
+#[wasm_bindgen]
+use zuihitsu_core::turn_ref;
+
 /// How many instances of a single recurring rule the agenda expands within its horizon — a bound so
 /// a daily rule cannot flood the view (a weekly or monthly rule stays well under it over the
 /// horizon).
 const MAX_RECURRING_INSTANCES: usize = 20;
 
-/// Everything the State view shows when a memory is opened: the memory itself, its live content
-/// entries, its full history (including superseded entries), its links, and its `same_as` class.
-/// Composed from several core reads so the frontend opens a memory in one call.
-#[derive(Serialize)]
-struct MemoryDetail {
-    memory: MemoryView,
-    entries: Vec<EntryView>,
-    history: Vec<EntryView>,
-    links: Vec<LinkView>,
-    class: Vec<MemoryView>,
-    /// The entry ids currently under an unresolved belief arbitration, so the view can mark a contested
-    /// fact as disputed (the same signal the agent sees on a read).
-    disputed: Vec<EntryId>,
-}
-
-/// One cross-platform merge proposal as the console surfaces it (spec §Cross-platform identity →
-/// adjudicated merge): the two stubs by handle *and* id (so the view can name them and deep-link into
-/// State), who raised it, the proposer's stated grounds if any, and where the proposal now stands. Unlike
-/// the operator backstop — which drops a settled proposal — the console keeps every proposal so it can
-/// show the whole adjudication record: what identity calls were made and which still await one.
-#[derive(Serialize)]
-struct MergeProposalView {
-    from: MemoryName,
-    to: MemoryName,
-    from_id: MemoryId,
-    to_id: MemoryId,
-    source: MergeProposalSource,
-    /// The proposer's stated grounds for the match — the coincidence the agent reasoned from. `None` for
-    /// an orchestration handle match or a `same_as`-via-link, which carry no rationale.
-    rationale: Option<String>,
-    status: MergeStatus,
-}
-
-/// Where a merge proposal stands at the current fold horizon: still awaiting a decision, merged (the two
-/// stubs now share a `same_as` class, whether an adjudication or an operator authored it), or rejected (an
-/// adjudication or an operator refused it, and the stubs stay distinct).
-#[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
-enum MergeStatus {
-    Pending,
-    Merged,
-    Rejected,
-}
-
-/// One item on the agent's agenda: when it occurs, the memory it lives in, the text, and whether it
-/// is a recurring instance. One-offs come from `occurrences_in_window`; recurring instances from
-/// `recurring_instances_in_window`, which expands each rule through the agent's own `next_occurrence`
-/// so the projection cannot drift from the agent's scheduling.
-#[derive(Serialize)]
-struct AgendaItem {
-    when: Timestamp,
-    /// The occurrence is a whole day or fuzzier span, not a precise instant, so the calendar renders
-    /// it without a clock time (a `Day` sorts at noon — not a stated time). See `TemporalRef::is_all_day`.
-    all_day: bool,
-    memory: String,
-    text: String,
-    recurring: bool,
-}
-
-/// A durable conversation (room) with its sessions, the backbone of the Conversation view. The
-/// turns themselves render off the event stream; this supplies the structure and the names the raw
-/// log only carries as ids — the room's [`Namespace::Context`] name and each session's participant
-/// handles.
-#[derive(Serialize)]
-struct ConversationDetail {
-    id: ConversationId,
-    platform: String,
-    scope_path: String,
-    context_name: Option<String>,
-    sessions: Vec<SessionSummary>,
-}
-
-/// One activity window within a conversation: when it opened, the brief frozen at its start, and the
-/// participants present, resolved to their memory handles.
-#[derive(Serialize)]
-struct SessionSummary {
-    id: SessionId,
-    started_at: Timestamp,
-    brief: String,
-    participants: Vec<String>,
-}
-
-/// One span of scanned turn-reference text going out to JS: literal prose, or a reference resolved
-/// to its turn's ULID string. Mirrors `turn_ref::Segment` in a serde-friendly shape (the core enum
-/// borrows and carries a typed id; the crossing wants owned strings).
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum RefSegment<'a> {
-    Prose { text: &'a str },
-    Ref { id: String },
-}
-
-/// Split `text` into prose spans and turn references — the console's pretty projection runs each
-/// turn's text through this so a `[turn:<ulid>]` token or a pasted deep-link URL renders as a chip.
-/// The parser is `zuihitsu_core::turn_ref::scan`, the same definition the agent's resolver reads, so
-/// what the console highlights and what the agent resolves cannot drift.
-#[wasm_bindgen(js_name = turnRefScan)]
-pub fn turn_ref_scan(text: &str) -> Result<JsValue, JsError> {
-    let segments: Vec<RefSegment> = turn_ref::scan(text)
-        .into_iter()
-        .map(|segment| match segment {
-            turn_ref::Segment::Prose(prose) => RefSegment::Prose { text: prose },
-            turn_ref::Segment::Ref(turn) => RefSegment::Ref {
-                id: turn.0.to_string(),
-            },
-        })
-        .collect();
-    to_js(&segments)
-}
-
-/// Rebuild `text` with every turn reference rendered as the canonical `[turn:<ulid>]` token — the
-/// composer's send-time normalization, so a pasted console URL leaves the console as ref syntax and
-/// every downstream consumer sees one form.
-#[wasm_bindgen(js_name = turnRefNormalize)]
-pub fn turn_ref_normalize(text: &str) -> String {
-    turn_ref::normalize(text)
-}
-
-/// Every turn id referenced in `text`, in order of appearance — the extract-all-ids path.
-#[wasm_bindgen(js_name = turnRefExtract)]
-pub fn turn_ref_extract(text: &str) -> Result<JsValue, JsError> {
-    let ids: Vec<String> = turn_ref::extract_ids(text)
-        .into_iter()
-        .map(|turn| turn.0.to_string())
-        .collect();
-    to_js(&ids)
-}
-
-/// The canonical `[turn:<ulid>]` token for a turn id, or an error if `id` is not a ULID — so the
-/// console mints citations through the same constructor the agent's `ref` field uses.
-#[wasm_bindgen(js_name = turnRefConstruct)]
-pub fn turn_ref_construct(id: &str) -> Result<String, JsError> {
-    let ulid = Ulid::from_string(id)
-        .map_err(|error| JsError::new(&format!("console: parsing the turn id {id:?}: {error}")))?;
-    Ok(turn_ref::construct(TurnId(ulid)))
-}
-
-/// A materializing read replica: an event log plus the graph state it folds into. The log is
-/// retained so the graph can be re-folded to any earlier `Seq` for time-travel.
+/// A read-only graph replica, folding an event log into the live projection on demand.
 #[wasm_bindgen]
 pub struct Replica {
     events: Vec<Event>,
@@ -605,3 +472,9 @@ fn parse_memory_id(id: &str) -> Result<MemoryId, JsError> {
         .map(MemoryId)
         .map_err(|error| JsError::new(&format!("console: invalid memory id {id:?}: {error}")))
 }
+mod turn_ref;
+mod types;
+
+pub use types::{
+    AgendaItem, ConversationDetail, MemoryDetail, MergeProposalView, MergeStatus, SessionSummary,
+};

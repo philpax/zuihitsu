@@ -15,7 +15,7 @@ use crate::{
     db::query_map_into,
     event::{Cardinality, LinkSource, Teller, Visibility, Volatility},
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId},
-    store::{Store, StoreError},
+    store::Store,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };

@@ -2,10 +2,11 @@
 
 use rusqlite::params;
 
-use crate::event::{Event, EventPayload, Visibility};
-use crate::graph::{GraphError, backend};
+use crate::{
+    event::{Event, EventPayload, Visibility},
+    graph::{GraphError, backend},
+};
 
-use super::OccurrenceColumns;
 use super::super::Graph;
 
 impl Graph {

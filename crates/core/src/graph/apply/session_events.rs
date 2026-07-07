@@ -3,8 +3,10 @@
 
 use rusqlite::params;
 
-use crate::event::{Event, EventPayload};
-use crate::graph::{GraphError, backend};
+use crate::{
+    event::{Event, EventPayload},
+    graph::{GraphError, backend},
+};
 
 use super::super::Graph;
 

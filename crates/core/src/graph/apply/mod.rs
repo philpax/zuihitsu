@@ -1,16 +1,11 @@
 //! The materializer: folding committed events into the graph projection in `Seq` order. Dispatch is
 //! on the payload's `(type, version)`; a wrong arm silently mis-projects, so the arms warrant care.
 
-use std::collections::BTreeMap;
-
 use rusqlite::params;
 
 use super::{Graph, GraphError, backend};
 use crate::{
-    db::{query_map_into, query_opt_into},
-    event::{Event, EventPayload, Visibility},
-    ids::{MemoryId, MemoryName},
-    time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef, Timestamp},
+    event::{Event, EventPayload},
     vocabulary::RelationName,
 };
 

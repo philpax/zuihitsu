@@ -1,10 +1,12 @@
 use serde_json::Value;
 
-use crate::history::{CriterionStat, criteria_stats, history_line};
-use crate::run::{DEFAULT_SERVE_ADDR, resolve_serve};
-use crate::package::{
-    Aggregate, Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
-    ScenarioReport, Stat, TokenStat, Verdict,
+use crate::{
+    history::{CriterionStat, criteria_stats, history_line},
+    package::{
+        Aggregate, Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
+        ScenarioReport, Stat, TokenStat, Verdict,
+    },
+    run::{DEFAULT_SERVE_ADDR, resolve_serve},
 };
 
 fn stat(p50: f64) -> Stat {

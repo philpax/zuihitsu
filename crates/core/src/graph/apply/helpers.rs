@@ -2,14 +2,15 @@ use std::collections::BTreeMap;
 
 use rusqlite::params;
 
-use crate::db::{query_map_into, query_opt_into};
-use crate::graph::{GraphError, backend};
-use crate::ids::{MemoryId, MemoryName};
-use crate::time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef, Timestamp};
-use crate::vocabulary::RelationName;
+use crate::{
+    db::{query_map_into, query_opt_into},
+    graph::{GraphError, backend},
+    ids::{MemoryId, MemoryName},
+    time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef, Timestamp},
+    vocabulary::RelationName,
+};
 
-use super::OccurrenceColumns;
-use super::super::Graph;
+use super::{super::Graph, OccurrenceColumns};
 
 impl Graph {
     /// Denormalize an `occurred_at` reference into the values the `content_entries` occurrence
@@ -46,7 +47,10 @@ impl Graph {
     /// entry. Deliberately **not** filtered by soft delete: `MemoryDeleted` preserves contents, so a
     /// deleted anchor's occurrence stays resolvable (spec §Known limitations → `BeforeAfter`). `None`
     /// when the anchor name is unknown or has no timed entry — the caller then derives empty bounds.
-    pub(super) fn anchor_bounds(&self, anchor: &MemoryName) -> Result<Option<OccurrenceBounds>, GraphError> {
+    pub(super) fn anchor_bounds(
+        &self,
+        anchor: &MemoryName,
+    ) -> Result<Option<OccurrenceBounds>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT e.occurred_sort, e.occurred_lo, e.occurred_hi
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
