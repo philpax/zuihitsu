@@ -347,33 +347,39 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            // Version 2: the anchor rule. A relative phrase is resolved against the current time only
-            // when it is anchored to the moment of speaking; a phrase whose referent is another stated
-            // date or event ("that weekend", "the day after the launch") must not be resolved against
-            // the clock, since a fabricated now-relative date reads back as fact and is worse than no
-            // date. Bumping the version keeps a v1 `produced_by` naming the body it was generated under.
-            version: 2,
+            // Version 3: invert the emphasis toward the omit-default. The prior body spent most of its
+            // words on the resolve-against-the-anchor path, which nudged the model to over-resolve and
+            // stamp the current time on any statement it could not otherwise place — a description, an
+            // intention, or an explicitly-unscheduled note read back as having happened on the
+            // authorship day. This body leads with the default (most statements get no occurrence),
+            // keeps the two extract cases subordinate, and hardens the prohibition on resolving an
+            // unanchored phrase against the clock. (Version 2 introduced the anchor rule: a relative
+            // phrase resolves against the current time only when it is anchored to the moment of
+            // speaking, never when its referent is another stated date or event.) Bumping the version
+            // keeps an older `produced_by` naming the body it was generated under.
+            version: 3,
             body: "Alongside the description, extract when each numbered statement is *about* in the \
-                   real world. For every statement that refers to a real-world time, add an entry to \
-                   `occurrences` keyed by its statement number; omit statements with no temporal \
-                   reference. Use the most specific form you can justify: a single `day`; a `range` \
-                   between two days; an `approx` center with a tolerance in `fuzz_days`; a `recurring` \
-                   rule; or `before_after` relative to another memory named as its `anchor` (e.g. \
-                   event/dave-wedding). All dates are YYYY-MM-DD.\n\n\
-                   Resolve a relative phrase against the current time only when it is anchored to the \
-                   moment of speaking — \"last Tuesday\", \"next Friday\", \"a couple of years ago\", \
-                   \"this week\" — where the speaker's now is plainly the reference point. A phrase \
-                   whose referent is another stated time is not such a case: \"that weekend\", \"the \
-                   day after the launch\", \"the following Monday\", or any anaphora pointing back at a \
-                   date already given in another numbered statement, is anchored to THAT date, never to \
-                   the current time. When a sibling statement plainly supplies the anchor, resolve \
-                   against it — as a `before_after` relative to the anchoring memory when you can name \
-                   it, otherwise as the day the anchor's own date implies. When no sibling anchors it \
-                   and the phrase is not tied to the moment of speaking, leave the statement \
-                   unextracted: emit no occurrence for it. Never resolve such a phrase against the \
-                   current time — a date invented from the wrong anchor reads back as fact and is \
-                   relayed as one, so a fabricated now-relative date is worse than no date, which \
-                   simply sends the reader to the entry."
+                   real world. The default is to extract nothing: most statements get no occurrence. \
+                   Add an entry to `occurrences`, keyed by its statement number, only for a statement \
+                   that names a genuine real-world time you can pin. A description, a general fact, an \
+                   intention or plan, or a statement whose timing is explicitly unknown or unscheduled \
+                   gets no occurrence — leave it out. When in doubt, omit.\n\n\
+                   Extract only in these two cases. First, a time anchored to the moment of speaking — \
+                   \"last Tuesday\", \"next Friday\", \"a couple of years ago\", \"this week\", where \
+                   the speaker's now is plainly the reference point — resolves against the current \
+                   time. Second, a time anchored to another stated date or event — \"that weekend\", \
+                   \"the day after the launch\", \"the following Monday\", or any anaphora pointing \
+                   back at a date already given in another numbered statement — resolves against THAT \
+                   anchor: as a `before_after` relative to the anchoring memory when you can name it \
+                   (e.g. event/dave-wedding), otherwise as the day the anchor's own date implies.\n\n\
+                   Never resolve against the current time a phrase that is not anchored to the moment \
+                   of speaking. A statement that names no time at all is never assigned the current \
+                   day. A fabricated now-relative date reads back as fact and is relayed as one, so it \
+                   is worse than no date, which simply sends the reader to the entry.\n\n\
+                   When you do extract, use the most specific form you can justify: a single `day`; a \
+                   `range` between two days; an `approx` center with a tolerance in `fuzz_days`; a \
+                   `recurring` rule; or `before_after` relative to another memory named as its \
+                   `anchor`. All dates are YYYY-MM-DD."
                 .to_owned(),
         },
         TemplateDef {

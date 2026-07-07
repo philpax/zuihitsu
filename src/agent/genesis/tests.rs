@@ -287,11 +287,12 @@ fn relation_examples(text: &str) -> Vec<String> {
 
 #[test]
 fn the_temporal_extraction_template_teaches_the_anchor_rule() {
-    // The temporal-extraction pass must not resolve anaphora against the clock: a phrase whose
-    // referent is another stated date or event ("that weekend") is anchored to THAT date, and when
-    // nothing anchors it the statement is left unextracted — a fabricated now-relative date reads
-    // back as fact and is worse than no date. The body is v2 so a v1 `produced_by` keeps naming
-    // the body v1 was generated under.
+    // The temporal-extraction pass defaults to extracting nothing: a statement gets an occurrence
+    // only when it names a genuine real-world time. A phrase anchored to another stated date or
+    // event ("that weekend") resolves against THAT anchor, and a phrase not anchored to the moment
+    // of speaking is never resolved against the clock — a fabricated now-relative date reads back
+    // as fact and is worse than no date. The body is v3 so an earlier `produced_by` keeps naming
+    // the body it was generated under.
     let mut store = MemoryStore::new();
     genesis::rollout(
         &mut store,
@@ -316,18 +317,25 @@ fn the_temporal_extraction_template_teaches_the_anchor_rule() {
         })
         .expect("genesis registers a TemporalExtraction template");
 
-    assert_eq!(version, 2, "the anchor-rule body is registered at v2");
+    assert_eq!(version, 3, "the omit-default body is registered at v3");
+    // The default is to extract nothing; most statements get no occurrence.
+    assert!(body.contains("The default is to extract nothing"));
     // The utterance-anchored cases are still resolved against the current time.
     assert!(body.contains("anchored to the moment of speaking"));
     // Anaphora pointing at a sibling statement's date is anchored to THAT date, never the clock.
     assert!(body.contains("that weekend"));
-    assert!(body.contains("anchored to THAT date, never to the current time"));
-    // When nothing anchors it, the statement is left unextracted rather than clock-resolved.
-    assert!(body.contains("leave the statement unextracted"));
+    assert!(body.contains("resolves against THAT"));
+    // A phrase not anchored to the moment of speaking is never clock-resolved.
+    assert!(body.contains(
+        "Never resolve against the current time a phrase that is not anchored to the moment \
+         of speaking"
+    ));
+    // A statement naming no time is never assigned the current day.
+    assert!(body.contains("never assigned the current day"));
     // The stated principle: a wrong now-relative date is worse than no date.
-    assert!(body.contains("a fabricated now-relative date is worse than no date"));
+    assert!(body.contains("worse than no date"));
     // The `before_after` form is offered for a nameable anchoring memory (the schema supports it).
-    assert!(body.contains("`before_after` relative to the anchoring memory"));
+    assert!(body.contains("`before_after` relative to another memory named as its"));
 }
 
 #[test]
