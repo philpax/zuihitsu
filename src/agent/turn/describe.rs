@@ -480,7 +480,7 @@ async fn synthesize(
              A third statement that names no rival value (a neutral label such as the thing's own \
              title) does not dissolve the conflict between the other two, and two accounts of the \
              same fact attributed to different people still contradict. Report every contradicting \
-             pair; set `arbitration` to null only when no two statements collide.\n",
+             pair in `arbitration`; omit `arbitration` only when no two statements collide.\n",
         );
     }
 
@@ -532,12 +532,12 @@ struct SynthesizeArgs {
     /// reference.
     #[serde(default)]
     occurrences: Vec<ExtractedOccurrence>,
-    /// The contradiction verdict, always answered: the arbitration when two or more statements
-    /// assert incompatible values for the same fact, and null when no two collide. Required in the
-    /// schema (null allowed) so the constrained decoder makes the model answer the question — an
-    /// omittable field lets the describe task crowd the check out entirely.
+    /// The contradiction verdict: the arbitration when two or more statements assert incompatible
+    /// values for the same fact, omitted when no two collide. The field carries no `null` variant and
+    /// is not in the schema's `required` set, so the prompt — not the schema — is what drives the model
+    /// to populate it on a real conflict; [`synthesize_argument`] salvages it leniently so a both-stand
+    /// verdict is not dropped when the model omits or nulls `credited`.
     #[serde(default)]
-    #[schemars(required)]
     arbitration: Option<ExtractedArbitration>,
 }
 
@@ -658,9 +658,38 @@ fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
                 .collect()
         })
         .unwrap_or_default();
+    // Salvage the arbitration field by field, mirroring the lenient occurrence handling above rather
+    // than strict-parsing the whole sub-object: a both-stand verdict credits neither side, and a model
+    // asked to "leave `credited` empty" routinely expresses that by omitting the key or emitting
+    // `null` — a strict parse throws the whole conflict away over exactly the shape this field exists
+    // to record. A null (or absent) `arbitration` stays `None`; a present object contributes whatever
+    // it holds, and [`arbitration_event`] validates it (two competing statements, a reconciling note).
     let arbitration = value
         .get("arbitration")
-        .and_then(|value| serde_json::from_value::<ExtractedArbitration>(value.clone()).ok());
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            let statements = |key: &str| {
+                value
+                    .get(key)
+                    .and_then(serde_json::Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_u64().map(|number| number as usize))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            ExtractedArbitration {
+                competing: statements("competing"),
+                credited: statements("credited"),
+                statement: value
+                    .get("statement")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+            }
+        });
     Some(SynthesizeArgs {
         description,
         occurrences,

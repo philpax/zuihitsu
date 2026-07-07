@@ -685,6 +685,83 @@ async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
 }
 
 #[tokio::test]
+async fn a_both_stand_arbitration_survives_a_null_credited() {
+    // The conflicting-accounts drop path: two accounts of one fact stand as sibling public entries and
+    // the synthesis flags them, but — crediting neither — the model expresses the empty `credited` by
+    // emitting `null` rather than `[]`. A strict sub-object parse would throw the whole conflict away
+    // over exactly the both-stand shape the scenario tests; the lenient salvage keeps it, so a
+    // `BeliefArbitrated` with an empty `credited` still lands. The reply is hand-built JSON so
+    // `credited` is a literal `null`, which the typed harness reply cannot express.
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local e = memory.create(EVENT_ALL_HANDS)
+               e:append("Located in the main auditorium", { by_agent = true, visibility = "public" })
+               e:append("Located in the rooftop terrace", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // Statements 1 and 2 collide; `credited` is `null`, the loose way a model says "neither".
+        Completion::Reply(
+            r#"{
+                "description": "The all-hands, reported in either the main auditorium or the rooftop terrace — the accounts disagree.",
+                "arbitration": {
+                    "competing": [1, 2],
+                    "credited": null,
+                    "statement": "Two standing accounts of the location, neither retracted."
+                }
+            }"#
+            .to_owned(),
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Where is the all-hands?", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let all_hands = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("all-hands"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(all_hands.id).unwrap();
+    let arbitrations = belief_arbitrations(&h.events());
+    assert_eq!(arbitrations.len(), 1);
+    let EventPayload::BeliefArbitrated {
+        memory,
+        competing_entries,
+        resolution,
+        ..
+    } = &arbitrations[0]
+    else {
+        unreachable!();
+    };
+    assert_eq!(*memory, all_hands.id);
+    assert_eq!(
+        *competing_entries,
+        vec![entries[0].entry_id, entries[1].entry_id]
+    );
+    // The null `credited` salvaged to an empty set: both accounts stand.
+    assert!(resolution.credited.is_empty());
+}
+
+#[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
     let h = Harness::new();
     genesis::rollout(
