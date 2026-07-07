@@ -1,18 +1,17 @@
-//! The genesis seed data: the default prompt-template scaffold, the seed tags and relations,
-//! and the content-stable manifest hash computed over them.
-
-use sha2::{Digest, Sha256};
+//! The default prompt templates — the scaffold body, the description-regen, temporal-extraction,
+//! flush, imprint, merge-adjudication, and link-inference templates, assembled feature-gated.
 
 use crate::{
     InstanceFeatures,
-    event::{Cardinality, PromptTemplateName},
+    event::PromptTemplateName,
     ids::{MemoryName, Namespace},
-    vocabulary::RelationName,
 };
 
-use super::{RelationDef, SeedSelf, TagDef, TemplateDef};
+use super::super::TemplateDef;
 
-pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
+pub(in crate::agent::genesis) fn default_templates(
+    features: &InstanceFeatures,
+) -> Vec<TemplateDef> {
     // The scaffold's bulk is a sequence of guidance points, one concern each, assembled into the
     // body below. Keeping them as separate points lets one be added, dropped, or reworded as a
     // single list entry without reflowing the prose around it — each renders as its own bullet
@@ -504,7 +503,7 @@ pub(super) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
 /// It teaches no session-lifetime link flag: the working set carried across a compaction seam is
 /// platform-derived (the session's touched set), so the agent has no such flags to manage on the
 /// semantic graph.
-pub(super) fn flush_template_body() -> String {
+pub(in crate::agent::genesis) fn flush_template_body() -> String {
     "Before this conversation's live transcript scrolls out of view, write to memory — by \
      emitting Luau through the run_lua tool — anything from it worth keeping that you have not \
      already recorded: facts you learned, decisions made, and commitments given. Record your own \
@@ -521,128 +520,4 @@ pub(super) fn flush_template_body() -> String {
      it was kept from. Nothing you leave only in the transcript survives, so be deliberate; when \
      you have flushed what matters, reply briefly to confirm."
         .to_owned()
-}
-
-pub(super) fn seed_tags() -> Vec<TagDef> {
-    vec![TagDef {
-        name: "confidential",
-        description: "Marks a context as confidential: asides told in a room carrying this tag are \
-                      surfaced elsewhere flagged as confidential, and the tag is visible regardless \
-                      of who is present.",
-    }]
-}
-
-/// The seed relations are a minimum-viable ontology: the structural universals the system itself
-/// leans on — identity (`same_as`), participation (`participates_in`/`has_participant`), composition
-/// (`part_of`/`contains`), origin (`created_by`/`created`), operatorship (`operator_of`/`operates`),
-/// and acquaintance (`knows`/`known_by`). These earn seeding because they are domain-independent
-/// scaffolding that any instance's graph is built out of, and because code matches on several of them
-/// (`same_as` drives identity-class merging, and the rest anchor the reference examples and the
-/// scaffold's placement teaching).
-///
-/// Social and environmental semantics — mentorship, venues, employment, and the rest — are
-/// deliberately *not* seeded. They belong to the agent's own operating environment, so the agent
-/// coins them itself (`links.register`) with names and directions that fit what it actually
-/// encounters. Per-instance registrations persist in the log, so one agent's coined vocabulary is
-/// stable across its whole life; which label a given instance mints (e.g. `mentors` versus
-/// `mentored_by`) may vary between instances, and that is fine — what matters is that the agent
-/// reaches for a typed relation at all, not that it lands on a build-blessed spelling.
-pub(super) fn seed_relations() -> Vec<RelationDef> {
-    use Cardinality::{Many, One};
-    use RelationName::{
-        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, PartOf,
-        ParticipatesIn, SameAs,
-    };
-    vec![
-        // created_by is historical origin (one creator); distinct from current operatorship.
-        RelationDef {
-            name: CreatedBy,
-            inverse: Created,
-            from_card: One,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "A thing's historical origin — who created it. Distinct from current \
-                operatorship.",
-        },
-        RelationDef {
-            name: OperatorOf,
-            inverse: Operates,
-            from_card: Many,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "Who currently operates or runs a thing — the present operator, not the \
-                originator.",
-        },
-        RelationDef {
-            name: Knows,
-            inverse: KnownBy,
-            from_card: Many,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "One person knows another — a person-to-person relationship.",
-        },
-        // Cross-platform identity: symmetric, and its own inverse.
-        RelationDef {
-            name: SameAs,
-            inverse: SameAs,
-            from_card: Many,
-            to_card: Many,
-            symmetric: true,
-            reflexive: false,
-            description: "Two platform stubs are the same person — cross-platform identity.",
-        },
-        // A person's involvement in an event: [`Namespace::Person`] --participates_in-->
-        // [`Namespace::Event`], inverse [`Namespace::Event`] --has_participant--> [`Namespace::Person`].
-        // Distinct from knows (person-to-person): the people at an event are participants, not
-        // acquaintances of the event.
-        RelationDef {
-            name: ParticipatesIn,
-            inverse: HasParticipant,
-            from_card: Many,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "A person is in an event — someone who will be there or took part.",
-        },
-        // Membership or aboutness: an event, entry-bearing memory, or sub-topic belonging to a
-        // topic, project, or workstream. Not for people — a person participates_in an event rather
-        // than being part_of it.
-        RelationDef {
-            name: PartOf,
-            inverse: Contains,
-            from_card: Many,
-            to_card: Many,
-            symmetric: false,
-            reflexive: false,
-            description: "An event, entry-bearing memory, or sub-topic belongs to a topic, \
-                project, or workstream — membership or aboutness. Not for people, who \
-                participates_in an event instead.",
-        },
-    ]
-}
-
-/// A content hash over the genesis manifest — the seed-self and the template versions — so it is
-/// stable across resumes and independent of minted ids (spec §Initialization).
-pub(super) fn manifest_hash(seed: &SeedSelf, templates: &[TemplateDef]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(seed.agent_name.as_bytes());
-    hasher.update([0]);
-    hasher.update(seed.persona.as_bytes());
-    hasher.update([0]);
-    for entry in &seed.seed_entries {
-        hasher.update(entry.as_bytes());
-        hasher.update([0]);
-    }
-    for template in templates {
-        hasher.update(template.name.as_str().as_bytes());
-        hasher.update(template.version.to_le_bytes());
-    }
-    hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }

@@ -65,7 +65,9 @@ fn propose_merge_documents_the_rationale_option() {
         .iter()
         .find(|param| param.name == "opts")
         .and_then(|opts| match &opts.ty {
-            super::ApiType::Object(fields) => fields.iter().find(|field| field.name == "rationale"),
+            crate::agent::api_doc::ApiType::Object(fields) => {
+                fields.iter().find(|field| field.name == "rationale")
+            }
             _ => None,
         })
         .expect("opts carries a rationale field");

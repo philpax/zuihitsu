@@ -1,4 +1,4 @@
-use super::ExtractedTime;
+use super::extract::ExtractedTime;
 use crate::{
     ids::MemoryName,
     time::{self, CivilDate, Rrule, TemporalRef, Timestamp},
