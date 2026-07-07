@@ -2,47 +2,44 @@
 //! server boundary). It opens the instance the config selects (acquiring the single-writer log lock),
 //! reconciles the graph, connects any configured MCP servers, runs the background scheduler driver,
 //! and serves the API the CLI and a future web console drive. The HTTP layer lives here, in the
-//! binary, so the library stays transport-agnostic; `/` is reserved for the web console, the
-//! operator surface lives under `/control`, and the participant surface under `/platform`.
+//! binary, so the library stays transport-agnostic.
 //!
-//! The module is split by surface: [`control`] holds the operator handlers, [`platform`] the
-//! participant handlers, [`auth`] the per-surface bearer-key middleware, and [`error`] the request
-//! error rendered as an HTTP response. This file owns the boot sequence ([`run_blocking`], [`serve`]),
-//! the [`router`] wiring those surfaces together, the shared [`AppState`], and the startup
-//! [`ServeError`].
+//! Split by surface: [`control`] (operator handlers), [`platform`] (participant handlers), [`auth`]
+//! (bearer-key middleware), [`error`] (HTTP error responses), [`console`] (embedded web console),
+//! [`serve_error`] (startup [`ServeError`]). This file owns the boot sequence, the [`router`], and
+//! the shared [`AppState`].
 
 mod auth;
+mod console;
 mod control;
 mod error;
 mod platform;
+mod serve_error;
+
+pub use serve_error::ServeError;
 
 use std::{
-    io,
     net::SocketAddr,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
     time::Duration,
 };
 
 use axum::{
     Router,
-    http::{StatusCode, Uri, header},
-    response::{IntoResponse, Response},
     routing::{get, post},
 };
-use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
 use zuihitsu::{
-    ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder,
-    RetryingModel, Server, ServerError, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
-    StdioHost, StoreError, SystemClock, VectorError, VectorIndex,
+    EnvConfig, Graph, ModelClient, OpenAiClient, OpenAiEmbedder, RetryingModel, Server,
+    SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, SystemClock, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
     snapshot,
-    snapshot::SnapshotError,
 };
 
 use auth::{require_control_key, require_platform_key};
+use console::{console, ensure_parent_dir, shutdown_signal};
 use control::{
     arbitrations, create_agent, entries, env_config, events, genesis, health, imprint,
     interactions, lua_api, memories, memory, merge_proposals, metrics, recurring, register_prompt,
@@ -50,10 +47,9 @@ use control::{
 };
 use platform::{join, message};
 
-/// Shared HTTP handler state: the agent server behind the `Arc` its facets are designed to share (so
-/// each handler grabs a fresh `control()`/`platform()` per request), and the model client the
-/// conversing endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is
-/// configured, in which case those endpoints return `503`.
+/// Shared HTTP handler state: the agent server behind an `Arc`, and the model client the conversing
+/// endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is configured, in
+/// which case those endpoints return `503`.
 #[derive(Clone)]
 struct AppState {
     server: Arc<Server>,
@@ -64,23 +60,20 @@ struct AppState {
     backend: Option<Arc<RetryingModel>>,
     /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
     /// otherwise (the snapshot endpoint then answers `409`).
-    snapshot_dir: Option<PathBuf>,
+    snapshot_dir: Option<std::path::PathBuf>,
     /// The Prometheus metrics handle — `render()` produces the `/control/metrics` text. `None` when
     /// the recorder could not be installed (a boot failure leaves the server up but the metrics
-    /// endpoint answers `503`); the process-global recorder, once installed, is what the observe
-    /// helpers write to.
+    /// endpoint answers `503`).
     metrics: Option<metrics_exporter_prometheus::PrometheusHandle>,
     /// When the server booted, for the `uptime_seconds` gauge.
     boot: std::time::Instant,
-    /// Valid API keys for the operator surface (`/control/*`); a remote peer must present one, a
-    /// loopback peer is trusted without one. `Arc<[String]>` so the per-request state clone is a
-    /// refcount bump, not a deep copy.
+    /// Valid API keys for `/control/*`; a remote peer must present one, a loopback peer is trusted
+    /// without one. `Arc<[String]>` so the per-request state clone is a refcount bump.
     control_keys: Arc<[String]>,
-    /// Valid API keys for the participant surface (`/platform/*`); the same rule.
+    /// Valid API keys for `/platform/*`; the same rule.
     platform_keys: Arc<[String]>,
     /// The environmental config this instance booted from, for the read-only config view. Serializing
-    /// it redacts the secrets (the API keys serialize as counts, the MCP env as its variable names),
-    /// so the view never exposes a key.
+    /// it redacts the secrets (API keys serialize as counts, MCP env as its variable names).
     config: Arc<EnvConfig>,
 }
 
@@ -499,173 +492,6 @@ fn router(state: AppState) -> Router {
         // served from the agent's own origin, so it connects back to `/control` keylessly as a
         // loopback peer.
         .fallback(console)
-}
-
-/// The web console, built into the binary at compile time (see `build.rs` and `rust_embed`). The
-/// embedded build lands in its own `dist-embedded` dir, so a plain `npm run build` for the dev checks
-/// never swaps in the standalone (non-embedded) bytes under us.
-#[derive(RustEmbed)]
-#[folder = "console/dist-embedded"]
-struct Console;
-
-/// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link
-/// or a refresh lands in the app rather than on a 404. The HTML shell is served in `agent` mode, so
-/// the one shared bundle boots into the agent's live view; the same bundle supports other host modes
-/// selected at serve time (see `console`'s `App`).
-async fn console(uri: Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
-    let path = if path.is_empty() { "index.html" } else { path };
-    match Console::get(path).or_else(|| Console::get("index.html")) {
-        Some(file) => console_asset(file, "agent"),
-        None => (
-            StatusCode::NOT_FOUND,
-            "the web console is not built into this binary\n",
-        )
-            .into_response(),
-    }
-}
-
-/// Serve an embedded console asset, injecting the app mode into the HTML shell (replacing the
-/// `__ZUIHITSU_APP_MODE__` placeholder `index.html` ships with) so the single shared bundle knows
-/// which view to boot. Non-HTML assets are served byte-for-byte.
-fn console_asset(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
-    let mime = file.metadata.mimetype().to_owned();
-    if mime.starts_with("text/html") {
-        let html = String::from_utf8_lossy(&file.data).replace("__ZUIHITSU_APP_MODE__", mode);
-        ([(header::CONTENT_TYPE, mime)], html).into_response()
-    } else {
-        ([(header::CONTENT_TYPE, mime)], file.data).into_response()
-    }
-}
-
-/// Resolve on the next Ctrl-C. Driving both the HTTP server and the scheduler driver off independent
-/// instances of this means a single interrupt stops both.
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
-}
-
-fn ensure_parent_dir(path: &Path) -> Result<(), ServeError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent).map_err(|source| ServeError::CreateDir {
-            path: parent.to_owned(),
-            source,
-        })?;
-    }
-    Ok(())
-}
-
-/// A failure starting or running the server.
-#[derive(Debug)]
-pub enum ServeError {
-    Config(ConfigError),
-    Runtime(io::Error),
-    CreateDir {
-        path: PathBuf,
-        source: io::Error,
-    },
-    OpenEventLog {
-        path: PathBuf,
-        source: StoreError,
-    },
-    OpenGraph {
-        path: PathBuf,
-        source: GraphError,
-    },
-    OpenVectors {
-        path: PathBuf,
-        source: VectorError,
-    },
-    /// Restoring the graph from a snapshot at boot failed (spec §Snapshots).
-    Snapshot(SnapshotError),
-    /// A server operation (boot, reading settings, connecting MCP) failed at startup. Boxed because
-    /// `ServerError` (= `InstanceError`) transitively owns `TurnError`/`LuaError` and is large enough
-    /// to push `CliError` past the `result_large_err` lint threshold.
-    Server(Box<ServerError>),
-    /// A model endpoint is configured but `[model] context_length` is not — the API cannot report the
-    /// window, so the operator must state it (the agent's compaction budget derives from it).
-    MissingContextLength,
-    Bind {
-        addr: SocketAddr,
-        source: io::Error,
-    },
-    Serve(io::Error),
-}
-
-impl From<ServerError> for ServeError {
-    fn from(error: ServerError) -> Self {
-        ServeError::Server(Box::new(error))
-    }
-}
-
-impl std::fmt::Display for ServeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ServeError::Config(source) => write!(f, "serve: could not load config: {source}"),
-            ServeError::Runtime(source) => {
-                write!(f, "serve: could not start the runtime: {source}")
-            }
-            ServeError::CreateDir { path, source } => {
-                write!(f, "serve: could not create {}: {source}", path.display())
-            }
-            ServeError::OpenEventLog { path, source } => {
-                write!(
-                    f,
-                    "serve: could not open the event log at {}: {source}",
-                    path.display()
-                )
-            }
-            ServeError::OpenGraph { path, source } => {
-                write!(
-                    f,
-                    "serve: could not open the graph at {}: {source}",
-                    path.display()
-                )
-            }
-            ServeError::OpenVectors { path, source } => {
-                write!(
-                    f,
-                    "serve: could not open the vector index at {}: {source}",
-                    path.display()
-                )
-            }
-            ServeError::Snapshot(source) => {
-                write!(
-                    f,
-                    "serve: could not restore the graph from a snapshot: {source}"
-                )
-            }
-            ServeError::Server(source) => write!(f, "serve: {source}"),
-            ServeError::MissingContextLength => write!(
-                f,
-                "serve: a model endpoint is configured but [model] context_length is not set — \
-                 state your model's context window in tokens (the API does not report it)"
-            ),
-            ServeError::Bind { addr, source } => {
-                write!(f, "serve: could not bind {addr}: {source}")
-            }
-            ServeError::Serve(source) => write!(f, "serve: the HTTP server failed: {source}"),
-        }
-    }
-}
-
-impl std::error::Error for ServeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ServeError::Config(source) => Some(source),
-            ServeError::Runtime(source) => Some(source),
-            ServeError::CreateDir { source, .. } => Some(source),
-            ServeError::OpenEventLog { source, .. } => Some(source),
-            ServeError::OpenGraph { source, .. } => Some(source),
-            ServeError::OpenVectors { source, .. } => Some(source),
-            ServeError::Snapshot(source) => Some(source),
-            ServeError::Server(source) => Some(source.as_ref()),
-            ServeError::MissingContextLength => None,
-            ServeError::Bind { source, .. } => Some(source),
-            ServeError::Serve(source) => Some(source),
-        }
-    }
 }
 
 #[cfg(test)]

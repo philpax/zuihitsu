@@ -2,7 +2,17 @@
 //! summary and session timeline, and the payload descriptions the CLI prints (diagnostic
 //! output; the operator-facing view of the raw event log).
 
-use super::*;
+use std::collections::BTreeMap;
+use std::io::Write;
+
+use anstyle::{AnsiColor, Style};
+use zuihitsu::{
+    Event, MemoryId, Seq, SqliteStore, Store,
+    config::EnvConfig,
+    event::{EventPayload, Teller, TerminalCause, TurnRole, Visibility},
+};
+
+use crate::cli_error::CliError;
 
 /// The filters and output mode for the `events` command, bundled so the inspection call stays one
 /// argument rather than a fistful of options.

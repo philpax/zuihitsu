@@ -8,10 +8,12 @@ mod analyze;
 mod context;
 mod error;
 mod harness;
+mod history;
 mod judge;
 mod live;
 mod package;
 mod retry;
+mod run;
 mod scenario;
 mod scenarios;
 mod serve;
@@ -21,21 +23,12 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
-    sync::Arc,
 };
 
 use clap::{Parser, Subcommand};
-use serde::Serialize;
 use ts_rs::TS;
-use zuihitsu::{Embedder, EnvConfig, ModelClient, OpenAiClient, OpenAiEmbedder};
 
-use crate::{
-    context::RunDeps,
-    error::EvalError,
-    live::{EvalSink, LiveEvent},
-    package::{EvalPackage, RunMeta, ScenarioMeta, ScenarioReport, VerdictKind},
-    retry::{RetryingEmbedder, RetryingModel},
-};
+use crate::{live::LiveEvent, package::EvalPackage};
 
 #[derive(Parser)]
 #[command(about = "The zuihitsu eval harness and its TypeScript type contract.")]
@@ -74,7 +67,7 @@ enum Command {
         /// Serve the run live over SSE for the console to watch — the scoreboard fills in as runs
         /// complete. On by default at `127.0.0.1:7878`; pass an address to bind somewhere else.
         /// Serving stops when the run finishes unless `--serve-after-completion` is set.
-        #[arg(long, value_name = "ADDR", num_args = 0..=1, default_missing_value = DEFAULT_SERVE_ADDR)]
+        #[arg(long, value_name = "ADDR", num_args = 0..=1, default_missing_value = run::DEFAULT_SERVE_ADDR)]
         serve: Option<SocketAddr>,
         /// Do not serve the run live; run to completion and exit.
         #[arg(long, conflicts_with = "serve")]
@@ -166,14 +159,14 @@ async fn main() -> ExitCode {
             serve,
             no_serve,
             serve_after_completion,
-        } => match run_named(
+        } => match run::run_named(
             runs,
             concurrency,
             scenario.as_deref(),
             &name,
             &config,
             resume,
-            resolve_serve(serve, no_serve, serve_after_completion),
+            run::resolve_serve(serve, no_serve, serve_after_completion),
         )
         .await
         {
@@ -274,441 +267,6 @@ fn export_types(dir: &Path) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-/// The directory every eval run is filed under — kept together so runs are findable rather than
-/// scattered to arbitrary paths (or `/tmp`, where they are lost to GC). Gitignored; only the small
-/// `history.jsonl` trend record is tracked.
-const EVAL_DIR: &str = "eval";
-
-/// The address live serving binds when no override is given.
-const DEFAULT_SERVE_ADDR: &str = "127.0.0.1:7878";
-
-/// How a run serves its live view.
-struct ServeConfig {
-    /// Where to bind the SSE endpoint, or `None` to not serve at all (`--no-serve`).
-    addr: Option<SocketAddr>,
-    /// Keep serving the final state after the run completes (until Ctrl-C) rather than exiting.
-    after_completion: bool,
-}
-
-/// Resolve the live-serving config from the flags. Serving is on by default — `--no-serve` opts out,
-/// and an explicit `--serve` overrides the bind address — and stops when the run finishes unless
-/// `--serve-after-completion` keeps it up for review.
-fn resolve_serve(serve: Option<SocketAddr>, no_serve: bool, after_completion: bool) -> ServeConfig {
-    let addr = (!no_serve).then(|| {
-        serve.unwrap_or_else(|| {
-            DEFAULT_SERVE_ADDR
-                .parse()
-                .expect("a valid default serve address")
-        })
-    });
-    ServeConfig {
-        addr,
-        after_completion,
-    }
-}
-
-/// Resolve a run `name` to `eval/<name>.json`, rejecting anything that is not a bare filename (so a
-/// run cannot escape the eval directory). Then run the suite under it.
-async fn run_named(
-    runs: u32,
-    concurrency: usize,
-    filter: Option<&str>,
-    name: &str,
-    config_path: &Path,
-    resume: bool,
-    serve: ServeConfig,
-) -> Result<bool, EvalError> {
-    if name.is_empty()
-        || name.contains('/')
-        || name.contains('\\')
-        || name.split('/').any(|part| part == "..")
-        || name == ".."
-        || name == "."
-    {
-        return Err(EvalError::BadName(name.to_owned()));
-    }
-    let path = Path::new(EVAL_DIR).join(format!("{name}.json"));
-    run(
-        runs,
-        concurrency,
-        filter,
-        RunOutput { name, path: &path },
-        config_path,
-        resume,
-        serve,
-    )
-    .await
-}
-
-/// Where a run's artifacts are filed: the run `name` (the trend record correlates a line back to its
-/// package by it) and its resolved `eval/<name>.json` path. The two travel together — the name names
-/// the run and the path is derived from it — so they ride as one parameter rather than two.
-struct RunOutput<'a> {
-    name: &'a str,
-    path: &'a Path,
-}
-
-/// Run the suite; returns whether every gating oracle held (the exit-code signal).
-async fn run(
-    runs: u32,
-    concurrency: usize,
-    filter: Option<&str>,
-    output: RunOutput<'_>,
-    config_path: &Path,
-    resume: bool,
-    serve: ServeConfig,
-) -> Result<bool, EvalError> {
-    let RunOutput { name, path: out } = output;
-    let config = EnvConfig::load(config_path).map_err(|source| EvalError::LoadConfig {
-        path: config_path.to_path_buf(),
-        source: Box::new(source),
-    })?;
-    if config.model.endpoint.is_empty() {
-        // Skip with a clear signal rather than fail (spec §Validation → the model-gated lane).
-        tracing::warn!("skipping the reply lane: no model endpoint configured");
-        return Ok(true);
-    }
-
-    // Wrap both seams in the retrying adapters so a transient endpoint outage (a host rebuild,
-    // a serving-layer restart) backs off and recovers rather than aborting whichever runs coincide
-    // with it and counting them as quality failures (see `retry`).
-    let model: Arc<dyn ModelClient> = Arc::new(RetryingModel::new(Arc::new(OpenAiClient::new(
-        &config.model,
-    ))));
-    let embedder: Option<Arc<dyn Embedder>> = (!config.embedding.endpoint.is_empty()).then(|| {
-        Arc::new(RetryingEmbedder::new(Arc::new(OpenAiEmbedder::new(
-            &config.embedding,
-        )))) as Arc<dyn Embedder>
-    });
-    let deps = RunDeps {
-        model,
-        embedder,
-        dimensions: config.embedding.dimensions,
-    };
-
-    let mut scenarios = scenarios::all();
-    if let Some(filter) = filter {
-        // Comma-separated substrings, matched by OR — so a diverse subset can be selected in one run
-        // (e.g. `--scenario tag_room,recall,flush`), not just a single name.
-        let needles: Vec<&str> = filter
-            .split(',')
-            .map(str::trim)
-            .filter(|needle| !needle.is_empty())
-            .collect();
-        scenarios.retain(|scenario| {
-            let name = scenario.meta().name;
-            needles.iter().any(|needle| name.contains(needle))
-        });
-    }
-    tracing::info!(
-        scenarios = scenarios.len(),
-        runs,
-        concurrency,
-        "running the eval suite"
-    );
-
-    // The scenarios that will actually run; the manifest and the live log's scenario indices are over
-    // this list.
-    let active = harness::active_scenarios(scenarios, deps.embedder.is_some());
-    let scenario_metas: Vec<ScenarioMeta> = active.iter().map(|scenario| scenario.meta()).collect();
-
-    let started_at_ms = live::now_ms();
-    let meta = RunMeta {
-        harness_version: env!("CARGO_PKG_VERSION").to_owned(),
-        git_sha: git_sha(),
-        git_dirty: git_dirty(),
-        model_id: config.model.llm.clone(),
-        embedding_model: (!config.embedding.endpoint.is_empty())
-            .then(|| config.embedding.model.clone()),
-        scenario_filter: filter.map(str::to_owned),
-        started_at_ms,
-        // Stamped for real on `finish`; the manifest carries the start so the viewer has a clock.
-        finished_at_ms: started_at_ms,
-        runs_per_scenario: runs,
-        concurrency: concurrency as u32,
-    };
-
-    // The resumable, tailable form while the run is in flight: one JSON line per live event, beside the
-    // final package. Its presence (without the package) is itself the "this run is incomplete" signal.
-    let sidecar = out.with_extension("jsonl");
-    if let Some(parent) = out.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| EvalError::WriteOutput {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-
-    // Resume continues the existing sidecar (its manifest, its completed runs) and skips them; a fresh
-    // run seeds a new one from the manifest just built.
-    let (sink, done) = if resume && sidecar.exists() {
-        let state = live::read_sidecar(&sidecar)?;
-        tracing::info!(completed = state.completed.len(), path = %sidecar.display(), "resuming from sidecar");
-        let sink = Arc::new(EvalSink::resume(state, &sidecar)?);
-        let done = sink.done_runs();
-        (sink, done)
-    } else {
-        let sink = Arc::new(EvalSink::new(meta, scenario_metas, &sidecar)?);
-        (sink, std::collections::HashSet::new())
-    };
-
-    // Serve the live stream before warming up the model endpoints, so a viewer connecting at launch
-    // sees the scoreboard (the plan) immediately — not a dead page while the inference server warms.
-    let serving = serve
-        .addr
-        .map(|addr| tokio::spawn(serve::serve(addr, sink.clone())));
-
-    // Warm the endpoints before the clock starts, so the first run isn't charged for cold-start.
-    tracing::info!("warming up the model endpoints");
-    harness::warm_up(&deps).await;
-
-    harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
-    sink.finish(live::now_ms())?;
-
-    let package = sink.package();
-
-    let all_gates_held = package.scenarios.iter().all(|report| {
-        report
-            .meta
-            .bar
-            .holds(report.aggregate.gating_rate, report.aggregate.gating_passed)
-    });
-    for report in &package.scenarios {
-        tracing::info!(
-            scenario = %report.meta.name,
-            rate = report.aggregate.rate,
-            gating = report.aggregate.gating_passed,
-            wall_p50_ms = report.aggregate.wall_clock_ms.p50,
-            latency_p50_ms = report.aggregate.latency_ms.p50,
-            "scenario result"
-        );
-    }
-
-    // Fold to the canonical package, then drop the sidecar — write fully before unlinking, so a crash
-    // between leaves either a resumable sidecar or a complete package, never neither.
-    write_package(&package, out)?;
-    append_history(name, &package)?;
-    std::fs::remove_file(&sidecar).ok();
-
-    // Only with `--serve-after-completion` does the process stay up after the run, so the operator can
-    // review the final state live; the in-memory sink still answers new connections with the complete
-    // package, and Ctrl-C exits. By default the run drops the serving task and exits with the gating
-    // signal as soon as it finishes, so a background or scripted run never blocks.
-    if serve.after_completion
-        && let Some(serving) = serving
-    {
-        tracing::info!("run complete; serving the final state — Ctrl-C to exit");
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            result = serving => {
-                if let Ok(Err(error)) = result {
-                    tracing::error!(%error, "the live serve ended with an error");
-                }
-            }
-        }
-    }
-    Ok(all_gates_held)
-}
-
-fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
-    if let Some(parent) = out.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| EvalError::WriteOutput {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-    // Write the temp beside the target, then rename — an atomic swap, so a reader (and the resume
-    // check) never sees a half-written package.
-    let json = serde_json::to_vec_pretty(package)?;
-    let tmp = out.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(|source| EvalError::WriteOutput {
-        path: tmp.clone(),
-        source,
-    })?;
-    std::fs::rename(&tmp, out).map_err(|source| EvalError::WriteOutput {
-        path: out.to_path_buf(),
-        source,
-    })?;
-    tracing::info!(path = %out.display(), "wrote eval package");
-    Ok(())
-}
-
-/// The v2 trend record: one compact, deterministically-ordered line per run, appended to the tracked
-/// history (spec §Validation → the tracked metrics trend). Carries the run's `name` so a record
-/// correlates back to its `eval/<name>.json` package, real wall-clock stamps, the git state it ran at,
-/// and, per scenario, the bar it was judged against and the per-criterion pass tallies for aggregate
-/// analysis.
-#[derive(Serialize)]
-struct HistoryLine {
-    name: String,
-    /// Epoch milliseconds — the real wall-clock span (`ts_ms` is retired in favor of these).
-    started_at_ms: i64,
-    finished_at_ms: i64,
-    /// The commit the run ran at, or the empty string when git could not resolve one (best-effort).
-    git_sha: String,
-    /// Whether the working tree had uncommitted changes when the run started.
-    git_dirty: bool,
-    model_id: String,
-    runs_per_scenario: u32,
-    /// The `--scenario` filter the run was targeted with; omitted for a full-suite run.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scenario_filter: Option<String>,
-    scenarios: Vec<HistoryScenario>,
-}
-
-#[derive(Serialize)]
-struct HistoryScenario {
-    name: String,
-    rate: f64,
-    gating_passed: bool,
-    /// Runs actually completed for this scenario — resume can make this differ from `runs_per_scenario`.
-    runs: u32,
-    /// The bar this scenario was judged against, rendered (e.g. `gating` or `>=0.6`).
-    bar: String,
-    wall_clock_p50_ms: u64,
-    latency_p50_ms: u64,
-    /// The median per-run step count.
-    steps_p50: f64,
-    total_tokens_mean: u64,
-    /// Per-criterion pass tallies aggregated across the scenario's runs.
-    criteria: Vec<CriterionStat>,
-}
-
-/// One criterion's pass tally across a scenario's runs: how many of the `total` runs that judged it
-/// passed. `kind` distinguishes a gating oracle from a reported metric.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-struct CriterionStat {
-    criterion: String,
-    kind: String,
-    passed: u32,
-    total: u32,
-}
-
-/// Build the v2 history line for a completed run.
-fn history_line(name: &str, package: &EvalPackage) -> HistoryLine {
-    HistoryLine {
-        name: name.to_owned(),
-        started_at_ms: package.meta.started_at_ms,
-        finished_at_ms: package.meta.finished_at_ms,
-        git_sha: package.meta.git_sha.clone().unwrap_or_default(),
-        git_dirty: package.meta.git_dirty,
-        model_id: package.meta.model_id.clone(),
-        runs_per_scenario: package.meta.runs_per_scenario,
-        scenario_filter: package.meta.scenario_filter.clone(),
-        scenarios: package
-            .scenarios
-            .iter()
-            .map(|report| {
-                let steps: Vec<f64> = report
-                    .runs
-                    .iter()
-                    .map(|run| run.metrics.steps as f64)
-                    .collect();
-                HistoryScenario {
-                    name: report.meta.name.clone(),
-                    // Round so an unchanged result produces an identical line (clean diffs/appends).
-                    rate: (report.aggregate.rate * 1000.0).round() / 1000.0,
-                    gating_passed: report.aggregate.gating_passed,
-                    runs: report.aggregate.runs,
-                    bar: report.meta.bar.label(),
-                    wall_clock_p50_ms: report.aggregate.wall_clock_ms.p50.round() as u64,
-                    latency_p50_ms: report.aggregate.latency_ms.p50.round() as u64,
-                    steps_p50: harness::percentile(&steps, 0.50),
-                    total_tokens_mean: report.aggregate.tokens.total_mean.round() as u64,
-                    criteria: criteria_stats(report),
-                }
-            })
-            .collect(),
-    }
-}
-
-/// Aggregate the per-criterion pass tallies across a scenario's runs, keyed by `(criterion, kind)` and
-/// ordered deterministically (by criterion, then kind) so an unchanged result produces an identical
-/// line. A criterion's `total` counts the runs that judged it, and `passed` those where it held.
-fn criteria_stats(report: &ScenarioReport) -> Vec<CriterionStat> {
-    use std::collections::BTreeMap;
-
-    let mut tallies: BTreeMap<(String, &'static str), (u32, u32)> = BTreeMap::new();
-    for run in &report.runs {
-        for verdict in &run.verdicts {
-            let kind = match verdict.kind {
-                VerdictKind::Oracle => "oracle",
-                VerdictKind::Metric => "metric",
-            };
-            let entry = tallies
-                .entry((verdict.criterion.clone(), kind))
-                .or_default();
-            entry.1 += 1;
-            if verdict.passed {
-                entry.0 += 1;
-            }
-        }
-    }
-    tallies
-        .into_iter()
-        .map(|((criterion, kind), (passed, total))| CriterionStat {
-            criterion,
-            kind: kind.to_owned(),
-            passed,
-            total,
-        })
-        .collect()
-}
-
-fn append_history(name: &str, package: &EvalPackage) -> Result<(), EvalError> {
-    use std::io::Write as _;
-
-    let line = history_line(name, package);
-    let path = Path::new("eval/history.jsonl");
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| EvalError::WriteOutput {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|source| EvalError::WriteOutput {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    let mut json = serde_json::to_string(&line)?;
-    json.push('\n');
-    file.write_all(json.as_bytes())
-        .map_err(|source| EvalError::WriteOutput {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    Ok(())
-}
-
-fn git_sha() -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
-/// Whether the working tree had uncommitted changes to tracked files — `git status --porcelain`
-/// with untracked files excluded, since a stray scratch file would otherwise flag every run dirty
-/// forever and drain the flag of meaning; only tracked modifications can differ from the recorded
-/// sha. Best-effort like [`git_sha`]: an unavailable or failing git reads as clean, so a run outside
-/// a repository does not falsely flag itself dirty.
-fn git_dirty() -> bool {
-    let Ok(output) = std::process::Command::new("git")
-        .args(["status", "--porcelain", "--untracked-files=no"])
-        .output()
-    else {
-        return false;
-    };
-    output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
 }
 
 fn init_tracing() {

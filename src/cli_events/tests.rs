@@ -1,5 +1,10 @@
-use super::*;
-use zuihitsu::{ids::MemoryName, time::Timestamp, vocabulary::TagName};
+use anstyle::AnsiColor;
+use zuihitsu::{
+    Event, EventPayload, MemoryId, Seq, Volatility,
+    ids::MemoryName,
+    time::Timestamp,
+    vocabulary::TagName,
+};
 
 fn ev(seq: u64, payload: EventPayload) -> Event {
     Event {

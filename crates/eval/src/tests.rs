@@ -1,6 +1,7 @@
 use serde_json::Value;
 
-use super::{CriterionStat, DEFAULT_SERVE_ADDR, criteria_stats, history_line, resolve_serve};
+use crate::history::{CriterionStat, criteria_stats, history_line};
+use crate::run::{DEFAULT_SERVE_ADDR, resolve_serve};
 use crate::package::{
     Aggregate, Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
     ScenarioReport, Stat, TokenStat, Verdict,
