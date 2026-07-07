@@ -64,7 +64,7 @@ pub struct MemoryBlock {
     /// with a cheap id compare. `None` before the first imprint mints it (or in a non-operator
     /// instance). Content belongs on the operator's real profile, not this provisional anchor.
     operator_id: Option<MemoryId>,
-    /// The current conversation's `context/*` memory (where content is told in), if any.
+    /// The current conversation's [`Namespace::Context`] memory (where content is told in), if any.
     told_in: Option<MemoryId>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
     confidential_context: bool,
@@ -103,16 +103,18 @@ pub struct EntryRef {
     /// by whom and when, without being handed content it must not relay to who is present. Only ever
     /// set on a direct read with an audience present; a solo read sees everything.
     pub withheld: bool,
-    /// Whether the entry has aged past usefulness: its memory is `High` volatility and the fact is
-    /// older than the staleness horizon (spec §Recency and volatility). A read marks it `[stale]` so the agent
-    /// surfaces it as possibly out of date rather than asserting it as current. Always `false` for the
-    /// default `Medium` and durable `Low` memories, so the marker is opt-in.
+    /// Whether the entry has aged past usefulness *and nothing has replaced it*: its memory is `High`
+    /// volatility, the fact is older than the staleness horizon (spec §Recency and volatility), and it
+    /// is unsuperseded. A read marks it `[stale — no newer entry]` so the agent surfaces it as possibly
+    /// out of date and reconfirms rather than hunting memory for a fresher version that does not exist.
+    /// Always `false` for the default `Medium` and durable `Low` memories, so the marker is opt-in, and
+    /// always `false` for a superseded entry (its successor is the newer version).
     pub stale: bool,
 }
 
 /// Which way a link runs relative to the memory it was read from. A class-traversing read orients
-/// every edge against the queried identity, so the agent reads `mentor_of →` (this identity mentors)
-/// apart from `mentor_of ←` (this identity is mentored), without reasoning about which stub holds it.
+/// every edge against the queried identity, so the agent reads `mentors →` (this identity mentors)
+/// apart from `mentors ←` (this identity is mentored), without reasoning about which stub holds it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkDirection {
     /// The queried identity is the edge's source: it points outward, at `other`.
@@ -137,6 +139,28 @@ pub struct LinkRef {
     /// for a link with no teller behind it (the adjudicated `same_as`) — the provenance a belief-bearing
     /// relation turns on, the same teller signal a content read carries.
     pub told_by: Option<String>,
+    /// The far memory's representative occurrence — its most recent dated entry's `occurred_at`, or
+    /// `None` when it holds no dated fact. Resolved at read time (like `other_name`) so a link to a
+    /// dated event (a shipped decision, a scheduled meeting) carries *when* alongside the relation, and
+    /// a neighborhood rendered from a hub keeps the spokes' dates without a second read. Not
+    /// visibility-filtered, mirroring the link readers, which surface the agent's whole graph.
+    pub occurred_at: Option<TemporalRef>,
+}
+
+/// A memory's whole record, assembled for `mem:details` — the one-render read that licenses "I don't
+/// hold that" after a single look. It carries the memory's header (its current name, its description,
+/// and any handles it used to go by), its live entries across the merged identity, every link out of
+/// that identity in both directions, its applied tags, and its volatility. The Lua layer renders it to
+/// one string, reusing the same entry and link rendering `mem:entries`/`mem:links` use, so the record
+/// reads back exactly as those readers show their rows.
+pub struct MemoryDetails {
+    pub name: String,
+    pub description: String,
+    pub former_names: Vec<String>,
+    pub entries: Vec<EntryRef>,
+    pub links: Vec<LinkRef>,
+    pub tags: Vec<TagName>,
+    pub volatility: Volatility,
 }
 
 /// What a finished block yields to its caller for commit (or, on abort/error, to discard): the
@@ -180,18 +204,25 @@ impl VolatilityChoice {
 }
 
 /// The overrides an append accepts: `by_agent` records it as the agent's own observation rather than
-/// the speaker's; `visibility` forces the visibility instead of the write-time default; `occurred_at`
-/// records the real-world time the entry is *about*, distinct from when it is recorded (spec §Time);
-/// `volatility` classifies how fast the memory's facts age, set inline rather than via a separate
-/// `set_volatility` call. Deserialized straight from the Lua `opts` table — `occurred_at` is a tagged
-/// table (see [`TemporalRef`]).
+/// the speaker's; `told_by` attributes it to a specific teller other than the current speaker (a
+/// relayed claim's source), overriding both `by_agent` and the speaker default; `visibility` forces
+/// the visibility instead of the write-time default; `occurred_at` records the real-world time the
+/// entry is *about*, distinct from when it is recorded (spec §Time); `volatility` classifies how fast
+/// the memory's facts age, set inline rather than via a separate `set_volatility` call. Deserialized
+/// from the Lua `opts` table, except `occurred_at` and `told_by`: those are resolved at the Lua
+/// boundary (a bare date string or handle for `occurred_at`, a handle or name for `told_by`) and set
+/// on the struct after, so they carry the resolved [`TemporalRef`] and [`Teller`] rather than a raw
+/// Lua value serde cannot decode.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct AppendOptions {
     pub by_agent: bool,
     pub visibility: Option<VisibilityChoice>,
+    #[serde(skip)]
     pub occurred_at: Option<TemporalRef>,
     pub volatility: Option<VolatilityChoice>,
+    #[serde(skip)]
+    pub told_by: Option<Teller>,
 }
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities
@@ -229,6 +260,10 @@ const WITHHELD_STUB: &str = "(withheld — a confidence not for the present audi
 /// Memories with a concrete occurrence within this many days of now, when `upcoming` is called with
 /// no explicit window.
 const DEFAULT_UPCOMING_DAYS: i64 = 7;
+
+/// How far back `overdue` looks when called with no explicit window — a modest fortnight, long enough
+/// to catch a reminder whose day slipped past over a break, short enough not to dredge up stale dates.
+const DEFAULT_OVERDUE_DAYS: i64 = 14;
 
 impl MemoryBlock {
     /// Open a block for `conversation`: resolve the context it writes in and whether that room is
@@ -274,6 +309,15 @@ impl MemoryBlock {
     /// async `memory.search` needs (the embedder, vector index, graph, clock, settings, and visibility
     /// set). Returned together so the Lua layer can embed and search without holding the block lock.
     pub fn retrieval_handle(&self) -> (Arc<Engine>, Vec<MemoryId>) {
+        (self.engine.clone(), self.present_set.clone())
+    }
+
+    /// The backends and present set the `convo.turn` link resolver reads under — the running engine
+    /// (for the event store and graph) and who is present in this conversation, so the resolver can
+    /// apply the audience rule: a turn resolves iff everyone present here was in that moment's audience
+    /// (spec §Transcripts). Returned together so the Lua layer can resolve without holding the block
+    /// lock.
+    pub fn turn_resolution_handle(&self) -> (Arc<Engine>, Vec<MemoryId>) {
         (self.engine.clone(), self.present_set.clone())
     }
 
@@ -359,7 +403,7 @@ impl MemoryBlock {
     /// agent-authored entry about a *person* (a subject-bearing memory) has no protective default —
     /// the participant-aside mechanism keys on a participant teller, not the agent, so silently
     /// defaulting to public is how a re-recorded confidence leaks — and must be classified. Any other
-    /// write (a participant teller, or a non-subject memory like `self`/`topic/*`) takes the
+    /// write (a participant teller, or a non-subject memory like `self`/[`Namespace::Topic`]) takes the
     /// namespace/subject default.
     pub(super) fn resolve_visibility(
         &self,
@@ -486,7 +530,9 @@ impl MemoryBlock {
     /// superseded entry yet still withholds one that was a confidence not for who is present.
     ///
     /// *Stale* is independent of who is present — it is a fact about the entry's age on a `High`
-    /// volatility memory (spec §Recency and volatility) — so it is computed for every read, audience or not.
+    /// volatility memory (spec §Recency and volatility) — so it is computed for every read, audience or
+    /// not. It rides only an *unreplaced* entry, though: the marker reads "no newer entry", so a
+    /// superseded entry (surfaced only by history, its successor beside it) must not carry it.
     pub(super) fn annotate(
         &self,
         graph: &Graph,
@@ -505,7 +551,11 @@ impl MemoryBlock {
             .into_iter()
             .map(|entry| {
                 let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
-                let stale = decay::is_stale(volatility, effective, now);
+                // Only an unreplaced entry carries the marker: a superseded one (surfaced only by
+                // history) has its newer version right there in the same list, so marking it "no newer
+                // entry" would lie. A live read never reaches here with a superseded entry.
+                let stale =
+                    entry.superseded_by.is_none() && decay::is_stale(volatility, effective, now);
                 let withheld = match (audience, &memory) {
                     (true, Some(memory)) => {
                         let mut probe = entry.clone();

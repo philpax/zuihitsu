@@ -10,22 +10,29 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ApiEntry, Arbitration, ConversationLocator, EntryView, EnvConfig, Event, LuaConsoleOutcome,
-    MemoryView, ModelCall, PromptTemplateName, Rollout, SeedSelf, Seq, SessionView, Settings,
-    TurnOutcome, genesis::GenesisStatus,
+    ApiEntry, Arbitration, BackendHealth, ConversationLocator, EntryView, EnvConfig, Event,
+    LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout,
+    SeedSelf, Seq, SessionView, Settings, TurnOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
 
-/// The serving health/status: whether an agent exists yet.
+/// The serving health/status: whether an agent exists yet, and the model transport's health — the
+/// circuit-breaker state, the consecutive-failure count, and the last failure's cause — which the
+/// console polls to drive its degraded-backend banner. `model` is `None` when no model endpoint is
+/// configured (the conversing endpoints answer 503, which is its own signal).
 #[derive(Serialize)]
 pub(super) struct Health {
     genesis: GenesisStatus,
+    model: Option<BackendHealth>,
 }
 
 pub(super) async fn health(State(state): State<AppState>) -> Result<Json<Health>, ApiError> {
     let genesis = state.server.control().genesis_status()?;
-    Ok(Json(Health { genesis }))
+    Ok(Json(Health {
+        genesis,
+        model: state.backend.as_ref().map(|backend| backend.health()),
+    }))
 }
 
 /// `POST /control/agent` — create the agent (or resume an interrupted genesis); idempotent.
@@ -158,6 +165,38 @@ pub(super) async fn arbitrations(
     Ok(Json(state.server.control().arbitrations()?))
 }
 
+/// `GET /control/merge-proposals` — the cross-platform merge proposals still awaiting the operator, in
+/// first-proposal order (the operator's backstop for merges the evidence did not yet justify).
+pub(super) async fn merge_proposals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<MergeProposal>>, ApiError> {
+    Ok(Json(state.server.control().merge_proposals()?))
+}
+
+/// The body of a `POST /control/merge` — the two stubs of a pending proposal (by memory id) and
+/// whether the operator accepts the merge (`accept: true`) or declines it.
+#[derive(Deserialize)]
+pub(super) struct MergeResolution {
+    from: MemoryId,
+    to: MemoryId,
+    accept: bool,
+}
+
+/// `POST /control/merge` — resolve a pending cross-platform merge proposal as the operator: `accept`
+/// authors the merging `same_as` (the console-only merge path), a decline records the operator's
+/// refusal so the proposal settles. Operator authority (the whole `/control` surface is key-gated); the
+/// two stubs ride as their memory ids.
+pub(super) async fn resolve_merge(
+    State(state): State<AppState>,
+    Json(request): Json<MergeResolution>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .server
+        .control()
+        .resolve_merge(request.from, request.to, request.accept)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// `GET /control/interactions` — the recorded model interactions, oldest first (the deliberation
 /// surface: per-call request, reasoning, token usage, and latency).
 pub(super) async fn interactions(
@@ -175,9 +214,8 @@ pub(super) struct FromQuery {
 }
 
 /// `GET /control/events?from=` — the event log from `from` onward, in order (the whole log when
-/// `from` is omitted). The eval package embeds the full log per run; the live console seeds its
-/// replica with one `from=0` read, then polls the tail with `from=<head + 1>` (spec §Observability →
-/// live phase).
+/// `from` is omitted). The live console seeds its replica with one `from=0` read, then polls the tail
+/// with `from=<head + 1>` (spec §Observability → live phase).
 pub(super) async fn events(
     State(state): State<AppState>,
     Query(query): Query<FromQuery>,

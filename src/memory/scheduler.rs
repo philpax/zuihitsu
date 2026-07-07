@@ -352,15 +352,15 @@ mod tests {
 
     #[test]
     fn drain_delivers_only_visible_and_targeted_items() {
-        let phil = MemoryId::generate();
+        let marcus = MemoryId::generate();
         let erin = MemoryId::generate();
         let dentist = MemoryId::generate();
         let entry = EntryId::generate();
-        // A public reminder on event/dentist, told by Phil → target = {Phil}.
+        // A public reminder on event/dentist, told by Marcus → target = {Marcus}.
         let (mut store, mut graph) = world(
             1_000,
             vec![
-                created(phil, Namespace::Person.with_name("phil")),
+                created(marcus, Namespace::Person.with_name("marcus")),
                 created(erin, Namespace::Person.with_name("erin")),
                 created(dentist, Namespace::Event.with_name("dentist")),
                 appended(
@@ -368,7 +368,7 @@ mod tests {
                     entry,
                     1_000,
                     instant(5_000),
-                    Teller::Participant(phil),
+                    Teller::Participant(marcus),
                     Visibility::Public,
                 ),
             ],
@@ -377,10 +377,10 @@ mod tests {
         graph.materialize_from(&store).unwrap();
         let settings = SchedulerSettings::default();
 
-        // Phil present: delivered, naming the memory and date.
-        let drained = drain(&graph, &[phil], &settings)
+        // Marcus present: delivered, naming the memory and date.
+        let drained = drain(&graph, &[marcus], &settings)
             .unwrap()
-            .expect("eligible for Phil");
+            .expect("eligible for Marcus");
         assert_eq!(drained.entries, vec![(entry, dentist)]);
         assert!(drained.text.contains("have come due"));
         assert!(
@@ -389,23 +389,23 @@ mod tests {
                 .contains(&Namespace::Event.with_name("dentist").to_string())
         );
 
-        // Only Erin present: Phil is the target and isn't here, so nothing drains.
+        // Only Erin present: Marcus is the target and isn't here, so nothing drains.
         assert!(drain(&graph, &[erin], &settings).unwrap().is_none());
     }
 
     #[test]
     fn drain_respects_the_visibility_predicate() {
-        // A private aside about Phil, told by Erin, scheduled in the future.
-        let phil = MemoryId::generate();
+        // A private aside about Marcus, told by Erin, scheduled in the future.
+        let marcus = MemoryId::generate();
         let erin = MemoryId::generate();
         let entry = EntryId::generate();
         let (mut store, mut graph) = world(
             1_000,
             vec![
-                created(phil, Namespace::Person.with_name("phil")),
+                created(marcus, Namespace::Person.with_name("marcus")),
                 created(erin, Namespace::Person.with_name("erin")),
                 appended(
-                    phil,
+                    marcus,
                     entry,
                     1_000,
                     instant(5_000),
@@ -418,16 +418,16 @@ mod tests {
         graph.materialize_from(&store).unwrap();
         let settings = SchedulerSettings::default();
 
-        // Erin alone: visible (teller present) and targeted (subject Phil), so it drains to her.
+        // Erin alone: visible (teller present) and targeted (subject Marcus), so it drains to her.
         assert!(drain(&graph, &[erin], &settings).unwrap().is_some());
-        // Phil present too: the subject-guard suppresses the aside — not visible, so withheld.
-        assert!(drain(&graph, &[erin, phil], &settings).unwrap().is_none());
+        // Marcus present too: the subject-guard suppresses the aside — not visible, so withheld.
+        assert!(drain(&graph, &[erin, marcus], &settings).unwrap().is_none());
     }
 
     #[test]
     fn drain_caps_the_number_of_items() {
-        let phil = MemoryId::generate();
-        let mut payloads = vec![created(phil, Namespace::Person.with_name("phil"))];
+        let marcus = MemoryId::generate();
+        let mut payloads = vec![created(marcus, Namespace::Person.with_name("marcus"))];
         for i in 0..4 {
             let id = MemoryId::generate();
             payloads.push(created(id, Namespace::Event.with_name(format!("e{i}"))));
@@ -436,7 +436,7 @@ mod tests {
                 EntryId::generate(),
                 1_000,
                 instant(5_000 + i),
-                Teller::Participant(phil),
+                Teller::Participant(marcus),
                 Visibility::Public,
             ));
         }
@@ -448,7 +448,7 @@ mod tests {
             max_wakeups_per_session: 2,
             ..SchedulerSettings::default()
         };
-        let drained = drain(&graph, &[phil], &settings)
+        let drained = drain(&graph, &[marcus], &settings)
             .unwrap()
             .expect("eligible");
         assert_eq!(drained.entries.len(), 2);

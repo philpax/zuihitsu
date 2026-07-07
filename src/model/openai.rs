@@ -9,9 +9,12 @@
 //! embeddings — uses async-openai's standard types. A tool's parameter schema travels on its
 //! `ToolSpec`. Sampling comes from configuration, not from hardcoded defaults.
 
+use std::time::Duration;
+
 use async_openai::{
     Client,
     config::OpenAIConfig,
+    error::OpenAIError,
     types::{
         chat::{
             ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls,
@@ -25,6 +28,7 @@ use async_openai::{
     },
 };
 use async_trait::async_trait;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{EmbeddingConfig, ModelConfig};
@@ -45,7 +49,10 @@ pub struct OpenAiClient {
 impl OpenAiClient {
     pub fn new(config: &ModelConfig) -> OpenAiClient {
         OpenAiClient {
-            client: client(&config.endpoint),
+            client: client(
+                &config.endpoint,
+                Duration::from_secs(config.resilience.request_timeout_seconds),
+            ),
             config: config.clone(),
         }
     }
@@ -58,10 +65,21 @@ impl OpenAiClient {
         if !tools.is_empty() {
             args.tools(tools);
         }
-        if request.tool_choice == ToolChoice::Required {
-            args.tool_choice(ChatCompletionToolChoiceOption::Mode(
-                ToolChoiceOptions::Required,
-            ));
+        // `Auto` is the serving layer's default, so it is left unset; `Required` and `None` are
+        // mapped explicitly (the loop withdraws the tools on its final step with `None`, forcing a
+        // textual answer).
+        match request.tool_choice {
+            ToolChoice::Auto => {}
+            ToolChoice::Required => {
+                args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::Required,
+                ));
+            }
+            ToolChoice::None => {
+                args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::None,
+                ));
+            }
         }
         if let Some(temperature) = self.config.temperature {
             args.temperature(temperature);
@@ -137,7 +155,10 @@ impl OpenAiEmbedder {
     /// the dimensionality it produces (so callers can size the vector store without a probe).
     pub fn new(config: &EmbeddingConfig) -> OpenAiEmbedder {
         OpenAiEmbedder {
-            client: client(&config.endpoint),
+            client: client(
+                &config.endpoint,
+                Duration::from_secs(config.request_timeout_seconds),
+            ),
             model: config.model.clone(),
             dimensions: config.dimensions,
         }
@@ -253,8 +274,18 @@ struct ChatUsage {
     total_tokens: Option<u32>,
 }
 
-fn client(endpoint: &str) -> Client<OpenAIConfig> {
-    Client::with_config(
+/// Build the HTTP client for an endpoint with a whole-request `timeout`. reqwest's default is *no*
+/// timeout, so without one a hung backend stalls its caller forever; with it, the stall surfaces as
+/// a retryable timeout error. The panic on a client-build failure mirrors `reqwest::Client::new`
+/// (the path taken before this timeout existed): it fires only when the TLS backend cannot
+/// initialize, a build/environment defect, not a runtime condition.
+fn client(endpoint: &str, timeout: Duration) -> Client<OpenAIConfig> {
+    let http_client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .expect("the HTTP client builds; only TLS-backend initialization can fail here");
+    Client::build(
+        http_client,
         OpenAIConfig::new()
             .with_api_base(endpoint.trim_end_matches('/'))
             .with_api_key("unused"),
@@ -361,6 +392,9 @@ fn into_response(response: ChatResponse) -> Result<GenerateResponse, ModelError>
         .ok_or_else(|| ModelError::Backend {
             model: String::new(),
             message: "response contained no choices".to_owned(),
+            // A well-formed but empty response is a serving-layer contract violation, not a
+            // transport blip — retrying the same request is not expected to change it.
+            transient: false,
         })?;
     let reasoning = message
         .reasoning_content
@@ -395,12 +429,32 @@ fn into_completion(message: ChatMessage) -> Completion {
 }
 
 /// Map any backend error (async-openai's `OpenAIError` from the client or the request builders)
-/// into our model error. The model id is packed in at the `generate`/`embed` boundary via
-/// [`ModelError::with_model`], because this helper is called from free functions that don't hold `self`.
-fn backend(error: impl std::fmt::Display) -> ModelError {
+/// into our model error, classifying it as transient or not while the error is still structured.
+/// The model id is packed in at the `generate`/`embed` boundary via [`ModelError::with_model`],
+/// because this helper is called from free functions that don't hold `self`.
+fn backend(error: OpenAIError) -> ModelError {
     ModelError::Backend {
         model: String::new(),
+        transient: is_transient(&error),
         message: error.to_string(),
+    }
+}
+
+/// Whether a backend failure is transient at the transport level — worth retrying against the same
+/// endpoint. Transport failures (could not connect, timed out, the connection dropped mid-body) and
+/// overload/server statuses (408, 429, 5xx) are transient; everything else — request-builder and
+/// serde failures, auth and other 4xx statuses — reflects the request or the configuration and
+/// retries identically, so it is not.
+fn is_transient(error: &OpenAIError) -> bool {
+    match error {
+        OpenAIError::Reqwest(error) => error.is_connect() || error.is_timeout() || error.is_body(),
+        OpenAIError::ApiError(response) => {
+            let status = response.status_code;
+            status == StatusCode::REQUEST_TIMEOUT
+                || status == StatusCode::TOO_MANY_REQUESTS
+                || status.is_server_error()
+        }
+        _ => false,
     }
 }
 
@@ -408,9 +462,59 @@ fn backend(error: impl std::fmt::Display) -> ModelError {
 mod tests {
     //! The custom byot response type must deserialize the serving layer's `reasoning_content` and
     //! the full token usage that the standard `async-openai` type drops — the deliberation the
-    //! model-interaction record captures (spec §Observability).
-    use super::{ChatResponse, into_response};
+    //! model-interaction record captures (spec §Observability) — and the backend-error
+    //! classification must mark exactly the transport/overload failures transient.
+    use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
+    use reqwest::StatusCode;
+
+    use super::{ChatResponse, into_response, is_transient};
     use crate::model::{Completion, Usage};
+
+    fn api_error(status: StatusCode) -> OpenAIError {
+        OpenAIError::ApiError(ApiErrorResponse {
+            status_code: status,
+            api_error: ApiError {
+                message: "backend says no".to_owned(),
+                r#type: None,
+                param: None,
+                code: None,
+            },
+        })
+    }
+
+    #[test]
+    fn classifies_api_statuses() {
+        // Overload and server-side statuses are transient; request-side statuses are not.
+        for (status, expected) in [
+            (StatusCode::REQUEST_TIMEOUT, true),
+            (StatusCode::TOO_MANY_REQUESTS, true),
+            (StatusCode::INTERNAL_SERVER_ERROR, true),
+            (StatusCode::BAD_GATEWAY, true),
+            (StatusCode::SERVICE_UNAVAILABLE, true),
+            (StatusCode::BAD_REQUEST, false),
+            (StatusCode::UNAUTHORIZED, false),
+            (StatusCode::NOT_FOUND, false),
+            (StatusCode::UNPROCESSABLE_ENTITY, false),
+        ] {
+            assert_eq!(
+                is_transient(&api_error(status)),
+                expected,
+                "misclassified {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn builder_and_serde_failures_are_not_transient() {
+        assert!(!is_transient(&OpenAIError::InvalidArgument(
+            "missing model".to_owned()
+        )));
+        let serde_error = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        assert!(!is_transient(&OpenAIError::JSONDeserialize(
+            serde_error,
+            "not json".to_owned()
+        )));
+    }
 
     #[test]
     fn deserializes_reasoning_and_full_usage_from_a_reply() {

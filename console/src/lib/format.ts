@@ -14,6 +14,19 @@ export function formatMs(ms: number): string {
   return `${minutes}m${seconds.toString().padStart(2, "0")}s`;
 }
 
+/// A long span in milliseconds, compact to two units at most: `9660000` → `"2h41m"`, `2460000` →
+/// `"41m"`, `52000` → `"52s"`. For the eval frame's elapsed and total-duration readouts, where a soak
+/// runs for hours and a per-second `formatMs` would read as a wall of minutes.
+export function formatSpan(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h${minutes.toString().padStart(2, "0")}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
 /// A token count, abbreviated past a thousand: `21959` → `"22.0k"`.
 export function formatTokens(n: number): string {
   if (n < 1000) return `${Math.round(n)}`;

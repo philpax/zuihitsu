@@ -23,8 +23,17 @@ pub struct RunMeta {
     pub harness_version: String,
     /// The repository commit the harness ran at, when resolvable.
     pub git_sha: Option<String>,
+    /// Whether the working tree had uncommitted changes when the run started. Best-effort like
+    /// `git_sha`: an unavailable or failing git reads as clean. Added additively — an older package
+    /// without the field deserializes as `false`.
+    #[serde(default)]
+    pub git_dirty: bool,
     pub model_id: String,
     pub embedding_model: Option<String>,
+    /// The `--scenario` filter the run was targeted with, verbatim; absent for a full-suite run. Added
+    /// additively — an older package without the field deserializes as `None`.
+    #[serde(default)]
+    pub scenario_filter: Option<String>,
     /// Epoch milliseconds.
     #[ts(type = "number")]
     pub started_at_ms: i64,
@@ -65,14 +74,64 @@ pub enum Category {
     Description,
 }
 
-/// How a scenario's runs are judged (spec §Validation → gating versus measurement). A `Gating` bar is a
-/// must-not-surface safety oracle — one regression across N fails the harness. A `Metric` bar is a
+/// How a scenario's runs are judged (spec §Validation → gating versus measurement). A `Gating` bar
+/// fails the harness when the rate of held gating-kind verdicts falls below `min_rate`: at the
+/// default of 1.0 that is the one-slip discipline for must-not-surface safety properties, while a
+/// tolerance below 1.0 suits model-judgment behaviors with a known error band, where an occasional
+/// miss is expected but a systematic slide must still fail the run. A `Metric` bar is a
 /// should-mark/should-surface rate that is reported against `threshold` but never fails the run.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Bar {
-    Gating,
-    Metric { threshold: f64 },
+    Gating {
+        #[serde(default = "full_rate")]
+        min_rate: f64,
+    },
+    Metric {
+        threshold: f64,
+    },
+}
+
+/// The default gating tolerance: every gating verdict must hold.
+fn full_rate() -> f64 {
+    1.0
+}
+
+impl Bar {
+    /// The one-slip gating bar — every gating verdict must hold across every run.
+    pub fn gating() -> Self {
+        Bar::Gating { min_rate: 1.0 }
+    }
+
+    /// A gating bar with tolerance: the harness fails when the held rate of gating verdicts falls
+    /// below `min_rate`.
+    pub fn gating_at(min_rate: f64) -> Self {
+        Bar::Gating { min_rate }
+    }
+
+    /// The bar as judged, rendered for the trend record: `gating`, `gating>=<min_rate>` for a
+    /// tolerant gate, or `>=<threshold>` for a metric bar (e.g. `>=0.6`). The archive keeps the bar
+    /// each scenario was measured against so a later reader can tell a held gate from a met rate
+    /// without the package.
+    pub fn label(&self) -> String {
+        match self {
+            Bar::Gating { min_rate } if *min_rate >= 1.0 => "gating".to_owned(),
+            Bar::Gating { min_rate } => format!("gating>={min_rate}"),
+            Bar::Metric { threshold } => format!(">={threshold}"),
+        }
+    }
+
+    /// Whether a scenario's aggregate holds this bar for the harness's exit signal. At the default
+    /// tolerance the boolean gating signal decides (so packages predating `gating_rate` judge
+    /// correctly); below it, the held rate of gating verdicts is compared against `min_rate`. A
+    /// `Metric` bar never fails the run.
+    pub fn holds(&self, gating_rate: f64, gating_passed: bool) -> bool {
+        match self {
+            Bar::Gating { min_rate } if *min_rate >= 1.0 => gating_passed,
+            Bar::Gating { min_rate } => gating_rate >= *min_rate,
+            Bar::Metric { .. } => true,
+        }
+    }
 }
 
 /// One run: the run's whole event log (the deliberation and resulting state the viewer reconstructs),
@@ -80,6 +139,16 @@ pub enum Bar {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct RunRecord {
     pub index: u32,
+    /// The harness's wall-clock (epoch milliseconds) when the run began driving and when it finished.
+    /// The real clock, not the scenario's simulated one — for the viewer's live elapsed and projection.
+    /// `#[serde(default)]` fills `0` so a pre-timing sidecar or package still deserializes; a `0` reads
+    /// as "unstamped" and the viewer omits the per-run times rather than rendering an epoch.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub started_at_ms: i64,
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub finished_at_ms: i64,
     pub events: Vec<Event>,
     pub verdicts: Vec<Verdict>,
     pub metrics: RunMetrics,
@@ -246,6 +315,11 @@ pub struct Aggregate {
     pub rate: f64,
     /// True iff every gating oracle held in every run (the safety invariant; drives the exit code).
     pub gating_passed: bool,
+    /// The rate of runs whose gating oracles all held — what a tolerant gating bar's `min_rate` is
+    /// judged against. Defaults to 1.0 for packages predating the field; those are only ever judged
+    /// at the default tolerance, where the boolean signal decides.
+    #[serde(default = "full_rate")]
+    pub gating_rate: f64,
     /// The per-run drive wall-clock distribution (the truthful cost; see [`RunMetrics::wall_clock_ms`]).
     pub wall_clock_ms: Stat,
     pub latency_ms: Stat,
@@ -267,4 +341,37 @@ pub struct TokenStat {
     pub prompt_mean: f64,
     pub completion_mean: f64,
     pub total_mean: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunRecord;
+
+    /// A pre-timing package predates the wall-clock stamps; `#[serde(default)]` must fill `0` so the
+    /// old record still deserializes, and a `0` reads as "unstamped" for the viewer.
+    #[test]
+    fn a_run_record_without_stamps_defaults_them_to_zero() {
+        let old = r#"{"index":3,"events":[],"verdicts":[],"metrics":{"model_calls":0,"steps":0,"wall_clock_ms":0,"total_latency_ms":0,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"gating_passed":true}}"#;
+        let record: RunRecord = serde_json::from_str(old).expect("old-shape record parses");
+        assert_eq!(record.index, 3);
+        assert_eq!(record.started_at_ms, 0);
+        assert_eq!(record.finished_at_ms, 0);
+    }
+
+    /// A stamped record round-trips through JSON, carrying both wall-clock stamps.
+    #[test]
+    fn a_stamped_run_record_round_trips() {
+        let record = RunRecord {
+            index: 1,
+            started_at_ms: 1_700_000_000_000,
+            finished_at_ms: 1_700_000_042_000,
+            events: Vec::new(),
+            verdicts: Vec::new(),
+            metrics: super::RunMetrics::default(),
+        };
+        let json = serde_json::to_string(&record).expect("serializes");
+        let back: RunRecord = serde_json::from_str(&json).expect("round-trips");
+        assert_eq!(back.started_at_ms, 1_700_000_000_000);
+        assert_eq!(back.finished_at_ms, 1_700_000_042_000);
+    }
 }

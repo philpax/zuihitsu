@@ -7,17 +7,17 @@ use std::collections::BTreeSet;
 
 use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
-    agent::{TurnOutcome, TurnView, buffer_turns, session_touched},
-    event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
-    ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
+    agent::{
+        TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched,
+    },
+    event::PromptTemplateName,
+    ids::{ConversationId, ConversationLocator, MemoryId, Seq},
     memory::{
-        brief,
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
         memory_block::Authority,
     },
     model::ModelClient,
     settings::Settings,
-    vocabulary::RelationName,
 };
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
@@ -120,6 +120,12 @@ impl Platform<'_> {
             )
             .await?;
 
+        // A deferred turn skips the compaction check entirely: the model just proved unreachable,
+        // so the pre-compaction flush could not run anyway, and the buffer gained no agent turn.
+        if report.outcome == TurnOutcome::Deferred {
+            return Ok(report.outcome);
+        }
+
         // Token-triggered compaction: if the turn's peak prompt crossed the budget, end the session
         // now so the next message re-segments with a fresh brief and a carried tail (spec
         // §Compaction). The estimate fallback keeps the trigger meaningful when the backend reports
@@ -140,19 +146,43 @@ impl Platform<'_> {
             reported = report.prompt_tokens.is_some(),
             "compaction trigger check",
         );
-        if observed > token_budget {
-            self.end_session_for_compaction(conversation, model).await?;
+        if observed > token_budget
+            && let Err(error) = self.end_session_for_compaction(conversation, model).await
+        {
+            // The turn's outcome is already in hand; if the model went down between the reply and
+            // the compaction flush, deliver the reply rather than turning it into an error. The
+            // flush failed before `SessionEnded`, so the session is still open in the log — the
+            // next message's cold-start recovery resumes or closes it (the session was already
+            // taken out of the live map).
+            match &error {
+                InstanceError::Turn {
+                    error: TurnError::Model(model_error),
+                    ..
+                } if model_error.is_unavailable() => {
+                    tracing::warn!(
+                        %error,
+                        "the model became unreachable during the compaction flush; delivering \
+                         the reply and leaving the session for recovery"
+                    );
+                }
+                _ => return Err(error),
+            }
         }
         Ok(report.outcome)
     }
 
-    /// Note a participant arriving mid-session. If the room has a live session, this records a
+    /// Note a participant arriving mid-session — the explicit join path, for clients that deliver
+    /// presence changes as their own signal (the per-message presence sync in the turn path covers
+    /// those that only deliver messages). If the room has a live session, this records a
     /// `ParticipantJoined` and injects the joiner's brief — built against the now-present set, so the
     /// subject-guard suppresses asides about them — as a `system` turn at the join point, rather than
     /// rebuilding the frozen prompt (spec §Mid-conversation joins). A no-op if the room has never been
     /// seen or has no live session; the next message then opens a session with the joiner present.
-    pub fn note_join(
+    /// `model` feeds the joiner's describe catch-up before the brief composes; with none configured
+    /// the brief composes off the current prose — a slightly stale join-brief beats refusing the join.
+    pub async fn note_join(
         &self,
+        model: Option<&dyn ModelClient>,
         locator: &ConversationLocator,
         participant: &str,
     ) -> Result<(), InstanceError> {
@@ -186,48 +216,37 @@ impl Platform<'_> {
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
 
-        // The brief is filtered against the present set including the joiner, so the subject-guard
-        // fires for asides about them.
-        let mut present_set = self
+        self.server
+            .join_participant(model, conversation, session, joiner)
+            .await
+    }
+
+    /// Force the live session in `locator`'s room to end and compact right now, through the exact path
+    /// the token-budget trigger drives — the pre-compaction flush, the raw-transcript and working-set
+    /// carryover staging, and a fresh session seeded from that carryover on the next message. This
+    /// states the intent "cut here" directly, so a caller that wants a compaction seam at a chosen
+    /// point does not have to size a token budget so the organic trigger *happens* to fire. Returns
+    /// whether a live session was compacted — `false` if the room has never been seen or has no live
+    /// session.
+    pub async fn force_compaction(
+        &self,
+        model: &dyn ModelClient,
+        locator: &ConversationLocator,
+    ) -> Result<bool, InstanceError> {
+        let Some(conversation) = self
             .server
             .engine
             .graph
             .lock()
-            .session_participants(session)?;
-        if !present_set.contains(&joiner) {
-            present_set.push(joiner);
+            .conversation_for_locator(locator)?
+        else {
+            return Ok(false);
+        };
+        if self.server.sessions.get(conversation).is_none() {
+            return Ok(false);
         }
-        let now = self.server.engine.clock.now();
-        let join_brief = brief::compose_participant(
-            &self.server.engine.graph.lock(),
-            joiner,
-            &present_set,
-            &Settings::from_store(self.server.engine.store.lock().as_ref())?.brief,
-            now,
-        )?;
-
-        let turn_id = TurnId::generate();
-        self.server.engine.store.lock().append(
-            now,
-            vec![
-                EventPayload::participant_joined(conversation, session, joiner, turn_id),
-                EventPayload::ConversationTurn {
-                    conversation,
-                    turn_id,
-                    role: TurnRole::System,
-                    text: join_brief,
-                    participant: Some(joiner),
-                    initiation: Initiation::Responding,
-                    produced_by: None,
-                },
-            ],
-        )?;
-        self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
-        Ok(())
+        self.end_session_for_compaction(conversation, model).await?;
+        Ok(true)
     }
 
     /// End the live session because the buffer crossed the token budget, running the budget-gated
@@ -252,16 +271,22 @@ impl Platform<'_> {
             .flush_and_end(conversation, open.as_ref(), model)
             .await?;
 
-        // Re-read the buffer (now including any flush turn) for the carried tail, and assemble the
-        // working set (likewise after the flush, so its writes and _session_carryover flags are included).
-        let buffer = buffer_turns(
+        // Stage the next carryover from this session's *own* turns (those at or after its
+        // `SessionStarted`), not the whole buffer — so `from_seq` advances into the current session
+        // with each seam rather than sticking at the original carryover point (the buffer would
+        // otherwise re-span every session since it, unbounded, when the turns are small relative to the
+        // char budget). The prior carried tail has already served its continuity; the token-budget
+        // compaction bounds this session's own turns, and `carryover_tail` trims them to the char
+        // budget. The read starts at this session's own start (an empty carried tail).
+        let own = bounded_buffer_turns(
             self.server.engine.store.lock().as_ref(),
             conversation,
-            open.start_seq,
+            open.session_start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
         )?;
         let working_set = self.compaction_working_set(conversation, open.start_seq)?;
-        if let Some(mut carry) = carryover_tail(&buffer, settings.compaction.carryover_char_budget)
-        {
+        if let Some(mut carry) = carryover_tail(&own, settings.compaction.carryover_char_budget) {
             carry.working_set = working_set;
             self.server.sessions.insert_carryover(conversation, carry);
         }
@@ -276,10 +301,11 @@ impl Platform<'_> {
     }
 
     /// The working set carried across a compaction seam (spec §Compaction → working-set carryover):
-    /// the context's `_session_carryover`-flagged threads first — deliberate "keep this live" signals,
-    /// promoted to first-class survivors — then the touch-derived set, deduped. (The third source,
-    /// the brief's recent facts, the brief adds itself.) Read after the flush, which is what sets the
-    /// `_session_carryover` flags and records the touches.
+    /// the session's touch-derived set — every memory ID it read or wrote, taken from the per-block
+    /// `touched` sets on its `LuaExecuted` events. (The other source, the brief's recent facts, the
+    /// brief adds itself.) Read after the flush, so its own reads and writes count too. Purely
+    /// platform-derived: no agent-managed link flags on the semantic graph, which would strand stale
+    /// "keep live" markers when a thread closes without an explicit clear.
     fn compaction_working_set(
         &self,
         conversation: ConversationId,
@@ -287,27 +313,6 @@ impl Platform<'_> {
     ) -> Result<Vec<MemoryId>, InstanceError> {
         let mut working_set = Vec::new();
         let mut seen = BTreeSet::new();
-        // Resolve the context and its active threads up front, each releasing the graph guard before
-        // the next read, so the lock (not reentrant) is never held while re-acquired.
-        let context = self
-            .server
-            .engine
-            .graph
-            .lock()
-            .context_for_conversation(conversation)?;
-        if let Some(context) = context {
-            let actives = self
-                .server
-                .engine
-                .graph
-                .lock()
-                .outgoing(context, RelationName::SessionCarries.as_str())?;
-            for memory in actives {
-                if seen.insert(memory.id) {
-                    working_set.push(memory.id);
-                }
-            }
-        }
         let touched = session_touched(
             self.server.engine.store.lock().as_ref(),
             conversation,
@@ -327,18 +332,8 @@ impl Platform<'_> {
 /// the immediate conversational thread survives the seam, then older turns are added while they fit.
 /// Returns the oldest carried turn as the carryover extent, or `None` for an empty buffer.
 fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<Carryover> {
-    let char_budget = char_budget.max(0) as usize;
-    let mut total = 0usize;
-    let mut oldest: Option<&TurnView> = None;
-    for turn in buffer.iter().rev() {
-        let next = total.saturating_add(turn.text.chars().count());
-        if oldest.is_some() && next > char_budget {
-            break;
-        }
-        total = next;
-        oldest = Some(turn);
-    }
-    oldest.map(|turn| Carryover {
+    let start = carryover_start(buffer, char_budget);
+    buffer.get(start).map(|turn| Carryover {
         seeded_from_turn: turn.turn_id,
         from_seq: turn.seq,
         // Filled in by the caller, which has the session's touched set.
@@ -361,7 +356,7 @@ fn estimate_tokens(buffer: &[TurnView], inbound: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ids::TurnId, time::Timestamp};
+    use crate::{event::TurnRole, ids::TurnId, time::Timestamp};
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {
@@ -372,6 +367,7 @@ mod tests {
             participant: None,
             recorded_at: Timestamp::from_millis(0),
             steps: Vec::new(),
+            produced_by: None,
         }
     }
 
@@ -400,6 +396,19 @@ mod tests {
     #[test]
     fn carryover_tail_of_an_empty_buffer_is_none() {
         assert!(carryover_tail(&[], 100).is_none());
+    }
+
+    #[test]
+    fn carryover_start_indexes_the_oldest_turn_that_fits() {
+        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
+        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, not "aaaa" — the kept tail starts at index 1.
+        assert_eq!(carryover_start(&buffer, 6), 1);
+        // A budget below the newest turn still keeps it (index 2), never an empty tail.
+        assert_eq!(carryover_start(&buffer, 0), 2);
+        // A budget the whole buffer fits keeps everything (index 0).
+        assert_eq!(carryover_start(&buffer, 1_000), 0);
+        // An empty slice keeps nothing — the past-the-end index.
+        assert_eq!(carryover_start(&[], 100), 0);
     }
 
     #[test]

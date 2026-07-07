@@ -22,7 +22,6 @@ use std::{
     path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use clap::{Parser, Subcommand};
@@ -34,7 +33,7 @@ use crate::{
     context::RunDeps,
     error::EvalError,
     live::{EvalSink, LiveEvent},
-    package::{EvalPackage, RunMeta, ScenarioMeta},
+    package::{EvalPackage, RunMeta, ScenarioMeta, ScenarioReport, VerdictKind},
     retry::{RetryingEmbedder, RetryingModel},
 };
 
@@ -104,6 +103,11 @@ enum Command {
         /// Dump the failed runs' deliberation traces instead of the summary.
         #[arg(long, short)]
         failures: bool,
+        /// Print the relation-vocabulary projection instead of the summary: every relation used, whether
+        /// it was seeded at genesis, its use count and namespace shapes, and the relations coined outside
+        /// genesis (the drift signal). Respects `--scenario`.
+        #[arg(long, short = 'r')]
+        relations: bool,
         /// Restrict to scenarios whose name contains this substring.
         #[arg(long, short)]
         scenario: Option<String>,
@@ -131,19 +135,21 @@ async fn main() -> ExitCode {
             package,
             baseline,
             failures,
+            relations,
             scenario,
             events,
             limit,
             truncate,
-        } => match analyze::analyze(
-            &package,
-            baseline.as_deref(),
+        } => match analyze::analyze(analyze::AnalyzeRequest {
+            package: &package,
+            baseline: baseline.as_deref(),
             failures,
-            scenario.as_deref(),
-            events.as_deref(),
+            relations,
+            scenario: scenario.as_deref(),
+            events: events.as_deref(),
             limit,
             truncate,
-        ) {
+        }) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 tracing::error!("{error}");
@@ -218,7 +224,14 @@ fn list_scenarios() -> ExitCode {
             prev_category = Some(meta.category);
         }
         let bar = match meta.bar {
-            package::Bar::Gating => format!("{bar_gating}gating{bar_gating:#}"),
+            package::Bar::Gating { min_rate } if min_rate >= 1.0 => {
+                format!("{bar_gating}gating{bar_gating:#}")
+            }
+            package::Bar::Gating {
+                min_rate: threshold,
+            } => {
+                format!("{bar_gating}gate ≥{threshold:.2}{bar_gating:#}")
+            }
             package::Bar::Metric { threshold } => {
                 format!("{bar_metric}metric (≥{threshold:.1}){bar_metric:#}")
             }
@@ -235,11 +248,19 @@ fn export_types(dir: &Path) -> ExitCode {
     // the shared types regenerate identically); the console consumes both. The namespace types are
     // not transitively referenced by any event payload, so they are exported explicitly — the console
     // uses them to construct and decompose memory names without hardcoding the `person/` prefix.
-    use zuihitsu::ids::{Namespace, NamespacedMemoryName};
+    // `TurnOutcome` (the `/platform/message` wire outcome, whose `Deferred` variant the composer
+    // reads) and `BackendHealth` (the `/control/health` transport surface the degraded-backend
+    // banner polls) are likewise outside the event trees, so they export explicitly too.
+    use zuihitsu::{
+        BackendHealth, TurnOutcome,
+        ids::{Namespace, NamespacedMemoryName},
+    };
     match EvalPackage::export_all_to(dir)
         .and_then(|()| LiveEvent::export_all_to(dir))
         .and_then(|()| Namespace::export_all_to(dir))
         .and_then(|()| NamespacedMemoryName::export_all_to(dir))
+        .and_then(|()| TurnOutcome::export_all_to(dir))
+        .and_then(|()| BackendHealth::export_all_to(dir))
     {
         Ok(()) => {
             println!(
@@ -308,8 +329,25 @@ async fn run_named(
     {
         return Err(EvalError::BadName(name.to_owned()));
     }
-    let out = Path::new(EVAL_DIR).join(format!("{name}.json"));
-    run(runs, concurrency, filter, &out, config_path, resume, serve).await
+    let path = Path::new(EVAL_DIR).join(format!("{name}.json"));
+    run(
+        runs,
+        concurrency,
+        filter,
+        RunOutput { name, path: &path },
+        config_path,
+        resume,
+        serve,
+    )
+    .await
+}
+
+/// Where a run's artifacts are filed: the run `name` (the trend record correlates a line back to its
+/// package by it) and its resolved `eval/<name>.json` path. The two travel together — the name names
+/// the run and the path is derived from it — so they ride as one parameter rather than two.
+struct RunOutput<'a> {
+    name: &'a str,
+    path: &'a Path,
 }
 
 /// Run the suite; returns whether every gating oracle held (the exit-code signal).
@@ -317,11 +355,12 @@ async fn run(
     runs: u32,
     concurrency: usize,
     filter: Option<&str>,
-    out: &Path,
+    output: RunOutput<'_>,
     config_path: &Path,
     resume: bool,
     serve: ServeConfig,
 ) -> Result<bool, EvalError> {
+    let RunOutput { name, path: out } = output;
     let config = EnvConfig::load(config_path).map_err(|source| EvalError::LoadConfig {
         path: config_path.to_path_buf(),
         source: Box::new(source),
@@ -375,13 +414,15 @@ async fn run(
     let active = harness::active_scenarios(scenarios, deps.embedder.is_some());
     let scenario_metas: Vec<ScenarioMeta> = active.iter().map(|scenario| scenario.meta()).collect();
 
-    let started_at_ms = now_ms();
+    let started_at_ms = live::now_ms();
     let meta = RunMeta {
         harness_version: env!("CARGO_PKG_VERSION").to_owned(),
         git_sha: git_sha(),
+        git_dirty: git_dirty(),
         model_id: config.model.llm.clone(),
         embedding_model: (!config.embedding.endpoint.is_empty())
             .then(|| config.embedding.model.clone()),
+        scenario_filter: filter.map(str::to_owned),
         started_at_ms,
         // Stamped for real on `finish`; the manifest carries the start so the viewer has a clock.
         finished_at_ms: started_at_ms,
@@ -423,14 +464,16 @@ async fn run(
     harness::warm_up(&deps).await;
 
     harness::run_all(deps, active, runs, concurrency, sink.clone(), done).await?;
-    sink.finish(now_ms())?;
+    sink.finish(live::now_ms())?;
 
     let package = sink.package();
 
-    let all_gates_held = package
-        .scenarios
-        .iter()
-        .all(|report| report.aggregate.gating_passed);
+    let all_gates_held = package.scenarios.iter().all(|report| {
+        report
+            .meta
+            .bar
+            .holds(report.aggregate.gating_rate, report.aggregate.gating_passed)
+    });
     for report in &package.scenarios {
         tracing::info!(
             scenario = %report.meta.name,
@@ -445,7 +488,7 @@ async fn run(
     // Fold to the canonical package, then drop the sidecar — write fully before unlinking, so a crash
     // between leaves either a resumable sidecar or a complete package, never neither.
     write_package(&package, out)?;
-    append_history(&package)?;
+    append_history(name, &package)?;
     std::fs::remove_file(&sidecar).ok();
 
     // Only with `--serve-after-completion` does the process stay up after the run, so the operator can
@@ -491,53 +534,132 @@ fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
     Ok(())
 }
 
-fn append_history(package: &EvalPackage) -> Result<(), EvalError> {
-    use std::io::Write as _;
+/// The v2 trend record: one compact, deterministically-ordered line per run, appended to the tracked
+/// history (spec §Validation → the tracked metrics trend). Carries the run's `name` so a record
+/// correlates back to its `eval/<name>.json` package, real wall-clock stamps, the git state it ran at,
+/// and, per scenario, the bar it was judged against and the per-criterion pass tallies for aggregate
+/// analysis.
+#[derive(Serialize)]
+struct HistoryLine {
+    name: String,
+    /// Epoch milliseconds — the real wall-clock span (`ts_ms` is retired in favor of these).
+    started_at_ms: i64,
+    finished_at_ms: i64,
+    /// The commit the run ran at, or the empty string when git could not resolve one (best-effort).
+    git_sha: String,
+    /// Whether the working tree had uncommitted changes when the run started.
+    git_dirty: bool,
+    model_id: String,
+    runs_per_scenario: u32,
+    /// The `--scenario` filter the run was targeted with; omitted for a full-suite run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scenario_filter: Option<String>,
+    scenarios: Vec<HistoryScenario>,
+}
 
-    /// One compact, deterministically-ordered line per run, appended to the tracked history (spec
-    /// §Validation → the tracked metrics trend).
-    #[derive(Serialize)]
-    struct HistoryLine {
-        ts_ms: i64,
-        git_sha: Option<String>,
-        model_id: String,
-        runs_per_scenario: u32,
-        scenarios: Vec<HistoryScenario>,
-    }
+#[derive(Serialize)]
+struct HistoryScenario {
+    name: String,
+    rate: f64,
+    gating_passed: bool,
+    /// Runs actually completed for this scenario — resume can make this differ from `runs_per_scenario`.
+    runs: u32,
+    /// The bar this scenario was judged against, rendered (e.g. `gating` or `>=0.6`).
+    bar: String,
+    wall_clock_p50_ms: u64,
+    latency_p50_ms: u64,
+    /// The median per-run step count.
+    steps_p50: f64,
+    total_tokens_mean: u64,
+    /// Per-criterion pass tallies aggregated across the scenario's runs.
+    criteria: Vec<CriterionStat>,
+}
 
-    #[derive(Serialize)]
-    struct HistoryScenario {
-        name: String,
-        rate: f64,
-        gating_passed: bool,
-        wall_clock_p50_ms: u64,
-        latency_p50_ms: u64,
-        total_tokens_mean: u64,
-        prompt_tokens_mean: u64,
-        completion_tokens_mean: u64,
-    }
+/// One criterion's pass tally across a scenario's runs: how many of the `total` runs that judged it
+/// passed. `kind` distinguishes a gating oracle from a reported metric.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CriterionStat {
+    criterion: String,
+    kind: String,
+    passed: u32,
+    total: u32,
+}
 
-    let line = HistoryLine {
-        ts_ms: package.meta.finished_at_ms,
-        git_sha: package.meta.git_sha.clone(),
+/// Build the v2 history line for a completed run.
+fn history_line(name: &str, package: &EvalPackage) -> HistoryLine {
+    HistoryLine {
+        name: name.to_owned(),
+        started_at_ms: package.meta.started_at_ms,
+        finished_at_ms: package.meta.finished_at_ms,
+        git_sha: package.meta.git_sha.clone().unwrap_or_default(),
+        git_dirty: package.meta.git_dirty,
         model_id: package.meta.model_id.clone(),
         runs_per_scenario: package.meta.runs_per_scenario,
+        scenario_filter: package.meta.scenario_filter.clone(),
         scenarios: package
             .scenarios
             .iter()
-            .map(|report| HistoryScenario {
-                name: report.meta.name.clone(),
-                // Round so an unchanged result produces an identical line (clean diffs/appends).
-                rate: (report.aggregate.rate * 1000.0).round() / 1000.0,
-                gating_passed: report.aggregate.gating_passed,
-                wall_clock_p50_ms: report.aggregate.wall_clock_ms.p50.round() as u64,
-                latency_p50_ms: report.aggregate.latency_ms.p50.round() as u64,
-                total_tokens_mean: report.aggregate.tokens.total_mean.round() as u64,
-                prompt_tokens_mean: report.aggregate.tokens.prompt_mean.round() as u64,
-                completion_tokens_mean: report.aggregate.tokens.completion_mean.round() as u64,
+            .map(|report| {
+                let steps: Vec<f64> = report
+                    .runs
+                    .iter()
+                    .map(|run| run.metrics.steps as f64)
+                    .collect();
+                HistoryScenario {
+                    name: report.meta.name.clone(),
+                    // Round so an unchanged result produces an identical line (clean diffs/appends).
+                    rate: (report.aggregate.rate * 1000.0).round() / 1000.0,
+                    gating_passed: report.aggregate.gating_passed,
+                    runs: report.aggregate.runs,
+                    bar: report.meta.bar.label(),
+                    wall_clock_p50_ms: report.aggregate.wall_clock_ms.p50.round() as u64,
+                    latency_p50_ms: report.aggregate.latency_ms.p50.round() as u64,
+                    steps_p50: harness::percentile(&steps, 0.50),
+                    total_tokens_mean: report.aggregate.tokens.total_mean.round() as u64,
+                    criteria: criteria_stats(report),
+                }
             })
             .collect(),
-    };
+    }
+}
+
+/// Aggregate the per-criterion pass tallies across a scenario's runs, keyed by `(criterion, kind)` and
+/// ordered deterministically (by criterion, then kind) so an unchanged result produces an identical
+/// line. A criterion's `total` counts the runs that judged it, and `passed` those where it held.
+fn criteria_stats(report: &ScenarioReport) -> Vec<CriterionStat> {
+    use std::collections::BTreeMap;
+
+    let mut tallies: BTreeMap<(String, &'static str), (u32, u32)> = BTreeMap::new();
+    for run in &report.runs {
+        for verdict in &run.verdicts {
+            let kind = match verdict.kind {
+                VerdictKind::Oracle => "oracle",
+                VerdictKind::Metric => "metric",
+            };
+            let entry = tallies
+                .entry((verdict.criterion.clone(), kind))
+                .or_default();
+            entry.1 += 1;
+            if verdict.passed {
+                entry.0 += 1;
+            }
+        }
+    }
+    tallies
+        .into_iter()
+        .map(|((criterion, kind), (passed, total))| CriterionStat {
+            criterion,
+            kind: kind.to_owned(),
+            passed,
+            total,
+        })
+        .collect()
+}
+
+fn append_history(name: &str, package: &EvalPackage) -> Result<(), EvalError> {
+    use std::io::Write as _;
+
+    let line = history_line(name, package);
     let path = Path::new("eval/history.jsonl");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| EvalError::WriteOutput {
@@ -574,11 +696,19 @@ fn git_sha() -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or(0)
+/// Whether the working tree had uncommitted changes to tracked files — `git status --porcelain`
+/// with untracked files excluded, since a stray scratch file would otherwise flag every run dirty
+/// forever and drain the flag of meaning; only tracked modifications can differ from the recorded
+/// sha. Best-effort like [`git_sha`]: an unavailable or failing git reads as clean, so a run outside
+/// a repository does not falsely flag itself dirty.
+fn git_dirty() -> bool {
+    let Ok(output) = std::process::Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=no"])
+        .output()
+    else {
+        return false;
+    };
+    output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
 }
 
 fn init_tracing() {
@@ -591,29 +721,4 @@ fn init_tracing() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{DEFAULT_SERVE_ADDR, resolve_serve};
-
-    #[test]
-    fn serving_is_on_by_default_and_stops_at_completion() {
-        let cfg = resolve_serve(None, false, false);
-        assert_eq!(cfg.addr, Some(DEFAULT_SERVE_ADDR.parse().unwrap()));
-        assert!(!cfg.after_completion);
-    }
-
-    #[test]
-    fn no_serve_disables_serving() {
-        assert_eq!(resolve_serve(None, true, false).addr, None);
-    }
-
-    #[test]
-    fn an_explicit_address_overrides_the_default() {
-        let addr = "0.0.0.0:9000".parse().unwrap();
-        assert_eq!(resolve_serve(Some(addr), false, false).addr, Some(addr));
-    }
-
-    #[test]
-    fn serve_after_completion_is_carried_through() {
-        assert!(resolve_serve(None, false, true).after_completion);
-    }
-}
+mod tests;

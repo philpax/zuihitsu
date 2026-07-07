@@ -10,8 +10,8 @@ use zuihitsu::{
     BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Event, EventPayload,
     InferredLink, InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace,
     NewRelationSpec, OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq,
-    TerminalCause, Timestamp, ToolCall, TurnOutcome, TurnReport, TurnRole, Usage, buffer_turns,
-    genesis, run_turn,
+    TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole, Usage,
+    buffer_turns, genesis, run_turn,
 };
 
 fn seed() -> SeedSelf {
@@ -85,6 +85,67 @@ async fn tool_call_then_reply_commits_and_replies() {
             .iter()
             .any(|e| matches!(e.payload, EventPayload::LuaExecuted { .. }))
     );
+}
+
+/// The verbatim special-token leak observed in the wild: a pseudo-tool-call the model transcribed as
+/// plain reply text at the forced-answer step.
+const MALFORMED_REPLY: &str =
+    "<|tool_call>call:run_lua{script:<|\"|>memory.search(\"decided\")<|\"|>}<tool_call|>";
+
+/// Whether any recorded `ConversationTurn` carries the special-token markup — the invariant the guard
+/// protects: such markup must never reach a persisted turn, and so never a participant.
+fn any_turn_contains(events: &[Event], needle: &str) -> bool {
+    events.iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::ConversationTurn { text, .. } if text.contains(needle)
+        )
+    })
+}
+
+#[tokio::test]
+async fn a_malformed_reply_is_resampled_and_the_clean_retry_lands() {
+    let h = Harness::new();
+    // The first completion leaks special-token markup; the guard resamples the same step, and the
+    // clean retry is what the participant receives.
+    let model = ScriptedModel::new([
+        Completion::Reply(MALFORMED_REPLY.to_owned()),
+        Completion::Reply("Noted — I'll remember that.".to_owned()),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "What did we decide?", 8))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        TurnOutcome::Reply("Noted — I'll remember that.".to_owned())
+    );
+    // Exactly one agent turn recorded, and the markup appears in no ConversationTurn.
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    assert!(!any_turn_contains(&h.events(), "<|"));
+    assert!(!any_turn_contains(&h.events(), "|>"));
+}
+
+#[tokio::test]
+async fn two_consecutive_malformed_replies_fall_to_the_silent_terminal() {
+    let h = Harness::new();
+    // Both the initial reply and its resample leak markup; the guard delivers silence rather than
+    // markup, and the malformed text is recorded nowhere.
+    let model = ScriptedModel::new([
+        Completion::Reply(MALFORMED_REPLY.to_owned()),
+        Completion::Reply(MALFORMED_REPLY.to_owned()),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "What did we decide?", 8))
+        .await
+        .unwrap();
+
+    assert_eq!(outcome, TurnOutcome::Silent);
+    // A single (empty) agent turn stands for the silent terminal, and the markup is nowhere in the log.
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    assert!(!any_turn_contains(&h.events(), "<|"));
+    assert!(!any_turn_contains(&h.events(), "|>"));
 }
 
 #[tokio::test]
@@ -242,8 +303,6 @@ struct SynthesizeReply {
     description: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     occurrences: Vec<SynthesizeOccurrence>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    arbitration: Option<SynthesizeArbitration>,
 }
 
 impl SynthesizeReply {
@@ -251,17 +310,11 @@ impl SynthesizeReply {
         SynthesizeReply {
             description: text.into(),
             occurrences: Vec::new(),
-            arbitration: None,
         }
     }
 
     fn with_occurrence(mut self, occurrence: SynthesizeOccurrence) -> Self {
         self.occurrences.push(occurrence);
-        self
-    }
-
-    fn with_arbitration(mut self, arbitration: SynthesizeArbitration) -> Self {
-        self.arbitration = Some(arbitration);
         self
     }
 }
@@ -292,6 +345,14 @@ impl SynthesizeTime {
     fn day(day: impl Into<String>) -> Self {
         SynthesizeTime::Day { day: day.into() }
     }
+}
+
+/// The focused arbitration call's reply: the describe pass now poses the pairwise-contradiction check
+/// as its own model call, separate from the description rewrite, so a memory with two or more public
+/// entries drives two synthesis calls — a description `synthesize_call`, then this `arbitrate_call`.
+/// The reply is the bare `ExtractedArbitration`-shaped object (see `src/agent/turn/describe.rs`).
+fn arbitrate_call(arbitration: SynthesizeArbitration) -> Completion {
+    Completion::Reply(serde_json::to_string(&arbitration).unwrap())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,7 +390,12 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
     h.baseline_descriptions();
 
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create(PERSON_DAVE, "Met Dave last Tuesday")"#),
+        // The dated fact is a real appended entry, not the create description — a create's description
+        // mirror is exempt from temporal extraction, so a statement to resolve must be an actual entry.
+        run_lua_call(
+            r#"local dave = memory.create(PERSON_DAVE)
+               dave:append("Met Dave last Tuesday", { visibility = "public" })"#,
+        ),
         Completion::Reply("Noted.".to_owned()),
         // The synthesis call resolves statement 1's "last Tuesday" to a concrete day.
         synthesize_call(
@@ -435,16 +501,14 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
                d:append("Dave works at Hooli", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
-        // Statements 1 and 2 conflict; the synthesis credits the second.
-        synthesize_call(
-            SynthesizeReply::description("Dave works at Hooli.").with_arbitration(
-                SynthesizeArbitration {
-                    competing: vec![1, 2],
-                    credited: vec![2],
-                    statement: "Credited the more recent: Dave works at Hooli.".to_owned(),
-                },
-            ),
-        ),
+        // The description call, then the focused arbitration call: statements 1 and 2 conflict, and the
+        // arbitration credits the second.
+        synthesize_call(SynthesizeReply::description("Dave works at Hooli.")),
+        arbitrate_call(SynthesizeArbitration {
+            competing: vec![1, 2],
+            credited: vec![2],
+            statement: "Credited the more recent: Dave works at Hooli.".to_owned(),
+        }),
     ]);
     run_turn(h.as_turn(&model, "Where does Dave work?", 8))
         .await
@@ -498,23 +562,214 @@ async fn a_single_sided_arbitration_is_dropped() {
         .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
 
+    h.baseline_descriptions();
+
+    // Two public entries put the arbitration call in play, but the arbitration names only one competing
+    // statement — not a real conflict, so [`arbitration_event`]'s >= 2 validation drops it.
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create(PERSON_DAVE, "Met Dave")"#),
+        run_lua_call(
+            r#"local d = memory.create(PERSON_DAVE)
+               d:append("Dave works at Acme", { by_agent = true, visibility = "public" })
+               d:append("Dave is a climber", { by_agent = true, visibility = "public" })"#,
+        ),
         Completion::Reply("Noted.".to_owned()),
-        // Only one "competing" statement — not a real conflict, so nothing is recorded.
-        synthesize_call(SynthesizeReply::description("Dave.").with_arbitration(
-            SynthesizeArbitration {
-                competing: vec![1],
-                credited: vec![1],
-                statement: "only one side".to_owned(),
-            },
-        )),
+        synthesize_call(SynthesizeReply::description("Dave.")),
+        arbitrate_call(SynthesizeArbitration {
+            competing: vec![1],
+            credited: vec![1],
+            statement: "only one side".to_owned(),
+        }),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
         .await
         .unwrap();
+    h.describe(&model).await;
 
     assert!(belief_arbitrations(&h.events()).is_empty());
+}
+
+#[tokio::test]
+async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
+    // The conflicting-accounts shape the eval missed in 3 of 5 runs: two accounts of one fact stand
+    // as sibling public entries, and a neutral third entry (the event's own title) sits alongside
+    // them. The synthesis prompt now closes with an explicit pairwise contradiction check over the
+    // numbered statements, so the scripted model pairs statements 2 and 3 while crediting neither,
+    // and a `BeliefArbitrated` with an empty `credited` lands. Both the emitted event and the shape
+    // of the prompt the pass sent are asserted, since the fix is a prompt change.
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // One neutral title entry and two conflicting location accounts (in the live scenario these
+    // arrive from two tellers across turns; here the memory's public entries are scripted directly).
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local e = memory.create(EVENT_ALL_HANDS)
+               e:append("The all-hands meeting", { by_agent = true, visibility = "public" })
+               e:append("Located in the main auditorium", { by_agent = true, visibility = "public" })
+               e:append("Located in the rooftop terrace", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // The description call, then the focused arbitration call: the neutral statement 1 stands apart;
+        // statements 2 and 3 collide, and neither is yet known to be right, so `credited` is left empty.
+        synthesize_call(SynthesizeReply::description(
+            "The all-hands meeting, reported in either the main auditorium or the rooftop \
+             terrace — the accounts disagree.",
+        )),
+        arbitrate_call(SynthesizeArbitration {
+            competing: vec![2, 3],
+            credited: vec![],
+            statement: "Two standing accounts of the location: the main auditorium and the \
+                        rooftop terrace, neither retracted."
+                .to_owned(),
+        }),
+    ]);
+    run_turn(h.as_turn(&model, "Where is the all-hands?", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let all_hands = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("all-hands"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(all_hands.id).unwrap();
+    let arbitrations = belief_arbitrations(&h.events());
+    assert_eq!(arbitrations.len(), 1);
+    let EventPayload::BeliefArbitrated {
+        memory,
+        competing_entries,
+        resolution,
+        ..
+    } = &arbitrations[0]
+    else {
+        unreachable!();
+    };
+    assert_eq!(*memory, all_hands.id);
+    // The two conflicting statements (2 and 3) resolved to their entries; the neutral first entry is
+    // not among them.
+    assert_eq!(
+        *competing_entries,
+        vec![entries[1].entry_id, entries[2].entry_id]
+    );
+    // Both accounts stand: neither is credited above the other.
+    assert!(resolution.credited.is_empty());
+
+    // The pass posed the contradiction question over the numbered statements: the synthesis prompt
+    // carries the numbered statements and the explicit pairwise contradiction ask.
+    let prompts: Vec<String> = model
+        .recorded_messages()
+        .iter()
+        .flatten()
+        .map(|message| message.content.clone())
+        .collect();
+    assert!(
+        prompts.iter().any(|p| {
+            p.contains("1. [from ")
+                && p.contains("] The all-hands meeting")
+                && p.contains("] Located in the main auditorium")
+                && p.contains("] Located in the rooftop terrace")
+                && p.contains("2. [from ")
+                && p.contains("3. [from ")
+                && p.contains("incompatible values for the same fact")
+        }),
+        "the synthesis prompt must number the statements and pose the contradiction check: {prompts:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_both_stand_arbitration_survives_a_null_credited() {
+    // The conflicting-accounts drop path: two accounts of one fact stand as sibling public entries and
+    // the synthesis flags them, but — crediting neither — the model expresses the empty `credited` by
+    // emitting `null` rather than `[]`. A strict sub-object parse would throw the whole conflict away
+    // over exactly the both-stand shape the scenario tests; the lenient salvage keeps it, so a
+    // `BeliefArbitrated` with an empty `credited` still lands. The reply is hand-built JSON so
+    // `credited` is a literal `null`, which the typed harness reply cannot express.
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local e = memory.create(EVENT_ALL_HANDS)
+               e:append("Located in the main auditorium", { by_agent = true, visibility = "public" })
+               e:append("Located in the rooftop terrace", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(SynthesizeReply::description(
+            "The all-hands, reported in either the main auditorium or the rooftop terrace — the \
+             accounts disagree.",
+        )),
+        // The focused arbitration reply: statements 1 and 2 collide; `credited` is a literal `null`,
+        // the loose way a model says "neither", which the typed harness reply cannot express — so this
+        // one is hand-built JSON.
+        Completion::Reply(
+            r#"{
+                "competing": [1, 2],
+                "credited": null,
+                "statement": "Two standing accounts of the location, neither retracted."
+            }"#
+            .to_owned(),
+        ),
+    ]);
+    run_turn(h.as_turn(&model, "Where is the all-hands?", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let all_hands = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("all-hands"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(all_hands.id).unwrap();
+    let arbitrations = belief_arbitrations(&h.events());
+    assert_eq!(arbitrations.len(), 1);
+    let EventPayload::BeliefArbitrated {
+        memory,
+        competing_entries,
+        resolution,
+        ..
+    } = &arbitrations[0]
+    else {
+        unreachable!();
+    };
+    assert_eq!(*memory, all_hands.id);
+    assert_eq!(
+        *competing_entries,
+        vec![entries[0].entry_id, entries[1].entry_id]
+    );
+    // The null `credited` salvaged to an empty set: both accounts stand.
+    assert!(resolution.credited.is_empty());
 }
 
 #[tokio::test]
@@ -640,7 +895,7 @@ async fn agent_turns_record_their_provenance() {
         .expect("the agent turn records its provenance");
     assert_eq!(provenance.model_id, "scripted-model");
     assert_eq!(provenance.template_name, PromptTemplateName::Scaffold);
-    assert_eq!(provenance.template_version, 1);
+    assert_eq!(provenance.template_version, 11);
 }
 
 #[tokio::test]
@@ -685,6 +940,78 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
         )
     });
     assert!(surfaced);
+}
+
+/// The nearing-budget nudge (a system message telling the model to wrap up) lands exactly once, on
+/// the step two before the bound, and persists into the frames after it — so the model gets the
+/// legibility warning without it being re-appended every remaining step.
+#[tokio::test]
+async fn the_nearing_budget_nudge_lands_once_at_max_minus_two() {
+    let h = Harness::new();
+    // max_steps = 3: the nudge is due before step index 1 (max_steps - 2).
+    let model = ScriptedModel::new([
+        run_lua_call("return 1"),
+        run_lua_call("return 2"),
+        Completion::Reply("done".to_owned()),
+    ]);
+
+    run_turn(h.as_turn(&model, "go", 3)).await.unwrap();
+
+    let nudge = "two steps remain in this turn";
+    let count = |messages: &[Message]| {
+        messages
+            .iter()
+            .filter(|m| m.content.contains(nudge))
+            .count()
+    };
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), 3, "three generate calls");
+    assert_eq!(count(&seen[0]), 0, "no nudge before the max-2 step");
+    assert_eq!(count(&seen[1]), 1, "the nudge lands on the max-2 step");
+    assert_eq!(count(&seen[2]), 1, "it persists once, not re-appended");
+}
+
+/// On the final step the loop withdraws the tools (`ToolChoice::None`) so the model must answer with
+/// what it has, and that text terminates the turn as an ordinary `Reply` — not a `MaxStepsExceeded`.
+#[tokio::test]
+async fn the_final_step_forces_a_textual_answer() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call("return 1"),
+        run_lua_call("return 2"),
+        Completion::Reply("here is what I found".to_owned()),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "go", 3)).await.unwrap();
+
+    assert_eq!(
+        outcome,
+        TurnOutcome::Reply("here is what I found".to_owned())
+    );
+    // The earlier steps let the model choose; only the final step withdraws the tools.
+    assert_eq!(
+        model.recorded_tool_choices(),
+        vec![ToolChoice::Auto, ToolChoice::Auto, ToolChoice::None],
+    );
+}
+
+/// The forced final answer is a nudge, not a guarantee: a model that still produces no text on the
+/// final step (a tool call, defying the withdrawn tools) falls back to the surfaced `MaxStepsExceeded`
+/// terminal — the fallback the loop keeps, not the norm.
+#[tokio::test]
+async fn a_model_that_produces_no_text_on_the_final_step_still_max_steps() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([run_lua_call("return 1"), run_lua_call("return 2")]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "go", 2)).await.unwrap();
+
+    assert_eq!(outcome, TurnOutcome::MaxStepsExceeded);
+    assert_eq!(count_agent_turns(&h.events()), 1);
+    // The final step still had its tools withdrawn, even though the model did not reply.
+    assert_eq!(
+        model.recorded_tool_choices().last(),
+        Some(&ToolChoice::None)
+    );
 }
 
 #[tokio::test]
@@ -1082,7 +1409,7 @@ async fn real_model_supersedes_a_corrected_fact() {
         })
         .collect();
 
-    // The current person/* memories and their live/superseded entries.
+    // The current [`Namespace::Person`] memories and their live/superseded entries.
     let people = h
         .engine
         .graph
@@ -1173,9 +1500,9 @@ async fn link_inference_registers_and_links_from_content() {
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
-        // The describe catch-up synthesizes both written memories: dave first ("a person"), then
-        // zephyr (the authorship entry). Each gets its own synthesis call.
-        synthesize_call(SynthesizeReply::description("A person.")),
+        // The describe catch-up synthesizes zephyr (its public authorship entry); person/dave is not
+        // synthesized, its only entry being a private description mirror, which is exempt from both the
+        // public description pass and temporal extraction.
         synthesize_call(SynthesizeReply::description("The zephyr project.")),
         // The link-inference call: register authored_by and link zephyr → dave.
         link_inference_call(LinkInferenceArgs {
@@ -1245,6 +1572,86 @@ async fn link_inference_registers_and_links_from_content() {
     assert!(
         linked,
         "the pass should create an inferred authored_by link"
+    );
+}
+
+#[tokio::test]
+async fn link_inference_honors_a_seeded_inverse_label() {
+    // The model is shown both labels of every registered pair, so it legitimately phrases a link
+    // through the inverse — `created` for the seeded `created_by` — with no new registration to
+    // propose. The pass must resolve it onto the canonical relation with the direction flipped,
+    // not drop it as unregistered.
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+    h.baseline_link_inference();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.create("person/clara", "a person")
+               local zephyr = memory.create("topic/zephyr")
+               zephyr:append("This project was created by Clara", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(SynthesizeReply::description("The zephyr project.")),
+        // The inference reply names the edge through the seeded inverse, registering nothing new:
+        // clara --created--> zephyr, the same fact as zephyr --created_by--> clara.
+        link_inference_call(LinkInferenceArgs {
+            new_relations: vec![],
+            links: vec![InferredLink {
+                entry: 1,
+                relation: "created".to_owned(),
+                target: "person/clara".to_owned(),
+                direction: "from".to_owned(),
+            }],
+        }),
+    ]);
+
+    run_turn(h.as_turn(&model, "This project was created by Clara", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+    h.link_inference(&model).await;
+
+    let clara = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Person.with_name("clara"))
+        .unwrap()
+        .unwrap();
+    let zephyr = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Topic.with_name("zephyr"))
+        .unwrap()
+        .unwrap();
+
+    let linked = h.events().iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::LinkCreated { from, to, relation, source, .. }
+            if *from == zephyr.id && *to == clara.id
+              && relation.as_str() == "created_by"
+              && *source == zuihitsu::LinkSource::Inferred
+        )
+    });
+    assert!(
+        linked,
+        "an inverse-labeled inferred link should land on the canonical relation, direction flipped"
     );
 }
 
@@ -1438,15 +1845,16 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
         .unwrap();
 
     // Now attempt a `:link` call directly — it must fail because `:link` is not installed when
-    // linking is disabled. The block terminates with the standard Lua nil-call error.
+    // linking is disabled. The block terminates with Luau's absent-method call error, which names
+    // the missing method ("attempt to call missing method 'link' of table").
     let link_outcome = h
         .run(r#"memory.get("topic/zephyr"):link("authored_by", memory.get(PERSON_DAVE))"#)
         .await;
     match link_outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             assert!(
-                message.contains("nil"),
-                "a disabled :link should surface a nil-call error, got: {message}"
+                message.contains("'link'") && message.contains("missing method"),
+                "a disabled :link should surface an absent-method call error, got: {message}"
             );
         }
         other => panic!("expected the :link call to terminate, got {other:?}"),
@@ -1455,7 +1863,6 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
     // The link was not created by the agent (the block terminated before it). Now drive the
     // link-inference pass, which runs as a model call — it should still create the authored_by link.
     let inference_model = ScriptedModel::new([
-        synthesize_call(SynthesizeReply::description("A person.")),
         synthesize_call(SynthesizeReply::description("The zephyr project.")),
         link_inference_call(LinkInferenceArgs {
             new_relations: vec![NewRelationSpec {

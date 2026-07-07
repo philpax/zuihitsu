@@ -72,7 +72,7 @@ export function RunFrame() {
           <VerdictPanel
             key={`verdict:${runKey}`}
             run={completed}
-            gating={scenario.meta.bar.kind === "gating"}
+            gating={scenario.meta.bar.kind !== "metric"}
           />
         )}
         {!ready ? (
@@ -94,9 +94,13 @@ export function RunFrame() {
   );
 }
 
-/// The scenario switcher: every scenario in the package as a name, the open one marked, a clay tick
-/// flagging any whose bar did not hold — so the rail doubles as the overview's health at a glance.
-/// Hidden below `lg`, where the views want the width and the header breadcrumb covers navigation.
+/// The scenario switcher: every scenario in the package as a name, the open one marked, and — in place
+/// of a bare status dot — a compact success rate, color-coded clay (low) to sage (high) along the house
+/// palette. A scenario still working (a run driving, or part-way through its planned runs on a live
+/// eval) shows its running tally in neutral ink with a sage working pulse instead, a treatment that
+/// cannot be read as either end of the rate scale. A regressed gate keeps its own clay mark beside the
+/// rate, since a gate can slip at an otherwise healthy rate. Hidden below `lg`, where the views want the
+/// width and the header breadcrumb covers navigation.
 function ScenarioRail({
   pkg,
   active,
@@ -108,29 +112,54 @@ function ScenarioRail({
   liveRuns: ReadonlyMap<string, Event[]>;
   view: string;
 }) {
+  const runsPlanned = pkg.meta.runs_per_scenario;
   return (
-    <aside className="hidden w-40 shrink-0 lg:block">
+    <aside className="hidden w-48 shrink-0 lg:block">
       <div className="sticky top-4 flex flex-col">
         <Eyebrow>scenarios</Eyebrow>
         <nav className="mt-3 flex flex-col gap-0.5">
           {pkg.scenarios.map((entry, index) => {
             const isActive = entry.meta.name === active;
             const liveIndex = liveRunOf(liveRuns, index);
+            const completed = entry.runs.length;
             const first = entry.runs[0];
             // Open the first completed run, or — if none has landed — the one driving live.
             const openRun = first ? first.index : liveIndex;
+            // Ongoing: a run is driving now, or the scenario is part-way through its planned runs on a
+            // live eval. Its rate is provisional, so the row shows progress, not a percentage.
+            const ongoing = liveIndex !== null || (completed > 0 && completed < runsPlanned);
             const tint = isActive
               ? "border-clay text-ink"
               : "border-transparent text-ink-soft hover:text-ink";
             const rowClass =
-              "-ml-3 flex min-w-0 items-baseline gap-1.5 border-l-2 py-1 pl-2.5 font-mono text-2xs transition-colors " +
+              "-ml-3 flex min-w-0 items-baseline justify-between gap-1.5 border-l-2 py-1 pl-2.5 font-mono text-2xs transition-colors " +
               tint;
-            const marker =
-              liveIndex !== null ? (
-                <span className="shrink-0 text-sage">●</span>
-              ) : first && !held(entry) ? (
-                <span className="shrink-0 text-clay">●</span>
-              ) : null;
+            const status = ongoing ? (
+              // The working pulse is the console's established in-flight cue (sage); the tally itself
+              // stays neutral ink-faint so it never reads as a point on the clay→sage rate scale.
+              // items-baseline with the dot self-centered: the dot is a baseline-less box, so left to
+              // lead the flex line it would drag the tally off the scenario name's baseline.
+              <span className="flex shrink-0 items-baseline gap-1 text-ink-faint" title="running">
+                <span className="relative flex h-1 w-1 self-center">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
+                  <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
+                </span>
+                <span>
+                  {completed}/{runsPlanned}
+                </span>
+              </span>
+            ) : completed > 0 ? (
+              <span className="flex shrink-0 items-baseline gap-1">
+                {!held(entry) && (
+                  <span className="text-clay" title="gate regressed">
+                    ●
+                  </span>
+                )}
+                <span style={{ color: rateColor(entry.aggregate.rate) }} title="success rate">
+                  {formatRate(entry.aggregate.rate)}
+                </span>
+              </span>
+            ) : null;
             // Not started and not driving: a quiet, non-clickable row until a run lands or begins.
             return openRun !== null ? (
               <Link
@@ -139,8 +168,8 @@ function ScenarioRail({
                 title={entry.meta.name}
                 className={rowClass}
               >
-                {marker}
                 <span className="truncate">{entry.meta.name}</span>
+                {status}
               </Link>
             ) : (
               <span
@@ -148,8 +177,8 @@ function ScenarioRail({
                 title={entry.meta.name}
                 className={rowClass + " opacity-60"}
               >
-                {marker}
                 <span className="truncate">{entry.meta.name}</span>
+                {status}
               </span>
             );
           })}
@@ -157,6 +186,14 @@ function ScenarioRail({
       </div>
     </aside>
   );
+}
+
+/// A success rate's color along the house palette: clay at 0, sage at 1, mixed continuously between.
+/// Every point on this line holds ≥5.3:1 on the paper ground (clay 5.3:1, sage 5.85:1), so the value
+/// stays legible at any rate. `color-mix` over the token vars keeps it on the palette — no ad-hoc hex.
+function rateColor(rate: number): string {
+  const sage = Math.round(Math.min(Math.max(rate, 0), 1) * 100);
+  return `color-mix(in srgb, var(--color-sage) ${sage}%, var(--color-clay))`;
 }
 
 /// The open scenario's headline — the eval summary you have drilled into: its name and category, the
@@ -201,8 +238,10 @@ function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
 }
 
 /// The runs of the open scenario, laid out as a horizontal row beneath the summary so the drill-down
-/// reads top to bottom. The open run is marked; a run whose gate regressed shows in clay; the one
-/// driving live (not yet a completed record) shows last, in sage, so any in-flight run is reachable.
+/// reads top to bottom. State color and selection are separate cues: a run whose gate regressed reads
+/// in clay, a clean one stays neutral, and the *open* run — whatever its state — carries a neutral ink
+/// ring, so selection never borrows the clay that means "failed". The one driving live (not yet a
+/// completed record) shows last, in sage, so any in-flight run is reachable.
 function RunPicker({
   scenario,
   active,
@@ -224,22 +263,23 @@ function RunPicker({
           // gates nothing, so its failures show only in the verdicts, not in gating_passed.
           const passed =
             run.metrics.gating_passed && run.verdicts.every((verdict) => verdict.passed);
-          // A regressed run reads in clay (border, tint, and text); the open one is filled.
-          const tone = isActive
-            ? passed
-              ? "border-clay bg-clay-soft/25 text-ink "
-              : "border-clay bg-clay-soft/40 text-clay "
-            : passed
-              ? "border-line text-ink-soft hover:border-ink-faint "
-              : "border-clay/50 bg-clay-soft/15 text-clay hover:border-clay ";
+          // Two independent axes: the *state* color (neutral for a pass, clay for a regression) and
+          // the *selection* affordance. Selection is a neutral ink ring, not more clay — so it
+          // composes over either state, keeping "selected failed", "unselected failed", and
+          // "selected passing" all distinct at the small dot size.
+          const state = passed
+            ? "border-line text-ink-soft hover:border-ink-faint "
+            : "border-clay/60 bg-clay-soft/15 text-clay hover:border-clay ";
+          const selection = isActive ? "ring-1 ring-inset ring-ink font-semibold " : "";
           return (
             <Link
               key={run.index}
               to={runPath(scenario.meta.name, run.index, view)}
-              title={`Run ${run.index} · ${passed ? "passed" : "failed"}`}
+              title={`Run ${run.index} · ${passed ? "passed" : "failed"}${isActive ? " · open" : ""}`}
               className={
                 "flex h-7 min-w-[1.75rem] items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
-                tone
+                state +
+                selection
               }
             >
               {run.index}
@@ -253,7 +293,7 @@ function RunPicker({
             className={
               "flex h-7 min-w-[1.75rem] items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +
               (liveRun === active
-                ? "border-sage bg-sage/15 text-sage "
+                ? "border-sage text-sage ring-1 ring-inset ring-ink font-semibold "
                 : "border-sage/50 text-sage hover:border-sage ")
             }
           >

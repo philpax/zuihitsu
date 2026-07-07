@@ -6,6 +6,7 @@ import type { Replica } from "../lib/replica.ts";
 import type { LiveConnection } from "../lib/live.ts";
 import { STREAM_VIEWS } from "../lib/streamViews.ts";
 import { DockContext } from "../lib/dock.ts";
+import { resolveMerge } from "../lib/operator.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/StateView.tsx";
 import { ConversationView } from "../views/ConversationView.tsx";
@@ -150,7 +151,19 @@ export function StreamWorkspace({
                     </div>
                   }
                 >
-                  <RelationsView key={cursor} replica={replica} cursor={cursor} />
+                  <RelationsView
+                    key={cursor}
+                    replica={replica}
+                    cursor={cursor}
+                    merge={
+                      participant && cursor >= head
+                        ? {
+                            resolve: (from, to, accept) =>
+                              resolveMerge(participant.connection, from, to, accept),
+                          }
+                        : undefined
+                    }
+                  />
                 </Suspense>
               )}
               {view === "conversation" && (

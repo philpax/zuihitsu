@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 use crate::{
+    brief::Brief,
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
     },
@@ -173,6 +174,31 @@ impl std::str::FromStr for LinkSource {
             Ok(LinkSource::Inferred)
         } else {
             Err(())
+        }
+    }
+}
+
+/// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec
+/// §Cross-platform identity). `Agent` is the agent's own judgment from a turn (`mem:propose_merge`);
+/// `Orchestration` is the identity-resolution layer flagging that a platform arrival's handle matches
+/// an existing but platform-unbound [`Namespace::Person`] stub (an agent-authored hearsay memory). An
+/// orchestration proposal is never an assertion of identity — only a flag that the two may be one, for
+/// the adjudicator or operator to weigh, so a handle match never itself merges two stubs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum MergeProposalSource {
+    /// The default stands in for the field's absence in version-1 `MergeProposed` payloads, which
+    /// predate orchestration proposals — every proposal then was the agent's own.
+    #[default]
+    Agent,
+    Orchestration,
+}
+
+impl MergeProposalSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MergeProposalSource::Agent => "Agent",
+            MergeProposalSource::Orchestration => "Orchestration",
         }
     }
 }
@@ -369,7 +395,7 @@ pub enum RequestRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Teller {
-    /// A conversation participant, identified by their `person/*` memory.
+    /// A conversation participant, identified by their [`Namespace::Person`] memory.
     Participant(MemoryId),
     /// The agent's own observations and inferences. Defined as always present to itself.
     Agent,
@@ -421,8 +447,9 @@ pub enum EventPayload {
     /// Soft delete: contents are preserved for replay and audit; the projection sets a flag.
     MemoryDeleted { id: MemoryId },
     /// Records a content entry. `told_by` is the teller, `told_in` the context it was told in (a
-    /// `context/*` memory, resolved to its confidentiality at Stage 8; `None` until contexts exist),
-    /// and `visibility` governs the read-time predicate. `asserted_at` is when the agent recorded the
+    /// [`Namespace::Context`] memory, resolved to its confidentiality at Stage 8; `None` until
+    /// contexts exist), and `visibility` governs the read-time predicate. `asserted_at` is when
+    /// the agent recorded the
     /// fact; `occurred_at` is the optional real-world time the fact is *about* (spec §Time →
     /// bi-temporality). `occurred_at` is `#[serde(default)]` so pre-Stage-9 logs, which lack the
     /// field, replay as `None`.
@@ -468,6 +495,16 @@ pub enum EventPayload {
         reason: String,
         produced_by: Option<ProducedBy>,
     },
+    /// Marks a content entry as a mirror of its memory's description — the seed entry `memory.create`
+    /// appends from its `description` argument — rather than an account of a real occurrence. Applying
+    /// it stamps the entry's `description_mirror` flag; the turn-end temporal extraction then skips it
+    /// (see [`crate::graph::Graph::untimed_entries_since`]). A description mirror restates what the
+    /// memory *is*, naming no time, so an extractor asked to time it would fabricate the conversation's
+    /// "now" and that guessed date would then collide with a later, correctly-dated append on the same
+    /// memory. The mark is emitted right after the seeding [`EventPayload::MemoryContentAppended`], in
+    /// the same block, so the seed entry's intent survives replay rather than being re-inferred from
+    /// event adjacency (which cannot tell a seeded create from a bare create followed by an append).
+    EntryDescriptionMirrored { id: MemoryId, entry_id: EntryId },
     /// Fires a calendared entry's wake-up: its occurrence has come due — its `occurred_sort` passed
     /// `now`, having been later than its `asserted_at`, so it was scheduled for the future rather than
     /// recorded after the fact (spec §Scheduled work). Recorded in the log so the wake-up surface is a
@@ -508,13 +545,33 @@ pub enum EventPayload {
         resolution: ArbitrationResolution,
         produced_by: Option<ProducedBy>,
     },
-    /// The agent's judgment that two `person/*` stubs may be the same human across platforms, recorded
-    /// for the off-hot-path adjudication pass to weigh (spec §Cross-platform identity → agent-proposed
-    /// merge). Deliberately *not* a `same_as` link and not projected into the graph: a proposal is inert
-    /// — it leaves both stubs in their own classes and surfaces nothing — so nothing crosses the
-    /// would-be merge until an adjudication accepts it. `produced_by` is `None` (the agent proposes from
-    /// a turn, not an inference pass).
-    MergeProposed { from: MemoryId, to: MemoryId },
+    /// A judgment that two [`Namespace::Person`] stubs may be the same human across platforms,
+    /// recorded for the off-hot-path adjudication pass to weigh (spec §Cross-platform identity →
+    /// adjudicated merge).
+    /// `source` records who raised it: the agent from a turn (`mem:propose_merge`), or the
+    /// identity-resolution orchestration when a platform arrival's handle matched an existing but
+    /// platform-unbound stub. `rationale` carries the proposer's stated grounds for the adjudicator to
+    /// weigh against the evidence, when the agent gave any. Deliberately *not* a `same_as` link and not
+    /// projected into the graph: a proposal is inert — it leaves both stubs in their own classes and
+    /// surfaces nothing — so nothing
+    /// crosses the would-be merge until an adjudication accepts it, and an orchestration proposal in
+    /// particular never asserts identity from a bare handle match.
+    MergeProposed {
+        from: MemoryId,
+        to: MemoryId,
+        /// Defaulted so version-1 payloads (written before the field existed) replay as
+        /// agent-sourced, which every proposal then was.
+        #[serde(default)]
+        source: MergeProposalSource,
+        /// The proposer's stated grounds for the match, if any — the coincidence the agent reasoned
+        /// from (a shared wedding, the same volcanology trip). The adjudication pass reads it as the
+        /// proposer's *claim*, not as evidence, weighing it against the two stubs' independently-recorded
+        /// facts rather than rubber-stamping it. `None` for a proposal with no stated grounds — an
+        /// orchestration handle match, or a `same_as`-via-link routed here — and defaulted so
+        /// version-2 payloads (written before the field existed) replay without one.
+        #[serde(default)]
+        rationale: Option<String>,
+    },
     /// The adjudication pass's verdict on a `MergeProposed`: whether the two stubs' independently-
     /// recorded facts coincide improbably enough to be one person, given the confidences at risk (spec
     /// §Cross-platform identity → adjudicated merge). A log-only audit record carrying the reasoning. On
@@ -541,6 +598,14 @@ pub enum EventPayload {
         result: LinkInferenceResult,
         produced_by: Option<ProducedBy>,
     },
+    /// Records one describer pass: every memory the pass considered, whether or not synthesis
+    /// succeeded (matching the describer's advance-past-failure discipline). Applying it stamps each
+    /// listed memory's `last_described_seq` to this event's seq, so a memory is stale exactly while
+    /// its `last_content_seq` outruns its `last_described_seq` (spec §Write path → regenerate off the
+    /// hot path, as a catch-up). The list is a `Vec` so a pass may batch several memories, though a
+    /// per-memory pass records a batch of one. Log-derived state: the describe backlog survives a
+    /// restart, since it is a function of the log rather than an in-memory cursor.
+    DescribePassCompleted { memories: Vec<MemoryId> },
     MemoryVolatilitySet {
         id: MemoryId,
         volatility: Volatility,
@@ -679,11 +744,20 @@ pub enum EventPayload {
         participant: Option<MemoryId>,
         initiation: Initiation,
         produced_by: Option<ProducedBy>,
+        /// The structured brief behind a mid-session join's `system` turn (spec §Mid-conversation
+        /// joins): the same content `text` carries as rendered markup, kept as data so a structured
+        /// consumer (the console) renders it as a proper entrance treatment rather than surfacing the
+        /// raw markup. `None` for every other turn — an inbound message, the agent's reply, a wake-up
+        /// surface — and defaulted so version-1 payloads (written before the field existed) replay
+        /// without one.
+        #[serde(default)]
+        brief: Option<Brief>,
     },
     /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
     /// the room then persists across sessions for the agent's life (spec §Conversations).
-    /// `context_memory` is the `context/*` memory minted eagerly alongside the room, so the locator
-    /// resolves to a first-class memory the agent can tag (`#confidential`) and reason about.
+    /// `context_memory` is the [`Namespace::Context`] memory minted eagerly alongside the room, so
+    /// the locator resolves to a first-class memory the agent can tag (`#confidential`) and reason
+    /// about.
     ConversationStarted {
         id: ConversationId,
         locator: ConversationLocator,
@@ -715,8 +789,9 @@ pub enum EventPayload {
         participant: MemoryId,
         at_turn: TurnId,
     },
-    /// Binds a `person/*` stub to a platform identity, seeding the `(platform, platform_user_id) ->
-    /// memory_id` operational mapping (spec §Identity). Emitted on first contact (with the
+    /// Binds a [`Namespace::Person`] stub to a platform identity, seeding the `(platform,
+    /// platform_user_id) -> memory_id` operational mapping (spec §Identity). Emitted on first
+    /// contact (with the
     /// `MemoryCreated` that mints the stub) and whenever an existing stub gains a further platform
     /// identity. The mapping is operational, not a memory-graph fact, so it lives in this event
     /// rather than as a relation.
@@ -790,6 +865,10 @@ impl EventPayload {
         }
     }
 
+    pub fn entry_description_mirrored(id: MemoryId, entry_id: EntryId) -> EventPayload {
+        EventPayload::EntryDescriptionMirrored { id, entry_id }
+    }
+
     pub fn entry_temporal_resolve_failed(
         id: MemoryId,
         entry_id: EntryId,
@@ -858,12 +937,26 @@ impl EventPayload {
         }
     }
 
-    pub fn merge_proposed(from: MemoryId, to: MemoryId) -> EventPayload {
-        EventPayload::MergeProposed { from, to }
+    pub fn merge_proposed(
+        from: MemoryId,
+        to: MemoryId,
+        source: MergeProposalSource,
+        rationale: Option<String>,
+    ) -> EventPayload {
+        EventPayload::MergeProposed {
+            from,
+            to,
+            source,
+            rationale,
+        }
     }
 
     pub fn memory_volatility_set(id: MemoryId, volatility: Volatility) -> EventPayload {
         EventPayload::MemoryVolatilitySet { id, volatility }
+    }
+
+    pub fn describe_pass_completed(memories: Vec<MemoryId>) -> EventPayload {
+        EventPayload::DescribePassCompleted { memories }
     }
 
     pub fn tag_created(name: TagName, description: impl Into<String>) -> EventPayload {
@@ -974,6 +1067,7 @@ impl EventPayload {
             participant,
             initiation,
             produced_by,
+            brief: None,
         }
     }
 
@@ -1038,6 +1132,7 @@ impl EventPayload {
             EventPayload::MemorySuperseded { .. } => "MemorySuperseded",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
             EventPayload::EntryTemporalResolveFailed { .. } => "EntryTemporalResolveFailed",
+            EventPayload::EntryDescriptionMirrored { .. } => "EntryDescriptionMirrored",
             EventPayload::ScheduledJobFired { .. } => "ScheduledJobFired",
             EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
@@ -1045,6 +1140,7 @@ impl EventPayload {
             EventPayload::MergeProposed { .. } => "MergeProposed",
             EventPayload::MergeAdjudicated { .. } => "MergeAdjudicated",
             EventPayload::LinksInferred { .. } => "LinksInferred",
+            EventPayload::DescribePassCompleted { .. } => "DescribePassCompleted",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
@@ -1068,9 +1164,16 @@ impl EventPayload {
         }
     }
 
-    /// The payload-schema version. All current payloads are `1`; higher versions add fields.
+    /// The payload-schema version; higher versions add fields. `MergeProposed` is `3` since gaining
+    /// `source` (version 2) and then `rationale` (version 3); earlier payloads deserialize via those
+    /// fields' defaults. Everything else is `1`.
     pub fn version(&self) -> u32 {
-        1
+        match self {
+            EventPayload::MergeProposed { .. } => 3,
+            // Version 2 since gaining the structured `brief`; version-1 payloads replay via its default.
+            EventPayload::ConversationTurn { .. } => 2,
+            _ => 1,
+        }
     }
 
     /// The primary entity this event is about, stored as an indexed column so per-target history is
@@ -1085,6 +1188,7 @@ impl EventPayload {
             | EventPayload::MemorySuperseded { id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::EntryTemporalResolveFailed { id, .. }
+            | EventPayload::EntryDescriptionMirrored { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::BeliefArbitrated { memory: id, .. }
             | EventPayload::MergeProposed { from: id, .. }
@@ -1102,8 +1206,11 @@ impl EventPayload {
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.as_str().to_owned()),
-            // A whole-settings snapshot and a vector-index migration: neither is about a single entity.
-            EventPayload::ConfigSet { .. } | EventPayload::EmbeddingModelChanged { .. } => None,
+            // A whole-settings snapshot, a vector-index migration, and a describer pass over many
+            // memories: none is about a single entity.
+            EventPayload::ConfigSet { .. }
+            | EventPayload::EmbeddingModelChanged { .. }
+            | EventPayload::DescribePassCompleted { .. } => None,
             // Conversation-keyed events target the conversation, so per-conversation history (the
             // console's conversation view, compaction's read of a session's blocks) is a cheap
             // indexed filter. A `LuaExecuted` touches many memories, but it belongs to one
@@ -1124,7 +1231,7 @@ impl EventPayload {
 
 /// A committed event: a payload assigned a position in the log's total order and stamped with the
 /// wall-clock time it was recorded. This is what a read returns; it is immutable. Serializable so it
-/// rides verbatim in an eval package and (later) over the console's wire (spec §Observability).
+/// rides verbatim over the observability surfaces (spec §Observability).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Event {
@@ -1134,186 +1241,4 @@ pub struct Event {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        ConversationId, EntryId, EventPayload, MemoryId, ModelPhase, RequestRecord, SessionId,
-        Teller, Timestamp, TurnId, Visibility,
-    };
-    use crate::{
-        model::{Completion, Message, ToolChoice, Usage},
-        time::{CivilDate, TemporalRef},
-    };
-
-    fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
-        EventPayload::MemoryContentAppended {
-            id: MemoryId::generate(),
-            entry_id: EntryId::generate(),
-            asserted_at: Timestamp::from_millis(1),
-            occurred_at,
-            text: "x".to_owned(),
-            told_by: Teller::Agent,
-            told_in: None,
-            visibility: Visibility::Public,
-        }
-    }
-
-    #[test]
-    fn content_append_without_occurred_at_replays_as_none() {
-        // A pre-Stage-9 payload predates the field; dropping the key models an old log. `serde(default)`
-        // must fill `None` so the historical event deserializes unchanged.
-        let mut value = serde_json::to_value(content_with(Some(TemporalRef::Day(CivilDate(
-            "2026-06-03".into(),
-        )))))
-        .unwrap();
-        value.as_object_mut().unwrap().remove("occurred_at");
-        let replayed: EventPayload = serde_json::from_value(value).unwrap();
-        assert!(matches!(
-            replayed,
-            EventPayload::MemoryContentAppended {
-                occurred_at: None,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn content_append_round_trips_occurred_at() {
-        let event = content_with(Some(TemporalRef::Instant(Timestamp::from_millis(42))));
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn entry_temporal_resolved_round_trips() {
-        let event = EventPayload::EntryTemporalResolved {
-            id: MemoryId::generate(),
-            entry_id: EntryId::generate(),
-            occurred_at: TemporalRef::Day(CivilDate("2026-06-03".into())),
-            produced_by: None,
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn entry_temporal_resolve_failed_round_trips() {
-        let event = EventPayload::EntryTemporalResolveFailed {
-            id: MemoryId::generate(),
-            entry_id: EntryId::generate(),
-            raw: "{\"recurring\":\"every Monday\"}".to_owned(),
-            reason: "unsupported recurrence rule".to_owned(),
-            produced_by: None,
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn memory_superseded_round_trips() {
-        let event = EventPayload::MemorySuperseded {
-            id: MemoryId::generate(),
-            entry: EntryId::generate(),
-            superseded_by: EntryId::generate(),
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn scheduled_job_fired_round_trips() {
-        let event = EventPayload::ScheduledJobFired {
-            entry_id: EntryId::generate(),
-            memory: MemoryId::generate(),
-            fired_at: Timestamp::from_millis(1_000),
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn belief_arbitrated_round_trips() {
-        let event = EventPayload::BeliefArbitrated {
-            memory: MemoryId::generate(),
-            competing_entries: vec![EntryId::generate(), EntryId::generate()],
-            resolution: super::ArbitrationResolution {
-                credited: vec![EntryId::generate()],
-                statement: "credited the more recent assertion".to_owned(),
-            },
-            produced_by: None,
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn model_called_round_trips() {
-        let event = EventPayload::ModelCalled {
-            conversation: ConversationId::generate(),
-            turn_id: TurnId::generate(),
-            phase: ModelPhase::Step,
-            request_digest: "abc123".to_owned(),
-            request: Some(RequestRecord::Base {
-                system: "be concise".to_owned(),
-                messages: vec![Message::user("hi")],
-                tools: Vec::new(),
-                tool_choice: ToolChoice::Auto,
-                thinking: None,
-            }),
-            completion: Completion::Reply("hello".to_owned()),
-            reasoning: Some("they greeted me".to_owned()),
-            finish_reason: Some("stop".to_owned()),
-            usage: Usage {
-                prompt_tokens: Some(10),
-                completion_tokens: Some(2),
-                total_tokens: Some(12),
-            },
-            duration_ms: 1_234,
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn lua_executed_without_duration_replays_as_zero() {
-        // A pre-timing `LuaExecuted` predates `duration_ms`; dropping the key models an old log, and
-        // `serde(default)` must fill `0` so the historical event still deserializes.
-        let event = EventPayload::LuaExecuted {
-            conversation: ConversationId::generate(),
-            turn_id: TurnId::generate(),
-            script: "return 1".to_owned(),
-            result: Some("1".to_owned()),
-            touched: Vec::new(),
-            terminal_cause: None,
-            duration_ms: 99,
-        };
-        let mut value = serde_json::to_value(&event).unwrap();
-        value.as_object_mut().unwrap().remove("duration_ms");
-        assert!(matches!(
-            serde_json::from_value::<EventPayload>(value).unwrap(),
-            EventPayload::LuaExecuted { duration_ms: 0, .. }
-        ));
-    }
-
-    #[test]
-    fn scheduled_item_surfaced_round_trips() {
-        let event = EventPayload::ScheduledItemSurfaced {
-            entry_id: EntryId::generate(),
-            memory: MemoryId::generate(),
-            session: SessionId::generate(),
-            surfaced_at: Timestamp::from_millis(2_000),
-        };
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn cardinality_from_str_matches_case_insensitively() {
-        use super::Cardinality;
-        assert_eq!("one".parse::<Cardinality>(), Ok(Cardinality::One));
-        assert_eq!("One".parse::<Cardinality>(), Ok(Cardinality::One));
-        assert_eq!("many".parse::<Cardinality>(), Ok(Cardinality::Many));
-        assert_eq!("MANY".parse::<Cardinality>(), Ok(Cardinality::Many));
-        assert!("several".parse::<Cardinality>().is_err());
-        assert!("".parse::<Cardinality>().is_err());
-    }
-}
+mod tests;

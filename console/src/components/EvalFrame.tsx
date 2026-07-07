@@ -1,8 +1,15 @@
-import { Link, Outlet, useMatch } from "react-router-dom";
+import { Outlet, useMatch } from "react-router-dom";
 
 import type { EvalPackage } from "../types/EvalPackage.ts";
 import type { Event } from "../types/Event.ts";
-import { type EvalContext, type LiveEvalStatus, NO_LIVE_RUNS } from "../lib/liveEval.ts";
+import {
+  type EvalContext,
+  type LiveEvalStatus,
+  NO_LIVE_RUNS,
+  projectFinishMs,
+  useNow,
+} from "../lib/liveEval.ts";
+import { formatSpan, formatTime } from "../lib/format.ts";
 import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { Dot } from "./primitives.tsx";
 import { FrameNav } from "./FrameNav.tsx";
@@ -27,11 +34,9 @@ export function EvalFrame({
   onClose: () => void;
 }) {
   const context: EvalContext = { pkg, liveRuns: liveRuns ?? NO_LIVE_RUNS, live: live ?? null };
-  // The active run, if any, drives the breadcrumb. `:run` is the run index; `:scenario` its name.
+  // The route still names the view for the document title; the scenario and run themselves are
+  // legible in the frame's own rail, summary, and run picker, so the header carries no breadcrumb.
   const runMatch = useMatch("/eval/:scenario/:run/:view");
-  const crumb = runMatch
-    ? { scenario: runMatch.params.scenario ?? "", run: runMatch.params.run ?? "" }
-    : null;
   useDocumentTitle("eval", runMatch?.params.view);
 
   return (
@@ -41,17 +46,6 @@ export function EvalFrame({
           <div className="flex min-w-0 items-baseline gap-3">
             <span className="font-serif text-xl text-ink">zuihitsu</span>
             <FrameNav current="eval" />
-            {crumb && (
-              <Link
-                to="/eval"
-                className="ml-1 hidden min-w-0 items-baseline gap-2 font-mono text-xs text-ink-soft transition-colors hover:text-clay sm:flex"
-                title="Back to the package"
-              >
-                <span className="text-ink-faint">/</span>
-                <span className="truncate">{crumb.scenario}</span>
-                <span className="shrink-0 text-ink-faint">· run {crumb.run}</span>
-              </Link>
-            )}
           </div>
           <div className="flex shrink-0 items-baseline gap-3 font-mono text-xs text-ink-soft">
             <span className="hidden items-baseline gap-3 whitespace-nowrap sm:flex">
@@ -79,7 +73,11 @@ export function EvalFrame({
                 </>
               )}
               {live ? (
-                <LiveProgress pkg={pkg} />
+                <>
+                  <LiveProgress pkg={pkg} />
+                  <Dot />
+                  <LiveTiming pkg={pkg} status={live} />
+                </>
               ) : (
                 <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
               )}
@@ -94,21 +92,9 @@ export function EvalFrame({
           </div>
         </div>
 
-        {/* On mobile the run breadcrumb and model drop to a quieter second row. */}
-        <div className="mt-2 flex items-baseline justify-between gap-3 font-mono text-2xs text-ink-soft sm:hidden">
-          {crumb ? (
-            <Link
-              to="/eval"
-              className="flex min-w-0 items-baseline gap-2 transition-colors hover:text-clay"
-            >
-              <span className="text-ink-faint">/</span>
-              <span className="truncate">{crumb.scenario}</span>
-              <span className="shrink-0 text-ink-faint">· run {crumb.run}</span>
-            </Link>
-          ) : (
-            <span />
-          )}
-          <span className="shrink-0 truncate text-ink-faint">{fileName ?? pkg.meta.model_id}</span>
+        {/* On mobile the source drops to a quieter second row. */}
+        <div className="mt-2 flex items-baseline justify-end font-mono text-2xs text-ink-soft sm:hidden">
+          <span className="truncate text-ink-faint">{fileName ?? pkg.meta.model_id}</span>
         </div>
       </header>
 
@@ -146,6 +132,34 @@ function LiveProgress({ pkg }: { pkg: EvalPackage }) {
   return (
     <span title="completed runs of the planned total">
       {done}/{total} runs
+    </span>
+  );
+}
+
+/// The live run's clock, quiet beside the progress: elapsed since it began, and — once a scenario has
+/// completed a run to extrapolate from — a projected local finish time (`~HH:MM`). Once the harness
+/// reports `finished`, the projection gives way to the run's total duration. Ticks every 30s while
+/// streaming; frozen once finished.
+function LiveTiming({ pkg, status }: { pkg: EvalPackage; status: LiveEvalStatus }) {
+  const finished = status.status === "finished";
+  const now = useNow(30_000, !finished);
+  const started = pkg.meta.started_at_ms;
+
+  if (finished) {
+    return (
+      <span className="font-mono text-2xs text-ink-faint" title="total run duration">
+        {formatSpan(pkg.meta.finished_at_ms - started)} total
+      </span>
+    );
+  }
+
+  const projected = projectFinishMs(pkg, now);
+  return (
+    <span className="flex items-baseline gap-3 font-mono text-2xs text-ink-faint">
+      <span title="elapsed since the run began">{formatSpan(Math.max(0, now - started))}</span>
+      {projected !== null && (
+        <span title="projected completion (local time)">~{formatTime(projected)}</span>
+      )}
     </span>
   );
 }

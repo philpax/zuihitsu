@@ -13,18 +13,27 @@ mod error;
 mod link_inference;
 
 pub use adjudicate::run_adjudicate_catch_up;
-pub use describe::run_describe_catch_up;
+pub use describe::{run_describe_catch_up, run_describe_catch_up_for};
 pub use error::TurnError;
 pub use link_inference::{
     InferredLink, LinkInferenceArgs, NewRelationSpec, run_link_inference_catch_up,
 };
+
+mod buffer;
+mod resolve;
+
+pub use buffer::{
+    ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, flushed_up_to,
+    session_touched,
+};
+pub use resolve::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -36,9 +45,11 @@ use crate::{
         EventPayload, Initiation, ModelPhase, ProducedBy, PromptTemplateName, RequestRecord,
         Teller, TerminalCause, TurnRole,
     },
-    ids::{ConversationId, MemoryId, Namespace, Seq, TurnId},
+    ids::{ConversationId, MemoryId, MemoryName, Namespace, Seq, SessionId, TurnId},
     memory::memory_block::Authority,
-    metrics::{observe_lua_block, observe_lua_block_error, observe_model_call},
+    metrics::{
+        observe_lua_block, observe_lua_block_error, observe_model_call, observe_turn_deferred,
+    },
     model::{
         Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError, ToolCall,
         ToolChoice, ToolSpec, schema_of,
@@ -46,6 +57,7 @@ use crate::{
     settings::CaptureLevel,
     store::{Store, StoreError},
     time::{self, Timestamp},
+    turn_ref,
 };
 
 use super::{
@@ -55,6 +67,7 @@ use super::{
 
 /// What a completed turn delivers to the platform client.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TurnOutcome {
     /// A reply to post back.
     Reply(String),
@@ -62,6 +75,14 @@ pub enum TurnOutcome {
     Silent,
     /// The step budget was exhausted without a terminal; recorded for the agent to reason about.
     MaxStepsExceeded,
+    /// The inbound message was delivered and durably recorded, but the model backend was
+    /// unreachable (transient failure with retries exhausted, or an open circuit), so no response
+    /// cycle ran. Nothing is lost, and catch-up is passive by design: the next inbound message's
+    /// turn replays the buffer — which includes every deferred inbound — so one response cycle
+    /// covers them all. There is no active on-recovery push, because replies have no delivery
+    /// channel to platform clients besides the message-response path, and agent-initiated contact
+    /// is a deliberately deferred design area.
+    Deferred,
 }
 
 /// What a completed turn reports to the platform: its conversational `outcome` and the peak
@@ -82,128 +103,6 @@ pub struct TurnReport {
     /// The agent's response-cycle turn id — the durable key an operator uses to find this turn's
     /// events in the log. (The participant's inbound message carries its own earlier turn id.)
     pub turn_id: TurnId,
-}
-
-/// One tool-call step within an agent turn: the `run_lua` script the model asked to run and the
-/// result it saw back. Reconstructed from `LuaExecuted` events so the next turn's buffer carries the
-/// full tool-interaction history — the model sees what it already fetched, searched, or computed
-/// and does not re-issue the same call.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ToolStep {
-    pub script: String,
-    pub result: String,
-}
-
-/// One turn replayed into the live buffer — the conversational surface the next turn sees as the
-/// prompt suffix. Carries the durable turn text and the `run_lua` steps the agent ran this turn
-/// (script + result), so the model re-sees what it already did — what it fetched, searched, or
-/// wrote — and does not re-issue it next turn. `seq` and `turn_id` let a compaction mark the
-/// carried tail (`seeded_from_turn` and the next buffer's start).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TurnView {
-    pub seq: Seq,
-    pub turn_id: TurnId,
-    pub role: TurnRole,
-    pub text: String,
-    pub participant: Option<MemoryId>,
-    /// When the turn was recorded — the time it is stamped with when replayed (spec §Time → "Now").
-    pub recorded_at: Timestamp,
-    /// The `run_lua` steps this turn's agent response ran, in order. Empty for participant/system
-    /// turns, and for an agent turn that ran no blocks (a direct reply).
-    pub steps: Vec<ToolStep>,
-}
-
-/// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
-/// buffer the next turn replays as the prompt suffix (spec §Conversations → the live buffer).
-/// `from_seq` is the live session's start (so the whole session is read) or a carried tail across a
-/// compaction seam (so only the carryover plus the new session's turns are read).
-pub fn buffer_turns(
-    store: &dyn Store,
-    conversation: ConversationId,
-    from_seq: Seq,
-) -> Result<Vec<TurnView>, StoreError> {
-    let mut turns = Vec::new();
-    // A turn's `run_lua` blocks commit (and record their `LuaExecuted`) before the agent's reply turn,
-    // both stamped with the same `turn_id` — so accumulate each turn's tool-call steps and attach them
-    // to that turn's agent `TurnView` when it arrives.
-    let mut steps_by_turn: BTreeMap<TurnId, Vec<ToolStep>> = BTreeMap::new();
-    for event in store.read_from(from_seq)? {
-        match event.payload {
-            EventPayload::LuaExecuted {
-                conversation: turn_conversation,
-                turn_id,
-                script,
-                result,
-                terminal_cause,
-                ..
-            } if turn_conversation == conversation => {
-                let result = result.unwrap_or_else(|| {
-                    terminal_cause
-                        .as_ref()
-                        .map(|cause| ToolError::from(cause.clone()).to_string())
-                        .unwrap_or_default()
-                });
-                steps_by_turn
-                    .entry(turn_id)
-                    .or_default()
-                    .push(ToolStep { script, result });
-            }
-            EventPayload::ConversationTurn {
-                conversation: turn_conversation,
-                turn_id,
-                role,
-                text,
-                participant,
-                ..
-            } if turn_conversation == conversation => {
-                let steps = if role == TurnRole::Agent {
-                    steps_by_turn.remove(&turn_id).unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                turns.push(TurnView {
-                    seq: event.seq,
-                    turn_id,
-                    role,
-                    text,
-                    participant,
-                    recorded_at: event.recorded_at,
-                    steps,
-                });
-            }
-            _ => {}
-        }
-    }
-    Ok(turns)
-}
-
-/// The distinct memory IDs the `conversation`'s blocks touched (read or wrote) from `from_seq`,
-/// unioned across its `LuaExecuted` events in first-touch order — the touch-derived working set
-/// carried across a compaction seam (spec §Compaction → working-set carryover). The read half is as
-/// valuable as the write half: the agent looked something up because it was relevant.
-pub fn session_touched(
-    store: &dyn Store,
-    conversation: ConversationId,
-    from_seq: Seq,
-) -> Result<Vec<MemoryId>, StoreError> {
-    let mut seen = BTreeSet::new();
-    let mut ordered = Vec::new();
-    for event in store.read_from(from_seq)? {
-        if let EventPayload::LuaExecuted {
-            conversation: block_conversation,
-            touched,
-            ..
-        } = event.payload
-            && block_conversation == conversation
-        {
-            for id in touched {
-                if seen.insert(id) {
-                    ordered.push(id);
-                }
-            }
-        }
-    }
-    Ok(ordered)
 }
 
 /// The write context one block — or a whole step loop — runs under: who its content is attributed
@@ -233,8 +132,8 @@ pub struct BlockContext {
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
 /// `engine` backends), the `inbound` participant message and its `inbound_participant` (the
-/// speaker's `person/*` stub, whose content the turn's writes are attributed to), and the step
-/// budget.
+/// speaker's [`Namespace::Person`] stub, whose content the turn's writes are attributed to), and
+/// the step budget.
 pub struct Turn<'a> {
     pub session: &'a Session,
     pub model: &'a dyn ModelClient,
@@ -360,7 +259,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         names.get(&inbound_participant).map(String::as_str),
     )));
 
-    let (outcome, peak_prompt_tokens, steps, blocks) = run_steps(Steps {
+    let steps_result = run_steps(Steps {
         session,
         model,
         engine: engine.clone(),
@@ -380,7 +279,25 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_steps,
         capture,
     })
-    .await?;
+    .await;
+    let (outcome, peak_prompt_tokens, steps, blocks) = match steps_result {
+        Ok(resolved) => resolved,
+        // The model backend is unreachable (retries, if any, exhausted by the wrapper, or the
+        // circuit open): defer the turn instead of erroring it. The inbound participant turn was
+        // appended above, before the loop, so nothing durable is lost — and deliberately no agent
+        // turn is recorded (the harness's retries are infra-transparent, spec §Event sourcing:
+        // they emit nothing to the log). The report's `turn_id` therefore keys no events, and the
+        // step/block counts read zero even if the loop ran partial steps before the outage —
+        // those blocks' events are in the log under this turn id, but with no agent turn to
+        // anchor them the buffer replay carries only the inbound. Lua/store/graph failures keep
+        // the error path: `Deferred` is only for model-transport failure.
+        Err(TurnError::Model(error)) if error.is_unavailable() => {
+            tracing::warn!(%error, "the model backend is unreachable; deferring the turn");
+            observe_turn_deferred();
+            (TurnOutcome::Deferred, None, 0, 0)
+        }
+        Err(error) => return Err(error),
+    };
 
     // Description regeneration and temporal extraction for the memories this turn wrote run off the hot
     // path, in the background describer (spec §Write path → regenerate off the hot path, as a
@@ -451,8 +368,8 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     };
     // Frame the flush with the SAME scaffold system prompt the session's live turns used, so the
     // identical system-plus-buffer prefix is already in the serving layer's cache. Swapping in a
-    // distinct flush system prompt (the old shape) changed token zero and forced a full re-encode of
-    // the whole buffer at max context — the worst-case latency on the hot path.
+    // distinct flush system prompt would change token zero and force a full re-encode of the whole
+    // buffer at max context — the worst-case latency on the hot path.
     let scaffold =
         templates::latest_template(engine.store.lock().as_ref(), PromptTemplateName::Scaffold)?
             .map(|template| template.body)
@@ -603,8 +520,8 @@ fn participant_names(
     names
 }
 
-/// A participant's conversational display name: the `person/` namespace and any `@platform` stub
-/// suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
+/// A participant's conversational display name: the [`Namespace::Person`] prefix and any `@platform`
+/// stub suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
 /// operational noise irrelevant to who is speaking.
 fn speaker_display(memory_name: &str) -> String {
     let handle = memory_name
@@ -788,13 +705,30 @@ async fn run_steps(
     // since (the buffer is append-only within the loop); `None` until the first call.
     let mut prev_sent_len: Option<usize> = None;
     let outcome = 'cycle: {
-        for _ in 0..max_steps {
+        for step_index in 0..max_steps {
+            // Nearing-budget nudge: two steps from the bound, tell the model to wrap up — once, not
+            // every remaining step. It rides the in-memory step frame as a trailing system message
+            // (like the flush instruction), never recorded to the log; it persists into the following
+            // step's frame, so it appears exactly once from here on.
+            if max_steps >= 2 && step_index == max_steps - 2 {
+                messages.push(Message::system(
+                    "two steps remain in this turn — finish gathering and answer with what you have.",
+                ));
+            }
+            // On the final step the tools are withdrawn (`ToolChoice::None`) so the model must answer
+            // with what it has rather than spend its last step on another tool call. Its text becomes
+            // the turn's reply through the normal terminal path; `MaxStepsExceeded` is then only the
+            // fallback for a model that still fails to produce text.
+            let is_final_step = step_index + 1 == max_steps;
             let request = GenerateRequest {
                 system: system.to_owned(),
                 messages: messages.clone(),
                 tools: tools.clone(),
-                // The loop lets the model choose between calling run_lua and replying.
-                tool_choice: ToolChoice::Auto,
+                tool_choice: if is_final_step {
+                    ToolChoice::None
+                } else {
+                    ToolChoice::Auto
+                },
                 response_format: None,
                 thinking: None,
             };
@@ -814,6 +748,49 @@ async fn run_steps(
                         let result = run_tool_call(session, &engine, &context, call).await?;
                         blocks += 1;
                         messages.push(Message::tool_result(call.id.clone(), result));
+                    }
+                }
+                Completion::Reply(text) if reply_leaks_special_tokens(&text) => {
+                    // The model emitted chat-template special-token markup as reply text (typically
+                    // at the forced-answer final step, where `ToolChoice::None` forbids a real tool
+                    // call and a weaker model transcribes a pseudo-tool-call instead). Such markup
+                    // must never reach a participant, so resample the same request once — a transient
+                    // decoding artifact usually differs on resample — and take the retry only if it
+                    // comes back a clean reply; anything else falls to the silent terminal.
+                    tracing::warn!(
+                        malformed = %truncate_for_log(&text),
+                        "the model leaked special-token markup in its reply; resampling once"
+                    );
+                    let retry_record = recording.request_record(&request, prev_sent_len);
+                    let retry = recording
+                        .generate(&engine, model, &request, ModelPhase::Step, retry_record)
+                        .await?;
+                    steps += 1;
+                    peak_prompt_tokens = peak_prompt_tokens.max(retry.usage.prompt_tokens);
+                    match retry.completion {
+                        Completion::Reply(retry_text)
+                            if !reply_leaks_special_tokens(&retry_text) =>
+                        {
+                            record_agent_turn(
+                                engine.store.lock().as_mut(),
+                                engine.clock.as_ref(),
+                                retry_text.clone(),
+                            )?;
+                            break 'cycle TurnOutcome::Reply(retry_text);
+                        }
+                        _ => {
+                            tracing::warn!(
+                                malformed = %truncate_for_log(&text),
+                                "the resampled reply is still malformed or not a plain reply; \
+                                 staying silent rather than delivering markup"
+                            );
+                            record_agent_turn(
+                                engine.store.lock().as_mut(),
+                                engine.clock.as_ref(),
+                                String::new(),
+                            )?;
+                            break 'cycle TurnOutcome::Silent;
+                        }
                     }
                 }
                 Completion::Reply(text) => {
@@ -844,6 +821,28 @@ async fn run_steps(
     };
 
     Ok((outcome, peak_prompt_tokens, steps, blocks))
+}
+
+/// Whether a reply's text leaks model chat-template special-token markup — the `<|` or `|>`
+/// delimiters that wrap a backend's special tokens (`<|tool_call|>`, `<|im_start|>`, and the like).
+/// A well-formed reply is plain prose the participant reads; those delimiters only appear when the
+/// model has transcribed template scaffolding into its answer, so their presence means the reply is
+/// malformed and must not be delivered. The heuristic is deliberately exactly these two two-byte
+/// delimiters: it does not parse tool-call shapes, and ordinary code or prose — Lua `..`, `{}`, or a
+/// comparison like `a < b || b > c` — never contains `<|` or `|>`, so it does not false-positive.
+fn reply_leaks_special_tokens(text: &str) -> bool {
+    text.contains("<|") || text.contains("|>")
+}
+
+/// Clip `text` to a bounded, char-boundary-safe prefix for a log field, so a warn over a malformed
+/// reply never dumps the whole (possibly large) completion into the diagnostic stream.
+fn truncate_for_log(text: &str) -> String {
+    const MAX_CHARS: usize = 200;
+    let mut clipped: String = text.chars().take(MAX_CHARS).collect();
+    if text.chars().nth(MAX_CHARS).is_some() {
+        clipped.push('…');
+    }
+    clipped
 }
 
 /// The distinct memories that gained content (a create or an append) since `cycle_start`, in first-
@@ -955,15 +954,15 @@ impl From<TerminalCause> for ToolError {
 /// model and the parser can't drift.
 #[derive(Deserialize, JsonSchema)]
 struct RunLuaArgs {
-    /// Lua source to execute.
+    /// Luau source to execute.
     script: String,
 }
 
 fn run_lua_tool() -> ToolSpec {
     ToolSpec {
         name: "run_lua".to_owned(),
-        description: "Execute a Lua block against your memory; returns the value of its final \
-                      expression."
+        description: "Execute a Luau block (Lua with string interpolation: `like {this}`) against \
+                      your memory; returns the value of its final expression."
             .to_owned(),
         parameters: schema_of::<RunLuaArgs>(),
     }
@@ -1000,7 +999,13 @@ fn append_turn(
             participant: record.participant,
             initiation: record.initiation,
             produced_by: record.produced_by,
+            // Only a mid-session join carries a structured brief; the turns this records — inbound,
+            // agent reply, flush — do not.
+            brief: None,
         }],
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

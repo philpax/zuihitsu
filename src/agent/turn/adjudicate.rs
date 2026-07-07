@@ -2,7 +2,7 @@
 //! independently-recorded facts and accept or refuse it (spec §Cross-platform identity → adjudicated
 //! merge).
 //!
-//! A turn records the agent's judgment that two `person/*` stubs may be one human as an inert
+//! A turn records the agent's judgment that two [`Namespace::Person`] stubs may be one human as an inert
 //! `MergeProposed` (no `same_as`, nothing surfaces). This background pass catches those proposals up:
 //! for each, it reads both stubs' *already-recorded* facts — never the conversation that prompted the
 //! proposal, which is the structural defense against a participant feeding the agent matching facts to
@@ -16,7 +16,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     engine::Engine,
@@ -70,7 +70,7 @@ pub async fn run_adjudicate_catch_up(
 async fn adjudicate(
     model: &dyn ModelClient,
     engine: &Engine,
-    proposals: &[(MemoryId, MemoryId)],
+    proposals: &[PendingProposal],
     recording: Recording,
 ) -> Result<(), TurnError> {
     let Some(template) = templates::latest_template(
@@ -82,7 +82,12 @@ async fn adjudicate(
     };
     let now = engine.clock.now();
     let mut events = Vec::new();
-    for &(from, to) in proposals {
+    for &PendingProposal {
+        from,
+        to,
+        ref rationale,
+    } in proposals
+    {
         // Read both stubs and their recorded facts (each stub's whole class), with a transient lock
         // released before the judge `.await`. Both public and private entries feed the judge: it
         // reasons internally, so a private fact is safe as corroborating evidence and never leaves the
@@ -125,6 +130,7 @@ async fn adjudicate(
                 entries: &to_entries,
                 context: &to_context,
             },
+            rationale.as_deref(),
         )
         .await
         {
@@ -187,9 +193,22 @@ async fn adjudicate_pair(
     system: &str,
     from: Stub<'_>,
     to: Stub<'_>,
+    rationale: Option<&str>,
 ) -> Result<Option<AdjudicateArgs>, ModelError> {
+    // The proposer's stated grounds ride in as a claim, not evidence: it is labeled as such and placed
+    // after the recorded facts, so the judge weighs it against them rather than treating it as a fact of
+    // its own. A proposal with no rationale (an orchestration handle match, or a `same_as`-via-link) adds
+    // nothing here.
+    let claim = match rationale {
+        Some(rationale) => format!(
+            "\n\nThe proposer's stated grounds for the match (their claim, not evidence — weigh it \
+             against the recorded facts above): {rationale}",
+        ),
+        None => String::new(),
+    };
     let prompt = format!(
-        "Two stubs are proposed to be the same person.\n\n{}\n\n{}\n\nDecide whether to merge them.",
+        "Two stubs are proposed to be the same person.\n\n{}\n\n{}{claim}\n\nDecide whether to merge \
+         them.",
         render_stub(from),
         render_stub(to),
     );
@@ -227,8 +246,8 @@ struct Stub<'a> {
     memory: &'a MemoryView,
     entries: &'a [EntryView],
     /// The facts of the non-person memories this person owns (their events), reached off the stub's
-    /// links — the specifics the agent often files on a separate `event/` memory rather than the stub
-    /// itself, where the improbable coincidence that justifies a merge usually lives.
+    /// links — the specifics the agent often files on a separate [`Namespace::Event`] memory rather
+    /// than the stub itself, where the improbable coincidence that justifies a merge usually lives.
     context: &'a [EntryView],
 }
 
@@ -291,25 +310,53 @@ fn adjudicate_argument(content: &str) -> Option<AdjudicateArgs> {
     serde_json::from_str(extract_json_object(content)?).ok()
 }
 
+/// A pending merge proposal the adjudicator weighs: the two stubs and the proposer's stated grounds, if
+/// any. The rationale rides into the judge prompt as the proposer's claim, weighed against the recorded
+/// facts rather than trusted.
+struct PendingProposal {
+    from: MemoryId,
+    to: MemoryId,
+    rationale: Option<String>,
+}
+
 /// The proposed pairs in `(cursor, head]` that are not yet settled, in first-proposal order, each
 /// canonicalized so `(a, b)` and `(b, a)` coalesce. A pair the same window also adjudicates is dropped,
-/// so re-proposing within a window does not double-adjudicate.
+/// so re-proposing within a window does not double-adjudicate. The first proposal that carries a
+/// rationale for a pair keeps it — a bare re-proposal does not erase stated grounds, and a later
+/// rationale fills one an earlier bare proposal lacked.
 fn collect_pending_proposals(
     store: &dyn Store,
     cursor: Seq,
-) -> Result<Vec<(MemoryId, MemoryId)>, TurnError> {
+) -> Result<Vec<PendingProposal>, TurnError> {
     let mut settled = BTreeSet::new();
-    let mut seen = BTreeSet::new();
-    let mut ordered = Vec::new();
+    let mut seen: BTreeMap<(MemoryId, MemoryId), usize> = BTreeMap::new();
+    let mut ordered: Vec<PendingProposal> = Vec::new();
     for event in store.read_from(cursor.next())? {
         match event.payload {
             EventPayload::MergeAdjudicated { from, to, .. } => {
                 settled.insert(canonical_pair(from, to));
             }
-            EventPayload::MergeProposed { from, to } => {
+            EventPayload::MergeProposed {
+                from,
+                to,
+                rationale,
+                ..
+            } => {
                 let pair = canonical_pair(from, to);
-                if seen.insert(pair) {
-                    ordered.push(pair);
+                match seen.get(&pair) {
+                    Some(&index) => {
+                        if ordered[index].rationale.is_none() {
+                            ordered[index].rationale = rationale;
+                        }
+                    }
+                    None => {
+                        seen.insert(pair, ordered.len());
+                        ordered.push(PendingProposal {
+                            from: pair.0,
+                            to: pair.1,
+                            rationale,
+                        });
+                    }
                 }
             }
             _ => {}
@@ -317,7 +364,7 @@ fn collect_pending_proposals(
     }
     Ok(ordered
         .into_iter()
-        .filter(|pair| !settled.contains(pair))
+        .filter(|proposal| !settled.contains(&canonical_pair(proposal.from, proposal.to)))
         .collect())
 }
 

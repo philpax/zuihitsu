@@ -10,7 +10,7 @@ use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -23,7 +23,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
 }
 
 /// Eight days — past the first weekly instance of a reminder recorded at the run's start.
-const EIGHT_DAYS_MS: i64 = 8 * 24 * 60 * 60 * 1_000;
+const EIGHT_DAYS_MS: i64 = 8 * MILLIS_PER_DAY;
 
 pub struct RecurringReminder;
 
@@ -45,7 +45,7 @@ impl Scenario for RecurringReminder {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Can you remind me about our team standup? It's every Monday.",
         ))
         .await?;
@@ -57,7 +57,7 @@ impl Scenario for RecurringReminder {
         ctx.turn(Turn::new(
             "discord",
             "team-room",
-            "phil",
+            "marcus",
             "Morning! Anything on my plate I should know about?",
         ))
         .await?;
@@ -72,7 +72,7 @@ impl Scenario for RecurringReminder {
             .any(|name| name.starts_with(Namespace::Event.prefix()));
         let surfaced = analysis::scheduled_item_surfaced(events);
 
-        // The end-to-end check: a week on, asked what's on his plate, did the reply actually tell phil
+        // The end-to-end check: a week on, asked what's on his plate, did the reply actually tell marcus
         // about the standup? Structural events show the wake-up fired; only the reply shows it landed.
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let delivered = judge
@@ -129,7 +129,7 @@ impl Scenario for RecurringEmission {
             description: "From a plainly recurring phrase (\"every Tuesday\"), the agent emits a \
                           recurring temporal reference rather than flattening it to a single day."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

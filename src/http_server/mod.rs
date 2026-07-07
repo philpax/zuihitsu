@@ -33,9 +33,9 @@ use axum::{
 use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
 use zuihitsu::{
-    ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder, Server,
-    ServerError, SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, StoreError,
-    SystemClock, VectorError, VectorIndex,
+    ConfigError, EnvConfig, Graph, GraphError, ModelClient, OpenAiClient, OpenAiEmbedder,
+    RetryingModel, Server, ServerError, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
+    StdioHost, StoreError, SystemClock, VectorError, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
     snapshot,
@@ -45,8 +45,8 @@ use zuihitsu::{
 use auth::{require_control_key, require_platform_key};
 use control::{
     arbitrations, create_agent, entries, env_config, events, genesis, health, imprint,
-    interactions, lua_api, memories, memory, metrics, recurring, register_prompt, run_lua,
-    sessions, set_settings, settings, snapshot as snapshot_handler,
+    interactions, lua_api, memories, memory, merge_proposals, metrics, recurring, register_prompt,
+    resolve_merge, run_lua, sessions, set_settings, settings, snapshot as snapshot_handler,
 };
 use platform::{join, message};
 
@@ -58,6 +58,10 @@ use platform::{join, message};
 struct AppState {
     server: Arc<Server>,
     model: Option<Arc<dyn ModelClient>>,
+    /// The same client as `model`, as its concrete resilience wrapper — the handle
+    /// `/control/health` reads the circuit state and last failure from. `None` when no model is
+    /// configured (and in router tests that inject a bare fake as `model`).
+    backend: Option<Arc<RetryingModel>>,
     /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
     /// otherwise (the snapshot endpoint then answers `409`).
     snapshot_dir: Option<PathBuf>,
@@ -104,6 +108,12 @@ const LINK_INFERENCE_TICK_SECONDS: u64 = 7;
 /// never messaged again still has its working state consolidated. Coarse — the idle gap is measured in
 /// minutes — and an idle tick is cheap (a query for open sessions, then a per-session activity check).
 const SWEEP_TICK_SECONDS: u64 = 60;
+
+/// How often the checkpoint sweep evaluates live sessions for a mid-session flush (spec §Compaction →
+/// checkpoint flush). The gates (substance, cooldown, audience) do the real rate-limiting; the tick
+/// only bounds how quickly an eligible session is noticed, and an idle tick is cheap (per-live-session
+/// buffer reads, no model call).
+const CHECKPOINT_TICK_SECONDS: u64 = 30;
 
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
@@ -221,13 +231,22 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         Duration::from_secs(server.control().settings()?.scheduler.tick_seconds.max(1) as u64);
 
     // The model client the conversing endpoints use, built from config. Absent endpoint → no model →
-    // those endpoints answer 503 rather than failing at call time.
-    let model: Option<Arc<dyn ModelClient>> = if config.model.endpoint.is_empty() {
+    // those endpoints answer 503 rather than failing at call time. The real client is wrapped in
+    // the transport-resilience decorator here, at serving construction, so every caller — the turn
+    // loop and the background workers — shares one retry policy and one circuit breaker; the
+    // concrete handle is kept alongside the trait object so `/control/health` can read the circuit.
+    let backend: Option<Arc<RetryingModel>> = if config.model.endpoint.is_empty() {
         tracing::warn!("no model endpoint configured; conversing endpoints will return 503");
         None
     } else {
-        Some(Arc::new(OpenAiClient::new(&config.model)))
+        Some(Arc::new(RetryingModel::new(
+            Arc::new(OpenAiClient::new(&config.model)),
+            &config.model.resilience,
+        )))
     };
+    let model: Option<Arc<dyn ModelClient>> = backend
+        .clone()
+        .map(|backend| backend as Arc<dyn ModelClient>);
     let server = Arc::new(server);
 
     // The background scheduler driver fires due wake-ups on its own timer (spec §Scheduled work),
@@ -316,6 +335,23 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
+    // The background checkpoint sweep flushes a live session's working state to memory mid-session
+    // (spec §Compaction → checkpoint flush), so a parallel conversation can read it before this one
+    // goes idle. Spawned only when a model is configured; the flush turn needs one.
+    let checkpoint_sweeper = model.as_ref().map(|model| {
+        let server = server.clone();
+        let model = model.clone();
+        tokio::spawn(async move {
+            server
+                .run_checkpoint_sweeper(
+                    model,
+                    Duration::from_secs(CHECKPOINT_TICK_SECONDS),
+                    shutdown_signal(),
+                )
+                .await
+        })
+    });
+
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
     // §Snapshots), when enabled. Stops on the same shutdown signal.
     let snapshotter = config.snapshots.enabled.then(|| {
@@ -332,6 +368,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let app = router(AppState {
         server: server.clone(),
         model,
+        backend,
         snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
         metrics,
         boot,
@@ -398,6 +435,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     if let Some(sweeper) = sweeper {
         let _ = sweeper.await;
     }
+    if let Some(checkpoint_sweeper) = checkpoint_sweeper {
+        let _ = checkpoint_sweeper.await;
+    }
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;
     }
@@ -425,6 +465,8 @@ fn router(state: AppState) -> Router {
         .route("/sessions", get(sessions))
         .route("/recurring", get(recurring))
         .route("/arbitrations", get(arbitrations))
+        .route("/merge-proposals", get(merge_proposals))
+        .route("/merge", post(resolve_merge))
         .route("/interactions", get(interactions))
         .route("/events", get(events))
         .route("/snapshot", post(snapshot_handler))
@@ -468,8 +510,8 @@ struct Console;
 
 /// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link
 /// or a refresh lands in the app rather than on a 404. The HTML shell is served in `agent` mode, so
-/// the one shared bundle boots into the agent's live view — the eval binary serves the same bundle in
-/// `eval` mode (see `console`'s `App`).
+/// the one shared bundle boots into the agent's live view; the same bundle supports other host modes
+/// selected at serve time (see `console`'s `App`).
 async fn console(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };

@@ -53,7 +53,56 @@ pub struct ModelConfig {
     pub presence_penalty: Option<f32>,
     /// Override the serving layer's thinking default (`chat_template_kwargs.enable_thinking`).
     pub thinking: Option<bool>,
+    /// Transport resilience for the served model client (`[model.resilience]`): the request
+    /// timeout, retries, backoff, and the circuit breaker.
+    pub resilience: ResilienceConfig,
 }
+
+/// Transport resilience for the served model client: the per-call request timeout, bounded retries
+/// of transient failures with exponential backoff, and the circuit breaker that fails fast while
+/// the backend stays down. Operational config, not behavioral: retries the agent never saw emit
+/// nothing to the event log (spec §Event sourcing), so replay never depends on these values — which
+/// is why they live here and not in the logged `Settings`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ResilienceConfig {
+    /// The whole-request timeout for one backend HTTP call, in seconds. reqwest's default is no
+    /// timeout, so without this a hung backend stalls the turn forever instead of surfacing a
+    /// retryable timeout error. Generous by default: a local model reprocessing a long prompt can
+    /// legitimately take minutes.
+    pub request_timeout_seconds: u64,
+    /// The total attempts for one `generate` call — the first try plus retries of transient
+    /// failures. Non-transient failures (schema, auth, other 4xx) are never retried.
+    pub max_attempts: u32,
+    /// The first retry's backoff, in milliseconds; each further retry doubles it (with jitter).
+    pub backoff_base_ms: u64,
+    /// The per-retry backoff ceiling, in milliseconds.
+    pub backoff_max_ms: u64,
+    /// How many consecutive transient failures open the circuit, after which model calls fail fast
+    /// without reaching the backend.
+    pub breaker_failure_threshold: u32,
+    /// How long an open circuit fails fast, in seconds, before one half-open probe request is let
+    /// through (success closes the circuit; failure re-opens it for another window).
+    pub breaker_open_seconds: u64,
+}
+
+impl Default for ResilienceConfig {
+    fn default() -> Self {
+        ResilienceConfig {
+            request_timeout_seconds: DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            max_attempts: 3,
+            backoff_base_ms: 500,
+            backoff_max_ms: 10_000,
+            breaker_failure_threshold: 3,
+            breaker_open_seconds: 30,
+        }
+    }
+}
+
+/// The default whole-request HTTP timeout, shared by the model and embedding clients. Long enough
+/// for a local model's worst-case prefill-plus-generation; short enough that a hung backend becomes
+/// a retryable timeout rather than a forever-stall.
+const DEFAULT_REQUEST_TIMEOUT_SECONDS: u64 = 300;
 
 /// How this instance serves its HTTP API (spec §Clients and the server boundary): the local address
 /// the long-running server binds, and the per-surface API keys that authorize remote clients. Defaults
@@ -95,12 +144,26 @@ impl Default for ServingConfig {
 }
 
 /// Where to reach the embedding model, and the dimensionality it produces.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct EmbeddingConfig {
     pub endpoint: String,
     pub model: String,
     pub dimensions: usize,
+    /// The whole-request timeout for one embedding HTTP call, in seconds — the same hung-backend
+    /// guard the model client has (see [`ResilienceConfig::request_timeout_seconds`]).
+    pub request_timeout_seconds: u64,
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        EmbeddingConfig {
+            endpoint: String::new(),
+            model: String::new(),
+            dimensions: 0,
+            request_timeout_seconds: DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        }
+    }
 }
 
 /// Where this instance's databases live — one directory holding all three. The event log is the

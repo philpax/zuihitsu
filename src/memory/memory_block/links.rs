@@ -3,9 +3,10 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    event::{EventPayload, LinkSource, Teller},
-    graph::RelationView,
+    event::{EventPayload, LinkSource, MergeProposalSource, Teller},
+    graph::{Graph, RelationView},
     ids::MemoryId,
+    time::TemporalRef,
     vocabulary::RelationName,
 };
 
@@ -15,7 +16,7 @@ use super::{
 
 impl MemoryBlock {
     /// Links out of this memory's whole `same_as` class under `relation`, in the relation's canonical
-    /// forward direction — `mem:outgoing("mentor_of")` is who the identity mentors. A traversing read
+    /// forward direction — `mem:outgoing("mentors")` is who the identity mentors. A traversing read
     /// (locks the class). The relation may be named by either label, but the *method* picks the
     /// direction, not the label: use [`MemoryBlock::incoming`] for the reverse. An unregistered relation
     /// is a teachable error. A symmetric relation has no direction, so `outgoing` and `incoming` return
@@ -24,7 +25,7 @@ impl MemoryBlock {
         self.directed_links(id, relation, LinkDirection::Outgoing)
     }
 
-    /// Links into this memory's whole `same_as` class under `relation` — `mem:incoming("mentor_of")`
+    /// Links into this memory's whole `same_as` class under `relation` — `mem:incoming("mentors")`
     /// is who mentors the identity. The reverse of [`MemoryBlock::outgoing`]; see it for the details.
     pub fn incoming(&mut self, id: MemoryId, relation: &str) -> Result<Vec<LinkRef>, MemoryError> {
         self.directed_links(id, relation, LinkDirection::Incoming)
@@ -38,7 +39,7 @@ impl MemoryBlock {
         self.class_link_refs(id)
     }
 
-    /// Link `from` to `to` under a registered relation (e.g. flag a thread `_session_carryover` the context).
+    /// Link `from` to `to` under a registered relation (e.g. record that one person `knows` another).
     pub fn link(
         &mut self,
         from: MemoryId,
@@ -61,16 +62,28 @@ impl MemoryBlock {
     /// Propose that two stubs are the same human across platforms, for the adjudication pass to weigh
     /// (spec §Cross-platform identity → adjudicated merge). This is *not* a merge: it buffers an inert
     /// `MergeProposed` — no `same_as`, no class change, nothing surfaces across the would-be merge — so
-    /// the agent records its judgment without itself collapsing two identities' visibility. A proposal
-    /// naming one memory twice is rejected as a teachable error; everything else (whether the two are
-    /// truly the same) is the adjudicator's call, on the evidence.
-    pub fn propose_merge(&mut self, from: MemoryId, to: MemoryId) -> Result<(), MemoryError> {
+    /// the agent records its judgment without itself collapsing two identities' visibility. `rationale`
+    /// carries the proposer's stated grounds for the coincidence, if any, which the adjudicator weighs
+    /// against the two stubs' independently-recorded facts. A proposal naming one memory twice is
+    /// rejected as a teachable error; everything else (whether the two are truly the same) is the
+    /// adjudicator's call, on the evidence.
+    pub fn propose_merge(
+        &mut self,
+        from: MemoryId,
+        to: MemoryId,
+        rationale: Option<String>,
+    ) -> Result<(), MemoryError> {
         if from == to {
             return Err(MemoryError::MergeProposalInvalid);
         }
         self.touched.insert(from);
         self.touched.insert(to);
-        self.buffer.push(EventPayload::merge_proposed(from, to));
+        self.buffer.push(EventPayload::merge_proposed(
+            from,
+            to,
+            MergeProposalSource::Agent,
+            rationale,
+        ));
         Ok(())
     }
 
@@ -157,6 +170,9 @@ impl MemoryBlock {
                             .unwrap_or_else(|| "someone".to_owned()),
                     ),
                 };
+                // The far memory's freshest dated fact, so a link to a dated event carries *when*.
+                // Committed state only and not visibility-filtered, mirroring the link read itself.
+                let occurred_at = latest_dated_occurrence(&graph, other.id)?;
                 refs.push(LinkRef {
                     relation: edge.relation,
                     other: other.id,
@@ -164,6 +180,7 @@ impl MemoryBlock {
                     direction,
                     source: edge.source,
                     told_by,
+                    occurred_at,
                 });
             }
             (members, refs)
@@ -208,8 +225,15 @@ impl MemoryBlock {
         }
         // Cross-platform identity is operator-asserted only: a participant must not be able to steer
         // the agent into merging (or splitting) two identities, which would collapse their visibility
-        // classes (spec §Cross-platform identity is operator-asserted only).
+        // classes (spec §Cross-platform identity is operator-asserted only). The agent nonetheless reads
+        // for `link("same_as", other)` as "these are the same person" — its stated intent is a merge —
+        // so a create routes to the proposal path (an inert `MergeProposed` the adjudication pass weighs)
+        // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
+        // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
         if relation == RelationName::SameAs && self.authority == Authority::Platform {
+            if create {
+                return self.propose_merge(from, to, None);
+            }
             return Err(MemoryError::MergeForbidden);
         }
         // A link from or to `self` modifies the self model — barred outside the console.
@@ -238,5 +262,146 @@ impl MemoryBlock {
             EventPayload::link_removed(from, to, relation)
         });
         Ok(())
+    }
+}
+
+/// The far memory's representative occurrence for a link read: the most recent dated entry's
+/// `occurred_at` over its whole `same_as` class, preferring an authored occurrence over an extracted
+/// one, or `None` when it holds no dated fact. An authored date is ground truth (the agent stamped it
+/// at append); an extracted one is inference the turn-end temporal extraction resolved, which can
+/// misfire (anaphora like "that weekend" resolved against the clock). So the freshest authored date
+/// wins, and an extracted date carries onto the handle only when the class holds no authored date at
+/// all — a guess never shadows a stated fact. Within each tier, entries compose in commit order, so
+/// the last dated one wins — the freshest dated fact, which for a linked event (a shipped decision, a
+/// scheduled meeting) is the *when* the agent relays. Not visibility-filtered: the link readers
+/// surface the agent's whole graph, so the occurrence they carry is not gated on who is present either.
+fn latest_dated_occurrence(
+    graph: &Graph,
+    id: MemoryId,
+) -> Result<Option<TemporalRef>, MemoryError> {
+    let mut latest_authored = None;
+    let mut latest_extracted = None;
+    for entry in graph.class_entries(id)? {
+        if entry.occurred_at.is_some() {
+            if entry.occurred_authored {
+                latest_authored = entry.occurred_at;
+            } else {
+                latest_extracted = entry.occurred_at;
+            }
+        }
+    }
+    Ok(latest_authored.or(latest_extracted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::latest_dated_occurrence;
+    use crate::{
+        event::{Event, EventPayload, Teller, Visibility},
+        graph::Graph,
+        ids::{EntryId, MemoryId, Namespace, Seq},
+        time::{CivilDate, TemporalRef, Timestamp},
+    };
+
+    fn event(seq: u64, payload: EventPayload) -> Event {
+        Event {
+            seq: Seq(seq),
+            recorded_at: Timestamp::from_millis(1),
+            payload,
+        }
+    }
+
+    #[test]
+    fn a_link_targets_authored_date_outranks_a_newer_extracted_one() {
+        // The neighborhood line's `[when …]` must carry the target's authored date over a newer
+        // extracted one: an authored July cutover outranks a June date the extraction later resolved
+        // for a sibling "that weekend" statement, so a recap relayed from the handle keeps the stated
+        // when rather than a clock-anchored guess.
+        let mut graph = Graph::open_in_memory().unwrap();
+        let id = MemoryId::generate();
+        let authored = EntryId::generate();
+        let extracted = EntryId::generate();
+        let july = TemporalRef::Day(CivilDate("2026-07-20".into()));
+        let june = TemporalRef::Day(CivilDate("2026-06-08".into()));
+        let append = |seq, entry, occurred_at, text: &str| {
+            event(
+                seq,
+                EventPayload::MemoryContentAppended {
+                    id,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at,
+                    text: text.to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            )
+        };
+        graph
+            .apply(&event(
+                1,
+                EventPayload::memory_created(id, Namespace::Event.with_name("cutover")),
+            ))
+            .unwrap();
+        graph
+            .apply(&append(2, authored, Some(july.clone()), "cut billing over"))
+            .unwrap();
+        graph
+            .apply(&append(
+                3,
+                extracted,
+                None,
+                "Devin owns the rollback that weekend",
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                4,
+                EventPayload::entry_temporal_resolved(id, extracted, june.clone(), None),
+            ))
+            .unwrap();
+
+        // Authored wins even though the extracted entry is newer.
+        assert_eq!(
+            latest_dated_occurrence(&graph, id).unwrap().as_ref(),
+            Some(&july),
+        );
+
+        // With no authored date in the class, the extracted one still surfaces (the fallback).
+        let mut graph = Graph::open_in_memory().unwrap();
+        let only = MemoryId::generate();
+        let entry = EntryId::generate();
+        graph
+            .apply(&event(
+                1,
+                EventPayload::memory_created(only, Namespace::Event.with_name("call")),
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                2,
+                EventPayload::MemoryContentAppended {
+                    id: only,
+                    entry_id: entry,
+                    asserted_at: Timestamp::from_millis(1),
+                    occurred_at: None,
+                    text: "that weekend".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ))
+            .unwrap();
+        graph
+            .apply(&event(
+                3,
+                EventPayload::entry_temporal_resolved(only, entry, june.clone(), None),
+            ))
+            .unwrap();
+        assert_eq!(
+            latest_dated_occurrence(&graph, only).unwrap().as_ref(),
+            Some(&june),
+        );
     }
 }

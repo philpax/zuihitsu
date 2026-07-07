@@ -24,7 +24,8 @@ pub const BEFORE_AFTER_EPSILON_MILLIS: i64 = MILLIS_PER_HOUR;
 /// `occurred_hi` from it via [`TemporalRef::bounds`].
 ///
 /// The agent writes it as a tagged Lua table whose single key names the variant:
-/// `{ instant = <ms> }`, `{ day = "YYYY-MM-DD" }`, `{ range = { start = <ms>, end = <ms> } }`,
+/// `{ instant = <ms> }`, `{ day = "YYYY-MM-DD" }`, `{ range = { start = <ms>, ["end"] = <ms> } }`
+/// (`end` is a Lua keyword, so in Lua source the key is quote-bracketed),
 /// `{ approx = { center = <ms>, fuzz_days = <n> } }`, `{ recurring = "<rrule>" }`, or
 /// `{ before_after = { dir = "before" | "after", anchor = "event/..." } }`. Natural-language phrases
 /// ("last week") are resolved to this type by a later increment's extraction pass, not here.

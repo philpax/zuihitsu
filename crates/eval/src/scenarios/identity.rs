@@ -12,15 +12,12 @@ use zuihitsu::{Event, MemoryName, NamespacedMemoryName};
 
 use crate::{
     analysis,
-    context::RunContext,
+    context::{PAST_IDLE_GAP_MS, RunContext},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
 };
-
-/// Just past the default idle gap (1800s), so the next imprint turn opens a fresh session.
-const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
 
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
@@ -44,7 +41,7 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
                           which they share another of their names should record it on that profile, \
                           not mint a second person/* memory."
                 .to_owned(),
-            bar: Bar::Gating,
+            bar: Bar::gating(),
         }
     }
 

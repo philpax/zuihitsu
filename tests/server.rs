@@ -7,9 +7,9 @@ use std::time::Duration;
 use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, Embedder, FakeEmbedder, GenerateRequest,
     GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore,
-    ModelClient, ModelError, ScriptedModel, SeedSelf, Server, SqliteStore, Store, ToolCall,
-    TurnOutcome, Usage, VectorIndex,
-    event::EventPayload,
+    ModelClient, ModelError, Namespace, ScriptedModel, SeedSelf, Server, SqliteStore, Store,
+    ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
+    event::{EventPayload, MergeProposalSource, PromptTemplateName},
     genesis::{GenesisStatus, Rollout},
     time::MILLIS_PER_DAY,
 };
@@ -17,7 +17,7 @@ use zuihitsu::{
 use common::time::TEST_NOW;
 
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -554,8 +554,13 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
         .unwrap();
     let dave = server.control().memory("person/dave").unwrap().unwrap().id;
 
-    // Erin joins mid-session: she is recorded on the session, alongside Dave.
-    server.platform().note_join(&leads, "erin").unwrap();
+    // Erin joins mid-session via the explicit endpoint path — with no model configured, so the
+    // join-brief composes off the current prose rather than failing.
+    server
+        .platform()
+        .note_join(None, &leads, "erin")
+        .await
+        .unwrap();
     let erin = server.control().memory("person/erin").unwrap().unwrap().id;
 
     let sessions = server.control().sessions(&leads).unwrap();
@@ -563,6 +568,179 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
     let participants = &sessions[0].participants;
     assert!(participants.contains(&dave));
     assert!(participants.contains(&erin));
+
+    // The endpoint shares the per-message sync's code path: the same join-brief system turn lands.
+    let events = server.control().events().unwrap();
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.payload,
+            EventPayload::ConversationTurn {
+                role: TurnRole::System,
+                participant: Some(participant),
+                ..
+            } if *participant == erin
+        )),
+        "note_join injects the same join-brief as the per-message sync"
+    );
+}
+
+#[tokio::test]
+async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their_turn() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("hi erin".to_owned()),
+    ]);
+
+    // Dave opens the session alone; Erin's first message arrives mid-session, with no explicit
+    // /platform/join posted — the message itself is the join signal.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "erin", "hey, joining in", &["dave", "erin"])
+        .await
+        .unwrap();
+
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+
+    // Exactly one join was recorded for the newcomer.
+    let joins = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ParticipantJoined { participant, .. } if *participant == erin
+            )
+        })
+        .count();
+    assert_eq!(joins, 1, "one ParticipantJoined for the newcomer");
+
+    // The injected join-brief — a system turn about Erin — precedes her inbound turn in the log,
+    // and its text reflects her memory.
+    let (brief_seq, brief_text) = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::System,
+                participant: Some(participant),
+                text,
+                ..
+            } if *participant == erin => Some((event.seq, text.clone())),
+            _ => None,
+        })
+        .expect("the join injected a system join-brief turn");
+    let inbound_seq = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Participant,
+                participant: Some(participant),
+                ..
+            } if *participant == erin => Some(event.seq),
+            _ => None,
+        })
+        .expect("Erin's inbound turn is in the log");
+    assert!(
+        brief_seq.0 < inbound_seq.0,
+        "the join-brief precedes the joiner's inbound turn"
+    );
+    assert!(
+        brief_text.contains("person/erin"),
+        "the join-brief reflects the joiner's memory: {brief_text}"
+    );
+
+    // The join reused the live session, whose participants now include both.
+    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert_eq!(sessions.len(), 1, "the join reused the live session");
+    assert!(sessions[0].participants.contains(&dave));
+    assert!(sessions[0].participants.contains(&erin));
+}
+
+#[tokio::test]
+async fn a_participant_merely_present_on_a_message_is_joined_too() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("noted".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    // Erin never speaks — she only appears in Dave's present list — yet the presence sync joins her.
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "dave",
+            "erin just walked in",
+            &["dave", "erin"],
+        )
+        .await
+        .unwrap();
+
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.payload,
+            EventPayload::ParticipantJoined { participant, .. } if *participant == erin
+        )),
+        "presence alone records the join"
+    );
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert!(sessions[0].participants.contains(&erin));
+}
+
+#[tokio::test]
+async fn repeat_messages_from_the_same_joiner_do_not_re_join() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::new([
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("hi erin".to_owned()),
+        Completion::Reply("still here".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "erin", "hi", &["dave", "erin"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "erin", "one more thing", &["dave", "erin"])
+        .await
+        .unwrap();
+
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+    let joins = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ParticipantJoined { participant, .. } if *participant == erin
+            )
+        })
+        .count();
+    assert_eq!(joins, 1, "a member's later messages do not re-join");
 }
 
 #[tokio::test]
@@ -850,6 +1028,489 @@ async fn a_low_activity_session_skips_the_flush() {
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 }
 
+/// Point the checkpoint gates at a test's scale: a small substance threshold (30 chars — a one-line
+/// greeting stays under it, a substantive message clears it) and no cooldown unless the test is about
+/// it.
+fn tune_checkpoint(server: &Server, min_delta_chars: i64, cooldown_seconds: i64) {
+    let mut settings = server.control().settings().unwrap();
+    settings.checkpoint.min_delta_chars = min_delta_chars;
+    settings.checkpoint.cooldown_seconds = cooldown_seconds;
+    server.control().set_settings(settings).unwrap();
+}
+
+/// A substantive room-A message that clears a 30-char substance threshold.
+const SUBSTANTIVE: &str = "We decided: the migration ships on Friday, Erin owns the comms, and \
+                           the fallback window is Monday morning.";
+
+#[tokio::test]
+async fn a_checkpoint_fires_only_past_the_substance_threshold() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 200, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("noted the plan".to_owned()),
+        // The one checkpoint flush at the end confirms.
+        Completion::Reply("checkpointed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hello", &["erin"])
+        .await
+        .unwrap();
+
+    // Cooldown passes (zero) and the audience is live (room B), but neither room's delta reaches the
+    // threshold — the substance gate alone blocks.
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+
+    // A substantive message pushes room A's delta past the threshold; the same sweep now flushes it.
+    let long = SUBSTANTIVE.repeat(3);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", &long, &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_checkpoint_waits_out_the_cooldown() {
+    let (server, clock) = born_agent();
+    tune_checkpoint(&server, 30, 600);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("checkpointed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+
+    // Substance and audience pass, but the session is younger than the cooldown (measured from its
+    // start, since it has never flushed) — the cooldown gate alone blocks.
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+
+    // Past the cooldown (still within the idle gap), the sweep flushes room A. Room B's delta stays
+    // under the substance threshold, so it does not ride along.
+    clock.advance_millis(601 * 1_000);
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_checkpoint_requires_a_live_audience() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("checkpointed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+
+    // Substance and cooldown pass, but room A is the only live conversation — the tail's only reader
+    // is room A itself, which already has it in the buffer, so the audience gate alone blocks.
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+
+    // Another conversation coming live gives the flush a reader; the same sweep now flushes room A
+    // (room B's own delta stays under the substance threshold).
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_checkpoint_flush_leaves_the_session_open_and_rides_the_buffer() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+        // The checkpoint flush writes durable state and confirms.
+        run_lua_call(r#"memory.create("topic/launch", "The migration ships on Friday")"#),
+        Completion::Reply("saved what matters".to_owned()),
+        Completion::Reply("indeed".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    // The flush turn landed with the Flush provenance, and the session is still open: no
+    // SessionEnded, and the next message continues the same session rather than opening a new one.
+    let events = server.control().events().unwrap();
+    let flush_turns = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ConversationTurn { produced_by: Some(produced), .. }
+                    if produced.template_name == PromptTemplateName::Flush
+            )
+        })
+        .count();
+    assert_eq!(flush_turns, 1);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event.payload, EventPayload::SessionEnded { .. })),
+        "the checkpoint must leave every session open"
+    );
+
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", "sounds right?", &["dave"])
+        .await
+        .unwrap();
+    assert_eq!(server.control().sessions(&room_a).unwrap().len(), 1);
+    // The next turn's prompt replays the flush turn — its Lua step and its confirmation — like any
+    // agent turn in the buffer (no rewind).
+    let seen = model.recorded_messages();
+    let last_prompt = seen.last().unwrap();
+    assert!(
+        last_prompt
+            .iter()
+            .any(|message| message.content.contains("saved what matters")),
+        "the flush turn should ride the live buffer; prompt was: {last_prompt:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        // Call 0: room A's first exchange, carrying the ALPHA marker.
+        Completion::Reply("ok one".to_owned()),
+        // Call 1: room B (the audience).
+        Completion::Reply("ok".to_owned()),
+        // Call 2: the first checkpoint flush.
+        Completion::Reply("first checkpoint".to_owned()),
+        // Call 3: room A's second exchange, carrying the BETA marker.
+        Completion::Reply("ok two".to_owned()),
+        // Call 4: the second checkpoint flush.
+        Completion::Reply("second checkpoint".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_a,
+            "dave",
+            "ALPHA: the migration plan is locked, we ship the database cutover on Friday.",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_a,
+            "dave",
+            "BETA: after the cutover, Erin owns the comms and the fallback window is Monday.",
+            &["dave"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), 5);
+    // The first flush prompt covers the session so far (the ALPHA exchange).
+    let first_flush: Vec<&str> = seen[2].iter().map(|m| m.content.as_str()).collect();
+    assert!(
+        first_flush.iter().any(|content| content.contains("ALPHA")),
+        "the first checkpoint should see the pre-watermark turns: {first_flush:?}"
+    );
+    // The second covers only the delta past the first's watermark: BETA is in, ALPHA is not — a
+    // repeat checkpoint never re-flushes the same turns.
+    let second_flush: Vec<&str> = seen[4].iter().map(|m| m.content.as_str()).collect();
+    assert!(
+        second_flush.iter().any(|content| content.contains("BETA")),
+        "the second checkpoint should see the new delta: {second_flush:?}"
+    );
+    assert!(
+        !second_flush.iter().any(|content| content.contains("ALPHA")),
+        "the second checkpoint must not re-flush turns before its watermark: {second_flush:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_checkpointed_memory_is_retrievable_in_another_room() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    let model = ScriptedModel::new([
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("hi erin".to_owned()),
+        // The checkpoint flush in room A writes the decision to memory, mid-session.
+        run_lua_call(
+            r#"memory.create("topic/friday-launch", "Decided to ship the migration on Friday")"#,
+        ),
+        Completion::Reply("flushed".to_owned()),
+        // Room B's next turn reads it back — the cross-conversation sync the checkpoint exists for.
+        run_lua_call(r#"return memory.get("topic/friday-launch"):entries()"#),
+        Completion::Reply("Dave's room decided to ship the migration on Friday.".to_owned()),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room_b, "erin", "hello", &["erin"])
+        .await
+        .unwrap();
+    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+
+    // Room A's session is still open (mid-conversation), yet its working state is already durable.
+    assert!(
+        server
+            .control()
+            .memory("topic/friday-launch")
+            .unwrap()
+            .is_some()
+    );
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_b,
+            "erin",
+            "what did dave's room decide?",
+            &["erin"],
+        )
+        .await
+        .unwrap();
+    // Room B's read block saw the checkpointed content, before room A ever went idle.
+    let events = server.control().events().unwrap();
+    let read_back = events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LuaExecuted { script, result: Some(result), .. }
+                if script.contains("friday-launch") && result.contains("Friday")
+        )
+    });
+    assert!(
+        read_back,
+        "room B's next turn should read the checkpointed memory"
+    );
+}
+
+/// A model that answers from a script but parks one designated call until released — the window a
+/// concurrency test opens to overlap other work with an in-flight flush.
+struct GatedModel {
+    completions: Mutex<std::collections::VecDeque<Completion>>,
+    calls: AtomicUsize,
+    gated_call: usize,
+    entered: std::sync::atomic::AtomicBool,
+    release: tokio::sync::Notify,
+}
+
+impl GatedModel {
+    fn new(completions: impl IntoIterator<Item = Completion>, gated_call: usize) -> GatedModel {
+        GatedModel {
+            completions: Mutex::new(completions.into_iter().collect()),
+            calls: AtomicUsize::new(0),
+            gated_call,
+            entered: std::sync::atomic::AtomicBool::new(false),
+            release: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Whether the gated call has been reached (and is parked).
+    fn entered(&self) -> bool {
+        self.entered.load(Ordering::SeqCst)
+    }
+
+    /// Let the parked call proceed.
+    fn release(&self) {
+        self.release.notify_one();
+    }
+}
+
+#[async_trait::async_trait]
+impl ModelClient for GatedModel {
+    fn model_id(&self) -> &str {
+        "gated-model"
+    }
+
+    async fn generate(&self, _request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call == self.gated_call {
+            self.entered.store(true, Ordering::SeqCst);
+            // `notify_one` before this await stores a permit, so a release observed via `entered`
+            // can never be missed.
+            self.release.notified().await;
+        }
+        let completion = self
+            .completions
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("a scripted completion for every call");
+        Ok(GenerateResponse {
+            completion,
+            usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
+    let (server, _clock) = born_agent();
+    tune_checkpoint(&server, 30, 0);
+    let server = Arc::new(server);
+
+    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_b = ConversationLocator::new("discord", "room-b");
+    // Call 2 — the checkpoint flush — parks until released; the message that arrives while it is
+    // parked must wait on the conversation's lifecycle lock rather than interleave.
+    let model = Arc::new(GatedModel::new(
+        [
+            Completion::Reply("noted".to_owned()),
+            Completion::Reply("hi".to_owned()),
+            Completion::Reply("checkpointed".to_owned()),
+            Completion::Reply("welcome back".to_owned()),
+        ],
+        2,
+    ));
+    server
+        .platform()
+        .route_message(model.as_ref(), &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(model.as_ref(), &room_b, "erin", "hello", &["erin"])
+        .await
+        .unwrap();
+
+    // Start the sweep; it takes room A's lifecycle lock and parks inside the flush's model call.
+    let sweep = tokio::spawn({
+        let server = server.clone();
+        let model = model.clone();
+        async move { server.checkpoint_live_sessions(model.as_ref()).await }
+    });
+    while !model.entered() {
+        tokio::task::yield_now().await;
+    }
+
+    // A message arrives mid-flush. It must queue behind the flush in `ensure_session` — its inbound
+    // turn cannot land while the flush holds the lock.
+    let message = tokio::spawn({
+        let server = server.clone();
+        let model = model.clone();
+        async move {
+            server
+                .platform()
+                .route_message(
+                    model.as_ref(),
+                    &ConversationLocator::new("discord", "room-a"),
+                    "dave",
+                    "one more thing",
+                    &["dave"],
+                )
+                .await
+        }
+    });
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+    let mid_flush = server.control().events().unwrap();
+    assert!(
+        !mid_flush.iter().any(|event| {
+            matches!(&event.payload, EventPayload::ConversationTurn { text, .. } if text == "one more thing")
+        }),
+        "the arriving message must wait on the lifecycle lock while the flush is in flight"
+    );
+
+    model.release();
+    assert_eq!(sweep.await.unwrap().unwrap(), 1);
+    message.await.unwrap().unwrap();
+
+    // Serialized through the lock: exactly one flush turn, recorded before the waiting message's
+    // inbound turn — no double flush, and no interleaving.
+    let events = server.control().events().unwrap();
+    let flush_seqs: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::ConversationTurn { produced_by: Some(produced), .. }
+                    if produced.template_name == PromptTemplateName::Flush
+            )
+        })
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(flush_seqs.len(), 1, "exactly one flush turn is recorded");
+    let inbound_seq = events
+        .iter()
+        .find(|event| {
+            matches!(&event.payload, EventPayload::ConversationTurn { text, .. } if text == "one more thing")
+        })
+        .map(|event| event.seq)
+        .expect("the waiting message lands after the flush releases");
+    assert!(
+        flush_seqs[0] < inbound_seq,
+        "the flush turn precedes the message that waited on it"
+    );
+}
+
 #[tokio::test]
 async fn context_current_resolves_during_a_routed_turn() {
     let (server, _clock) = born_agent();
@@ -917,7 +1578,10 @@ async fn the_working_set_carries_into_the_next_session_brief() {
 }
 
 #[tokio::test]
-async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouched() {
+async fn the_compaction_working_set_is_the_touched_set_only() {
+    // The compacted session's working set is purely its touched memories. A thread worked in an
+    // earlier session but never touched in the session that compacts does not carry, since only the
+    // platform-derived touched set feeds the working set.
     let (server, clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
@@ -925,18 +1589,15 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
 
     let leads = ConversationLocator::new("discord", "leads");
     let model = ScriptedModel::with_usage([
-        // Session 1: flag a thread _session_carryover the room (an ordinary turn, under budget).
+        // Session 1: create a thread — an ordinary turn, under budget.
         (
-            run_lua_call(
-                r#"local t = memory.create("topic/migration", "Plan the DB migration"); t:link("_session_carryover", context.current())"#,
-            ),
+            run_lua_call(r#"memory.create("topic/migration", "Plan the DB migration")"#),
             10,
         ),
-        (Completion::Reply("flagged".to_owned()), 0),
-        (describe_call("The DB migration plan."), 0),
+        (Completion::Reply("noted".to_owned()), 0),
         // Session 2 (after an idle reopen) crosses the budget without touching the migration thread.
         (Completion::Reply("on something else".to_owned()), 200),
-        // Session 3 opens with the carryover; its frozen brief is what we inspect.
+        // Session 3 opens; nothing carried, so no describe pass fires for the migration thread.
         (Completion::Reply("back".to_owned()), 0),
     ]);
 
@@ -945,7 +1606,7 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
         .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
         .await
         .unwrap();
-    // An idle gap reopens a fresh session 2 (no carryover, and it will not touch the thread).
+    // An idle gap reopens a fresh session 2 (which will not touch the thread).
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
@@ -959,12 +1620,12 @@ async fn a_session_carryover_thread_carries_across_a_compaction_even_when_untouc
         .await
         .unwrap();
 
-    // Session 2 never touched the migration thread, yet it carries into session 3's brief — proving
-    // _session_carryover is a distinct, persistent working-set source, not just an alias for touch-derivation.
+    // Session 2 never touched the migration thread, so it does not carry into session 3's brief — the
+    // working set is the touched set alone.
     let sessions = server.control().sessions(&leads).unwrap();
     let latest = sessions.last().unwrap();
     assert!(
-        latest.brief.contains("topic/migration"),
+        !latest.brief.contains("topic/migration"),
         "brief was: {}",
         latest.brief
     );
@@ -997,12 +1658,13 @@ async fn a_platform_conversation_cannot_write_self() {
 }
 
 #[tokio::test]
-async fn a_platform_conversation_cannot_merge_identities() {
+async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
     let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
-    // Steered by a participant, the agent tries to merge two identities with `same_as`. Cross-platform
-    // identity is operator-asserted only, so the block is barred (a teachable error) and discarded
-    // whole — the agent replies, and nothing the block buffered (not even the creates) persists.
+    // Steered by a participant, the agent tries to bind two identities with `same_as`. A direct merge
+    // from a turn is refused — cross-platform identity is operator-asserted only — but the agent reads
+    // `link("same_as", …)` as "these are the same person", so it routes to an inert merge proposal for
+    // the adjudication gate rather than crashing the block and rolling back the innocent creates.
     let model = ScriptedModel::new([
         run_lua_call(
             r#"local a = memory.create("person/alpha")
@@ -1025,9 +1687,20 @@ async fn a_platform_conversation_cannot_merge_identities() {
         .unwrap();
     assert_eq!(outcome, TurnOutcome::Reply("understood".to_owned()));
 
-    // The whole block rolled back, so the merge — and the creates that accompanied it — left no trace.
-    assert!(server.control().memory("person/alpha").unwrap().is_none());
-    assert!(server.control().memory("person/beta").unwrap().is_none());
+    // The block survived: both creates persist rather than rolling back with the refused merge.
+    assert!(server.control().memory("person/alpha").unwrap().is_some());
+    assert!(server.control().memory("person/beta").unwrap().is_some());
+
+    // The same_as surfaced as a pending, unweighed merge proposal — not a completed merge, and not
+    // silently dropped. The two stubs stay in separate classes until the gate decides.
+    let proposals = server.control().merge_proposals().unwrap();
+    assert!(
+        proposals.iter().any(|proposal| {
+            let pair = (proposal.from.as_str(), proposal.to.as_str());
+            pair == ("person/alpha", "person/beta") || pair == ("person/beta", "person/alpha")
+        }),
+        "the same_as link should surface as a pending merge proposal: {proposals:?}"
+    );
 }
 
 #[tokio::test]
@@ -1035,20 +1708,20 @@ async fn imprint_records_the_creator_and_links_created_by() {
     let (server, clock) = born_agent();
     let imprint = ConversationLocator::new("operator", "imprint");
     // Under operator authority the agent may write `self`: it creates the creator's person memory,
-    // merges the operator stub into it with `same_as`, asserts `self created_by person/phil`, and
+    // merges the operator stub into it with `same_as`, asserts `self created_by person/marcus`, and
     // records a self-observation — the writes that platform authority would bar.
     let script = r#"
-        local phil = memory.create("person/phil", "Phil, who created me to keep his memory.")
-        memory.get("person/operator"):link("same_as", phil)
-        memory.get("self"):link("created_by", phil)
-        memory.get("self"):append("I exist to keep Phil's memory.", { by_agent = true })
+        local marcus = memory.create("person/marcus", "Marcus, who created me to keep his memory.")
+        memory.get("person/operator"):link("same_as", marcus)
+        memory.get("self"):link("created_by", marcus)
+        memory.get("self"):append("I exist to keep Marcus's memory.", { by_agent = true })
     "#;
     let model = ScriptedModel::new([
         run_lua_call(script),
-        Completion::Reply("Hello, Phil. I'll remember.".to_owned()),
+        Completion::Reply("Hello, Marcus. I'll remember.".to_owned()),
         // The two memories that gained content regenerate their descriptions.
-        describe_call("Phil, my creator."),
-        describe_call("Kestrel, created by Phil."),
+        describe_call("Marcus, my creator."),
+        describe_call("Kestrel, created by Marcus."),
         // A later imprint turn, whose freshly-frozen brief we inspect.
         Completion::Reply("Still here.".to_owned()),
     ]);
@@ -1057,16 +1730,16 @@ async fn imprint_records_the_creator_and_links_created_by() {
         .control()
         .imprint(
             &model,
-            "Hi, I'm Phil. I built you to remember things for me.",
+            "Hi, I'm Marcus. I built you to remember things for me.",
         )
         .await
         .unwrap();
     assert_eq!(
         outcome,
-        TurnOutcome::Reply("Hello, Phil. I'll remember.".to_owned())
+        TurnOutcome::Reply("Hello, Marcus. I'll remember.".to_owned())
     );
     // The creator is now a memory of its own (the operator stub was merged into it).
-    assert!(server.control().memory("person/phil").unwrap().is_some());
+    assert!(server.control().memory("person/marcus").unwrap().is_some());
 
     // A later imprint turn (after the idle gap) opens a fresh session, whose frozen brief surfaces the
     // `created_by` link in the self block — the structural assertion the interview exists to make.
@@ -1079,4 +1752,489 @@ async fn imprint_records_the_creator_and_links_created_by() {
     let sessions = server.control().sessions(&imprint).unwrap();
     let brief = &sessions.last().unwrap().brief;
     assert!(brief.contains("created_by"), "brief was: {brief}");
+}
+
+/// A model that distinguishes structured-output (synthesize/describe) calls from conversational step
+/// calls: a `response_format` request is a synthesis, answered with a fixed description and its
+/// synthesized memory recorded (parsed from the `Memory: <name>` prompt header) so a test can assert
+/// which memories a describe pass actually called `generate` for; every other request pops the next
+/// scripted conversational step.
+struct DispatchingModel {
+    steps: Mutex<std::collections::VecDeque<Completion>>,
+    synthesized: Mutex<Vec<String>>,
+}
+
+impl DispatchingModel {
+    fn new(steps: impl IntoIterator<Item = Completion>) -> DispatchingModel {
+        DispatchingModel {
+            steps: Mutex::new(steps.into_iter().collect()),
+            synthesized: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The memory handles a synthesis call was made for, in call order.
+    fn synthesized(&self) -> Vec<String> {
+        self.synthesized.lock().unwrap().clone()
+    }
+}
+
+/// The fixed description every [`DispatchingModel`] synthesis returns, distinctive enough to assert on
+/// in a brief.
+const DISPATCH_DESCRIPTION: &str = "A synthesized description from the describer.";
+
+#[async_trait::async_trait]
+impl ModelClient for DispatchingModel {
+    fn model_id(&self) -> &str {
+        "dispatching-model"
+    }
+
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        // A synthesis is the response-format-constrained call; a step offers tools or a plain reply.
+        if request.response_format.is_some() {
+            if let Some(name) = request
+                .messages
+                .first()
+                .and_then(|message| message.content.strip_prefix("Memory: "))
+                .and_then(|rest| rest.split('\n').next())
+            {
+                self.synthesized.lock().unwrap().push(name.to_owned());
+            }
+            return Ok(GenerateResponse {
+                completion: Completion::Reply(
+                    serde_json::json!({ "description": DISPATCH_DESCRIPTION, "occurrences": [] })
+                        .to_string(),
+                ),
+                usage: Usage::default(),
+                reasoning: None,
+                finish_reason: None,
+            });
+        }
+        let completion = self
+            .steps
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or(ModelError::Exhausted)?;
+        Ok(GenerateResponse {
+            completion,
+            usage: Usage::default(),
+            reasoning: None,
+            finish_reason: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
+    // A turn writes a fact about the present participant and an unrelated topic. The next session's
+    // pre-brief describe pass is narrowed to the brief's read set, so it describes the participant but
+    // not the unrelated topic; a later whole-log catch-up then describes the topic.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = DispatchingModel::new([
+        run_lua_call(
+            r#"memory.get("person/dave"):append("Dave climbs on weekends", { by_agent = true, visibility = "public" })
+               local o = memory.create("topic/orphan")
+               o:append("An unrelated topic note", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply("ok".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "remember this", &["dave"])
+        .await
+        .unwrap();
+    // A fresh session past the idle gap runs the narrowed pre-brief describe over its read set.
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "again", &["dave"])
+        .await
+        .unwrap();
+
+    let synthesized = model.synthesized();
+    assert!(
+        synthesized.iter().any(|name| name == "person/dave"),
+        "the present participant is in the brief, so it is described: {synthesized:?}"
+    );
+    assert!(
+        !synthesized.iter().any(|name| name == "topic/orphan"),
+        "the unrelated topic is not in the brief, so the narrowed pass skips it: {synthesized:?}"
+    );
+
+    // The whole-log catch-up now picks up the topic the narrowed pass left stale.
+    let considered = server.describe_catch_up(&model).await.unwrap();
+    assert_eq!(considered, 1, "only the orphan topic is still stale");
+    assert!(
+        model
+            .synthesized()
+            .iter()
+            .any(|name| name == "topic/orphan"),
+        "the background catch-up describes the previously-skipped topic"
+    );
+}
+
+#[tokio::test]
+async fn a_prior_turns_write_is_described_before_the_next_briefs_composition() {
+    // A fact the first session wrote to the room's context is described at the next session's open,
+    // before its brief is composed — so the frozen brief carries the fresh description, not stale prose.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = DispatchingModel::new([
+        run_lua_call(
+            r#"context.current():append("The team is planning a database migration", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("ok".to_owned()),
+        Completion::Reply("ok again".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "note the room", &["dave"])
+        .await
+        .unwrap();
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .await
+        .unwrap();
+
+    let sessions = server.control().sessions(&leads).unwrap();
+    let brief = &sessions.last().unwrap().brief;
+    assert!(
+        brief.contains(DISPATCH_DESCRIPTION),
+        "the second session's brief carries the freshly-synthesized room description: {brief}"
+    );
+}
+
+#[tokio::test]
+async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief() {
+    // The starvation bound on the join-brief: composing a joiner's brief forces the describe
+    // catch-up for their memory, so the injected brief reads fresh prose rather than stale.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = DispatchingModel::new([
+        // Session 1: Erin is present, and the agent writes a public fact about her — left stale
+        // for the background describer when the session lapses.
+        run_lua_call(
+            r#"memory.get("person/erin"):append("Erin runs the design reviews", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        // Session 2, opened by Dave alone: the narrowed pre-brief pass skips absent Erin.
+        Completion::Reply("hi dave".to_owned()),
+        // Erin's mid-session arrival.
+        Completion::Reply("welcome back".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "dave",
+            "erin runs the reviews",
+            &["dave", "erin"],
+        )
+        .await
+        .unwrap();
+    // Past the idle gap, Dave alone opens session 2 — Erin is not in its brief's read set, so her
+    // description stays stale.
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "quiet morning", &["dave"])
+        .await
+        .unwrap();
+    assert!(
+        !model.synthesized().iter().any(|name| name == "person/erin"),
+        "Erin stays stale while absent: {:?}",
+        model.synthesized()
+    );
+
+    // Erin arrives mid-session: the join forces the describe catch-up over her memory before her
+    // join-brief composes.
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            "erin",
+            "hey, what did I miss?",
+            &["dave", "erin"],
+        )
+        .await
+        .unwrap();
+    assert!(
+        model.synthesized().iter().any(|name| name == "person/erin"),
+        "the join described the stale joiner: {:?}",
+        model.synthesized()
+    );
+
+    // ...and the injected join-brief carries the fresh description, proving the catch-up ran
+    // before the brief composed.
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let events = server.control().events().unwrap();
+    let join_brief = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::System,
+                participant: Some(participant),
+                text,
+                ..
+            } if *participant == erin => Some(text.clone()),
+            _ => None,
+        })
+        .expect("the join injected a join-brief");
+    assert!(
+        join_brief.contains(DISPATCH_DESCRIPTION),
+        "the join-brief reads the freshly-synthesized description: {join_brief}"
+    );
+}
+
+#[tokio::test]
+async fn a_fresh_genesis_describes_nothing_on_the_first_tick() {
+    // Genesis baselines the seeded `self` as already described, so the first describe pass over a
+    // fresh agent regenerates nothing and calls the model zero times.
+    let (server, _clock) = born_agent();
+    let model = DispatchingModel::new([]);
+    let considered = server.describe_catch_up(&model).await.unwrap();
+    assert_eq!(considered, 0, "nothing is stale after a fresh genesis");
+    assert!(
+        model.synthesized().is_empty(),
+        "the describer made no synthesis calls: {:?}",
+        model.synthesized()
+    );
+}
+
+#[tokio::test]
+async fn a_describe_backlog_survives_a_restart() {
+    // A memory written but not yet described before shutdown stays stale in the log-derived
+    // described-state, so after a rebuild the background describer picks it up — the backlog is not
+    // silently dropped at boot.
+    let path = std::env::temp_dir().join(format!(
+        "zuihitsu-backlog-{}.sqlite",
+        MemoryId::generate().0
+    ));
+    let clock = ManualClock::new(TEST_NOW);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // First process: a turn writes a topic that the pre-brief pass does not describe (it is not in the
+    // brief's read set), so it is left stale when the process ends.
+    {
+        let mut server = Server::new(
+            Box::new(SqliteStore::open(&path).unwrap()),
+            Graph::open_in_memory().unwrap(),
+            Box::new(clock.clone()),
+        );
+        server.boot().unwrap();
+        server.control().create_agent(&seed()).unwrap();
+        let model = DispatchingModel::new([
+            run_lua_call(
+                r#"local m = memory.create("topic/backlog")
+                   m:append("A durable fact left undescribed", { by_agent = true, visibility = "public" })"#,
+            ),
+            Completion::Reply("ok".to_owned()),
+        ]);
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", "note this", &["dave"])
+            .await
+            .unwrap();
+        assert!(
+            !model
+                .synthesized()
+                .iter()
+                .any(|name| name == "topic/backlog"),
+            "the pre-brief pass left the topic undescribed: {:?}",
+            model.synthesized()
+        );
+    } // the server drops: a restart
+
+    // Second process: a fresh graph rebuilt from the same log. The backlog persists, so the describer
+    // catches it up.
+    let mut server = Server::new(
+        Box::new(SqliteStore::open(&path).unwrap()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.boot().unwrap();
+    let model = DispatchingModel::new([]);
+    let considered = server.describe_catch_up(&model).await.unwrap();
+    assert!(
+        considered >= 1,
+        "the pre-shutdown backlog is described after a restart"
+    );
+    assert!(
+        model
+            .synthesized()
+            .iter()
+            .any(|name| name == "topic/backlog"),
+        "the restarted describer picks up the undescribed topic: {:?}",
+        model.synthesized()
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+}
+
+#[tokio::test]
+async fn the_buffer_stays_bounded_across_repeated_compactions() {
+    // The compaction-seam bug (issue #22): when the turns are small relative to the carryover char
+    // budget, the pre-fix carryover tail never trimmed and `from_seq` never advanced, so the live
+    // buffer re-spanned every session since the original carryover point — growing without bound. Here
+    // the token budget forces a compaction on every message and the char budget is loose (its default),
+    // exactly the condition that stuck `from_seq`; the buffer must stay bounded regardless.
+    let (server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    // Disable the pre-compaction flush, so each message is a single scripted model step — the buffer
+    // growth is isolated from flush turns.
+    settings.compaction.flush_min_turns = 1_000_000;
+    // A loose char budget (the default) that small turns never fill — the pre-fix stuck condition.
+    settings.compaction.carryover_char_budget = 4_000;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let seams = 8;
+    // Every step reports usage over the budget, so every message forces a re-segment.
+    let model = ScriptedModel::with_usage(
+        (0..seams).map(|i| (Completion::Reply(format!("reply {i}")), 200u32)),
+    );
+
+    for i in 0..seams {
+        server
+            .platform()
+            .route_message(&model, &leads, "dave", &format!("message {i}"), &["dave"])
+            .await
+            .unwrap();
+    }
+
+    // Every message re-segmented: one session per message.
+    assert_eq!(
+        server.control().sessions(&leads).unwrap().len(),
+        seams as usize
+    );
+
+    let seen = model.recorded_messages();
+    assert_eq!(seen.len(), seams as usize);
+
+    // The buffer is bounded: a seeded session sees only the prior session's carried tail plus its own
+    // inbound. It must not grow with the number of seams — this bound (four) holds regardless of how
+    // many seams precede the session, rather than growing by two messages each seam.
+    for (turn_index, messages) in seen.iter().enumerate() {
+        assert!(
+            messages.len() <= 4,
+            "turn {turn_index} buffer grew to {} messages: {:?}",
+            messages.len(),
+            messages
+                .iter()
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    // From the second seam on, the count is steady, not climbing — the bound is a plateau, not a slower
+    // leak.
+    let steady = seen[2].len();
+    for messages in &seen[2..] {
+        assert_eq!(messages.len(), steady, "the bounded buffer size is stable");
+    }
+
+    // The trim drops the oldest and keeps the newest: the first message is long gone from the last
+    // prompt, and the latest inbound is present.
+    let last: Vec<&str> = seen
+        .last()
+        .unwrap()
+        .iter()
+        .map(|m| m.content.as_str())
+        .collect();
+    assert!(
+        !last.iter().any(|content| content.contains("message 0")),
+        "the original first turn should have been trimmed away, but is still present: {last:?}",
+    );
+    assert!(
+        last.iter()
+            .any(|content| content.contains(&format!("message {}", seams - 1))),
+        "the newest inbound must always be present: {last:?}",
+    );
+
+    // The total char size is bounded too — a generous fixed ceiling (the char budget plus a single
+    // session's stamped turns), independent of the seam count; the pre-fix buffer blows past it as the
+    // seams accrue.
+    let last_chars: usize = seen
+        .last()
+        .unwrap()
+        .iter()
+        .map(|m| m.content.chars().count())
+        .sum();
+    assert!(
+        last_chars <= 4_000 + 1_000,
+        "the last prompt's char size {last_chars} exceeds the bound",
+    );
+}
+
+#[tokio::test]
+async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator() {
+    // An agent-authored hearsay stub: `person/nadia` exists (written from conversation) but is bound
+    // to no platform — the operator/agent has never confirmed which platform account it belongs to.
+    let (server, _clock) = born_agent();
+    let hearsay = MemoryId::generate();
+    server
+        .control()
+        .seed_events(vec![EventPayload::memory_created(
+            hearsay,
+            Namespace::Person.with_name("nadia"),
+        )])
+        .unwrap();
+
+    // Nadia then arrives on Discord. The handle matches the unbound stub, so the arrival mints its own
+    // platform-qualified stub (it is *not* merged onto the hearsay one from a bare handle match), and an
+    // orchestration-sourced merge is proposed to reunite them.
+    let model = ScriptedModel::new([Completion::Reply("Hello.".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+    server
+        .platform()
+        .route_message(&model, &leads, "nadia", "hi there", &["nadia"])
+        .await
+        .unwrap();
+
+    // Both stubs exist and stay distinct: the fresh qualified one and the untouched hearsay one.
+    let arrival = server
+        .control()
+        .memory("person/nadia@discord")
+        .unwrap()
+        .expect("the arrival minted a platform-qualified stub");
+    assert!(server.control().memory("person/nadia").unwrap().is_some());
+
+    // The log carries the orchestration-sourced proposal reuniting the two.
+    let proposal = server
+        .control()
+        .events()
+        .unwrap()
+        .into_iter()
+        .find_map(|event| match event.payload {
+            EventPayload::MergeProposed {
+                from, to, source, ..
+            } => Some((from, to, source)),
+            _ => None,
+        })
+        .expect("a merge was proposed for the handle match");
+    assert_eq!(
+        proposal,
+        (arrival.id, hearsay, MergeProposalSource::Orchestration)
+    );
+
+    // And it is visible on the operator's merge-proposal surface — unweighed, awaiting the operator —
+    // rather than silently dropped or auto-merged.
+    let surfaced = server.control().merge_proposals().unwrap();
+    assert_eq!(surfaced.len(), 1);
+    assert_eq!(surfaced[0].from.as_str(), "person/nadia@discord");
+    assert_eq!(surfaced[0].to.as_str(), "person/nadia");
+    assert_eq!(surfaced[0].source, MergeProposalSource::Orchestration);
+    assert!(!surfaced[0].refused);
 }

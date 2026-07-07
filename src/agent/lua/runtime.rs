@@ -12,18 +12,29 @@ use ulid::Ulid;
 
 use crate::{
     engine::{Engine, MemoryLocks},
-    event::{TerminalCause, Visibility},
+    event::{Teller, TerminalCause, Visibility},
     graph::{GraphError, RelationView},
     ids::{EntryId, MemoryId},
     memory::{
-        memory_block::{EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryError},
-        search::{SearchQuery, search},
+        memory_block::{
+            AppendOptions, EntryRef, LinkDirection, LinkRef, MemoryBlock, MemoryDetails,
+            MemoryError,
+        },
+        search::{SalientRelation, SearchQuery, search},
     },
     settings::Settings,
+    time::{CivilDate, MILLIS_PER_DAY, TemporalRef, civil_date_to_millis, format_occurrence},
     vocabulary::TagName,
 };
 
-use super::error::{HandleError, MemorySearchError};
+use super::error::{
+    ConcatError, HandleAssignmentError, HandleError, HandleKind, MemorySearchError,
+    MissingReturnError, TemporalArgError,
+};
+
+/// The chunk name given to an agent block, so a syntax or runtime error names the block rather than
+/// leaking mlua's default (the Rust caller's `file:line`, which the agent should never see).
+pub(super) const BLOCK_CHUNK_NAME: &str = "block";
 
 /// The block-scoped handles every memory-API closure captures: the transaction (`block`), the
 /// infrastructure-error slot (`infra`), the per-block lock set (`lock_set`), and the server-wide lock
@@ -179,6 +190,99 @@ pub(super) fn make_handle_list(
     Ok(Value::Table(list))
 }
 
+/// Wrap a capped list of memory ids as a Lua sequence of handles — the `memory.list` return shape.
+/// The value stays a plain sequence the agent can iterate (each element a handle, `handle.name`
+/// readable), so `for _, m in ipairs(memory.list("person/")) do … end` works; the truncation note
+/// rides only the *rendered* form, through the list metatable's `__tostring` reading the `more`
+/// field this stores when matches were elided past the cap. So the returned value is unadorned data
+/// while printing or returning it shows the `(+N more — narrow the prefix)` hint.
+pub(super) fn make_capped_handle_list(
+    lua: &Lua,
+    ids: Vec<MemoryId>,
+    more: usize,
+    metatable: &Table,
+    list_metatable: &Table,
+) -> mlua::Result<Value> {
+    let list = lua.create_table()?;
+    for (index, id) in ids.into_iter().enumerate() {
+        list.set(index + 1, make_handle(lua, id, metatable)?)?;
+    }
+    if more > 0 {
+        list.set("more", more as i64)?;
+    }
+    list.set_metatable(Some(list_metatable.clone()))?;
+    Ok(Value::Table(list))
+}
+
+/// Render a memory's whole record to the one string `mem:details` returns: a header line (its name,
+/// its description, and a `formerly …` line when it has been renamed), the live entries under a count
+/// header, every link in both directions, the applied tags, and the volatility — the sections joined by
+/// blank lines. Entries and links render through the *same* handle rendering `mem:entries`/`mem:links`
+/// use (each row minted as its handle and stringified through its metatable), so the record reads back
+/// exactly as those readers show their rows — date, stale, disputed, visibility, and teller markers on
+/// an entry; `relation → name` with a dated occurrence on a link. There is no entry cap: the render is
+/// the whole record, which is what lets the agent conclude it holds nothing on a topic after one look.
+pub(super) fn render_details(
+    lua: &Lua,
+    details: &MemoryDetails,
+    entry_metatable: &Table,
+    memory_metatable: &Table,
+    link_metatable: &Table,
+) -> mlua::Result<String> {
+    let mut sections: Vec<String> = Vec::new();
+
+    let mut header = details.name.clone();
+    if !details.description.is_empty() {
+        header.push_str(" — ");
+        header.push_str(&details.description);
+    }
+    if !details.former_names.is_empty() {
+        header.push_str(&format!("\nformerly {}", details.former_names.join(", ")));
+    }
+    sections.push(header);
+
+    // The entries under a count header, each rendered as its own entry handle — the whole class read,
+    // teller-private entries marked rather than omitted (this is the agent's own read).
+    let count = details.entries.len();
+    let mut entry_block = if count == 0 {
+        "no entries".to_owned()
+    } else {
+        format!("{count} {}:", if count == 1 { "entry" } else { "entries" })
+    };
+    for entry in &details.entries {
+        let handle = make_entry_handle(lua, entry, entry_metatable)?;
+        entry_block.push('\n');
+        entry_block.push_str(&render(lua, &Value::Table(handle)));
+    }
+    sections.push(entry_block);
+
+    // Every link out of the merged identity in both directions, committed-only — the section is omitted
+    // entirely when the memory has none.
+    if !details.links.is_empty() {
+        let mut link_block = String::from("links:");
+        for link in &details.links {
+            let handle = make_link_handle(lua, link, memory_metatable, link_metatable)?;
+            link_block.push('\n');
+            link_block.push_str(&render(lua, &Value::Table(handle)));
+        }
+        sections.push(link_block);
+    }
+
+    if !details.tags.is_empty() {
+        let tags = details
+            .tags
+            .iter()
+            .map(|tag| format!("#{}", tag.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sections.push(format!("tags: {tags}"));
+    }
+
+    sections.push(format!("volatility: {}", details.volatility));
+
+    Ok(sections.join("\n\n"))
+}
+
 /// Build a link result `{ relation, memory, name, direction, source }` backed by the link metatable,
 /// so a link reader's list prints readably (`relation → name`) while each result keeps the far
 /// memory as an actionable handle (`link.memory:append(...)`) and its provenance for the agent to weigh.
@@ -199,8 +303,92 @@ pub(super) fn make_link_handle(
     if let Some(told_by) = &link.told_by {
         table.set("told_by", told_by.as_str())?;
     }
+    // The far memory's representative occurrence, when it holds a dated fact — the same tagged table
+    // an entry or search hit carries (e.g. `link.occurred_at.day`), so a script reads a linked event's
+    // date, and the metatable's `__tostring` renders it inline on the link line.
+    if let Some(occurred_at) = &link.occurred_at {
+        table.set("occurred_at", lua.to_value(occurred_at)?)?;
+    }
     table.set_metatable(Some(link_metatable.clone()))?;
     Ok(table)
+}
+
+/// How many of a memory's links its rendered handle lists before eliding the rest — enough to reveal
+/// a hub's shape (its events, its people) without flooding the transcript when a busy topic has many.
+const NEIGHBORHOOD_CAP: usize = 8;
+
+/// Render a memory's link neighborhood as the compact line its handle carries: each link as
+/// `relation → name` (`←` for an incoming edge), with a dated far memory's occurrence appended as
+/// `[when …]` (the same phrasing a search hit's date uses), capped at [`NEIGHBORHOOD_CAP`] with a
+/// `(+N more)` note. A name-and-relation list, not the targets' content: it makes the spokes legible
+/// at the hub so a recall follows them rather than relaying only the hub's own entries. Empty when the
+/// memory has no links, so the caller omits the line entirely.
+pub(super) fn render_neighborhood(links: &[LinkRef]) -> String {
+    let mut rendered: Vec<String> = links
+        .iter()
+        .take(NEIGHBORHOOD_CAP)
+        .map(render_link_summary)
+        .collect();
+    let elided = links.len().saturating_sub(NEIGHBORHOOD_CAP);
+    if elided > 0 {
+        rendered.push(format!("(+{elided} more)"));
+    }
+    rendered.join(", ")
+}
+
+/// One link on the neighborhood line: `relation → name` (or `←` for an incoming edge), plus the far
+/// memory's occurrence as `[when …]` when it holds a dated fact.
+fn render_link_summary(link: &LinkRef) -> String {
+    let arrow = match link.direction {
+        LinkDirection::Outgoing => "→",
+        LinkDirection::Incoming => "←",
+    };
+    let mut summary = format!(
+        "{} {arrow} {}",
+        link.relation.as_str(),
+        link.other_name.as_str()
+    );
+    if let Some(occurred_at) = &link.occurred_at {
+        summary.push_str(&format!(" [when {}]", format_occurrence(occurred_at)));
+    }
+    summary
+}
+
+/// Render a search hit's salient relations as the compact segment its result line carries: each
+/// relation as `relation → name` (`←` for an incoming edge), in the salience order (people first, then
+/// recency), with a run of same-relation neighbours eliding the repeated label so
+/// `participates_in ← person/maya, ← person/nadia` reads cleanly, and a trailing `(+N more)` when links
+/// were elided past the cap. The same `relation → name` house style the neighborhood line uses, so a hit
+/// passively reveals the cast already on the memory — the recognition signal that steers a search toward
+/// reuse over a name-guessed duplicate. `None` when the hit carries no relations, so the caller omits the
+/// segment.
+pub(super) fn render_salient_relations(
+    relations: &[SalientRelation],
+    more: usize,
+) -> Option<String> {
+    if relations.is_empty() {
+        return None;
+    }
+    let mut rendered: Vec<String> = Vec::with_capacity(relations.len() + 1);
+    let mut previous: Option<&str> = None;
+    for relation in relations {
+        let arrow = match relation.direction {
+            LinkDirection::Outgoing => "→",
+            LinkDirection::Incoming => "←",
+        };
+        let name = relation.other_name.as_str();
+        let segment = if previous == Some(relation.relation.as_str()) {
+            format!("{arrow} {name}")
+        } else {
+            format!("{} {arrow} {name}", relation.relation.as_str())
+        };
+        rendered.push(segment);
+        previous = Some(relation.relation.as_str());
+    }
+    if more > 0 {
+        rendered.push(format!("(+{more} more)"));
+    }
+    Some(rendered.join(", "))
 }
 
 /// Wrap a list of link refs as a Lua sequence of link results, in order — the
@@ -237,6 +425,48 @@ pub(super) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
         .map_err(|source| HandleError::InvalidMemoryHandle { id, source }.into())
 }
 
+/// The `self` a `mem:*` handle method is invoked on. Extracting it through this newtype — rather than
+/// a bare `Table` — is what turns a dot-call (`memory.append(...)`, which binds the first argument to
+/// `self`) into the teachable colon hint: as the method's leftmost argument, `self` is converted
+/// first, so a non-table `self` fails here (with [`HandleError::MethodCalledWithDot`]) before any
+/// later argument's own type error can mask it. A colon call passes the handle table, which converts
+/// cleanly; the method body then resolves its id through [`handle_id`].
+pub(super) struct HandleSelf(pub(super) Table);
+
+impl mlua::FromLua for HandleSelf {
+    fn from_lua(value: Value, _: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::Table(handle) => Ok(HandleSelf(handle)),
+            other => Err(HandleError::MethodCalledWithDot {
+                type_name: other.type_name(),
+            }
+            .into()),
+        }
+    }
+}
+
+/// The `__newindex` guard shared by every read-only handle metatable (memory, entry, date, and search
+/// result). A handle is a view, so assigning to a field silently did nothing before this — the
+/// stale-date footgun. The guard raises a teachable error naming the operation that persists the
+/// change instead, tailored for `occurred_at` (the traced slip) since a date lives on an entry, not a
+/// handle field. It fires only for keys absent from the raw table, which is every agent-facing field
+/// (they are read through `__index` or carried as data the metamethods read), so internal setup that
+/// must write a raw field uses `raw_set` to bypass it.
+pub(super) fn readonly_newindex(lua: &Lua, kind: HandleKind) -> mlua::Result<mlua::Function> {
+    lua.create_function(move |lua, (_, key, _): (Table, Value, Value)| {
+        let field = lua
+            .coerce_string(key)?
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default();
+        let error = if field == "occurred_at" {
+            HandleAssignmentError::OccurredAt { kind }
+        } else {
+            HandleAssignmentError::Other { kind, field }
+        };
+        Err::<(), mlua::Error>(error.into())
+    })
+}
+
 /// Resolve a `:link`/`:unlink` target to its memory id. The target is normally a memory handle, but a
 /// name string is accepted and looked up too — so the agent's natural call passing a name in place of
 /// a handle works rather than failing the string-to-handle argument conversion, erroring, and rolling
@@ -264,6 +494,67 @@ pub(super) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<Memor
             type_name: other.type_name(),
         }
         .into()),
+    }
+}
+
+/// Resolve a `memory.get` / `memory.get_or_create` argument to the name to look up. The argument is
+/// normally a name string, but an existing memory handle (from `memory.list`, `memory.create`, or a
+/// prior `memory.get`) is accepted too — so the natural `memory.get(h)` over a handle the agent
+/// already holds works rather than failing the string-to-handle conversion and rolling the whole block
+/// back. A handle resolves by its current name (through the block's pending creates, then the graph),
+/// so the lookup that follows keeps read semantics identical to `memory.get("name")` — including the
+/// renamed-identity affordances. An unknown handle (its id resolves to no memory) is a clear error, as
+/// is any other value.
+pub(super) fn get_argument_name(api: &BlockApi, value: Value) -> mlua::Result<String> {
+    match value {
+        Value::String(name) => Ok(name.to_string_lossy()),
+        Value::Table(handle) => {
+            let id = handle_id(&handle)?;
+            match api
+                .block
+                .lock()
+                .handle_field(id, "name")
+                .map_err(|error| route_error(error, &mut api.infra.lock()))?
+            {
+                Some(name) => Ok(name),
+                None => Err(HandleError::UnknownMemoryHandle {
+                    id: id.0.to_string(),
+                }
+                .into()),
+            }
+        }
+        other => Err(HandleError::WrongGetArgType {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Load and evaluate one agent block, naming its chunk `block` so a syntax or runtime error names the
+/// block rather than leaking mlua's default caller location, and rewording Luau's incomplete-statement
+/// syntax error into the teachable [`MissingReturnError`]. Every other load or runtime error passes
+/// through untouched.
+pub(super) async fn eval_block(lua: &Lua, script: &str) -> mlua::Result<Value> {
+    lua.load(script)
+        .set_name(BLOCK_CHUNK_NAME)
+        .eval_async::<Value>()
+        .await
+        .map_err(teach_block_load_error)
+}
+
+/// Reword the incomplete-statement syntax error Luau raises when a block ends in a bare trailing
+/// expression (`results` on its own last line, as if the VM echoed input like a REPL) into a teachable
+/// one that names the fix: yield the value with an explicit `return`. A pure rewrite — the script is
+/// never re-parsed or mutated — that touches only that syntax error; anything else is returned as-is.
+fn teach_block_load_error(error: mlua::Error) -> mlua::Error {
+    match &error {
+        mlua::Error::SyntaxError { message, .. } if message.contains("Incomplete statement") => {
+            MissingReturnError {
+                message: message.clone(),
+            }
+            .into()
+        }
+        _ => error,
     }
 }
 
@@ -368,12 +659,28 @@ pub(super) struct SearchOpts {
     limit: Option<usize>,
 }
 
-/// One ranked search result handed back to Lua as `{ name, description, score, marker? }`.
+/// One ranked search result handed back to Lua as
+/// `{ name, description, score, marker?, snippet?, occurred_at?, relations? }`. `snippet` is the matched
+/// content that produced the hit, so a result stays legible even when the memory's description is stale
+/// or empty; `occurred_at` is the memory's representative occurrence (the same tagged table `append`
+/// takes), so a scheduled or dated fact's date rides on the result rather than surfacing only through
+/// a separate `entries()` read; `relations` are the memory's most salient links (its cast), so the hit
+/// passively carries who already participates in it — the recognition signal that steers a search
+/// toward reusing the memory it found rather than minting a duplicate. `more_relations` counts the
+/// salient links elided past the render cap, for the trailing `(+N more)` note. `id` backs the row's
+/// double life as a memory handle: it rides as the hit table's `id` field so the hit's metatable can
+/// fall through to the handle methods, letting `hit:append(…)`, `hit:details()`, and `hit:link(…)`
+/// act on the found memory without a `memory.get` round-trip.
 pub(super) struct SearchRow {
+    pub(super) id: MemoryId,
     pub(super) name: String,
     pub(super) description: String,
     pub(super) score: f32,
     pub(super) marker: Option<String>,
+    pub(super) snippet: Option<String>,
+    pub(super) occurred_at: Option<TemporalRef>,
+    pub(super) relations: Vec<SalientRelation>,
+    pub(super) more_relations: usize,
 }
 
 /// Run a `memory.search`: embed the query off every lock, read the search settings, then rank under a
@@ -386,6 +693,12 @@ pub(super) async fn run_memory_search(
     query: &str,
     opts: &SearchOpts,
 ) -> Result<Vec<SearchRow>, MemorySearchError> {
+    // An empty or whitespace query has nothing to match on — reject it before the embedder is called,
+    // so a degenerate "list everything in a namespace" search fails fast and teachably rather than
+    // embedding the empty string and grinding the whole memory through the ranker.
+    if query.trim().is_empty() {
+        return Err(MemorySearchError::EmptyQuery);
+    }
     let Some(retrieval) = &engine.retrieval else {
         return Err(MemorySearchError::NoRetrieval);
     };
@@ -423,10 +736,15 @@ pub(super) async fn run_memory_search(
     Ok(hits
         .into_iter()
         .map(|hit| SearchRow {
+            id: hit.memory.id,
             name: hit.memory.name.as_str().to_owned(),
             description: hit.memory.description,
             score: hit.score,
             marker: hit.marker,
+            snippet: hit.snippet,
+            occurred_at: hit.occurred_at,
+            relations: hit.relations,
+            more_relations: hit.more_relations,
         })
         .collect())
 }
@@ -516,16 +834,73 @@ fn inspect_table(lua: &Lua, value: &Value) -> String {
 /// receives an opaque `<table>` it cannot read.
 const INSPECT_LUA: &str = include_str!("../../../vendor/inspect.lua/inspect.lua");
 
-/// Evaluate `inspect.lua` and bind its pretty-printer as the `inspect` global. The chunk ends in
-/// `return inspect`, yielding the module — a *callable table* (it pretty-prints via a `__call`
-/// metamethod). We bind its underlying `inspect.inspect` function rather than the table itself, so the
-/// global is a plain function: `inspect(value)` still works from Lua, and the render fallback can fetch
-/// it as an `mlua::Function` (a callable table is not one). Done once at VM construction, like the MCP
-/// projection.
+/// Evaluate `inspect.lua` and bind a wrapped pretty-printer as the `inspect` global. The wrapper
+/// passes a `process` hook that keeps the structural dump legible where it matters most: a nested
+/// table carrying a `__tostring` — a memory handle, an entry, a search hit — renders as its own text
+/// rather than as a bare id-and-metatable blob (a handle's name and description read lazily through
+/// `__index`, so the raw structure shows neither), and metatable entries are omitted outright, since
+/// `<metatable> = { __concat = <function 1>, … }` is noise the agent cannot act on. The root value is
+/// left to the hook's callers ([`render`] tries `__tostring` first, so a decorated root never reaches
+/// the inspector). Done once at VM construction, like the MCP projection.
 pub(super) fn install_inspect(lua: &Lua) -> mlua::Result<()> {
     let module: Table = lua.load(INSPECT_LUA).set_name("inspect.lua").eval()?;
-    let inspect: mlua::Function = module.get("inspect")?;
-    lua.globals().set("inspect", inspect)?;
+    let wrapper: mlua::Function = lua
+        .load(
+            r#"
+            local inspect = ...
+            return function(value)
+                return inspect(value, {
+                    process = function(item, path)
+                        if path[#path] == inspect.METATABLE then
+                            return nil
+                        end
+                        if type(item) == "table" and #path > 0 then
+                            local mt = getmetatable(item)
+                            if mt and mt.__tostring then
+                                return tostring(item)
+                            end
+                        end
+                        return item
+                    end,
+                })
+            end
+            "#,
+        )
+        .set_name("inspect-wrapper")
+        .call(&module)?;
+    lua.globals().set("inspect", wrapper)?;
+    Ok(())
+}
+
+/// Wrap stock `table.concat` so a reader's handle list fails *legibly*. Stock Luau `table.concat` joins
+/// only strings and numbers, so a handle list — `mem:entries()`, `hub:links()` — fails it with the
+/// opaque "invalid value (table) at index … in table for 'concat'", one of the recurring recall
+/// confusions. This shell keeps stock semantics exactly — it delegates the join to the original
+/// function untouched, so an ordinary `table.concat(names, ",")` over a list the agent built joins as
+/// before — and only rewrites the error, redirecting the two observed slips to teachable messages (see
+/// [`ConcatError`]): the whole list argument being a reader *method* rather than its result, and a
+/// handle list, which now points at string interpolation (a backtick string stringifies a handle) as
+/// the way to compose text from entries, links, and dates. Installed before `Lua::sandbox(true)` freezes
+/// the `table` library read-only, so the override is part of the frozen surface.
+pub(super) fn install_table_concat(lua: &Lua) -> mlua::Result<()> {
+    let table_lib: Table = lua.globals().get("table")?;
+    let stock: mlua::Function = table_lib.get("concat")?;
+    table_lib.set(
+        "concat",
+        lua.create_function(move |_, args: mlua::Variadic<Value>| {
+            let list_type = args.first().map(Value::type_name).unwrap_or("nil");
+            match stock.call::<Value>(args) {
+                Ok(joined) => Ok(joined),
+                // A table that stock concat rejected holds a non-joinable element (a handle list);
+                // any other first argument is not a list at all (a reader method, most often).
+                Err(_) if list_type == "table" => Err(ConcatError::NonJoinable.into()),
+                Err(_) => Err(ConcatError::NotAList {
+                    type_name: list_type,
+                }
+                .into()),
+            }
+        })?,
+    )?;
     Ok(())
 }
 
@@ -541,4 +916,239 @@ pub(super) fn value_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
         .coerce_string(value.clone())?
         .map(|s| s.to_string_lossy())
         .unwrap_or_default())
+}
+
+/// The `__concat` metamethod shared by the read-surface handles (a memory, a link result, a search
+/// result): each operand renders through its own `__tostring`, so `"Topic: " .. topic` and
+/// `"- " .. link` compose the same text printing already shows, rather than erroring as a bare
+/// table — the join the agent actually writes when assembling a reply. A plain string or number
+/// operand coerces as Lua's `tostring` would.
+pub(super) fn concat_via_tostring(lua: &Lua) -> mlua::Result<mlua::Function> {
+    lua.create_function(|lua, (left, right): (Value, Value)| {
+        Ok(format!(
+            "{}{}",
+            tostring_text(lua, &left)?,
+            tostring_text(lua, &right)?
+        ))
+    })
+}
+
+/// One `__concat` operand's text: a table with a `__tostring` renders through it; everything else
+/// coerces as Lua's `tostring` would (strings and numbers directly, otherwise empty).
+fn tostring_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
+    if let Value::Table(table) = value
+        && let Some(text) = tostring_via_metamethod(lua, value, table)
+    {
+        return Ok(text);
+    }
+    Ok(lua
+        .coerce_string(value.clone())?
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default())
+}
+
+/// Render a value for a date handle's `__concat`: a date handle (a `{ day = "…" }` table) yields its
+/// ISO day, and any other operand coerces as Lua's `tostring` would — so both `"on " .. friday` and
+/// `friday .. " it is"` read the date while the surrounding text coerces normally.
+pub(super) fn date_text(lua: &Lua, value: &Value) -> mlua::Result<String> {
+    if let Value::Table(table) = value
+        && let Ok(day) = table.get::<String>("day")
+    {
+        return Ok(day);
+    }
+    Ok(lua
+        .coerce_string(value.clone())?
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default())
+}
+
+/// The ISO `YYYY-MM-DD` day a temporal argument names: a date object (a `{ day = "…" }` table) yields
+/// its `day`, a string is taken verbatim, and anything else is a teachable [`TemporalArgError`]. Shared
+/// by `calendar.on` and the `occurred_at` normalization so a date object stands in for a date string
+/// wherever a single day is wanted, without validating the string itself (the caller's block does that).
+pub(super) fn day_string(value: &Value) -> mlua::Result<String> {
+    match value {
+        Value::String(day) => Ok(day.to_string_lossy()),
+        Value::Table(table) => match table.get::<Option<String>>("day")? {
+            Some(day) => Ok(day),
+            None => Err(TemporalArgError::NotADate { type_name: "table" }.into()),
+        },
+        other => Err(TemporalArgError::NotADate {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Deserialize a Lua `opts` table into [`AppendOptions`], first normalizing any date handles inside its
+/// `occurred_at` so a date object stands in for a `"YYYY-MM-DD"` string wherever a day is wanted. This
+/// is the single seam every `occurred_at` taker — `<memory>:append`, `<memory>:revise`, and
+/// `memory.create` — passes through, so accepting a date handle is decided once here rather than at each
+/// call site; a future taker of the tagged table inherits it for free. `nil` opts yield `None`.
+pub(super) fn append_options_from_lua(
+    api: &BlockApi,
+    lua: &Lua,
+    opts: Value,
+) -> mlua::Result<Option<AppendOptions>> {
+    if opts.is_nil() {
+        return Ok(None);
+    }
+    let Value::Table(table) = &opts else {
+        // A non-nil, non-table opts is a shape slip the agent should see named; serde surfaces it.
+        return Ok(Some(lua.from_value(opts)?));
+    };
+    // Resolve the two options serde cannot decode from a raw Lua value: `occurred_at` may be a bare
+    // date string or a date handle, and `told_by` is a handle or name naming a teller. The rest
+    // deserializes from a copy with those two keys dropped — the agent's own opts table is never
+    // mutated, so a table reused across appends keeps its fields.
+    let occurred_at = occurred_at_from_lua(lua, table)?;
+    let told_by = match table.get::<Value>("told_by")? {
+        Value::Nil => None,
+        other => Some(resolve_teller(api, other)?),
+    };
+    let rest = lua.create_table()?;
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair?;
+        if let Value::String(name) = &key
+            && matches!(name.to_string_lossy().as_str(), "occurred_at" | "told_by")
+        {
+            continue;
+        }
+        rest.set(key, value)?;
+    }
+    let mut options: AppendOptions = lua.from_value(Value::Table(rest))?;
+    options.occurred_at = occurred_at;
+    options.told_by = told_by;
+    Ok(Some(options))
+}
+
+/// Resolve an `occurred_at` option to its [`TemporalRef`]: a bare `"YYYY-MM-DD"` string coerces to the
+/// day shape, so the intuitive `occurred_at = "2026-06-15"` lands the same `Day` as
+/// `{ day = "2026-06-15" }`; a tagged table is normalized (a date handle or string in a day/range/
+/// instant position stands in for its primitive, see [`normalize_temporal`]) and then decoded. A value
+/// that names no occurrence — a non-date string, a number, or a table with no recognized tag — is a
+/// teachable [`TemporalArgError::UnknownOccurrence`] naming the accepted shapes, never serde's raw
+/// enum-variant list. `nil` yields `None`.
+fn occurred_at_from_lua(lua: &Lua, table: &Table) -> mlua::Result<Option<TemporalRef>> {
+    match table.get::<Value>("occurred_at")? {
+        Value::Nil => Ok(None),
+        Value::String(day) => {
+            let day = day.to_string_lossy();
+            if civil_date_to_millis(&day).is_some() {
+                Ok(Some(TemporalRef::Day(CivilDate(day.into()))))
+            } else {
+                Err(TemporalArgError::UnknownOccurrence {
+                    got: format!("the string {day:?}"),
+                }
+                .into())
+            }
+        }
+        Value::Table(occurred) => {
+            normalize_temporal(&occurred)?;
+            lua.from_value::<TemporalRef>(Value::Table(occurred))
+                .map(Some)
+                .map_err(|_| {
+                    TemporalArgError::UnknownOccurrence {
+                        got: "a table with no recognized tag".to_owned(),
+                    }
+                    .into()
+                })
+        }
+        other => Err(TemporalArgError::UnknownOccurrence {
+            got: format!("a {}", other.type_name()),
+        }
+        .into()),
+    }
+}
+
+/// Resolve an append's `told_by` option to the participant [`Teller`] it attributes the entry to.
+/// Dual-accepts a person handle (from `memory.get`/`memory.create`) or a name string, mirroring
+/// `:link`'s target resolution, so a relayed claim recorded while someone else speaks is stamped with
+/// its real source — "X said …" told by X, not the current speaker. An unknown name is a teachable
+/// error; so is a value that is neither a handle nor a name.
+pub(super) fn resolve_teller(api: &BlockApi, value: Value) -> mlua::Result<Teller> {
+    let id = match value {
+        Value::Table(handle) => handle_id(&handle)?,
+        Value::String(name) => {
+            let name = name.to_string_lossy();
+            match api
+                .block
+                .lock()
+                .get(&name)
+                .map_err(|error| route_error(error, &mut api.infra.lock()))?
+            {
+                Some((id, _)) => id,
+                None => {
+                    return Err(HandleError::UnknownTeller {
+                        name: name.to_string(),
+                    }
+                    .into());
+                }
+            }
+        }
+        other => {
+            return Err(HandleError::WrongTellerType {
+                type_name: other.type_name(),
+            }
+            .into());
+        }
+    };
+    Ok(Teller::Participant(id))
+}
+
+/// Rewrite date-shaped values inside an `occurred_at` tagged table into the primitives its
+/// [`TemporalRef`] deserialization expects, in place, so a day named as a date object *or* a bare
+/// `"YYYY-MM-DD"` string stands in wherever a millisecond timestamp is wanted:
+/// - a `{ day = <date object> }` field becomes `{ day = "…" }`;
+/// - a range's `start`/`end` — a date object or a date string — becomes the day's bounding instant (its
+///   first millisecond for `start`, its last for `end`, so a range from Monday to Friday spans all of
+///   Friday);
+/// - an `instant` given as a date object or date string becomes the day's first millisecond.
+///
+/// A position already holding a primitive is left untouched, so a millisecond count passes through. The
+/// value itself being a date handle needs no rewrite — a date handle *is* a `{ day = "…" }` table, so it
+/// already deserializes as a `Day`.
+fn normalize_temporal(occurred: &Table) -> mlua::Result<()> {
+    if let day @ Value::Table(_) = occurred.get::<Value>("day")? {
+        occurred.set("day", day_string(&day)?)?;
+    }
+    if let Value::Table(range) = occurred.get::<Value>("range")? {
+        coerce_range_bound(&range, "start", DayBound::Start)?;
+        coerce_range_bound(&range, "end", DayBound::End)?;
+    }
+    let instant = occurred.get::<Value>("instant")?;
+    if matches!(instant, Value::Table(_) | Value::String(_)) {
+        occurred.set("instant", day_bound_millis(&instant, DayBound::Start)?)?;
+    }
+    Ok(())
+}
+
+/// Which instant of a day a millisecond-typed position resolves to when a date stands in for it: the
+/// day's first millisecond for a `Start`, its last for an `End`, so a range covers the whole of both
+/// boundary days and a bare instant lands at the start of its day.
+enum DayBound {
+    Start,
+    End,
+}
+
+/// Replace a range endpoint given as a date object or a `"YYYY-MM-DD"` string with the day's bounding
+/// instant in epoch milliseconds; a primitive already there (a millisecond count) is left untouched.
+fn coerce_range_bound(range: &Table, key: &str, bound: DayBound) -> mlua::Result<()> {
+    let endpoint = range.get::<Value>(key)?;
+    if matches!(endpoint, Value::Table(_) | Value::String(_)) {
+        range.set(key, day_bound_millis(&endpoint, bound)?)?;
+    }
+    Ok(())
+}
+
+/// Resolve a date object or `"YYYY-MM-DD"` string to one of its day's bounding instants in epoch
+/// milliseconds — the shared coercion behind a range endpoint and a bare `instant`. An unparseable day
+/// is a teachable [`TemporalArgError::InvalidDay`].
+fn day_bound_millis(value: &Value, bound: DayBound) -> mlua::Result<i64> {
+    let day = day_string(value)?;
+    let midnight = civil_date_to_millis(&day).ok_or(TemporalArgError::InvalidDay { input: day })?;
+    Ok(match bound {
+        DayBound::Start => midnight,
+        DayBound::End => midnight + MILLIS_PER_DAY - 1,
+    })
 }

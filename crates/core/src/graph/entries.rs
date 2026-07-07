@@ -19,7 +19,7 @@ impl Graph {
     /// read; the class read carries the deleted filter).
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries WHERE memory_id = ?1 AND superseded_by IS NULL ORDER BY seq",
             id,
@@ -31,7 +31,7 @@ impl Graph {
     /// bypass the live filter (spec §Visibility → superseded entries are not live).
     pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
@@ -46,7 +46,7 @@ impl Graph {
     /// soft-deleted member, and superseded entries, are excluded.
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries
              WHERE memory_id IN (
@@ -60,12 +60,13 @@ impl Graph {
         )
     }
 
-    /// The recorded facts of the non-person memories this person *owns* — the `event/`s and the like
-    /// reached by the links off their class — so a merge adjudication can weigh the specifics the agent
-    /// filed on separate event memories, not only the facts written directly on the stub (spec
-    /// §Cross-platform identity → adjudicated merge). Other `person/` memories the person is merely
-    /// linked to (a friend, a mentor) are excluded: those are someone else's facts, not this person's
-    /// identity, and pulling them in would weigh a stranger's confidences in the wrong person's merge.
+    /// The recorded facts of the non-person memories this person *owns* — the [`Namespace::Event`]
+    /// memories and the like reached by the links off their class — so a merge adjudication can weigh
+    /// the specifics the agent filed on separate event memories, not only the facts written directly
+    /// on the stub (spec §Cross-platform identity → adjudicated merge). Other [`Namespace::Person`]
+    /// memories the person is merely linked to (a friend, a mentor) are excluded: those are someone
+    /// else's facts, not this person's identity, and pulling them in would weigh a stranger's
+    /// confidences in the wrong person's merge.
     /// Each linked memory contributes once, in link order.
     pub fn owned_context_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         let members: BTreeSet<MemoryId> = self.class_members(id)?.into_iter().collect();
@@ -99,7 +100,7 @@ impl Graph {
     /// for `mem:history()` and the console (spec §Visibility → superseded entries are not live).
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
-            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, text, told_by, told_in, visibility,
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by
              FROM content_entries
              WHERE memory_id IN (
@@ -144,8 +145,8 @@ impl Graph {
         entry_id: EntryId,
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, text, told_by,
-                    told_in, visibility, superseded_by
+            "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, occurred_authored,
+                    text, told_by, told_in, visibility, superseded_by
              FROM content_entries WHERE entry_id = ?1",
         )?;
         let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
@@ -190,6 +191,7 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
         occurred_at: occurred_at
             .map(|json| serde_json::from_str(&json))
             .transpose()?,
+        occurred_authored: row.get("occurred_authored")?,
         text: row.get("text")?,
         told_by: serde_json::from_str(&told_by)?,
         told_in: told_in

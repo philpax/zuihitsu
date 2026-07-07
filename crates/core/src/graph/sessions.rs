@@ -1,6 +1,8 @@
 //! Session reads: conversation resolution, participants, and open-session state.
 
-use super::{Graph, GraphError, OpenSessionView, SessionView, backend, parse_ulid};
+use super::{
+    Graph, GraphError, OpenSessionView, ParticipantMint, SessionView, backend, parse_ulid,
+};
 use crate::{
     db::{query_map_into, query_opt_into},
     event::Teller,
@@ -32,8 +34,8 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(ConversationId)).transpose()
     }
 
-    /// Resolve a platform participant `(platform, platform_user_id)` to its `person/*` stub, or
-    /// `None` if that identity has never been seen.
+    /// Resolve a platform participant `(platform, platform_user_id)` to its [`Namespace::Person`]
+    /// stub, or `None` if that identity has never been seen.
     pub fn participant_for(
         &self,
         platform: &str,
@@ -52,11 +54,9 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
     }
 
-    /// The memory name a freshly minted `person/*` participant would receive, given their platform
-    /// handle and the platform they arrived on. The clean `person/<handle>` is used unless it already
-    /// belongs to a different identity — in which case the platform-qualified
-    /// `person/<handle>@<platform>` disambiguates two distinct people who share a handle across
-    /// platforms (spec §Identity → cross-platform-explicit). Shared by the server's mint path and
+    /// The memory name a freshly minted [`Namespace::Person`] participant would receive, given
+    /// their platform handle and the platform they arrived on. The name half of
+    /// [`Graph::participant_mint`]: shared by
     /// the console's optimistic preview, so the name the console shows before the event lands is the
     /// same name the server will assign.
     pub fn participant_name(
@@ -64,14 +64,70 @@ impl Graph {
         platform: &str,
         platform_user_id: &str,
     ) -> Result<MemoryName, GraphError> {
+        Ok(self.participant_mint(platform, platform_user_id)?.name)
+    }
+
+    /// The plan for minting a fresh [`Namespace::Person`] stub for `(platform, platform_user_id)`:
+    /// the name it receives, and whether the mint should also propose a `same_as` merge (spec
+    /// §Identity →
+    /// cross-platform-explicit). Keying the collision on *identity*, not name, distinguishes three cases
+    /// when the clean `person/<handle>` is already taken:
+    ///
+    /// - **Free** — no memory owns the clean name: the clean name, no proposal.
+    /// - **Bound elsewhere** — the clean name belongs to a memory bound to a *different* platform
+    ///   identity: the platform-qualified `person/<handle>@<platform>` name, no proposal (a genuine
+    ///   cross-platform handle collision, two distinct people kept distinct).
+    /// - **Unbound** — the clean name belongs to a memory no platform identity binds (an agent-authored
+    ///   hearsay stub): the qualified name *and* a proposal to merge the new stub with that memory, so a
+    ///   handle match surfaces a candidate reunion for adjudication without ever asserting identity itself.
+    pub fn participant_mint(
+        &self,
+        platform: &str,
+        platform_user_id: &str,
+    ) -> Result<ParticipantMint, GraphError> {
         let clean = Namespace::Person.with_name(platform_user_id);
-        if self.memory_by_name(&clean)?.is_some() {
-            Ok(Namespace::Person
-                .with_name(format!("{platform_user_id}@{platform}"))
-                .into())
+        let Some(existing) = self.memory_by_name(&clean)? else {
+            return Ok(ParticipantMint {
+                name: clean.into(),
+                propose_same_as_with: None,
+            });
+        };
+        let qualified = Namespace::Person
+            .with_name(format!("{platform_user_id}@{platform}"))
+            .into();
+        // The unbound hearsay stub is the merge candidate; a stub already bound to a platform identity is
+        // a distinct person who merely shares the handle, and stays distinct.
+        let propose_same_as_with = if self.name_platform_bindings(&clean)?.is_empty() {
+            Some(existing.id)
         } else {
-            Ok(clean.into())
-        }
+            None
+        };
+        Ok(ParticipantMint {
+            name: qualified,
+            propose_same_as_with,
+        })
+    }
+
+    /// The platform identities bound to the live memory that owns `name`, as `(platform,
+    /// platform_user_id)` pairs read from `participant_identities`. Empty when no live memory owns the
+    /// name, or the one that does carries no platform binding (an agent-authored hearsay stub). The mint
+    /// path reads this to tell a genuine cross-platform handle collision — the clean name already bound
+    /// to a *different* platform identity — from an unbound stub that merely shares the handle.
+    pub fn name_platform_bindings(
+        &self,
+        name: impl Into<MemoryName>,
+    ) -> Result<Vec<(String, String)>, GraphError> {
+        let name = name.into();
+        let stmt = self.conn.prepare(
+            "SELECT pi.platform, pi.platform_user_id
+             FROM participant_identities pi
+             JOIN memories m ON m.id = pi.memory
+             WHERE m.name = ?1 AND m.deleted = 0
+             ORDER BY pi.platform, pi.platform_user_id",
+        )?;
+        query_map_into(stmt, params![name.as_str()], |row| {
+            Ok::<_, GraphError>((row.get(0)?, row.get(1)?))
+        })
     }
 
     /// The platform user ids seen on a given platform — the bare handles a user can type in the
@@ -85,8 +141,9 @@ impl Graph {
         Ok(query_map_into(stmt, params![platform], |row| row.get(0))?)
     }
 
-    /// The `context/*` memory minted with a conversation, or `None` if the conversation is unknown.
-    /// The locator resolves to the room and thence to its context (spec §Contexts are first-class).
+    /// The [`Namespace::Context`] memory minted with a conversation, or `None` if the conversation
+    /// is unknown. The locator resolves to the room and thence to its context (spec §Contexts are
+    /// first-class).
     pub fn context_for_conversation(
         &self,
         conversation: ConversationId,

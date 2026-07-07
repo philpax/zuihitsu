@@ -24,8 +24,8 @@ impl Graph {
     ) -> Result<Vec<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
-                    e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.text, e.told_by,
-                    e.told_in,
+                    e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.occurred_authored,
+                    e.text, e.told_by, e.told_in,
                     e.visibility, e.superseded_by
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL AND e.occurred_sort IS NOT NULL
@@ -109,8 +109,8 @@ impl Graph {
     pub fn pending_wakeups(&self) -> Result<Vec<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
-                    e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.text, e.told_by,
-                    e.told_in,
+                    e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.occurred_authored,
+                    e.text, e.told_by, e.told_in,
                     e.visibility, e.superseded_by
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL

@@ -6,8 +6,9 @@
 use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
-    ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, ManualClock,
-    MemoryStore, ModelClient, SeedSelf, Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome,
+    ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, LinkSource,
+    ManualClock, MemoryId, MemoryStore, ModelClient, RelationName, SeedSelf, Seq, Server,
+    SqliteVectorIndex, Timestamp, TurnOutcome,
 };
 
 use crate::error::EvalError;
@@ -16,10 +17,19 @@ use crate::error::EvalError;
 /// reproducible; scenarios advance from here.
 pub(crate) const RUN_START_MS: i64 = 1_780_876_800_000;
 
+/// The shared day/hour units every scenario expresses its clock advances and windows in, re-exported
+/// from core so the derivation lives in one place rather than being redefined per scenario module.
+pub(crate) use zuihitsu::time::{MILLIS_PER_DAY, MILLIS_PER_HOUR};
+
 /// A human's pause before sending a message — applied before each inbound turn so consecutive turns in
 /// a busy room are spaced apart, not stacked at one instant. Small against the day-scale advances a
 /// scheduling scenario makes, so it does not perturb those.
 const HUMAN_PAUSE_MS: i64 = 10_000;
+
+/// Just past the default idle gap (1800s), so the next turn after an [`RunContext::advance`] of this
+/// much opens a fresh session. Shared by the scenarios that cross the idle seam without a day-scale
+/// advance (an operator imprint lapsing, a room going quiet between sessions).
+pub(crate) const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
 
 /// The shared, build-once inputs every run needs: the model, and — when an embedding endpoint is
 /// configured — the embedder and its dimensionality (a fresh vector index is built per run).
@@ -151,6 +161,21 @@ impl RunContext {
         Ok(())
     }
 
+    /// Confirm a cross-platform merge as the operator would from the console (spec §Cross-platform
+    /// identity → operator-asserted merge): author the `same_as` link between two `person/*` stubs
+    /// directly, the one path to a merge that does not run through the adjudicator. Drives the operator
+    /// confirmation a proposal surfaces for, so a scenario can assess what the agent does once identity
+    /// is confirmed.
+    pub fn operator_merge(&self, from: MemoryId, to: MemoryId) -> Result<(), EvalError> {
+        self.seed_events(vec![EventPayload::LinkCreated {
+            from,
+            to,
+            relation: RelationName::SameAs,
+            source: LinkSource::Operator,
+            told_by: None,
+        }])
+    }
+
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.
     pub fn advance(&self, delta_ms: i64) {
         self.clock.advance_millis(delta_ms);
@@ -171,10 +196,61 @@ impl RunContext {
         Ok(())
     }
 
+    /// Force a compaction of the open session in `platform`/`scope` right now, through the same path
+    /// the organic token-budget trigger drives (the pre-compaction flush, the carryover staging, and a
+    /// fresh session seeded from that carryover on the next turn). This states the cut point directly,
+    /// so a scenario probing survival across several seams forces its cuts rather than sizing a token
+    /// budget so the trigger *happens* to fire the right number of times. Returns whether a live
+    /// session was actually compacted.
+    pub async fn force_compaction(&self, platform: &str, scope: &str) -> Result<bool, EvalError> {
+        let locator = ConversationLocator::new(platform, scope);
+        Ok(self
+            .server
+            .platform()
+            .force_compaction(self.model.as_ref(), &locator)
+            .await?)
+    }
+
+    /// Tune the checkpoint gates so a scripted two-room exchange trips them: the substance threshold
+    /// and the cooldown, leaving the enable flag and the rest of the settings as seeded.
+    pub fn tune_checkpoint(
+        &self,
+        min_delta_chars: i64,
+        cooldown_seconds: i64,
+    ) -> Result<(), EvalError> {
+        let mut settings = self.server.control().settings()?;
+        settings.checkpoint.min_delta_chars = min_delta_chars;
+        settings.checkpoint.cooldown_seconds = cooldown_seconds;
+        self.server.control().set_settings(settings)?;
+        Ok(())
+    }
+
+    /// Run one checkpoint sweep over the live sessions — the mid-session flush the background
+    /// checkpoint sweeper drives on a timer (spec §Compaction → checkpoint flush), driven explicitly
+    /// so a scenario controls exactly where the flush lands between turns. Returns how many sessions
+    /// flushed.
+    pub async fn checkpoint_sweep(&self) -> Result<usize, EvalError> {
+        Ok(self
+            .server
+            .checkpoint_live_sessions(self.model.as_ref())
+            .await?)
+    }
+
     /// Catch the vector index up to the log, so a fact written this run is searchable next turn (the
     /// same catch-up the background indexer runs).
     pub async fn index_catch_up(&self) -> Result<(), EvalError> {
         self.server.index_catch_up().await?;
+        Ok(())
+    }
+
+    /// Let both background synthesis passes settle: the describer (descriptions, arbitration, temporal
+    /// extraction) and then the vector indexer, in that order. This is the pair scenarios run together
+    /// after a turn that wrote content — before advancing the clock across a gap or asserting on the
+    /// synthesized-and-searchable state — folded into one call. A scenario that needs only one of the
+    /// two (no retrieval, or a description-only probe) calls the specific catch-up directly.
+    pub async fn settle(&self) -> Result<(), EvalError> {
+        self.describe_catch_up().await?;
+        self.index_catch_up().await?;
         Ok(())
     }
 

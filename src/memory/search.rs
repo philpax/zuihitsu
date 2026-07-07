@@ -18,24 +18,57 @@ use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use crate::{
     decay,
     event::{Visibility, Volatility},
-    graph::{Graph, GraphError, MemoryView},
-    ids::{MemoryId, MemoryName},
+    graph::{Graph, GraphError, LexicalHit, MemoryView},
+    ids::{MemoryId, MemoryName, Namespace},
+    memory::memory_block::LinkDirection,
     model::index::VectorKey,
     settings::SearchSettings,
-    time::{self, Timestamp},
+    time::{self, TemporalRef, Timestamp},
     vector::{VectorError, VectorIndex},
-    vocabulary::TagName,
+    vocabulary::{RelationName, TagName},
 };
 
 use super::visibility;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
-/// a private entry, and `None` otherwise.
+/// a private entry, and `None` otherwise. `snippet` is the fragment of matched content that produced
+/// the hit — an FTS5 extract for a lexical match, or the matched entry's text (clipped) for a
+/// semantic entry match — so the result stays legible even when the memory's description is stale or
+/// empty. Both snippet sources are visibility-safe: the FTS index is public-only, and an entry
+/// snippet is only ever taken from an entry that has already passed the visibility predicate.
+///
+/// `occurred_at` is the resolved occurrence a hit carries so a scheduled or dated fact's *when* rides
+/// on the result line, rather than surfacing only if the agent separately drills into `entries()`. A
+/// hit is memory-level, so this is one representative date — the most recent visible dated entry's
+/// occurrence (see [`visible_occurrence`]) — and the agent recalls the full set of occurrences through
+/// `entries()`. Like the snippet, it is visibility-filtered: a date from an entry the present set
+/// cannot see never leaks onto the hit.
+///
+/// `relations` are the memory's most salient out-of-class links (see [`salient_relations`]), so a hit
+/// passively carries the cast that already participates in it — the recognition signal that lets an
+/// agent searching "book club" pick the existing `event/book_club` its present people are on, rather
+/// than minting a name-guessed duplicate. `more_relations` counts the salient links elided past the cap,
+/// for the trailing `(+N more)` note. Unlike the snippet and occurrence, these are *not*
+/// visibility-filtered — they mirror the link readers, which surface the agent's own whole graph.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchHit {
     pub memory: MemoryView,
     pub score: f32,
     pub marker: Option<String>,
+    pub snippet: Option<String>,
+    pub occurred_at: Option<TemporalRef>,
+    pub relations: Vec<SalientRelation>,
+    pub more_relations: usize,
+}
+
+/// One salient relation on a hit: the relation, which way it runs relative to the hit's `same_as`
+/// class (`Incoming` when the far end points at the identity), and the far memory's name — enough for
+/// the agent to recognize the neighbourhood and `memory.get` a far end by name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SalientRelation {
+    pub relation: RelationName,
+    pub direction: LinkDirection,
+    pub other_name: MemoryName,
 }
 
 /// A search failure, from either the graph projection or the vector index.
@@ -109,6 +142,10 @@ pub fn search(
     // pass the predicate, and a surviving private one contributes a marker.
     let mut cosine: BTreeMap<MemoryId, f32> = BTreeMap::new();
     let mut markers: BTreeMap<MemoryId, String> = BTreeMap::new();
+    // The matched-content snippet per memory, so a hit reads legibly even with a stale or empty
+    // description. An entry-vector hit contributes its (already visibility-filtered) entry text; a
+    // lexical hit's FTS extract is preferred below, as it marks the matched span precisely.
+    let mut snippets: BTreeMap<MemoryId, String> = BTreeMap::new();
     for hit in vectors.search(query.embedding, over_fetch)? {
         let score = hit.score.max(0.0);
         match VectorKey::parse(&hit.id) {
@@ -121,6 +158,11 @@ pub fn search(
                     continue;
                 }
                 raise(&mut cosine, memory.id, score);
+                // The matched entry survived the predicate, so its text is safe to quote as this
+                // memory's snippet; the first surviving hit wins (best cosine, by search order).
+                if let Entry::Vacant(slot) = snippets.entry(memory.id) {
+                    slot.insert(clip_snippet(&entry.text));
+                }
                 // The first surviving hit for a memory sets its marker (visibility register and/or
                 // staleness), via the vacant entry so the work and its `?` compose cleanly.
                 if let Entry::Vacant(slot) = markers.entry(memory.id) {
@@ -148,8 +190,15 @@ pub fn search(
     }
 
     // Lexical: normalized bm25 per memory. FTS holds only public content, so a lexical hit needs no
-    // visibility filter.
-    let bm25 = normalize_bm25(&graph.search_lexical(query.text, over_fetch)?);
+    // visibility filter — and neither does its snippet, an FTS extract of that public content. The
+    // FTS extract marks the matched span, so it takes precedence over any entry-vector snippet.
+    let lexical = graph.search_lexical(query.text, over_fetch)?;
+    for hit in &lexical {
+        if !hit.snippet.is_empty() {
+            snippets.insert(hit.id, clip_snippet(&hit.snippet));
+        }
+    }
+    let bm25 = normalize_bm25(&lexical);
 
     let candidates: BTreeSet<MemoryId> = cosine.keys().chain(bm25.keys()).copied().collect();
 
@@ -172,10 +221,22 @@ pub fn search(
         // older content still uses one) reads as the same person under their current handle, rather
         // than a second one (spec §Identity → Renaming).
         let marker = combine_marker(markers.get(&id).cloned(), graph.former_names(id)?);
+        // Surface the memory's representative occurrence, so a recall that renders from the hit line
+        // (rather than drilling into `entries()`) still carries a scheduled or dated fact's date.
+        // Filtered by the same predicate as the snippet: a date on an entry the present set cannot see
+        // never leaks.
+        let occurred_at = visible_occurrence(&memory, graph, query.present_set, &class_of)?;
+        // The most salient out-of-class links, so the hit line reveals the cast already on this memory
+        // (spec §Search → informed creation). One class-traversing read per hit, bounded by `limit`.
+        let (relations, more_relations) = salient_relations(&memory, graph)?;
         hits.push(SearchHit {
             memory,
             score,
             marker,
+            snippet: snippets.get(&id).cloned(),
+            occurred_at,
+            relations,
+            more_relations,
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -198,6 +259,80 @@ fn combine_marker(marker: Option<String>, former_names: Vec<MemoryName>) -> Opti
     })
 }
 
+/// The occurrence to surface on a hit: the most recent visible dated entry's `occurred_at`, over the
+/// memory's whole `same_as` class, preferring an authored occurrence over an extracted one. An
+/// authored date is ground truth (the agent stamped it at append); an extracted one is inference the
+/// turn-end temporal extraction resolved, which can misfire (anaphora like "that weekend" resolved
+/// against the clock). So the freshest visible authored date wins, and a visible extracted date
+/// surfaces only when the class holds no authored date at all — a guess never shadows a stated fact.
+/// Within each tier, entries are scanned in commit order, so the last one wins — the freshest dated
+/// fact, which for a recall is the scheduled event or decision the agent is most likely relaying. The
+/// visibility predicate gates each entry against the present set, mirroring the snippet, so a date on
+/// a teller-private aside the present set cannot see never leaks onto the hit. `None` when the memory
+/// holds no visible dated entry.
+fn visible_occurrence(
+    memory: &MemoryView,
+    graph: &Graph,
+    present_set: &[MemoryId],
+    class_of: &visibility::ClassOf,
+) -> Result<Option<TemporalRef>, GraphError> {
+    let mut latest_authored = None;
+    let mut latest_extracted = None;
+    for entry in graph.class_entries(memory.id)? {
+        if entry.occurred_at.is_some()
+            && visibility::visible(&entry, memory, present_set, class_of)?
+        {
+            if entry.occurred_authored {
+                latest_authored = entry.occurred_at;
+            } else {
+                latest_extracted = entry.occurred_at;
+            }
+        }
+    }
+    Ok(latest_authored.or(latest_extracted))
+}
+
+/// How many salient relations a hit carries before the rest are elided behind a `(+N more)` note —
+/// small on purpose, enough to reveal the memory's cast (its people, its recent links) without
+/// flooding a result line.
+const SALIENCE_CAP: usize = 3;
+
+/// The salient relations to surface on a hit, with the count of any elided past the cap. Salience is
+/// deliberately simple and legible: of the memory's out-of-class links, a far end that is a
+/// [`Namespace::Person`] memory comes first — people anchor identity, so seeing who participates is
+/// what lets the agent recognize the event or topic it already holds — and within that, the most
+/// recently created links come first. The set is capped at [`SALIENCE_CAP`]; the remainder feeds the
+/// `(+N more)` note.
+/// Committed-only and not visibility-filtered, mirroring the link readers (the agent's own whole-graph
+/// surface). One class-traversing read per hit, so the cost is bounded by the search `limit`, as
+/// [`visible_occurrence`] is.
+fn salient_relations(
+    memory: &MemoryView,
+    graph: &Graph,
+) -> Result<(Vec<SalientRelation>, usize), GraphError> {
+    let person = Namespace::Person.prefix();
+    let mut neighbors = graph.class_neighbor_links(memory.id)?;
+    // `class_neighbor_links` already orders most-recently-created first; a *stable* sort then floats
+    // person far ends ahead without disturbing that recency order within each group.
+    neighbors.sort_by_key(|neighbor| !neighbor.other_name.as_str().starts_with(person));
+    let total = neighbors.len();
+    let relations: Vec<SalientRelation> = neighbors
+        .into_iter()
+        .take(SALIENCE_CAP)
+        .map(|neighbor| SalientRelation {
+            relation: neighbor.relation,
+            direction: if neighbor.incoming {
+                LinkDirection::Incoming
+            } else {
+                LinkDirection::Outgoing
+            },
+            other_name: neighbor.other_name,
+        })
+        .collect();
+    let more = total.saturating_sub(relations.len());
+    Ok((relations, more))
+}
+
 /// Keep the best (highest) cosine seen for a memory.
 fn raise(cosine: &mut BTreeMap<MemoryId, f32>, id: MemoryId, score: f32) {
     let best = cosine.entry(id).or_insert(0.0);
@@ -218,27 +353,40 @@ fn tag_match(memory: &MemoryView, query_tags: &[TagName]) -> f32 {
 }
 
 /// Normalize raw bm25 scores (more negative is a better match) to `[0, 1]`, best at 1.
-fn normalize_bm25(lexical: &[(MemoryId, f32)]) -> BTreeMap<MemoryId, f32> {
+fn normalize_bm25(lexical: &[LexicalHit]) -> BTreeMap<MemoryId, f32> {
     let min = lexical
         .iter()
-        .map(|(_, s)| *s)
+        .map(|hit| hit.score)
         .fold(f32::INFINITY, f32::min);
     let max = lexical
         .iter()
-        .map(|(_, s)| *s)
+        .map(|hit| hit.score)
         .fold(f32::NEG_INFINITY, f32::max);
     let range = max - min;
     lexical
         .iter()
-        .map(|(id, score)| {
+        .map(|hit| {
             let normalized = if range > 0.0 {
-                (max - score) / range
+                (max - hit.score) / range
             } else {
                 1.0
             };
-            (*id, normalized)
+            (hit.id, normalized)
         })
         .collect()
+}
+
+/// Clip a matched-content snippet to a legible length, appending an ellipsis when it is cut. The FTS5
+/// extract is already short, so this mainly bounds an entry-vector snippet (a whole entry's text) to a
+/// phrase-sized preview. Cuts on a `char` boundary, not a byte offset, so multi-byte text stays valid.
+fn clip_snippet(text: &str) -> String {
+    const MAX_CHARS: usize = 160;
+    let trimmed = text.trim();
+    let mut clipped: String = trimmed.chars().take(MAX_CHARS).collect();
+    if trimmed.chars().count() > MAX_CHARS {
+        clipped.push('…');
+    }
+    clipped
 }
 
 /// `exp(-Δt / τ(volatility))` over the memory's most recent *occurrence* time — each entry's
@@ -268,607 +416,4 @@ fn recency_bonus(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{SearchHit, SearchQuery, recency_bonus, search};
-    use crate::{
-        InstanceFeatures,
-        agent::genesis::{self, SeedSelf},
-        clock::ManualClock,
-        event::{Event, EventPayload, Teller, Visibility, Volatility},
-        graph::Graph,
-        ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
-        model::{
-            embed::{Embedder, FakeEmbedder},
-            index::Indexer,
-        },
-        settings::{SearchSettings, Settings},
-        store::{MemoryStore, Store},
-        time::{TemporalRef, Timestamp},
-        vector::InMemoryVectorIndex,
-        vocabulary::TagName,
-    };
-
-    const DAY: i64 = 86_400_000;
-    const DIMS: usize = 32;
-
-    fn event(seq: u64, payload: EventPayload) -> Event {
-        Event {
-            seq: Seq(seq),
-            recorded_at: Timestamp::from_millis(0),
-            payload,
-        }
-    }
-
-    /// A singleton memory with one entry at the given occurrence (or none) and assertion time.
-    fn graph_with_entry(occurred_at: Option<TemporalRef>, asserted_ms: i64) -> (Graph, MemoryId) {
-        let mut graph = Graph::open_in_memory().unwrap();
-        let id = MemoryId::generate();
-        graph
-            .apply(&event(
-                1,
-                EventPayload::memory_created(id, Namespace::Topic.with_name("dated")),
-            ))
-            .unwrap();
-        graph
-            .apply(&event(
-                2,
-                EventPayload::MemoryContentAppended {
-                    id,
-                    entry_id: EntryId::generate(),
-                    asserted_at: Timestamp::from_millis(asserted_ms),
-                    occurred_at,
-                    text: "fact".to_owned(),
-                    told_by: Teller::Agent,
-                    told_in: None,
-                    visibility: Visibility::Public,
-                },
-            ))
-            .unwrap();
-        (graph, id)
-    }
-
-    fn bonus(graph: &Graph, id: MemoryId, now_ms: i64) -> f32 {
-        let memory = graph.memory_by_id(id).unwrap().unwrap();
-        recency_bonus(
-            &memory,
-            graph,
-            Timestamp::from_millis(now_ms),
-            &SearchSettings::default(),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn occurrence_time_drives_decay_not_assertion_time() {
-        let now = 20_000 * DAY;
-        // Written "today" but about a decade ago: it must decay like a decade-old memory.
-        let (about_past, past_id) = graph_with_entry(
-            Some(TemporalRef::Instant(Timestamp::from_millis(
-                now - 3650 * DAY,
-            ))),
-            now,
-        );
-        let (about_now, now_id) =
-            graph_with_entry(Some(TemporalRef::Instant(Timestamp::from_millis(now))), now);
-        assert!(
-            bonus(&about_past, past_id, now) < 0.01,
-            "a decade-old occurrence should decay sharply"
-        );
-        assert!(
-            bonus(&about_now, now_id, now) > 0.99,
-            "a present occurrence should not decay"
-        );
-    }
-
-    #[test]
-    fn falls_back_to_assertion_time_without_an_occurrence() {
-        let now = 20_000 * DAY;
-        let (graph, id) = graph_with_entry(None, now - 3650 * DAY);
-        assert!(bonus(&graph, id, now) < 0.01);
-    }
-
-    #[test]
-    fn higher_volatility_decays_faster_at_the_same_age() {
-        // The volatility-aware part: at the *same* age, the decay rate is keyed by the memory's
-        // volatility through τ — High (τ=90d) decays far faster than Medium (τ=365d) than Low (τ=3650d).
-        let now = 20_000 * DAY;
-        let one_year_ago = now - 365 * DAY;
-        let bonus_for = |volatility| {
-            let (mut graph, id) = graph_with_entry(
-                Some(TemporalRef::Instant(Timestamp::from_millis(one_year_ago))),
-                now,
-            );
-            graph
-                .apply(&event(
-                    3,
-                    EventPayload::memory_volatility_set(id, volatility),
-                ))
-                .unwrap();
-            bonus(&graph, id, now)
-        };
-        let (high, medium, low) = (
-            bonus_for(Volatility::High),
-            bonus_for(Volatility::Medium),
-            bonus_for(Volatility::Low),
-        );
-
-        // Strictly ordered by volatility.
-        assert!(
-            high < medium,
-            "High should decay faster than Medium ({high} vs {medium})"
-        );
-        assert!(
-            medium < low,
-            "Medium should decay faster than Low ({medium} vs {low})"
-        );
-        // Concrete anchors at one year, with the default τ: exp(-365/90) ≈ 0.017, exp(-1) ≈ 0.37,
-        // exp(-365/3650) ≈ 0.90.
-        assert!(
-            high < 0.05,
-            "high volatility is nearly fully decayed at a year: {high}"
-        );
-        assert!(
-            (0.30..0.45).contains(&medium),
-            "medium is ~0.37 at a year: {medium}"
-        );
-        assert!(low > 0.85, "low volatility barely decays at a year: {low}");
-    }
-
-    #[test]
-    fn a_future_occurrence_does_not_decay() {
-        let now = 20_000 * DAY;
-        let (graph, id) = graph_with_entry(
-            Some(TemporalRef::Instant(Timestamp::from_millis(
-                now + 100 * DAY,
-            ))),
-            now,
-        );
-        assert!(bonus(&graph, id, now) > 0.99);
-    }
-
-    /// A write + index harness for the multi-signal blend. The fake embedder isn't semantic, but it
-    /// is deterministic — the same text embeds to the same vector — so querying a memory's exact
-    /// description gives it cosine 1, which exercises the semantic signal without a real model.
-    struct Corpus {
-        store: MemoryStore,
-        graph: Graph,
-        index: InMemoryVectorIndex,
-        embedder: FakeEmbedder,
-    }
-
-    impl Corpus {
-        fn new() -> Corpus {
-            Corpus {
-                store: MemoryStore::new(),
-                graph: Graph::open_in_memory().unwrap(),
-                index: InMemoryVectorIndex::new(),
-                embedder: FakeEmbedder::new(DIMS),
-            }
-        }
-
-        /// Commit `events`, bring the graph to head, and catch the vector index up — the real write +
-        /// index path, so descriptions and entries are embedded with their proper keys.
-        async fn commit(&mut self, at_ms: i64, events: Vec<EventPayload>) {
-            self.store
-                .append(Timestamp::from_millis(at_ms), events)
-                .unwrap();
-            self.graph.materialize_from(&self.store).unwrap();
-            Indexer::new(&self.embedder, &mut self.index)
-                .catch_up(&self.store)
-                .await
-                .unwrap();
-        }
-
-        /// Add a memory with a public description and one public content entry, asserted at `at_ms`.
-        async fn add(
-            &mut self,
-            name: impl Into<MemoryName>,
-            description: &str,
-            content: &str,
-            at_ms: i64,
-        ) -> MemoryId {
-            let id = MemoryId::generate();
-            let at = Timestamp::from_millis(at_ms);
-            self.commit(
-                at_ms,
-                vec![
-                    EventPayload::memory_created(id, name),
-                    EventPayload::MemoryContentAppended {
-                        id,
-                        entry_id: EntryId::generate(),
-                        asserted_at: at,
-                        occurred_at: None,
-                        text: content.to_owned(),
-                        told_by: Teller::Agent,
-                        told_in: None,
-                        visibility: Visibility::Public,
-                    },
-                    EventPayload::memory_description_regenerated(id, description, None),
-                ],
-            )
-            .await;
-            id
-        }
-
-        /// Record a participant's private aside about `memory` — a `PrivateToTeller` content entry.
-        async fn tell_private(
-            &mut self,
-            memory: MemoryId,
-            text: &str,
-            teller: MemoryId,
-            at_ms: i64,
-        ) {
-            self.commit(
-                at_ms,
-                vec![EventPayload::MemoryContentAppended {
-                    id: memory,
-                    entry_id: EntryId::generate(),
-                    asserted_at: Timestamp::from_millis(at_ms),
-                    occurred_at: None,
-                    text: text.to_owned(),
-                    told_by: Teller::Participant(teller),
-                    told_in: None,
-                    visibility: Visibility::PrivateToTeller,
-                }],
-            )
-            .await;
-        }
-
-        /// As [`Corpus::tell_private`], but told in a specific room (`told_in`), so the surfaced
-        /// marker can name it.
-        async fn tell_private_in(
-            &mut self,
-            memory: MemoryId,
-            text: &str,
-            teller: MemoryId,
-            told_in: MemoryId,
-            at_ms: i64,
-        ) {
-            self.commit(
-                at_ms,
-                vec![EventPayload::MemoryContentAppended {
-                    id: memory,
-                    entry_id: EntryId::generate(),
-                    asserted_at: Timestamp::from_millis(at_ms),
-                    occurred_at: None,
-                    text: text.to_owned(),
-                    told_by: Teller::Participant(teller),
-                    told_in: Some(told_in),
-                    visibility: Visibility::PrivateToTeller,
-                }],
-            )
-            .await;
-        }
-
-        /// Create `tag` and apply it to `id`. Only one memory per tag in these tests, so the create is
-        /// unconditional.
-        fn tag(&mut self, id: MemoryId, tag: &str, at_ms: i64) {
-            self.store
-                .append(
-                    Timestamp::from_millis(at_ms),
-                    vec![
-                        EventPayload::tag_created(TagName::new(tag), format!("about {tag}")),
-                        EventPayload::tag_applied_to_memory(id, TagName::new(tag)),
-                    ],
-                )
-                .unwrap();
-            self.graph.materialize_from(&self.store).unwrap();
-        }
-
-        async fn query(&self, text: &str, now_ms: i64, limit: usize) -> Vec<MemoryId> {
-            self.query_in(text, None, &[], &[], now_ms, limit)
-                .await
-                .into_iter()
-                .map(|hit| hit.memory.id)
-                .collect()
-        }
-
-        async fn query_in(
-            &self,
-            text: &str,
-            namespace: Option<&str>,
-            tags: &[TagName],
-            present_set: &[MemoryId],
-            now_ms: i64,
-            limit: usize,
-        ) -> Vec<SearchHit> {
-            let embedding = self
-                .embedder
-                .embed(&[text.to_owned()])
-                .await
-                .unwrap()
-                .remove(0);
-            let query = SearchQuery {
-                text,
-                embedding: &embedding,
-                namespace,
-                tags,
-                present_set,
-            };
-            search(
-                &self.graph,
-                &self.index,
-                &query,
-                &Settings::default().search,
-                Timestamp::from_millis(now_ms),
-                limit,
-            )
-            .unwrap()
-        }
-    }
-
-    #[tokio::test]
-    async fn the_matching_memory_ranks_first() {
-        let mut corpus = Corpus::new();
-        let dave = corpus
-            .add(
-                Namespace::Person.with_name("dave"),
-                "An avid rock climber",
-                "We met bouldering",
-                1_000,
-            )
-            .await;
-        corpus
-            .add(
-                Namespace::Person.with_name("erin"),
-                "A tax accountant",
-                "She filed my return",
-                1_000,
-            )
-            .await;
-        corpus
-            .add(
-                Namespace::Topic.with_name("sourdough"),
-                "Naturally leavened bread",
-                "Fed the starter",
-                1_000,
-            )
-            .await;
-
-        // Querying Dave's exact description gives him cosine 1 (and a lexical match), so he ranks first.
-        let ranked = corpus.query("An avid rock climber", 1_000, 5).await;
-        assert_eq!(ranked.first(), Some(&dave));
-    }
-
-    #[tokio::test]
-    async fn recency_breaks_a_tie() {
-        let mut corpus = Corpus::new();
-        // Identical text → identical semantic and lexical scores; only recency differs.
-        let stale = corpus
-            .add(
-                Namespace::Topic.with_name("stale"),
-                "shared topic text",
-                "shared topic text",
-                0,
-            )
-            .await;
-        let fresh = corpus
-            .add(
-                Namespace::Topic.with_name("fresh"),
-                "shared topic text",
-                "shared topic text",
-                100 * DAY,
-            )
-            .await;
-
-        let ranked = corpus.query("shared topic text", 100 * DAY, 5).await;
-        assert_eq!(ranked.first(), Some(&fresh));
-        assert!(ranked.contains(&stale));
-    }
-
-    #[tokio::test]
-    async fn a_query_tag_boosts_a_carrier() {
-        let mut corpus = Corpus::new();
-        // Identical text → identical semantic, lexical, and recency scores; only the tag differs.
-        let plain = corpus
-            .add(
-                Namespace::Topic.with_name("plain"),
-                "shared topic text",
-                "shared topic text",
-                1_000,
-            )
-            .await;
-        let tagged = corpus
-            .add(
-                Namespace::Topic.with_name("tagged"),
-                "shared topic text",
-                "shared topic text",
-                1_000,
-            )
-            .await;
-        corpus.tag(tagged, "climbing", 1_000);
-
-        let ranked: Vec<MemoryId> = corpus
-            .query_in(
-                "shared topic text",
-                None,
-                &[TagName::new("climbing")],
-                &[],
-                1_000,
-                5,
-            )
-            .await
-            .into_iter()
-            .map(|hit| hit.memory.id)
-            .collect();
-        assert_eq!(ranked.first(), Some(&tagged));
-        assert!(ranked.contains(&plain));
-    }
-
-    #[tokio::test]
-    async fn a_namespace_filters_out_other_kinds() {
-        let mut corpus = Corpus::new();
-        let dave = corpus
-            .add(
-                Namespace::Person.with_name("dave"),
-                "shared marker text",
-                "shared marker text",
-                1_000,
-            )
-            .await;
-        corpus
-            .add(
-                Namespace::Topic.with_name("marker"),
-                "shared marker text",
-                "shared marker text",
-                1_000,
-            )
-            .await;
-
-        // The topic matches lexically and semantically, but the person/ prefix excludes it.
-        let ranked: Vec<MemoryId> = corpus
-            .query_in(
-                "shared marker text",
-                Some(Namespace::Person.prefix()),
-                &[],
-                &[],
-                1_000,
-                5,
-            )
-            .await
-            .into_iter()
-            .map(|hit| hit.memory.id)
-            .collect();
-        assert_eq!(ranked, vec![dave]);
-    }
-
-    #[tokio::test]
-    async fn an_empty_corpus_returns_nothing() {
-        // No memories, no vectors: nothing to rank, whatever the query.
-        let corpus = Corpus::new();
-        let ranked = corpus.query("anything at all", 1_000, 5).await;
-        assert!(ranked.is_empty());
-    }
-
-    #[tokio::test]
-    async fn search_applies_the_predicate_to_entry_hits() {
-        // Scenario 17: Erin's private aside about Phil is embedded as an entry vector. The query matches
-        // only that aside (the wording appears nowhere public), so Phil surfaces solely through it.
-        let mut corpus = Corpus::new();
-        let erin_name = Namespace::Person.with_name("erin");
-        let erin = corpus
-            .add(&erin_name, "A colleague", "We work together", 1_000)
-            .await;
-        let phil = corpus
-            .add(
-                Namespace::Person.with_name("phil"),
-                "A teammate",
-                "On the same team",
-                1_000,
-            )
-            .await;
-        corpus
-            .tell_private(phil, "the quarterly review went badly", erin, 1_000)
-            .await;
-
-        // Erin present, Phil absent: the aside surfaces Phil, flagged teller-private.
-        let hits = corpus
-            .query_in(
-                "the quarterly review went badly",
-                None,
-                &[],
-                &[erin],
-                1_000,
-                5,
-            )
-            .await;
-        let phil_hit = hits
-            .iter()
-            .find(|hit| hit.memory.id == phil)
-            .expect("Phil surfaces via the aside");
-        let marker = phil_hit.marker.as_deref().expect("a teller-private marker");
-        assert!(marker.contains("teller-private"));
-        assert!(marker.contains(&erin_name.to_string()));
-
-        // Phil present too: the subject-guard suppresses the aside. It's the *same* predicate as the
-        // brief, so the private entry survives in no hit — no result carries a teller-private marker.
-        // (The fake embedder gives every text a faint nonzero cosine, so Phil still appears via his
-        // public vectors; the load-bearing fact is that the private aside no longer surfaces.)
-        let hits = corpus
-            .query_in(
-                "the quarterly review went badly",
-                None,
-                &[],
-                &[erin, phil],
-                1_000,
-                5,
-            )
-            .await;
-        assert!(hits.iter().all(|hit| hit.marker.is_none()));
-    }
-
-    #[tokio::test]
-    async fn a_private_asides_marker_names_its_confidential_room() {
-        // Scenario 13's mechanism: an aside told in a #confidential room surfaces flagged with the room
-        // and its confidentiality — the cross-context signal the agent reasons over.
-        let mut corpus = Corpus::new();
-        let erin = corpus
-            .add(
-                Namespace::Person.with_name("erin"),
-                "A colleague",
-                "We work together",
-                1_000,
-            )
-            .await;
-        let phil = corpus
-            .add(
-                Namespace::Person.with_name("phil"),
-                "A teammate",
-                "On the same team",
-                1_000,
-            )
-            .await;
-
-        // A #confidential context — the #leads room.
-        let leads = MemoryId::generate();
-        corpus
-            .commit(
-                1_000,
-                vec![EventPayload::memory_created(
-                    leads,
-                    Namespace::Context.with_name("leads"),
-                )],
-            )
-            .await;
-        corpus.tag(leads, "confidential", 1_000);
-
-        // Erin, in #leads, says something private about Phil.
-        corpus
-            .tell_private_in(phil, "is being managed out", erin, leads, 1_000)
-            .await;
-
-        // Erin present, Phil absent: Phil surfaces, the marker naming the room and its confidentiality.
-        let hits = corpus
-            .query_in("is being managed out", None, &[], &[erin], 1_000, 5)
-            .await;
-        let phil_hit = hits
-            .iter()
-            .find(|hit| hit.memory.id == phil)
-            .expect("Phil surfaces via the aside");
-        assert_eq!(
-            phil_hit.marker.as_deref(),
-            Some("[teller-private, told by person/erin in #leads (confidential)]")
-        );
-    }
-
-    #[test]
-    fn settings_round_trip_through_the_log() {
-        let mut store = MemoryStore::new();
-        let seed = SeedSelf {
-            agent_name: "Kestrel".to_owned(),
-            persona: "A companion.".to_owned(),
-            seed_entries: Vec::new(),
-        };
-        genesis::rollout(
-            &mut store,
-            &ManualClock::new(Timestamp::from_millis(1)),
-            &seed,
-            None,
-            &InstanceFeatures::default(),
-        )
-        .unwrap();
-
-        // Genesis seeds the default snapshot, so folding the log back yields exactly Settings::default().
-        assert_eq!(Settings::from_store(&store).unwrap(), Settings::default());
-    }
-}
+mod tests;

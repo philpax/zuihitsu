@@ -12,7 +12,7 @@
 //! which is exactly the "a knob that didn't exist at this agent's genesis adopts the build default"
 //! behavior the configuration design calls for (spec §Initialization → configuration). This is a
 //! grouped, typed struct, deliberately not a per-context policy language: per-context variation, if
-//! ever wanted, belongs in the agent's reasoning over the `context/*` memory, not here.
+//! ever wanted, belongs in the agent's reasoning over the [`Namespace::Context`] memory, not here.
 
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +33,7 @@ const MINUTE: i64 = crate::time::SECONDS_PER_MINUTE;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Settings {
     pub compaction: CompactionSettings,
+    pub checkpoint: CheckpointSettings,
     pub brief: BriefSettings,
     pub turn: TurnSettings,
     pub search: SearchSettings,
@@ -61,6 +62,26 @@ pub struct CompactionSettings {
     /// there is working state worth flushing (spec §Compaction → pre-compaction flush).
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub flush_min_turns: i64,
+}
+
+/// The mid-session checkpoint flush (spec §Compaction → checkpoint flush): a flush turn run while the
+/// session stays open, so a parallel conversation can read this one's working state before it goes
+/// idle. Gated three ways — substance, cooldown, and audience — so the model call is paid only when
+/// there is an unflushed delta worth writing and another live conversation to read it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct CheckpointSettings {
+    /// Whether the checkpoint sweeper runs at all.
+    pub enabled: bool,
+    /// Minimum unflushed delta, in characters of participant and agent turns past the session's flush
+    /// watermark, for a checkpoint to fire — the substance gate.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub min_delta_chars: i64,
+    /// Minimum seconds since the session's last flush turn (or its start, if it has never flushed)
+    /// before another checkpoint may run — the cooldown gate.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub cooldown_seconds: i64,
 }
 
 /// The fraction of the model's context window the compaction budget defaults to — the headroom left
@@ -219,6 +240,16 @@ impl Default for CompactionSettings {
     }
 }
 
+impl Default for CheckpointSettings {
+    fn default() -> Self {
+        CheckpointSettings {
+            enabled: true,
+            min_delta_chars: 2_000,
+            cooldown_seconds: 5 * MINUTE,
+        }
+    }
+}
+
 impl Default for BriefSettings {
     fn default() -> Self {
         BriefSettings {
@@ -316,8 +347,8 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureLevel, ConcurrencySettings, ObservabilitySettings, SchedulerSettings, Settings,
-        TurnSettings,
+        CaptureLevel, CheckpointSettings, ConcurrencySettings, ObservabilitySettings,
+        SchedulerSettings, Settings, TurnSettings,
     };
 
     #[test]
@@ -374,5 +405,9 @@ mod tests {
             settings.observability.capture_model_calls,
             CaptureLevel::Full
         );
+        // The checkpoint group postdates many logged snapshots; its absence must default with the
+        // sweeper enabled.
+        assert_eq!(settings.checkpoint, CheckpointSettings::default());
+        assert!(settings.checkpoint.enabled);
     }
 }

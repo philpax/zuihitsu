@@ -4,7 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use super::{Instance, InstanceError, RoutedTurn};
 use crate::{
@@ -16,16 +19,17 @@ use crate::{
         templates,
     },
     event::{
-        Event, EventPayload, EventSource, ModelPhase, PromptTemplateName, RequestRecord, Teller,
-        TerminalCause,
+        Event, EventPayload, EventSource, LinkSource, MergeProposalSource, ModelPhase,
+        PromptTemplateName, RequestRecord, Teller, TerminalCause,
     },
     graph::{EntryView, MemoryView, SessionView},
-    ids::{ConversationId, ConversationLocator, MemoryName, Seq, TurnId},
+    ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Seq, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
     metrics::{set_graph_counts, set_head_seq, set_lag, set_mcp, set_sessions_active},
     model::{Completion, ModelClient, Usage},
     settings::Settings,
     time::Timestamp,
+    vocabulary::RelationName,
 };
 
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
@@ -40,6 +44,22 @@ pub struct Control<'a> {
 pub struct Arbitration {
     pub memory: MemoryName,
     pub statement: String,
+}
+
+/// One cross-platform merge proposal still awaiting the operator (spec §Cross-platform identity →
+/// adjudicated merge): the two stubs, who raised it, and whether the adjudicator has already weighed and
+/// refused it. A proposal the adjudicator (or an operator) has *accepted* — the two stubs now share a
+/// `same_as` class — drops off; every other proposal stays, so the "left for the operator" path is
+/// visible here rather than silently dropped. The operator's backstop for merges the evidence did not
+/// (yet) justify, including the orchestration-raised ones from a bare handle match.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MergeProposal {
+    pub from: MemoryName,
+    pub to: MemoryName,
+    pub source: MergeProposalSource,
+    /// `true` once the adjudicator has weighed the pair and refused the merge; `false` while it is still
+    /// unweighed (or the adjudicator could not reach a verdict). Either way the operator can act on it.
+    pub refused: bool,
 }
 
 /// One recorded model interaction — the console's view of a single model call (spec
@@ -259,11 +279,10 @@ impl Control<'_> {
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
-        // Baseline the describer cursor past genesis: the seeded `self` has no synthesized description
-        // yet, and nothing should try to regenerate it until real content is written (it would have no
-        // public entries, and a synchronous caller — a scripted test or the open-time forcing guard —
-        // must not block on it). The same baseline `boot` performs, here for the born-without-boot path.
-        self.server.baseline_describer_cursor()?;
+        // Baseline the adjudicator and link-inference cursors past genesis so a synchronous caller does
+        // not re-run those passes over the seeded state. The describer needs no baseline call: the
+        // `GenesisCompleted` handler already marked the seeded `self` described in the graph
+        // materialization above, so the first describe pass over it regenerates nothing.
         self.server.baseline_adjudicator_cursor()?;
         self.server.baseline_link_inference_cursor()?;
         Ok(outcome)
@@ -327,6 +346,112 @@ impl Control<'_> {
         Ok(out)
     }
 
+    /// The cross-platform merge proposals still awaiting the operator, in first-proposal order (spec
+    /// §Cross-platform identity → adjudicated merge). A proposal whose two stubs now share a `same_as`
+    /// class has been merged (by the adjudicator or an operator) and drops off; every other proposal —
+    /// unweighed, or weighed and refused — stays, so the operator's backstop never silently loses one.
+    /// `MergeProposed`/`MergeAdjudicated` are log-only, so this reads them from the log and resolves the
+    /// current class membership from the graph.
+    pub fn merge_proposals(&self) -> Result<Vec<MergeProposal>, InstanceError> {
+        let events = self.server.engine.store.lock().read_from(Seq::ZERO)?;
+        // Track each pair by its canonical key (`same_as` is symmetric) for settlement matching, but
+        // keep the original `(from, to)` order of the first proposal for a stable display direction.
+        let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
+        let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
+        let mut refused: BTreeSet<(MemoryId, MemoryId)> = BTreeSet::new();
+        for event in events {
+            match event.payload {
+                EventPayload::MergeProposed {
+                    from,
+                    to,
+                    source: raised_by,
+                    ..
+                } => {
+                    let pair = canonical_pair(from, to);
+                    if source.insert(pair, raised_by).is_none() {
+                        order.push((from, to));
+                    }
+                }
+                EventPayload::MergeAdjudicated {
+                    from, to, accepted, ..
+                } => {
+                    let pair = canonical_pair(from, to);
+                    // The latest verdict wins: an accept clears a prior refusal, a refusal marks it.
+                    if accepted {
+                        refused.remove(&pair);
+                    } else {
+                        refused.insert(pair);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let graph = self.server.engine.graph.lock();
+        let mut out = Vec::new();
+        for (from, to) in order {
+            // A pair now in one class has been merged — nothing left for the operator to decide.
+            let from_class = graph.class_id(from)?;
+            if from_class.is_some() && from_class == graph.class_id(to)? {
+                continue;
+            }
+            let name = |id| -> Result<MemoryName, InstanceError> {
+                Ok(graph
+                    .memory_by_id(id)?
+                    .map(|memory| memory.name)
+                    .unwrap_or_else(|| MemoryName::new("<unknown>")))
+            };
+            let pair = canonical_pair(from, to);
+            out.push(MergeProposal {
+                from: name(from)?,
+                to: name(to)?,
+                source: source[&pair],
+                refused: refused.contains(&pair),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Resolve a pending cross-platform merge proposal as the operator would from the console (spec
+    /// §Cross-platform identity → operator-asserted merge). On `accept`, author the merging `same_as`
+    /// link directly (`LinkSource::Operator`) — the console-only path to a merge that does not run
+    /// through the adjudicator, the same operator authority that lets the console assert identity the
+    /// agent's own `mem:link("same_as")` may not. On refusal, record a `MergeAdjudicated` decline (no
+    /// `produced_by` — the operator decided, not a model) so the proposal reads as settled and the
+    /// adjudicator does not weigh it again. Either way the graph is re-materialized so a subsequent read
+    /// reflects the decision.
+    pub fn resolve_merge(
+        &self,
+        from: MemoryId,
+        to: MemoryId,
+        accept: bool,
+    ) -> Result<(), InstanceError> {
+        let now = self.server.engine.clock.now();
+        let event = if accept {
+            EventPayload::LinkCreated {
+                from,
+                to,
+                relation: RelationName::SameAs,
+                source: LinkSource::Operator,
+                // No teller behind it: the operator authored this from the console, not a participant.
+                told_by: None,
+            }
+        } else {
+            EventPayload::MergeAdjudicated {
+                from,
+                to,
+                accepted: false,
+                rationale: "declined by the operator".to_owned(),
+                produced_by: None,
+            }
+        };
+        self.server.engine.store.lock().append(now, vec![event])?;
+        // Graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(())
+    }
+
     /// The model interactions recorded on the log, oldest first — each call's request (delta-encoded),
     /// deliberation, token usage, and latency. The console's deliberation surface and the answer to
     /// "where did the turn's time go" (spec §Observability); `ModelCalled` is log-only, so this reads
@@ -369,8 +494,7 @@ impl Control<'_> {
     }
 
     /// The whole event log, oldest first — the raw record everything else is derived from (spec
-    /// §Observability → the Events view). The eval harness embeds this per run, and the console
-    /// reconstructs its views from it.
+    /// §Observability → the Events view). The console reconstructs its views from it.
     pub fn events(&self) -> Result<Vec<Event>, InstanceError> {
         self.events_from(Seq::ZERO)
     }
@@ -418,9 +542,8 @@ impl Control<'_> {
             graph.all_tags()?.len(),
             graph.all_relations()?.len(),
         );
-        let describer_lag = head
-            .0
-            .saturating_sub(self.server.describer_cursor_value().0);
+        // Read through the graph guard already held above — the graph lock is not reentrant.
+        let describer_backlog = graph.stale_memory_count()?;
         let adjudicator_lag = head
             .0
             .saturating_sub(self.server.adjudicator_cursor_value().0);
@@ -432,7 +555,7 @@ impl Control<'_> {
                 .map(|cursor| head.0.saturating_sub(cursor.0))
                 .unwrap_or(head.0)
         });
-        set_lag(indexer_lag, describer_lag, adjudicator_lag);
+        set_lag(indexer_lag, describer_backlog, adjudicator_lag);
         let (servers_up, tools_total) = self
             .server
             .mcp
@@ -474,9 +597,9 @@ impl Control<'_> {
         }
     }
 
-    /// Append raw events to the store and materialize the graph, for scenarios that set up
+    /// Append raw events to the store and materialize the graph, for callers that set up
     /// deterministic state directly rather than driving the agent through a conversation. The events
-    /// are appended as-is (the caller constructs them), so a scenario controls exactly what state
+    /// are appended as-is (the caller constructs them), so the caller controls exactly what state
     /// exists — no agent or Lua in the loop. The clock advances to the store head afterward, so a
     /// subsequent catch-up pass sees the seeded state.
     pub fn seed_events(&self, events: Vec<EventPayload>) -> Result<(), InstanceError> {
@@ -487,4 +610,10 @@ impl Control<'_> {
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(())
     }
+}
+
+/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
+/// adjudication key on the same canonical pair regardless of which stub each named first.
+fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {
+    if from <= to { (from, to) } else { (to, from) }
 }

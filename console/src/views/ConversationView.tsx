@@ -1,10 +1,18 @@
-import { createContext, useContext, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import {
+  type ComponentProps,
+  type RefObject,
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
 import type { Message } from "../types/Message.ts";
-import type { Replica } from "../lib/replica.ts";
+import { type Replica, normalizeTurnRefs } from "../lib/replica.ts";
 import type { LiveConnection } from "../lib/live.ts";
 import type { ConversationLocator } from "../types/ConversationLocator.ts";
 import { completionSummary, nameById, terminalCauseLabel } from "../lib/labels.ts";
@@ -37,6 +45,11 @@ import { Composer } from "../components/Composer.tsx";
 import { Docked } from "../components/dock.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 import { TurnMarkdown } from "../components/TurnMarkdown.tsx";
+import { RefText } from "../components/TurnRefs.tsx";
+import { type TurnRefTarget, TurnRefs } from "../lib/turnRefs.ts";
+import { useStreamBase } from "../lib/useStreamLocation.ts";
+import { statePath } from "../lib/routes.ts";
+import type { Brief } from "../types/Brief.ts";
 
 /// The participate capability the agent frame hands the Conversation view (absent in the eval frame,
 /// which is a finished log and so read-only). `atHead` is whether the timeline cursor follows the
@@ -118,14 +131,49 @@ export function ConversationView({
     ...(operatorPlaceholder ? [operatorPlaceholder] : []),
   ];
   const groups = groupChannels(all);
+
+  // Every folded turn by id, for the reference chips: the moment, the room that holds it, and up to
+  // two neighbors either side for the hover preview. Built from the cursor-filtered conversations,
+  // so an id past the timeline cursor reads as unknown — matching the deep-link semantics.
+  const refTargets = new Map<string, TurnRefTarget>();
+  for (const conversation of conversations) {
+    const roomKey = channelKey(conversation.platform, conversation.scopePath);
+    conversation.turns.forEach((turn, index) => {
+      refTargets.set(turn.turnId, {
+        turn,
+        roomKey,
+        window: conversation.turns.slice(Math.max(0, index - 2), index + 3),
+        focusIndex: Math.min(index, 2),
+      });
+    });
+  }
+
+  // A deep link to a moment (`?turn=<id>`, minted by a turn's timestamp anchor) resolves to the
+  // room that holds the turn — the console folds the whole log, so the turn's position is found
+  // client-side. An explicit `?room` still wins (the linked room only stands in for a missing one),
+  // and an id no folded conversation holds — unknown, or past the timeline cursor — leaves
+  // `linkedChannel` null, which the transcript surfaces as a quiet notice rather than a crash.
+  const linkedTurnId = searchParams.get("turn");
+  const linkedChannel = linkedTurnId
+    ? (known.find((channel) =>
+        channel.conversation?.turns.some((turn) => turn.turnId === linkedTurnId),
+      ) ?? null)
+    : null;
   const selected =
-    all.find((channel) => channel.key === selectedKey) ?? pending ?? groups[0]?.channels[0] ?? null;
+    all.find((channel) => channel.key === selectedKey) ??
+    linkedChannel ??
+    pending ??
+    groups[0]?.channels[0] ??
+    null;
 
   function selectRoom(key: string) {
     setSearchParams(
       (prev) => {
         const updated = new URLSearchParams(prev);
         updated.set("room", key);
+        // Choosing a room is a navigation act of its own — the turn link has done its job, so it
+        // does not follow along to highlight a moment in a room it never pointed at.
+        updated.delete("turn");
         return updated;
       },
       { replace: true },
@@ -144,82 +192,90 @@ export function ConversationView({
   return (
     <ModelCalls.Provider value={modelCalls}>
       <Names.Provider value={names}>
-        {/* The sidebar-and-transcript grid; the docked composer below mirrors it, so keep the two
-            template strings in step. */}
-        <div className="grid grid-cols-1 gap-1 md:grid-cols-[12rem_1fr] md:gap-8">
-          <div className="md:sticky md:top-4 md:self-start">
-            <aside className="hidden flex-col gap-4 md:flex">
-              {participate && (
-                <RoomControls
-                  sender={participate.sender}
-                  onSenderChange={participate.setSender}
-                  draftRoom={draftRoom}
-                  onDraftRoomChange={setDraftRoom}
-                  onCreateRoom={startRoom}
-                  personHandles={personHandles}
-                />
-              )}
+        <TurnRefs.Provider value={refTargets}>
+          {/* The transcript-and-rooms grid — the room list sits to the right, so the horizontal read
+            is content first, navigation second (and the eval frame's scenario rail keeps the left
+            edge to itself). The docked composer below mirrors it, so keep the two template strings
+            in step. On mobile the DOM order stands (dropdown above the transcript); md moves the
+            list to the second column via order. */}
+          <div className="grid grid-cols-1 gap-1 md:grid-cols-[1fr_12rem] md:gap-8">
+            <div className="md:sticky md:top-4 md:order-last md:self-start">
+              <aside className="hidden flex-col gap-4 md:flex">
+                {participate && (
+                  <RoomControls
+                    sender={participate.sender}
+                    onSenderChange={participate.setSender}
+                    draftRoom={draftRoom}
+                    onDraftRoomChange={setDraftRoom}
+                    onCreateRoom={startRoom}
+                    personHandles={personHandles}
+                  />
+                )}
 
-              {groups.length === 0 ? (
-                <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
-              ) : (
-                <div className="flex flex-col gap-4 border-t border-line pt-4">
-                  {groups.map((group) => (
-                    <div key={group.key} className="flex flex-col gap-1.5">
-                      <Eyebrow>{group.key}</Eyebrow>
-                      <nav className="flex flex-col gap-0.5">
-                        {group.channels.map((channel) => (
-                          <ChannelLink
-                            key={channel.key}
-                            channel={channel}
-                            active={channel.key === selected?.key}
-                            onSelect={() => selectRoom(channel.key)}
-                          />
-                        ))}
-                      </nav>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </aside>
+                {groups.length === 0 ? (
+                  <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {groups.map((group) => (
+                      <div key={group.key} className="flex flex-col gap-1.5">
+                        <Eyebrow>{group.key}</Eyebrow>
+                        <nav className="flex flex-col gap-0.5">
+                          {group.channels.map((channel) => (
+                            <ChannelLink
+                              key={channel.key}
+                              channel={channel}
+                              active={channel.key === selected?.key}
+                              onSelect={() => selectRoom(channel.key)}
+                            />
+                          ))}
+                        </nav>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </aside>
 
-            {/* On mobile the list collapses to a dropdown and the identity-and-new-room controls
+              {/* On mobile the list collapses to a dropdown and the identity-and-new-room controls
                 fold behind a disclosure, so the transcript owns the screen. */}
-            <div className="flex flex-col gap-3 md:hidden">
-              <ChannelSelect
-                groups={groups}
-                selectedKey={selected?.key ?? null}
-                onSelect={selectRoom}
-              />
-              {participate && (
-                <MobileRoomControls
-                  sender={participate.sender}
-                  onSenderChange={participate.setSender}
-                  draftRoom={draftRoom}
-                  onDraftRoomChange={setDraftRoom}
-                  onCreateRoom={startRoom}
-                  personHandles={personHandles}
+              <div className="flex flex-col gap-3 md:hidden">
+                <ChannelSelect
+                  groups={groups}
+                  selectedKey={selected?.key ?? null}
+                  onSelect={selectRoom}
                 />
-              )}
+                {participate && (
+                  <MobileRoomControls
+                    sender={participate.sender}
+                    onSenderChange={participate.setSender}
+                    draftRoom={draftRoom}
+                    onDraftRoomChange={setDraftRoom}
+                    onCreateRoom={startRoom}
+                    personHandles={personHandles}
+                  />
+                )}
+              </div>
             </div>
-          </div>
 
-          {selected ? (
-            // Keyed by room, so per-room composer state (the in-flight optimistic turn) resets on a
-            // channel switch rather than leaking the last room's pending message into the next.
-            <Room
-              key={selected.key}
-              replica={replica}
-              cursor={cursor}
-              channel={selected}
-              participate={participate}
-            />
-          ) : (
-            <div className="py-16 text-center text-sm text-ink-faint">
-              {participate ? "Name a conversation to start one." : "No conversations in this run."}
-            </div>
-          )}
-        </div>
+            {selected ? (
+              // Keyed by room, so per-room composer state (the in-flight optimistic turn) resets on a
+              // channel switch rather than leaking the last room's pending message into the next.
+              <Room
+                key={selected.key}
+                replica={replica}
+                cursor={cursor}
+                channel={selected}
+                participate={participate}
+                unknownTurn={linkedTurnId !== null && linkedChannel === null ? linkedTurnId : null}
+              />
+            ) : (
+              <div className="py-16 text-center text-sm text-ink-faint">
+                {participate
+                  ? "Name a conversation to start one."
+                  : "No conversations in this run."}
+              </div>
+            )}
+          </div>
+        </TurnRefs.Provider>
       </Names.Provider>
     </ModelCalls.Provider>
   );
@@ -233,11 +289,14 @@ function Room({
   cursor,
   channel,
   participate,
+  unknownTurn,
 }: {
   replica: Replica;
   cursor: number;
   channel: Channel;
   participate?: Participation;
+  /// A `?turn` deep link whose id resolved to no folded turn — surfaced as a quiet notice.
+  unknownTurn?: string | null;
 }) {
   const isOperator = channel.authority === "operator";
   const handle = participate?.sender.trim() ?? "";
@@ -262,29 +321,50 @@ function Room({
   // never sits against a conversation that does not yet show what was said. `baseline` is the turn
   // count at send; once the conversation grows past it, the real turn has landed and this is dropped.
   const [optimistic, setOptimistic] = useState<{ text: string; baseline: number } | null>(null);
+  // A send whose wire outcome was `Deferred`: the message was delivered and recorded, but the
+  // agent's model was unreachable, so no reply is coming for it — a quiet state, not an error.
+  // `baseline` is the turn count at send; the marker clears once an agent turn lands past it (the
+  // catch-up turn covered the deferred inbound) or the next send replaces it.
+  const [deferred, setDeferred] = useState<{ baseline: number } | null>(null);
 
   async function onSend(text: string) {
     if (!participate) return;
-    setOptimistic({ text, baseline: channel.conversation?.turns.length ?? 0 });
+    // The connector contract: a console URL must never reach the agent. The console is a connector,
+    // so it converts any pasted turn deep-link into the canonical `[turn:<ulid>]` token here, before
+    // the POST — the single send path for both authorities below (participant message and operator
+    // imprint), so no console-originated message escapes normalization. The log, and every downstream
+    // consumer including the agent's token-only resolver, then sees only ref syntax. The optimistic
+    // echo shows the normalized text, matching the turn the live tail will fold in.
+    const message = normalizeTurnRefs(text);
+    const baseline = channel.conversation?.turns.length ?? 0;
+    setOptimistic({ text: message, baseline });
+    setDeferred(null);
     try {
-      if (isOperator) {
-        await imprint(participate.connection, text);
-      } else {
-        await sendMessage(participate.connection, {
-          locator: channel.locator,
-          sender: handle,
-          text,
-          present: [handle],
-        });
-      }
+      const outcome = isOperator
+        ? await imprint(participate.connection, message)
+        : await sendMessage(participate.connection, {
+            locator: channel.locator,
+            sender: handle,
+            text: message,
+            present: [handle],
+          });
+      if (outcome === "Deferred") setDeferred({ baseline });
     } catch (error) {
       setOptimistic(null); // the send failed — drop the optimistic turn (the composer restores the draft).
       throw error;
     }
   }
 
+  // The deferral is covered once the agent speaks again in this room: its next turn replayed the
+  // buffer, deferred inbounds included, so the marker would only restate what the reply shows.
+  const deferredCovered =
+    deferred !== null &&
+    (channel.conversation?.turns ?? [])
+      .slice(deferred.baseline)
+      .some((turn) => turn.role === "Agent");
+
   return (
-    <div className="flex w-full max-w-[46rem] flex-col">
+    <div className="flex w-full min-w-0 max-w-[46rem] flex-col">
       <header className="mb-4">
         <Eyebrow>
           {channel.label}
@@ -306,6 +386,8 @@ function Room({
         )}
       </header>
 
+      {unknownTurn && <UnknownTurnNotice />}
+
       {channel.conversation ? (
         <Transcript replica={replica} conversation={channel.conversation} cursor={cursor} />
       ) : (
@@ -323,16 +405,17 @@ function Room({
         />
       )}
 
+      {deferred !== null && !deferredCovered && <DeferredNotice />}
+
       {thinking && <ThinkingIndicator />}
 
       {/* The composer floats in the workspace's bottom dock, so you can start typing from anywhere
-          in the transcript. It mirrors the view's sidebar grid so the writing line sits exactly
-          under the transcript column. */}
+          in the transcript. It mirrors the view's transcript-and-rooms grid so the writing line
+          sits exactly under the transcript column, with the spacer standing in for the room list. */}
       {participate && (
         <Docked>
-          <div className="pb-2.5 pt-2 md:grid md:grid-cols-[12rem_1fr] md:gap-8">
-            <div className="hidden md:block" />
-            <div className="w-full max-w-[46rem]">
+          <div className="pb-2.5 pt-2 md:grid md:grid-cols-[1fr_12rem] md:gap-8">
+            <div className="w-full min-w-0 max-w-[46rem]">
               {participate.atHead ? (
                 <Composer
                   onSend={onSend}
@@ -358,6 +441,35 @@ function Room({
           </div>
         </Docked>
       )}
+    </div>
+  );
+}
+
+/// A sent message was delivered and durably recorded, but the agent's model was unreachable, so
+/// the reply is deferred — a quiet state marker where the reply would land, not an error: the
+/// agent replays the buffer on its next turn and catches up then. Faint ink, no accent — the
+/// message is safe, and the header banner already carries the degraded-backend signal.
+function DeferredNotice() {
+  return (
+    <div className="mt-5 flex items-center gap-2 text-ink-faint">
+      <span className="inline-flex h-1.5 w-1.5 rounded-full border border-line-strong" />
+      <span className="font-mono text-2xs uppercase tracking-widest">
+        delivered — the agent will catch up when its model returns
+      </span>
+    </div>
+  );
+}
+
+/// A `?turn` deep link whose id no folded turn carries — unknown, mistyped, or a moment past the
+/// timeline cursor. A quiet inline notice in the deferred marker's register (faint ink, no accent),
+/// not an error: the transcript below is intact, only the pointer failed to land.
+function UnknownTurnNotice() {
+  return (
+    <div className="mb-4 flex items-center gap-2 text-ink-faint">
+      <span className="inline-flex h-1.5 w-1.5 rounded-full border border-line-strong" />
+      <span className="font-mono text-2xs uppercase tracking-widest">
+        that turn link points nowhere in view — an unknown id, or a moment past the timeline cursor
+      </span>
     </div>
   );
 }
@@ -406,11 +518,19 @@ function Transcript({
   // turns that arrive afterward — a live run streaming in — fade and slide in to signal the new state.
   const reduce = useReducedMotion();
   const [freshAfter] = useState(cursor);
+  // The room key each turn's timestamp anchor bakes into its URL, so the pasted link reopens
+  // this room before scrolling to the turn.
+  const roomKey = channelKey(conversation.platform, conversation.scopePath);
   if (conversation.sessions.length === 0) {
     return (
       <ol className="flex flex-col">
         {conversation.turns.map((turn) => (
-          <TurnItem key={turn.turnId} turn={turn} fresh={!reduce && turn.seq > freshAfter} />
+          <TurnItem
+            key={turn.turnId}
+            turn={turn}
+            fresh={!reduce && turn.seq > freshAfter}
+            roomKey={roomKey}
+          />
         ))}
       </ol>
     );
@@ -432,7 +552,12 @@ function Transcript({
             />
             <ol className="mt-2 flex flex-col">
               {turns.map((turn) => (
-                <TurnItem key={turn.turnId} turn={turn} fresh={!reduce && turn.seq > freshAfter} />
+                <TurnItem
+                  key={turn.turnId}
+                  turn={turn}
+                  fresh={!reduce && turn.seq > freshAfter}
+                  roomKey={roomKey}
+                />
               ))}
             </ol>
           </div>
@@ -801,10 +926,18 @@ function turnTokens(
   return { context, output };
 }
 
-function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
+function TurnItem({ turn, fresh, roomKey }: { turn: TurnModel; fresh: boolean; roomKey: string }) {
   const { bySeq, budget } = useContext(ModelCalls);
   const tokens = turnTokens(turn, bySeq);
   const towardCompaction = budget > 0 ? Math.round((tokens.context / budget) * 100) : null;
+  // The deep-linked turn (`?turn=<id>`) announces itself: scrolled into view once and washed in
+  // fading sage, so a pasted link lands the reader on the moment it points at.
+  const [searchParams] = useSearchParams();
+  const linked = searchParams.get("turn") === turn.turnId;
+  const itemRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (linked) itemRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [linked]);
   // A turn that streamed in after the view opened fades and lifts into place; the initial ones do not.
   const enter = fresh
     ? {
@@ -814,16 +947,41 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
       }
     : {};
   if (turn.role === "System") {
+    // A join carries a structured brief: draw the entrance as a labelled seam with a disclosure into
+    // the pretty-printed brief, rather than surfacing the raw markup `text`. A system turn without a
+    // brief (a wake-up surface) keeps the plain centered line.
+    if (turn.brief) {
+      return (
+        <JoinBriefTurn
+          turn={turn}
+          roomKey={roomKey}
+          linked={linked}
+          enter={enter}
+          itemRef={itemRef}
+        />
+      );
+    }
     return (
-      <motion.li className="py-3 text-center" {...enter}>
+      <motion.li
+        ref={itemRef}
+        className={"flex items-baseline justify-center gap-2 py-3" + linkedClass(linked)}
+        {...enter}
+      >
         <span className="font-mono text-2xs text-ink-faint">{turn.text || "(system)"}</span>
+        {turn.recordedAt > 0 && (
+          <TurnTimeAnchor roomKey={roomKey} turnId={turn.turnId} recordedAt={turn.recordedAt} />
+        )}
       </motion.li>
     );
   }
 
   const isAgent = turn.role === "Agent";
   return (
-    <motion.li className="border-b border-line/70 py-4 last:border-b-0 sm:py-5" {...enter}>
+    <motion.li
+      ref={itemRef}
+      className={"border-b border-line/70 py-4 last:border-b-0 sm:py-5" + linkedClass(linked)}
+      {...enter}
+    >
       {turn.entrance && turn.speaker && (
         <LabeledDivider className="mb-4 text-ink-faint">
           <span>{turn.speaker} entered the room</span>
@@ -845,13 +1003,9 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
             <span className="font-mono text-2xs text-ink-faint">· unprompted</span>
           ))}
         {turn.recordedAt > 0 && (
-          <time
-            className="ml-auto shrink-0 font-mono text-2xs text-ink-faint"
-            dateTime={new Date(turn.recordedAt).toISOString()}
-            title={formatDateTime(turn.recordedAt)}
-          >
-            {formatTime(turn.recordedAt)}
-          </time>
+          <span className="ml-auto shrink-0">
+            <TurnTimeAnchor roomKey={roomKey} turnId={turn.turnId} recordedAt={turn.recordedAt} />
+          </span>
         )}
       </div>
       {/* Deliberation precedes the response — the agent thinks, then speaks. */}
@@ -870,7 +1024,7 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
               (turn.deliberation.length > 0 ? " mt-3" : "")
             }
           >
-            {turn.text}
+            <RefText text={turn.text} />
           </p>
         )
       ) : (
@@ -906,6 +1060,135 @@ function TurnItem({ turn, fresh }: { turn: TurnModel; fresh: boolean }) {
         </div>
       )}
     </motion.li>
+  );
+}
+
+/// A mid-session join, drawn as an entrance seam: a labelled rule whose centered label is a disclosure
+/// into the pretty-printed brief the joiner arrived with. Collapsed by default — the seam reads at a
+/// glance ("priya entered · join brief"), and the brief opens on demand. This replaces surfacing the
+/// raw brief markup the turn's `text` carries, which read as leakage of the composer's internal format.
+function JoinBriefTurn({
+  turn,
+  roomKey,
+  linked,
+  enter,
+  itemRef,
+}: {
+  turn: TurnModel;
+  roomKey: string;
+  linked: boolean;
+  enter: ComponentProps<typeof motion.li>;
+  itemRef: RefObject<HTMLLIElement | null>;
+}) {
+  const [open, setOpen] = useState(false);
+  const who = turn.speaker ?? turn.brief?.subject ?? "someone";
+  return (
+    <motion.li ref={itemRef} className={"py-3" + linkedClass(linked)} {...enter}>
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-line" />
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex items-baseline gap-2 font-mono text-2xs text-ink-faint transition-colors hover:text-ink"
+        >
+          <span aria-hidden className="inline-block w-3 shrink-0 text-center">
+            {open ? "▾" : "▸"}
+          </span>
+          <span>{who} entered</span>
+          <span className="text-ink-faint/70">· join brief</span>
+        </button>
+        {turn.recordedAt > 0 && (
+          <TurnTimeAnchor roomKey={roomKey} turnId={turn.turnId} recordedAt={turn.recordedAt} />
+        )}
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      {open && turn.brief && (
+        <div className="mx-auto mt-3 max-w-prose">
+          <JoinBriefBody brief={turn.brief} seq={turn.seq} />
+        </div>
+      )}
+    </motion.li>
+  );
+}
+
+/// The pretty-printed join brief, read straight from its structured parts (nothing is parsed back out
+/// of the markup): the summary as prose, the recent facts as a compact list with each fact's
+/// provenance/staleness markers set quietly beside it, and the relationships as `relation → name` with
+/// each name opening the memory in the State view at this moment in the timeline.
+function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
+  const base = useStreamBase();
+  const navigate = useNavigate();
+  return (
+    <div className="space-y-3 border-l-2 border-line pl-4 text-sm">
+      {brief.summary && <p className="leading-relaxed text-ink-soft">{brief.summary}</p>}
+      {brief.recent_facts.length > 0 && (
+        <ul className="space-y-1">
+          {brief.recent_facts.map((fact, index) => (
+            <li key={index} className="flex flex-wrap items-baseline gap-x-2 text-ink">
+              <span>{fact.text}</span>
+              {fact.markers.map((marker, markerIndex) => (
+                <span key={markerIndex} className="font-mono text-2xs text-ink-faint">
+                  {marker}
+                </span>
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
+      {brief.relationships.length > 0 && (
+        <ul className="space-y-1 font-mono text-xs text-ink-soft">
+          {brief.relationships.map((relationship, index) => (
+            <li key={index} className="flex items-baseline gap-2">
+              <span className="text-ink-faint">{relationship.relation}</span>
+              <span aria-hidden className="text-ink-faint">
+                →
+              </span>
+              <button
+                onClick={() => navigate(statePath(base, seq, relationship.subject))}
+                title={`Open ${relationship.subject} in State`}
+                className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+              >
+                {relationship.subject}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/// The fading arrival wash for the deep-linked turn, as a class suffix (see `turn-arrival` in
+/// app.css) — appended so the wash rides whichever turn shape (system or spoken) the link lands on.
+function linkedClass(linked: boolean): string {
+  return linked ? " turn-linked" : "";
+}
+
+/// A turn's timestamp as its deep-link anchor: a real `<a>` whose href is this view's URL with the
+/// room and turn pinned (`?room=…&turn=<ulid>`), so the browser's own copy-link affordance carries
+/// the id the agent's `convo.turn` resolver reads, and a plain click lands on the moment with the
+/// arrival wash. The current params (the timeline cursor included) ride along, so the link
+/// reproduces this view of this moment in either frame (live or an eval run).
+function TurnTimeAnchor({
+  roomKey,
+  turnId,
+  recordedAt,
+}: {
+  roomKey: string;
+  turnId: string;
+  recordedAt: number;
+}) {
+  const [searchParams] = useSearchParams();
+  const params = new URLSearchParams(searchParams);
+  params.set("room", roomKey);
+  params.set("turn", turnId);
+  return (
+    <Link
+      to={{ search: params.toString() }}
+      title={`${formatDateTime(recordedAt)} — a link to this moment; copy the address to cite it`}
+      className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink"
+    >
+      <time dateTime={new Date(recordedAt).toISOString()}>{formatTime(recordedAt)}</time>
+    </Link>
   );
 }
 

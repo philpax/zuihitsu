@@ -3,11 +3,13 @@
 //! surface each exercises.
 
 mod arbitration;
+mod checkpoint;
 mod compaction;
 mod conversations;
 mod decay;
 mod description;
 mod identity;
+mod joins;
 mod merge;
 mod privacy;
 mod recall;
@@ -16,6 +18,9 @@ mod rename;
 mod reuse;
 mod scheduling;
 mod tagging;
+mod temporal;
+mod transcripts;
+mod write_honesty;
 
 use std::sync::Arc;
 
@@ -25,6 +30,7 @@ use crate::scenario::Scenario;
 pub fn all() -> Vec<Arc<dyn Scenario>> {
     [
         recall::scenarios(),
+        transcripts::scenarios(),
         reuse::scenarios(),
         tagging::scenarios(),
         relations::scenarios(),
@@ -33,11 +39,15 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         rename::scenarios(),
         decay::scenarios(),
         scheduling::scenarios(),
+        temporal::scenarios(),
         arbitration::scenarios(),
         privacy::scenarios(),
+        joins::scenarios(),
         description::scenarios(),
         compaction::scenarios(),
+        checkpoint::scenarios(),
         conversations::scenarios(),
+        write_honesty::scenarios(),
     ]
     .into_iter()
     .flatten()

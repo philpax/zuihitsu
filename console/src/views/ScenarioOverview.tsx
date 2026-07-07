@@ -88,8 +88,13 @@ function ScenarioRow({
   // Pending = not started and not active; running = driving, or part-way through its planned runs.
   const pending = completed === 0 && !active;
   const running = active || (completed > 0 && completed < runsPlanned);
-  const threshold = meta.bar.kind === "metric" ? meta.bar.threshold : null;
-  const held = meta.bar.kind === "gating" ? aggregate.gating_passed : aggregate.rate >= threshold!;
+  const threshold = meta.bar.kind === "gating" ? null : meta.bar.threshold;
+  const held =
+    meta.bar.kind === "gating"
+      ? meta.bar.min_rate >= 1
+        ? aggregate.gating_passed
+        : aggregate.gating_rate >= meta.bar.min_rate
+      : aggregate.rate >= threshold!;
   // Show per-run links once there is more than one run to pick between — completed runs, plus a run
   // driving live (which has no completed record yet).
   const showRuns = completed > 1 || (completed >= 1 && liveRun !== null);
@@ -184,11 +189,13 @@ function ScenarioRow({
             <div className="flex items-baseline gap-3 font-mono text-xs text-ink-faint">
               <span className={held ? "text-sage" : "text-clay"}>
                 {meta.bar.kind === "gating"
-                  ? aggregate.gating_passed
-                    ? running
-                      ? "gating · holding"
-                      : "gating · held"
-                    : "gating · regressed"
+                  ? meta.bar.min_rate < 1
+                    ? `gating ≥ ${formatRate(meta.bar.min_rate)}`
+                    : aggregate.gating_passed
+                      ? running
+                        ? "gating · holding"
+                        : "gating · held"
+                      : "gating · regressed"
                   : `metric ≥ ${formatRate(threshold!)}`}
               </span>
               <Dot />

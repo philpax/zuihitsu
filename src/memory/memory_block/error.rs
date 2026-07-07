@@ -68,7 +68,8 @@ impl std::fmt::Display for MemoryError {
         match self {
             MemoryError::NameExists(name) => write!(
                 f,
-                "a memory named {:?} already exists; fetch it with memory.get",
+                "a memory named {:?} already exists; fetch it with memory.get, or use \
+                 memory.get_or_create(name) when you are unsure whether it exists",
                 name.as_str()
             ),
             MemoryError::UnknownRelation(relation) => write!(
@@ -120,8 +121,8 @@ impl std::fmt::Display for MemoryError {
             ),
             MemoryError::BadCalendarArg(arg) => write!(
                 f,
-                "could not read the calendar argument {arg:?}; use a duration like \"7 days\" or a \
-                 date like \"2026-06-03\""
+                "could not read the calendar argument {arg:?}; use a duration like \"7 days\", \
+                 \"2 weeks\", or \"6 months\", or a date like \"2026-06-03\""
             ),
             MemoryError::UnsupportedRecurrence(rule) => write!(
                 f,

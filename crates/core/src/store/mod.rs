@@ -4,7 +4,11 @@
 //! §Storage). The in-memory backend (here) serves tests, the no-I/O path, and the wasm replica; the
 //! durable file-backed SQLite backend lives in the main crate, since it needs the host filesystem.
 //! Faithful replay falls out of this seam: read from `Seq::ZERO` and the events come back in the
-//! exact order they were committed.
+//! exact order they were committed. The system's behavior is therefore a pure function of the event
+//! log modulo declared nondeterminism (ULID minting, wall-clock stamps), and the in-memory backends
+//! (`MemoryStore` here, `Graph::open_in_memory`, `SqliteVectorIndex::open_in_memory`) exist so tests
+//! exercise exactly that function without touching the host filesystem; the file-backed backends stay
+//! for production and for the handful of tests that assert the persistence path itself.
 
 mod memory;
 

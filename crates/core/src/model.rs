@@ -106,13 +106,16 @@ pub struct ToolCall {
 
 /// How the model may use the available tools. `Auto` lets it choose between a tool call and a reply
 /// (the agent loop); `Required` forces it to call a tool, used to coerce structured output — e.g.
-/// description regeneration forces a single `describe` tool so the answer can't drift into prose.
+/// description regeneration forces a single `describe` tool so the answer can't drift into prose;
+/// `None` withdraws the tools so the model must answer in text, used on the agent loop's final step
+/// to force a reply out of gathered context rather than spend the last step on another tool call.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ToolChoice {
     #[default]
     Auto,
     Required,
+    None,
 }
 
 /// A single step's outcome: the model either calls tools or produces a final reply, never both in

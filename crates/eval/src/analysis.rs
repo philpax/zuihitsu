@@ -5,8 +5,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    EntryId, Event, EventPayload, Initiation, LinkSource, MemoryId, Teller, TemporalRef, TurnRole,
-    Visibility, Volatility,
+    BEFORE_AFTER_EPSILON_MILLIS, ConversationId, EntryId, Event, EventPayload, Initiation,
+    LinkSource, MemoryId, MemoryName, MergeProposalSource, Teller, TemporalRef, Timestamp, TurnId,
+    TurnRole, Visibility, Volatility,
 };
 
 /// One durable content entry, projected from a `MemoryContentAppended` for assessment: which memory it
@@ -45,6 +46,54 @@ pub fn last_agent_reply(events: &[Event]) -> Option<&str> {
     agent_replies(events).into_iter().last()
 }
 
+/// Every responding agent reply paired with the `turn_id` its `run_lua` blocks share and the inbound
+/// participant turn it answers — the most recent `Participant` turn preceding it in the stream. A
+/// block commits (and records its `LuaExecuted`) before the agent's reply turn, both stamped with the
+/// same `turn_id`, so this ties a reply's claim to whether that same turn actually committed a write
+/// (see [`turn_committed_write`]), while the inbound lets an oracle condition on what was *asked* (a
+/// turn requesting a durable write versus small talk). A reply with no preceding participant turn
+/// (unusual) pairs with an empty inbound.
+pub fn agent_replies_with_inbound(events: &[Event]) -> Vec<(TurnId, &str, &str)> {
+    let mut inbound = "";
+    let mut replies = Vec::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Participant,
+                text,
+                ..
+            } => inbound = text.as_str(),
+            EventPayload::ConversationTurn {
+                turn_id,
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } => replies.push((*turn_id, inbound, text.as_str())),
+            _ => {}
+        }
+    }
+    replies
+}
+
+/// Whether any block belonging to `turn_id` committed a durable write — a `LuaExecuted` for that turn
+/// whose `result` carries the `Committed:` summary the runtime folds in only when the block's buffer
+/// actually landed events. Two outcomes read as `false`, and both are the honest signal that the turn's
+/// reply may not claim a write: a block that crashed or aborted (its `terminal_cause` set and `result`
+/// `None`, its writes rolled back with it), and one that ran clean but wrote nothing (a `result`
+/// present with no `Committed:` line — a revise loop that matched nothing, or a read-only block). A turn
+/// that never reached a committing block at all (a max-steps death) has no such `LuaExecuted` either, so
+/// it too reads as `false`.
+pub fn turn_committed_write(events: &[Event], turn_id: TurnId) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LuaExecuted { turn_id: id, result: Some(result), .. }
+            if *id == turn_id && result.contains("Committed:")
+        )
+    })
+}
+
 /// Every Lua block the agent executed, in order.
 pub fn lua_scripts(events: &[Event]) -> Vec<&str> {
     events
@@ -81,34 +130,76 @@ pub fn link_created_with(events: &[Event], relation: &str) -> bool {
     })
 }
 
-/// Whether a relation type named `name` was registered — the structural signal that the link-inference
-/// pass (or the agent) introduced a new typed edge into the registry.
-pub fn link_type_registered(events: &[Event], name: &str) -> bool {
-    events.iter().any(|event| {
-        matches!(&event.payload, EventPayload::LinkTypeRegistered { name: registered, .. } if registered.as_str() == name)
-    })
-}
-
-/// Whether an inferred link of the relation named `relation` was created — the structural signal that
-/// the link-inference pass extracted a relationship from content and asserted it as a link (source is
-/// `Inferred`), distinct from a link the agent or an operator created explicitly.
-pub fn link_inferred_between(events: &[Event], relation: &str) -> bool {
+/// Whether a link of relation `relation` was created directed from `from` to `to`, regardless of its
+/// source — the structural signal that the agent (or a pass) recorded *this specific* typed edge on
+/// the right endpoints and the right way round. Unlike [`link_inferred_directed`], it accepts any
+/// [`LinkSource`], so it recognizes an agent-authored `mem:link` as well as an inferred edge. A caller
+/// with a coined relation whose direction is label-dependent (the agent may register `mentors` and
+/// link `dave → erin`, or register `mentored_by` and link `erin → dave`) checks each direction-and-label
+/// candidate, so a reversed edge or a wrong pair still fails.
+pub fn link_directed(events: &[Event], from: MemoryId, to: MemoryId, relation: &str) -> bool {
     events.iter().any(|event| {
         matches!(
             &event.payload,
-            EventPayload::LinkCreated { relation: created, source: LinkSource::Inferred, .. }
-            if created.as_str() == relation
+            EventPayload::LinkCreated { from: created_from, to: created_to, relation: created, .. }
+            if *created_from == from && *created_to == to && created.as_str() == relation
         )
     })
 }
 
-/// Whether any executed block reached for a link reader — `mem:outgoing`, `mem:incoming`, or
-/// `mem:links` — the structural signal that the agent traversed the relationship graph to answer,
-/// rather than reconstructing the connections from prose. (`links` here is the `:links()` reader; the
-/// `links.*` registry calls are `links.list`/`get`/`register`, which `script_calls` does not match on
-/// the bare `links(`.)
+/// Whether an inferred link of relation `relation` was created directed from `from` to `to` — the
+/// structural signal that the link-inference pass extracted *this specific* relationship from content
+/// (source is `Inferred`), on the right endpoints and the right way round. A caller with two
+/// direction-equivalent candidates (`a mentored_by b` versus `b mentor_of a`) checks each, so a
+/// semantically-equivalent coinage passes while a wrong relation, a wrong pair, or a reversed edge does
+/// not.
+pub fn link_inferred_directed(
+    events: &[Event],
+    from: MemoryId,
+    to: MemoryId,
+    relation: &str,
+) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkCreated {
+                from: created_from,
+                to: created_to,
+                relation: created,
+                source: LinkSource::Inferred,
+                ..
+            }
+            if *created_from == from && *created_to == to && created.as_str() == relation
+        )
+    })
+}
+
+/// Whether a relation type was registered under `name`, as either its forward name or its inverse — the
+/// structural signal that the link-inference pass introduced this typed edge into the registry.
+/// Registering a relation defines both its name and its inverse in one event (`mentored_by` with inverse
+/// `mentor_of`, or the reverse), so the same relation is reachable under either name; matching on both
+/// lets a caller name one direction and still recognize the pair coined the other way round.
+pub fn relation_registered(events: &[Event], name: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkTypeRegistered { name: registered, inverse, .. }
+            if registered.as_str() == name || inverse.as_str() == name
+        )
+    })
+}
+
+/// Whether any executed block read recorded links back — a link reader (`mem:outgoing`,
+/// `mem:incoming`, or `mem:links`) or the whole-record `mem:details`, whose render includes the
+/// links line with directions — the structural signal that the agent consulted the relationship
+/// graph to answer, rather than reconstructing the connections from prose. (`links` here is the
+/// `:links()` reader; the `links.*` registry calls are `links.list`/`get`/`register`, which
+/// `script_calls` does not match on the bare `links(`.)
 pub fn link_reader_called(events: &[Event]) -> bool {
-    lua_called(events, "outgoing") || lua_called(events, "incoming") || lua_called(events, "links")
+    lua_called(events, "outgoing")
+        || lua_called(events, "incoming")
+        || lua_called(events, "links")
+        || lua_called(events, "details")
 }
 
 /// Whether the agent renamed a memory's handle (a `MemoryRenamed`) — the structural signal that it
@@ -126,6 +217,67 @@ pub fn merge_proposed(events: &[Event]) -> bool {
     events
         .iter()
         .any(|event| matches!(&event.payload, EventPayload::MergeProposed { .. }))
+}
+
+/// Whether the agent proposed a cross-platform merge *and stated its grounds* — a `MergeProposed`
+/// carrying a non-empty rationale, the coincidence the agent reasoned from, which the adjudicator reads
+/// as the proposer's claim and weighs against the recorded facts. Stricter than [`merge_proposed`],
+/// which counts a bare proposal too: this asserts the agent said *why*.
+pub fn merge_proposed_with_rationale(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::MergeProposed { rationale: Some(rationale), .. } if !rationale.trim().is_empty()
+        )
+    })
+}
+
+/// The agent's responding replies recorded after the first cross-platform merge was proposed and before
+/// the first adjudication settled it — the window in which the two stubs are proposed-but-not-yet-merged.
+/// A reply here that already treats the two as one person is premature merged awareness: the gate exists
+/// precisely so nothing crosses the would-be merge until an adjudication (or the operator) accepts it. An
+/// initiated turn (a flush, a wake-up) is not a reply, so only `Responding` turns count. Empty when no
+/// merge was proposed (nothing to check), and open-ended when a proposal was never adjudicated.
+pub fn replies_between_proposal_and_adjudication(events: &[Event]) -> Vec<&str> {
+    let Some(proposed_at) = events.iter().find_map(|event| {
+        matches!(&event.payload, EventPayload::MergeProposed { .. }).then_some(event.seq)
+    }) else {
+        return Vec::new();
+    };
+    let adjudicated_at = events.iter().find_map(|event| {
+        matches!(&event.payload, EventPayload::MergeAdjudicated { .. }).then_some(event.seq)
+    });
+    events
+        .iter()
+        .filter(|event| match adjudicated_at {
+            Some(settled) => event.seq > proposed_at && event.seq < settled,
+            None => event.seq > proposed_at,
+        })
+        .filter_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether the identity-resolution orchestration proposed a merge (a `MergeProposed` sourced
+/// `Orchestration`) — the signal that a platform arrival's handle matched an existing but
+/// platform-unbound stub, raising a candidate reunion for the operator rather than asserting identity.
+pub fn orchestration_merge_proposed(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::MergeProposed {
+                source: MergeProposalSource::Orchestration,
+                ..
+            }
+        )
+    })
 }
 
 /// Whether the run actually merged two stubs: an adjudication accepted *and* authored the `same_as`
@@ -155,6 +307,41 @@ pub fn volatility_set_high(events: &[Event]) -> bool {
     })
 }
 
+/// The durable conversation opened for `platform`/`scope`, if the run reached that room — so a
+/// multi-room scenario can scope a query to one room's events.
+pub fn conversation_id(events: &[Event], platform: &str, scope: &str) -> Option<ConversationId> {
+    events.iter().find_map(|event| match &event.payload {
+        EventPayload::ConversationStarted { id, locator, .. }
+            if locator.platform.as_str() == platform && locator.scope_path.as_str() == scope =>
+        {
+            Some(*id)
+        }
+        _ => None,
+    })
+}
+
+/// Every agent reply to a participant within one room (located by `platform`/`scope`), in order —
+/// the per-room slice of [`agent_replies`], so a two-room scenario can probe each room's exposed
+/// surface separately.
+pub fn agent_replies_in<'a>(events: &'a [Event], platform: &str, scope: &str) -> Vec<&'a str> {
+    let Some(conversation) = conversation_id(events, platform, scope) else {
+        return Vec::new();
+    };
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                conversation: turn_conversation,
+                role: TurnRole::Agent,
+                initiation: Initiation::Responding,
+                text,
+                ..
+            } if *turn_conversation == conversation => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// How many sessions opened in the run — one more than the number of cuts (compaction or idle
 /// re-segmentation), so `session_count - 1` counts the seams the carryover crossed.
 pub fn session_count(events: &[Event]) -> usize {
@@ -170,6 +357,16 @@ pub fn scheduled_item_surfaced(events: &[Event]) -> bool {
     events
         .iter()
         .any(|event| matches!(&event.payload, EventPayload::ScheduledItemSurfaced { .. }))
+}
+
+/// The id of the memory created under the exact handle `name`, if the run created one — so an oracle
+/// that needs a specific memory's endpoints can resolve it from the log rather than threading run-time
+/// ids into the assessment.
+pub fn memory_id_named(events: &[Event], name: &str) -> Option<MemoryId> {
+    events.iter().find_map(|event| match &event.payload {
+        EventPayload::MemoryCreated { id, name: created } if created.as_str() == name => Some(*id),
+        _ => None,
+    })
 }
 
 /// The id → name map of every memory created in the run.
@@ -329,6 +526,95 @@ pub fn has_recurring_occurrence(events: &[Event]) -> bool {
             }
         )
     })
+}
+
+/// One content entry's full temporal picture: its `MemoryContentAppended` (the text, the memory it
+/// landed on, and when it was asserted, plus any occurrence stamped *at append* — the authored slot)
+/// joined with any later `EntryTemporalResolved` (the occurrence the turn-end extraction pass resolved
+/// — the extracted slot). The two slots let an oracle tell an authored date from an extracted one on the
+/// same entry: the distinction the search-hit and neighborhood-line projections lean on when they prefer
+/// authored over extracted, and the one a temporal-honesty oracle checks for a fabricated resolution.
+pub struct EntryOccurrence {
+    pub memory: String,
+    pub text: String,
+    pub asserted_at: Timestamp,
+    /// The occurrence the agent stamped at append time; `None` when it wrote the entry untimed.
+    pub authored: Option<TemporalRef>,
+    /// The occurrence the turn-end extraction pass resolved later; `None` when it left the entry
+    /// unextracted (or could not parse the model's string).
+    pub extracted: Option<TemporalRef>,
+}
+
+/// Every content entry's temporal picture, in append order — each `MemoryContentAppended` joined with
+/// any later `EntryTemporalResolved` on the same entry (see [`EntryOccurrence`]).
+pub fn entry_occurrences(events: &[Event]) -> Vec<EntryOccurrence> {
+    let names = memory_names(events);
+    let mut occurrences: Vec<EntryOccurrence> = Vec::new();
+    let mut index: BTreeMap<EntryId, usize> = BTreeMap::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::MemoryContentAppended {
+                id,
+                entry_id,
+                asserted_at,
+                occurred_at,
+                text,
+                ..
+            } => {
+                index.insert(*entry_id, occurrences.len());
+                occurrences.push(EntryOccurrence {
+                    memory: names.get(id).cloned().unwrap_or_default(),
+                    text: text.clone(),
+                    asserted_at: *asserted_at,
+                    authored: occurred_at.clone(),
+                    extracted: None,
+                });
+            }
+            EventPayload::EntryTemporalResolved {
+                entry_id,
+                occurred_at,
+                ..
+            } => {
+                if let Some(&position) = index.get(entry_id) {
+                    occurrences[position].extracted = Some(occurred_at.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    occurrences
+}
+
+/// Whether a temporal reference pins a fixed instant — an `Instant`, `Day`, `Range`, or `Approx`, all of
+/// which denormalize to a representative sort instant. A `BeforeAfter` (relative to another memory) and a
+/// `Recurring` rule have no fixed instant of their own, so they read as *not* concrete — which is the
+/// honest-anchoring outcome for a phrase that names another event rather than the speaker's now. The
+/// anchor is resolved with `None`, so a `BeforeAfter` stays instant-less here rather than borrowing one.
+pub fn resolves_to_instant(occurred_at: &TemporalRef) -> bool {
+    occurred_at
+        .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
+        .sort
+        .is_some()
+}
+
+/// Whether a temporal reference resolves to a concrete instant within `window_ms` of `anchor_ms` — the
+/// structural signal of a clock-anchored resolution when `anchor_ms` is the conversation's own now. A
+/// `BeforeAfter` or `Recurring` reference has no fixed instant (see [`resolves_to_instant`]), so it is
+/// never "near" anything: exactly the honest outcome an oracle wants to let pass.
+pub fn resolves_near(occurred_at: &TemporalRef, anchor_ms: i64, window_ms: i64) -> bool {
+    occurred_at
+        .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
+        .sort
+        .is_some_and(|sort| (sort.as_millis() - anchor_ms).abs() <= window_ms)
+}
+
+/// The anchor memory a `BeforeAfter` reference names, if `occurred_at` is one — the honest resolution for
+/// a phrase anchored to another event rather than to the speaker's now (spec §Time → the anchor rule).
+pub fn before_after_anchor(occurred_at: &TemporalRef) -> Option<&MemoryName> {
+    match occurred_at {
+        TemporalRef::BeforeAfter { anchor, .. } => Some(anchor),
+        _ => None,
+    }
 }
 
 /// A crude lexical leak backstop: the subject term co-occurring with any of `terms` in the text. A dumb

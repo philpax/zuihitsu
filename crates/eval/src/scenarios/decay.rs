@@ -10,7 +10,7 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
+    context::{MILLIS_PER_DAY, RunContext, Turn},
     error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
@@ -52,16 +52,15 @@ impl Scenario for AVolatileStatusGoesStale {
         ctx.turn(Turn::new(
             "discord",
             "team",
-            "phil",
+            "marcus",
             "One to keep track of: Dave's the lead on the Atlas project — that's the main thing he's \
              running on the team.",
         ))
         .await?;
-        ctx.describe_catch_up().await?;
-        ctx.index_catch_up().await?;
+        ctx.settle().await?;
 
         // Two months pass — well past the staleness horizon for a fast-changing fact.
-        ctx.advance(60 * 86_400_000);
+        ctx.advance(60 * MILLIS_PER_DAY);
 
         // A different person asks what Dave is working on, in a fresh room: recall surfaces the aged fact.
         ctx.turn(

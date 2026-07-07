@@ -1,7 +1,8 @@
-//! The background timer drivers: the wake-up scheduler, the graph snapshotter, and the idle-session
-//! sweeper. Each runs on a `tokio::select!` timer loop until a shutdown signal resolves. Unlike the
-//! cursor-resumed catch-up workers in [`super::workers`], these fire globally-due work, checkpoint
-//! the graph, and consolidate idle sessions.
+//! The background timer drivers: the wake-up scheduler, the graph snapshotter, the idle-session
+//! sweeper, and the checkpoint sweeper. Each runs on a `tokio::select!` timer loop until a shutdown
+//! signal resolves. Unlike the cursor-resumed catch-up workers in [`super::workers`], these fire
+//! globally-due work, checkpoint the graph, consolidate idle sessions, and flush live sessions'
+//! working state mid-session.
 
 use std::{
     future::Future,
@@ -10,9 +11,11 @@ use std::{
 };
 
 use crate::{
-    agent::buffer_turns,
+    agent::{Flush, TurnView, bounded_buffer_turns, flushed_up_to, run_flush},
+    event::TurnRole,
+    ids::ConversationId,
     memory::scheduler,
-    metrics::{observe_wakeups_fired, observe_worker_error},
+    metrics::{observe_flush_turn, observe_wakeups_fired, observe_worker_error},
     model::ModelClient,
     settings::Settings,
     snapshot,
@@ -136,10 +139,8 @@ impl Instance {
         model: &dyn ModelClient,
     ) -> Result<usize, InstanceError> {
         let now = self.engine.clock.now();
-        let idle_gap_ms = Settings::from_store(self.engine.store.lock().as_ref())?
-            .compaction
-            .idle_gap_seconds
-            .saturating_mul(1_000);
+        let compaction = Settings::from_store(self.engine.store.lock().as_ref())?.compaction;
+        let idle_gap_ms = compaction.idle_gap_seconds.saturating_mul(1_000);
         let mut closed = 0;
         // Bind the list first so the graph guard drops before the per-session flush `.await` below.
         let open = self.engine.graph.lock().open_sessions()?;
@@ -150,10 +151,14 @@ impl Instance {
                 .map(|open| open.last_activity_millis());
             let last_activity_ms = match live_activity {
                 Some(ms) => ms,
-                None => buffer_turns(
+                // A recovered session reads only from its own `SessionStarted` seq (an empty carried
+                // tail), routed through the bound for a single buffer-read path.
+                None => bounded_buffer_turns(
                     self.engine.store.lock().as_ref(),
                     conversation,
                     recovered.start_seq,
+                    recovered.start_seq,
+                    compaction.carryover_char_budget,
                 )?
                 .last()
                 .map_or(recovered.started_at, |turn| turn.recorded_at)
@@ -181,6 +186,7 @@ impl Instance {
                     started_at: recovered.started_at,
                     last_activity: AtomicI64::new(last_activity_ms),
                     start_seq: recovered.start_seq,
+                    session_start_seq: recovered.start_seq,
                 }),
             };
             self.flush_and_end(conversation, stale.as_ref(), model)
@@ -220,4 +226,186 @@ impl Instance {
         }
         tracing::info!("idle sweep driver stopped");
     }
+
+    /// Checkpoint-flush every live session whose unflushed working state is due to reach memory
+    /// mid-session (spec §Compaction → checkpoint flush) — the cross-conversation sync a session's
+    /// end-flush alone cannot give: without it, conversation B learns nothing of a parallel
+    /// conversation A until A goes idle or compacts. Each candidate is gated three ways
+    /// ([`Instance::checkpoint_delta`]); an eligible one is flushed under its conversation's
+    /// lifecycle lock, with the gates re-validated there, so a message arriving mid-flush waits in
+    /// `ensure_session` (on its own conversation's flush only — the flush is delta-sized) and the
+    /// idle sweep's close of the same session never interleaves. The flush turn is ordinary and the
+    /// session stays open: no `SessionEnded`, no carryover, no brief rebuild — the turn simply rides
+    /// the live buffer, and its seq becomes the next watermark. Returns how many sessions flushed.
+    /// Driven on a timer by [`Instance::run_checkpoint_sweeper`]; also callable directly to sweep
+    /// once on demand.
+    pub async fn checkpoint_live_sessions(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        let now = self.engine.clock.now();
+        let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
+        if !settings.checkpoint.enabled {
+            return Ok(0);
+        }
+        let mut flushed = 0;
+        for (conversation, open) in self.sessions.live() {
+            // A cheap pre-check without the lock, so the lifecycle lock is taken only for a real
+            // candidate rather than serializing every live conversation each tick.
+            if self
+                .checkpoint_delta(conversation, &open, &settings, now)?
+                .is_none()
+            {
+                continue;
+            }
+            let lifecycle = self.lifecycle_lock(conversation);
+            let _lifecycle = lifecycle.lock().await;
+            // Re-validate under the lock: a message that arrived since the candidate list was
+            // captured may have closed this session (an idle reopen or a compaction), and a delta
+            // another closer already flushed must not flush twice.
+            if self
+                .sessions
+                .get(conversation)
+                .is_none_or(|current| current.id != open.id)
+            {
+                continue;
+            }
+            let Some(delta) = self.checkpoint_delta(conversation, &open, &settings, now)? else {
+                continue;
+            };
+            // An ordinary flush turn over the unflushed delta only — the frozen brief still frames
+            // it, so repeat checkpoints never re-flush the same turns. Its writes are the agent's
+            // own; its terminal is silent (empty agent text), so nothing is delivered to
+            // participants and the next turn's buffer replays only its Lua steps.
+            let present_set = self.engine.graph.lock().session_participants(open.id)?;
+            run_flush(Flush {
+                session: &open.vm,
+                model,
+                engine: self.engine.clone(),
+                brief: &open.brief,
+                session_started_at: open.started_at,
+                buffer: &delta.buffer[delta.start..],
+                present_set: &present_set,
+                max_steps: settings.turn.max_steps as usize,
+                block_timeout: Duration::from_secs(
+                    settings.turn.block_timeout_seconds.max(0) as u64
+                ),
+                max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
+                capture: settings.observability.capture_model_calls,
+            })
+            .await
+            .map_err(|error| InstanceError::Turn {
+                conversation: Some(conversation),
+                error,
+            })?;
+            self.engine
+                .graph
+                .lock()
+                .materialize_from(self.engine.store.lock().as_ref())?;
+            observe_flush_turn();
+            tracing::info!(?conversation, session = ?open.id, "checkpoint-flushed a live session");
+            flushed += 1;
+        }
+        Ok(flushed)
+    }
+
+    /// The background checkpoint-sweep driver: on each tick, checkpoint-flush every live session
+    /// whose gates pass, so a parallel conversation can read this one's working state before it goes
+    /// idle. Long-lived; a sweep failure is logged, never propagated.
+    pub async fn run_checkpoint_sweeper(
+        self: Arc<Self>,
+        model: Arc<dyn ModelClient>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match self.checkpoint_live_sessions(model.as_ref()).await {
+                        Ok(flushed) if flushed > 0 => {
+                            tracing::info!(flushed, "checkpoint sweep flushed live sessions")
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            observe_worker_error("checkpoint");
+                            tracing::error!(%error, "checkpoint sweep failed")
+                        }
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("checkpoint sweep driver stopped");
+    }
+
+    /// Evaluate the checkpoint gates over one live session, returning its unflushed delta when all
+    /// three pass and `None` when any blocks. The gates, each keyed to the session's flush watermark
+    /// (the last flush turn in its buffer, or its start — [`flushed_up_to`], derived from the log so
+    /// replay reproduces it):
+    ///
+    /// 1. *Substance*: the delta past the watermark carries at least `min_delta_chars` of
+    ///    participant and agent turn text — there is working state worth a model call.
+    /// 2. *Cooldown*: at least `cooldown_seconds` have passed since the watermark turn was recorded
+    ///    (or since the session started, if it has never flushed) — checkpoints never thrash.
+    /// 3. *Audience*: some other conversation has a live session active at or since the watermark —
+    ///    with a single live conversation, the only reader of the flushed tail is the conversation
+    ///    itself, which already has it in the buffer.
+    fn checkpoint_delta(
+        &self,
+        conversation: ConversationId,
+        open: &OpenSession,
+        settings: &Settings,
+        now: Timestamp,
+    ) -> Result<Option<UnflushedDelta>, InstanceError> {
+        let checkpoint = &settings.checkpoint;
+        let buffer = bounded_buffer_turns(
+            self.engine.store.lock().as_ref(),
+            conversation,
+            open.start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
+        )?;
+        let watermark = flushed_up_to(&buffer, open.session_start_seq);
+        // The watermark's wall-clock anchor: when the last flush turn was recorded, or the session's
+        // open when it has never flushed — what the cooldown and audience gates measure against.
+        let anchor = buffer
+            .iter()
+            .find(|turn| turn.seq == watermark)
+            .map_or(open.started_at, |turn| turn.recorded_at);
+        let start = buffer.partition_point(|turn| turn.seq <= watermark);
+
+        let delta_chars: usize = buffer[start..]
+            .iter()
+            .filter(|turn| matches!(turn.role, TurnRole::Participant | TurnRole::Agent))
+            .map(|turn| turn.text.chars().count())
+            .sum();
+        if (delta_chars as i64) < checkpoint.min_delta_chars {
+            return Ok(None);
+        }
+
+        if now.as_millis() - anchor.as_millis() < checkpoint.cooldown_seconds.saturating_mul(1_000)
+        {
+            return Ok(None);
+        }
+
+        // Activity "since the watermark" is inclusive: a tie (coarse clocks stamp a burst at one
+        // instant) errs toward flushing, the safe direction.
+        let audience = self.sessions.live().iter().any(|(other, session)| {
+            *other != conversation && session.last_activity_millis() >= anchor.as_millis()
+        });
+        if !audience {
+            return Ok(None);
+        }
+
+        Ok(Some(UnflushedDelta { buffer, start }))
+    }
+}
+
+/// A live session's buffer with the index where its unflushed delta begins — the turns past the flush
+/// watermark, the slice a checkpoint flush scopes its prompt to.
+struct UnflushedDelta {
+    buffer: Vec<TurnView>,
+    start: usize,
 }

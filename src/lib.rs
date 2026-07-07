@@ -24,7 +24,8 @@ pub mod vector;
 // is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
 pub use zuihitsu_core::{
-    decay, event, graph, ids, instance_features::InstanceFeatures, settings, time, vocabulary,
+    decay, event, graph, ids, instance_features::InstanceFeatures, settings, time, turn_ref,
+    vocabulary,
 };
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
@@ -37,27 +38,32 @@ pub use agent::{
     templates::{PromptTemplate, latest_template},
 };
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use config::{ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, SnapshotConfig};
+pub use config::{
+    ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, ResilienceConfig, SnapshotConfig,
+};
 pub use event::{
     Cardinality, Event, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
-    Initiation, LinkInferenceResult, LinkSource, ModelPhase, ProducedBy, PromptTemplateName,
-    RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    Initiation, LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
+    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
     NamespacedMemoryName, Seq, SessionId, TurnId, UnknownNamespace,
 };
 pub use model::{
-    Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
+    Completion, FlakyModel, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
     ResponseSchema, Role, ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
     embed::{Embedder, Embedding, FakeEmbedder},
     extract_json_object,
     index::{IndexError, Indexer},
-    parse_structured, schema_of,
+    parse_structured,
+    retry::{BackendHealth, CircuitState, RetryingModel},
+    schema_of,
 };
 pub use settings::{
-    BriefSettings, CaptureLevel, CompactionSettings, ConcurrencySettings, ObservabilitySettings,
-    RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings,
+    BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings, ConcurrencySettings,
+    ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays,
+    TurnSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{
@@ -71,15 +77,17 @@ pub use vocabulary::{RelationName, TagName};
 
 pub use agent::{
     BlockContext, InferredLink, LinkInferenceArgs, McpCatalogue, NewRelationSpec, ToolStep, Turn,
-    TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns,
+    TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns, buffer_turns,
+    carryover_start,
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
-    run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up, run_turn,
-    session_touched,
+    run_adjudicate_catch_up, run_describe_catch_up, run_describe_catch_up_for,
+    run_link_inference_catch_up, run_turn, session_touched,
 };
 pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};
 pub use instance::{
-    Arbitration, Control, Instance, InstanceError, LuaConsoleOutcome, ModelCall, SnapshotSchedule,
+    Arbitration, Control, Instance, InstanceError, LuaConsoleOutcome, MergeProposal, ModelCall,
+    SnapshotSchedule,
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
@@ -100,7 +108,7 @@ pub use memory::{
 };
 pub use model::openai::{OpenAiClient, OpenAiEmbedder};
 
-// Compatibility aliases for the old `Server` naming. New code should prefer `Instance`.
+// Compatibility aliases: `Server` and `ServerError` name the `Instance` and `InstanceError` types.
 pub type Server = Instance;
 pub type ServerError = InstanceError;
 pub use store::SqliteStore;

@@ -47,14 +47,14 @@ impl Scenario for Contradiction {
         ctx.turn(Turn::new(
             "discord",
             "leads",
-            "phil",
+            "marcus",
             "For the Q3 planning notes: the team offsite this year is happening in Denver.",
         ))
         .await?;
         ctx.describe_catch_up().await?;
         // Turn 2: a different teller gives an independent, equally-confident account of the same fact
         // that happens to conflict — phrased as her own standing understanding, not a correction of
-        // Phil's, and carrying no recency or authority cue ("locked in last week", "just confirmed")
+        // Marcus's, and carrying no recency or authority cue ("locked in last week", "just confirmed")
         // that would license treating it as a newer, truer fact. With both accounts co-equal, the agent
         // has no ground to supersede one with the other; the conflict must land as a second standing
         // public entry the synthesis reconciles. (A recency cue here invites a defensible supersession

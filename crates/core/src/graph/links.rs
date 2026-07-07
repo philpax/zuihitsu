@@ -1,9 +1,9 @@
 //! Link reads: outgoing edges, full link lists, and class-wide links.
 
-use super::{ClassLinkView, Graph, GraphError, LinkView, MemoryView, parse_ulid};
+use super::{ClassLinkView, Graph, GraphError, LinkView, MemoryView, NeighborLinkView, parse_ulid};
 use crate::{
     db::{query_map_into, query_opt_into},
-    ids::MemoryId,
+    ids::{MemoryId, MemoryName},
     vocabulary::RelationName,
 };
 use rusqlite::params;
@@ -112,6 +112,46 @@ impl Graph {
                 told_by: told_by
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
+            })
+        })
+    }
+
+    /// Every edge leaving `id`'s whole `same_as` class — oriented against the class, carrying the far
+    /// memory's resolved name, ordered most-recently created first (by the link's insertion `rowid`) —
+    /// the raw neighbor set a search hit distills into its salient-relations line. Edges internal to the
+    /// class (both endpoints class members) are dropped: those are the `same_as` plumbing within an
+    /// identity, not a relationship pointing out of it. Committed state only, and not visibility-filtered,
+    /// mirroring the `mem:links` family — the agent's whole-graph surface is not gated on who is present.
+    pub fn class_neighbor_links(&self, id: MemoryId) -> Result<Vec<NeighborLinkView>, GraphError> {
+        let stmt = self.conn.prepare(
+            "WITH cls AS (
+                 SELECT id FROM memories
+                 WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1 AND deleted = 0)
+                   AND deleted = 0
+             )
+             SELECT l.relation AS relation,
+                    (l.from_id NOT IN (SELECT id FROM cls)) AS incoming,
+                    CASE WHEN l.from_id IN (SELECT id FROM cls) THEN l.to_id ELSE l.from_id END
+                        AS other_id,
+                    CASE WHEN l.from_id IN (SELECT id FROM cls) THEN mt.name ELSE mf.name END
+                        AS other_name
+             FROM links l
+             JOIN memories mf ON mf.id = l.from_id AND mf.deleted = 0
+             JOIN memories mt ON mt.id = l.to_id   AND mt.deleted = 0
+             WHERE (l.from_id IN (SELECT id FROM cls) OR l.to_id IN (SELECT id FROM cls))
+               AND NOT (l.from_id IN (SELECT id FROM cls) AND l.to_id IN (SELECT id FROM cls))
+             ORDER BY l.rowid DESC",
+        )?;
+        query_map_into(stmt, params![id.0.to_string()], |row| {
+            let relation: String = row.get("relation")?;
+            let incoming: bool = row.get("incoming")?;
+            let other_id: String = row.get("other_id")?;
+            let other_name: String = row.get("other_name")?;
+            Ok(NeighborLinkView {
+                relation: RelationName::new(&relation),
+                incoming,
+                other: MemoryId(parse_ulid(&other_id)?),
+                other_name: MemoryName::new(&other_name),
             })
         })
     }

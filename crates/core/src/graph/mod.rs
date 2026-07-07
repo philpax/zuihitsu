@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod apply;
+mod describe;
 mod entries;
 mod links;
 mod memories;
@@ -30,6 +31,8 @@ mod sessions;
 #[cfg(test)]
 mod tests;
 mod vocabulary;
+
+pub use search::LexicalHit;
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -55,6 +58,12 @@ pub struct EntryView {
     /// not just its sort instant), letting the agent see *when* on read instead of inspecting a
     /// structured field or searching for a date that lives outside the entry text.
     pub occurred_at: Option<TemporalRef>,
+    /// Whether `occurred_at` was authored at append — the agent stamped it — rather than inferred
+    /// later by the turn-end temporal extraction. Authored is ground truth; extracted is inference,
+    /// so a representative-date projection prefers an authored occurrence over an extracted one, and a
+    /// guessed date never shadows a stated one. `false` for an undated entry (it has no occurrence to
+    /// classify) and for one whose occurrence was resolved by extraction.
+    pub occurred_authored: bool,
     pub text: String,
     pub told_by: Teller,
     pub told_in: Option<MemoryId>,
@@ -109,6 +118,21 @@ pub struct ClassLinkView {
     pub told_by: Option<Teller>,
 }
 
+/// A neighbor on a memory's out-of-class relation surface — the raw material for the salient-relations
+/// line a search hit carries. It names the relation, whether the edge runs *into* this class
+/// (`incoming`) or out of it, and the far memory (id plus its resolved name, so a caller renders
+/// `relation → name` without a second lookup). The query returns only edges leaving the class — an edge
+/// internal to the `same_as` class is identity plumbing, not a relationship — ordered most-recently
+/// created first (by the link's insertion `rowid`). Committed state; not visibility-filtered, mirroring
+/// the link readers, since the agent's own whole-graph surface is not gated on who is present.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NeighborLinkView {
+    pub relation: RelationName,
+    pub incoming: bool,
+    pub other: MemoryId,
+    pub other_name: MemoryName,
+}
+
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via
 /// compaction), the captured brief, and its participants (the present set at open, plus anyone who
 /// joined mid-session).
@@ -133,6 +157,24 @@ pub struct OpenSessionView {
     pub started_at: Timestamp,
     pub start_seq: Seq,
     pub seeded: bool,
+}
+
+/// The plan for minting a fresh [`Namespace::Person`] participant stub: the name it receives, and
+/// — when the clean handle is already taken by an existing but platform-unbound memory (an
+/// agent-authored hearsay
+/// stub) — the id of that memory, so the mint path can propose a `same_as` merge between the new
+/// qualified stub and it for the adjudicator or operator to weigh (spec §Identity → cross-platform-explicit).
+/// The name is the clean `person/<handle>` when the handle is free, and the platform-qualified
+/// `person/<handle>@<platform>` when the handle is already taken — whether by a different platform-bound
+/// identity (a true cross-platform collision, kept distinct with no proposal) or by an unbound hearsay
+/// stub (the qualified stub, plus a proposal to reunite them).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParticipantMint {
+    pub name: MemoryName,
+    /// `Some(existing)` only when the clean handle is taken by a platform-unbound memory — the mint
+    /// proposes a `same_as` merge with `existing`. `None` when the handle was free, or taken by a
+    /// different platform-bound identity (which stays distinct).
+    pub propose_same_as_with: Option<MemoryId>,
 }
 
 /// A failure projecting or querying the graph.
@@ -216,8 +258,16 @@ impl Graph {
                  volatility  TEXT    NOT NULL DEFAULT 'Medium',
                  deleted     INTEGER NOT NULL DEFAULT 0,
                  created_at  INTEGER NOT NULL,
-                 class_id    TEXT    NOT NULL DEFAULT ''
+                 class_id    TEXT    NOT NULL DEFAULT '',
+                 -- The describer's per-memory watermarks: the seq of the memory's latest content
+                 -- change, and the seq of the describer pass that last considered it. A memory is
+                 -- stale — needs (re)describing — exactly while last_content_seq > last_described_seq.
+                 -- Both are derived from the log, so the describe backlog survives a restart.
+                 last_content_seq   INTEGER NOT NULL DEFAULT 0,
+                 last_described_seq INTEGER NOT NULL DEFAULT 0
              );
+             CREATE INDEX IF NOT EXISTS idx_memories_stale
+                 ON memories(last_content_seq, last_described_seq);
              CREATE INDEX IF NOT EXISTS idx_memories_class ON memories(class_id);
              CREATE TABLE IF NOT EXISTS content_entries (
                  entry_id      TEXT    PRIMARY KEY,
@@ -227,6 +277,17 @@ impl Graph {
                  occurred_sort INTEGER,
                  occurred_lo   INTEGER,
                  occurred_hi   INTEGER,
+                 -- Whether this entry's occurrence was authored at append (the agent stamped
+                 -- occurred_at) rather than inferred later by the turn-end temporal extraction. Authored
+                 -- is ground truth; extracted is a guess. Representative-date projections prefer an
+                 -- authored occurrence so a wrong extracted date never shadows a stated one.
+                 occurred_authored INTEGER NOT NULL DEFAULT 0,
+                 -- Whether this entry is a mirror of its memory's description (the seed entry
+                 -- `memory.create` appends from its `description` argument) rather than an account of a
+                 -- real occurrence. A description mirror names no time, so the turn-end temporal
+                 -- extraction skips it (see `untimed_entries_since`): timing it would fabricate the
+                 -- conversation's own now and collide with a later, correctly-dated append on the memory.
+                 description_mirror INTEGER NOT NULL DEFAULT 0,
                  fired_at      INTEGER,
                  surfaced_at   INTEGER,
                  text          TEXT    NOT NULL,

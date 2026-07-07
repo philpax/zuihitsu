@@ -43,6 +43,44 @@ export interface EvalContext {
 /// No run is driving — the live map a static package carries.
 export const NO_LIVE_RUNS: ReadonlyMap<string, Event[]> = new Map();
 
+/// The current epoch time, re-read on `intervalMs` so an elapsed readout ticks without any data change.
+/// Freezes when `active` is false (e.g. once the run has finished, there is nothing left to tick). A
+/// coarse interval is plenty — the elapsed readout is to the minute.
+export function useNow(intervalMs: number, active = true): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active || intervalMs <= 0) return;
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs, active]);
+  return now;
+}
+
+/// A live run's projected finish as epoch milliseconds, or `null` when nothing has completed yet (no
+/// per-run cost to extrapolate from). Each scenario's remaining runs are costed at that scenario's mean
+/// drive wall-clock over its completed runs, falling back to the global mean where a scenario has none
+/// done; the summed remaining cost is divided by the harness's concurrency and added to `nowMs`.
+export function projectFinishMs(pkg: EvalPackage, nowMs: number): number | null {
+  const completed = pkg.scenarios.flatMap((scenario) => scenario.runs);
+  if (completed.length === 0) return null;
+  const globalMean = mean(completed.map((run) => run.metrics.wall_clock_ms));
+  const remainingMs = pkg.scenarios.reduce((acc, scenario) => {
+    const remaining = Math.max(0, pkg.meta.runs_per_scenario - scenario.runs.length);
+    if (remaining === 0) return acc;
+    const scenarioMean =
+      scenario.runs.length > 0
+        ? mean(scenario.runs.map((run) => run.metrics.wall_clock_ms))
+        : globalMean;
+    return acc + remaining * scenarioMean;
+  }, 0);
+  const concurrency = Math.max(1, pkg.meta.concurrency);
+  return nowMs + remainingMs / concurrency;
+}
+
+function mean(xs: number[]): number {
+  return xs.reduce((sum, x) => sum + x, 0) / xs.length;
+}
+
 /// The key a driving run is tracked by.
 export function runningKey(scenario: number, run: number): string {
   return `${scenario}:${run}`;

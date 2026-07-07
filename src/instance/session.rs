@@ -16,8 +16,8 @@ use tracing::Instrument;
 use crate::{
     InstanceFeatures,
     agent::{
-        Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, buffer_turns, lua::Session,
-        run_flush, run_turn,
+        Flush, Turn, TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns,
+        lua::Session, run_flush, run_turn,
     },
     event::{EventPayload, Initiation, PromptTemplateName, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, Seq, SessionId, TurnId},
@@ -66,6 +66,12 @@ pub(crate) struct OpenSession {
     /// session, or a carried tail's seq across a compaction seam (so the carryover plus this
     /// session's turns reconstruct the buffer — see [`buffer_turns`]).
     pub start_seq: Seq,
+    /// This session's own `SessionStarted` seq — where its own turns begin, at or after `start_seq`.
+    /// It splits the buffer read at turn time (and at the flush): the carried tail below it is
+    /// re-trimmed to the carryover char budget, while this session's own turns ride whole, so the
+    /// buffer stays bounded across compaction seams (see [`bounded_buffer_turns`]). Equal to
+    /// `start_seq` for a fresh or idle-opened session (an empty tail).
+    pub session_start_seq: Seq,
 }
 
 impl OpenSession {
@@ -135,6 +141,7 @@ impl Instance {
                     TurnOutcome::Reply(_) => "reply",
                     TurnOutcome::Silent => "silent",
                     TurnOutcome::MaxStepsExceeded => "max_steps",
+                    TurnOutcome::Deferred => "deferred",
                 };
                 span.record("turn_id", tracing::field::debug(&report.turn_id));
                 span.record("outcome", outcome);
@@ -173,6 +180,30 @@ impl Instance {
         let open = self
             .ensure_session(routed.conversation, routed.present_set, model)
             .await?;
+        // Presence sync: anyone on this message who is not yet among the live session's participants
+        // arrived mid-session — most clients only ever deliver messages, so the message itself is the
+        // join signal, not a `/platform/join` post. Each newcomer gets the same treatment as the
+        // explicit endpoint — a `ParticipantJoined` plus an injected join-brief — appended here,
+        // before `run_turn` appends the inbound turn, so the brief precedes the message in the
+        // buffer. A fresh session is a natural no-op: its `SessionStarted.participants` already carry
+        // the full present set. Departures deliberately have no event: the per-turn visibility
+        // predicate evaluates against the message's own present set (`routed.present_set` flows into
+        // `run_turn`), so a departed participant stops affecting retrieval on the very next message,
+        // and the session's stored participants feed only join detection and the flush's present set,
+        // where a stale-inclusive set errs toward suppression — the safe direction.
+        let members = self.engine.graph.lock().session_participants(open.id)?;
+        let mut joined: Vec<MemoryId> = Vec::new();
+        for &joiner in routed
+            .present_set
+            .iter()
+            .chain(std::iter::once(&routed.participant))
+        {
+            if !members.contains(&joiner) && !joined.contains(&joiner) {
+                self.join_participant(Some(model), routed.conversation, open.id, joiner)
+                    .await?;
+                joined.push(joiner);
+            }
+        }
         // The operator's first session runs the imprint interview; once that session has been
         // succeeded by a later one (a lapse, a restart, a compaction), the operator channel uses the
         // ordinary scaffold template — still under operator authority, so it may still write `self` —
@@ -195,11 +226,14 @@ impl Instance {
         let max_block_attempts = turn_settings.max_block_attempts.max(1) as u32;
         let capture = settings.observability.capture_model_calls;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
-        // a compaction seam, the carried tail plus this session's turns), read from `start_seq`.
-        let buffer = buffer_turns(
+        // a compaction seam, the carried tail plus this session's turns), read from `start_seq` with
+        // the carried tail bounded to the carryover char budget so it cannot grow across seams.
+        let buffer = bounded_buffer_turns(
             self.engine.store.lock().as_ref(),
             routed.conversation,
             open.start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
         )?;
         let report = run_turn(Turn {
             session: &open.vm,
@@ -224,6 +258,71 @@ impl Instance {
             error,
         })?;
         Ok((report, buffer))
+    }
+
+    /// Record a participant arriving mid-session: a `ParticipantJoined` plus the joiner's brief,
+    /// injected as a `system` turn at the join point rather than by rebuilding the frozen prompt
+    /// (spec §Mid-conversation joins). The brief is filtered against the present set including the
+    /// joiner, so the subject-guard suppresses asides about them. When a model is available, the
+    /// joiner's description is caught up first, so the brief never reads stale prose for a memory a
+    /// prior turn just wrote (spec §Starvation bound → composing a brief forces the catch-up); with
+    /// none (the modelless `/platform/join` path) the brief composes off the current prose — a
+    /// slightly stale join-brief beats refusing the join. The joiner must already be resolved to a
+    /// memory id; the caller owns locating the conversation and the live session. Shared by the
+    /// per-message presence sync above and `Platform::note_join`.
+    pub(super) async fn join_participant(
+        &self,
+        model: Option<&dyn ModelClient>,
+        conversation: ConversationId,
+        session: SessionId,
+        joiner: MemoryId,
+    ) -> Result<(), InstanceError> {
+        if let Some(model) = model {
+            self.describe_catch_up_for(model, &[joiner]).await?;
+        }
+        let mut present_set = self.engine.graph.lock().session_participants(session)?;
+        if !present_set.contains(&joiner) {
+            present_set.push(joiner);
+        }
+        let now = self.engine.clock.now();
+        // Compose the join-brief as structured data: the `system` turn carries the rendered markup as
+        // its `text` (the prompt-build reads turn text verbatim, so the agent path is unchanged) and
+        // the struct alongside, so a structured consumer renders a proper entrance rather than the raw
+        // markup (spec §Mid-conversation joins).
+        let join_brief = brief::compose_participant_brief(
+            &self.engine.graph.lock(),
+            joiner,
+            &present_set,
+            &Settings::from_store(self.engine.store.lock().as_ref())?.brief,
+            now,
+        )?;
+        let text = join_brief
+            .as_ref()
+            .map(brief::Brief::render)
+            .unwrap_or_default();
+
+        let turn_id = TurnId::generate();
+        self.engine.store.lock().append(
+            now,
+            vec![
+                EventPayload::participant_joined(conversation, session, joiner, turn_id),
+                EventPayload::ConversationTurn {
+                    conversation,
+                    turn_id,
+                    role: TurnRole::System,
+                    text,
+                    participant: Some(joiner),
+                    initiation: Initiation::Responding,
+                    produced_by: None,
+                    brief: join_brief,
+                },
+            ],
+        )?;
+        self.engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
+        Ok(())
     }
 
     /// The features this instance enables — the gate the Lua registration, the API reference, and the
@@ -268,10 +367,12 @@ impl Instance {
             return Ok(false);
         }
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
-        let buffer = buffer_turns(
+        let buffer = bounded_buffer_turns(
             self.engine.store.lock().as_ref(),
             conversation,
             open.start_seq,
+            open.session_start_seq,
+            settings.compaction.carryover_char_budget,
         )?;
         let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
         if flushed {
@@ -369,10 +470,15 @@ impl Instance {
             self.engine.graph.lock().last_open_session(conversation)?
         };
         if let Some(recovered) = recovered {
-            let buffer = buffer_turns(
+            // A recovered session reads only from its own `SessionStarted` seq (the carried tail is not
+            // reconstructable from the log alone), so the read start and this session's start coincide
+            // — an empty tail, but routed through the bound for a single buffer-read path.
+            let buffer = bounded_buffer_turns(
                 self.engine.store.lock().as_ref(),
                 conversation,
                 recovered.start_seq,
+                recovered.start_seq,
+                settings.compaction.carryover_char_budget,
             )?;
             let last_activity = buffer
                 .last()
@@ -386,6 +492,7 @@ impl Instance {
                 started_at: recovered.started_at,
                 last_activity: AtomicI64::new(last_activity.as_millis()),
                 start_seq: recovered.start_seq,
+                session_start_seq: recovered.start_seq,
             };
             if resumable {
                 open.touch(now);
@@ -423,22 +530,31 @@ impl Instance {
             .as_ref()
             .map_or(&[], |carry| carry.working_set.as_slice());
 
-        // Force the description catch-up to completion before composing the brief, so it never reads
-        // stale prose for memories a prior turn or the pre-compaction flush just wrote (spec
-        // §Starvation bound → composing a brief forces the catch-up). Then materialize the fresh
-        // descriptions into the graph the brief reads. (A full catch-up here; narrowing it to the
-        // brief's own memories is a later refinement.) No lock is held across the model call.
-        self.describe_catch_up(model).await?;
-        self.engine
-            .graph
-            .lock()
-            .materialize_from(self.engine.store.lock().as_ref())?;
-
+        // Force the description catch-up before composing the brief, so it never reads stale prose for
+        // memories a prior turn or the pre-compaction flush just wrote (spec §Starvation bound →
+        // composing a brief forces the catch-up). Narrowed to the brief's own read set — the present
+        // set, the room's context memory, the carried working set, and the agent's `self` — so a
+        // session open pays only for the descriptions its brief reads, not a whole concurrent backlog
+        // turn A left; the rest stays stale for the background pass. No lock is held across the model
+        // call.
         let context = self
             .engine
             .graph
             .lock()
             .context_for_conversation(conversation)?;
+        let brief_memories = {
+            let graph = self.engine.graph.lock();
+            let mut ids = present_set.to_vec();
+            ids.extend_from_slice(working_set);
+            ids.extend(context);
+            ids.extend(graph.self_memory()?.map(|memory| memory.id));
+            ids
+        };
+        self.describe_catch_up_for(model, &brief_memories).await?;
+        self.engine
+            .graph
+            .lock()
+            .materialize_from(self.engine.store.lock().as_ref())?;
         let brief = brief::compose(
             &self.engine.graph.lock(),
             &settings.brief,
@@ -477,6 +593,7 @@ impl Instance {
             start_seq: carryover
                 .map(|carry| carry.from_seq)
                 .unwrap_or(session_start_seq),
+            session_start_seq,
         });
         self.sessions.insert(conversation, open.clone());
 
@@ -499,6 +616,7 @@ impl Instance {
                 participant: None,
                 initiation: Initiation::Initiated,
                 produced_by: None,
+                brief: None,
             }];
             for (entry_id, memory) in drained.entries {
                 payloads.push(EventPayload::scheduled_item_surfaced(

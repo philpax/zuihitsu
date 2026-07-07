@@ -36,6 +36,9 @@
 - **Never** use title case in headings and titles. Always use sentence case.
 - Always use the Oxford comma.
 - Don't omit articles ("a", "an", "the"). Write "the file has a newer version" not "file has newer version".
+- Comments describe the present state. Reserve past-tense narration for the rare case where history explains a standing "why".
+- Prose that names a namespace concept links the canonical enum ([`Namespace::Person`]), never a literal prefix string. Concrete handles, prefix-string argument examples, and agent-facing text are syntax, not prose, and are exempt.
+- Core code (`src/`, `crates/core`) never references the eval harness, scenarios, or run statistics in comments — state the behavior and its hazards directly. Only the eval crate may reference itself.
 
 ## Code style
 
@@ -122,6 +125,22 @@ The scaffold is **baked into the event log at genesis** and read back verbatim a
 
 **When adding a new Lua API function**, ensure it fits under an existing feature group, or add a new feature flag and wire all three gates. A function installed but not documented is undiscoverable; one documented but not installed is a confusing error. The three-gate invariant is aspirational, not enforced by the compiler — code review is the guard against drift. Features are coarse-grained (a practice + its functions), not per-function, because the scaffold's dotpoints teach practices that span several calls.
 
+### The Luau sandbox
+
+The block VM is Luau, frozen with `Lua::sandbox(true)` (`src/agent/lua/mod.rs`). Only the pure standard libraries load; `os`, `io`, `package`, `require`, `debug`, and the code-loading globals are absent, so a block stays deterministic under replay and cannot reach the host. Metamethods on our own objects and our own installed functions are fair game — shape the API however reads best. Standard-library semantics, by contrast, are never changed: a semantics-preserving error-rewrite shell (the lenient `table.concat`, installed before the freeze) is the ceiling — it delegates the real call untouched and only rewords the failure. Agent-facing surfaces name the language "Luau", and teach text assembly through interpolation (a backtick string stringifies a handle), not through library gymnastics.
+
+### The connector contract
+
+Console and platform URLs never reach the agent. A connector normalizes every deep link to a canonical `[turn:<id>]` token before a message posts (`normalize` in `crates/core/src/turn_ref.rs`); the console composer is one such connector. Agent-facing surfaces — the scaffold, the API reference, error messages — speak tokens only, never a URL.
+
+### The seed ontology
+
+The relations seeded at genesis (`seed_relations()` in `src/agent/genesis/seed.rs`) are a minimum-viable ontology: the structural universals the system itself leans on — identity, participation, composition, origin, operatorship, and acquaintance. Social and environmental semantics are the agent's to coin at runtime, not ours to preload. Document any change to the set at `seed_relations()`, and point new prose there rather than restating it.
+
+### Prompt-surface discipline
+
+The scaffold teaches load-bearing practices as principles, stated once. API options and mechanics live in the reference, stated once — the scaffold does not restate them. Teachable errors are the syllabus for rare mistakes: a slip the agent makes seldom is caught and reworded at its point of failure rather than pre-taught in the prompt. Changing a template body bumps its `(name, version)` pair (`TemplateDef`, `src/agent/genesis/mod.rs`), so an older `produced_by` still names the body it was generated under and the genesis manifest hash moves.
+
 ## Testing 
 
 ### Testing tools
@@ -131,6 +150,13 @@ The scaffold is **baked into the event log at genesis** and read back verbatim a
 - **insta**: For snapshot testing.
 - **libtest-mimic**: For custom test harnesses.
 - **pretty_assertions**: For better assertion output.
+
+### Testing conventions
+
+- Tests use the in-memory backends by default (`MemoryStore`, `Graph::open_in_memory`, `SqliteVectorIndex::open_in_memory`): the system is a pure function of the event log modulo declared nondeterminism, so replay through memory exercises exactly that function. Reach for a disk-backed backend only in a test that guards a genuine filesystem property, and name it for that.
+- Do not write a test that only exercises serde or a derive. A round-trip earns its place only when it guards a real wire: a versioned payload, the control API, or a package file.
+- No personal names in fixtures.
+- Scenario dates are computed from `RUN_START_MS` and the shared time constants (`MILLIS_PER_DAY`, …), never bare epoch literals.
 
 ## Evaluations
 
@@ -146,8 +172,8 @@ cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
 
 - The run writes `eval/<name>.json` and a resumable `.jsonl` sidecar. `eval/` is gitignored apart from the tracked `history.jsonl` trend record, so name runs descriptively.
 - `--runs N` sets the runs per scenario (the statistical N; default 8). `--scenario a,b,c` keeps only scenarios whose names contain one of the comma-separated substrings.
-- Serving is on by default — the live console is at http://127.0.0.1:7878/ while the run proceeds, and the process exits when it finishes. Keep it on: watching the deliberation unfold live is the point of running an eval, not just the pass/fail at the end. `--no-serve` is for CI or headless machines only; `--serve-after-completion` leaves it up for review.
-- The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar is a must-not-surface safety property, where one slip across N runs fails the harness; a metric bar is a should-surface rate, reported against a threshold but never failing the run.
+- Serving is on by default — the live console is at http://127.0.0.1:7878/ while the run proceeds, and the process exits when it finishes. Keep it on: watching the deliberation unfold live is the point of running an eval, not just the pass/fail at the end. `--no-serve` is for CI or headless machines only. Do not pass `--serve-after-completion` unless explicitly requested: it leaves the process holding the console port indefinitely, which silently blocks the next run's live view, and a finished run is reviewed by loading `eval/<name>.json` into the viewer anyway. If a serving process does linger, stop it before the next launch; `--resume` recovers a run that had to be bounced.
+- The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar (`Bar::gating()`, or `Bar::gating_at(rate)` for a tolerance) fails the harness when the held rate of its gating verdicts falls below `min_rate`. `Bar::holds` decides it: at the default `min_rate` of 1.0 it reads the pass/fail boolean directly — the one-slip discipline for must-not-surface safety properties — while a `min_rate` below 1.0 compares the held rate and suits model-judgment behaviors with a known error band. A metric bar is a should-surface rate, reported against a threshold but never failing the run.
 
 ### Analyzing an eval
 
@@ -158,6 +184,12 @@ eval analyze eval/<name>.json -f -s <scenario> -e <events>     # dump the failed
 ```
 
 Reach for the `--failures`/`-f` dump when deciding the next prompt or code edit. It starts with a cross-scenario rollup of every missed verdict, grouping by criterion so a single behavioural thread is visible across scenarios. For each failed run it prints the missed oracles with their rationale, then the whole deliberation: the agent's reasoning, the Lua it ran, and what came back. `--scenario`/`-s` filters by name substring; `--events`/`-e` adds a compact summary of the events whose payload type name contains the substring (for example, `MemoryContentAppended`, `ScheduledJobFired`, or `EntryTemporalResolved`); `--limit` caps the runs shown per scenario; and `--truncate N` clips long reasoning and scripts (`0` keeps them whole).
+
+### Designing a scenario
+
+- An oracle must align with the system's own rules. A gate must not punish behavior the visibility model permits — if the property under test is privacy, encode the isolated fact as a confidence, not a gating failure.
+- Prefer a structural check for an exact property; reserve the judge for a genuine language judgment. A list of needle phrases is a smell — it pins wording, not behavior.
+- When a new scenario overlaps an existing one, distinct tested properties justify it. Trend history is a reason not to mutate an existing scenario's criteria set: add a scenario rather than redefine an old one out from under its history.
 
 ## Frontend (the console)
 

@@ -27,6 +27,9 @@ pub struct InstanceFeatures {
     pub merging: bool,
     /// Calendar queries and date arithmetic — `calendar.*`, `:add_days`, etc.
     pub calendar: bool,
+    /// Transcript turn-link resolution — `convo.turn`, which resolves a conversation turn id (the
+    /// `?turn=<ulid>` a console deep-link carries) to that moment and a window of surrounding turns.
+    pub transcripts: bool,
     /// Context memory access — `context.current`. Always on; the brief and session machinery
     /// depend on it. Included for completeness, not togglable.
     pub context: bool,
@@ -40,6 +43,7 @@ impl Default for InstanceFeatures {
             tagging: true,
             merging: true,
             calendar: true,
+            transcripts: true,
             context: true,
         }
     }

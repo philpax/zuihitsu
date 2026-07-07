@@ -31,6 +31,10 @@ tracing = { workspace = true }
 ts-rs = { workspace = true, optional = true }
 ulid = { workspace = true }
 
+# Property tests for the pure value logic (the turn-reference parser), run on the host only.
+[dev-dependencies]
+proptest = { workspace = true }
+
 # On wasm, ulid's ULID generation reaches getrandom, which needs its browser backend turned on
 # explicitly (paired with the `getrandom_backend="wasm_js"` cfg in .cargo/config.toml). The console
 # replica only ever parses existing ULIDs, never generates, but the code still links getrandom.

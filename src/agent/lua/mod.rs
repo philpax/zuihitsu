@@ -37,7 +37,8 @@ use crate::{
 
 use super::BlockContext;
 use runtime::{
-    BlockApi, LockSet, combine_output, install_inspect, release_locks, render, timed_out_cause,
+    BlockApi, LockSet, combine_output, eval_block, install_inspect, install_table_concat,
+    release_locks, render, timed_out_cause,
 };
 
 pub use reference::{api_reference, render_api_reference};
@@ -219,11 +220,8 @@ impl Session {
             // times this attempt's eval for the console's turn timeline (the final attempt's, since a
             // retry restarts it).
             let started = Instant::now();
-            let timed = tokio::time::timeout(
-                context.block_timeout,
-                self.lua.load(script).eval_async::<Value>(),
-            )
-            .await;
+            let timed =
+                tokio::time::timeout(context.block_timeout, eval_block(&self.lua, script)).await;
 
             let Ok(evaluated) = timed else {
                 // Timed out. Release the locks (so a retry, or another conversation, can take them) and
@@ -386,12 +384,21 @@ impl Session {
 /// must not reach the filesystem, the environment, the process, or arbitrary code on disk. MCP is the
 /// only sanctioned outward reach (spec §External I/O via MCP).
 ///
-/// Only the pure libraries are loaded — string, table, math, utf8, and coroutine — so `os`, `io`,
-/// `package` (and thus `require`), `debug`, and the FFI/JIT escapes are never present. The base library
-/// is always loaded, so the code-loading globals it still carries (`load`, `loadfile`, `dofile`,
-/// `loadstring`, `require`) are then removed by hand. Dropping `os` also keeps blocks deterministic
-/// under replay: there is no wall-clock `os.time`/`os.date`, so time only ever comes from the injected
-/// clock. `print` and `inspect` are installed per block; here we only fix the global environment.
+/// The VM is Luau, whose sandboxing-first design suits executing model-written code. Only the pure
+/// libraries are loaded — string, table, math, utf8, and coroutine — so `os`, `io`, `package` (and thus
+/// `require`), `debug`, and the FFI/JIT escapes are never present. Dropping `os` also keeps blocks
+/// deterministic under replay: there is no wall-clock `os.time`/`os.date`, so time only ever comes from
+/// the injected clock. Luau already omits the dynamic code-loading globals (`load`, `loadstring`,
+/// `dofile`, `loadfile`) and has no `require`, so the surface is narrow to begin with; we defensively
+/// clear any a future revision might reintroduce.
+///
+/// After the environment is fixed, [`Lua::sandbox`] freezes it: the global table and the standard
+/// libraries become read-only to scripts, so a block cannot monkey-patch `string`/`table` to reshape
+/// the API or smuggle state across blocks through a mutated library. Host-side installs still write
+/// globals freely (the read-only bar is on scripts, not the Rust API), so the per-block memory API and
+/// the persistent scratchpad both keep working — a script's own new globals persist across the session's
+/// blocks as before. `print` and `inspect` are installed per block; the lenient-error `table.concat`
+/// shell and `inspect` are installed here, before the freeze, so they are part of the frozen surface.
 fn sandboxed_lua() -> Lua {
     let lua = Lua::new_with(
         StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE,
@@ -406,6 +413,9 @@ fn sandboxed_lua() -> Lua {
     }
     drop(globals);
     install_inspect(&lua).expect("installing the inspect global");
+    install_table_concat(&lua).expect("installing the table.concat error shell");
+    lua.sandbox(true)
+        .expect("enabling the Luau sandbox for the global environment");
     lua
 }
 
@@ -477,6 +487,13 @@ fn summarize_committed(engine: &Engine, events: &[EventPayload]) -> Option<Strin
             } => other.push(format!(
                 "removed the {} link between {} and {}",
                 relation.as_str(),
+                name_of(*from),
+                name_of(*to)
+            )),
+            // A proposal is inert until the adjudication pass weighs it, so the summary says what
+            // actually happened — a proposal, not a merge — for the agent's reply to stay honest.
+            EventPayload::MergeProposed { from, to, .. } => other.push(format!(
+                "proposed merging {} into {} — a merge lands only when adjudicated",
                 name_of(*from),
                 name_of(*to)
             )),

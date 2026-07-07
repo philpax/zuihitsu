@@ -137,8 +137,9 @@ async fn infer_links(
                 });
             }
             let relations = graph.all_relations()?;
-            // Candidates span all namespaces: a `topic/*` memory's "authored by Clara" entry points
-            // to a `person/*` memory, so limiting to namespace siblings would exclude the target.
+            // Candidates span all namespaces: a [`Namespace::Topic`] memory's "authored by Clara"
+            // entry points to a [`Namespace::Person`] memory, so limiting to namespace siblings
+            // would exclude the target.
             let candidates = graph.memories_in_namespace("")?;
             InferenceContext {
                 memory,
@@ -220,19 +221,23 @@ async fn infer_links(
             produced_by: Some(produced_by),
         });
 
-        // The set of relation labels the model can validly use on a link: those already registered,
-        // plus those it just registered. A link whose relation is neither is dropped rather than
-        // auto-registered with guessed defaults — lenient degradation that avoids committing a spec
-        // the model did not endorse.
-        let mut usable_relations: Vec<String> = context
+        // The relations a link can validly name: those already registered plus those just
+        // registered, each carried with its inverse label. The model is shown both labels of every
+        // pair, so it legitimately phrases a link through either end — `mentored_by` names the same
+        // edge as the seeded `mentors`, read from the other side — and an inverse-labeled link
+        // resolves to the canonical relation with its direction flipped rather than being dropped.
+        // A label matching neither side of any pair is dropped rather than auto-registered with
+        // guessed defaults — lenient degradation that avoids committing a spec the model did not
+        // endorse.
+        let mut usable_relations: Vec<(String, String)> = context
             .relations
             .iter()
-            .map(|r| r.name.as_str().to_owned())
+            .map(|r| (r.name.as_str().to_owned(), r.inverse.as_str().to_owned()))
             .collect();
         for spec in &result.new_relations {
             let label = spec.name.to_ascii_lowercase();
-            if !usable_relations.contains(&label) {
-                usable_relations.push(label.clone());
+            if !usable_relations.iter().any(|(name, _)| *name == label) {
+                usable_relations.push((label.clone(), spec.inverse.to_ascii_lowercase()));
             }
             if label == RelationName::SameAs.as_str() {
                 // The `same_as` guard: an inferred `same_as` would silently merge identities through
@@ -285,14 +290,27 @@ async fn infer_links(
             if relation_label == RelationName::SameAs.as_str() {
                 continue;
             }
-            if !usable_relations.contains(&relation_label) {
+            // Resolve the label to its canonical relation: a match on a pair's inverse means the
+            // model phrased the edge from the other end, so the canonical name is used and the
+            // direction flips below.
+            let Some((canonical_label, via_inverse)) =
+                usable_relations.iter().find_map(|(name, inverse)| {
+                    if relation_label == *name {
+                        Some((name.clone(), false))
+                    } else if relation_label == *inverse {
+                        Some((name.clone(), true))
+                    } else {
+                        None
+                    }
+                })
+            else {
                 tracing::debug!(
                     memory = %context.memory.name.as_str(),
                     relation = %link.relation,
                     "dropping a link whose relation is neither registered nor proposed"
                 );
                 continue;
-            }
+            };
             // Resolve the target handle to a live memory — the model never invents ids. A handle it
             // cannot resolve is skipped, not minted.
             let Some(target_memory) = graph.memory_by_name(MemoryName::new(&link.target))? else {
@@ -315,19 +333,22 @@ async fn infer_links(
                     continue;
                 }
             };
+            // An inverse-labeled link reads the edge from the other end: flip it onto the
+            // canonical relation's direction.
+            let (from, to) = if via_inverse { (to, from) } else { (from, to) };
             // Skip a duplicate of an existing edge — the model was shown them, and the graph's
             // `INSERT OR IGNORE` makes a duplicate a no-op anyway, so skip the event.
             if context.existing_links.iter().any(|existing| {
                 existing.from_id == from
                     && existing.to_id == to
-                    && existing.relation == RelationName::new(&relation_label)
+                    && existing.relation == RelationName::new(&canonical_label)
             }) {
                 continue;
             }
             events.push(EventPayload::LinkCreated {
                 from,
                 to,
-                relation: RelationName::new(&relation_label),
+                relation: RelationName::new(&canonical_label),
                 source: LinkSource::Inferred,
                 // No teller behind an inferred link, same as the adjudicated `same_as`.
                 told_by: None,
@@ -450,15 +471,20 @@ fn render_prompt(
         prompt.push_str("  (none)\n");
     } else {
         for relation in relations {
+            // Give each relation its directional reading, not just its label pair: a link asserts
+            // "<from> <name> <to>", which restates as "<to> <inverse> <from>". Showing the sentence
+            // form pre-built is what keeps the pass from flipping a coined directional relation —
+            // "Clara mentors Theo" grounded as the reversed "Clara mentored_by Theo".
             prompt.push_str(&format!(
-                "- {}/{} (from: {}, to: {}, symmetric: {}, reflexive: {}): {}\n",
-                relation.name.as_str(),
-                relation.inverse.as_str(),
-                relation.from_card.as_str(),
-                relation.to_card.as_str(),
-                relation.symmetric,
-                relation.reflexive,
-                relation.description,
+                "- {name}/{inverse} — a link \"A {name} B\" restates as \"B {inverse} A\" \
+                 (from: {from}, to: {to}, symmetric: {symmetric}, reflexive: {reflexive}): {desc}\n",
+                name = relation.name.as_str(),
+                inverse = relation.inverse.as_str(),
+                from = relation.from_card.as_str(),
+                to = relation.to_card.as_str(),
+                symmetric = relation.symmetric,
+                reflexive = relation.reflexive,
+                desc = relation.description,
             ));
         }
     }
