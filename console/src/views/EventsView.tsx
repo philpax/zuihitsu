@@ -3,19 +3,19 @@ import { useSearchParams } from "react-router-dom";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "../types/Event.ts";
-import type { Replica } from "../lib/replica.ts";
+import type { Replica } from "../lib/replica/replica.ts";
 import {
   type EventCategory,
   CATEGORY_COLOR,
   eventCategory,
   eventSummary,
   eventTouchesMemory,
-} from "../lib/events.ts";
-import { nameById } from "../lib/labels.ts";
-import { formatDateTime, formatTime } from "../lib/format.ts";
-import { useStreamBase } from "../lib/useStreamLocation.ts";
+} from "../lib/model/events.ts";
+import { nameById } from "../lib/model/labels.ts";
+import { formatDateTime, formatTime } from "../lib/format/format.ts";
+import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
-import { EventDetail } from "./EventDetail.tsx";
+import { EventDetail } from "../components/EventDetail.tsx";
 
 const CATEGORIES: EventCategory[] = [
   "memory",

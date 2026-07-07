@@ -15,8 +15,8 @@ import {
 } from "recharts";
 import { useState } from "react";
 
-import type { HistoryEntry, HistoryScenario } from "../lib/history.ts";
-import { formatDate, formatMs, formatRate, formatTokens } from "../lib/format.ts";
+import type { HistoryEntry, HistoryScenario } from "../lib/model/history.ts";
+import { formatDate, formatMs, formatRate, formatTokens } from "../lib/format/format.ts";
 import { Checkbox, Eyebrow } from "../components/primitives.tsx";
 
 // The palette as concrete colors — Recharts draws SVG, so it gets hex rather than the CSS tokens.

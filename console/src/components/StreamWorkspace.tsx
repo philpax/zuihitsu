@@ -2,14 +2,14 @@ import { lazy, Suspense, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
-import type { Replica } from "../lib/replica.ts";
-import type { LiveConnection } from "../lib/live.ts";
-import { STREAM_VIEWS } from "../lib/streamViews.ts";
-import { DockContext } from "../lib/dock.ts";
-import { resolveMerge } from "../lib/operator.ts";
+import type { Replica } from "../lib/replica/replica.ts";
+import type { LiveConnection } from "../lib/api/live.ts";
+import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
+import { DockContext } from "../lib/nav/dock.ts";
+import { resolveMerge } from "../lib/api/operator.ts";
 import { Timeline } from "./Timeline.tsx";
-import { StateView } from "../views/StateView.tsx";
-import { ConversationView } from "../views/ConversationView.tsx";
+import { StateView } from "../views/state/StateView.tsx";
+import { ConversationView } from "../views/conversation/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
 import { BackgroundView } from "../views/BackgroundView.tsx";
@@ -17,7 +17,9 @@ import { DiffView } from "../views/DiffView.tsx";
 
 // The relations view pulls a force-graph/canvas library, so it loads only when the Relations tab is opened.
 const RelationsView = lazy(() =>
-  import("../views/RelationsView.tsx").then((module) => ({ default: module.RelationsView })),
+  import("../views/relations/RelationsView.tsx").then((module) => ({
+    default: module.RelationsView,
+  })),
 );
 
 /// The views over a single event stream — the debugging surface shared by the eval and agent

@@ -1,8 +1,8 @@
 import type { CSSProperties } from "react";
 
 import type { Event } from "../types/Event.ts";
-import { eventSummary } from "../lib/events.ts";
-import { formatDate, formatDateTime, formatTime } from "../lib/format.ts";
+import { eventSummary } from "../lib/model/events.ts";
+import { formatDate, formatDateTime, formatTime } from "../lib/format/format.ts";
 
 /// The global time cursor for the run-scoped views: a sticky scrubber over the run's seq range that
 /// every view reflects — the State graph folds to it, the Conversation and Events stop there. The

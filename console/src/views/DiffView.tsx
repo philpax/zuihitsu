@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
 import type { Event } from "../types/Event.ts";
-import { Replica } from "../lib/replica.ts";
-import { type MemoryChange, diffSnapshots, snapshotAt } from "../lib/diff.ts";
-import { eventSummary } from "../lib/events.ts";
+import { Replica } from "../lib/replica/replica.ts";
+import { type MemoryChange, diffSnapshots, snapshotAt } from "../lib/model/diff.ts";
+import { eventSummary } from "../lib/model/events.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
 /// The Time-travel view: diff the materialized graph between two points in the log. The global

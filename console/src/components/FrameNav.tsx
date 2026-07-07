@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-import { useConsoleNav } from "../lib/consoleNav.ts";
+import { useConsoleNav } from "../lib/nav/consoleNav.ts";
 
 /// The cross-section nav in a frame's header. The section you are in is marked; a loaded sibling is
 /// a link; a sibling not yet loaded is a file picker, so you can bring it in without a trip back to

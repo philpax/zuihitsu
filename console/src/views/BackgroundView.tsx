@@ -1,8 +1,8 @@
 import type { Event } from "../types/Event.ts";
 import type { EventPayload } from "../types/EventPayload.ts";
-import type { Replica } from "../lib/replica.ts";
-import { nameById } from "../lib/labels.ts";
-import { buildBackgroundEvents, type BackgroundEvent } from "../lib/conversation.ts";
+import type { Replica } from "../lib/replica/replica.ts";
+import { nameById } from "../lib/model/labels.ts";
+import { buildBackgroundEvents, type BackgroundEvent } from "../lib/model/conversation.ts";
 import { EventRow } from "../components/EventRow.tsx";
 import { Eyebrow } from "../components/primitives.tsx";
 

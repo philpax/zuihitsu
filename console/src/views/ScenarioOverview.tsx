@@ -1,9 +1,9 @@
 import { Link, useOutletContext } from "react-router-dom";
 
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
-import { type EvalContext, activeScenarios, liveRunOf } from "../lib/liveEval.ts";
-import { formatMs, formatRate, formatTokenSplit } from "../lib/format.ts";
-import { runPath } from "../lib/routes.ts";
+import { type EvalContext, activeScenarios, liveRunOf } from "../lib/api/liveEval.ts";
+import { formatMs, formatRate, formatTokenSplit } from "../lib/format/format.ts";
+import { runPath } from "../lib/nav/routes.ts";
 import { Dot } from "../components/primitives.tsx";
 
 /// The eval-package overview: every scenario with its pass rate, how it is judged, and the cost it
