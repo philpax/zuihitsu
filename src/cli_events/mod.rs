@@ -358,7 +358,8 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         | EventPayload::MemoryDescriptionRegenerated { .. }
         | EventPayload::MemoryVolatilitySet { .. }
         | EventPayload::EntryTemporalResolved { .. }
-        | EventPayload::EntryTemporalResolveFailed { .. } => AnsiColor::BrightGreen,
+        | EventPayload::EntryTemporalResolveFailed { .. }
+        | EventPayload::EntryDescriptionMirrored { .. } => AnsiColor::BrightGreen,
         // Relations and cross-platform identity.
         EventPayload::LinkCreated { .. }
         | EventPayload::LinkRemoved { .. }

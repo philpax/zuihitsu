@@ -87,8 +87,10 @@ impl Graph {
     /// extraction is allowed to resolve (spec §Time → in the same pass). `occurred_at IS NULL`
     /// excludes an entry the agent timed explicitly and one a prior pass already resolved, so
     /// extraction never overrides a deliberate occurrence and resolves each entry once; superseded
-    /// entries are skipped as dead. Bounding by `seq > after` (the memory's `last_described_seq`)
-    /// keeps the window to what this pass has not yet considered.
+    /// entries are skipped as dead. A description mirror is skipped too: it restates what the memory
+    /// *is* and names no time, so timing it would fabricate a "now" that collides with a later dated
+    /// append (see [`crate::event::EventPayload::EntryDescriptionMirrored`]). Bounding by `seq > after`
+    /// (the memory's `last_described_seq`) keeps the window to what this pass has not yet considered.
     pub fn untimed_entries_since(
         &self,
         id: MemoryId,
@@ -96,7 +98,8 @@ impl Graph {
     ) -> Result<Vec<EntryId>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT entry_id FROM content_entries
-             WHERE memory_id = ?1 AND occurred_at IS NULL AND superseded_by IS NULL AND seq > ?2
+             WHERE memory_id = ?1 AND occurred_at IS NULL AND superseded_by IS NULL
+                   AND description_mirror = 0 AND seq > ?2
              ORDER BY seq",
         )?;
         query_map_into(stmt, params![id.0.to_string(), after.0 as i64], |row| {

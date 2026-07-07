@@ -495,6 +495,16 @@ pub enum EventPayload {
         reason: String,
         produced_by: Option<ProducedBy>,
     },
+    /// Marks a content entry as a mirror of its memory's description — the seed entry `memory.create`
+    /// appends from its `description` argument — rather than an account of a real occurrence. Applying
+    /// it stamps the entry's `description_mirror` flag; the turn-end temporal extraction then skips it
+    /// (see [`crate::graph::Graph::untimed_entries_since`]). A description mirror restates what the
+    /// memory *is*, naming no time, so an extractor asked to time it would fabricate the conversation's
+    /// "now" and that guessed date would then collide with a later, correctly-dated append on the same
+    /// memory. The mark is emitted right after the seeding [`EventPayload::MemoryContentAppended`], in
+    /// the same block, so the seed entry's intent survives replay rather than being re-inferred from
+    /// event adjacency (which cannot tell a seeded create from a bare create followed by an append).
+    EntryDescriptionMirrored { id: MemoryId, entry_id: EntryId },
     /// Fires a calendared entry's wake-up: its occurrence has come due — its `occurred_sort` passed
     /// `now`, having been later than its `asserted_at`, so it was scheduled for the future rather than
     /// recorded after the fact (spec §Scheduled work). Recorded in the log so the wake-up surface is a
@@ -855,6 +865,10 @@ impl EventPayload {
         }
     }
 
+    pub fn entry_description_mirrored(id: MemoryId, entry_id: EntryId) -> EventPayload {
+        EventPayload::EntryDescriptionMirrored { id, entry_id }
+    }
+
     pub fn entry_temporal_resolve_failed(
         id: MemoryId,
         entry_id: EntryId,
@@ -1118,6 +1132,7 @@ impl EventPayload {
             EventPayload::MemorySuperseded { .. } => "MemorySuperseded",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
             EventPayload::EntryTemporalResolveFailed { .. } => "EntryTemporalResolveFailed",
+            EventPayload::EntryDescriptionMirrored { .. } => "EntryDescriptionMirrored",
             EventPayload::ScheduledJobFired { .. } => "ScheduledJobFired",
             EventPayload::ScheduledItemSurfaced { .. } => "ScheduledItemSurfaced",
             EventPayload::MemoryDescriptionRegenerated { .. } => "MemoryDescriptionRegenerated",
@@ -1173,6 +1188,7 @@ impl EventPayload {
             | EventPayload::MemorySuperseded { id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::EntryTemporalResolveFailed { id, .. }
+            | EventPayload::EntryDescriptionMirrored { id, .. }
             | EventPayload::MemoryDescriptionRegenerated { id, .. }
             | EventPayload::BeliefArbitrated { memory: id, .. }
             | EventPayload::MergeProposed { from: id, .. }

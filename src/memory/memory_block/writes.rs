@@ -3,6 +3,7 @@
 use crate::{
     event::{EventPayload, Teller},
     ids::{EntryId, MemoryId, MemoryName},
+    time::TemporalRef,
 };
 
 use super::{AppendOptions, MemoryBlock, MemoryError};
@@ -66,7 +67,15 @@ impl MemoryBlock {
             if let Some((text, teller, visibility, occurred_at, volatility)) = first_entry {
                 // A created memory's first entry may carry an occurrence and an inline volatility, just
                 // like a standalone `mem:append("...", { occurred_at = ..., volatility = ... })`.
-                block.push_content(id, text, teller, visibility, occurred_at);
+                let entry_id = block.push_content(id, text, teller, visibility, occurred_at);
+                // The seed entry mirrors the `description` argument, not a real occurrence. Flag it so
+                // the turn-end temporal extraction skips it: were it left in the feed, its untimed text
+                // would be stamped with the conversation's "now" and that fabricated date would collide
+                // with a later, correctly-dated append on the same memory. An explicitly-supplied
+                // `occurred_at` still stands — the extraction only ever touches untimed entries.
+                block
+                    .buffer
+                    .push(EventPayload::entry_description_mirrored(id, entry_id));
                 if let Some(volatility) = volatility {
                     block.buffer.push(EventPayload::memory_volatility_set(
                         id,
@@ -181,13 +190,41 @@ impl MemoryBlock {
         id: MemoryId,
         old: EntryId,
         text: &str,
-        opts: AppendOptions,
+        mut opts: AppendOptions,
     ) -> Result<EntryId, MemoryError> {
+        // Carry the superseded entry's occurrence onto the replacement when the caller names none.
+        // Revise supersedes `old`, and the representative-date projections read only live entries, so a
+        // dateless replacement would erase a dated fact's date everywhere at once — its render, its
+        // search hit, and every link's `[when …]`. An explicit occurred_at still wins.
+        if opts.occurred_at.is_none() {
+            opts.occurred_at = self.entry_occurred_at(id, old)?;
+        }
         self.transaction(|block| {
             let new = block.append(id, text, opts)?;
             block.supersede(id, old, new)?;
             Ok(new)
         })
+    }
+
+    /// The occurrence recorded on `old`, read from this block's pending appends first, then the
+    /// committed graph — so [`MemoryBlock::revise`] can carry it onto the replacement entry when the
+    /// caller supplies none.
+    fn entry_occurred_at(
+        &self,
+        id: MemoryId,
+        old: EntryId,
+    ) -> Result<Option<TemporalRef>, MemoryError> {
+        if let Some(entry) = self.entry_ref_by_id(old) {
+            return Ok(entry.occurred_at);
+        }
+        Ok(self
+            .engine
+            .graph
+            .lock()
+            .class_history(id)?
+            .into_iter()
+            .find(|entry| entry.entry_id == old)
+            .and_then(|entry| entry.occurred_at))
     }
 
     /// Set a memory's volatility — how fast its facts go out of date. `high` for fast-changing status

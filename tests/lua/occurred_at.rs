@@ -409,3 +409,82 @@ async fn assigning_occurred_at_on_a_handle_is_a_teachable_error() {
     assert!(message.contains("occurred_at in its opts"), "{message}");
     assert!(message.contains("revise"), "{message}");
 }
+
+#[tokio::test]
+async fn a_created_memorys_description_entry_is_exempt_from_extraction() {
+    // memory.create(name, description) mirrors the description as a seed entry that names no
+    // occurrence, so the turn-end temporal extraction must skip it — otherwise it would be stamped
+    // with the conversation's own now and collide with a later dated append on the same memory. The
+    // seed entry is dropped from the extraction feed while a plainly-appended undated entry stays
+    // eligible.
+    let h = Harness::new();
+    h.run(
+        r#"
+        local ev = memory.create(EVENT_LAUNCH, "The launch event")
+        ev:append("Plans are underway", { visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    let graph = h.engine.graph.lock();
+    let ev = graph
+        .memory_by_name(Namespace::Event.with_name("launch"))
+        .unwrap()
+        .unwrap();
+    let entries = graph.entries_local(ev.id).unwrap();
+    let untimed = graph
+        .untimed_entries_since(ev.id, zuihitsu::ids::Seq::ZERO)
+        .unwrap();
+    let id_of = |needle: &str| {
+        entries
+            .iter()
+            .find(|entry| entry.text.contains(needle))
+            .unwrap_or_else(|| panic!("no entry matching {needle:?}"))
+            .entry_id
+    };
+    assert!(
+        !untimed.contains(&id_of("The launch event")),
+        "the description-mirror seed entry must be exempt from temporal extraction"
+    );
+    assert!(
+        untimed.contains(&id_of("Plans are underway")),
+        "a plainly-appended undated entry must stay eligible for extraction"
+    );
+}
+
+#[tokio::test]
+async fn revise_without_a_date_keeps_the_superseded_entrys_date() {
+    // Revising an entry without restating occurred_at carries the superseded entry's date onto the
+    // replacement rather than blanking it — the representative-date projections read only live
+    // entries, so a dateless replacement would erase the fact's date from its render, its search hit,
+    // and every link's occurrence.
+    let h = Harness::new();
+    h.run(
+        r#"
+        local ev = memory.create(EVENT_LAUNCH)
+        ev:append("Launch", { occurred_at = { day = "2027-03-15" }, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    let BlockOutcome::Committed { result } = h
+        .run(
+            r#"
+        local ev = memory.get(EVENT_LAUNCH)
+        local old
+        for _, e in ipairs(ev:entries()) do
+            if e.occurred_at and e.occurred_at.day == "2027-03-15" then old = e end
+        end
+        ev:revise(old, "Launch confirmed", { visibility = "public" })
+        return ev:entries()
+        "#,
+        )
+        .await
+    else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("[2027-03-15") && result.contains("Launch confirmed"),
+        "revise without occurred_at should keep the 15th on the replacement, got: {result}"
+    );
+}

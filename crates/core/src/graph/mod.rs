@@ -282,6 +282,12 @@ impl Graph {
                  -- is ground truth; extracted is a guess. Representative-date projections prefer an
                  -- authored occurrence so a wrong extracted date never shadows a stated one.
                  occurred_authored INTEGER NOT NULL DEFAULT 0,
+                 -- Whether this entry is a mirror of its memory's description (the seed entry
+                 -- `memory.create` appends from its `description` argument) rather than an account of a
+                 -- real occurrence. A description mirror names no time, so the turn-end temporal
+                 -- extraction skips it (see `untimed_entries_since`): timing it would fabricate the
+                 -- conversation's own now and collide with a later, correctly-dated append on the memory.
+                 description_mirror INTEGER NOT NULL DEFAULT 0,
                  fired_at      INTEGER,
                  surfaced_at   INTEGER,
                  text          TEXT    NOT NULL,

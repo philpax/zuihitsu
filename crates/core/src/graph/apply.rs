@@ -256,6 +256,17 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::EntryDescriptionMirrored { entry_id, .. } => {
+                // Flag the seed entry as a description mirror in place; the append row is otherwise
+                // immutable. The turn-end temporal extraction then skips it, so its untimed text never
+                // acquires a fabricated occurrence that would collide with a later dated append.
+                self.conn
+                    .execute(
+                        "UPDATE content_entries SET description_mirror = 1 WHERE entry_id = ?1",
+                        params![entry_id.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
             EventPayload::EntryTemporalResolved {
                 entry_id,
                 occurred_at,
