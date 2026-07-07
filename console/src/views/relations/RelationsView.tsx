@@ -6,49 +6,32 @@ import ForceGraph2D, {
   type NodeObject,
 } from "react-force-graph-2d";
 
-import type { MemoryId } from "../../types/MemoryId.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
-import type { RelationView } from "../../lib/model/graph.ts";
+import type { MemoryId } from "../../types/MemoryId.ts";
 import {
   buildMemoryGraph,
   collapseSameAs,
   filterByRelations,
 } from "../../lib/model/memoryGraph.ts";
-import type { MemoryGraph, MemoryGraphNode } from "../../lib/model/memoryGraph.ts";
 import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
 import { statePath } from "../../lib/nav/routes.ts";
-import { Checkbox } from "../../components/primitives.tsx";
 import { MergeProposals } from "./MergeProposals.tsx";
+import { LinkedPairs, RelationLegend } from "./Legend.tsx";
+import {
+  SIZES,
+  expandVirtualNodes,
+  isVirtual,
+  nodeLabel,
+  nodeShape,
+  readPalette,
+  relationColor,
+} from "./graphUtilities.ts";
 
 /// The operator's merge-decision hook, supplied only by the live agent frame when the cursor is at the
 /// head — resolving a proposal authors an operator event, which the read-only eval viewer cannot do.
 export interface MergeControls {
   resolve: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
 }
-
-/// World-space sizes for the graph canvas, gathered so the whole drawing scales from one place.
-/// These are world units (not screen pixels), so they scale with the camera zoom.
-const SIZES = {
-  node: {
-    fontSize: 2.75,
-    padX: 1.25,
-    padY: 0.5,
-    relSize: 1.25,
-    strokeWidth: 0.25,
-  },
-  badge: {
-    radius: 1.5,
-    fontSize: 2,
-  },
-  link: {
-    width: 1,
-    arrowLength: 1.5,
-    dash: [1.5, 1.5] as const,
-    labelFontSize: 2,
-    labelPadX: 0.5,
-    labelPadY: 0.5,
-  },
-};
 
 /// The Relations view: the relation registry as a filterable table at the top, the force-directed
 /// graph below it, and the linked-pairs list below that. The graph is the same folded materialization
@@ -326,259 +309,4 @@ export function RelationsView({
       )}
     </div>
   );
-}
-
-/// The relation registry as a table. Each row is a toggle filter; clicking "all" clears the filter.
-/// The swatch column matches the graph's edge color for the relation.
-
-function RelationLegend({
-  relations,
-  selected,
-  onToggle,
-  onClear,
-  sameAs,
-  onToggleSameAs,
-}: {
-  relations: RelationView[];
-  selected: Set<string>;
-  onToggle: (name: string) => void;
-  onClear: () => void;
-  sameAs: boolean;
-  onToggleSameAs: (on: boolean) => void;
-}) {
-  return (
-    <nav className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={onClear}
-          className={
-            "border-b-2 pb-0.5 font-mono text-xs transition-colors " +
-            (selected.size === 0
-              ? "border-clay text-ink"
-              : "border-transparent text-ink-soft hover:text-ink")
-          }
-        >
-          all relations
-        </button>
-        <Checkbox checked={sameAs} onChange={onToggleSameAs} label="collapse same_as" />
-      </div>
-      {relations.length === 0 ? (
-        <p className="py-2 font-mono text-2xs text-ink-faint">no registered relations</p>
-      ) : (
-        // Scrolls sideways on a narrow screen rather than crushing its fixed columns.
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[34rem] table-fixed border-collapse">
-            <thead>
-              <tr className="border-b border-line text-left font-mono text-2xs uppercase tracking-widest text-ink-faint">
-                <th className="w-[20%] pb-1 pr-2 font-normal">name</th>
-                <th className="w-[20%] pb-1 pr-2 font-normal">inverse</th>
-                <th className="w-24 pb-1 pr-2 font-normal">card</th>
-                <th className="pb-1 font-normal">description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {relations.map((relation) => {
-                const active = selected.has(relation.name);
-                const color = relationColor(relation.name);
-                return (
-                  <tr
-                    key={relation.name}
-                    onClick={() => onToggle(relation.name)}
-                    className={
-                      "cursor-pointer border-l-2 align-baseline transition-colors " +
-                      (active ? "border-clay" : "border-transparent hover:bg-oat/30")
-                    }
-                  >
-                    <td className="py-1 pl-2.5 pr-2 font-mono text-xs" style={{ color }}>
-                      {relation.name}
-                    </td>
-                    <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
-                      {relation.inverse}
-                    </td>
-                    <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
-                      {cardinalityLabel(relation)}
-                    </td>
-                    <td className="py-1 text-2xs leading-snug text-ink-faint">
-                      {relation.description || "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </nav>
-  );
-}
-
-/// The `source relation target` triples for the selected relations, each name a link into the State
-/// view at the cursor. The colored relation name is the verb — no arrows. Virtual nodes (collapsed
-/// identities) render their display id but do not link — they are not a single memory to open.
-function LinkedPairs({
-  graph,
-  base,
-  cursor,
-  navigate,
-}: {
-  graph: MemoryGraph;
-  base: string;
-  cursor: number;
-  navigate: (path: string) => void;
-}) {
-  if (graph.links.length === 0) {
-    return <p className="font-mono text-2xs text-ink-faint">no links for these relations</p>;
-  }
-  return (
-    <section>
-      <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
-        {`linked · ${graph.links.length}`}
-      </span>
-      <ul className="mt-2 flex flex-col gap-1 font-mono text-xs text-ink-soft">
-        {graph.links.map((link, index) => (
-          <li
-            key={`${link.source}-${link.relation}-${link.target}-${index}`}
-            className="flex items-baseline gap-2"
-          >
-            <MemoryLink name={link.source} base={base} cursor={cursor} navigate={navigate} />
-            <span style={{ color: relationColor(link.relation) }}>{link.relation}</span>
-            <MemoryLink name={link.target} base={base} cursor={cursor} navigate={navigate} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/// A clickable memory name that navigates to the State view at the cursor. Virtual nodes (carrying
-/// `members`) are shown as plain text — they are a class, not a single memory to open.
-function MemoryLink({
-  name,
-  base,
-  cursor,
-  navigate,
-}: {
-  name: string;
-  base: string;
-  cursor: number;
-  navigate: (path: string) => void;
-}) {
-  // A collapsed virtual node id ends in " (N)" — it is not a memory name to open.
-  const isVirtualNode = /\(\d+\)$/.test(name);
-  if (isVirtualNode) {
-    return <span className="text-sage">{name}</span>;
-  }
-  return (
-    <button
-      onClick={() => navigate(statePath(base, cursor, name))}
-      title={`Open ${name} in State`}
-      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-    >
-      {name}
-    </button>
-  );
-}
-
-/// Splice expanded virtual nodes' members into the graph as satellite nodes. The class node stays
-/// (so inter-class edges keep their anchor); its members appear as nodes linked to it by `same`
-/// edges drawn as undirected dashed lines. No positions are seeded — the force layout's link force
-/// pulls the members toward their class node, settling them as a cluster.
-function expandVirtualNodes(graph: MemoryGraph, expanded: Set<string>): MemoryGraph {
-  if (expanded.size === 0) return graph;
-  const nodes: MemoryGraphNode[] = [...graph.nodes];
-  const links = [...graph.links];
-  for (const node of graph.nodes) {
-    if (!node.members || !expanded.has(node.id)) continue;
-    for (const member of node.members) {
-      nodes.push({ id: member, namespace: namespaceOf(member) });
-      links.push({ source: node.id, target: member, relation: "same as", same: true });
-    }
-  }
-  return { nodes, links };
-}
-
-function isVirtual(node: NodeObject): node is NodeObject & { members: string[] } {
-  return (
-    Array.isArray((node as MemoryGraphNode).members) &&
-    (node as MemoryGraphNode).members!.length > 0
-  );
-}
-
-function nodeLabel(node: NodeObject): string {
-  if (isVirtual(node)) {
-    return `${node.id} — ${node.members.join(", ")}`;
-  }
-  return String(node.id);
-}
-
-/// The bounding box for a pill-shaped node, in world-space units so it scales with the camera.
-function nodeShape(
-  node: NodeObject,
-  ctx: CanvasRenderingContext2D,
-): { x: number; y: number; w: number; h: number; r: number } {
-  const fontSize = SIZES.node.fontSize;
-  ctx.font = `${fontSize}px ui-monospace, monospace`;
-  const textWidth = ctx.measureText(String(node.id)).width;
-  const padX = SIZES.node.padX;
-  const padY = SIZES.node.padY;
-  const w = textWidth + padX * 2;
-  const h = fontSize + padY * 2;
-  return {
-    x: (node.x ?? 0) - w / 2,
-    y: (node.y ?? 0) - h / 2,
-    w,
-    h,
-    r: h / 2,
-  };
-}
-
-function cardinalityLabel(relation: RelationView): string {
-  return `${relation.from_card}→${relation.to_card}`;
-}
-
-function namespaceOf(name: string): string {
-  const slash = name.indexOf("/");
-  return slash === -1 ? name : name.slice(0, slash);
-}
-
-/// A stable color for a relation name, derived from a hash so the legend swatch and the graph edge
-/// match without a hand-maintained palette. `same` edges fall back to the sage accent, since they are
-/// identity plumbing rather than a typed relation with a registry entry.
-function relationColor(name: string, fallback?: string): string {
-  if (fallback !== undefined) {
-    // The canvas calls pass the palette's sage as the fallback for `same` edges.
-    if (name === "same as") return fallback;
-  }
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash << 5) - hash + name.charCodeAt(i);
-    hash |= 0;
-  }
-  const hue = Math.abs(hash) % 360;
-  // A moderate saturation and lightness that sits comfortably on the warm paper ground.
-  return `hsl(${hue}, 55%, 45%)`;
-}
-
-/// Read the Japandi tokens off the document once, so the canvas (which can only take concrete colors)
-/// stays in step with the design tokens rather than hard-coding hexes.
-let cachedPalette: {
-  ink: string;
-  inkSoft: string;
-  clay: string;
-  sage: string;
-  paper: string;
-} | null = null;
-function readPalette() {
-  if (!cachedPalette) {
-    const root = getComputedStyle(document.documentElement);
-    const value = (name: string) => root.getPropertyValue(name).trim();
-    cachedPalette = {
-      ink: value("--color-ink"),
-      inkSoft: value("--color-ink-soft"),
-      clay: value("--color-clay"),
-      sage: value("--color-sage"),
-      paper: value("--color-paper"),
-    };
-  }
-  return cachedPalette;
 }
