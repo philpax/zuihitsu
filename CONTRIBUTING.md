@@ -95,6 +95,16 @@ Within each module, organize code as follows:
 2. **Private implementation below** - constants, helper functions, and internal types
 3. **Order by use** - private items should appear in the order they're called/used by the public API (topological order)
 
+### Code organisation
+
+- **Keep files under the size threshold.** Split a file into multiple files within a folder when it exceeds 500 lines (Rust) or 400 lines (console TS/TSX). Use `mod.rs` (Rust) or an index/re-export pattern (console) to re-export public items so consumers see a stable API.
+- **Split by concern, not by size alone.** A file should be split along natural seams — distinct data types, feature groups, or functional areas — not arbitrarily at the line limit. A cohesive single-concern file that slightly exceeds the threshold is preferable to a fragmented one. When splitting a console file, keep one main component per file with co-located sub-components; put non-component utilities (hooks, constants, pure functions) in separate files so HMR boundaries stay clean. Use PascalCase for `.tsx` component files and lowerCamelCase for `.ts` utility files, with a `Utilities` suffix (e.g. `channelUtilities.ts`) to avoid filename collisions between a component and its utilities.
+- **Console: `components/` is shared-only.** A component used by only one view lives in that view's folder. A component used by only one shell lives in that shell's folder under `frames/`. `components/` holds only components shared between two or more views or frames.
+- **Console: `frames/` holds application shells.** The top-level routed modes — eval viewer, live agent, landing, trends — and their exclusive sub-components live in `frames/`, separate from `views/` (routed views) and `components/` (shared).
+- **Console: `lib/` is grouped by concern.** Files are organised into `api/` (server communication), `replica/` (wasm bridge), `model/` (data shapes and derived state), `format/` (formatting utilities), `nav/` (routing and navigation), and `view/` (view-context helpers that consume both model and replica).
+- **Organise wide folders into subfolders.** When a folder accumulates many direct children, group them by domain or role. A flat folder of 20+ files is a signal that subfolders are needed.
+- **Test files follow the same threshold.** A long test file is split by concern group, with shared helpers in the test module's `mod.rs`.
+
 ### Memory and performance
 
 - Use `Arc` or borrows for shared immutable data.
