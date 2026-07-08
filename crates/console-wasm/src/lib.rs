@@ -23,27 +23,21 @@ use zuihitsu_core::{
     ids::{ConversationId, EntryId, MemoryId, MemoryName, Namespace, Seq, SessionId, TurnId},
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
-    turn_ref,
 };
 
 /// A materializing read replica: an event log plus the graph state it folds into. The log is
 /// retained so the graph can be re-folded to any earlier `Seq` for time-travel.
 #[wasm_bindgen]
-use zuihitsu_core::turn_ref;
+pub struct Replica {
+    events: Vec<Event>,
+    graph: Graph,
+    head: Seq,
+}
 
 /// How many instances of a single recurring rule the agenda expands within its horizon — a bound so
 /// a daily rule cannot flood the view (a weekly or monthly rule stays well under it over the
 /// horizon).
 const MAX_RECURRING_INSTANCES: usize = 20;
-
-/// A read-only graph replica, folding an event log into the live projection on demand.
-#[wasm_bindgen]
-pub struct Replica {
-    events: Vec<Event>,
-    graph: Graph,
-    /// The highest `Seq` currently folded into `graph` (the fold horizon).
-    head: Seq,
-}
 
 #[wasm_bindgen]
 impl Replica {
@@ -449,7 +443,7 @@ impl Replica {
 
 /// Serialize a value to a JS value with the JSON-compatible number policy (plain numbers, not
 /// `BigInt`), so the result matches the ts-rs bindings the frontend is typed against.
-fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
+pub(crate) fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
     value
         .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
         .map_err(|error| JsError::new(&format!("console: serializing a result: {error}")))
@@ -472,8 +466,8 @@ fn parse_memory_id(id: &str) -> Result<MemoryId, JsError> {
         .map(MemoryId)
         .map_err(|error| JsError::new(&format!("console: invalid memory id {id:?}: {error}")))
 }
-mod turn_ref;
-mod types;
+pub mod turn_ref;
+pub mod types;
 
 pub use types::{
     AgendaItem, ConversationDetail, MemoryDetail, MergeProposalView, MergeStatus, SessionSummary,
