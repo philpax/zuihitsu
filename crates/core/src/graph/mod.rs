@@ -180,7 +180,6 @@ pub struct ParticipantMint {
 }
 
 /// A failure projecting or querying the graph.
-
 pub struct Graph {
     conn: Connection,
 }
