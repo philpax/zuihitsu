@@ -8,6 +8,7 @@ import ForceGraph2D, {
 
 import type { Replica } from "../../lib/replica/replica.ts";
 import type { MemoryId } from "../../types/MemoryId.ts";
+import type { MemoryGraph } from "../../lib/model/memoryGraph.ts";
 import {
   buildMemoryGraph,
   collapseSameAs,
@@ -76,6 +77,7 @@ export function RelationsView({
     expandParam && expandParam !== "" ? new Set(expandParam.split(",")) : new Set<string>();
 
   const relations = replica.relations().filter((relation) => relation.name !== "same_as");
+  const nameById = new Map(replica.memories("").map((m) => [m.id, m.name]));
 
   // Pipeline order matters: collapse runs on the full graph first (while `same` edges are present for
   // the union-find), then filtering keeps only the selected relations' typed edges between the
@@ -161,6 +163,16 @@ export function RelationsView({
 
   const graphData = expandVirtualNodes(filtered, expanded);
   const proposals = replica.mergeProposals();
+
+  // A defensive copy of the filtered graph for `LinkedPairs`, so the force-graph library's
+  // in-place mutation of node/link objects (it replaces `source`/`target` strings with node
+  // object references) does not corrupt the data the list reads. The force graph receives
+  // `graphData` (which may share references with `filtered` when no virtual nodes are expanded);
+  // this copy stays pristine.
+  const linkedPairsGraph: MemoryGraph = {
+    nodes: filtered.nodes,
+    links: filtered.links.map((link) => ({ ...link })),
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -304,7 +316,13 @@ export function RelationsView({
           {/* Linked-pairs detail: the graph shows the shape; this spells out the
               `source relation target` triples, each name clickable into State. Shown for all
               relations when "all" is active, or just the selected ones when filtering. */}
-          <LinkedPairs graph={filtered} base={base} cursor={cursor} navigate={navigate} />
+          <LinkedPairs
+            graph={linkedPairsGraph}
+            base={base}
+            cursor={cursor}
+            navigate={navigate}
+            nameById={nameById}
+          />
         </>
       )}
     </div>

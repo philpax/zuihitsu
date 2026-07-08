@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 
-import { completionSummary, terminalCauseLabel } from "../lib/model/labels.ts";
+import {
+  completionSummary,
+  isPrivate,
+  tellerLabel,
+  terminalCauseLabel,
+  visibilityLabel,
+} from "../lib/model/labels.ts";
 import { formatMs } from "../lib/format/format.ts";
 import { Lua } from "../components/Lua.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
@@ -75,6 +81,15 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           <Field label="relation">{payload.relation}</Field>
           <Field label="to">{ref(payload.to)}</Field>
           <Field label="source">{payload.source}</Field>
+          {payload.told_by && (
+            <Field label="told by">{tellerLabel(payload.told_by, nameById)}</Field>
+          )}
+          {payload.told_in && <Field label="told in">{ref(payload.told_in)}</Field>}
+          <Field label="visibility">
+            <span className={isPrivate(payload.visibility) ? "text-clay" : undefined}>
+              {visibilityLabel(payload.visibility, nameById)}
+            </span>
+          </Field>
         </Fields>
       );
 

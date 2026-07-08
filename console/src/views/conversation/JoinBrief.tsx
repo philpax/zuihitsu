@@ -95,6 +95,9 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
               >
                 {relationship.subject}
               </button>
+              {relationship.marker && (
+                <span className="text-2xs text-ink-faint">{relationship.marker}</span>
+              )}
             </li>
           ))}
         </ul>

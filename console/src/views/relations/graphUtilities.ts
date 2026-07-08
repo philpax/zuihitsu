@@ -39,7 +39,15 @@ export function expandVirtualNodes(graph: MemoryGraph, expanded: Set<string>): M
     if (!node.members || !expanded.has(node.id)) continue;
     for (const member of node.members) {
       nodes.push({ id: member, namespace: namespaceOf(member) });
-      links.push({ source: node.id, target: member, relation: "same as", same: true });
+      links.push({
+        source: node.id,
+        target: member,
+        relation: "same as",
+        same: true,
+        visibility: "Public",
+        told_by: null,
+        told_in: null,
+      });
     }
   }
   return { nodes, links };

@@ -1,3 +1,6 @@
+import type { MemoryId } from "../../types/MemoryId.ts";
+import type { Teller } from "../../types/Teller.ts";
+import type { Visibility } from "../../types/Visibility.ts";
 import type { Replica } from "../replica/replica.ts";
 
 /// The memory graph at the current fold, shaped for a force-directed layout: a node per memory and an
@@ -17,6 +20,12 @@ export interface MemoryGraphLink {
   relation: string;
   /// A `same_as` identity edge rather than a typed relation — drawn undirected and distinct.
   same: boolean;
+  /// The link's audience posture, surfaced so the relations view can mark non-public links.
+  visibility: Visibility;
+  /// Who asserted the relationship, if known — `null` for structural links with no teller.
+  told_by: Teller | null;
+  /// The context memory (room) the link was asserted in, if any.
+  told_in: MemoryId | null;
 }
 
 export interface MemoryGraph {
@@ -45,7 +54,15 @@ export function buildMemoryGraph(replica: Replica): MemoryGraph {
       const key = `rel-${source}-${link.relation}-${target}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      links.push({ source, target, relation: link.relation, same: false });
+      links.push({
+        source,
+        target,
+        relation: link.relation,
+        same: false,
+        visibility: link.visibility,
+        told_by: link.told_by,
+        told_in: link.told_in,
+      });
     }
 
     for (const peer of detail.class) {
@@ -53,7 +70,15 @@ export function buildMemoryGraph(replica: Replica): MemoryGraph {
       const key = `same-${[memory.name, peer.name].sort().join("-")}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      links.push({ source: memory.name, target: peer.name, relation: "same as", same: true });
+      links.push({
+        source: memory.name,
+        target: peer.name,
+        relation: "same as",
+        same: true,
+        visibility: "Public" as Visibility,
+        told_by: null,
+        told_in: null,
+      });
     }
   }
 
@@ -150,6 +175,9 @@ export function collapseSameAs(graph: MemoryGraph): MemoryGraph {
       target: targetId,
       relation: link.relation,
       same: false,
+      visibility: link.visibility,
+      told_by: link.told_by,
+      told_in: link.told_in,
     });
   }
 

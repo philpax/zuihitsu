@@ -42,6 +42,9 @@ export interface LinkView {
   from: MemoryId;
   to: MemoryId;
   relation: string;
+  told_by: Teller | null;
+  told_in: MemoryId | null;
+  visibility: Visibility;
 }
 
 export interface RelationView {
