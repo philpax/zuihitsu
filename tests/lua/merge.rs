@@ -111,6 +111,57 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
 }
 
 #[tokio::test]
+async fn an_empty_stub_leaves_the_proposal_pending_for_the_operator() {
+    // A stub with no recorded facts gives the adjudicator nothing to weigh — and a fresh platform
+    // arrival is empty by construction. Rather than record a refusal that would settle the pair out of
+    // the operator's reach (and past every later pass), the pass leaves it pending: no
+    // MergeAdjudicated, the stubs stay distinct, and the model is never even consulted.
+    let h = Harness::new();
+    register_adjudication_template(&h);
+    h.run(
+        r#"
+        local a = memory.create(PERSON_SAM_SLACK)
+        a:append("Is an engineer", { visibility = "public" })
+        local b = memory.create(PERSON_SAM_DISCORD)
+        a:propose_merge(b)
+        return "ok"
+        "#,
+    )
+    .await;
+
+    // A model that would accept, present only to prove the empty stub is skipped before any call.
+    let model = ScriptedModel::new([Completion::Reply(
+        r#"{"accepted": true, "rationale": "should never be reached"}"#.to_owned(),
+    )]);
+    h.adjudicate(&model).await;
+
+    let graph = h.engine.graph.lock();
+    let a = graph
+        .memory_by_name(Namespace::Person.with_name("sam-slack"))
+        .unwrap()
+        .unwrap();
+    let b = graph
+        .memory_by_name(Namespace::Person.with_name("sam-discord"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !graph.class_members(a.id).unwrap().contains(&b.id),
+        "an empty-evidence pair must be left unmerged"
+    );
+    drop(graph);
+    assert!(
+        !h.events()
+            .iter()
+            .any(|e| matches!(&e.payload, EventPayload::MergeAdjudicated { .. })),
+        "an empty-evidence pair must be left pending, not settled with a verdict"
+    );
+    assert!(
+        model.recorded_messages().is_empty(),
+        "the adjudicator must not consult the model for an empty-evidence pair"
+    );
+}
+
+#[tokio::test]
 async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
     // The rationale the agent states with propose_merge rides the MergeProposed event and is injected
     // into the adjudicator's prompt as the proposer's claim — so the adjudicator weighs the stated

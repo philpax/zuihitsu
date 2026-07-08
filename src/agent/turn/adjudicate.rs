@@ -115,6 +115,18 @@ async fn adjudicate(
         };
         let (from_memory, from_entries, from_context, to_memory, to_entries, to_context) = pair;
 
+        // A stub with no recorded facts carries no evidence to weigh, and a fresh platform arrival is
+        // empty by construction. Asking the judge to find an improbable coincidence against nothing can
+        // only refuse, and a recorded refusal settles the pair out of every later pass. Leave it pending
+        // for the operator backstop instead — the right resolver here, since the arrival's facts accrue
+        // from the very conversation that proposed the merge and so cannot themselves be trusted as
+        // evidence (the structural defense this pass rests on).
+        if (from_entries.is_empty() && from_context.is_empty())
+            || (to_entries.is_empty() && to_context.is_empty())
+        {
+            continue;
+        }
+
         let verdict = match adjudicate_pair(
             model,
             engine,
