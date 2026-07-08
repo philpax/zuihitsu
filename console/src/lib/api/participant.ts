@@ -3,10 +3,12 @@ import type { TurnOutcome } from "../../types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 
-/// The platform key the console uses for its own conversations — the spec's "direct interface"
-/// platform client. A room the console starts is addressed `(direct, <name>)`; the console can also
-/// drop into a room that arrived from another platform by reusing that room's locator.
-export const DIRECT_PLATFORM = "direct";
+// The platform key the console uses for its own conversations — the spec's "direct interface"
+// platform client. A room the console starts is addressed `(direct, <name>)`; the console can also
+// drop into a room that arrived from another platform by reusing that room's locator. Sourced from
+// Rust (`ids::DIRECT_PLATFORM`) so the value stays identical to the one identity resolution keys its
+// operator-authority merge on; re-exported here for consumers already reaching for the api module.
+export { DIRECT_PLATFORM } from "../../types/constants.ts";
 
 /// One participant turn the console delivers as a platform client: the room, who is speaking (a
 /// platform handle the server resolves to a `person/*` stub), what they said, and who is present.
