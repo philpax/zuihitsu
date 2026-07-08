@@ -16,9 +16,9 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 11,
-        "the scaffold is registered at v7 (v6 added the record-or-plain-words branch; v7 threads \
-         <memory>:details() and memory.list into the recall and deduplication points)"
+        scaffold.version, 12,
+        "the scaffold is registered at v12 (v12 teaches link visibility defaults: a relationship \
+         recorded about someone defaults private to the teller when a participant asserts it)"
     );
     assert!(
         scaffold

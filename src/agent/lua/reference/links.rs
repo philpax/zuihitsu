@@ -11,7 +11,11 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
              two memories relate — two people who know each other, an event that belongs to a topic — \
              capture it with link rather than only describing it in prose, so the connection is \
              queryable and traversable (pick the fitting relation from the registry). For a symmetric \
-             relation (shown in the registry), link once — the reverse direction is implied.",
+             relation (shown in the registry), link once — the reverse direction is implied. A \
+             relationship you record about someone — a belief, a judgment — defaults private to the \
+             teller when a participant asserts it, so an aside about B stays hidden from B; a relayed \
+             fact (the teller is neither endpoint) surfaces to anyone carrying provenance. Force the \
+             posture with opts.visibility when the default does not fit.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
         .required(
@@ -19,6 +23,17 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
             AT::Handle,
             "the memory to link to — a handle (e.g. context.current()) or its name as a string, \
              which is looked up",
+        )
+        .optional(
+            "opts",
+            object().optional(
+                "visibility",
+                enum_of(["public", "attributed", "private"]),
+                "force the link's visibility instead of the write-time default — same postures as \
+                 content: public, attributed (secondhand), or private (teller-gated, subject-guarded \
+                 at the target)",
+            ),
+            "overrides for the link — visibility forces the posture instead of the write-time default",
         );
 
     let unlink = AE::new("<memory>:unlink")
@@ -41,7 +56,8 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
              a symmetric relation, both return the same neighbours. A stored edge's direction \
              reflects how the fact was told, so for a who-is-connected question, prefer \
              <memory>:links or <memory>:details, which read both directions — betting on one \
-             direction can miss edges told the other way.",
+             direction can miss edges told the other way. Private links are filtered out when an \
+             audience is present, mirroring content entry reads.",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
@@ -62,7 +78,8 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
              memory, name, direction, source, occurred_at } printing as \"relation → name\" (or \
              \"← name\" incoming), a dated occurrence appended; reach a linked memory through \
              result.memory, and each result renders as its own text for interpolation into a reply. \
-             Call it with a colon — <memory>:links() — since <memory>.links is the method itself.",
+             Call it with a colon — <memory>:links() — since <memory>.links is the method itself. \
+             Private links are filtered out when an audience is present, mirroring content entry reads.",
         )
         .returns(AT::Object(Vec::new()).list());
 

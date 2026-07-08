@@ -227,7 +227,11 @@ pub(in crate::agent::genesis) fn default_templates(
              sentence comes out backwards, link from the other end, or under the inverse label. The \
              registered relations each have a purpose — use the one that fits; when none does, \
              register a new one (links.register) rather than stretching a seed relation to a meaning \
-             it was not built for, which splits one edge in two."
+             it was not built for, which splits one edge in two. A relationship you record about \
+             someone — a belief, a judgment — defaults private to the teller when a participant \
+             asserts it, so an aside about B stays hidden from B; a relayed fact (told by neither \
+             endpoint) surfaces to anyone carrying provenance. Force the posture with opts.visibility \
+             when the default does not fit."
                 .to_owned(),
         );
     }
@@ -320,16 +324,18 @@ pub(in crate::agent::genesis) fn default_templates(
             // fresh read; and the absence-is-the-answer clause now applies only to a question about
             // what is held, never to a turn that tells the agent something to keep or asks it to set
             // something up, which it records rather than reporting absent.
-            // Version 10 teaches the write side of link direction: a:link(rel, b) asserts "a <rel> b",
-            // read back as a sentence before committing, linking from the other end (or under the
-            // inverse label) when it comes out backwards — and corrects the linking point to say a
-            // target may be a handle or an exact name. (Version 9 split identity lookups from recall —
-            // a name is checked exactly, search never decides name existence — and added the
-            // look-before-acting point; version 8 taught a fuzzy hit as a candidate, not a match;
-            // version 7 threaded the whole-record read; version 6 added the record-or-plain-words
-            // branch; version 5 was the concision rewrite.) Bumping the version keeps an older
-            // `produced_by` naming the body it was generated under.
-            version: 11,
+            // Version 12 teaches link visibility defaults: a relationship recorded about someone
+            // defaults private to the teller when a participant asserts it, and opts.visibility
+            // forces the posture. (Version 11 taught the write side of link direction: a:link(rel, b)
+            // asserts "a <rel> b", read back as a sentence before committing, linking from the other
+            // end (or under the inverse label) when it comes out backwards — and corrects the linking
+            // point to say a target may be a handle or an exact name. Version 10 split identity
+            // lookups from recall — a name is checked exactly, search never decides name existence —
+            // and added the look-before-acting point; version 9 taught a fuzzy hit as a candidate,
+            // not a match; version 8 threaded the whole-record read; version 7 added the
+            // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the
+            // version keeps an older `produced_by` naming the body it was generated under.
+            version: 12,
             body: scaffold_body,
         },
         TemplateDef {

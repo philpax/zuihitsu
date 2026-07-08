@@ -129,8 +129,10 @@ Link {
   to:         MemoryId
   relation:   RelationName
   created_at: timestamp
-  source:     enum {Agent, Operator, Adjudicated}
+  source:     enum {Agent, Operator, Adjudicated, Inferred}
   told_by:    Option<Teller>  -- who asserted the relationship; the provenance a belief relation turns on
+  told_in:    Option<MemoryId>  -- the context (room) the link was asserted in
+  visibility: Visibility       -- the audience posture, governing the read-time link_visible predicate
 }
 ```
 
@@ -320,7 +322,7 @@ All state changes are events; graph state is a pure projection.
 - `TagDescriptionChanged { name, new_description }`
 - `LinkTypeRegistered { name, inverse, from_card, to_card, symmetric, reflexive }`
 - `LinkTypeChanged { name, ... }`
-- `LinkCreated { from, to, relation, source, told_by }` — `source` is `Agent`, `Operator`, or `Adjudicated`; the last is a `same_as` authored by the merge-adjudication pass, the only path to a merge without the operator (spec §Cross-platform identity). `told_by` is the teller who asserted the relationship — captured for every block-authored link the way a content entry captures its teller, so a belief-bearing edge carries who claims it; `None` for a link with no teller behind it (the adjudicated `same_as`). The link readers surface it (see **Lua API → link readers**).
+- `LinkCreated { from, to, relation, source, told_by, told_in, visibility }` — `source` is `Agent`, `Operator`, `Adjudicated`, or `Inferred`; `Adjudicated` is a `same_as` authored by the merge-adjudication pass, the only path to a merge without the operator (spec §Cross-platform identity). `told_by` is the teller who asserted the relationship — captured for every block-authored link the way a content entry captures its teller, so a belief-bearing edge carries who claims it; `None` for a link with no teller behind it (the adjudicated `same_as`). `told_in` carries the context memory (room) the link was asserted in; `visibility` is the audience posture, governing the read-time `link_visible` predicate (spec §Visibility → link visibility). Both default for pre-visibility logs (`None` and `Public`). The link readers surface provenance (see **Lua API → link readers**) and filter through `link_visible` when an audience is present.
 - `LinkRemoved { from, to, relation }`
 - `ConversationStarted { id, locator, context_memory }` / `ConversationEnded { id }` — the durable room, keyed by `ConversationLocator`; `ConversationStarted` fires once on first contact, `ConversationEnded` only when a room is permanently retired (rare — conversations are durable and long-lived; a session, below, is the bounded unit that opens and closes routinely). `context_memory` is the `context/*` memory minted eagerly with the room (see **Contexts are first-class memories**), so the locator resolves to it.
 - `SessionStarted { conversation, id, participants, started_at, seeded_from_turn, brief }` / `SessionEnded { conversation, id }` — a bounded activity window; the brief-freeze unit. `brief` is the composed brief block, captured here verbatim so the frozen prompt is faithfully replayable without recomposing against current state (see **System prompt → replay**). `seeded_from_turn` records the extent of raw transcript carried over when this session opened via compaction (null for a fresh/idle-opened session) — the one carryover fact faithful replay needs, recorded rather than recomputed from the character budget.
@@ -415,7 +417,7 @@ The framing that makes the rest cohere: the agent is not a store with an access-
 
 This is the hardest correctness concern in a multi-participant memory, and the place to spend the most care.
 
-Every `ContentEntry` carries `told_by` and `visibility`. The filter is applied during brief composition, during search, and on the agent's direct reads of a memory by handle; the agent never relays an entry it shouldn't, through any channel.
+Every `ContentEntry` carries `told_by` and `visibility`; every `Link` carries `told_by`, `told_in`, and `visibility`. The filter is applied during brief composition, during search, on the agent's direct reads of a memory by handle, and at every link-reading surface (the brief's `<relationships>` block, the link readers, `mem:details`, and search salient relations); the agent never relays an entry or a relationship it shouldn't, through any channel.
 
 ### Visibility versus disclosure, and three postures
 
@@ -439,7 +441,7 @@ Because private content is embedded and therefore semantically retrievable (see 
 
 Surviving private hits carry the inline teller-private marker (`[teller-private, told by … in … (confidential)]`), resolved at retrieval the same way the brief resolves it, not as out-of-band metadata, for the same frozen-context reason. Search is not a back door around visibility; it is the predicate applied to a different candidate set.
 
-A hit carries more than a name. It renders a matched-content snippet so it reads legibly even when the description lags, one representative occurrence — the freshest visible dated entry's `occurred_at`, authored dates outranking extracted — so a recall taken straight off the result line keeps its *when*, and its most salient out-of-class relations (people first, capped small with a `(+N more)` remainder) so a search for a book club surfaces the cast already on the existing `event/book_club` and the agent recognizes it rather than minting a name-guessed duplicate. The snippet and the date are visibility-filtered against the present set like the hit itself; the salient relations mirror the link readers and are not.
+A hit carries more than a name. It renders a matched-content snippet so it reads legibly even when the description lags, one representative occurrence — the freshest visible dated entry's `occurred_at`, authored dates outranking extracted — so a recall taken straight off the result line keeps its *when*, and its most salient out-of-class relations (people first, capped small with a `(+N more)` remainder) so a search for a book club surfaces the cast already on the existing `event/book_club` and the agent recognizes it rather than minting a name-guessed duplicate. The snippet and the date are visibility-filtered against the present set like the hit itself; the salient relations mirror the link readers and are visibility-filtered when an audience is present.
 
 *Implementation note:* because the predicate filters hits after retrieval, search over-fetches beyond the requested `limit` and filters down to it; and because reads traverse `same_as`, hits are deduplicated across a class (two stubs of one person can both match) before the limit is applied.
 
@@ -453,6 +455,18 @@ So a direct read applies the same `visible(...)` predicate, with two deliberate 
 - It **fires only with an audience present.** When the present set is empty — a solo compaction flush, a maintenance pass, a wake-up the agent raises to itself — nothing is withheld; the agent sees its whole memory, because there is no one present to leak to and the working-set rebuild depends on it. Redaction is a property of *reading to an audience*, not of the store.
 
 The audience check ignores supersession (it probes with `superseded_by` cleared), so `mem:history()` keeps its purpose — showing the superseded entry — while still withholding it when it is a confidence not for who is present. Direct reads are not a back door around visibility; they are the predicate applied to the agent's own by-handle reach, redacting instead of dropping because the agent asked by name.
+
+### Link visibility
+
+Links carry the same audience posture as content entries: a `LinkCreated` event carries `visibility: Visibility` and `told_in: Option<MemoryId>`, and the read-time predicate `link_visible(...)` mirrors `visible(...)` for links. The subject-guard generalizes to the link's target: a `PrivateToTeller` link `A → B` is hidden when B is present, mirroring a `PrivateToTeller` content entry on `person/b` hidden when B is present. For a symmetric relation, both endpoints are subjects — the link is hidden when *either* is present (unless that endpoint is the teller).
+
+The predicate is applied at every surface a link can reach the model: the brief's `<relationships>` block, the link readers (`mem:outgoing`/`incoming`/`links`), `mem:details`, and search salient relations. No surface is a back door.
+
+Write-time defaults mirror content: a participant-asserted belief link where the teller is one endpoint and the target is a different person defaults `PrivateToTeller` — "I hate B" is a direct private belief about B. A relayed fact where the teller is neither endpoint (Erin relaying "Dave mentors Grace") defaults `Attributed` — visible to anyone, carrying provenance. Self-links and non-person targets default `Public`. Agent-authored links about a person must classify explicitly — no default, the same teachable-error gate as content.
+
+Structural, operator, adjudicated, and `same_as` links are always `Public`. Inferred links inherit the visibility of the source entry they were extracted from.
+
+An `Attributed` link carries a `[via teller]` provenance marker on the relationship line in the brief, since a link has no text body to prefix.
 
 ### The read-time predicate
 
