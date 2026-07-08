@@ -51,7 +51,7 @@ export function Composer({
     "col-start-1 row-start-1 max-h-44 px-3.5 py-2.5 text-base leading-relaxed break-words";
   return (
     <div>
-      <div className="flex items-end rounded-sm border border-line bg-paper-raised transition-colors focus-within:border-line-strong">
+      <div className="flex items-center rounded-sm border border-line bg-paper-raised transition-colors focus-within:border-line-strong">
         <div className="grid min-w-0 flex-1">
           <div aria-hidden className={`${grown} invisible overflow-hidden whitespace-pre-wrap`}>
             {draft + " "}
@@ -75,7 +75,7 @@ export function Composer({
         </div>
         <Button
           primary
-          className="m-2 shrink-0"
+          className="mx-2 shrink-0"
           onClick={send}
           disabled={pending || disabled || draft.trim().length === 0}
         >
