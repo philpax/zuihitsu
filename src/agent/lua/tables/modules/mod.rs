@@ -1,0 +1,18 @@
+//! The per-block Lua module tables — `memory`, `block`, `context`, `calendar`, `tags`, `links`,
+//! and `convo` — and the helpers that assemble their rows.
+
+use super::*;
+
+mod block;
+mod calendar;
+mod convo;
+mod links;
+mod memory;
+mod tags;
+
+pub(in crate::agent::lua) use block::{block_table, context_table};
+pub(in crate::agent::lua) use calendar::calendar_table;
+pub(in crate::agent::lua) use convo::convo_table;
+pub(in crate::agent::lua) use links::links_table;
+pub(in crate::agent::lua) use memory::memory_table;
+pub(in crate::agent::lua) use tags::tags_table;

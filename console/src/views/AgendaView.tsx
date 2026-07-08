@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 
 import type { Event } from "../types/Event.ts";
-import type { AgendaItem } from "../lib/graph.ts";
-import type { Replica } from "../lib/replica.ts";
-import { formatDate } from "../lib/format.ts";
-import { statePath } from "../lib/routes.ts";
-import { useStreamBase } from "../lib/useStreamLocation.ts";
+import type { AgendaItem } from "../lib/model/graph.ts";
+import type { Replica } from "../lib/replica/replica.ts";
+import { formatDate } from "../lib/format/format.ts";
+import { statePath } from "../lib/nav/routes.ts";
+import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
 /// How far ahead recurring rules are projected (they are unbounded, so they need a horizon). One-off

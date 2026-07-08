@@ -2,24 +2,24 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import type { EvalPackage } from "./types/EvalPackage.ts";
-import type { LiveConnection } from "./lib/live.ts";
-import { type LiveEvalConnection, type LiveEvalStatus, useLiveEval } from "./lib/liveEval.ts";
-import { type HistoryEntry, parseHistory } from "./lib/history.ts";
-import { loadPackageFromFile } from "./lib/package.ts";
-import { ConsoleNavContext } from "./lib/consoleNav.ts";
-import { Landing } from "./components/Landing.tsx";
-import { EvalFrame } from "./components/EvalFrame.tsx";
-import { RunFrame } from "./components/RunFrame.tsx";
+import type { LiveConnection } from "./lib/api/live.ts";
+import { type LiveEvalConnection, type LiveEvalStatus, useLiveEval } from "./lib/api/liveEval.ts";
+import { type HistoryEntry, parseHistory } from "./lib/model/history.ts";
+import { loadPackageFromFile } from "./lib/replica/package.ts";
+import { ConsoleNavContext } from "./lib/nav/consoleNav.ts";
+import { Landing } from "./frames/landing/Landing.tsx";
+import { EvalFrame } from "./frames/eval/EvalFrame.tsx";
+import { RunFrame } from "./frames/eval/RunFrame.tsx";
 import { ScenarioOverview } from "./views/ScenarioOverview.tsx";
 
 // The agent frame (CodeMirror, the settings and prompts editors) and the trends screen (recharts)
 // are heavy and reached from their own routes, so they load on demand rather than weighing down the
 // eval viewer's first paint.
 const LiveShell = lazy(() =>
-  import("./components/LiveShell.tsx").then((module) => ({ default: module.LiveShell })),
+  import("./frames/live/LiveShell.tsx").then((module) => ({ default: module.LiveShell })),
 );
 const TrendsScreen = lazy(() =>
-  import("./components/TrendsScreen.tsx").then((module) => ({ default: module.TrendsScreen })),
+  import("./frames/trends/TrendsScreen.tsx").then((module) => ({ default: module.TrendsScreen })),
 );
 
 // The serving binary announces its mode at runtime via `window.__APP_MODE__` (the template token in

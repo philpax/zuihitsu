@@ -1,0 +1,82 @@
+//! The operator-authority facet: agent creation and read-only inspection. A platform client can
+//! never obtain one of these, which is what keeps the operator surface off the platform boundary
+//! (spec §Clients and the server boundary).
+
+mod actions;
+mod inspect;
+
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    event::{MergeProposalSource, ModelPhase, RequestRecord},
+    ids::{ConversationId, MemoryId, MemoryName, Seq, TurnId},
+    model::{Completion, Usage},
+    time::Timestamp,
+};
+
+/// Operator-authority operations: agent creation and read-only inspection. A platform client can
+/// never obtain one of these.
+pub struct Control<'a> {
+    pub(super) server: &'a super::Instance,
+}
+
+/// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent
+/// wrote (spec §Write path). The operator/console view of "why does it believe X".
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Arbitration {
+    pub memory: MemoryName,
+    pub statement: String,
+}
+
+/// One cross-platform merge proposal still awaiting the operator (spec §Cross-platform identity →
+/// adjudicated merge): the two stubs, who raised it, and whether the adjudicator has already weighed and
+/// refused it. A proposal the adjudicator (or an operator) has *accepted* — the two stubs now share a
+/// `same_as` class — drops off; every other proposal stays, so the "left for the operator" path is
+/// visible here rather than silently dropped. The operator's backstop for merges the evidence did not
+/// (yet) justify, including the orchestration-raised ones from a bare handle match.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MergeProposal {
+    pub from: MemoryName,
+    pub to: MemoryName,
+    pub source: MergeProposalSource,
+    /// `true` once the adjudicator has weighed the pair and refused the merge; `false` while it is still
+    /// unweighed (or the adjudicator could not reach a verdict). Either way the operator can act on it.
+    pub refused: bool,
+}
+
+/// One recorded model interaction — the console's view of a single model call (spec
+/// §Observability). The `seq` and `recorded_at` of the `ModelCalled` event place the call on the
+/// timeline; the rest mirrors the event. The `request` is delta-encoded (`Base`/`Continuation`); the
+/// console reconstructs a full prompt by walking a `(turn_id, phase)` group, and `request_digest`
+/// checks the reconstruction against the call actually sent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelCall {
+    pub seq: Seq,
+    pub recorded_at: Timestamp,
+    pub conversation: ConversationId,
+    pub turn_id: TurnId,
+    pub phase: ModelPhase,
+    pub request_digest: String,
+    pub request: Option<RequestRecord>,
+    pub completion: Completion,
+    pub reasoning: Option<String>,
+    pub finish_reason: Option<String>,
+    pub usage: Usage,
+    pub duration_ms: u64,
+}
+
+/// The result of one operator Lua console run (spec §Observability → the operator Lua console): the
+/// rendered value of the block's final expression, or the error/abort that ended it. Exactly one is
+/// `Some`. The run is a no-commit sandbox — nothing it writes persists — so it leaves no trace on the
+/// log.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LuaConsoleOutcome {
+    pub result: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
+/// adjudication key on the same canonical pair regardless of which stub each named first.
+pub(super) fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {
+    if from <= to { (from, to) } else { (to, from) }
+}

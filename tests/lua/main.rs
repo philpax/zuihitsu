@@ -29,16 +29,24 @@ pub(crate) const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const TEST_MAX_BLOCK_ATTEMPTS: u32 = 3;
 
 mod block;
+mod block_part2;
 mod calendar;
 mod convo;
+mod convo_part2;
 mod dates;
 mod details;
 mod handles;
 mod honesty;
+mod honesty_part2;
 mod links;
+mod links_part2;
 mod list;
 mod merge;
 mod occurred_at;
 mod rename;
 mod search;
 mod tags;
+
+pub(crate) use convo::{
+    participant_joined, person, resolver_context, resolver_engine, session_started, turn_event,
+};

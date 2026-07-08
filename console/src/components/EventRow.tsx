@@ -2,10 +2,10 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import type { EventPayload } from "../types/EventPayload.ts";
-import type { EventCategory } from "../lib/events.ts";
-import { CATEGORY_COLOR } from "../lib/events.ts";
-import { useStreamBase } from "../lib/useStreamLocation.ts";
-import { EventDetail } from "../views/EventDetail.tsx";
+import type { EventCategory } from "../lib/model/events.ts";
+import { CATEGORY_COLOR } from "../lib/model/events.ts";
+import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
+import { EventDetail } from "./EventDetail.tsx";
 
 /// The shared shape of an expandable event row — the fields both [`TurnOutcome`] and
 /// [`BackgroundEvent`] carry. Extracting it keeps the Conversation view's turn outcomes and the
