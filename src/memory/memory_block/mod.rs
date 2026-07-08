@@ -22,7 +22,6 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
-
 mod calendar;
 mod effects;
 mod error;
@@ -305,7 +304,6 @@ impl MemoryBlock {
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests;

@@ -12,9 +12,11 @@ use tracing_subscriber::{EnvFilter, fmt};
 use zuihitsu::Volatility;
 use zuihitsu::config::EnvConfig;
 
-use crate::client::Client;
-use crate::cli_error::CliError;
-use crate::cli_handlers::{create, http_server, mcp, memory, print_json, revert, set_settings, status};
+use crate::{
+    cli_error::CliError,
+    cli_handlers::{create, http_server, mcp, memory, print_json, revert, set_settings, status},
+    client::Client,
+};
 
 mod cli_error;
 mod cli_events;

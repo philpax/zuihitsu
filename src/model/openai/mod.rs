@@ -1,0 +1,257 @@
+//! The real model client and embedder, talking to an OpenAI-compatible HTTP endpoint (spec
+//! §Initialization: the endpoint is environmental config). Tests that
+//! use it run in a model-gated lane that skips when the endpoint is unreachable.
+//!
+//! Built on `async-openai`'s types and client. The one thing it can't express is the serving
+//! layer's sampling extensions (`top_k`, `min_p`, `chat_template_kwargs`), so the chat request is
+//! the sole custom type: a thin wrapper that flattens the standard request and adds those fields,
+//! sent via `byot` ("bring your own types"). Everything else — messages, tools, the response, and
+//! embeddings — uses async-openai's standard types. A tool's parameter schema travels on its
+//! `ToolSpec`. Sampling comes from configuration, not from hardcoded defaults.
+
+mod request;
+mod response;
+
+#[cfg(test)]
+mod tests;
+
+use std::time::Duration;
+
+use async_openai::{
+    Client,
+    config::OpenAIConfig,
+    error::OpenAIError,
+    types::{
+        chat::{
+            ChatCompletionToolChoiceOption, CreateChatCompletionRequestArgs, ToolChoiceOptions,
+        },
+        embeddings::{CreateEmbeddingRequestArgs, EmbeddingInput},
+    },
+};
+use async_trait::async_trait;
+use reqwest::StatusCode;
+use serde::Serialize;
+
+use crate::config::{EmbeddingConfig, ModelConfig};
+
+use super::{
+    GenerateRequest, GenerateResponse, ModelClient, ModelError, ToolChoice,
+    embed::{Embedder, Embedding},
+};
+
+pub(crate) use request::{ChatRequest, to_messages, to_tools};
+pub(crate) use response::{ChatResponse, into_response};
+
+/// A generation client backed by an OpenAI-compatible `/chat/completions` endpoint. Holds the
+/// `[model]` config, which carries both the model name and the (optional) sampling parameters.
+pub struct OpenAiClient {
+    client: Client<OpenAIConfig>,
+    config: ModelConfig,
+}
+
+impl OpenAiClient {
+    pub fn new(config: &ModelConfig) -> OpenAiClient {
+        OpenAiClient {
+            client: client(
+                &config.endpoint,
+                Duration::from_secs(config.resilience.request_timeout_seconds),
+            ),
+            config: config.clone(),
+        }
+    }
+
+    fn build_request(&self, request: &GenerateRequest) -> Result<ChatRequest, ModelError> {
+        let mut args = CreateChatCompletionRequestArgs::default();
+        args.model(self.config.llm.clone());
+        args.messages(to_messages(request)?);
+        let tools = to_tools(request);
+        if !tools.is_empty() {
+            args.tools(tools);
+        }
+        // `Auto` is the serving layer's default, so it is left unset; `Required` and `None` are
+        // mapped explicitly (the loop withdraws the tools on its final step with `None`, forcing a
+        // textual answer).
+        match request.tool_choice {
+            ToolChoice::Auto => {}
+            ToolChoice::Required => {
+                args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::Required,
+                ));
+            }
+            ToolChoice::None => {
+                args.tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::None,
+                ));
+            }
+        }
+        if let Some(temperature) = self.config.temperature {
+            args.temperature(temperature);
+        }
+        if let Some(top_p) = self.config.top_p {
+            args.top_p(top_p);
+        }
+        if let Some(presence_penalty) = self.config.presence_penalty {
+            args.presence_penalty(presence_penalty);
+        }
+        let base = args.build().map_err(backend)?;
+
+        // A response-format constraint is built as raw JSON for the byot path: the response-format
+        // grammar path is the one some serving layers actually schema-constrain (where forced-tool-call
+        // arguments are not), so a single structured extraction goes here rather than through a tool.
+        let response_format = request.response_format.as_ref().map(|format| {
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": format.name,
+                    "schema": format.schema,
+                    "strict": true,
+                },
+            })
+        });
+
+        Ok(ChatRequest {
+            base,
+            response_format,
+            top_k: self.config.top_k,
+            min_p: self.config.min_p,
+            // A per-request `thinking` overrides the configured default (e.g. regeneration forces
+            // reasoning off).
+            chat_template_kwargs: request
+                .thinking
+                .or(self.config.thinking)
+                .map(|enable_thinking| ChatTemplateKwargs { enable_thinking }),
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for OpenAiClient {
+    fn model_id(&self) -> &str {
+        &self.config.llm
+    }
+
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        let model = &self.config.llm;
+        let result: Result<GenerateResponse, ModelError> = async {
+            let response: ChatResponse = self
+                .client
+                .chat()
+                .create_byot(self.build_request(request)?)
+                .await
+                .map_err(backend)?;
+            into_response(response)
+        }
+        .await;
+        result.map_err(|e| e.with_model(model))
+    }
+}
+
+/// An embedder backed by an OpenAI-compatible `/embeddings` endpoint (jina v5 in our deployment).
+pub struct OpenAiEmbedder {
+    client: Client<OpenAIConfig>,
+    model: String,
+    dimensions: usize,
+}
+
+impl OpenAiEmbedder {
+    /// Build an embedder from the `[embedding]` config, which carries the endpoint, the model, and
+    /// the dimensionality it produces (so callers can size the vector store without a probe).
+    pub fn new(config: &EmbeddingConfig) -> OpenAiEmbedder {
+        OpenAiEmbedder {
+            client: client(
+                &config.endpoint,
+                Duration::from_secs(config.request_timeout_seconds),
+            ),
+            model: config.model.clone(),
+            dimensions: config.dimensions,
+        }
+    }
+}
+
+#[async_trait]
+impl Embedder for OpenAiEmbedder {
+    fn dimensions(&self) -> usize {
+        self.dimensions
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model
+    }
+
+    async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError> {
+        let model = &self.model;
+        let result: Result<Vec<Embedding>, ModelError> = async {
+            let request = CreateEmbeddingRequestArgs::default()
+                .model(self.model.clone())
+                .input(EmbeddingInput::StringArray(inputs.to_vec()))
+                .build()
+                .map_err(backend)?;
+            let response = self
+                .client
+                .embeddings()
+                .create(request)
+                .await
+                .map_err(backend)?;
+            Ok(response
+                .data
+                .into_iter()
+                .map(|datum| datum.embedding)
+                .collect())
+        }
+        .await;
+        result.map_err(|e| e.with_model(model))
+    }
+}
+
+#[derive(Serialize)]
+pub(crate) struct ChatTemplateKwargs {
+    enable_thinking: bool,
+}
+
+/// Build the HTTP client for an endpoint with a whole-request `timeout`. reqwest's default is *no*
+/// timeout, so without one a hung backend stalls its caller forever; with it, the stall surfaces as
+/// a retryable timeout error. The panic on a client-build failure mirrors `reqwest::Client::new`
+/// (the path taken before this timeout existed): it fires only when the TLS backend cannot
+/// initialize, a build/environment defect, not a runtime condition.
+fn client(endpoint: &str, timeout: Duration) -> Client<OpenAIConfig> {
+    let http_client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .expect("the HTTP client builds; only TLS-backend initialization can fail here");
+    Client::build(
+        http_client,
+        OpenAIConfig::new()
+            .with_api_base(endpoint.trim_end_matches('/'))
+            .with_api_key("unused"),
+    )
+}
+
+/// Map any backend error (async-openai's `OpenAIError` from the client or the request builders)
+/// into our model error, classifying it as transient or not while the error is still structured.
+/// The model id is packed in at the `generate`/`embed` boundary via [`ModelError::with_model`],
+/// because this helper is called from free functions that don't hold `self`.
+fn backend(error: OpenAIError) -> ModelError {
+    ModelError::Backend {
+        model: String::new(),
+        transient: is_transient(&error),
+        message: error.to_string(),
+    }
+}
+
+/// Whether a backend failure is transient at the transport level — worth retrying against the same
+/// endpoint. Transport failures (could not connect, timed out, the connection dropped mid-body) and
+/// overload/server statuses (408, 429, 5xx) are transient; everything else — request-builder and
+/// serde failures, auth and other 4xx statuses — reflects the request or the configuration and
+/// retries identically, so it is not.
+fn is_transient(error: &OpenAIError) -> bool {
+    match error {
+        OpenAIError::Reqwest(error) => error.is_connect() || error.is_timeout() || error.is_body(),
+        OpenAIError::ApiError(response) => {
+            let status = response.status_code;
+            status == StatusCode::REQUEST_TIMEOUT
+                || status == StatusCode::TOO_MANY_REQUESTS
+                || status.is_server_error()
+        }
+        _ => false,
+    }
+}

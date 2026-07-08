@@ -18,12 +18,7 @@ mod serve_error;
 
 pub use serve_error::ServeError;
 
-use std::{
-    net::SocketAddr,
-    path::Path,
-    sync::Arc,
-    time::Duration,
-};
+use std::{net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
 use axum::{
     Router,

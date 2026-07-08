@@ -5,10 +5,7 @@ use std::time::Duration;
 use tracing::Instrument;
 
 use crate::{
-    agent::{
-        Turn, TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns,
-        run_turn,
-    },
+    agent::{Turn, TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns, run_turn},
     event::PromptTemplateName,
     ids::MemoryId,
     metrics::{observe_turn, observe_turn_error},
@@ -16,8 +13,10 @@ use crate::{
     settings::Settings,
 };
 
-use super::super::{Instance, InstanceError};
-use super::RoutedTurn;
+use super::{
+    super::{Instance, InstanceError},
+    RoutedTurn,
+};
 
 impl Instance {
     /// Open or continue the session for `conversation`, then run one turn of `inbound` from

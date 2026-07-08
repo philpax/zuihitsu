@@ -18,9 +18,8 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::super::InstanceError;
+use super::{super::InstanceError, LuaConsoleOutcome};
 use crate::instance::session::RoutedTurn;
-use super::LuaConsoleOutcome;
 
 impl super::Control<'_> {
     /// Run one operator message of the imprint interview: the console conversation where the

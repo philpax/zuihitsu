@@ -2,8 +2,7 @@
 //! summary and session timeline, and the payload descriptions the CLI prints (diagnostic
 //! output; the operator-facing view of the raw event log).
 
-use std::collections::BTreeMap;
-use std::io::Write;
+use std::{collections::BTreeMap, io::Write};
 
 use anstyle::{AnsiColor, Style};
 use zuihitsu::{

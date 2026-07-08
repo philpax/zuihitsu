@@ -13,9 +13,11 @@ use zuihitsu::{
     config::EnvConfig,
 };
 
-use crate::cli_events::{name_map, write_event};
-use crate::cli_error::CliError;
-use crate::client::Client;
+use crate::{
+    cli_error::CliError,
+    cli_events::{name_map, write_event},
+    client::Client,
+};
 
 /// List the tools each configured MCP server exposes. Spawns the servers directly over stdio (no
 /// running agent needed), snapshots each catalogue, and prints it as a readable listing — a server

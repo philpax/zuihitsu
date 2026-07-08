@@ -12,7 +12,8 @@ use crate::{
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, SessionId, TurnId},
     memory::{brief, scheduler},
     metrics::{
-        observe_flush_turn, observe_session_closed, observe_session_opened, observe_wakeups_surfaced,
+        observe_flush_turn, observe_session_closed, observe_session_opened,
+        observe_wakeups_surfaced,
     },
     model::ModelClient,
     settings::Settings,

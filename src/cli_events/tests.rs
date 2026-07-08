@@ -1,8 +1,6 @@
 use anstyle::AnsiColor;
 use zuihitsu::{
-    Event, EventPayload, MemoryId, Seq, Volatility,
-    ids::MemoryName,
-    time::Timestamp,
+    Event, EventPayload, MemoryId, Seq, Volatility, ids::MemoryName, time::Timestamp,
     vocabulary::TagName,
 };
 
