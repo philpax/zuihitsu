@@ -25,13 +25,15 @@ fn same_as_merges_stubs_into_one_class() {
         EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
         EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
         EventPayload::memory_created(c, Namespace::Person.with_name("dave@direct")),
-        EventPayload::LinkCreated {
-            from: a,
-            to: b,
-            relation: RelationName::SameAs,
-            source: LinkSource::Operator,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            a,
+            b,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
     ]);
 
     // The two Marcus stubs share one class whose id is the earliest member by ULID (the primary);
@@ -84,13 +86,15 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
         appended(b, "marcus two"),
         appended(a, "marcus three"),
         appended(c, "dave only"),
-        EventPayload::LinkCreated {
-            from: a,
-            to: b,
-            relation: RelationName::SameAs,
-            source: LinkSource::Operator,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            a,
+            b,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
     ]);
 
     let texts = |entries: Vec<EntryView>| entries.into_iter().map(|e| e.text).collect::<Vec<_>>();

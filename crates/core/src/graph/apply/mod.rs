@@ -183,17 +183,30 @@ impl Graph {
                 relation,
                 source,
                 told_by,
+                told_in,
+                visibility,
             } => {
                 let edge = self.canonical_edge(*from, *to, relation)?;
                 let told_by = told_by
                     .as_ref()
                     .map(|teller| serde_json::to_string(teller).map_err(GraphError::Serialize))
                     .transpose()?;
+                let told_in = told_in.map(|id| id.0.to_string());
+                let visibility_json =
+                    serde_json::to_string(visibility).map_err(GraphError::Serialize)?;
                 self.conn
                     .execute(
-                        "INSERT OR IGNORE INTO links (from_id, to_id, relation, source, told_by)
-                         VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![edge.0, edge.1, edge.2, source.as_str(), told_by],
+                        "INSERT OR IGNORE INTO links (from_id, to_id, relation, source, told_by, told_in, visibility)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![
+                            edge.0,
+                            edge.1,
+                            edge.2,
+                            source.as_str(),
+                            told_by,
+                            told_in,
+                            visibility_json
+                        ],
                     )
                     .map_err(backend)?;
                 if RelationName::new(edge.2.as_str()) == RelationName::SameAs {

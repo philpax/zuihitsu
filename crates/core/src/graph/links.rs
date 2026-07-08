@@ -58,18 +58,31 @@ impl Graph {
     /// agent-facing oriented view is [`Graph::outgoing`].
     pub fn links(&self, id: MemoryId) -> Result<Vec<LinkView>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT l.from_id, l.to_id, l.relation FROM links l
+            "SELECT l.from_id, l.to_id, l.relation, l.told_by, l.told_in, l.visibility
+             FROM links l
              JOIN memories mf ON mf.id = l.from_id
              JOIN memories mt ON mt.id = l.to_id
              WHERE (l.from_id = ?1 OR l.to_id = ?1) AND mf.deleted = 0 AND mt.deleted = 0
              ORDER BY l.relation, l.to_id",
         )?;
         query_map_into(stmt, params![id.0.to_string()], |row| {
-            let (from, to, relation): (String, String, String) = row.try_into()?;
+            let from: String = row.get("from_id")?;
+            let to: String = row.get("to_id")?;
+            let relation: String = row.get("relation")?;
+            let told_by: Option<String> = row.get("told_by")?;
+            let told_in: Option<String> = row.get("told_in")?;
+            let visibility: String = row.get("visibility")?;
             Ok(LinkView {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
                 relation: RelationName::new(&relation),
+                told_by: told_by
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()?,
+                told_in: told_in
+                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .transpose()?,
+                visibility: serde_json::from_str(&visibility)?,
             })
         })
     }
@@ -82,7 +95,8 @@ impl Graph {
     /// holding it together.
     pub fn class_links(&self, id: MemoryId) -> Result<Vec<ClassLinkView>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT l.from_id, l.to_id, l.relation, l.source, l.told_by FROM links l
+            "SELECT l.from_id, l.to_id, l.relation, l.source, l.told_by, l.told_in, l.visibility
+             FROM links l
              JOIN memories mf ON mf.id = l.from_id
              JOIN memories mt ON mt.id = l.to_id
              WHERE mf.deleted = 0 AND mt.deleted = 0
@@ -102,6 +116,8 @@ impl Graph {
             let relation: String = row.get("relation")?;
             let source: String = row.get("source")?;
             let told_by: Option<String> = row.get("told_by")?;
+            let told_in: Option<String> = row.get("told_in")?;
+            let visibility: String = row.get("visibility")?;
             Ok(ClassLinkView {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
@@ -112,6 +128,10 @@ impl Graph {
                 told_by: told_by
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
+                told_in: told_in
+                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .transpose()?,
+                visibility: serde_json::from_str(&visibility)?,
             })
         })
     }
@@ -120,8 +140,8 @@ impl Graph {
     /// memory's resolved name, ordered most-recently created first (by the link's insertion `rowid`) —
     /// the raw neighbor set a search hit distills into its salient-relations line. Edges internal to the
     /// class (both endpoints class members) are dropped: those are the `same_as` plumbing within an
-    /// identity, not a relationship pointing out of it. Committed state only, and not visibility-filtered,
-    /// mirroring the `mem:links` family — the agent's whole-graph surface is not gated on who is present.
+    /// identity, not a relationship pointing out of it. Committed state; visibility-filtered through
+    /// `link_visible` when an audience is present, mirroring the content entry reads.
     pub fn class_neighbor_links(&self, id: MemoryId) -> Result<Vec<NeighborLinkView>, GraphError> {
         let stmt = self.conn.prepare(
             "WITH cls AS (
@@ -134,7 +154,12 @@ impl Graph {
                     CASE WHEN l.from_id IN (SELECT id FROM cls) THEN l.to_id ELSE l.from_id END
                         AS other_id,
                     CASE WHEN l.from_id IN (SELECT id FROM cls) THEN mt.name ELSE mf.name END
-                        AS other_name
+                        AS other_name,
+                    l.from_id AS from_id,
+                    l.to_id AS to_id,
+                    l.told_by AS told_by,
+                    l.told_in AS told_in,
+                    l.visibility AS visibility
              FROM links l
              JOIN memories mf ON mf.id = l.from_id AND mf.deleted = 0
              JOIN memories mt ON mt.id = l.to_id   AND mt.deleted = 0
@@ -147,11 +172,25 @@ impl Graph {
             let incoming: bool = row.get("incoming")?;
             let other_id: String = row.get("other_id")?;
             let other_name: String = row.get("other_name")?;
+            let from_id: String = row.get("from_id")?;
+            let to_id: String = row.get("to_id")?;
+            let told_by: Option<String> = row.get("told_by")?;
+            let told_in: Option<String> = row.get("told_in")?;
+            let visibility: String = row.get("visibility")?;
             Ok(NeighborLinkView {
                 relation: RelationName::new(&relation),
                 incoming,
                 other: MemoryId(parse_ulid(&other_id)?),
                 other_name: MemoryName::new(&other_name),
+                from: MemoryId(parse_ulid(&from_id)?),
+                to: MemoryId(parse_ulid(&to_id)?),
+                told_by: told_by
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()?,
+                told_in: told_in
+                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .transpose()?,
+                visibility: serde_json::from_str(&visibility)?,
             })
         })
     }

@@ -310,13 +310,24 @@ async fn infer_links(
             }) {
                 continue;
             }
-            events.push(EventPayload::LinkCreated {
+            // Inherit the visibility of the source entry the link was extracted from, so a link
+            // inferred from a private entry is itself private (spec §Visibility → inferred links).
+            // The 1-based entry index into context.entries.
+            let source_visibility = link
+                .entry
+                .checked_sub(1)
+                .and_then(|idx| context.entries.get(idx))
+                .map(|entry| entry.visibility.clone())
+                .unwrap_or(Visibility::Public);
+            events.push(EventPayload::link_created(
                 from,
                 to,
-                relation: RelationName::new(&canonical_label),
-                source: LinkSource::Inferred,
-                told_by: None,
-            });
+                RelationName::new(&canonical_label),
+                LinkSource::Inferred,
+                None,
+                None,
+                source_visibility,
+            ));
         }
     }
 

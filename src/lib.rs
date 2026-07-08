@@ -97,7 +97,7 @@ pub use memory::{
     brief::{BriefError, BriefRequest, compose, compose_participant},
     identity::{IdentityError, resolve_or_mint_conversation, resolve_or_mint_participant},
     memory_block::{
-        AppendOptions, Authority, BlockEffects, EntryRef, MemoryBlock, MemoryError,
+        AppendOptions, Authority, BlockEffects, EntryRef, LinkOptions, MemoryBlock, MemoryError,
         VisibilityChoice,
     },
     search::{SearchError, SearchHit, SearchQuery, search},

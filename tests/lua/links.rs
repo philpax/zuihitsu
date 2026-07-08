@@ -56,7 +56,7 @@ async fn link_and_unlink_resolve_a_name_string_target() {
     let outcome = h
         .run(
             r#"local dave = memory.get(PERSON_DAVE)
-               dave:link("knows", PERSON_ERIN)
+               dave:link("knows", PERSON_ERIN, { visibility = "public" })
                dave:append("a quiet aside", { visibility = "private" })"#,
         )
         .await;
@@ -105,7 +105,7 @@ async fn link_to_an_unknown_name_teaches_creation() {
     let h = Harness::new();
     h.run(r#"memory.create(PERSON_DAVE)"#).await;
     let outcome = h
-        .run(r#"memory.get(PERSON_DAVE):link("knows", "person/nobody")"#)
+        .run(r#"memory.get(PERSON_DAVE):link("knows", "person/nobody", { visibility = "public" })"#)
         .await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
@@ -288,9 +288,9 @@ async fn link_readers_traverse_the_merged_identity() {
 
     // Links spread across the two stubs: one mentors Erin, Frank mentors the other, and the other
     // works at Hooli — so a class-blind read of the primary stub would miss two of the three.
-    h.run(r#"memory.get(PERSON_DAVE):link("mentor_of", memory.get(PERSON_ERIN))"#)
+    h.run(r#"memory.get(PERSON_DAVE):link("mentor_of", memory.get(PERSON_ERIN), { visibility = "public" })"#)
         .await;
-    h.run(r#"memory.get(PERSON_FRANK):link("mentor_of", memory.get(PERSON_DAVE_AT_DISCORD))"#)
+    h.run(r#"memory.get(PERSON_FRANK):link("mentor_of", memory.get(PERSON_DAVE_AT_DISCORD), { visibility = "public" })"#)
         .await;
     h.run(r#"memory.get(PERSON_DAVE_AT_DISCORD):link("works_at", memory.get("company/hooli"))"#)
         .await;

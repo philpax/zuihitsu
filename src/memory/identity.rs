@@ -10,7 +10,7 @@
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, LinkSource, MergeProposalSource},
+    event::{EventPayload, LinkSource, MergeProposalSource, Visibility},
     graph::{Graph, GraphError},
     ids::{ConversationId, ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace},
     store::{Store, StoreError},
@@ -137,14 +137,16 @@ pub fn resolve_or_mint_participant(
                 // operator-assertion path (spec §Cross-platform identity), reversible by an ordinary
                 // `unlink` — rather than proposing it, giving the agent one coherent memory from the
                 // first turn instead of a blank platform stub shadowing its hearsay.
-                events.push(EventPayload::LinkCreated {
-                    from: id,
-                    to: existing,
-                    relation: RelationName::SameAs,
-                    source: LinkSource::Operator,
+                events.push(EventPayload::link_created(
+                    id,
+                    existing,
+                    RelationName::SameAs,
+                    LinkSource::Operator,
                     // No teller behind it: this is an identity assertion, like the adjudicated merge.
-                    told_by: None,
-                });
+                    None,
+                    None,
+                    Visibility::Public,
+                ));
                 tracing::info!(
                     %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
                     "merged a direct-interface arrival with its matching unbound stub",

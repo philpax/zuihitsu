@@ -256,7 +256,8 @@ async fn resolve_existing_handle(
     // recall that fetches a topic hub sees its spokes — the linked events its decisions live on — the
     // moment the handle renders, rather than reading only the hub's own entries and dropping a
     // spoke-held fact. A traversing read, so it locks the whole `same_as` class (like the link
-    // readers). Committed-only and not visibility-filtered, mirroring `<memory>:links`. Written with
+    // readers). Committed-only; visibility-filtered through `link_visible` when an audience is present,
+    // mirroring `<memory>:links`. Written with
     // `raw_set` to bypass the read-only `__newindex` guard; absent (so no line renders) when the memory
     // has no links.
     api.lock_class(id).await?;

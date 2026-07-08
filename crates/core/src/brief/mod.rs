@@ -91,14 +91,19 @@ pub struct BriefFact {
 }
 
 /// One relationship in a [`Brief`]: the relation label and the neighbour it points to, rendered as
-/// `relation: subject`. `relation` serializes as its bare label (the wire form [`RelationName`] keeps),
-/// so it is typed as a `string` on the console side.
+/// `relation: subject [marker]`. `relation` serializes as its bare label (the wire form
+/// [`RelationName`] keeps), so it is typed as a `string` on the console side. `marker` carries the
+/// provenance marker for a non-public link (`[via Erin]` or `[teller-private, …]`), appended after
+/// the relationship line since a link has no text body.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefRelationship {
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub relation: RelationName,
     pub subject: MemoryName,
+    /// The provenance marker for a non-public link, appended after the relationship line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
 }
 
 impl Brief {
@@ -127,12 +132,16 @@ impl Brief {
         if !self.relationships.is_empty() {
             out.push_str("<relationships>\n");
             for relationship in &self.relationships {
-                let _ = writeln!(
+                let _ = write!(
                     out,
                     "- {}: {}",
                     relationship.relation.as_str(),
                     relationship.subject.as_str()
                 );
+                if let Some(marker) = &relationship.marker {
+                    let _ = write!(out, " {marker}");
+                }
+                out.push('\n');
             }
             out.push_str("</relationships>\n");
         }

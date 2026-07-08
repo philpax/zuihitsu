@@ -34,6 +34,7 @@ fn representative_brief() -> Brief {
         relationships: vec![BriefRelationship {
             relation: RelationName::new("knows"),
             subject: MemoryName::new("person/erin"),
+            marker: None,
         }],
     }
 }

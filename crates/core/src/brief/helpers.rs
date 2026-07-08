@@ -87,7 +87,7 @@ fn memory_brief(
         subject: memory.name.clone(),
         summary: (!memory.description.is_empty()).then(|| memory.description.clone()),
         recent_facts: visible_recent_facts(graph, memory, present_set, class_of, recent, now)?,
-        relationships: relationships(graph, memory.id)?,
+        relationships: relationships(graph, memory.id, present_set, class_of)?,
     })
 }
 
@@ -130,17 +130,43 @@ fn visible_recent_facts(
     Ok(facts.split_off(start))
 }
 
-/// A memory's key relationships, as `relation → other-handle`, skipping soft-deleted neighbours. The
-/// full ranking by recency × type-weight (spec §Per-participant brief) is a later refinement; this
-/// lists the live edges touching the memory.
-fn relationships(graph: &Graph, id: MemoryId) -> Result<Vec<BriefRelationship>, BriefError> {
+/// A memory's key relationships, as `relation → other-handle`, skipping soft-deleted neighbours and
+/// filtering through `link_visible` when an audience is present. An `Attributed` link carries a
+/// `[via teller]` provenance marker appended to the relationship line; a teller-private link carries
+/// its marker the same way. The full ranking by recency × type-weight (spec §Per-participant brief)
+/// is a later refinement; this lists the live edges touching the memory.
+fn relationships(
+    graph: &Graph,
+    id: MemoryId,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+) -> Result<Vec<BriefRelationship>, BriefError> {
     let mut relationships = Vec::new();
     for link in graph.links(id)? {
+        let symmetric = graph
+            .relation(link.relation.as_str())?
+            .map(|r| r.symmetric)
+            .unwrap_or(false);
+        if !visibility::link_visible(&link.link_vis(), symmetric, present_set, class_of)? {
+            continue;
+        }
         let other = if link.from == id { link.to } else { link.from };
         if let Some(memory) = graph.memory_by_id(other)? {
+            let marker = if link.visibility != Visibility::Public {
+                let teller = graph.teller_display(
+                    link.told_by
+                        .as_ref()
+                        .unwrap_or(&crate::event::Teller::Agent),
+                )?;
+                let room = graph.marker_room(link.told_in)?;
+                visibility::link_marker(&link.visibility, &teller, room.as_ref())
+            } else {
+                None
+            };
             relationships.push(BriefRelationship {
                 relation: link.relation.clone(),
                 subject: memory.name.clone(),
+                marker,
             });
         }
     }

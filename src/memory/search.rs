@@ -228,7 +228,8 @@ pub fn search(
         let occurred_at = visible_occurrence(&memory, graph, query.present_set, &class_of)?;
         // The most salient out-of-class links, so the hit line reveals the cast already on this memory
         // (spec §Search → informed creation). One class-traversing read per hit, bounded by `limit`.
-        let (relations, more_relations) = salient_relations(&memory, graph)?;
+        let (relations, more_relations) =
+            salient_relations(&memory, graph, query.present_set, &class_of)?;
         hits.push(SearchHit {
             memory,
             score,
@@ -302,16 +303,31 @@ const SALIENCE_CAP: usize = 3;
 /// [`Namespace::Person`] memory comes first — people anchor identity, so seeing who participates is
 /// what lets the agent recognize the event or topic it already holds — and within that, the most
 /// recently created links come first. The set is capped at [`SALIENCE_CAP`]; the remainder feeds the
-/// `(+N more)` note.
-/// Committed-only and not visibility-filtered, mirroring the link readers (the agent's own whole-graph
-/// surface). One class-traversing read per hit, so the cost is bounded by the search `limit`, as
-/// [`visible_occurrence`] is.
+/// `(+N more)` note. Visibility-filtered through `link_visible` when an audience is present, mirroring
+/// the content entry reads. One class-traversing read per hit, so the cost is bounded by the search
+/// `limit`, as [`visible_occurrence`] is.
 fn salient_relations(
     memory: &MemoryView,
     graph: &Graph,
+    present_set: &[MemoryId],
+    class_of: &visibility::ClassOf,
 ) -> Result<(Vec<SalientRelation>, usize), GraphError> {
     let person = Namespace::Person.prefix();
     let mut neighbors = graph.class_neighbor_links(memory.id)?;
+    // Filter private links when an audience is present. With no one present (a solo flush or
+    // maintenance pass), nothing is filtered — mirroring the content direct-read carve-out.
+    if !present_set.is_empty() {
+        neighbors.retain(|neighbor| -> bool {
+            let symmetric = graph
+                .relation(neighbor.relation.as_str())
+                .ok()
+                .flatten()
+                .map(|r| r.symmetric)
+                .unwrap_or(false);
+            visibility::link_visible(&neighbor.link_vis(), symmetric, present_set, class_of)
+                .unwrap_or(false)
+        });
+    }
     // `class_neighbor_links` already orders most-recently-created first; a *stable* sort then floats
     // person far ends ahead without disturbing that recency order within each group.
     neighbors.sort_by_key(|neighbor| !neighbor.other_name.as_str().starts_with(person));

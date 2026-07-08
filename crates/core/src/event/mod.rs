@@ -398,11 +398,13 @@ pub enum Teller {
 
 /// How widely a content entry may be surfaced (spec §Visibility). The read-time predicate
 /// `visible(...)` interprets these against the present set; `PrivateToTeller` additionally never
-/// surfaces to the subject of a person memory.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// surfaces to the subject of a person memory. The default is `Public`, so pre-visibility logs
+/// replay with all content public — the behavior before the visibility system existed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Visibility {
     /// Surfaces to any present set, including the subject. Distilled into the description.
+    #[default]
     Public,
     /// An ordinary fact learned secondhand: surfaces to any present set like `Public`, but is never
     /// distilled into a description and reaches the agent carrying a provenance marker built from the

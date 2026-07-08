@@ -338,13 +338,15 @@ fn the_structured_join_brief_projects_to_the_frozen_markup() {
             Teller::Participant(erin),
             Visibility::Attributed,
         ),
-        EventPayload::LinkCreated {
-            from: priya,
-            to: erin,
-            relation: RelationName::new("knows"),
-            source: LinkSource::Agent,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            priya,
+            erin,
+            RelationName::new("knows"),
+            LinkSource::Agent,
+            None,
+            None,
+            Visibility::Public,
+        ),
     ]);
     let settings = Settings::default().brief;
     // The join present set includes the joiner (Priya): her attributed fact still surfaces (an
@@ -379,6 +381,7 @@ fn the_structured_join_brief_projects_to_the_frozen_markup() {
             relationships: vec![BriefRelationship {
                 relation: RelationName::new("knows"),
                 subject: MemoryName::new("person/erin"),
+                marker: None,
             }],
         }
     );

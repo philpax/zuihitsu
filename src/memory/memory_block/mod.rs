@@ -224,6 +224,14 @@ pub struct AppendOptions {
     pub told_by: Option<Teller>,
 }
 
+/// The overrides a `mem:link` call accepts: `visibility` forces the visibility instead of the
+/// write-time default. Deserialized from the Lua `opts` table.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct LinkOptions {
+    pub visibility: Option<VisibilityChoice>,
+}
+
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities
 /// arrive as the lowercase strings the spec advertises (`"one"` / `"many"`) and are parsed at the
 /// block boundary; `symmetric` and `reflexive` default to `false`; `description` defaults to empty

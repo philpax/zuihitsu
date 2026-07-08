@@ -174,14 +174,16 @@ async fn adjudicate(
         // merge without the operator. The agent's own `mem:link("same_as")` is still rejected at
         // `change_link`; only this pass emits an adjudicated link, on a passing verdict.
         if verdict.accepted {
-            events.push(EventPayload::LinkCreated {
+            events.push(EventPayload::link_created(
                 from,
                 to,
-                relation: RelationName::SameAs,
-                source: LinkSource::Adjudicated,
+                RelationName::SameAs,
+                LinkSource::Adjudicated,
                 // No teller behind it: the adjudication pass authors this, not a participant's turn.
-                told_by: None,
-            });
+                None,
+                None,
+                Visibility::Public,
+            ));
         }
     }
 

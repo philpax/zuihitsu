@@ -10,7 +10,10 @@ use crate::{
         lua::{self, BlockOutcome, Session},
         templates,
     },
-    event::{EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, TerminalCause},
+    event::{
+        EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, TerminalCause,
+        Visibility,
+    },
     ids::{ConversationLocator, MemoryId, TurnId},
     memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
     model::ModelClient,
@@ -232,14 +235,16 @@ impl super::Control<'_> {
     ) -> Result<(), InstanceError> {
         let now = self.server.engine.clock.now();
         let event = if accept {
-            EventPayload::LinkCreated {
+            EventPayload::link_created(
                 from,
                 to,
-                relation: RelationName::SameAs,
-                source: LinkSource::Operator,
+                RelationName::SameAs,
+                LinkSource::Operator,
                 // No teller behind it: the operator authored this from the console, not a participant.
-                told_by: None,
-            }
+                None,
+                None,
+                Visibility::Public,
+            )
         } else {
             EventPayload::MergeAdjudicated {
                 from,

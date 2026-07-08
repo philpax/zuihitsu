@@ -187,23 +187,29 @@ pub(super) fn install_handle_methods(
         })?,
     )?;
 
-    // mem:link(relation, other) / mem:unlink(relation, other) — record (or clear) a relation such
-    // as `knows`, locking both endpoints. The script names the relation as a string; it is
-    // recognized into its typed [`RelationName`] here, at the wrapper boundary.
+    // mem:link(relation, other[, opts]) / mem:unlink(relation, other) — record (or clear) a relation
+    // such as `knows`, locking both endpoints. The script names the relation as a string; it is
+    // recognized into its typed [`RelationName`] here, at the wrapper boundary. The optional `opts`
+    // table carries `visibility` to force the link's posture instead of the write-time default.
     if features.linking {
         methods.set(
             "link",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, relation, other): (HandleSelf, String, Value)| {
+                move |lua, (this, relation, other, opts): (HandleSelf, String, Value, Value)| {
                     let api = api.clone();
                     async move {
                         let from = handle_id(&this.0)?;
                         let to = link_target_id(&api, other)?;
                         api.lock_all([from, to]).await;
+                        let opts = if opts.is_nil() {
+                            None
+                        } else {
+                            Some(lua.from_value::<LinkOptions>(opts)?)
+                        };
                         api.block
                             .lock()
-                            .link(from, to, RelationName::new(&relation))
+                            .link(from, to, RelationName::new(&relation), opts)
                             .map_err(|error| route_error(error, &mut api.infra.lock()))
                     }
                 }

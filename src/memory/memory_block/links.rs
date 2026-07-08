@@ -3,15 +3,17 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    event::{EventPayload, LinkSource, MergeProposalSource, Teller},
+    event::{EventPayload, LinkSource, MergeProposalSource, Teller, Visibility},
     graph::{Graph, RelationView},
     ids::MemoryId,
+    memory::visibility::link_visible,
     time::TemporalRef,
     vocabulary::RelationName,
 };
 
 use super::{
-    Authority, LinkDirection, LinkRef, MemoryBlock, MemoryError, RelationSpec, parse_cardinality,
+    Authority, LinkDirection, LinkOptions, LinkRef, MemoryBlock, MemoryError, RelationSpec,
+    VisibilityChoice, parse_cardinality,
 };
 
 impl MemoryBlock {
@@ -40,13 +42,16 @@ impl MemoryBlock {
     }
 
     /// Link `from` to `to` under a registered relation (e.g. record that one person `knows` another).
+    /// An optional `opts` table carries `visibility` to force the posture instead of the write-time
+    /// default.
     pub fn link(
         &mut self,
         from: MemoryId,
         to: MemoryId,
         relation: RelationName,
+        opts: Option<LinkOptions>,
     ) -> Result<(), MemoryError> {
-        self.change_link(from, to, relation, true)
+        self.change_link(from, to, relation, true, opts.and_then(|o| o.visibility))
     }
 
     /// Remove such a link.
@@ -56,7 +61,7 @@ impl MemoryBlock {
         to: MemoryId,
         relation: RelationName,
     ) -> Result<(), MemoryError> {
-        self.change_link(from, to, relation, false)
+        self.change_link(from, to, relation, false, None)
     }
 
     /// Propose that two stubs are the same human across platforms, for the adjudication pass to weigh
@@ -140,11 +145,15 @@ impl MemoryBlock {
     /// link readers. Edges internal to the class — the `same_as` plumbing and any other within-identity
     /// edge — are dropped: a relationship the agent reasons about points out of the identity. Committed
     /// state only (see [`MemoryBlock::links`]). A traversing read, so it touches the whole class.
+    /// Visibility-filtered through `link_visible` when an audience is present, mirroring the content
+    /// entry reads.
     fn class_link_refs(&mut self, id: MemoryId) -> Result<Vec<LinkRef>, MemoryError> {
         let (members, refs) = {
             let graph = self.engine.graph.lock();
             let members = graph.class_members(id)?;
             let class: BTreeSet<MemoryId> = members.iter().copied().collect();
+            let class_of = |mid| graph.class_id(mid).map(|class| class.unwrap_or(mid));
+            let audience = !self.present_set.is_empty();
             let mut refs = Vec::new();
             for edge in graph.class_links(id)? {
                 let (direction, other_id) =
@@ -154,6 +163,16 @@ impl MemoryBlock {
                         // Within-class (both ends in the identity) or unrelated: not a relationship.
                         _ => continue,
                     };
+                // Visibility filter: when an audience is present, filter private links.
+                if audience {
+                    let symmetric = graph
+                        .relation(edge.relation.as_str())?
+                        .map(|r| r.symmetric)
+                        .unwrap_or(false);
+                    if !link_visible(&edge.link_vis(), symmetric, &self.present_set, &class_of)? {
+                        continue;
+                    }
+                }
                 let Some(other) = graph.memory_by_id(other_id)? else {
                     continue;
                 };
@@ -219,6 +238,7 @@ impl MemoryBlock {
         to: MemoryId,
         relation: RelationName,
         create: bool,
+        visibility: Option<VisibilityChoice>,
     ) -> Result<(), MemoryError> {
         if !self.relation_registered(&relation)? {
             return Err(MemoryError::UnknownRelation(relation));
@@ -246,18 +266,36 @@ impl MemoryBlock {
             Authority::Operator => LinkSource::Operator,
             Authority::Platform => LinkSource::Agent,
         };
+        let (visibility, told_in) = if create {
+            let from_name = self.resolve_name(from)?;
+            let to_name = self.resolve_name(to)?;
+            let vis = self.resolve_link_visibility(
+                from,
+                from_name.as_ref().map(|n| n.as_str()),
+                to,
+                to_name.as_ref().map(|n| n.as_str()),
+                &self.teller,
+                visibility,
+            )?;
+            // The link carries the turn's context as its told_in, mirroring content entries — so a
+            // teller-private marker can name the room it was said in.
+            let told_in = self.told_in;
+            (vis, told_in)
+        } else {
+            (Visibility::Public, None)
+        };
         self.touched.insert(from);
         self.touched.insert(to);
         self.buffer.push(if create {
-            EventPayload::LinkCreated {
+            EventPayload::link_created(
                 from,
                 to,
                 relation,
                 source,
-                // The relationship's provenance is the turn's teller, the same teller a content append
-                // would carry — so a later read of a belief-bearing link knows who asserted it.
-                told_by: Some(self.teller.clone()),
-            }
+                Some(self.teller.clone()),
+                told_in,
+                visibility,
+            )
         } else {
             EventPayload::link_removed(from, to, relation)
         });
@@ -273,8 +311,9 @@ impl MemoryBlock {
 /// wins, and an extracted date carries onto the handle only when the class holds no authored date at
 /// all — a guess never shadows a stated fact. Within each tier, entries compose in commit order, so
 /// the last dated one wins — the freshest dated fact, which for a linked event (a shipped decision, a
-/// scheduled meeting) is the *when* the agent relays. Not visibility-filtered: the link readers
-/// surface the agent's whole graph, so the occurrence they carry is not gated on who is present either.
+/// scheduled meeting) is the *when* the agent relays. Not link-visibility-filtered: this reads the far
+/// memory's entries to find *when* a linked event happened, which is not gated on the link's audience
+/// posture — the link read itself already filtered the edge through `link_visible`.
 fn latest_dated_occurrence(
     graph: &Graph,
     id: MemoryId,

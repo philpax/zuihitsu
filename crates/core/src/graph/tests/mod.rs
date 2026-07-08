@@ -87,13 +87,15 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
         EventPayload::tag_created(TagName::new("colleagues"), "People worked with"),
         EventPayload::tag_applied_to_memory(dave, TagName::new("colleagues")),
         mentor_relation(),
-        EventPayload::LinkCreated {
-            from: dave,
-            to: erin,
-            relation: RelationName::new("mentor_of"),
-            source: LinkSource::Agent,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            dave,
+            erin,
+            RelationName::new("mentor_of"),
+            LinkSource::Agent,
+            None,
+            None,
+            Visibility::Public,
+        ),
         // A describer pass over both people, so a rebuild stresses the described-state handler too.
         EventPayload::describe_pass_completed(vec![dave, erin]),
         // Supersede dave's first entry with his second — it drops from live reads but stays recorded.

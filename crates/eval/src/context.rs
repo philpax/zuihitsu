@@ -8,7 +8,7 @@ use std::{sync::Arc, time::Instant};
 use zuihitsu::{
     ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, LinkSource,
     ManualClock, MemoryId, MemoryStore, ModelClient, RelationName, SeedSelf, Seq, Server,
-    SqliteVectorIndex, Timestamp, TurnOutcome,
+    SqliteVectorIndex, Timestamp, TurnOutcome, Visibility,
 };
 
 use crate::error::EvalError;
@@ -167,13 +167,15 @@ impl RunContext {
     /// confirmation a proposal surfaces for, so a scenario can assess what the agent does once identity
     /// is confirmed.
     pub fn operator_merge(&self, from: MemoryId, to: MemoryId) -> Result<(), EvalError> {
-        self.seed_events(vec![EventPayload::LinkCreated {
+        self.seed_events(vec![EventPayload::link_created(
             from,
             to,
-            relation: RelationName::SameAs,
-            source: LinkSource::Operator,
-            told_by: None,
-        }])
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        )])
     }
 
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.

@@ -2,7 +2,7 @@ use super::{TurnResolution, recording::reply_leaks_special_tokens, resolve_turn}
 use crate::{
     clock::ManualClock,
     engine::Engine,
-    event::{Cardinality, EventPayload, Initiation, LinkSource, TurnRole},
+    event::{Cardinality, EventPayload, Initiation, LinkSource, TurnRole, Visibility},
     graph::Graph,
     ids::{ConversationId, MemoryId, Namespace, SessionId, TurnId},
     store::{MemoryStore, Store},
@@ -52,13 +52,15 @@ fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, Turn
         ),
     ];
     if merge_direct {
-        events.push(EventPayload::LinkCreated {
-            from: direct,
-            to: discord,
-            relation: RelationName::SameAs,
-            source: LinkSource::Operator,
-            told_by: None,
-        });
+        events.push(EventPayload::link_created(
+            direct,
+            discord,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ));
     }
 
     let mut store = MemoryStore::new();

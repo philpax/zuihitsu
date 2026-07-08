@@ -353,13 +353,15 @@ impl Corpus {
                     reflexive: false,
                     description: format!("the {relation} relation"),
                 },
-                EventPayload::LinkCreated {
+                EventPayload::link_created(
                     from,
                     to,
-                    relation: RelationName::new(relation),
-                    source: LinkSource::Agent,
-                    told_by: Some(Teller::Agent),
-                },
+                    RelationName::new(relation),
+                    LinkSource::Agent,
+                    Some(Teller::Agent),
+                    None,
+                    Visibility::Public,
+                ),
             ],
         )
         .await;

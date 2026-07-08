@@ -98,12 +98,45 @@ pub struct TagVocabularyEntry {
     pub count: usize,
 }
 
-/// A stored edge in its canonical direction.
+/// The fields the link visibility predicate reasons over, extracted from any link view type. Keeps
+/// the predicate decoupled from the specific view shape (`LinkView`, `ClassLinkView`,
+/// `NeighborLinkView`) each caller holds. The `told_in` field is carried so the marker can resolve
+/// the room reference, mirroring how content entries carry `told_in` for `MarkerRoom`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkVis {
+    pub from: MemoryId,
+    pub to: MemoryId,
+    pub visibility: Visibility,
+    pub told_by: Option<Teller>,
+    pub told_in: Option<MemoryId>,
+}
+
+/// A stored edge in its canonical direction, carrying its visibility posture and provenance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkView {
     pub from: MemoryId,
     pub to: MemoryId,
     pub relation: RelationName,
+    /// The teller who asserted the relationship, if one is on record. `None` for links with no
+    /// teller behind them (the adjudicated `same_as`) or predating link provenance.
+    pub told_by: Option<Teller>,
+    /// The context memory (room) the link was asserted in, mirroring content entries' `told_in`.
+    pub told_in: Option<MemoryId>,
+    /// The audience posture, governing the read-time `link_visible` predicate.
+    pub visibility: Visibility,
+}
+
+impl LinkView {
+    /// The fields the link visibility predicate reasons over.
+    pub fn link_vis(&self) -> LinkVis {
+        LinkVis {
+            from: self.from,
+            to: self.to,
+            visibility: self.visibility.clone(),
+            told_by: self.told_by.clone(),
+            told_in: self.told_in,
+        }
+    }
 }
 
 /// A stored edge touching a `same_as` class, carrying its `source` so a class-traversing link read
@@ -118,6 +151,23 @@ pub struct ClassLinkView {
     /// The teller who asserted the relationship, if one is on record — `None` for a link with no
     /// teller behind it (the adjudicated `same_as`) or one predating link provenance.
     pub told_by: Option<Teller>,
+    /// The context memory (room) the link was asserted in, mirroring content entries' `told_in`.
+    pub told_in: Option<MemoryId>,
+    /// The audience posture, governing the read-time `link_visible` predicate.
+    pub visibility: Visibility,
+}
+
+impl ClassLinkView {
+    /// The fields the link visibility predicate reasons over.
+    pub fn link_vis(&self) -> LinkVis {
+        LinkVis {
+            from: self.from,
+            to: self.to,
+            visibility: self.visibility.clone(),
+            told_by: self.told_by.clone(),
+            told_in: self.told_in,
+        }
+    }
 }
 
 /// A neighbor on a memory's out-of-class relation surface — the raw material for the salient-relations
@@ -125,14 +175,38 @@ pub struct ClassLinkView {
 /// (`incoming`) or out of it, and the far memory (id plus its resolved name, so a caller renders
 /// `relation → name` without a second lookup). The query returns only edges leaving the class — an edge
 /// internal to the `same_as` class is identity plumbing, not a relationship — ordered most-recently
-/// created first (by the link's insertion `rowid`). Committed state; not visibility-filtered, mirroring
-/// the link readers, since the agent's own whole-graph surface is not gated on who is present.
+/// created first (by the link's insertion `rowid`). Committed state; visibility-filtered through
+/// `link_visible` when an audience is present, mirroring the content entry reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborLinkView {
     pub relation: RelationName,
     pub incoming: bool,
     pub other: MemoryId,
     pub other_name: MemoryName,
+    /// The `from` endpoint of the stored edge, pre-canonicalization. Needed so the predicate can
+    /// reason about which endpoint is the teller and which is the subject.
+    pub from: MemoryId,
+    /// The `to` endpoint of the stored edge, pre-canonicalization.
+    pub to: MemoryId,
+    /// The teller who asserted the relationship, if one is on record.
+    pub told_by: Option<Teller>,
+    /// The context memory (room) the link was asserted in, mirroring content entries' `told_in`.
+    pub told_in: Option<MemoryId>,
+    /// The audience posture, governing the read-time `link_visible` predicate.
+    pub visibility: Visibility,
+}
+
+impl NeighborLinkView {
+    /// The fields the link visibility predicate reasons over.
+    pub fn link_vis(&self) -> LinkVis {
+        LinkVis {
+            from: self.from,
+            to: self.to,
+            visibility: self.visibility.clone(),
+            told_by: self.told_by.clone(),
+            told_in: self.told_in,
+        }
+    }
 }
 
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via
@@ -277,11 +351,13 @@ impl Graph {
                  description TEXT    NOT NULL DEFAULT ''
              );
              CREATE TABLE IF NOT EXISTS links (
-                 from_id  TEXT NOT NULL,
-                 to_id    TEXT NOT NULL,
-                 relation TEXT NOT NULL,
-                 source   TEXT NOT NULL,
-                 told_by  TEXT,
+                 from_id    TEXT NOT NULL,
+                 to_id      TEXT NOT NULL,
+                 relation   TEXT NOT NULL,
+                 source     TEXT NOT NULL,
+                 told_by    TEXT,
+                 told_in    TEXT,
+                 visibility TEXT NOT NULL DEFAULT 'Public',
                  PRIMARY KEY (from_id, to_id, relation)
              );
              CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_id, relation);

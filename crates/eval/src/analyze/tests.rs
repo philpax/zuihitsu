@@ -1,6 +1,6 @@
 use zuihitsu::{
     Cardinality, Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, Seq,
-    Timestamp,
+    Timestamp, Visibility,
 };
 
 use super::{project_relations, render_locations, render_shapes};
@@ -34,13 +34,15 @@ fn created(id: MemoryId, name: &str) -> EventPayload {
 }
 
 fn linked(from: MemoryId, to: MemoryId, relation: &str) -> EventPayload {
-    EventPayload::LinkCreated {
+    EventPayload::link_created(
         from,
         to,
-        relation: RelationName::new(relation),
-        source: LinkSource::Inferred,
-        told_by: None,
-    }
+        RelationName::new(relation),
+        LinkSource::Inferred,
+        None,
+        None,
+        Visibility::Public,
+    )
 }
 
 fn genesis() -> EventPayload {

@@ -8,10 +8,12 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::{EntryView, Graph, GraphError},
     ids::{EntryId, MemoryId, MemoryName},
-    memory::visibility::{default_visibility_named, subject_participant, visible},
+    memory::visibility::{
+        default_link_visibility, default_visibility_named, subject_participant, visible,
+    },
 };
 
-use super::{EntryRef, MemoryBlock, MemoryError, VisibilityChoice, WITHHELD_STUB};
+use super::{Authority, EntryRef, MemoryBlock, MemoryError, VisibilityChoice, WITHHELD_STUB};
 
 impl MemoryBlock {
     /// The visibility a content entry is written at, or a teachable failure. An explicit choice is
@@ -46,6 +48,48 @@ impl MemoryBlock {
             Some(name) => default_visibility_named(name, id, told_by),
             None => Visibility::Public,
         })
+    }
+
+    /// The visibility a link is written at, or a teachable failure. An explicit choice is honored
+    /// verbatim. With none: a `#confidential` room firms everything private; otherwise an agent-authored
+    /// link about a *person* (a subject-bearing target) has no protective default — the same
+    /// teachable-error gate as content. Any other write (a participant teller, or a non-person target)
+    /// takes the link default, which distinguishes direct beliefs (`PrivateToTeller`) from relayed facts
+    /// (`Attributed`).
+    pub(super) fn resolve_link_visibility(
+        &self,
+        from: MemoryId,
+        from_name: Option<&str>,
+        to: MemoryId,
+        to_name: Option<&str>,
+        told_by: &Teller,
+        explicit: Option<VisibilityChoice>,
+    ) -> Result<Visibility, MemoryError> {
+        if let Some(choice) = explicit {
+            return Ok(match choice {
+                VisibilityChoice::Public => Visibility::Public,
+                VisibilityChoice::Attributed => Visibility::Attributed,
+                VisibilityChoice::Private => Visibility::PrivateToTeller,
+            });
+        }
+        if self.confidential_context {
+            return Ok(Visibility::PrivateToTeller);
+        }
+        // The teachable-error gate fires only for platform-authority (agent) writes about a person —
+        // the operator is explicitly asserting from the console and may take the default.
+        let about_a_person = to_name.is_some_and(|name| subject_participant(name, to).is_some());
+        if self.authority == Authority::Platform
+            && matches!(told_by, Teller::Agent)
+            && about_a_person
+        {
+            return Err(MemoryError::VisibilityRequired);
+        }
+        match (from_name, to_name) {
+            (Some(from_name), Some(to_name)) => Ok(default_link_visibility(
+                from, from_name, to, to_name, told_by,
+            )),
+            _ => Ok(Visibility::Public),
+        }
     }
 
     /// Record `id` and its `same_as` class as touched (a traversing read locks the whole class), and

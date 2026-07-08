@@ -53,20 +53,24 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
             Visibility::PrivateToTeller,
         ),
         // The person owns an event, and is linked to another person.
-        EventPayload::LinkCreated {
-            from: dave,
-            to: trip,
-            relation: RelationName::new("attended"),
-            source: LinkSource::Agent,
-            told_by: None,
-        },
-        EventPayload::LinkCreated {
-            from: dave,
-            to: erin,
-            relation: RelationName::new("mentor_of"),
-            source: LinkSource::Agent,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            dave,
+            trip,
+            RelationName::new("attended"),
+            LinkSource::Agent,
+            None,
+            None,
+            Visibility::Public,
+        ),
+        EventPayload::link_created(
+            dave,
+            erin,
+            RelationName::new("mentor_of"),
+            LinkSource::Agent,
+            None,
+            None,
+            Visibility::Public,
+        ),
     ]);
 
     let context = graph.owned_context_entries(dave).unwrap();
@@ -111,13 +115,15 @@ fn link_canonicalizes_inverse_label_to_one_edge() {
         EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
         EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
         // "erin is mentored_by dave" == "dave is mentor_of erin": same canonical edge.
-        EventPayload::LinkCreated {
-            from: erin,
-            to: dave,
-            relation: RelationName::new("mentored_by"),
-            source: LinkSource::Agent,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            erin,
+            dave,
+            RelationName::new("mentored_by"),
+            LinkSource::Agent,
+            None,
+            None,
+            Visibility::Public,
+        ),
     ]);
 
     // One stored edge, canonicalized to dave --mentor_of--> erin.
@@ -156,21 +162,25 @@ fn symmetric_link_is_order_independent() {
         },
         EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
         EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
-        EventPayload::LinkCreated {
-            from: a,
-            to: b,
-            relation: RelationName::SameAs,
-            source: LinkSource::Operator,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            a,
+            b,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
         // Asserting the reverse direction is the same edge, not a second one.
-        EventPayload::LinkCreated {
-            from: b,
-            to: a,
-            relation: RelationName::SameAs,
-            source: LinkSource::Operator,
-            told_by: None,
-        },
+        EventPayload::link_created(
+            b,
+            a,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
     ]);
 
     assert_eq!(graph.links(a).unwrap().len(), 1);
@@ -190,20 +200,24 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
             EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
             EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
             EventPayload::memory_created(frank, Namespace::Person.with_name("frank")),
-            EventPayload::LinkCreated {
-                from: dave,
-                to: erin,
-                relation: RelationName::new("mentor_of"),
-                source: LinkSource::Agent,
-                told_by: None,
-            },
-            EventPayload::LinkCreated {
-                from: dave,
-                to: frank,
-                relation: RelationName::new("mentor_of"),
-                source: LinkSource::Agent,
-                told_by: None,
-            },
+            EventPayload::link_created(
+                dave,
+                erin,
+                RelationName::new("mentor_of"),
+                LinkSource::Agent,
+                None,
+                None,
+                Visibility::Public,
+            ),
+            EventPayload::link_created(
+                dave,
+                frank,
+                RelationName::new("mentor_of"),
+                LinkSource::Agent,
+                None,
+                None,
+                Visibility::Public,
+            ),
         ]
     };
 

@@ -248,7 +248,12 @@ pub enum EventPayload {
     /// the relationship — the provenance an asymmetric-belief relation turns on (who claims that the
     /// edge holds), carried for every link the same way an entry carries its teller. `None` for a link
     /// with no teller behind it (the adjudicated `same_as`), and for pre-provenance logs that predate
-    /// the field (`#[serde(default)]`).
+    /// the field (`#[serde(default)]`). `visibility` is the audience posture — `Public` for
+    /// structural/operator/adjudicated links, `PrivateToTeller` for a participant-asserted belief about
+    /// someone else, `Attributed` for a secondhand relayed relationship. Defaults to `Public` for
+    /// pre-visibility logs. `told_in` carries the context memory (room) the link was asserted in,
+    /// mirroring content entries' `told_in` — the provenance a teller-private marker's room reference
+    /// reads. Defaults to `None` for pre-visibility logs.
     LinkCreated {
         from: MemoryId,
         to: MemoryId,
@@ -257,6 +262,10 @@ pub enum EventPayload {
         source: LinkSource,
         #[serde(default)]
         told_by: Option<Teller>,
+        #[serde(default)]
+        told_in: Option<MemoryId>,
+        #[serde(default)]
+        visibility: Visibility,
     },
     LinkRemoved {
         from: MemoryId,

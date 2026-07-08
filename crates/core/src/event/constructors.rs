@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-    ArbitrationResolution, EventPayload, EventSource, Initiation, MergeProposalSource, ProducedBy,
-    PromptTemplateName, TerminalCause, TurnRole, Volatility,
+    ArbitrationResolution, EventPayload, EventSource, Initiation, LinkSource, MergeProposalSource,
+    ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 
 impl EventPayload {
@@ -192,6 +192,26 @@ impl EventPayload {
 
     pub fn tag_removed_from_memory(memory: MemoryId, tag: TagName) -> EventPayload {
         EventPayload::TagRemovedFromMemory { memory, tag }
+    }
+
+    pub fn link_created(
+        from: MemoryId,
+        to: MemoryId,
+        relation: RelationName,
+        source: LinkSource,
+        told_by: Option<Teller>,
+        told_in: Option<MemoryId>,
+        visibility: Visibility,
+    ) -> EventPayload {
+        EventPayload::LinkCreated {
+            from,
+            to,
+            relation,
+            source,
+            told_by,
+            told_in,
+            visibility,
+        }
     }
 
     pub fn link_removed(from: MemoryId, to: MemoryId, relation: RelationName) -> EventPayload {

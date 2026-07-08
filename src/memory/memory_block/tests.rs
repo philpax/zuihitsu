@@ -82,7 +82,7 @@ fn link_rejects_an_unregistered_relation() {
     let a = block.create(Namespace::Topic.with_name("a"), None).unwrap();
     let b = block.create(Namespace::Topic.with_name("b"), None).unwrap();
     let error = block
-        .link(a, b, RelationName::Other("bogus_relation".into()))
+        .link(a, b, RelationName::Other("bogus_relation".into()), None)
         .unwrap_err();
     assert!(matches!(error, MemoryError::UnknownRelation(_)));
 }
@@ -136,13 +136,13 @@ fn platform_authority_cannot_write_self() {
     ));
     assert!(matches!(
         block
-            .link(self_id, other, RelationName::CreatedBy)
+            .link(self_id, other, RelationName::CreatedBy, None)
             .unwrap_err(),
         MemoryError::SelfWriteForbidden
     ));
     assert!(matches!(
         block
-            .link(other, self_id, RelationName::CreatedBy)
+            .link(other, self_id, RelationName::CreatedBy, None)
             .unwrap_err(),
         MemoryError::SelfWriteForbidden
     ));
@@ -193,7 +193,11 @@ fn content_writes_to_the_operator_anchor_are_forbidden_but_links_are_not() {
         MemoryError::OperatorWriteForbidden
     ));
     // The merge link to the anchor is not content, so it is allowed.
-    assert!(block.link(operator_id, real, RelationName::SameAs).is_ok());
+    assert!(
+        block
+            .link(operator_id, real, RelationName::SameAs, None)
+            .is_ok()
+    );
 }
 
 #[test]
@@ -214,7 +218,7 @@ fn operator_authority_may_write_self_and_links_carry_operator() {
         )
         .unwrap();
     block
-        .link(self_id, marcus, RelationName::CreatedBy)
+        .link(self_id, marcus, RelationName::CreatedBy, None)
         .unwrap();
 
     // The operator-authored link carries operator provenance, not the agent's own.
@@ -257,7 +261,7 @@ fn platform_authority_same_as_link_routes_to_a_merge_proposal() {
     // The agent reading `link("same_as", …)` as an identity binding does not crash the block: the
     // create routes to the proposal path, buffering an inert `MergeProposed` (no `same_as`, no rollback).
     block
-        .link(dave, dave_discord, RelationName::SameAs)
+        .link(dave, dave_discord, RelationName::SameAs, None)
         .unwrap();
 
     // A retraction, by contrast, stays operator-only — the agent can neither assert nor undo a merge.
@@ -309,7 +313,7 @@ fn operator_authority_may_assert_a_same_as_merge() {
         .unwrap();
 
     block
-        .link(dave, dave_discord, RelationName::SameAs)
+        .link(dave, dave_discord, RelationName::SameAs, None)
         .unwrap();
 }
 
