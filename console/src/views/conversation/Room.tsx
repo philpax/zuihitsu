@@ -12,6 +12,7 @@ import { Transcript } from "./Transcript.tsx";
 import { type Participation, ModelCalls } from "./ConversationView.tsx";
 import { type Channel, hasScopeChar } from "./channelUtilities.tsx";
 import { turnTokens } from "./turnUtilities.ts";
+import { useFollowBottom } from "./useFollowBottom.ts";
 
 /// One conversation, open: its header, sessions, and transcript, plus — live and at the head — a
 /// composer routed to the room's authority (the imprint room writes `self`; the rest are ordinary
@@ -94,6 +95,13 @@ export function Room({
     (channel.conversation?.turns ?? [])
       .slice(deferred.baseline)
       .some((turn) => turn.role === "Agent");
+
+  // Follow the foot of the transcript while live and at the head, so a landing turn — ours or the
+  // agent's — and the in-flight echo and thinking pulse stay in view. Gated to `atHead`, so scrubbing
+  // history never drags the reader back to the present. The signal changes on every event that moves
+  // the foot: a turn count change, the optimistic echo appearing, or the thinking pulse toggling.
+  const turnCount = channel.conversation?.turns.length ?? 0;
+  useFollowBottom(participate?.atHead === true, `${turnCount}|${optimistic !== null}|${thinking}`);
 
   return (
     <div className="flex w-full min-w-0 max-w-[46rem] flex-col">
