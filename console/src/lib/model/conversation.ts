@@ -25,6 +25,7 @@ const OUTCOME_TYPES = new Set<EventPayload["type"]>([
   "MemoryDescriptionRegenerated",
   "BeliefArbitrated",
   "EntryTemporalResolved",
+  "EntryDescriptionMirrored",
   "TagCreated",
   "TagDescriptionChanged",
   "TagAppliedToMemory",
@@ -332,6 +333,7 @@ function outcomeMemoryIds(payload: EventPayload): string[] {
     case "MemoryVolatilitySet":
     case "MemoryDescriptionRegenerated":
     case "EntryTemporalResolved":
+    case "EntryDescriptionMirrored":
       return [payload.id];
     case "BeliefArbitrated":
       return [payload.memory];

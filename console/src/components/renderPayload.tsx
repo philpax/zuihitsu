@@ -102,6 +102,16 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "EntryDescriptionMirrored":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.id)}</Field>
+          <Field label="entry">
+            <Mono>{payload.entry_id}</Mono>
+          </Field>
+        </Fields>
+      );
+
     case "ScheduledJobFired":
       return (
         <Fields>
