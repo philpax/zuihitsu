@@ -1,4 +1,5 @@
 use super::*;
+#[tokio::test]
 async fn a_hit_carries_the_resolved_occurrence() {
     // The date-legibility guarantee: a scheduled fact's resolved occurrence rides on the hit, so a
     // recall that renders from the result line keeps the *when* — rather than the date surfacing

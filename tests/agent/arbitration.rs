@@ -1,4 +1,5 @@
 use super::*;
+#[tokio::test]
 async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
     // The conflicting-accounts shape the eval missed in 3 of 5 runs: two accounts of one fact stand
     // as sibling public entries, and a neutral third entry (the event's own title) sits alongside

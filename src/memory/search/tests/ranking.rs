@@ -1,4 +1,5 @@
 use super::*;
+#[tokio::test]
 async fn the_matching_memory_ranks_first() {
     let mut corpus = Corpus::new();
     let dave = corpus

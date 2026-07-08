@@ -1,4 +1,5 @@
 use super::*;
+#[tokio::test]
 async fn the_compaction_working_set_is_the_touched_set_only() {
     // The compacted session's working set is purely its touched memories. A thread worked in an
     // earlier session but never touched in the session that compacts does not carry, since only the

@@ -1,4 +1,5 @@
 use super::*;
+#[tokio::test]
 async fn health_reports_genesis_status() {
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());

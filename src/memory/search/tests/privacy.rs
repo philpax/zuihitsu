@@ -1,4 +1,5 @@
 use super::*;
+#[tokio::test]
 async fn a_private_asides_marker_names_its_confidential_room() {
     // Scenario 13's mechanism: an aside told in a #confidential room surfaces flagged with the room
     // and its confidentiality — the cross-context signal the agent reasons over.

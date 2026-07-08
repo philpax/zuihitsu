@@ -240,7 +240,7 @@ impl Corpus {
 
     /// As [`Corpus::tell_private`], but told in a specific room (`told_in`), so the surfaced
     /// marker can name it.
-    async fn tell_private_in(
+    pub(super) async fn tell_private_in(
         &mut self,
         memory: MemoryId,
         text: &str,
@@ -266,7 +266,7 @@ impl Corpus {
 
     /// As [`Corpus::add`], but the single content entry carries an occurrence — so the memory has
     /// a resolved date to surface on a hit.
-    async fn add_dated(
+    pub(super) async fn add_dated(
         &mut self,
         name: impl Into<MemoryName>,
         description: &str,
