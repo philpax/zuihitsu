@@ -104,7 +104,7 @@ export function Room({
   useFollowBottom(participate?.atHead === true, `${turnCount}|${optimistic !== null}|${thinking}`);
 
   return (
-    <div className="flex w-full min-w-0 max-w-[46rem] flex-col">
+    <div className="flex w-full min-w-0 max-w-[60rem] flex-col">
       <header className="mb-4">
         <Eyebrow>
           {channel.label}
@@ -155,7 +155,7 @@ export function Room({
       {participate && (
         <Docked>
           <div className="pb-2.5 pt-2 md:grid md:grid-cols-[1fr_12rem] md:gap-8">
-            <div className="w-full min-w-0 max-w-[46rem]">
+            <div className="w-full min-w-0 max-w-[60rem]">
               {participate.atHead ? (
                 <Composer
                   onSend={onSend}
