@@ -6,12 +6,16 @@
 //! *not* persisted, because `RunCompleted` carries the authoritative copy, so a viewer who joins
 //! mid-run still folds the exact same package the sidecar would.
 
+mod helpers;
+mod resume;
+#[cfg(test)]
+mod tests;
+
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::BufWriter,
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use parking_lot::Mutex;
@@ -26,9 +30,10 @@ use crate::{
     package::{Aggregate, EvalPackage, RunMeta, RunRecord, ScenarioMeta, ScenarioReport},
 };
 
-/// How many live events the broadcast holds for a subscriber that briefly falls behind. Generous
-/// because `RunEvent`s are frequent; a subscriber that lags past it is caught up by a fresh snapshot
-/// rather than the missed deltas (see `serve`).
+pub use helpers::now_ms;
+use helpers::{flush, write};
+pub use resume::{ResumeState, read_sidecar};
+
 const BROADCAST_CAPACITY: usize = 8192;
 
 /// One event in an eval run's live log. Emitted in order; the console folds the sequence into an
@@ -353,171 +358,5 @@ impl EvalSink {
         let id = inner.next_id;
         inner.next_id += 1;
         let _ = self.events.send((id, event));
-    }
-}
-
-/// An interrupted run folded from its sidecar: the manifest it began with, and the runs that finished.
-pub struct ResumeState {
-    pub meta: RunMeta,
-    pub scenarios: Vec<ScenarioMeta>,
-    /// `(scenario index, the completed run)`.
-    pub completed: Vec<(u32, RunRecord)>,
-}
-
-/// Fold a `.jsonl` sidecar from an interrupted run into its [`ResumeState`]. Only runs with a
-/// `RunCompleted` count as done; a run with a `RunStarted` (and perhaps some `RunEvent`s) but no
-/// completion died mid-flight, so its partial events are dropped and it re-drives clean.
-pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
-    let file = File::open(path).map_err(|source| EvalError::WriteOutput {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut meta: Option<RunMeta> = None;
-    let mut scenarios = Vec::new();
-    let mut completed = Vec::new();
-    for line in BufReader::new(file).lines() {
-        let line = line.map_err(|source| EvalError::WriteOutput {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<LiveEvent>(&line)? {
-            LiveEvent::Manifest {
-                meta: run_meta,
-                scenarios: metas,
-            } => {
-                meta = Some(run_meta);
-                scenarios = metas;
-            }
-            // The sidecar holds only whole runs: `RunCompleted` carries the full record, so a resume
-            // reads it straight back. A run with a `RunStarted` but no completion died mid-flight and
-            // re-drives clean. `RunEvent`s are broadcast-only and never reach the sidecar.
-            LiveEvent::RunCompleted {
-                scenario, record, ..
-            } => completed.push((scenario, record)),
-            LiveEvent::RunStarted { .. }
-            | LiveEvent::RunEvent { .. }
-            | LiveEvent::Finished { .. } => {}
-        }
-    }
-    let meta = meta.ok_or_else(|| EvalError::ResumeSidecar {
-        path: path.to_path_buf(),
-        reason: "no manifest line".to_owned(),
-    })?;
-    Ok(ResumeState {
-        meta,
-        scenarios,
-        completed,
-    })
-}
-
-/// The harness's wall-clock as epoch milliseconds — the real clock that stamps run start and finish
-/// (never the scenario's simulated clock). Falls back to `0` if the system clock predates the epoch.
-pub(crate) fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-/// Serialize one event as a single JSON line. The sidecar shares the `.jsonl` convention of the
-/// tracked history; each line is one self-contained [`LiveEvent`].
-fn write(writer: &mut BufWriter<File>, event: &LiveEvent) -> Result<(), EvalError> {
-    let line = serde_json::to_string(event)?;
-    writeln!(writer, "{line}").map_err(|source| EvalError::WriteOutput {
-        path: Path::new("<eval sidecar>").to_path_buf(),
-        source,
-    })
-}
-
-/// Flush the buffered sidecar to disk — at a run boundary, so durability is per completed run.
-fn flush(writer: &mut BufWriter<File>) -> Result<(), EvalError> {
-    writer.flush().map_err(|source| EvalError::WriteOutput {
-        path: Path::new("<eval sidecar>").to_path_buf(),
-        source,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    use super::{EvalSink, LiveEvent, read_sidecar};
-    use crate::package::{Bar, Category, RunMeta, RunMetrics, RunRecord, ScenarioMeta};
-
-    /// A pre-timing sidecar predates `at_ms` on the run boundaries; `#[serde(default)]` must fill `0`
-    /// so an old line still folds.
-    #[test]
-    fn old_run_boundary_lines_default_at_ms_to_zero() {
-        let started: LiveEvent =
-            serde_json::from_str(r#"{"kind":"run_started","scenario":0,"run":2}"#)
-                .expect("old run_started parses");
-        match started {
-            LiveEvent::RunStarted { run, at_ms, .. } => {
-                assert_eq!(run, 2);
-                assert_eq!(at_ms, 0);
-            }
-            other => panic!("expected RunStarted, got {other:?}"),
-        }
-    }
-
-    /// The stamping seam: a run driven through the sink carries its wall-clock stamps into the package
-    /// and onto the `RunCompleted`'s `at_ms`, and survives the sidecar resume round-trip.
-    #[test]
-    fn a_stamped_run_survives_the_sidecar_and_resume() {
-        let dir = std::env::temp_dir().join(format!(
-            "zuihitsu-eval-live-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let sidecar = dir.join("run.jsonl");
-
-        let meta = RunMeta {
-            harness_version: "test".to_owned(),
-            git_sha: None,
-            git_dirty: false,
-            model_id: "test-model".to_owned(),
-            embedding_model: None,
-            scenario_filter: None,
-            started_at_ms: 100,
-            finished_at_ms: 100,
-            runs_per_scenario: 1,
-            concurrency: 1,
-        };
-        let scenario = ScenarioMeta {
-            name: "seam".to_owned(),
-            category: Category::Recall,
-            description: "seam test".to_owned(),
-            bar: Bar::gating(),
-        };
-        let sink = EvalSink::new(meta, vec![scenario], &sidecar).expect("sink opens");
-
-        sink.run_started(0, 0, 1_000).unwrap();
-        let record = RunRecord {
-            index: 0,
-            started_at_ms: 1_000,
-            finished_at_ms: 5_000,
-            events: Vec::new(),
-            verdicts: Vec::new(),
-            metrics: RunMetrics::default(),
-        };
-        sink.run_finished(0, record).unwrap();
-
-        let run = &sink.package().scenarios[0].runs[0];
-        assert_eq!(run.started_at_ms, 1_000);
-        assert_eq!(run.finished_at_ms, 5_000);
-
-        let resumed = read_sidecar(&sidecar).expect("resume reads the sidecar");
-        let (_, resumed_run) = &resumed.completed[0];
-        assert_eq!(resumed_run.started_at_ms, 1_000);
-        assert_eq!(resumed_run.finished_at_ms, 5_000);
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

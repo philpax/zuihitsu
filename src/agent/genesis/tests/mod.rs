@@ -8,11 +8,9 @@ mod scaffold;
 
 use crate::{
     InstanceFeatures,
-    agent::genesis::{self, GenesisStatus, Rollout, SeedSelf},
+    agent::genesis::SeedSelf,
     clock::ManualClock,
     event::PromptTemplateName,
-    ids::Seq,
-    settings::Settings,
     store::{MemoryStore, Store},
     time::Timestamp,
 };

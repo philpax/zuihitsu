@@ -54,7 +54,7 @@ async fn metrics_endpoint_renders_prometheus_text_after_a_turn() {
         .set_buckets(LATENCY_BUCKETS)
         .unwrap()
         .build_recorder();
-    let _guard = metrics::set_default_local_recorder(&recorder);
+    let _guard = ::metrics::set_default_local_recorder(&recorder);
     describe();
     let app = app_with_metrics_after_a_turn(&recorder).await;
     let response = app

@@ -1,7 +1,5 @@
 //! Rollout, idempotence, and resume tests.
 
-use std::collections::BTreeSet;
-
 use crate::{
     InstanceFeatures,
     agent::genesis::{self, GenesisStatus, Rollout},

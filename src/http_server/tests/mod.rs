@@ -50,8 +50,3 @@ fn loopback() -> ConnectInfo<SocketAddr> {
 fn remote() -> ConnectInfo<SocketAddr> {
     ConnectInfo(SocketAddr::from(([203, 0, 113, 1], 1234)))
 }
-
-mod api;
-mod auth;
-mod health;
-mod metrics;

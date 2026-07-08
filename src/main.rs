@@ -8,8 +8,6 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, fmt};
-#[cfg(test)]
-use zuihitsu::Volatility;
 use zuihitsu::config::EnvConfig;
 
 use crate::{
