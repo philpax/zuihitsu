@@ -1,3 +1,5 @@
+use zuihitsu::ids::DIRECT_PLATFORM;
+
 use super::*;
 
 /// A person stub, materialized so the resolver can render the speaker's conversational handle.
@@ -263,7 +265,7 @@ async fn convo_turn_resolves_cross_room_for_a_solo_dm() {
         &mut store,
         &clock,
         &graph,
-        &ConversationLocator::new("direct", "maya"),
+        &ConversationLocator::new(DIRECT_PLATFORM, "maya"),
     )
     .unwrap();
     let maya = person(&mut store, &clock, "maya");

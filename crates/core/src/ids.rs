@@ -76,6 +76,12 @@ impl ConversationLocator {
     }
 }
 
+/// The platform key for the operator's own direct interface — the console acting as a platform
+/// client (spec §Clients → platform clients). Unlike an external platform, whose sender is an
+/// unverified handle the arriving party controls, the direct interface's sender is chosen by the
+/// operator, so an identity match asserted through it carries operator authority.
+pub const DIRECT_PLATFORM: &str = "direct";
+
 /// One bounded activity window within a conversation — the unit that freezes a brief and anchors the
 /// prefix cache. Opens on first activity (or resumption after a quiet gap, or a compaction
 /// re-segment) and closes on idle (spec §Conversations).

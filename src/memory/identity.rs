@@ -10,10 +10,11 @@
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, MergeProposalSource},
+    event::{EventPayload, LinkSource, MergeProposalSource},
     graph::{Graph, GraphError},
-    ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace},
+    ids::{ConversationId, ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace},
     store::{Store, StoreError},
+    vocabulary::RelationName,
 };
 
 /// The provisional name of the [`Namespace::Context`] memory minted for a freshly opened room,
@@ -129,19 +130,40 @@ pub fn resolve_or_mint_participant(
             EventPayload::participant_identified(id, platform, platform_user_id),
         ];
         if let Some(existing) = mint.propose_same_as_with {
-            // The clean handle is an unbound hearsay stub: propose reuniting the fresh platform-bound
-            // stub with it, for the adjudicator or operator to weigh. Never an auto-merge — the handle
-            // match alone is not identity.
-            events.push(EventPayload::merge_proposed(
-                id,
-                existing,
-                MergeProposalSource::Orchestration,
-                None,
-            ));
-            tracing::info!(
-                %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
-                "proposed merging a platform arrival with a matching unbound stub",
-            );
+            if platform == DIRECT_PLATFORM {
+                // The direct interface is the operator's own console, which chooses its sender: a
+                // handle match against an unbound stub is the operator asserting the two are one, not
+                // an unverified external claim. So author the merging `same_as` outright — the
+                // operator-assertion path (spec §Cross-platform identity), reversible by an ordinary
+                // `unlink` — rather than proposing it, giving the agent one coherent memory from the
+                // first turn instead of a blank platform stub shadowing its hearsay.
+                events.push(EventPayload::LinkCreated {
+                    from: id,
+                    to: existing,
+                    relation: RelationName::SameAs,
+                    source: LinkSource::Operator,
+                    // No teller behind it: this is an identity assertion, like the adjudicated merge.
+                    told_by: None,
+                });
+                tracing::info!(
+                    %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
+                    "merged a direct-interface arrival with its matching unbound stub",
+                );
+            } else {
+                // On an external platform the handle is the arriving party's unverified claim: propose
+                // reuniting the fresh platform-bound stub with the hearsay one, for the adjudicator or
+                // operator to weigh. Never an auto-merge — the handle match alone is not identity.
+                events.push(EventPayload::merge_proposed(
+                    id,
+                    existing,
+                    MergeProposalSource::Orchestration,
+                    None,
+                ));
+                tracing::info!(
+                    %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
+                    "proposed merging a platform arrival with a matching unbound stub",
+                );
+            }
         }
         store.append(clock.now(), events)?;
         tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
@@ -195,11 +217,12 @@ mod tests {
     use super::{resolve_or_mint_conversation, resolve_or_mint_participant};
     use crate::{
         clock::ManualClock,
-        event::{EventPayload, MergeProposalSource},
+        event::{EventPayload, LinkSource, MergeProposalSource},
         graph::Graph,
-        ids::{ConversationLocator, MemoryId, MemoryName, Namespace, Seq},
+        ids::{ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace, Seq},
         store::{MemoryStore, Store},
         time::Timestamp,
+        vocabulary::RelationName,
     };
 
     #[test]
@@ -292,6 +315,68 @@ mod tests {
             proposals,
             vec![(arrival, hearsay, MergeProposalSource::Orchestration)]
         );
+    }
+
+    #[test]
+    fn a_direct_arrival_matching_an_unbound_stub_merges_it_outright() {
+        let mut store = MemoryStore::new();
+        let clock = ManualClock::new(Timestamp::from_millis(1_000));
+        let mut graph = Graph::open_in_memory().unwrap();
+
+        // An agent-authored hearsay stub: `person/nadia` exists, bound to no platform.
+        let hearsay = MemoryId::generate();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                vec![EventPayload::memory_created(
+                    hearsay,
+                    Namespace::Person.with_name("nadia"),
+                )],
+            )
+            .unwrap();
+        graph.materialize_from(&store).unwrap();
+
+        // Nadia arrives through the operator's own direct interface. Unlike an external platform,
+        // the handle match there is an operator assertion, so the qualified stub is merged into the
+        // hearsay one outright — one class from the first turn, with no proposal left pending.
+        let arrival =
+            resolve_or_mint_participant(&mut store, &clock, &graph, DIRECT_PLATFORM, "nadia")
+                .unwrap();
+        graph.materialize_from(&store).unwrap();
+        assert_ne!(arrival, hearsay);
+        assert!(
+            graph.class_members(arrival).unwrap().contains(&hearsay),
+            "the direct arrival and the hearsay stub should share one same_as class"
+        );
+
+        // The reconciliation is a committed operator-sourced same_as, not a proposal.
+        let mut proposals = 0;
+        let mut same_as = 0;
+        for event in store.read_from(Seq::ZERO).unwrap() {
+            match event.payload {
+                EventPayload::MergeProposed { .. } => proposals += 1,
+                EventPayload::LinkCreated {
+                    relation: RelationName::SameAs,
+                    source,
+                    from,
+                    to,
+                    ..
+                } => {
+                    same_as += 1;
+                    assert_eq!(source, LinkSource::Operator);
+                    assert!(
+                        (from == arrival && to == hearsay) || (from == hearsay && to == arrival),
+                        "the same_as must connect the arrival and the hearsay stub"
+                    );
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(
+            proposals, 0,
+            "a direct arrival must not leave a merge proposal"
+        );
+        assert_eq!(same_as, 1, "exactly one same_as should reconcile the pair");
     }
 
     #[test]
