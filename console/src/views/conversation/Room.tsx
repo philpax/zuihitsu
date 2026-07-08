@@ -123,7 +123,7 @@ export function Room({
       {channel.conversation ? (
         <Transcript replica={replica} conversation={channel.conversation} cursor={cursor} />
       ) : (
-        <p className="py-7 text-sm text-ink-faint">
+        <p className="text-sm text-ink-faint">
           {isOperator
             ? "Introduce yourself to begin the interview."
             : "No messages yet — say hello."}
