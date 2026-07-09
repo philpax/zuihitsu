@@ -55,6 +55,7 @@ impl Session {
                     self.conversation,
                     Some(context.turn_id),
                     context.present_set.clone(),
+                    context.max_entry_chars,
                 )?)),
                 infra: Arc::new(Mutex::new(None)),
                 lock_set: Arc::new(Mutex::new(LockSet::default())),

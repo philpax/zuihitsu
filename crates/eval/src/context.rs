@@ -3,12 +3,12 @@
 //! is independent (its own in-memory store, graph, and — when retrieval is configured — vector index),
 //! which is what lets runs parallelize.
 
-use std::{sync::Arc, time::Instant};
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use zuihitsu::{
-    ConversationLocator, Embedder, Event, EventPayload, Graph, InstanceFeatures, LinkSource,
-    ManualClock, MemoryId, MemoryStore, ModelClient, RelationName, SeedSelf, Seq, Server,
-    SqliteVectorIndex, Timestamp, TurnOutcome, Visibility,
+    ConversationLocator, Embedder, Event, EventPayload, FakeMcpHost, Graph, InstanceFeatures,
+    LinkSource, ManualClock, McpServerConfig, MemoryId, MemoryStore, ModelClient, RelationName,
+    SeedSelf, Seq, Server, SqliteVectorIndex, Timestamp, TurnOutcome, Visibility,
 };
 
 use crate::error::EvalError;
@@ -31,13 +31,16 @@ const HUMAN_PAUSE_MS: i64 = 10_000;
 /// advance (an operator imprint lapsing, a room going quiet between sessions).
 pub(crate) const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
 
-/// The shared, build-once inputs every run needs: the model, and — when an embedding endpoint is
-/// configured — the embedder and its dimensionality (a fresh vector index is built per run).
+/// The shared, build-once inputs every run needs: the model, — when an embedding endpoint is
+/// configured — the embedder and its dimensionality (a fresh vector index is built per run), and —
+/// when a test MCP host is configured — the fake server catalogue a scenario's `needs_mcp()` run
+/// depends on (a fresh host is connected per run, returning canned results deterministically).
 #[derive(Clone)]
 pub struct RunDeps {
     pub model: Arc<dyn ModelClient>,
     pub embedder: Option<Arc<dyn Embedder>>,
     pub dimensions: usize,
+    pub mcp: Option<Arc<FakeMcpHost>>,
 }
 
 /// One inbound message for [`RunContext::turn`], named so a call site reads as what it is rather than
@@ -103,6 +106,14 @@ impl RunContext {
                 features,
             ),
         };
+        // Connect the test MCP host (if any) before boot, so sessions opened during the run get the
+        // projected tool catalogue. The `FakeMcpHost` is pure in-memory — no subprocess, no network
+        // — so it is safe to always connect. Real MCP servers (`config.mcp`) never reach the eval.
+        if let Some(host) = &deps.mcp {
+            let configs: BTreeMap<String, McpServerConfig> =
+                BTreeMap::from([("fetch".to_owned(), McpServerConfig::default())]);
+            server.connect_mcp(host.clone(), configs).await?;
+        }
         server.boot()?;
         server.control().create_agent(&seed())?;
         Ok(RunContext {

@@ -5,6 +5,7 @@
 mod arbitration;
 mod checkpoint;
 mod compaction;
+mod content_limit;
 mod conversations;
 mod decay;
 mod description;
@@ -48,6 +49,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         checkpoint::scenarios(),
         conversations::scenarios(),
         write_honesty::scenarios(),
+        content_limit::scenarios(),
     ]
     .into_iter()
     .flatten()

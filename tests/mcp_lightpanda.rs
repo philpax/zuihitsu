@@ -120,6 +120,7 @@ async fn the_vm_drives_lightpanda_through_the_mcp_projection() {
                 // round-trip is never mistaken for a hang.
                 block_timeout: Duration::from_secs(60),
                 max_block_attempts: 3,
+                max_entry_chars: 10_000,
                 present_set: Vec::new(),
                 dry_run: false,
             },

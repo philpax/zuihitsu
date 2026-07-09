@@ -40,6 +40,7 @@ pub struct Settings {
     pub scheduler: SchedulerSettings,
     pub concurrency: ConcurrencySettings,
     pub observability: ObservabilitySettings,
+    pub memory: MemorySettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -190,6 +191,19 @@ pub enum CaptureLevel {
     Off,
 }
 
+/// Memory write limits — guards against oversized entries that bloat the event log and pollute briefs
+/// and search snippets.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MemorySettings {
+    /// The maximum character length of a single memory content entry. An entry exceeding this is
+    /// rejected with a teachable error before it is buffered. The agent should summarize what it
+    /// learned rather than pasting source content verbatim.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_entry_chars: i64,
+}
+
 /// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
 /// decay.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -297,6 +311,14 @@ impl Default for ObservabilitySettings {
     }
 }
 
+impl Default for MemorySettings {
+    fn default() -> Self {
+        MemorySettings {
+            max_entry_chars: 1_000,
+        }
+    }
+}
+
 impl Default for SearchSettings {
     fn default() -> Self {
         SearchSettings {
@@ -347,8 +369,8 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureLevel, CheckpointSettings, ConcurrencySettings, ObservabilitySettings,
-        SchedulerSettings, Settings, TurnSettings,
+        CaptureLevel, CheckpointSettings, ConcurrencySettings, MemorySettings,
+        ObservabilitySettings, SchedulerSettings, Settings, TurnSettings,
     };
 
     #[test]
@@ -409,5 +431,14 @@ mod tests {
         // sweeper enabled.
         assert_eq!(settings.checkpoint, CheckpointSettings::default());
         assert!(settings.checkpoint.enabled);
+        // The memory group postdates many logged snapshots; its absence must default to the limit.
+        assert_eq!(settings.memory, MemorySettings::default());
+        assert_eq!(settings.memory.max_entry_chars, 1_000);
+    }
+
+    #[test]
+    fn memory_defaults_match_the_spec_starting_values() {
+        let memory = MemorySettings::default();
+        assert_eq!(memory.max_entry_chars, 1_000);
     }
 }

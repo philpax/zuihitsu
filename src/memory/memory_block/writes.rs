@@ -67,7 +67,7 @@ impl MemoryBlock {
             if let Some((text, teller, visibility, occurred_at, volatility)) = first_entry {
                 // A created memory's first entry may carry an occurrence and an inline volatility, just
                 // like a standalone `mem:append("...", { occurred_at = ..., volatility = ... })`.
-                let entry_id = block.push_content(id, text, teller, visibility, occurred_at);
+                let entry_id = block.push_content(id, text, teller, visibility, occurred_at)?;
                 // The seed entry mirrors the `description` argument, not a real occurrence. Flag it so
                 // the turn-end temporal extraction skips it: were it left in the feed, its untimed text
                 // would be stamped with the conversation's "now" and that fabricated date would collide
@@ -141,7 +141,7 @@ impl MemoryBlock {
         // agent reissues with a supported rule.
         Self::validate_occurred_at(opts.occurred_at.as_ref())?;
         let entry_id =
-            self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at);
+            self.push_content(id, text.to_owned(), told_by, visibility, opts.occurred_at)?;
         // An inline volatility classification: set the memory's volatility alongside the append, so the
         // agent can mark a fast-changing fact in one call rather than a separate `set_volatility`.
         if let Some(volatility) = opts.volatility {

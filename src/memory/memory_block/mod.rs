@@ -78,6 +78,9 @@ pub struct MemoryBlock {
     /// Who is present in the conversation — the set `memory.search` filters its hits against (spec
     /// §Visibility). Carried so the read path can reach it; writes do not use it.
     present_set: Vec<MemoryId>,
+    /// The maximum character length of a single content entry, threaded from
+    /// `MemorySettings::max_entry_chars`. An entry exceeding it is rejected before it is buffered.
+    max_entry_chars: usize,
     buffer: Vec<EventPayload>,
     touched: BTreeSet<MemoryId>,
     aborted: Option<String>,
@@ -292,6 +295,7 @@ impl MemoryBlock {
         conversation: ConversationId,
         turn_id: Option<TurnId>,
         present_set: Vec<MemoryId>,
+        max_entry_chars: usize,
     ) -> Result<MemoryBlock, GraphError> {
         let (told_in, context_memory, confidential_context, self_id, operator_id) = {
             let graph = engine.graph.lock();
@@ -329,6 +333,7 @@ impl MemoryBlock {
             told_in,
             confidential_context,
             present_set,
+            max_entry_chars,
             buffer: Vec::new(),
             touched: BTreeSet::new(),
             aborted: None,

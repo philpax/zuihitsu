@@ -147,7 +147,9 @@ impl MemoryBlock {
     }
 
     /// Buffer a content entry and touch its memory, returning the minted entry id (so a write can be
-    /// handed back to the agent as an addressable entry — see [`MemoryBlock::append`]).
+    /// handed back to the agent as an addressable entry — see [`MemoryBlock::append`]). Rejects text
+    /// exceeding `max_entry_chars` before buffering anything, surfacing a teachable error that guides
+    /// the agent to summarize rather than paste source content.
     pub(super) fn push_content(
         &mut self,
         id: MemoryId,
@@ -155,7 +157,14 @@ impl MemoryBlock {
         told_by: Teller,
         visibility: Visibility,
         occurred_at: Option<TemporalRef>,
-    ) -> EntryId {
+    ) -> Result<EntryId, MemoryError> {
+        let length = text.chars().count();
+        if length > self.max_entry_chars {
+            return Err(MemoryError::ContentTooLong {
+                length,
+                limit: self.max_entry_chars,
+            });
+        }
         let entry_id = EntryId::generate();
         self.touched.insert(id);
         self.buffer.push(EventPayload::MemoryContentAppended {
@@ -168,6 +177,6 @@ impl MemoryBlock {
             told_in: self.told_in.clone(),
             visibility,
         });
-        entry_id
+        Ok(entry_id)
     }
 }

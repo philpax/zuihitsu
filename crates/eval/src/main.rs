@@ -7,6 +7,7 @@ mod analysis;
 mod analyze;
 mod context;
 mod error;
+mod fetch_fixture;
 mod harness;
 mod history;
 mod judge;

@@ -39,6 +39,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_steps,
         block_timeout,
         max_block_attempts,
+        max_entry_chars,
         capture,
     } = turn;
     let conversation = session.conversation();
@@ -122,6 +123,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             turn_id,
             block_timeout,
             max_block_attempts,
+            max_entry_chars,
             present_set: present_set.to_vec(),
             dry_run: false,
         },
@@ -184,6 +186,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         max_steps,
         block_timeout,
         max_block_attempts,
+        max_entry_chars,
         capture,
     } = flush;
     // The flush's standing instruction comes from the `Flush` template; without it there is nothing to
@@ -250,6 +253,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
             turn_id,
             block_timeout,
             max_block_attempts,
+            max_entry_chars,
             present_set: present_set.to_vec(),
             dry_run: false,
         },

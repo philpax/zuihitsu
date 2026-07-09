@@ -272,6 +272,7 @@ async fn link_readers_traverse_the_merged_identity() {
         turn_id: TurnId::generate(),
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        max_entry_chars: TEST_MAX_ENTRY_CHARS,
         present_set: Vec::new(),
         dry_run: false,
     };

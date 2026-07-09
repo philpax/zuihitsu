@@ -167,3 +167,23 @@ fn disabling_calendar_omits_every_calendar_entry() {
     assert!(!entries.contains(&"calendar.today".to_owned()));
     assert!(!entries.contains(&"<date>:add_days".to_owned()));
 }
+
+#[test]
+fn append_documents_the_character_limit() {
+    // The append entry's text param documents the character limit, so the agent learns to
+    // summarize what it learned rather than pasting source content verbatim.
+    let append = api_reference(&InstanceFeatures::default())
+        .into_iter()
+        .find(|entry| entry.call == "<memory>:append")
+        .expect("append is present");
+    let text_param = append
+        .params
+        .iter()
+        .find(|param| param.name == "text")
+        .expect("append has a text param");
+    assert!(
+        text_param.doc.contains("character limit"),
+        "the text param should mention the character limit: {}",
+        text_param.doc
+    );
+}

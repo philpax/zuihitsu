@@ -59,6 +59,10 @@ pub enum MemoryError {
     /// unknown id, or one already superseded. The agent supersedes entries it read from the same
     /// memory, so this is a teachable misuse.
     UnknownEntry(EntryId),
+    /// A content entry exceeded the maximum length. Memory entries record distilled facts, not source
+    /// content — the agent should summarize what it learned in under the limit rather than pasting a
+    /// fetched page or raw transcript.
+    ContentTooLong { length: usize, limit: usize },
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -133,6 +137,12 @@ impl std::fmt::Display for MemoryError {
                 f,
                 "no live entry {} on this memory; supersede an entry you read from it",
                 entry.0
+            ),
+            MemoryError::ContentTooLong { length, limit } => write!(
+                f,
+                "this entry is {length} characters; memory entries record distilled facts, not source \
+                 content — summarize what you learned in under {limit} characters, drawing on the \
+                 content you fetched or read in your tool results rather than pasting it verbatim"
             ),
             MemoryError::Graph(error) => write!(f, "memory: {error}"),
         }

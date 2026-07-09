@@ -29,7 +29,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                  or one subject splits across casings"
             ),
         )
-        .optional("content", AT::String, "an optional first content entry")
+        .optional("content", AT::String, "an optional first content entry (subject to the same character limit as append)")
         .returns(AT::Handle);
 
     let get = AE::new("memory.get")
@@ -139,7 +139,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              own observation (a synthesis or a flush) has no default — set its visibility yourself, \
              public or private.",
         )
-        .required("text", AT::String, "the entry text")
+        .required("text", AT::String, "the entry text (must be under the character limit — summarize what you learned rather than pasting source content)")
         .optional(
             "opts",
             object()

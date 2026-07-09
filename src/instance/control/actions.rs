@@ -127,13 +127,15 @@ impl super::Control<'_> {
             _ => Session::new(conversation, self.server.features),
         };
 
-        let turn = Settings::from_store(self.server.engine.store.lock().as_ref())?.turn;
+        let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
+        let turn = settings.turn;
         let context = BlockContext {
             teller: Teller::Agent,
             authority: Authority::Operator,
             turn_id: TurnId::generate(),
             block_timeout: Duration::from_secs(turn.block_timeout_seconds.max(0) as u64),
             max_block_attempts: turn.max_block_attempts.max(1) as u32,
+            max_entry_chars: settings.memory.max_entry_chars.max(1) as usize,
             present_set: Vec::new(),
             dry_run: true,
         };

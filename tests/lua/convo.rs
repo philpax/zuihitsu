@@ -78,6 +78,7 @@ pub(crate) fn resolver_context(present_set: Vec<MemoryId>) -> BlockContext {
         turn_id: TurnId::generate(),
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        max_entry_chars: TEST_MAX_ENTRY_CHARS,
         present_set,
         dry_run: false,
     }

@@ -87,6 +87,7 @@ impl Instance {
                     settings.turn.block_timeout_seconds.max(0) as u64
                 ),
                 max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
+                max_entry_chars: settings.memory.max_entry_chars.max(1) as usize,
                 capture: settings.observability.capture_model_calls,
             })
             .await

@@ -144,6 +144,7 @@ impl Instance {
         let max_steps = turn_settings.max_steps as usize;
         let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);
         let max_block_attempts = turn_settings.max_block_attempts.max(1) as u32;
+        let max_entry_chars = settings.memory.max_entry_chars.max(1) as usize;
         let capture = settings.observability.capture_model_calls;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq` with
@@ -170,6 +171,7 @@ impl Instance {
             max_steps,
             block_timeout,
             max_block_attempts,
+            max_entry_chars,
             capture,
         })
         .await

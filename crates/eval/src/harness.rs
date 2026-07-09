@@ -54,20 +54,26 @@ pub async fn warm_up(deps: &RunDeps) {
 }
 
 /// The scenarios that will actually run, in registry order — every scenario, minus those needing
-/// retrieval when no embedding endpoint is configured (skipped with a warning). The manifest and the
-/// `scenario` indices in the live log are built over this list, so its order is the scoreboard's order.
+/// retrieval when no embedding endpoint is configured, and minus those needing MCP when no test host
+/// is configured (skipped with a warning). The manifest and the `scenario` indices in the live log
+/// are built over this list, so its order is the scoreboard's order.
 pub fn active_scenarios(
     scenarios: Vec<Arc<dyn Scenario>>,
     has_retrieval: bool,
+    has_mcp: bool,
 ) -> Vec<Arc<dyn Scenario>> {
     scenarios
         .into_iter()
         .filter(|scenario| {
-            let keep = !scenario.needs_retrieval() || has_retrieval;
-            if !keep {
+            let keep_retrieval = !scenario.needs_retrieval() || has_retrieval;
+            if !keep_retrieval {
                 tracing::warn!(scenario = %scenario.meta().name, "skipping: needs retrieval, but no embedding endpoint is configured");
             }
-            keep
+            let keep_mcp = !scenario.needs_mcp() || has_mcp;
+            if !keep_mcp {
+                tracing::warn!(scenario = %scenario.meta().name, "skipping: needs MCP, but no test MCP host is configured");
+            }
+            keep_retrieval && keep_mcp
         })
         .collect()
 }

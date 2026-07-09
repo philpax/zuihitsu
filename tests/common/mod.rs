@@ -98,6 +98,9 @@ mod harness {
     const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
     /// The per-block lock-wait retry bound for tests.
     const TEST_MAX_BLOCK_ATTEMPTS: u32 = 3;
+    /// The memory entry character limit for tests — generous enough that existing test content
+    /// passes, while still exercising the limit in the dedicated oversized-content tests.
+    const TEST_MAX_ENTRY_CHARS: usize = 10_000;
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
     /// manual clock, and one Lua session. The `engine` is the same shared handle the turn writes
@@ -299,6 +302,7 @@ mod harness {
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 capture,
             }
         }
@@ -328,6 +332,7 @@ mod harness {
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 capture: CaptureLevel::Full,
             }
         }
@@ -346,6 +351,7 @@ mod harness {
                         dry_run: false,
                         block_timeout: TEST_BLOCK_TIMEOUT,
                         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                        max_entry_chars: TEST_MAX_ENTRY_CHARS,
                     },
                     &super::prepare_script(script),
                 )
@@ -372,6 +378,7 @@ mod harness {
                         dry_run: false,
                         block_timeout: TEST_BLOCK_TIMEOUT,
                         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+                        max_entry_chars: TEST_MAX_ENTRY_CHARS,
                     },
                     &super::prepare_script(script),
                 )

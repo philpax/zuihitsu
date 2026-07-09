@@ -27,6 +27,9 @@ pub(crate) use zuihitsu::{
 pub(crate) const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(30);
 /// The per-block lock-wait retry bound for these tests.
 pub(crate) const TEST_MAX_BLOCK_ATTEMPTS: u32 = 3;
+/// The memory entry character limit for these tests — generous enough that existing test content
+/// passes, while still exercising the limit in the dedicated oversized-content tests.
+pub(crate) const TEST_MAX_ENTRY_CHARS: usize = 10_000;
 
 mod block;
 mod block_part2;

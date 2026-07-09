@@ -125,6 +125,9 @@ pub struct BlockContext {
     /// How many times a lock-wait-timed-out block (with no MCP call) is retried before giving up.
     /// Threaded from `TurnSettings::max_block_attempts`.
     pub max_block_attempts: u32,
+    /// The maximum character length of a single memory content entry. Threaded from
+    /// `MemorySettings::max_entry_chars`.
+    pub max_entry_chars: usize,
     /// Who is present in the conversation this block runs in — the set `memory.search` filters its
     /// entry hits against, so the agent never recalls a teller-private aside into a room where the
     /// teller is absent (spec §Visibility). The agent is always present to itself.
@@ -172,6 +175,9 @@ pub struct Turn<'a> {
     pub block_timeout: Duration,
     /// Per-block retry bound for a lock-wait timeout (spec §Concurrency).
     pub max_block_attempts: u32,
+    /// The maximum character length of a single memory content entry. Threaded from
+    /// `MemorySettings::max_entry_chars`.
+    pub max_entry_chars: usize,
     /// How much of each model call to capture in the model-interaction record (spec §Observability).
     pub capture: CaptureLevel,
 }
@@ -197,6 +203,9 @@ pub(crate) struct Flush<'a> {
     pub block_timeout: Duration,
     /// Per-block retry bound for a lock-wait timeout (spec §Concurrency).
     pub max_block_attempts: u32,
+    /// The maximum character length of a single memory content entry. Threaded from
+    /// `MemorySettings::max_entry_chars`.
+    pub max_entry_chars: usize,
     /// How much of each model call to capture in the model-interaction record (spec §Observability).
     pub capture: CaptureLevel,
 }

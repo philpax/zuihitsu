@@ -293,6 +293,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         turn_id: TurnId::generate(),
         block_timeout: TEST_BLOCK_TIMEOUT,
         max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
+        max_entry_chars: TEST_MAX_ENTRY_CHARS,
         present_set: Vec::new(),
         dry_run: false,
     };
@@ -326,6 +327,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         turn_id: TurnId::generate(),
         block_timeout: Duration::from_millis(60),
         max_block_attempts: 1,
+        max_entry_chars: TEST_MAX_ENTRY_CHARS,
         present_set: Vec::new(),
         dry_run: false,
     };
@@ -377,6 +379,7 @@ async fn a_lock_starved_block_gives_up_after_its_attempts() {
                 turn_id: TurnId::generate(),
                 block_timeout: Duration::from_millis(40),
                 max_block_attempts: 2,
+                max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 present_set: Vec::new(),
                 dry_run: false,
             },

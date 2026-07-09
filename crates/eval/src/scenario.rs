@@ -23,6 +23,13 @@ pub trait Scenario: Send + Sync {
         false
     }
 
+    /// Whether the scenario needs a test MCP host (a fake server returning canned content). The
+    /// harness skips such scenarios when no MCP host is configured, rather than running them without
+    /// the tools the scenario depends on.
+    fn needs_mcp(&self) -> bool {
+        false
+    }
+
     /// Which API features the scenario's instance enables — narrows the agent's Lua surface so a
     /// scenario can test a behaviour in isolation (e.g. disable `linking` to test the link-inference
     /// pass as the sole path to a link). Defaults to all-on; a scenario overrides this to narrow.

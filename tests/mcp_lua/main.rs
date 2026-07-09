@@ -85,6 +85,7 @@ async fn run_bounded(
                 turn_id: TurnId::generate(),
                 block_timeout,
                 max_block_attempts: 3,
+                max_entry_chars: 10_000,
                 present_set: Vec::new(),
                 dry_run: false,
             },
