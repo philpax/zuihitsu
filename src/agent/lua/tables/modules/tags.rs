@@ -15,6 +15,8 @@ pub(in crate::agent::lua) fn tags_table(lua: &Lua, api: &BlockApi) -> mlua::Resu
             move |_, (name, description): (String, String)| {
                 let api = api.clone();
                 async move {
+                    check_interpolated("tag name", &name)?;
+                    check_interpolated("tag purpose", &description)?;
                     api.block
                         .lock()
                         .create_tag(TagName::new(&name), &description)
@@ -31,6 +33,7 @@ pub(in crate::agent::lua) fn tags_table(lua: &Lua, api: &BlockApi) -> mlua::Resu
             move |_, (name, description): (String, String)| {
                 let api = api.clone();
                 async move {
+                    check_interpolated("tag purpose", &description)?;
                     api.block
                         .lock()
                         .describe_tag(TagName::new(&name), &description)

@@ -4,6 +4,7 @@
 
 mod handles;
 mod inspect;
+mod placeholder;
 mod search;
 mod temporal;
 
@@ -33,6 +34,7 @@ pub(crate) use inspect::{
     combine_output, concat_via_tostring, date_text, install_inspect, install_table_concat, render,
     value_text,
 };
+pub(crate) use placeholder::check_interpolated;
 pub(crate) use search::{SearchOpts, run_memory_search};
 pub(crate) use temporal::{append_options_from_lua, day_string, make_date};
 

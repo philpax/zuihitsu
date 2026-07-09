@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     super::error::{HandleAssignmentError, HandleError, HandleKind},
-    BlockApi, route_error,
+    BlockApi, check_interpolated, route_error,
 };
 use ulid::Ulid;
 
@@ -377,7 +377,11 @@ pub(crate) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<Memor
 /// is any other value.
 pub(crate) fn get_argument_name(api: &BlockApi, value: Value) -> mlua::Result<String> {
     match value {
-        Value::String(name) => Ok(name.to_string_lossy()),
+        Value::String(name) => {
+            let name = name.to_string_lossy();
+            check_interpolated("memory name", &name)?;
+            Ok(name)
+        }
         Value::Table(handle) => {
             let id = handle_id(&handle)?;
             match api

@@ -30,6 +30,7 @@ pub(super) fn install_handle_methods(
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
+                    check_interpolated("entry text", &text)?;
                     let id = handle_id(&this.0)?;
                     api.lock(id).await;
                     let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
@@ -169,6 +170,7 @@ pub(super) fn install_handle_methods(
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
+                    check_interpolated("entry text", &text)?;
                     let id = handle_id(&this.0)?;
                     let old = entry_handle_id(&old)?;
                     api.lock_class(id).await?;
@@ -315,6 +317,9 @@ pub(super) fn install_handle_methods(
                                 .filter(|text| !text.is_empty()),
                             None => None,
                         };
+                        if let Some(rationale) = &rationale {
+                            check_interpolated("merge rationale", rationale)?;
+                        }
                         api.lock_all([from, to]).await;
                         api.block
                             .lock()
@@ -394,6 +399,7 @@ pub(super) fn install_handle_methods(
             move |_, (this, new_name): (HandleSelf, String)| {
                 let api = api.clone();
                 async move {
+                    check_interpolated("memory name", &new_name)?;
                     let id = handle_id(&this.0)?;
                     api.lock(id).await;
                     api.block

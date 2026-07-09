@@ -28,6 +28,10 @@ pub(in crate::agent::lua) fn memory_table(
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
+                    check_interpolated("memory name", &name)?;
+                    if let Some(content) = &content {
+                        check_interpolated("entry text", content)?;
+                    }
                     let opts = append_options_from_lua(&api, &lua, opts)?;
                     let id = api
                         .block
@@ -82,6 +86,9 @@ pub(in crate::agent::lua) fn memory_table(
                 let metatable = metatable.clone();
                 async move {
                     let name = get_argument_name(&api, target)?;
+                    if let Some(content) = &content {
+                        check_interpolated("entry text", content)?;
+                    }
                     if let Some(handle) =
                         resolve_existing_handle(&lua, &api, &metatable, &name).await?
                     {
@@ -123,6 +130,7 @@ pub(in crate::agent::lua) fn memory_table(
                 let api = api.clone();
                 let result_metatable = result_metatable.clone();
                 async move {
+                    check_interpolated("search query", &query)?;
                     let (engine, present_set) = api.block.lock().retrieval_handle();
                     let opts: SearchOpts = if opts.is_nil() {
                         SearchOpts::default()
@@ -210,6 +218,7 @@ pub(in crate::agent::lua) fn memory_table(
                     if prefix.trim().is_empty() {
                         return Err(ListError::EmptyPrefix.into());
                     }
+                    check_interpolated("name prefix", &prefix)?;
                     let ids = api
                         .block
                         .lock()

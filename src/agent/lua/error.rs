@@ -468,6 +468,43 @@ impl From<HandleAssignmentError> for LuaError {
     }
 }
 
+/// A free-text argument that carries a literal `{ident}`-shaped placeholder — string-format syntax
+/// (`mem:append("Full text: {content}")`) that a plain quoted string never interpolates, so the
+/// uninterpolated braces would be stored (or searched) as fact. Raised at the Lua argument boundary,
+/// where the script's own text crosses into the API, so it catches the slip at its point of failure
+/// and points at the backtick string that does interpolate — the same vocabulary the [`ConcatError`]
+/// teachable error uses. Genesis and console writes never pass through a script, so they may carry
+/// literal braces (the scaffold's `{es[1]}` examples among them).
+#[derive(Debug)]
+pub(super) struct PlaceholderError {
+    /// The argument the offending text was passed as, for the error's wording ("entry text",
+    /// "memory name", …).
+    pub what: &'static str,
+    /// The matched placeholder including its braces (e.g. `"{content}"`).
+    pub placeholder: String,
+}
+
+impl std::fmt::Display for PlaceholderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let PlaceholderError { what, placeholder } = self;
+        write!(
+            f,
+            "the {what} contains \"{placeholder}\" as literal characters — a plain quoted string does \
+             not interpolate. To insert a value, use a backtick string, which does: \
+             `Full text: {{content}}` renders the variable content in place. If the braces are meant \
+             literally, rephrase so the braces do not wrap a bare identifier"
+        )
+    }
+}
+
+impl std::error::Error for PlaceholderError {}
+
+impl From<PlaceholderError> for LuaError {
+    fn from(error: PlaceholderError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// A block-consistency invariant: an entry the block just buffered could not be read back. A bug,
 /// not the agent's doing — surfaced as a catchable error rather than a panic so a misbehaving build
 /// does not tear the whole session down.

@@ -18,6 +18,8 @@ pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Res
                 let api = api.clone();
                 async move {
                     let spec: RelationSpec = lua.from_value(spec)?;
+                    check_interpolated("relation name", &spec.name)?;
+                    check_interpolated("relation name", &spec.inverse)?;
                     api.block
                         .lock()
                         .register_relation(spec)
