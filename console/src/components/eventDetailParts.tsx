@@ -22,17 +22,9 @@ export function Ref({
   seq?: number;
 }) {
   const name = refName(id, nameById);
-  const to = base != null && seq != null && nameById.has(id) ? statePath(base, seq, name) : null;
-  if (!to) return <>{name}</>;
-  return (
-    <Link
-      to={to}
-      title="Open this memory in State, at this point in the timeline"
-      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-    >
-      {name}
-    </Link>
-  );
+  // Only link when the id resolves to a known memory name (nameById has it).
+  if (!nameById.has(id)) return <>{name}</>;
+  return <MemoryNameLink name={name} base={base} seq={seq} />;
 }
 
 /// A conversation reference rendered as a link, styled like [`Ref`]: the room's name (resolved
@@ -80,6 +72,27 @@ export function ConversationRefLink({
     return <Ref id={roomName} nameById={nameById} base={base} seq={seq} />;
   }
   return <>{roomName ?? value.conversation}</>;
+}
+
+/// A clickable memory name that navigates to the State view at the cursor, rendered as a semantic
+/// `<Link>`. Handles virtual nodes (collapsed `same_as` classes ending in " (N)") as plain text.
+/// Shared by the event detail panels, the relations view, the join brief, and the merge proposals.
+export function MemoryNameLink({ name, base, seq }: { name: string; base?: string; seq?: number }) {
+  // A collapsed virtual node id ends in " (N)" — it is a class, not a single memory to open.
+  if (/\(\d+\)$/.test(name)) {
+    return <span className="text-sage">{name}</span>;
+  }
+  const to = base != null && seq != null ? statePath(base, seq, name) : null;
+  if (!to) return <>{name}</>;
+  return (
+    <Link
+      to={to}
+      title={`Open ${name} in State`}
+      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+    >
+      {name}
+    </Link>
+  );
 }
 
 /// A comma-separated list of memory references, each a link under the same rules as [`Ref`].

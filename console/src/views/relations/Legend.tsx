@@ -1,10 +1,10 @@
 import { useState } from "react";
+
 import type { RelationView } from "../../lib/model/graph.ts";
 import type { MemoryGraph, MemoryGraphLink } from "../../lib/model/memoryGraph.ts";
-import { statePath } from "../../lib/nav/routes.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { Checkbox } from "../../components/primitives.tsx";
-import { ConversationRefLink } from "../../components/eventDetailParts.tsx";
+import { ConversationRefLink, MemoryNameLink } from "../../components/eventDetailParts.tsx";
 import { cardinalityLabel, relationColor } from "./graphUtilities.ts";
 
 /// The relation registry as a table. Each row is a toggle filter; clicking "all" clears the filter.
@@ -99,14 +99,12 @@ export function LinkedPairs({
   graph,
   base,
   cursor,
-  navigate,
   nameById,
   conversationNameById,
 }: {
   graph: MemoryGraph;
   base: string;
   cursor: number;
-  navigate: (path: string) => void;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
 }) {
@@ -125,7 +123,6 @@ export function LinkedPairs({
             link={link}
             base={base}
             cursor={cursor}
-            navigate={navigate}
             nameById={nameById}
             conversationNameById={conversationNameById}
           />
@@ -141,14 +138,12 @@ function LinkRow({
   link,
   base,
   cursor,
-  navigate,
   nameById,
   conversationNameById,
 }: {
   link: MemoryGraphLink;
   base: string;
   cursor: number;
-  navigate: (path: string) => void;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
 }) {
@@ -162,9 +157,9 @@ function LinkRow({
         }
         onClick={() => hasDetail && setExpanded(!expanded)}
       >
-        <MemoryLink name={link.source} base={base} cursor={cursor} navigate={navigate} />
+        <MemoryNameLink name={link.source} base={base} seq={cursor} />
         <span style={{ color: relationColor(link.relation) }}>{link.relation}</span>
-        <MemoryLink name={link.target} base={base} cursor={cursor} navigate={navigate} />
+        <MemoryNameLink name={link.target} base={base} seq={cursor} />
         {isPrivate(link.visibility) && (
           <span className="text-2xs text-clay/70">
             {visibilityLabel(link.visibility, nameById)}
@@ -191,15 +186,7 @@ function LinkRow({
                   }
                   const participantId = link.told_by.Participant;
                   const name = nameById.get(participantId) ?? participantId;
-                  return (
-                    <button
-                      onClick={() => navigate(statePath(base, cursor, name))}
-                      title={`Open ${name} in State`}
-                      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-                    >
-                      {label}
-                    </button>
-                  );
+                  return <MemoryNameLink name={name} base={base} seq={cursor} />;
                 })()}
               </dd>
             </div>
@@ -220,34 +207,5 @@ function LinkRow({
         </dl>
       )}
     </li>
-  );
-}
-
-/// A clickable memory name that navigates to the State view at the cursor. Virtual nodes (carrying
-/// `members`) are shown as plain text — they are a class, not a single memory to open.
-function MemoryLink({
-  name,
-  base,
-  cursor,
-  navigate,
-}: {
-  name: string;
-  base: string;
-  cursor: number;
-  navigate: (path: string) => void;
-}) {
-  // A collapsed virtual node id ends in " (N)" — it is not a memory name to open.
-  const isVirtualNode = /\(\d+\)$/.test(name);
-  if (isVirtualNode) {
-    return <span className="text-sage">{name}</span>;
-  }
-  return (
-    <button
-      onClick={() => navigate(statePath(base, cursor, name))}
-      title={`Open ${name} in State`}
-      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-    >
-      {name}
-    </button>
   );
 }

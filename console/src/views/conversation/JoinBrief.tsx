@@ -1,13 +1,12 @@
 import { type ComponentProps, type RefObject, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 
 import type { Brief } from "../../types/Brief.ts";
 import type { TurnModel } from "../../lib/model/conversation.ts";
 import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
-import { statePath } from "../../lib/nav/routes.ts";
 import { linkedClass } from "./turnUtilities.ts";
 import { TurnTimeAnchor } from "./Turn.tsx";
+import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 
 /// A mid-session join, drawn as an entrance seam: a labelled rule whose centered label is a disclosure
 /// into the pretty-printed brief the joiner arrived with. Collapsed by default — the seam reads at a
@@ -62,7 +61,6 @@ export function JoinBriefTurn({
 /// each name opening the memory in the State view at this moment in the timeline.
 export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
   const base = useStreamBase();
-  const navigate = useNavigate();
   return (
     <div className="space-y-3 border-l-2 border-line pl-4 text-sm">
       {brief.summary && <p className="leading-relaxed text-ink-soft">{brief.summary}</p>}
@@ -88,13 +86,7 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
               <span aria-hidden className="text-ink-faint">
                 →
               </span>
-              <button
-                onClick={() => navigate(statePath(base, seq, relationship.subject))}
-                title={`Open ${relationship.subject} in State`}
-                className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-              >
-                {relationship.subject}
-              </button>
+              <MemoryNameLink name={relationship.subject} base={base} seq={seq} />
               {relationship.marker && (
                 <span className="text-2xs text-ink-faint">{relationship.marker}</span>
               )}

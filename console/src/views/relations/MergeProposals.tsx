@@ -2,8 +2,8 @@ import { useState } from "react";
 
 import type { MemoryId } from "../../types/MemoryId.ts";
 import type { MergeProposalView, MergeStatus } from "../../lib/model/graph.ts";
-import { statePath } from "../../lib/nav/routes.ts";
 import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
+import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 
 /// The operator's merge-decision surface: every cross-platform merge proposal the folded log holds,
 /// each with the proposer's stated grounds, its two stubs (linked into State), and where it now stands
@@ -17,13 +17,11 @@ export function MergeProposals({
   proposals,
   base,
   cursor,
-  navigate,
   onResolve,
 }: {
   proposals: MergeProposalView[];
   base: string;
   cursor: number;
-  navigate: (path: string) => void;
   onResolve?: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
 }) {
   // The pair currently being resolved (keyed by its two ids), and the last failure, so the buttons
@@ -57,9 +55,9 @@ export function MergeProposals({
           return (
             <li key={key} className="flex flex-col gap-1.5 py-3">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <StubLink name={proposal.from} base={base} cursor={cursor} navigate={navigate} />
+                <MemoryNameLink name={proposal.from} base={base} seq={cursor} />
                 <span className="font-mono text-2xs text-ink-faint">same&nbsp;as</span>
-                <StubLink name={proposal.to} base={base} cursor={cursor} navigate={navigate} />
+                <MemoryNameLink name={proposal.to} base={base} seq={cursor} />
                 <StatusBadge status={proposal.status} />
                 <span className="font-mono text-2xs text-ink-faint">
                   {proposal.source === "Orchestration" ? "handle match" : "proposed by the agent"}
@@ -107,29 +105,5 @@ function StatusBadge({ status }: { status: MergeStatus }) {
     >
       {status}
     </span>
-  );
-}
-
-/// A stub's handle, linked into the State view at the cursor so the operator can inspect what each
-/// side actually holds before deciding.
-function StubLink({
-  name,
-  base,
-  cursor,
-  navigate,
-}: {
-  name: string;
-  base: string;
-  cursor: number;
-  navigate: (path: string) => void;
-}) {
-  return (
-    <button
-      onClick={() => navigate(statePath(base, cursor, name))}
-      title={`Open ${name} in State`}
-      className="font-mono text-xs text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-    >
-      {name}
-    </button>
   );
 }

@@ -184,7 +184,6 @@ export function RelationsView({
         proposals={proposals}
         base={base}
         cursor={cursor}
-        navigate={navigate}
         onResolve={merge?.resolve}
       />
 
@@ -322,7 +321,6 @@ export function RelationsView({
             graph={linkedPairsGraph}
             base={base}
             cursor={cursor}
-            navigate={navigate}
             nameById={nameById}
             conversationNameById={convNameById}
           />
