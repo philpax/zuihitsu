@@ -31,6 +31,9 @@ pub enum EvalError {
     Serialize(Box<serde_json::Error>),
     /// The `--name` is not a bare filename (empty, or carries a path separator or `..`).
     BadName(String),
+    /// A step's run-time-dependent resolution failed at execution: a `ConfirmProposedMerge` that
+    /// required a proposal found none, or a `StepText::WithTurnRef` referenced no recorded turn.
+    Executor(String),
     /// `analyze`: the package file could not be read.
     ReadPackage {
         path: PathBuf,
@@ -78,6 +81,7 @@ impl std::fmt::Display for EvalError {
                     "eval: --name must be a bare filename (no path separators or `..`), got {name:?}"
                 )
             }
+            EvalError::Executor(message) => write!(f, "eval: executor: {message}"),
             EvalError::ReadPackage { path, source } => {
                 write!(
                     f,
@@ -109,7 +113,10 @@ impl std::error::Error for EvalError {
             EvalError::Serve(source) => Some(source),
             EvalError::ReadPackage { source, .. } => Some(source),
             EvalError::LoadPackage { source, .. } => Some(source.as_ref()),
-            EvalError::Judge(_) | EvalError::ResumeSidecar { .. } | EvalError::BadName(_) => None,
+            EvalError::Judge(_)
+            | EvalError::ResumeSidecar { .. }
+            | EvalError::BadName(_)
+            | EvalError::Executor(_) => None,
         }
     }
 }

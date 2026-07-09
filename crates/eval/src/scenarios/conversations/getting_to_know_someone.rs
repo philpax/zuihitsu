@@ -22,42 +22,43 @@ impl Scenario for GettingToKnowSomeone {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Someone I'd like you to keep track of: Sam. She's a product designer at Hooli, started \
-             there last month.",
-        ))
-        .await?;
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "A couple more things about Sam — she's really into rock climbing, and she's based in \
-             Seattle.",
-        ))
-        .await?;
-        // A correction: the location was wrong. A direct contradiction the agent should reconcile.
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Oh — I had it wrong, Sam's actually in Portland, not Seattle. Mixed her up with someone.",
-        ))
-        .await?;
-        // Reconcile the contradiction and settle the description off the hot path.
-        ctx.describe_catch_up().await?;
-        // A closing rundown should reflect the corrected facts.
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Can you give me a quick rundown on Sam?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Someone I'd like you to keep track of: Sam. She's a product designer at Hooli, started \
+                 there last month.",
+            )
+            .into(),
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "A couple more things about Sam — she's really into rock climbing, and she's based in \
+                 Seattle.",
+            )
+            .into(),
+            // A correction: the location was wrong. A direct contradiction the agent should reconcile.
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Oh — I had it wrong, Sam's actually in Portland, not Seattle. Mixed her up with someone.",
+            )
+            .into(),
+            // Reconcile the contradiction and settle the description off the hot path.
+            EvalStep::DescribeCatchUp,
+            // A closing rundown should reflect the corrected facts.
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Can you give me a quick rundown on Sam?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

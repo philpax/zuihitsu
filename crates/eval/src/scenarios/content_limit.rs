@@ -18,11 +18,11 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RunContext, Turn},
-    error::EvalError,
+    context::MILLIS_PER_DAY,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// The default memory entry character limit, matching `MemorySettings::max_entry_chars`. The
@@ -64,12 +64,12 @@ impl Scenario for OversizedContentRejected {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Turn 1: Marcus shares a URL and asks the agent to save the key details. The agent should
-        // fetch the page via `mcp.fetch.markdown{ url = "..." }`, receive the large canned article,
-        // and attempt to record what it learned — either summarizing into a sub-limit entry, or
-        // having the oversized paste rejected with the teachable error.
-        ctx.turn(
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Turn 1: Marcus shares a URL and asks the agent to save the key details. The agent should
+            // fetch the page via `mcp.fetch.markdown{ url = "..." }`, receive the large canned article,
+            // and attempt to record what it learned — either summarizing into a sub-limit entry, or
+            // having the oversized paste rejected with the teachable error.
             Turn::new(
                 "discord",
                 "research",
@@ -79,11 +79,9 @@ impl Scenario for OversizedContentRejected {
                  the complete article preserved so we can reference it later. The URL is \
                  https://example.com/helix-cascade",
             )
-            .with_present(&["marcus", "nadia"]),
-        )
-        .await?;
-        // Unrelated chatter so the fetch-and-save turn is not the last thing in the buffer.
-        ctx.turn(
+            .with_present(&["marcus", "nadia"])
+            .into(),
+            // Unrelated chatter so the fetch-and-save turn is not the last thing in the buffer.
             Turn::new(
                 "discord",
                 "research",
@@ -91,27 +89,25 @@ impl Scenario for OversizedContentRejected {
                 "Interesting. I've been meaning to read up on fjord ecosystems. Let me know \
                  what it says.",
             )
-            .with_present(&["marcus", "nadia"]),
-        )
-        .await?;
-        // Let the background synthesis settle so descriptions and the index are current.
-        ctx.settle().await?;
-        // A couple of days pass — a fresh session, the recorded facts out of the immediate buffer.
-        ctx.advance(2 * MILLIS_PER_DAY);
-
-        // Turn 2: Nadia asks what the agent knows about the Helix Cascade Protocol — a recall probe
-        // that lands in a fresh session, so the agent must recall from memory rather than the buffer.
-        ctx.turn(
+            .with_present(&["marcus", "nadia"])
+            .into(),
+            // Let the background synthesis settle so descriptions and the index are current.
+            EvalStep::Settle,
+            // A couple of days pass — a fresh session, the recorded facts out of the immediate buffer.
+            EvalStep::Advance {
+                millis: 2 * MILLIS_PER_DAY,
+            },
+            // Turn 2: Nadia asks what the agent knows about the Helix Cascade Protocol — a recall probe
+            // that lands in a fresh session, so the agent must recall from memory rather than the buffer.
             Turn::new(
                 "discord",
                 "research",
                 "nadia",
                 "What did we learn about the Helix Cascade Protocol from that article?",
             )
-            .with_present(&["marcus", "nadia"]),
-        )
-        .await?;
-        Ok(())
+            .with_present(&["marcus", "nadia"])
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

@@ -12,11 +12,11 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RunContext, Turn},
-    error::EvalError,
+    context::MILLIS_PER_DAY,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// A couple of days between phases, so each lands in its own session and the clock plainly moves on.
@@ -54,48 +54,55 @@ impl Scenario for ARenameHoldsUp {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Each phase is its own conversation in a different room, with time passing between, so the
-        // agent cannot read a shared buffer — connecting them across the rename forces retrieval.
-        // Dave introduces himself.
-        ctx.turn(Turn::new(
-            "discord",
-            "onboarding",
-            "dave",
-            "Hi, I'm Dave — just started on the team this week.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.advance(PHASE_GAP_MS);
-        // A separate conversation: Erin says she knows him — the agent must retrieve Dave to attach it.
-        ctx.turn(Turn::new(
-            "discord",
-            "lunch",
-            "erin",
-            "Speaking of the new folks — Dave and I go way back, we went to college together.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.advance(PHASE_GAP_MS);
-        // A separate conversation: Dave transitions and asks to be called Sarah.
-        ctx.turn(Turn::new(
-            "discord",
-            "dave-dm",
-            "dave",
-            "Hey — I've transitioned, and I go by Sarah now (she/her). Please use that from here on.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.advance(PHASE_GAP_MS);
-        // A separate conversation: a newcomer asks who Sarah is and whether anyone knows her.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "marcus",
-            "I keep hearing the name Sarah around here — who is she, and does anyone know her well?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Each phase is its own conversation in a different room, with time passing between, so the
+            // agent cannot read a shared buffer — connecting them across the rename forces retrieval.
+            // Dave introduces himself.
+            Turn::new(
+                "discord",
+                "onboarding",
+                "dave",
+                "Hi, I'm Dave — just started on the team this week.",
+            )
+            .into(),
+            EvalStep::Settle,
+            EvalStep::Advance {
+                millis: PHASE_GAP_MS,
+            },
+            // A separate conversation: Erin says she knows him — the agent must retrieve Dave to attach it.
+            Turn::new(
+                "discord",
+                "lunch",
+                "erin",
+                "Speaking of the new folks — Dave and I go way back, we went to college together.",
+            )
+            .into(),
+            EvalStep::Settle,
+            EvalStep::Advance {
+                millis: PHASE_GAP_MS,
+            },
+            // A separate conversation: Dave transitions and asks to be called Sarah.
+            Turn::new(
+                "discord",
+                "dave-dm",
+                "dave",
+                "Hey — I've transitioned, and I go by Sarah now (she/her). Please use that from here on.",
+            )
+            .into(),
+            EvalStep::Settle,
+            EvalStep::Advance {
+                millis: PHASE_GAP_MS,
+            },
+            // A separate conversation: a newcomer asks who Sarah is and whether anyone knows her.
+            Turn::new(
+                "discord",
+                "hallway",
+                "marcus",
+                "I keep hearing the name Sarah around here — who is she, and does anyone know her well?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -158,37 +165,42 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Independent conversations across rooms and time, so the final answer must come from memory.
-        // Dave introduces himself and what he does.
-        ctx.turn(Turn::new(
-            "discord",
-            "ops",
-            "dave",
-            "Hey, I'm Dave — I handle the deploys around here.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.advance(PHASE_GAP_MS);
-        // A separate conversation: Dave transitions and goes by Sarah.
-        ctx.turn(Turn::new(
-            "discord",
-            "dave-dm",
-            "dave",
-            "Heads up: I've transitioned and go by Sarah now (she/her) — please use Sarah.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.advance(PHASE_GAP_MS);
-        // A separate conversation: someone who only knew the old name asks after Dave.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "frank",
-            "Is Dave still the one who handles deploys? Haven't seen him around lately.",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Independent conversations across rooms and time, so the final answer must come from memory.
+            // Dave introduces himself and what he does.
+            Turn::new(
+                "discord",
+                "ops",
+                "dave",
+                "Hey, I'm Dave — I handle the deploys around here.",
+            )
+            .into(),
+            EvalStep::Settle,
+            EvalStep::Advance {
+                millis: PHASE_GAP_MS,
+            },
+            // A separate conversation: Dave transitions and goes by Sarah.
+            Turn::new(
+                "discord",
+                "dave-dm",
+                "dave",
+                "Heads up: I've transitioned and go by Sarah now (she/her) — please use Sarah.",
+            )
+            .into(),
+            EvalStep::Settle,
+            EvalStep::Advance {
+                millis: PHASE_GAP_MS,
+            },
+            // A separate conversation: someone who only knew the old name asks after Dave.
+            Turn::new(
+                "discord",
+                "hallway",
+                "frank",
+                "Is Dave still the one who handles deploys? Haven't seen him around lately.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

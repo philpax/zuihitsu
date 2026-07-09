@@ -69,6 +69,7 @@ fn scenario(name: &str, run_events: Vec<Event>) -> ScenarioReport {
             started_at_ms: 0,
             finished_at_ms: 0,
             events: run_events,
+            journal: Vec::new(),
             verdicts: Vec::new(),
             metrics: RunMetrics::default(),
         }],

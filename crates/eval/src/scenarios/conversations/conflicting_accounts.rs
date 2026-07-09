@@ -27,21 +27,21 @@ impl Scenario for ConflictingAccounts {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Marcus states a location.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Heads up for everyone: the all-hands next week is in the main auditorium.",
-        ))
-        .await?;
-        // Erin contradicts it — a genuine conflicting account, no retraction by Marcus. She asserts a
-        // firm competing *present* belief, not an announced change ("it got moved to ...") and not a
-        // hedged "I'm not sure": the two accounts stand side by side as a flat contradiction, so the
-        // right operation is to arbitrate (keeping both), not to supersede one with a newer value, and
-        // not to soften it into "unconfirmed" prose the synthesis narrates but never records.
-        ctx.turn(
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Marcus states a location.
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Heads up for everyone: the all-hands next week is in the main auditorium.",
+            )
+            .into(),
+            // Erin contradicts it — a genuine conflicting account, no retraction by Marcus. She asserts a
+            // firm competing *present* belief, not an announced change ("it got moved to ...") and not a
+            // hedged "I'm not sure": the two accounts stand side by side as a flat contradiction, so the
+            // right operation is to arbitrate (keeping both), not to supersede one with a newer value, and
+            // not to soften it into "unconfirmed" prose the synthesis narrates but never records.
             Turn::new(
                 "discord",
                 "team-room",
@@ -49,20 +49,19 @@ impl Scenario for ConflictingAccounts {
                 "Wait, that's not what I heard — it's in the rooftop terrace, not the auditorium. \
                  Let's get that straightened out.",
             )
-            .with_present(&["marcus", "erin"]),
-        )
-        .await?;
-        // Reconcile off the hot path (the arbitration pass), then embed for cross-room recall.
-        ctx.settle().await?;
-        // From another room, someone asks where it is — the agent should not silently pick a side.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "frank",
-            "Quick q — do you know where the all-hands is being held?",
-        ))
-        .await?;
-        Ok(())
+            .with_present(&["marcus", "erin"])
+            .into(),
+            // Reconcile off the hot path (the arbitration pass), then embed for cross-room recall.
+            EvalStep::Settle,
+            // From another room, someone asks where it is — the agent should not silently pick a side.
+            Turn::new(
+                "discord",
+                "hallway",
+                "frank",
+                "Quick q — do you know where the all-hands is being held?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use zuihitsu::event::Event;
 
-use crate::{error::EvalError, judge::JudgeOutcome};
+use crate::{error::EvalError, executor::StepRecord, judge::JudgeOutcome};
 
 /// One eval run over the whole scenario suite.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -150,6 +150,13 @@ pub struct RunRecord {
     #[ts(type = "number")]
     pub finished_at_ms: i64,
     pub events: Vec<Event>,
+    /// The executor's per-step journal: each step and the span of event seqs it appended, in step
+    /// order. It carries the run's scenario↔log correspondence — which step produced which events, and
+    /// the watermark to restore the store up to a given step. Added additively: an older package
+    /// without it deserializes to an empty journal, and an empty journal is omitted from the wire so
+    /// old and new packages stay compact.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub journal: Vec<StepRecord>,
     pub verdicts: Vec<Verdict>,
     pub metrics: RunMetrics,
 }
@@ -345,7 +352,10 @@ pub struct TokenStat {
 
 #[cfg(test)]
 mod tests {
+    use zuihitsu::Seq;
+
     use super::RunRecord;
+    use crate::{executor::StepRecord, step::EvalStep};
 
     /// A pre-timing package predates the wall-clock stamps; `#[serde(default)]` must fill `0` so the
     /// old record still deserializes, and a `0` reads as "unstamped" for the viewer.
@@ -366,6 +376,7 @@ mod tests {
             started_at_ms: 1_700_000_000_000,
             finished_at_ms: 1_700_000_042_000,
             events: Vec::new(),
+            journal: Vec::new(),
             verdicts: Vec::new(),
             metrics: super::RunMetrics::default(),
         };
@@ -373,5 +384,59 @@ mod tests {
         let back: RunRecord = serde_json::from_str(&json).expect("round-trips");
         assert_eq!(back.started_at_ms, 1_700_000_000_000);
         assert_eq!(back.finished_at_ms, 1_700_000_042_000);
+    }
+
+    /// A package predating the step journal has no `journal` field; `#[serde(default)]` must fill an
+    /// empty journal so the old record still deserializes, and an empty journal is omitted on the wire.
+    #[test]
+    fn a_run_record_without_a_journal_defaults_it_empty() {
+        let old = r#"{"index":0,"started_at_ms":0,"finished_at_ms":0,"events":[],"verdicts":[],"metrics":{"model_calls":0,"steps":0,"wall_clock_ms":0,"total_latency_ms":0,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"gating_passed":true}}"#;
+        let record: RunRecord = serde_json::from_str(old).expect("journal-less record parses");
+        assert!(record.journal.is_empty());
+        // An empty journal is `skip_serializing_if`, so it does not reappear on re-serialization.
+        let json = serde_json::to_string(&record).expect("serializes");
+        assert!(
+            !json.contains("journal"),
+            "empty journal is omitted: {json}"
+        );
+    }
+
+    /// A record carrying a journal round-trips: the steps and their seq coverage survive the wire.
+    #[test]
+    fn a_run_record_with_a_journal_round_trips() {
+        let record = RunRecord {
+            index: 2,
+            started_at_ms: 0,
+            finished_at_ms: 0,
+            events: Vec::new(),
+            journal: vec![
+                StepRecord {
+                    index: 0,
+                    step: EvalStep::Turn(crate::step::Turn::new(
+                        "discord", "team", "dave", "hello",
+                    )),
+                    first_seq: Some(Seq(1)),
+                    last_seq: Some(Seq(4)),
+                    seq_after: Seq(4),
+                    skipped: false,
+                },
+                StepRecord {
+                    index: 1,
+                    step: EvalStep::Advance { millis: 1_000 },
+                    first_seq: None,
+                    last_seq: None,
+                    seq_after: Seq(4),
+                    skipped: false,
+                },
+            ],
+            verdicts: Vec::new(),
+            metrics: super::RunMetrics::default(),
+        };
+        let json = serde_json::to_string(&record).expect("serializes");
+        let back: RunRecord = serde_json::from_str(&json).expect("round-trips");
+        assert_eq!(back.journal.len(), 2);
+        assert_eq!(back.journal[0].step, record.journal[0].step);
+        assert_eq!(back.journal[0].last_seq, Some(Seq(4)));
+        assert_eq!(back.journal[1].seq_after, Seq(4));
     }
 }

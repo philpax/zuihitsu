@@ -9,11 +9,10 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
-    error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -40,28 +39,30 @@ impl Scenario for Recall {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Turn 1: a public, non-person fact recorded in the team room.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "dave",
-            "Team note to keep for everyone: the Friday standup just moved to 10am, and it's now \
-             held in the Pied Piper conference room.",
-        ))
-        .await?;
-        // Regenerate the memory's description off the hot path, then embed both it and the entry, as
-        // the background describer and indexer would.
-        ctx.settle().await?;
-        // Turn 2: a different room, a different participant, an empty buffer — recall is the only path.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "erin",
-            "Hey — do you happen to know when and where the Friday standup is these days?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Turn 1: a public, non-person fact recorded in the team room.
+            Turn::new(
+                "discord",
+                "team-room",
+                "dave",
+                "Team note to keep for everyone: the Friday standup just moved to 10am, and it's now \
+                 held in the Pied Piper conference room.",
+            )
+            .into(),
+            // Regenerate the memory's description off the hot path, then embed both it and the entry,
+            // as the background describer and indexer would.
+            EvalStep::Settle,
+            // Turn 2: a different room, a different participant, an empty buffer — recall is the only
+            // path.
+            Turn::new(
+                "discord",
+                "hallway",
+                "erin",
+                "Hey — do you happen to know when and where the Friday standup is these days?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -120,35 +121,36 @@ impl Scenario for AdmitsAbsence {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Session 1: Priya recorded — a real handle, but nothing about her diet.
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "New teammate to note: Priya — she's our incoming design lead, starts next week.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // Unrelated chatter — noise before the question, a different room.
-        ctx.turn(Turn::new(
-            "discord",
-            "random",
-            "erin",
-            "The office plants are thriving lately, whoever's been watering them — bless you.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // Session 2: an empty buffer, a question whose specific answer was never recorded.
-        ctx.turn(Turn::new(
-            "discord",
-            "planning",
-            "marcus",
-            "Sorting the offsite dinner — do we have anything on file about Priya's dietary \
-             restrictions?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Session 1: Priya recorded — a real handle, but nothing about her diet.
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "New teammate to note: Priya — she's our incoming design lead, starts next week.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Unrelated chatter — noise before the question, a different room.
+            Turn::new(
+                "discord",
+                "random",
+                "erin",
+                "The office plants are thriving lately, whoever's been watering them — bless you.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Session 2: an empty buffer, a question whose specific answer was never recorded.
+            Turn::new(
+                "discord",
+                "planning",
+                "marcus",
+                "Sorting the offsite dinner — do we have anything on file about Priya's dietary \
+                 restrictions?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

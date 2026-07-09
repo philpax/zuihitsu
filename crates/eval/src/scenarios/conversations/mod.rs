@@ -19,11 +19,11 @@ use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RunContext, Turn},
-    error::EvalError,
+    context::MILLIS_PER_DAY,
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 use crate::scenarios::conversations::{

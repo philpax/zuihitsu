@@ -39,7 +39,7 @@ impl Scenario for InfersLinkFromContent {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+    fn steps(&self) -> Vec<EvalStep> {
         // Set up the state directly as a synthetic event log: create person/clara (a senior engineer)
         // and person/theo (a junior engineer whose entry says Clara has been mentoring him). The
         // mentorship is an honest person-to-person edge between two existing memories with no explicit
@@ -57,7 +57,7 @@ impl Scenario for InfersLinkFromContent {
         let participant_turn = TurnId::generate();
         let agent_turn = TurnId::generate();
         let now = Timestamp::from_millis(RUN_START_MS);
-        ctx.seed_events(vec![
+        let seed = vec![
             EventPayload::memory_created(context, MemoryName::new("context/discord:team-room")),
             EventPayload::conversation_started(
                 conversation,
@@ -119,11 +119,10 @@ impl Scenario for InfersLinkFromContent {
                 told_in: None,
                 visibility: Visibility::Public,
             },
-        ])?;
+        ];
         // Drive the link-inference pass — the background worker the served runtime runs, here
         // explicit so the scenario is deterministic.
-        ctx.link_inference_catch_up().await?;
-        Ok(())
+        vec![EvalStep::SeedEvents(seed), EvalStep::LinkInferenceCatchUp]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {

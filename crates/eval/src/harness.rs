@@ -20,17 +20,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(200);
 use crate::{
     context::{RunContext, RunDeps},
     error::EvalError,
+    executor::{StepRecord, execute},
     judge::Judge,
     live::{EvalSink, now_ms},
     package::{Aggregate, RunMetrics, RunRecord, Stat, TokenStat, Verdict, VerdictKind},
     scenario::Scenario,
 };
 
-/// One run after phase one: its event log (or the reason it did not complete) and the wall-clock it
-/// took to drive — the truthful cost, since it includes the synchronous catch-ups whose synthesis
-/// records no `ModelCalled` (spec §Write path).
+/// One run after phase one: its event log and the executor's per-step journal (or the reason it did
+/// not complete), and the wall-clock it took to drive — the truthful cost, since it includes the
+/// synchronous catch-ups whose synthesis records no `ModelCalled` (spec §Write path).
 struct DrivenRun {
-    log: Result<Vec<Event>, String>,
+    outcome: Result<(Vec<Event>, Vec<StepRecord>), String>,
     wall_clock_ms: u64,
 }
 
@@ -118,11 +119,11 @@ pub async fn run_all(
                 let started_at_ms = now_ms();
                 sink.run_started(scenario_index, run_index, started_at_ms)?;
                 let started = Instant::now();
-                let log =
+                let outcome =
                     drive_streaming(scenario.as_ref(), &deps, &sink, scenario_index, run_index)
                         .await?;
                 let driven = DrivenRun {
-                    log,
+                    outcome,
                     wall_clock_ms: started.elapsed().as_millis() as u64,
                 };
                 let mut record = assess(scenario.as_ref(), run_index, driven, &judge).await;
@@ -140,21 +141,23 @@ pub async fn run_all(
 
 /// Drive one run while streaming its events live: between turns, poll the run's log and emit each new
 /// event as a `RunEvent`, so a viewer watches the deliberation unfold rather than seeing it appear all
-/// at once on completion. The inner result is the run's full log (or the reason it did not complete, a
-/// metric); the outer result is a sink/IO failure, which aborts the whole run.
+/// at once on completion. The inner result is the run's full log and the executor's journal (or the
+/// reason it did not complete, a metric); the outer result is a sink/IO failure, which aborts the whole
+/// run.
 async fn drive_streaming(
     scenario: &dyn Scenario,
     deps: &RunDeps,
     sink: &EvalSink,
     scenario_index: u32,
     run_index: u32,
-) -> Result<Result<Vec<Event>, String>, EvalError> {
+) -> Result<Result<(Vec<Event>, Vec<StepRecord>), String>, EvalError> {
     let features = scenario.features();
     let ctx = match RunContext::new(deps, features).await {
         Ok(ctx) => ctx,
         Err(error) => return Ok(Err(error.to_string())),
     };
-    let run = scenario.run(&ctx);
+    let steps = scenario.steps();
+    let run = execute(&steps, &ctx);
     tokio::pin!(run);
     let mut cursor = Seq::ZERO;
     let outcome = loop {
@@ -171,7 +174,10 @@ async fn drive_streaming(
     // catch-ups) before the run is judged.
     stream_new_events(&ctx, sink, scenario_index, run_index, cursor)?;
     match outcome {
-        Ok(()) => Ok(ctx.events().map_err(|error| error.to_string())),
+        Ok(journal) => match ctx.events() {
+            Ok(events) => Ok(Ok((events, journal))),
+            Err(error) => Ok(Err(error.to_string())),
+        },
         Err(error) => Ok(Err(error.to_string())),
     }
 }
@@ -200,9 +206,12 @@ async fn assess(
     driven: DrivenRun,
     judge: &Judge,
 ) -> RunRecord {
-    let DrivenRun { log, wall_clock_ms } = driven;
-    match log {
-        Ok(events) => {
+    let DrivenRun {
+        outcome,
+        wall_clock_ms,
+    } = driven;
+    match outcome {
+        Ok((events, journal)) => {
             let verdicts = scenario.assess(&events, judge).await;
             let gating_passed = verdicts
                 .iter()
@@ -215,6 +224,7 @@ async fn assess(
                 started_at_ms: 0,
                 finished_at_ms: 0,
                 events,
+                journal,
                 verdicts,
                 metrics,
             }
@@ -226,6 +236,7 @@ async fn assess(
             started_at_ms: 0,
             finished_at_ms: 0,
             events: Vec::new(),
+            journal: Vec::new(),
             verdicts: vec![Verdict::metric(
                 "the run completed",
                 false,

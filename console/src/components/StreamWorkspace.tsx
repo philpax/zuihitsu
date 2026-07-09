@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica/replica.ts";
+import type { StepRecord } from "../types/StepRecord.ts";
 import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
 import { DockContext } from "../lib/nav/dock.ts";
@@ -74,6 +75,8 @@ export function StreamWorkspace({
   onFollowingChange,
   participant,
   extraViews = [],
+  journal,
+  resumedFromStep,
 }: {
   replica: Replica;
   events: Event[];
@@ -85,6 +88,10 @@ export function StreamWorkspace({
   onFollowingChange?: (following: boolean) => void;
   participant?: Participant;
   extraViews?: ExtraView[];
+  // The eval run's step journal, forwarded to the Events view; a live tail passes none, so its stream
+  // renders without step markers. `resumedFromStep`, when set, marks a resumed run's live boundary.
+  journal?: readonly StepRecord[];
+  resumedFromStep?: number | null;
 }) {
   const cursor = seq ?? head;
 
@@ -219,7 +226,13 @@ export function StreamWorkspace({
                       <BackgroundView replica={replica} events={events} cursor={cursor} />
                     )}
                     {view === "events" && (
-                      <EventsView replica={replica} events={events} cursor={cursor} />
+                      <EventsView
+                        replica={replica}
+                        events={events}
+                        cursor={cursor}
+                        journal={journal}
+                        resumedFromStep={resumedFromStep}
+                      />
                     )}
                     {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
                     {extra?.node}

@@ -172,6 +172,8 @@ The scaffold teaches load-bearing practices as principles, stated once. API opti
 
 The eval harness in `crates/eval` runs the agent through a suite of behavioural scenarios against a local model, judges each run against per-scenario oracles, and writes a package (`eval/<name>.json`) that the console renders and the `analyze` subcommand reads. A run drives a local inference server, so it needs a configured model (`config.toml`) and a GPU, and it is kept out of `cargo test`.
 
+A scenario's conversation is a declarative script, not an imperative body: `fn steps(&self) -> Vec<EvalStep>` returns pure data that the executor interprets against a booted agent, journaling each step's event-log coverage (the seq span it appended, and the log head after it) into the package. That journal is what lets a recorded run be replayed or resumed against the current script later. Most steps mirror a `RunContext` method one-to-one; two are derived, resolving a run-time-dependent beat at execution — `StepText::WithTurnRef` resolves a recorded turn's `[turn:<id>]` token from the live log, and `ConfirmProposedMerge` looks a merge proposal up against it.
+
 When you change the agent's behaviour — a prompt, a tool, a planning step, anything the agent does — write an eval that captures that behaviour so a later change can be assessed against it. The new scenario is the regression test for the edit you just made: if a future tweak regresses it, the eval run goes red.
 
 ### Running an eval

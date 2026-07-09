@@ -18,11 +18,11 @@ use zuihitsu::Event;
 
 use crate::{
     analysis::{self, EntryOccurrence},
-    context::{MILLIS_PER_DAY, RUN_START_MS, RunContext, Turn},
-    error::EvalError,
+    context::{MILLIS_PER_DAY, RUN_START_MS},
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -63,21 +63,21 @@ impl Scenario for AnchorsARelativePlanHonestly {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Session 1: Priya flags the audit as a real but undated event — the vendor keeps slipping the
-        // end date, so there is nothing concrete to anchor against yet.
-        ctx.turn(Turn::new(
-            "discord",
-            "eng-team",
-            "priya",
-            "Keep this on file for the team: the external security audit is happening at some point \
-             this quarter, but we still don't have a firm end date from the vendor — it keeps \
-             slipping, so treat it as unscheduled for now.",
-        )
-        .with_present(&["priya", "dave"]))
-        .await?;
-        // Unrelated chatter — the room is a real room, not a probe harness.
-        ctx.turn(
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Session 1: Priya flags the audit as a real but undated event — the vendor keeps slipping the
+            // end date, so there is nothing concrete to anchor against yet.
+            Turn::new(
+                "discord",
+                "eng-team",
+                "priya",
+                "Keep this on file for the team: the external security audit is happening at some point \
+                 this quarter, but we still don't have a firm end date from the vendor — it keeps \
+                 slipping, so treat it as unscheduled for now.",
+            )
+            .with_present(&["priya", "dave"])
+            .into(),
+            // Unrelated chatter — the room is a real room, not a probe harness.
             Turn::new(
                 "discord",
                 "eng-team",
@@ -85,12 +85,10 @@ impl Scenario for AnchorsARelativePlanHonestly {
                 "Separately: whoever borrowed the good HDMI adapter, please return it to the drawer. \
                  Anyway.",
             )
-            .with_present(&["priya", "dave"]),
-        )
-        .await?;
-        // The plan itself: the retro is ordered only relative to the audit, and Priya says so
-        // explicitly — pin it to the audit, not to a real date, because there isn't one.
-        ctx.turn(
+            .with_present(&["priya", "dave"])
+            .into(),
+            // The plan itself: the retro is ordered only relative to the audit, and Priya says so
+            // explicitly — pin it to the audit, not to a real date, because there isn't one.
             Turn::new(
                 "discord",
                 "eng-team",
@@ -99,39 +97,35 @@ impl Scenario for AnchorsARelativePlanHonestly {
                  retro a few days after it. Please file it relative to the audit; don't invent a \
                  calendar date, since we genuinely can't pin one yet.",
             )
-            .with_present(&["priya", "dave"]),
-        )
-        .await?;
-        ctx.turn(
+            .with_present(&["priya", "dave"])
+            .into(),
             Turn::new(
                 "discord",
                 "eng-team",
                 "dave",
                 "Works for me. I'll grab a room once we actually know when the audit closes out.",
             )
-            .with_present(&["priya", "dave"]),
-        )
-        .await?;
-        // Temporal extraction runs off the hot path — drive it so any resolution (or honest
-        // non-resolution) is recorded before assessment. Catch the index up so the fresh-session probe
-        // can recall the plan.
-        ctx.settle().await?;
-        // A couple of days pass — a fresh session, the plan out of the immediate buffer.
-        ctx.advance(2 * MILLIS_PER_DAY);
-
-        // Session 2: Dave asks when the retro is. The only honest answer is relative — after the audit
-        // wraps — because no date was ever fixed.
-        ctx.turn(
+            .with_present(&["priya", "dave"])
+            .into(),
+            // Temporal extraction runs off the hot path — drive it so any resolution (or honest
+            // non-resolution) is recorded before assessment. Catch the index up so the fresh-session probe
+            // can recall the plan.
+            EvalStep::Settle,
+            // A couple of days pass — a fresh session, the plan out of the immediate buffer.
+            EvalStep::Advance {
+                millis: 2 * MILLIS_PER_DAY,
+            },
+            // Session 2: Dave asks when the retro is. The only honest answer is relative — after the audit
+            // wraps — because no date was ever fixed.
             Turn::new(
                 "discord",
                 "eng-team",
                 "dave",
                 "Remind me — when's the team retro happening again?",
             )
-            .with_present(&["priya", "dave"]),
-        )
-        .await?;
-        Ok(())
+            .with_present(&["priya", "dave"])
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -263,56 +257,56 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Session 1: Maria records the demo's absolute date — the agent should author it as an
-        // occurrence at append time.
-        ctx.turn(Turn::new(
-            "discord",
-            "sales",
-            "maria",
-            "Logging this for the Contoso account: the vendor demo with them is locked for October \
-             3rd. Put that on the record.",
-        ))
-        .await?;
-        // A sibling fact whose timing is an anaphor: "then" points back at the demo, not at now. The
-        // honest resolution is a before_after relative to the demo (or leaving it unextracted); the
-        // tempting mistake is anchoring "the week before then" to the speaking moment. Deliberately no
-        // "demo" in the text, so it is not mistaken for the demo fact itself.
-        ctx.turn(Turn::new(
-            "discord",
-            "sales",
-            "maria",
-            "They also want the signed contract in hand the week before then, so let's have the \
-             paperwork wrapped up ahead of that.",
-        ))
-        .await?;
-        // Unrelated chatter from a colleague.
-        ctx.turn(
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Session 1: Maria records the demo's absolute date — the agent should author it as an
+            // occurrence at append time.
+            Turn::new(
+                "discord",
+                "sales",
+                "maria",
+                "Logging this for the Contoso account: the vendor demo with them is locked for October \
+                 3rd. Put that on the record.",
+            )
+            .into(),
+            // A sibling fact whose timing is an anaphor: "then" points back at the demo, not at now. The
+            // honest resolution is a before_after relative to the demo (or leaving it unextracted); the
+            // tempting mistake is anchoring "the week before then" to the speaking moment. Deliberately no
+            // "demo" in the text, so it is not mistaken for the demo fact itself.
+            Turn::new(
+                "discord",
+                "sales",
+                "maria",
+                "They also want the signed contract in hand the week before then, so let's have the \
+                 paperwork wrapped up ahead of that.",
+            )
+            .into(),
+            // Unrelated chatter from a colleague.
             Turn::new(
                 "discord",
                 "sales",
                 "jon",
                 "Nice — Contoso's been a long haul. Grabbing coffee, back in five.",
             )
-            .with_present(&["maria", "jon"]),
-        )
-        .await?;
-        // Temporal extraction runs off the hot path; drive it so any (mis)resolution of the sibling
-        // anaphor is recorded. Catch the index up for the cross-room recall.
-        ctx.settle().await?;
-        // A few days pass — a fresh session in a different room.
-        ctx.advance(3 * MILLIS_PER_DAY);
-
-        // Session 2, a different room: Jon asks when the demo is. Relaying it means searching memory and
-        // reporting the authored October date — not a near-now date the extraction might have guessed.
-        ctx.turn(Turn::new(
-            "discord",
-            "ops",
-            "jon",
-            "Quick one — when's the Contoso demo again? Trying to line up the room.",
-        ))
-        .await?;
-        Ok(())
+            .with_present(&["maria", "jon"])
+            .into(),
+            // Temporal extraction runs off the hot path; drive it so any (mis)resolution of the sibling
+            // anaphor is recorded. Catch the index up for the cross-room recall.
+            EvalStep::Settle,
+            // A few days pass — a fresh session in a different room.
+            EvalStep::Advance {
+                millis: 3 * MILLIS_PER_DAY,
+            },
+            // Session 2, a different room: Jon asks when the demo is. Relaying it means searching memory and
+            // reporting the authored October date — not a near-now date the extraction might have guessed.
+            Turn::new(
+                "discord",
+                "ops",
+                "jon",
+                "Quick one — when's the Contoso demo again? Trying to line up the room.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

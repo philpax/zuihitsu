@@ -14,11 +14,10 @@ use zuihitsu::{Event, Visibility};
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
-    error::EvalError,
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -82,8 +81,8 @@ impl Scenario for FlushVisibility {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        drive_session(ctx).await
+    fn steps(&self) -> Vec<EvalStep> {
+        drive_session()
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -156,21 +155,23 @@ impl Scenario for WorkingState {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        drive_session(ctx).await?;
+    fn steps(&self) -> Vec<EvalStep> {
+        let mut steps = drive_session();
         // Force the description catch-up before the post-compaction brief composes, so it reads fresh
         // prose for the flush's writes (spec §Starvation bound → composing a brief forces the catch-up).
-        ctx.describe_catch_up().await?;
+        steps.push(EvalStep::DescribeCatchUp);
         // The next message opens a session seeded from the compaction carryover; probe a thread worked
         // before the cut.
-        ctx.turn(Turn::new(
-            "discord",
-            "leads",
-            "dave",
-            "Remind me — what's the plan for the Q3 database migration?",
-        ))
-        .await?;
-        Ok(())
+        steps.push(
+            Turn::new(
+                "discord",
+                "leads",
+                "dave",
+                "Remind me — what's the plan for the Q3 database migration?",
+            )
+            .into(),
+        );
+        steps
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -200,13 +201,15 @@ impl Scenario for WorkingState {
 
 /// Tighten the compaction trigger, then drive the scripted multi-topic session, forcing a
 /// token-triggered compaction and its pre-compaction flush.
-async fn drive_session(ctx: &RunContext) -> Result<(), EvalError> {
-    ctx.tighten_compaction(TOKEN_BUDGET, FLUSH_MIN_TURNS)?;
+fn drive_session() -> Vec<EvalStep> {
+    let mut steps = vec![EvalStep::TightenCompaction {
+        token_budget: TOKEN_BUDGET,
+        flush_min_turns: FLUSH_MIN_TURNS,
+    }];
     for message in SCRIPT {
-        ctx.turn(Turn::new("discord", "leads", "dave", message))
-            .await?;
+        steps.push(Turn::new("discord", "leads", "dave", message).into());
     }
-    Ok(())
+    steps
 }
 
 /// A longer scripted session that is cut several times, to probe whether working state survives more
@@ -257,28 +260,35 @@ impl Scenario for RepeatedCompaction {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
+    fn steps(&self) -> Vec<EvalStep> {
         // A budget the organic trigger never crosses, so the seam count is exactly the forced cuts.
-        ctx.tighten_compaction(REPEATED_NO_ORGANIC_BUDGET, FLUSH_MIN_TURNS)?;
+        let mut steps = vec![EvalStep::TightenCompaction {
+            token_budget: REPEATED_NO_ORGANIC_BUDGET,
+            flush_min_turns: FLUSH_MIN_TURNS,
+        }];
         for (index, message) in REPEATED_SCRIPT.into_iter().enumerate() {
-            ctx.turn(Turn::new("discord", "leads", "dave", message))
-                .await?;
+            steps.push(Turn::new("discord", "leads", "dave", message).into());
             // Force the cut at the chosen points, through the same flush-and-carryover path the organic
             // trigger drives — the segment just closed has at least `FLUSH_MIN_TURNS` turns, so it flushes.
             if FORCED_CUT_AFTER.contains(&index) {
-                ctx.force_compaction("discord", "leads").await?;
+                steps.push(EvalStep::ForceCompaction {
+                    platform: "discord".to_owned(),
+                    scope: "leads".to_owned(),
+                });
             }
         }
-        ctx.describe_catch_up().await?;
+        steps.push(EvalStep::DescribeCatchUp);
         // Probe the earliest fact, after all the cuts.
-        ctx.turn(Turn::new(
-            "discord",
-            "leads",
-            "dave",
-            "Remind me — what did we say was the single most important thing, the big rock, for Q3?",
-        ))
-        .await?;
-        Ok(())
+        steps.push(
+            Turn::new(
+                "discord",
+                "leads",
+                "dave",
+                "Remind me — what did we say was the single most important thing, the big rock, for Q3?",
+            )
+            .into(),
+        );
+        steps
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

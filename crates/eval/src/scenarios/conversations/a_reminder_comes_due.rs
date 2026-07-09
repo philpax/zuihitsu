@@ -20,27 +20,30 @@ impl Scenario for AReminderComesDue {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Don't let me forget — I need to send the board update this Friday. Nudge me about it?",
-        ))
-        .await?;
-        // Temporal extraction (which schedules the wake-up) runs off the hot path; drive it before
-        // advancing so the reminder is actually scheduled to fire.
-        ctx.describe_catch_up().await?;
-        // Cross Friday, then a fresh-session turn fires the due wake-up.
-        ctx.advance(FIVE_DAYS_MS);
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Morning! Anything I should be on top of today?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Don't let me forget — I need to send the board update this Friday. Nudge me about it?",
+            )
+            .into(),
+            // Temporal extraction (which schedules the wake-up) runs off the hot path; drive it before
+            // advancing so the reminder is actually scheduled to fire.
+            EvalStep::DescribeCatchUp,
+            // Cross Friday, then a fresh-session turn fires the due wake-up.
+            EvalStep::Advance {
+                millis: FIVE_DAYS_MS,
+            },
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Morning! Anything I should be on top of today?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

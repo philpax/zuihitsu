@@ -10,11 +10,11 @@ use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RunContext, Turn},
-    error::EvalError,
+    context::MILLIS_PER_DAY,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -41,27 +41,30 @@ impl Scenario for RecurringReminder {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Can you remind me about our team standup? It's every Monday.",
-        ))
-        .await?;
-        // Temporal extraction (which schedules the recurrence) runs off the hot path; drive it before
-        // advancing the clock so the wake-up is actually scheduled to fire.
-        ctx.describe_catch_up().await?;
-        // Advance past the first weekly instance, then a fresh-session turn fires the wake-up.
-        ctx.advance(EIGHT_DAYS_MS);
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Morning! Anything on my plate I should know about?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Can you remind me about our team standup? It's every Monday.",
+            )
+            .into(),
+            // Temporal extraction (which schedules the recurrence) runs off the hot path; drive it before
+            // advancing the clock so the wake-up is actually scheduled to fire.
+            EvalStep::DescribeCatchUp,
+            // Advance past the first weekly instance, then a fresh-session turn fires the wake-up.
+            EvalStep::Advance {
+                millis: EIGHT_DAYS_MS,
+            },
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Morning! Anything on my plate I should know about?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -133,18 +136,19 @@ impl Scenario for RecurringEmission {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "leads",
-            "dave",
-            "Please remember that I have a team standup every Tuesday at 9am.",
-        ))
-        .await?;
-        // The recurrence may be emitted by the off-hot-path temporal extraction; drive it before
-        // assessing.
-        ctx.describe_catch_up().await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "leads",
+                "dave",
+                "Please remember that I have a team standup every Tuesday at 9am.",
+            )
+            .into(),
+            // The recurrence may be emitted by the off-hot-path temporal extraction; drive it before
+            // assessing.
+            EvalStep::DescribeCatchUp,
+        ]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {

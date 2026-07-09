@@ -12,11 +12,10 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
-    error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -42,34 +41,35 @@ impl Scenario for Contradiction {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Turn 1: establish one public account of where the Q3 offsite is.
-        ctx.turn(Turn::new(
-            "discord",
-            "leads",
-            "marcus",
-            "For the Q3 planning notes: the team offsite this year is happening in Denver.",
-        ))
-        .await?;
-        ctx.describe_catch_up().await?;
-        // Turn 2: a different teller gives an independent, equally-confident account of the same fact
-        // that happens to conflict — phrased as her own standing understanding, not a correction of
-        // Marcus's, and carrying no recency or authority cue ("locked in last week", "just confirmed")
-        // that would license treating it as a newer, truer fact. With both accounts co-equal, the agent
-        // has no ground to supersede one with the other; the conflict must land as a second standing
-        // public entry the synthesis reconciles. (A recency cue here invites a defensible supersession
-        // instead, which would test the wrong thing.)
-        ctx.turn(Turn::new(
-            "discord",
-            "leads",
-            "erin",
-            "For the Q3 offsite, I've got it down as Austin on my end — please put Austin in the \
-             planning notes.",
-        ))
-        .await?;
-        // Belief arbitration is synthesized off the hot path; drive it before the log is assessed.
-        ctx.describe_catch_up().await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Turn 1: establish one public account of where the Q3 offsite is.
+            Turn::new(
+                "discord",
+                "leads",
+                "marcus",
+                "For the Q3 planning notes: the team offsite this year is happening in Denver.",
+            )
+            .into(),
+            EvalStep::DescribeCatchUp,
+            // Turn 2: a different teller gives an independent, equally-confident account of the same fact
+            // that happens to conflict — phrased as her own standing understanding, not a correction of
+            // Marcus's, and carrying no recency or authority cue ("locked in last week", "just confirmed")
+            // that would license treating it as a newer, truer fact. With both accounts co-equal, the agent
+            // has no ground to supersede one with the other; the conflict must land as a second standing
+            // public entry the synthesis reconciles. (A recency cue here invites a defensible supersession
+            // instead, which would test the wrong thing.)
+            Turn::new(
+                "discord",
+                "leads",
+                "erin",
+                "For the Q3 offsite, I've got it down as Austin on my end — please put Austin in the \
+                 planning notes.",
+            )
+            .into(),
+            // Belief arbitration is synthesized off the hot path; drive it before the log is assessed.
+            EvalStep::DescribeCatchUp,
+        ]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {

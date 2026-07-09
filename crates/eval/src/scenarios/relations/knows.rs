@@ -15,16 +15,17 @@ impl Scenario for Knows {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Two people I'd like you to keep track of: Dave and Erin. They've been close friends \
-             since college and know each other really well.",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Two people I'd like you to keep track of: Dave and Erin. They've been close friends \
+                 since college and know each other really well.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {

@@ -34,6 +34,7 @@ fn report(
             started_at_ms: 0,
             finished_at_ms: 0,
             events: Vec::new(),
+            journal: Vec::new(),
             verdicts,
             metrics: RunMetrics {
                 steps: step_count,

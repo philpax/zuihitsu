@@ -25,29 +25,30 @@ impl Scenario for AttributesRelationshipToTeller {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Erin relays a relationship — the agent records it, the edge carrying Erin as its teller.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "erin",
-            "Heads up for your notes: Dave's taken Grace under his wing — he's been mentoring her \
-             this quarter.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // A *different* participant, in another room, asks who is on record and who said so. The teller
-        // (Erin) is not the asker (Marcus), so attributing it correctly means reading the provenance, not
-        // defaulting to whoever is speaking now.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "marcus",
-            "I think someone mentioned Dave's mentoring a junior — who's he mentoring, and who told \
-             you about it?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Erin relays a relationship — the agent records it, the edge carrying Erin as its teller.
+            Turn::new(
+                "discord",
+                "team-room",
+                "erin",
+                "Heads up for your notes: Dave's taken Grace under his wing — he's been mentoring her \
+                 this quarter.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A *different* participant, in another room, asks who is on record and who said so. The teller
+            // (Erin) is not the asker (Marcus), so attributing it correctly means reading the provenance, not
+            // defaulting to whoever is speaking now.
+            Turn::new(
+                "discord",
+                "hallway",
+                "marcus",
+                "I think someone mentioned Dave's mentoring a junior — who's he mentoring, and who told \
+                 you about it?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

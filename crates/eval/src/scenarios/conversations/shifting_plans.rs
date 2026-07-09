@@ -27,39 +27,40 @@ impl Scenario for ShiftingPlans {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // The launch is penciled in.
-        ctx.turn(Turn::new(
-            "discord",
-            "planning",
-            "marcus",
-            "Let's pencil in the product launch for the 15th of March.",
-        ))
-        .await?;
-        ctx.describe_catch_up().await?;
-
-        // A day later, it slips — and the first date is explicitly scrapped (a direct contradiction).
-        ctx.advance(MILLIS_PER_DAY);
-        ctx.turn(Turn::new(
-            "discord",
-            "planning",
-            "marcus",
-            "Actually, scratch that — the launch has slipped to the 22nd of March. The 15th is off.",
-        ))
-        .await?;
-        // The contradiction is reconciled off the hot path (the arbitration pass), then embedded.
-        ctx.settle().await?;
-
-        // From another room, with an empty buffer, someone asks the current date — recall plus the
-        // reconciled belief.
-        ctx.turn(Turn::new(
-            "discord",
-            "standup",
-            "erin",
-            "Quick one — what's the current launch date now?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // The launch is penciled in.
+            Turn::new(
+                "discord",
+                "planning",
+                "marcus",
+                "Let's pencil in the product launch for the 15th of March.",
+            )
+            .into(),
+            EvalStep::DescribeCatchUp,
+            // A day later, it slips — and the first date is explicitly scrapped (a direct contradiction).
+            EvalStep::Advance {
+                millis: MILLIS_PER_DAY,
+            },
+            Turn::new(
+                "discord",
+                "planning",
+                "marcus",
+                "Actually, scratch that — the launch has slipped to the 22nd of March. The 15th is off.",
+            )
+            .into(),
+            // The contradiction is reconciled off the hot path (the arbitration pass), then embedded.
+            EvalStep::Settle,
+            // From another room, with an empty buffer, someone asks the current date — recall plus the
+            // reconciled belief.
+            Turn::new(
+                "discord",
+                "standup",
+                "erin",
+                "Quick one — what's the current launch date now?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

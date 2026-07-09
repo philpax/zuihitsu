@@ -1,0 +1,183 @@
+//! The declarative scenario script. A scenario is a `Vec<EvalStep>` of pure data — no `RunContext`,
+//! no `.await` — that the [`execute`](crate::executor::execute) interpreter drives against a booted
+//! agent. Making the script data (rather than an imperative `run` body) is what lets a recorded run
+//! carry its own scenario↔log correspondence: the executor journals each step's event-log coverage, so
+//! a later phase can replay or resume a recorded run against the current scenario's steps.
+//!
+//! Every variant mirrors one [`RunContext`](crate::context::RunContext) method the scenarios drive the
+//! agent through, carrying that call's arguments as owned data. Two variants defer a run-time-dependent
+//! decision to execution: [`EvalStep::ConfirmProposedMerge`] evaluates a merge-proposal lookup against
+//! the live log, and [`StepText::WithTurnRef`] resolves a recorded turn's `[turn:<id>]` token from the
+//! live log — neither can be known when the static script is written.
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+use zuihitsu::EventPayload;
+
+/// One beat of a scenario's script — a single operation the executor performs against the run's agent,
+/// mirroring the [`RunContext`](crate::context::RunContext) method of the same name. Owned data with no
+/// borrows, so a script serializes into the run record and a recorded step compares structurally
+/// (`PartialEq`) against the current scenario's step — phase two's drift detector.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum EvalStep {
+    /// Route one inbound participant message and run the agent's turn
+    /// ([`RunContext::turn`](crate::context::RunContext::turn)).
+    Turn(Turn),
+    /// Drive one operator imprint-interview turn
+    /// ([`RunContext::imprint`](crate::context::RunContext::imprint)).
+    Imprint { text: String },
+    /// Let both background synthesis passes settle — the describer, then the vector indexer
+    /// ([`RunContext::settle`](crate::context::RunContext::settle)).
+    Settle,
+    /// Advance the run's clock by `millis`
+    /// ([`RunContext::advance`](crate::context::RunContext::advance)).
+    Advance {
+        #[ts(type = "number")]
+        millis: i64,
+    },
+    /// Regenerate descriptions, belief arbitration, and temporal extraction
+    /// ([`RunContext::describe_catch_up`](crate::context::RunContext::describe_catch_up)).
+    DescribeCatchUp,
+    /// Adjudicate the merges proposed so far
+    /// ([`RunContext::adjudicate_catch_up`](crate::context::RunContext::adjudicate_catch_up)).
+    AdjudicateCatchUp,
+    /// Infer links from the content written so far
+    /// ([`RunContext::link_inference_catch_up`](crate::context::RunContext::link_inference_catch_up)).
+    LinkInferenceCatchUp,
+    /// Run one checkpoint sweep over the live sessions
+    /// ([`RunContext::checkpoint_sweep`](crate::context::RunContext::checkpoint_sweep)).
+    CheckpointSweep,
+    /// Append raw events to the store and materialize the graph
+    /// ([`RunContext::seed_events`](crate::context::RunContext::seed_events)).
+    SeedEvents(Vec<EventPayload>),
+    /// Tighten the compaction trigger so a short scripted session crosses the token budget
+    /// ([`RunContext::tighten_compaction`](crate::context::RunContext::tighten_compaction)).
+    TightenCompaction {
+        #[ts(type = "number")]
+        token_budget: i64,
+        #[ts(type = "number")]
+        flush_min_turns: i64,
+    },
+    /// Force a compaction of the open session in `platform`/`scope`
+    /// ([`RunContext::force_compaction`](crate::context::RunContext::force_compaction)).
+    ForceCompaction { platform: String, scope: String },
+    /// Tune the checkpoint gates so a scripted two-room exchange trips them
+    /// ([`RunContext::tune_checkpoint`](crate::context::RunContext::tune_checkpoint)).
+    TuneCheckpoint {
+        #[ts(type = "number")]
+        min_delta_chars: i64,
+        #[ts(type = "number")]
+        cooldown_seconds: i64,
+    },
+    /// Confirm the first merge proposed in the live log as the operator would, resolved at execution
+    /// time: the proposed pair is looked up against the run's log and, if found, an operator `same_as`
+    /// merge is authored ([`RunContext::operator_merge`](crate::context::RunContext::operator_merge)).
+    /// When no proposal is present, `on_missing` decides — skip the step or fail the run.
+    ConfirmProposedMerge { on_missing: OnMissing },
+}
+
+impl EvalStep {
+    /// An [`EvalStep::Imprint`] carrying `text` — the ergonomic constructor for the common case.
+    pub fn imprint(text: impl Into<String>) -> EvalStep {
+        EvalStep::Imprint { text: text.into() }
+    }
+}
+
+/// One inbound participant message — the payload of [`EvalStep::Turn`], carrying the arguments
+/// [`RunContext::turn`](crate::context::RunContext::turn) drives. `present` defaults to just the
+/// sender; [`Turn::with_present`] overrides it when others share the room, since who else is present
+/// changes what the visibility predicate surfaces.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct Turn {
+    pub platform: String,
+    pub scope: String,
+    pub sender: String,
+    pub text: StepText,
+    pub present: Vec<String>,
+}
+
+impl Turn {
+    /// A turn from `sender` in `platform`/`scope`, with `sender` as the only one present. `text` is any
+    /// [`StepText`] — a bare `&str`/`String` becomes a [`StepText::Literal`].
+    pub fn new(
+        platform: impl Into<String>,
+        scope: impl Into<String>,
+        sender: impl Into<String>,
+        text: impl Into<StepText>,
+    ) -> Turn {
+        let sender = sender.into();
+        Turn {
+            platform: platform.into(),
+            scope: scope.into(),
+            present: vec![sender.clone()],
+            sender,
+            text: text.into(),
+        }
+    }
+
+    /// Override who is present for this turn (the default is the sender alone). The sender is always
+    /// present, so it is added if the caller's set omits it.
+    pub fn with_present(mut self, present: &[&str]) -> Turn {
+        self.present = present.iter().map(|name| (*name).to_owned()).collect();
+        if !self.present.iter().any(|name| name == &self.sender) {
+            self.present.push(self.sender.clone());
+        }
+        self
+    }
+}
+
+impl From<Turn> for EvalStep {
+    fn from(turn: Turn) -> EvalStep {
+        EvalStep::Turn(turn)
+    }
+}
+
+/// A turn's text: either a literal string, or a template whose `{turn}` marker is replaced at
+/// execution time by the `[turn:<id>]` token of a recorded turn. The recorded turn is the first
+/// participant `ConversationTurn` in the run's log whose text is exactly `of_turn` — the connector
+/// contract's canonical token, resolved against the live log so the script references the exact turn id
+/// the agent will resolve rather than a fabricated one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StepText {
+    Literal(String),
+    WithTurnRef { template: String, of_turn: String },
+}
+
+impl StepText {
+    /// A template referencing an earlier recorded turn: the first participant turn whose text is
+    /// exactly `of_turn`. Its `[turn:<id>]` token is substituted for the `{turn}` marker in `template`
+    /// when the step executes.
+    pub fn with_turn_ref(template: impl Into<String>, of_turn: impl Into<String>) -> StepText {
+        StepText::WithTurnRef {
+            template: template.into(),
+            of_turn: of_turn.into(),
+        }
+    }
+}
+
+impl From<&str> for StepText {
+    fn from(text: &str) -> StepText {
+        StepText::Literal(text.to_owned())
+    }
+}
+
+impl From<String> for StepText {
+    fn from(text: String) -> StepText {
+        StepText::Literal(text)
+    }
+}
+
+/// What [`EvalStep::ConfirmProposedMerge`] does when no merge proposal is present in the live log. A
+/// scenario whose whole point is the no-proposal case uses [`OnMissing::Skip`] — a hard failure would
+/// abort the run and destroy the verdicts that document that case — while a scenario that requires a
+/// proposal uses [`OnMissing::Fail`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum OnMissing {
+    /// Record the step as skipped in the journal and continue.
+    Skip,
+    /// Fail the run.
+    Fail,
+}

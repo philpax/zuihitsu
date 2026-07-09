@@ -24,28 +24,28 @@ impl Scenario for AppliesARememberedPreference {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Marcus mentions a standing preference in passing — not a question, just context to bank.
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Oh, while I think of it — I'm vegetarian, have been for years. Worth remembering for \
-             whenever food comes up.",
-        ))
-        .await?;
-        ctx.settle().await?;
-
-        // Later, a different room, Marcus asks for a lunch spot — without restating the preference. A good
-        // answer applies what it banked rather than suggesting a steakhouse.
-        ctx.turn(Turn::new(
-            "discord",
-            "lunch-plans",
-            "marcus",
-            "I'm starving — got any suggestions for where I should grab lunch today?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Marcus mentions a standing preference in passing — not a question, just context to bank.
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Oh, while I think of it — I'm vegetarian, have been for years. Worth remembering for \
+                 whenever food comes up.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Later, a different room, Marcus asks for a lunch spot — without restating the preference. A good
+            // answer applies what it banked rather than suggesting a steakhouse.
+            Turn::new(
+                "discord",
+                "lunch-plans",
+                "marcus",
+                "I'm starving — got any suggestions for where I should grab lunch today?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

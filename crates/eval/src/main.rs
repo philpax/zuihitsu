@@ -7,6 +7,7 @@ mod analysis;
 mod analyze;
 mod context;
 mod error;
+mod executor;
 mod fetch_fixture;
 mod harness;
 mod history;
@@ -18,6 +19,7 @@ mod run;
 mod scenario;
 mod scenarios;
 mod serve;
+mod step;
 
 use std::{
     io::Write,

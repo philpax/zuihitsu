@@ -13,15 +13,15 @@ mod reunites_a_confirmed_hearsay_arrival;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, MemoryId};
+use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RunContext, Turn},
-    error::EvalError,
+    context::MILLIS_PER_DAY,
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, OnMissing, Turn},
 };
 
 use crate::scenarios::merge::{
@@ -41,12 +41,4 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(ReunitesAConfirmedHearsayArrival),
         Arc::new(AMergeLandsAndMemoryUnifies),
     ]
-}
-
-/// The `(from, to)` of the first merge proposed in the log, if any — the pair the operator confirms.
-pub(super) fn proposed_merge(events: &[Event]) -> Option<(MemoryId, MemoryId)> {
-    events.iter().find_map(|event| match &event.payload {
-        EventPayload::MergeProposed { from, to, .. } => Some((*from, *to)),
-        _ => None,
-    })
 }

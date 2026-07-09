@@ -33,11 +33,11 @@ use zuihitsu::{
 
 use crate::{
     analysis,
-    context::{RUN_START_MS, RunContext, Turn},
-    error::EvalError,
+    context::RUN_START_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 use crate::scenarios::relations::{

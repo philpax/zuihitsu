@@ -24,36 +24,36 @@ impl Scenario for MergesARecognizedPerson {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Discord: Dave mentions a specific, improbable pair of facts.
-        ctx.turn(Turn::new(
-            "discord",
-            "team",
-            "dave",
-            "Morning! I'll be offline next week — flying to Reykjavik for my younger brother's wedding, \
-             and tacking on a volcanology conference while I'm there.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.advance(9 * MILLIS_PER_DAY);
-
-        // Slack: a Dave (a separate stub, person/dave@slack) introduces himself, independently stating
-        // the same specifics — so they are recorded on the slack stub, the only thing the adjudicator
-        // weighs (it never sees the conversation, only recorded facts).
-        ctx.turn(Turn::new(
-            "slack",
-            "general",
-            "dave",
-            "Hi — I'm Dave, we haven't spoken here on Slack before. A bit about me so you know who I \
-             am: I just got back from Reykjavik, where my younger brother got married, and I caught a \
-             volcanology conference while I was there. Good to meet you.",
-        ))
-        .await?;
-        ctx.settle().await?;
-
-        // Marcus asks the agent to consider whether the two Daves are the same — the cue to compare what it
-        // already holds, not the evidence itself.
-        ctx.turn(
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Discord: Dave mentions a specific, improbable pair of facts.
+            Turn::new(
+                "discord",
+                "team",
+                "dave",
+                "Morning! I'll be offline next week — flying to Reykjavik for my younger brother's wedding, \
+                 and tacking on a volcanology conference while I'm there.",
+            )
+            .into(),
+            EvalStep::Settle,
+            EvalStep::Advance {
+                millis: 9 * MILLIS_PER_DAY,
+            },
+            // Slack: a Dave (a separate stub, person/dave@slack) introduces himself, independently stating
+            // the same specifics — so they are recorded on the slack stub, the only thing the adjudicator
+            // weighs (it never sees the conversation, only recorded facts).
+            Turn::new(
+                "slack",
+                "general",
+                "dave",
+                "Hi — I'm Dave, we haven't spoken here on Slack before. A bit about me so you know who I \
+                 am: I just got back from Reykjavik, where my younger brother got married, and I caught a \
+                 volcanology conference while I was there. Good to meet you.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Marcus asks the agent to consider whether the two Daves are the same — the cue to compare what it
+            // already holds, not the evidence itself.
             Turn::new(
                 "slack",
                 "general",
@@ -61,12 +61,11 @@ impl Scenario for MergesARecognizedPerson {
                 "The Dave you've been talking with here on Slack — is that the same Dave from our \
                  Discord team? Worth keeping their history together if so.",
             )
-            .with_present(&["marcus"]),
-        )
-        .await?;
-        // Adjudicate any proposal the agent made.
-        ctx.adjudicate_catch_up().await?;
-        Ok(())
+            .with_present(&["marcus"])
+            .into(),
+            // Adjudicate any proposal the agent made.
+            EvalStep::AdjudicateCatchUp,
+        ]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {

@@ -12,11 +12,11 @@ use zuihitsu::{Event, MemoryName, NamespacedMemoryName};
 
 use crate::{
     analysis,
-    context::{PAST_IDLE_GAP_MS, RunContext},
-    error::EvalError,
+    context::PAST_IDLE_GAP_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
+    step::EvalStep,
 };
 
 /// This module's scenarios.
@@ -45,25 +45,26 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
         }
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Imprint: the operator introduces themselves by a handle. The agent records a profile and
-        // merges the provisional person/operator stub into it.
-        ctx.imprint(
-            "Hi! I'm rowan. You'll help me run my bakery — keeping track of suppliers, regulars, \
-             and the day-to-day.",
-        )
-        .await?;
-        ctx.imprint("We're a small place, busiest on weekends, known for our sourdough.")
-            .await?;
-        ctx.describe_catch_up().await?;
-
-        // The session lapses; a fresh one opens. The operator shares their real name — it should be
-        // added to the existing profile, not start a new one.
-        ctx.advance(PAST_IDLE_GAP_MS);
-        ctx.imprint("Oh, by the way — my real name is Tomas, in case that's useful to record.")
-            .await?;
-        ctx.describe_catch_up().await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Imprint: the operator introduces themselves by a handle. The agent records a profile and
+            // merges the provisional person/operator stub into it.
+            EvalStep::imprint(
+                "Hi! I'm rowan. You'll help me run my bakery — keeping track of suppliers, regulars, \
+                 and the day-to-day.",
+            ),
+            EvalStep::imprint("We're a small place, busiest on weekends, known for our sourdough."),
+            EvalStep::DescribeCatchUp,
+            // The session lapses; a fresh one opens. The operator shares their real name — it should
+            // be added to the existing profile, not start a new one.
+            EvalStep::Advance {
+                millis: PAST_IDLE_GAP_MS,
+            },
+            EvalStep::imprint(
+                "Oh, by the way — my real name is Tomas, in case that's useful to record.",
+            ),
+            EvalStep::DescribeCatchUp,
+        ]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {

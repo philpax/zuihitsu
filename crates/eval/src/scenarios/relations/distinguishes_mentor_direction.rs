@@ -30,34 +30,35 @@ impl Scenario for DistinguishesMentorDirection {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Dave as a mentor (outgoing), then Dave as a mentee (incoming) — the same relation, opposite
-        // directions, for the agent to record as directed links.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Dave's been mentoring Erin and Grace this year — really showing them the ropes.",
-        ))
-        .await?;
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Funny thing is, Dave's got a mentor of his own — Frank's been bringing him along.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // A different room asks the directional question: who Dave mentors — his mentees, not his mentor.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "sam",
-            "Quick one — who's Dave actually mentoring these days? Thinking of pairing someone with \
-             him.",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Dave as a mentor (outgoing), then Dave as a mentee (incoming) — the same relation, opposite
+            // directions, for the agent to record as directed links.
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Dave's been mentoring Erin and Grace this year — really showing them the ropes.",
+            )
+            .into(),
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Funny thing is, Dave's got a mentor of his own — Frank's been bringing him along.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A different room asks the directional question: who Dave mentors — his mentees, not his mentor.
+            Turn::new(
+                "discord",
+                "hallway",
+                "sam",
+                "Quick one — who's Dave actually mentoring these days? Thinking of pairing someone with \
+                 him.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

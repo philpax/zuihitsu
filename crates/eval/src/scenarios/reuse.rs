@@ -12,11 +12,10 @@ use zuihitsu::{Event, Namespace};
 
 use crate::{
     analysis,
-    context::{RunContext, Turn},
-    error::EvalError,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -53,33 +52,34 @@ impl Scenario for UpdatesAnExistingEvent {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "planning",
-            "marcus",
-            "Let's get the product launch on the calendar — it's set for the 15th of March.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // A later session, a different room, an empty buffer: the event handle is not in front of the
-        // agent, so updating it in place requires finding it first.
-        ctx.turn(Turn::new(
-            "discord",
-            "standup",
-            "marcus",
-            "Update on the product launch — it's moved to the 22nd of March now.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "erin",
-            "Remind me — when's the product launch?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "planning",
+                "marcus",
+                "Let's get the product launch on the calendar — it's set for the 15th of March.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A later session, a different room, an empty buffer: the event handle is not in front of the
+            // agent, so updating it in place requires finding it first.
+            Turn::new(
+                "discord",
+                "standup",
+                "marcus",
+                "Update on the product launch — it's moved to the 22nd of March now.",
+            )
+            .into(),
+            EvalStep::Settle,
+            Turn::new(
+                "discord",
+                "hallway",
+                "erin",
+                "Remind me — when's the product launch?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -135,32 +135,33 @@ impl Scenario for AddsToAnExistingPerson {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Someone to keep track of: Dave — he's a product designer at Hooli.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // A later session, an empty buffer: appending the new fact to Dave requires finding him first.
-        ctx.turn(Turn::new(
-            "discord",
-            "standup",
-            "marcus",
-            "Heads up — Dave just got promoted to engineering lead.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "erin",
-            "What's Dave's role these days?",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Someone to keep track of: Dave — he's a product designer at Hooli.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A later session, an empty buffer: appending the new fact to Dave requires finding him first.
+            Turn::new(
+                "discord",
+                "standup",
+                "marcus",
+                "Heads up — Dave just got promoted to engineering lead.",
+            )
+            .into(),
+            EvalStep::Settle,
+            Turn::new(
+                "discord",
+                "hallway",
+                "erin",
+                "What's Dave's role these days?",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
@@ -223,33 +224,34 @@ impl Scenario for LinksExistingMemories {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Someone to remember: Dave, a product designer at Hooli.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // A separate session for Erin — her handle is recorded with Dave's not in the buffer.
-        ctx.turn(Turn::new(
-            "discord",
-            "intros",
-            "marcus",
-            "Another to remember: Erin, a product manager on the platform team.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // A third session asserts the relationship: linking requires retrieving both existing people.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "By the way, Dave and Erin know each other well — they've worked together for years.",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Someone to remember: Dave, a product designer at Hooli.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A separate session for Erin — her handle is recorded with Dave's not in the buffer.
+            Turn::new(
+                "discord",
+                "intros",
+                "marcus",
+                "Another to remember: Erin, a product manager on the platform team.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A third session asserts the relationship: linking requires retrieving both existing people.
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "By the way, Dave and Erin know each other well — they've worked together for years.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
@@ -303,44 +305,45 @@ impl Scenario for DiscoversHandlesByStem {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Session 1: David recorded.
-        ctx.turn(Turn::new(
-            "discord",
-            "general",
-            "marcus",
-            "Someone to keep track of: David — he's our new backend lead, came over from Hooli.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // Unrelated chatter, a different room — noise between the two introductions.
-        ctx.turn(Turn::new(
-            "discord",
-            "random",
-            "erin",
-            "Whoever's been restocking the good coffee in the kitchen — you're doing the lord's work.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // Session 2: Davina recorded — a different person, the same stem.
-        ctx.turn(Turn::new(
-            "discord",
-            "intros",
-            "marcus",
-            "Another one for the roster: Davina — she's leading the new design-system work.",
-        ))
-        .await?;
-        ctx.settle().await?;
-        // Session 3: an empty buffer, neither handle in front of the agent. Answering "the Davs"
-        // without naming them rewards enumerating the stem over guessing a single handle.
-        ctx.turn(Turn::new(
-            "discord",
-            "planning",
-            "marcus",
-            "Quick one — who are all the Davs on the team again? I always get them mixed up.",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Session 1: David recorded.
+            Turn::new(
+                "discord",
+                "general",
+                "marcus",
+                "Someone to keep track of: David — he's our new backend lead, came over from Hooli.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Unrelated chatter, a different room — noise between the two introductions.
+            Turn::new(
+                "discord",
+                "random",
+                "erin",
+                "Whoever's been restocking the good coffee in the kitchen — you're doing the lord's work.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Session 2: Davina recorded — a different person, the same stem.
+            Turn::new(
+                "discord",
+                "intros",
+                "marcus",
+                "Another one for the roster: Davina — she's leading the new design-system work.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Session 3: an empty buffer, neither handle in front of the agent. Answering "the Davs"
+            // without naming them rewards enumerating the stem over guessing a single handle.
+            Turn::new(
+                "discord",
+                "planning",
+                "marcus",
+                "Quick one — who are all the Davs on the team again? I always get them mixed up.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

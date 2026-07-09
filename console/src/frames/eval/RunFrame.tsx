@@ -87,6 +87,7 @@ export function RunFrame() {
             onSelectView={selectView}
             seq={seq}
             onSeq={setSeq}
+            journal={completed?.journal}
           />
         )}
       </div>

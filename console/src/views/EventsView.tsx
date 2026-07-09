@@ -4,6 +4,7 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "../types/Event.ts";
 import type { Replica } from "../lib/replica/replica.ts";
+import type { StepRecord } from "../types/StepRecord.ts";
 import {
   type EventCategory,
   CATEGORY_COLOR,
@@ -11,6 +12,7 @@ import {
   eventSummary,
   eventTouchesMemory,
 } from "../lib/model/events.ts";
+import { buildStepMarkers, type StepMarker } from "../lib/model/stepJournal.ts";
 import { nameById } from "../lib/model/labels.ts";
 import { formatDateTime, formatTime } from "../lib/format/format.ts";
 import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
@@ -28,15 +30,20 @@ const CATEGORIES: EventCategory[] = [
 
 /// The Events view: the run's log as the source of truth, filtered by category and free text, and
 /// stopped at the timeline cursor. A flat, scannable stream — every other view is a projection of
-/// exactly these rows.
+/// exactly these rows. An eval run also carries its step journal, which draws a hairline boundary
+/// above the first event of each scenario beat; a live tail has no journal, so the stream is unbroken.
 export function EventsView({
   replica,
   events,
   cursor,
+  journal,
+  resumedFromStep,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
+  journal?: readonly StepRecord[];
+  resumedFromStep?: number | null;
 }) {
   const names = nameById(replica.memories(""));
   const convNames = conversationNameById(replica.conversations());
@@ -79,6 +86,15 @@ export function EventsView({
         event.payload.type.toLowerCase().includes(needle) || summary.toLowerCase().includes(needle)
       );
     });
+
+  // The step boundaries, keyed by the seq they sit above. Anchored against the full log (the first
+  // event carries the genesis marker), so a boundary shows wherever its anchor event survives the
+  // active filters. Empty for a live tail or an old package without a journal.
+  const stepMarkers = buildStepMarkers(
+    journal ?? [],
+    events[0]?.seq ?? null,
+    resumedFromStep ?? null,
+  );
 
   function toggle(category: EventCategory) {
     const next = new Set(active);
@@ -169,6 +185,7 @@ export function EventsView({
           {virtualizer.getVirtualItems().map((item) => {
             const { event, category, summary } = rows[item.index];
             const open = expanded === event.seq;
+            const markers = stepMarkers.get(event.seq);
             return (
               <div
                 key={event.seq}
@@ -179,6 +196,7 @@ export function EventsView({
                   transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
                 }}
               >
+                {markers && <StepBoundary markers={markers} />}
                 <button
                   onClick={() => setExpanded(open ? null : event.seq)}
                   className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr_auto] sm:gap-4"
@@ -234,5 +252,39 @@ export function EventsView({
         </div>
       </div>
     </section>
+  );
+}
+
+/// A step boundary drawn above the first event of a scenario beat: a hairline rule carrying the step's
+/// index and one-line summary. The `genesis` marker precedes the birth events, and a resumed run's
+/// `resume` note — the one piece of replay state the trace needs — marks in clay where the live
+/// continuation takes over from the restored recording. Metadata in faint ink, not a loud header.
+function StepBoundary({ markers }: { markers: StepMarker[] }) {
+  return (
+    <div className="mt-4 flex flex-col gap-1 border-t border-line pt-2">
+      {markers.map((marker, index) =>
+        marker.kind === "genesis" ? (
+          <span key={index} className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            genesis
+          </span>
+        ) : marker.kind === "resume" ? (
+          <span key={index} className="font-mono text-2xs text-clay" title="resumed run boundary">
+            resumed here — steps above are the restored recording
+          </span>
+        ) : (
+          <span key={index} className="flex items-baseline gap-2">
+            <span className="shrink-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+              step {marker.index}
+            </span>
+            <span className="truncate font-mono text-2xs text-ink-soft" title={marker.label}>
+              {marker.label}
+            </span>
+            {marker.skipped && (
+              <span className="shrink-0 font-mono text-2xs italic text-ink-faint">skipped</span>
+            )}
+          </span>
+        ),
+      )}
+    </div>
   );
 }

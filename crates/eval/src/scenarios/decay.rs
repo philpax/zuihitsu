@@ -10,11 +10,11 @@ use zuihitsu::Event;
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RunContext, Turn},
-    error::EvalError,
+    context::MILLIS_PER_DAY,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
+    step::{EvalStep, Turn},
 };
 
 /// This module's scenarios.
@@ -45,35 +45,34 @@ impl Scenario for AVolatileStatusGoesStale {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // A flat, non-time-bound but volatile fact about Dave: a current project lead. Nothing in the
-        // wording dates it, so a later hedge must come from the staleness marker, not date-reasoning —
-        // the agent has to recognize a current role as fast-changing and mark it as it records.
-        ctx.turn(Turn::new(
-            "discord",
-            "team",
-            "marcus",
-            "One to keep track of: Dave's the lead on the Atlas project — that's the main thing he's \
-             running on the team.",
-        ))
-        .await?;
-        ctx.settle().await?;
-
-        // Two months pass — well past the staleness horizon for a fast-changing fact.
-        ctx.advance(60 * MILLIS_PER_DAY);
-
-        // A different person asks what Dave is working on, in a fresh room: recall surfaces the aged fact.
-        ctx.turn(
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // A flat, non-time-bound but volatile fact about Dave: a current project lead. Nothing in the
+            // wording dates it, so a later hedge must come from the staleness marker, not date-reasoning —
+            // the agent has to recognize a current role as fast-changing and mark it as it records.
+            Turn::new(
+                "discord",
+                "team",
+                "marcus",
+                "One to keep track of: Dave's the lead on the Atlas project — that's the main thing he's \
+                 running on the team.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // Two months pass — well past the staleness horizon for a fast-changing fact.
+            EvalStep::Advance {
+                millis: 60 * MILLIS_PER_DAY,
+            },
+            // A different person asks what Dave is working on, in a fresh room: recall surfaces the aged fact.
             Turn::new(
                 "discord",
                 "hallway",
                 "erin",
                 "What's Dave leading these days? I want to loop him in on something.",
             )
-            .with_present(&["erin"]),
-        )
-        .await?;
-        Ok(())
+            .with_present(&["erin"])
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

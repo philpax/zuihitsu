@@ -24,30 +24,31 @@ impl Scenario for RecallsConnections {
         true
     }
 
-    async fn run(&self, ctx: &RunContext) -> Result<(), EvalError> {
-        // Turn 1: two of Dave's relationships come up in passing, for the agent to record as links.
-        ctx.turn(Turn::new(
-            "discord",
-            "team-room",
-            "marcus",
-            "Dave's bringing a couple of friends along on Friday — Erin, who he's known since \
-             college, and Frank, his buddy from the climbing gym.",
-        ))
-        .await?;
-        // Regenerate descriptions and embed, as the background workers would, before the recall room.
-        ctx.settle().await?;
-        // Turn 2: a different room, an empty buffer — answering means reading Dave's connections back,
-        // not echoing the live conversation. The asker is Erin, herself one of Dave's connections, so a
-        // reasonable reply may only name Frank (the other connection) and omit Erin, assuming she
-        // already knows she is one of Dave's connections.
-        ctx.turn(Turn::new(
-            "discord",
-            "hallway",
-            "erin",
-            "Hey, who does Dave actually know around here? Trying to get a sense of his crowd.",
-        ))
-        .await?;
-        Ok(())
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Turn 1: two of Dave's relationships come up in passing, for the agent to record as links.
+            Turn::new(
+                "discord",
+                "team-room",
+                "marcus",
+                "Dave's bringing a couple of friends along on Friday — Erin, who he's known since \
+                 college, and Frank, his buddy from the climbing gym.",
+            )
+            .into(),
+            // Regenerate descriptions and embed, as the background workers would, before the recall room.
+            EvalStep::Settle,
+            // Turn 2: a different room, an empty buffer — answering means reading Dave's connections back,
+            // not echoing the live conversation. The asker is Erin, herself one of Dave's connections, so a
+            // reasonable reply may only name Frank (the other connection) and omit Erin, assuming she
+            // already knows she is one of Dave's connections.
+            Turn::new(
+                "discord",
+                "hallway",
+                "erin",
+                "Hey, who does Dave actually know around here? Trying to get a sense of his crowd.",
+            )
+            .into(),
+        ]
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {

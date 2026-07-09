@@ -59,6 +59,7 @@ fn a_stamped_run_survives_the_sidecar_and_resume() {
         started_at_ms: 1_000,
         finished_at_ms: 5_000,
         events: Vec::new(),
+        journal: Vec::new(),
         verdicts: Vec::new(),
         metrics: RunMetrics::default(),
     };
