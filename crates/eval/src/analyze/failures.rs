@@ -180,55 +180,14 @@ fn print_events(run: &RunRecord, substr: &str, truncate: usize) {
     }
 }
 
-/// A compact one-line summary of a diagnostic event whose type name contains `substr`, or `None`. Only
-/// the variants that carry signal for root-causing are rendered; the rest are filtered out so the lens
-/// stays narrow. The `occurred_at` is rendered as its stored JSON (`{"recurring": ...}`, `{"day": ...}`,
-/// or `null`) — exactly the shape that arms or fails to arm a wake-up.
+/// A compact one-line summary of a diagnostic event whose type name contains `substr`, or `None` — the
+/// substring gate for the `--events` lens, delegating the rendering to the shared
+/// [`diagnostic_summary`](crate::event_render::diagnostic_summary) so the two event views stay
+/// consistent. A payload whose type name does not contain `substr`, or which carries no diagnostic
+/// signal, filters out.
 fn summarize_event(payload: &EventPayload, substr: &str) -> Option<String> {
-    let matches = |ty: &str| ty.contains(substr);
-    match payload {
-        EventPayload::MemoryContentAppended {
-            id,
-            occurred_at,
-            text,
-            visibility,
-            ..
-        } if matches("MemoryContentAppended") => Some(format!(
-            "append {id:?} occurred_at={} visibility={visibility:?} text={:?}",
-            occurred_at
-                .as_ref()
-                .map(|t| serde_json::to_string(t).unwrap_or_default())
-                .unwrap_or_else(|| "null".to_owned()),
-            text.trim(),
-        )),
-        EventPayload::EntryTemporalResolved {
-            entry_id,
-            occurred_at,
-            ..
-        } if matches("EntryTemporalResolved") => Some(format!(
-            "resolved {entry_id:?} occurred_at={}",
-            serde_json::to_string(occurred_at).unwrap_or_default(),
-        )),
-        EventPayload::ScheduledJobFired {
-            memory, fired_at, ..
-        } if matches("ScheduledJobFired") => Some(format!("fired {memory:?} @ {fired_at:?}")),
-        EventPayload::ScheduledItemSurfaced {
-            memory, session, ..
-        } if matches("ScheduledItemSurfaced") => {
-            Some(format!("surfaced {memory:?} in {session:?}"))
-        }
-        EventPayload::MemorySuperseded {
-            entry,
-            superseded_by,
-            ..
-        } if matches("MemorySuperseded") => {
-            Some(format!("superseded {entry:?} by {superseded_by:?}"))
-        }
-        EventPayload::MemoryDescriptionRegenerated { id, new_text, .. }
-            if matches("MemoryDescriptionRegenerated") =>
-        {
-            Some(format!("described {id:?}: {:?}", new_text.trim()))
-        }
-        _ => None,
+    if !crate::event_render::payload_type(payload).contains(substr) {
+        return None;
     }
+    crate::event_render::diagnostic_summary(payload)
 }

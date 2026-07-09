@@ -252,7 +252,7 @@ async fn assess(
 }
 
 /// Sum the run's `ModelCalled` events into its metrics; `wall_clock_ms` is the measured drive time.
-fn run_metrics(events: &[Event], gating_passed: bool, wall_clock_ms: u64) -> RunMetrics {
+pub(crate) fn run_metrics(events: &[Event], gating_passed: bool, wall_clock_ms: u64) -> RunMetrics {
     let mut metrics = RunMetrics {
         wall_clock_ms,
         gating_passed,

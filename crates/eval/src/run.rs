@@ -174,6 +174,8 @@ async fn run(
         finished_at_ms: started_at_ms,
         runs_per_scenario: runs,
         concurrency: concurrency as u32,
+        rejudged_from: None,
+        resumed_from: None,
     };
 
     // The resumable, tailable form while the run is in flight: one JSON line per live event, beside the
@@ -255,7 +257,7 @@ async fn run(
     Ok(all_gates_held)
 }
 
-fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
+pub(crate) fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent).map_err(|source| EvalError::WriteOutput {
             path: parent.to_path_buf(),
@@ -278,7 +280,7 @@ fn write_package(package: &EvalPackage, out: &Path) -> Result<(), EvalError> {
     Ok(())
 }
 
-fn git_sha() -> Option<String> {
+pub(crate) fn git_sha() -> Option<String> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
@@ -294,7 +296,7 @@ fn git_sha() -> Option<String> {
 /// forever and drain the flag of meaning; only tracked modifications can differ from the recorded
 /// sha. Best-effort like [`git_sha`]: an unavailable or failing git reads as clean, so a run outside
 /// a repository does not falsely flag itself dirty.
-fn git_dirty() -> bool {
+pub(crate) fn git_dirty() -> bool {
     let Ok(output) = std::process::Command::new("git")
         .args(["status", "--porcelain", "--untracked-files=no"])
         .output()

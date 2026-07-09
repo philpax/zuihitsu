@@ -80,6 +80,8 @@ fn package(scenario_filter: Option<&str>, scenarios: Vec<ScenarioReport>) -> Eva
             finished_at_ms: 1_700_000_042_000,
             runs_per_scenario: 2,
             concurrency: 1,
+            rejudged_from: None,
+            resumed_from: None,
         },
         scenarios,
     }

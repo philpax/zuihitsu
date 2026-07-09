@@ -44,6 +44,11 @@ pub enum EvalError {
         path: PathBuf,
         source: Box<serde_json::Error>,
     },
+    /// `events`: a scenario/run could not be resolved, or the package could not be rendered.
+    Events(String),
+    /// `replay`: an argument was invalid, a scenario/run could not be resolved, the recorded run
+    /// drifted from the current script, or the restore could not be assembled.
+    Replay(String),
 }
 
 impl std::fmt::Display for EvalError {
@@ -96,6 +101,8 @@ impl std::fmt::Display for EvalError {
                     path.display()
                 )
             }
+            EvalError::Events(message) => write!(f, "eval: events: {message}"),
+            EvalError::Replay(message) => write!(f, "eval: replay: {message}"),
         }
     }
 }
@@ -116,7 +123,9 @@ impl std::error::Error for EvalError {
             EvalError::Judge(_)
             | EvalError::ResumeSidecar { .. }
             | EvalError::BadName(_)
-            | EvalError::Executor(_) => None,
+            | EvalError::Executor(_)
+            | EvalError::Events(_)
+            | EvalError::Replay(_) => None,
         }
     }
 }

@@ -79,7 +79,10 @@ export function EvalFrame({
                   <LiveTiming pkg={pkg} status={live} />
                 </>
               ) : (
-                <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
+                <>
+                  <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
+                  <Provenance pkg={pkg} />
+                </>
               )}
             </span>
             <button
@@ -100,6 +103,38 @@ export function EvalFrame({
 
       <Outlet context={context} />
     </div>
+  );
+}
+
+/// A package's replay provenance, beside the git sha as quiet metadata: `rejudged from <source>` when
+/// a `replay --mode rejudge` re-assessed another package, and `resumed from <package> · run <run> ·
+/// step <step>` when a `replay --mode resume` rewound and redrove a recorded run. Both absent — the
+/// common case for a fresh run — renders nothing, so the header does not shift.
+function Provenance({ pkg }: { pkg: EvalPackage }) {
+  const { rejudged_from, resumed_from } = pkg.meta;
+  if (!rejudged_from && !resumed_from) return null;
+  return (
+    <>
+      {rejudged_from && (
+        <>
+          <Dot />
+          <span className="max-w-[20rem] truncate text-ink-faint" title={rejudged_from}>
+            rejudged from {rejudged_from}
+          </span>
+        </>
+      )}
+      {resumed_from && (
+        <>
+          <Dot />
+          <span
+            className="max-w-[24rem] truncate text-ink-faint"
+            title={`resumed from ${resumed_from.package} · run ${resumed_from.run} · step ${resumed_from.step}`}
+          >
+            resumed from {resumed_from.package} · run {resumed_from.run} · step {resumed_from.step}
+          </span>
+        </>
+      )}
+    </>
   );
 }
 

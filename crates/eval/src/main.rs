@@ -7,6 +7,7 @@ mod analysis;
 mod analyze;
 mod context;
 mod error;
+mod event_render;
 mod executor;
 mod fetch_fixture;
 mod harness;
@@ -14,6 +15,7 @@ mod history;
 mod judge;
 mod live;
 mod package;
+mod replay;
 mod retry;
 mod run;
 mod scenario;
@@ -31,7 +33,11 @@ use std::{
 use clap::{Parser, Subcommand};
 use ts_rs::TS;
 
-use crate::{live::LiveEvent, package::EvalPackage};
+use crate::{
+    live::LiveEvent,
+    package::EvalPackage,
+    replay::{ReplayMode, ReplayRequest},
+};
 
 #[derive(Parser)]
 #[command(about = "The zuihitsu eval harness and its TypeScript type contract.")]
@@ -119,6 +125,52 @@ enum Command {
         #[arg(long, default_value_t = 600)]
         truncate: usize,
     },
+    /// Read a recorded run's events, grouped under the journal steps that produced them — the step
+    /// index shown is the coordinate `replay --mode resume --step` takes.
+    Events {
+        /// The package to read, e.g. `eval/content-limit-n10-v2.json`.
+        package: PathBuf,
+        /// Restrict to the scenario whose name contains this substring. Required when the package holds
+        /// more than one scenario.
+        #[arg(long, short)]
+        scenario: Option<String>,
+        /// The run index within the scenario (the `runs[N]` position). Defaults to 0.
+        #[arg(long, short, default_value_t = 0)]
+        run: usize,
+        /// Clip each event's summary to this many characters (0 = full).
+        #[arg(long, default_value_t = 120)]
+        truncate: usize,
+    },
+    /// Replay a recorded package: re-assess it against the current criteria (`rejudge`), or rewind one
+    /// run to a step and redo the rest of the scenario live (`resume`). Never writes trend history. Not
+    /// to be confused with `run --resume`, which continues an interrupted suite run.
+    Replay {
+        /// The package to replay.
+        package: PathBuf,
+        /// rejudge: re-assess the recorded runs against the current criteria without re-running the
+        /// model — for testing how oracle or judge changes reclassify an existing eval.
+        /// resume: rewind one run to `--step` and redo the rest of the scenario live from that point
+        /// with the current code and model.
+        #[arg(long, value_enum)]
+        mode: ReplayMode,
+        /// Restrict to scenarios whose name contains this substring (required for resume).
+        #[arg(long, short)]
+        scenario: Option<String>,
+        /// resume only: the run index to resume.
+        #[arg(long, short)]
+        run: Option<usize>,
+        /// resume only: the last journal step to keep; everything after it is redone live
+        /// (keep-semantics, matching the main CLI's `revert --seq`).
+        #[arg(long)]
+        step: Option<u32>,
+        /// The agent config to load the model/embedding endpoints from.
+        #[arg(long, default_value = "config.toml")]
+        config: PathBuf,
+        /// File the result under `eval/<name>.json` (like `run --name`). Optional for rejudge (report
+        /// only when absent); resume defaults to a derived name recorded in the report.
+        #[arg(long)]
+        name: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -146,6 +198,43 @@ async fn main() -> ExitCode {
             limit,
             truncate,
         }) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                tracing::error!("{error}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Events {
+            package,
+            scenario,
+            run,
+            truncate,
+        } => match replay::events(&package, scenario.as_deref(), run, truncate) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                tracing::error!("{error}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Replay {
+            package,
+            mode,
+            scenario,
+            run,
+            step,
+            config,
+            name,
+        } => match replay::replay(ReplayRequest {
+            package: &package,
+            mode,
+            scenario: scenario.as_deref(),
+            run,
+            step,
+            config: &config,
+            name: name.as_deref(),
+        })
+        .await
+        {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 tracing::error!("{error}");

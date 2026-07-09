@@ -44,6 +44,8 @@ fn a_stamped_run_survives_the_sidecar_and_resume() {
         finished_at_ms: 100,
         runs_per_scenario: 1,
         concurrency: 1,
+        rejudged_from: None,
+        resumed_from: None,
     };
     let scenario = ScenarioMeta {
         name: "seam".to_owned(),

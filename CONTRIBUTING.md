@@ -197,6 +197,16 @@ eval analyze eval/<name>.json -f -s <scenario> -e <events>     # dump the failed
 
 Reach for the `--failures`/`-f` dump when deciding the next prompt or code edit. It starts with a cross-scenario rollup of every missed verdict, grouping by criterion so a single behavioural thread is visible across scenarios. For each failed run it prints the missed oracles with their rationale, then the whole deliberation: the agent's reasoning, the Lua it ran, and what came back. `--scenario`/`-s` filters by name substring; `--events`/`-e` adds a compact summary of the events whose payload type name contains the substring (for example, `MemoryContentAppended`, `ScheduledJobFired`, or `EntryTemporalResolved`); `--limit` caps the runs shown per scenario; and `--truncate N` clips long reasoning and scripts (`0` keeps them whole).
 
+### Replaying an eval
+
+```
+eval events eval/<name>.json [-s <scenario>] [--run N]                     # a run's events, grouped by journal step
+eval replay --mode rejudge eval/<name>.json [-s <scenario>] [--name <out>] # re-assess against the current criteria, no model re-run
+eval replay --mode resume --step K -s <scenario> --run N eval/<name>.json  # redo the scenario from step K+1 live
+```
+
+`events` prints one run's event log grouped under the journal steps that produced it — each step line shows its seq span, and its index is the coordinate `resume --step` takes. Use it to pick a step to resume from. `rejudge` re-runs `assess` over the recorded event logs against the current oracles without re-running the model, so an oracle or judge change can be reclassified over an existing package; it reports the per-criterion rate deltas and the flipped run×criterion cells, and with `--name` writes the re-judged package. `resume` rewinds one run to journal step K (keep-semantics, matching the main CLI's `revert --seq`), restores the recorded prefix verbatim — so the continuation runs against exactly the state the original run held at that point — and redoes `steps[K+1..]` live against the current code and model, writing the result to `eval/<name>.json` (a derived name by default). A package recorded before step journaling is rejudge-only; the `events` listing says so. Replay never writes trend history; `resume` drives the live model (GPU), while `rejudge` needs only the judge model. (This is distinct from `run --resume`, which continues an interrupted *suite* run from its sidecar.)
+
 ### Designing a scenario
 
 - An oracle must align with the system's own rules. A gate must not punish behavior the visibility model permits — if the property under test is privacy, encode the isolated fact as a confidence, not a gating failure.

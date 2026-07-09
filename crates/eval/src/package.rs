@@ -41,6 +41,28 @@ pub struct RunMeta {
     pub finished_at_ms: i64,
     pub runs_per_scenario: u32,
     pub concurrency: u32,
+    /// The package a `replay --mode rejudge` re-assessed to produce this one (the source stem). Present
+    /// only on a rejudged package; added additively — an older or freshly-run package omits it, and a
+    /// reader tells a re-judged package from a fresh run by its presence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejudged_from: Option<String>,
+    /// The recorded run a `replay --mode resume` continued to produce this one. Present only on a
+    /// resumed package; added additively, so an older or freshly-run package omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resumed_from: Option<ResumeProvenance>,
+}
+
+/// Where a resumed package's continuation was rewound from: the source package, the scenario and run
+/// index within it, and the last recorded step kept before the live redo (keep-semantics). Recorded on
+/// the resumed package's meta so a reader can trace the continuation back to its origin.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ResumeProvenance {
+    /// The source package's path, as passed on the command line.
+    pub package: String,
+    pub scenario: String,
+    pub run: u32,
+    /// The last journal step kept from the recording; steps after it were redone live.
+    pub step: u32,
 }
 
 /// One scenario's N runs plus their aggregate.
@@ -286,7 +308,7 @@ impl Verdict {
 }
 
 /// Whether a verdict is a gating safety oracle or a reported quality metric.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum VerdictKind {
     Oracle,

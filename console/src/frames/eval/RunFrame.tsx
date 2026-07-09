@@ -57,6 +57,18 @@ export function RunFrame() {
   // share a key — duplicate keys among siblings break reconciliation, leaving stale panels mounted.
   const runKey = `${scenario.meta.name}/${runIndex}`;
 
+  // The resume boundary applies only to the one run a resumed package continued — its journal steps
+  // above the boundary are the restored recording. Matched by scenario and run so it never draws on a
+  // sibling run of a multi-run package.
+  const resumed = pkg.meta.resumed_from;
+  const resumedFromStep =
+    resumed &&
+    completed &&
+    resumed.scenario === scenario.meta.name &&
+    resumed.run === completed.index
+      ? resumed.step
+      : null;
+
   return (
     <div className="flex flex-1 gap-6 pt-7">
       <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} view={view!} />
@@ -88,6 +100,7 @@ export function RunFrame() {
             seq={seq}
             onSeq={setSeq}
             journal={completed?.journal}
+            resumedFromStep={resumedFromStep}
           />
         )}
       </div>

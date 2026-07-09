@@ -66,6 +66,45 @@ impl RunContext {
         })
     }
 
+    /// Restore a recorded run's log verbatim and boot the agent around it, without birthing a new one —
+    /// the resume path's counterpart to [`RunContext::new`]. The `events` (a recorded run's log up to a
+    /// chosen step's watermark, genesis included) are appended to a fresh [`MemoryStore`] preserving
+    /// each event's `recorded_at`, so the seqs regenerate `1..=N` in their recorded order and the
+    /// materialized graph rebuilds at exactly the point the recording held. The clock starts at the last
+    /// restored event's `recorded_at`, so the continuation's timestamps continue the recorded timeline
+    /// rather than resetting to [`RUN_START_MS`]. Genesis already sits in the restored log, so this
+    /// boots into an existing log — the deployment restart path — rather than creating an agent.
+    pub async fn restored(
+        deps: &RunDeps,
+        features: InstanceFeatures,
+        events: &[Event],
+    ) -> Result<RunContext, EvalError> {
+        let mut store = MemoryStore::new();
+        restore_verbatim(&mut store, events)?;
+        // The restored head must equal the recording's watermark: the seqs regenerated `1..=N` in order,
+        // so a mismatch means the append reordered or dropped events — a restore that cannot be trusted.
+        let restored_head = store.head().map_err(server_error)?;
+        let expected_head = events.last().map(|event| event.seq).unwrap_or(Seq::ZERO);
+        if restored_head != expected_head {
+            return Err(EvalError::Replay(format!(
+                "restored log head is seq {} but the recorded watermark is seq {}",
+                restored_head.0, expected_head.0
+            )));
+        }
+        // The continuation's clock continues the recorded timeline from the last restored event.
+        let last_ms = events
+            .last()
+            .map(|event| event.recorded_at.as_millis())
+            .unwrap_or(RUN_START_MS);
+        let clock = ManualClock::new(Timestamp::from_millis(last_ms));
+        let server = assemble(deps, features, &clock, Box::new(store)).await?;
+        Ok(RunContext {
+            server,
+            model: deps.model.clone(),
+            clock,
+        })
+    }
+
     /// Route one inbound message and run the agent's turn, returning what it said. Advances the run
     /// clock so turns sit on a realistic timescale: a human pause before the message, then the agent's
     /// actual think time after — so the recorded timestamps reflect how the conversation paced (legible
@@ -292,6 +331,29 @@ async fn assemble(
     }
     server.boot()?;
     Ok(server)
+}
+
+/// Append `events` to a fresh store preserving each event's `recorded_at`. Consecutive events sharing a
+/// timestamp ride in one batch (the store stamps a batch with a single `recorded_at`), so the seqs
+/// regenerate `1..=N` in the recorded order while every event keeps its original recorded time.
+fn restore_verbatim(store: &mut MemoryStore, events: &[Event]) -> Result<(), EvalError> {
+    let mut index = 0;
+    while index < events.len() {
+        let recorded_at = events[index].recorded_at;
+        let mut batch = Vec::new();
+        while index < events.len() && events[index].recorded_at == recorded_at {
+            batch.push(events[index].payload.clone());
+            index += 1;
+        }
+        store.append(recorded_at, batch).map_err(server_error)?;
+    }
+    Ok(())
+}
+
+/// Wrap a raw [`StoreError`](zuihitsu::StoreError) as a server error, so a restore failure reads under
+/// the same context as the rest of the run's store operations.
+fn server_error(error: zuihitsu::StoreError) -> EvalError {
+    EvalError::Server(Box::new(error.into()))
 }
 
 /// The agent every run is born as.

@@ -103,6 +103,8 @@ fn package(scenarios: Vec<ScenarioReport>) -> EvalPackage {
             finished_at_ms: 0,
             runs_per_scenario: 1,
             concurrency: 1,
+            rejudged_from: None,
+            resumed_from: None,
         },
         scenarios,
     }

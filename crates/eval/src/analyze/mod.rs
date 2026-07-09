@@ -5,7 +5,7 @@
 //! This is the command-line counterpart to the viewer, typed directly against the package contract.
 
 mod failures;
-mod format;
+pub(crate) mod format;
 mod relations;
 mod summary;
 
@@ -82,7 +82,7 @@ pub fn analyze(request: AnalyzeRequest) -> Result<(), EvalError> {
     Ok(())
 }
 
-fn load(path: &Path) -> Result<EvalPackage, EvalError> {
+pub(crate) fn load(path: &Path) -> Result<EvalPackage, EvalError> {
     let text = fs::read_to_string(path).map_err(|source| EvalError::ReadPackage {
         path: path.to_path_buf(),
         source,
