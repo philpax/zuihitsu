@@ -1,14 +1,14 @@
 use crate::{
     decay,
     event::Visibility,
-    graph::{Graph, MemoryView},
+    graph::{EntryView, Graph, MemoryView},
     ids::MemoryId,
     settings::BriefSettings,
     time::Timestamp,
     visibility::{self, ClassOf},
 };
 
-use super::{Brief, BriefError, BriefFact, BriefRelationship};
+use super::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP};
 
 /// Compose a single participant's brief block, against `present_set`. Used for a mid-session join:
 /// the joiner's brief is built against the now-present set and injected as a system message, rather
@@ -87,7 +87,7 @@ fn memory_brief(
         subject: memory.name.clone(),
         summary: (!memory.description.is_empty()).then(|| memory.description.clone()),
         recent_facts: visible_recent_facts(graph, memory, present_set, class_of, recent, now)?,
-        relationships: relationships(graph, memory.id, present_set, class_of)?,
+        relationships: relationships(graph, memory.id, present_set, class_of, now)?,
     })
 }
 
@@ -107,39 +107,95 @@ fn visible_recent_facts(
         if !visibility::visible(&entry, memory, present_set, class_of)? {
             continue;
         }
-        let mut markers = Vec::new();
-        if entry.visibility != Visibility::Public {
-            let teller = graph.teller_display(&entry.told_by)?;
-            let marker = graph.marker_ref(entry.told_in.as_ref())?;
-            if let Some(marker_text) =
-                visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
-            {
-                markers.push(marker_text);
-            }
-        }
-        let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
-        if decay::is_stale(memory.volatility, effective, now) {
-            markers.push(decay::STALE_MARKER.to_owned());
-        }
-        facts.push(BriefFact {
-            text: entry.text.clone(),
-            markers,
-        });
+        facts.push(entry_fact(graph, memory, &entry, now)?);
     }
     let start = facts.len().saturating_sub(recent);
     Ok(facts.split_off(start))
 }
 
+/// Build a [`BriefFact`] for a single visible entry: its text with the provenance marker (resolving
+/// its `told_in` room and `#confidential` flag) when non-public, followed by the staleness marker when
+/// the entry has decayed on a `High`-volatility memory. Assumes the caller has already run the
+/// visibility predicate — this only assembles the surviving entry's presentation.
+fn entry_fact(
+    graph: &Graph,
+    memory: &MemoryView,
+    entry: &EntryView,
+    now: Timestamp,
+) -> Result<BriefFact, BriefError> {
+    let mut markers = Vec::new();
+    if entry.visibility != Visibility::Public {
+        let teller = graph.teller_display(&entry.told_by)?;
+        let marker = graph.marker_ref(entry.told_in.as_ref())?;
+        if let Some(marker_text) =
+            visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
+        {
+            markers.push(marker_text);
+        }
+    }
+    let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
+    if decay::is_stale(memory.volatility, effective, now) {
+        markers.push(decay::STALE_MARKER.to_owned());
+    }
+    Ok(BriefFact {
+        text: entry.text.clone(),
+        markers,
+    })
+}
+
+/// The neighbour's most recent entry visible to `present_set`, as a [`BriefFact`] with its text
+/// clipped to [`SPOKE_CLIP`] — the substance one hop away that the relationship line carries. It runs
+/// the *exact* same visibility predicate as a recent fact, so a confided aside on the neighbour never
+/// rides into a brief for an audience that may not see it; a hidden latest entry falls back to the
+/// most recent visible one, and `None` when the neighbour has no visible entry at all.
+fn latest_visible_spoke(
+    graph: &Graph,
+    neighbour: &MemoryView,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+    now: Timestamp,
+) -> Result<Option<BriefFact>, BriefError> {
+    let mut latest = None;
+    for entry in graph.class_entries(neighbour.id)? {
+        if visibility::visible(&entry, neighbour, present_set, class_of)? {
+            latest = Some(entry);
+        }
+    }
+    match latest {
+        Some(entry) => {
+            let mut fact = entry_fact(graph, neighbour, &entry, now)?;
+            fact.text = clip(&fact.text, SPOKE_CLIP);
+            Ok(Some(fact))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Clip `text` to at most `max` Unicode scalar values, appending an ellipsis when it is shortened. The
+/// cut lands on a `char` boundary, so multibyte text is never split mid-scalar.
+fn clip(text: &str, max: usize) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(max).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
+    }
+}
+
 /// A memory's key relationships, as `relation → other-handle`, skipping soft-deleted neighbours and
 /// filtering through `link_visible` when an audience is present. An `Attributed` link carries a
 /// `[via teller]` provenance marker appended to the relationship line; a teller-private link carries
-/// its marker the same way. The full ranking by recency × type-weight (spec §Per-participant brief)
-/// is a later refinement; this lists the live edges touching the memory.
+/// its marker the same way. Each surviving edge also carries the neighbour's most recent visible entry
+/// as its inline spoke fact (via [`latest_visible_spoke`]), so the substance one hop away reaches the
+/// brief. The full ranking by recency × type-weight (spec §Per-participant brief) is a later
+/// refinement; this lists the live edges touching the memory.
 fn relationships(
     graph: &Graph,
     id: MemoryId,
     present_set: &[MemoryId],
     class_of: &ClassOf,
+    now: Timestamp,
 ) -> Result<Vec<BriefRelationship>, BriefError> {
     let mut relationships = Vec::new();
     for link in graph.links(id)? {
@@ -163,10 +219,12 @@ fn relationships(
             } else {
                 None
             };
+            let latest = latest_visible_spoke(graph, &memory, present_set, class_of, now)?;
             relationships.push(BriefRelationship {
                 relation: link.relation.clone(),
                 subject: memory.name.clone(),
                 marker,
+                latest,
             });
         }
     }

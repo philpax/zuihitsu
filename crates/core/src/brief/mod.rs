@@ -31,6 +31,12 @@ use crate::visibility::{self};
 
 use helpers::{ranked_present, render_memory_body};
 
+/// The maximum length, in Unicode scalar values, of a relationship's inline spoke fact
+/// ([`BriefRelationship::latest`]). A neighbour's latest entry can be arbitrarily long, and every
+/// visible relationship carries one, so the text is clipped on a `char` boundary with a trailing
+/// ellipsis before it rides the prompt — bounding the brief's growth without dropping the substance.
+pub(super) const SPOKE_CLIP: usize = 200;
+
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]
 pub enum BriefError {
@@ -94,7 +100,12 @@ pub struct BriefFact {
 /// `relation: subject [marker]`. `relation` serializes as its bare label (the wire form
 /// [`RelationName`] keeps), so it is typed as a `string` on the console side. `marker` carries the
 /// provenance marker for a non-public link (`[via Erin]` or `[teller-private, …]`), appended after
-/// the relationship line since a link has no text body.
+/// the relationship line since a link has no text body. `latest` carries the neighbour's most recent
+/// entry that is visible to this audience — the substance one hop away, so the relationship line is
+/// not spoke-blind: a fact filed on the linked hub (`Priya hosts book club at her place`) reaches the
+/// person's brief through her `participates_in` edge rather than being invisible for living on the
+/// neighbour. It passes the exact same visibility predicate as a recent fact, and its text is clipped
+/// to [`SPOKE_CLIP`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefRelationship {
@@ -104,6 +115,10 @@ pub struct BriefRelationship {
     /// The provenance marker for a non-public link, appended after the relationship line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marker: Option<String>,
+    /// The neighbour's most recent entry visible to this audience, clipped to [`SPOKE_CLIP`], carrying
+    /// the substance one hop away. `None` when the neighbour has no visible entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<BriefFact>,
 }
 
 impl Brief {
@@ -140,6 +155,15 @@ impl Brief {
                 );
                 if let Some(marker) = &relationship.marker {
                     let _ = write!(out, " {marker}");
+                }
+                // Carry the neighbour's latest visible fact inline, so the edge is not spoke-blind:
+                // its clipped text in quotes, then its own markers appended the way a recent fact
+                // renders them.
+                if let Some(latest) = &relationship.latest {
+                    let _ = write!(out, " — \"{}\"", latest.text);
+                    for marker in &latest.markers {
+                        let _ = write!(out, " {marker}");
+                    }
                 }
                 out.push('\n');
             }

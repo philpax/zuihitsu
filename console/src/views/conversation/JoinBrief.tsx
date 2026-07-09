@@ -81,7 +81,7 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
       {brief.relationships.length > 0 && (
         <ul className="space-y-1 font-mono text-xs text-ink-soft">
           {brief.relationships.map((relationship, index) => (
-            <li key={index} className="flex items-baseline gap-2">
+            <li key={index} className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-ink-faint">{relationship.relation}</span>
               <span aria-hidden className="text-ink-faint">
                 →
@@ -89,6 +89,16 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
               <MemoryNameLink name={relationship.subject} base={base} seq={seq} />
               {relationship.marker && (
                 <span className="text-2xs text-ink-faint">{relationship.marker}</span>
+              )}
+              {relationship.latest && (
+                <>
+                  <span className="text-ink-soft">“{relationship.latest.text}”</span>
+                  {relationship.latest.markers.map((marker, markerIndex) => (
+                    <span key={markerIndex} className="text-2xs text-ink-faint">
+                      {marker}
+                    </span>
+                  ))}
+                </>
               )}
             </li>
           ))}

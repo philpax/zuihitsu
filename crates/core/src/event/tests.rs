@@ -35,6 +35,7 @@ fn representative_brief() -> Brief {
             relation: RelationName::new("knows"),
             subject: MemoryName::new("person/erin"),
             marker: None,
+            latest: None,
         }],
     }
 }
