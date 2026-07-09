@@ -1,6 +1,6 @@
 use super::{materialized, recovery_log};
 use crate::{
-    event::{EventPayload, Teller, Visibility, Volatility},
+    event::{ConversationRef, EventPayload, Teller, Visibility, Volatility},
     graph::Graph,
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
@@ -209,7 +209,15 @@ fn conversations_and_sessions_project() {
             seeded_from_turn: None,
             brief: "first brief".to_owned(),
         },
-        EventPayload::participant_joined(conv, s1, carol, join_turn),
+        EventPayload::participant_joined(
+            conv,
+            s1,
+            carol,
+            ConversationRef {
+                conversation: conv,
+                turn: Some(join_turn),
+            },
+        ),
         EventPayload::session_ended(conv, s1),
         // A second session opened via compaction carries the carryover extent.
         EventPayload::SessionStarted {
@@ -217,7 +225,10 @@ fn conversations_and_sessions_project() {
             id: s2,
             participants: vec![alice],
             started_at: Timestamp::from_millis(5_000),
-            seeded_from_turn: Some(join_turn),
+            seeded_from_turn: Some(ConversationRef {
+                conversation: conv,
+                turn: Some(join_turn),
+            }),
             brief: "second brief".to_owned(),
         },
     ]);
@@ -245,7 +256,13 @@ fn conversations_and_sessions_project() {
     assert_eq!(sessions[0].brief, "first brief");
     assert_eq!(sessions[0].seeded_from_turn, None);
     assert_eq!(sessions[1].id, s2);
-    assert_eq!(sessions[1].seeded_from_turn, Some(join_turn));
+    assert_eq!(
+        sessions[1].seeded_from_turn,
+        Some(ConversationRef {
+            conversation: conv,
+            turn: Some(join_turn),
+        })
+    );
 
     // The first session's participants are the open set plus the mid-session joiner.
     let mut expected = vec![alice, bob, carol];

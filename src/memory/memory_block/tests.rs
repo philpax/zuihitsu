@@ -20,6 +20,7 @@ fn block(graph: Graph, clock: ManualClock, teller: Teller, authority: Authority)
         teller,
         authority,
         ConversationId::generate(),
+        None,
         Vec::new(),
     )
     .unwrap()

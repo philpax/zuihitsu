@@ -10,16 +10,23 @@ import type { TurnOutcome } from "../../lib/model/conversation.ts";
 export function OutcomeList({
   outcomes,
   nameById,
+  conversationNameById,
   className = "",
 }: {
   outcomes: TurnOutcome[];
   nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
   className?: string;
 }) {
   return (
     <ul className={"flex flex-col " + className}>
       {outcomes.map((outcome) => (
-        <EventRow key={outcome.seq} row={outcome} nameById={nameById} />
+        <EventRow
+          key={outcome.seq}
+          row={outcome}
+          nameById={nameById}
+          conversationNameById={conversationNameById}
+        />
       ))}
     </ul>
   );

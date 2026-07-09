@@ -18,6 +18,7 @@ import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
 import { statePath } from "../../lib/nav/routes.ts";
 import { MergeProposals } from "./MergeProposals.tsx";
 import { LinkedPairs, RelationLegend } from "./Legend.tsx";
+import { conversationNameById } from "../../components/EventDetail.tsx";
 import {
   SIZES,
   expandVirtualNodes,
@@ -78,6 +79,7 @@ export function RelationsView({
 
   const relations = replica.relations().filter((relation) => relation.name !== "same_as");
   const nameById = new Map(replica.memories("").map((m) => [m.id, m.name]));
+  const convNameById = conversationNameById(replica.conversations());
 
   // Pipeline order matters: collapse runs on the full graph first (while `same` edges are present for
   // the union-find), then filtering keeps only the selected relations' typed edges between the
@@ -322,6 +324,7 @@ export function RelationsView({
             cursor={cursor}
             navigate={navigate}
             nameById={nameById}
+            conversationNameById={convNameById}
           />
         </>
       )}

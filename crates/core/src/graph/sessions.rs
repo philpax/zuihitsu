@@ -5,11 +5,8 @@ use super::{
 };
 use crate::{
     db::{query_map_into, query_opt_into},
-    event::Teller,
-    ids::{
-        ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId,
-        TurnId,
-    },
+    event::{ConversationRef, Teller},
+    ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
     time::Timestamp,
     vocabulary::TagName,
 };
@@ -173,23 +170,35 @@ impl Graph {
         })
     }
 
-    /// Resolve a `told_in` context to its marker room — display name and `#confidential` flag — for
-    /// the teller-private marker. `None` when the entry carries no room, or its context memory is
-    /// gone. Shared by search and brief composition, both of which bake the marker at build time
-    /// (spec §Visibility → marker).
-    pub fn marker_room(
+    /// Resolve a `told_in` conversation reference to its marker — the turn id (for cross-linking)
+    /// and the resolved room (display name + `#confidential` flag) — for the visibility marker.
+    /// `None` when the entry carries no reference. Shared by search and brief composition, both of
+    /// which bake the marker at build time (spec §Visibility → marker). When the reference's turn
+    /// is `Some`, the turn id is carried for the `[turn:<ulid>]` token; the room is resolved from
+    /// the conversation's context memory regardless.
+    pub fn marker_ref(
         &self,
-        told_in: Option<MemoryId>,
-    ) -> Result<Option<crate::visibility::MarkerRoom>, GraphError> {
-        let Some(context_id) = told_in else {
-            return Ok(None);
+        told_in: Option<&ConversationRef>,
+    ) -> Result<crate::visibility::MarkerTurn, GraphError> {
+        let Some(r) = told_in else {
+            return Ok(crate::visibility::MarkerTurn {
+                turn_id: None,
+                room: None,
+            });
         };
-        Ok(self
-            .memory_by_id(context_id)?
-            .map(|context| crate::visibility::MarkerRoom {
-                name: crate::visibility::room_display(context.name.as_str()),
-                confidential: context.tags.contains(&TagName::Confidential),
-            }))
+        let context_memory = self.context_for_conversation(r.conversation)?;
+        let room = context_memory.and_then(|context_id| {
+            self.memory_by_id(context_id).ok().flatten().map(|context| {
+                crate::visibility::MarkerRoom {
+                    name: crate::visibility::room_display(context.name.as_str()),
+                    confidential: context.tags.contains(&TagName::Confidential),
+                }
+            })
+        });
+        Ok(crate::visibility::MarkerTurn {
+            turn_id: r.turn,
+            room,
+        })
     }
 
     /// A session by id, with its participants, or `None` if unknown.
@@ -332,7 +341,7 @@ impl Graph {
             conversation: ConversationId(parse_ulid(&conversation)?),
             started_at: Timestamp::from_millis(row.get("started_at")?),
             seeded_from_turn: seeded_from_turn
-                .map(|turn| parse_ulid(&turn).map(TurnId))
+                .map(|json| serde_json::from_str(&json))
                 .transpose()?,
             brief: row.get("brief")?,
             participants: self.session_participants(id)?,

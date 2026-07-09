@@ -1,7 +1,7 @@
 //! Recording a participant arriving mid-session.
 
 use crate::{
-    event::{EventPayload, Initiation, TurnRole},
+    event::{ConversationRef, EventPayload, Initiation, TurnRole},
     ids::{ConversationId, MemoryId, SessionId, TurnId},
     memory::brief,
     model::ModelClient,
@@ -56,7 +56,15 @@ impl Instance {
         self.engine.store.lock().append(
             now,
             vec![
-                EventPayload::participant_joined(conversation, session, joiner, turn_id),
+                EventPayload::participant_joined(
+                    conversation,
+                    session,
+                    joiner,
+                    ConversationRef {
+                        conversation,
+                        turn: Some(turn_id),
+                    },
+                ),
                 EventPayload::ConversationTurn {
                     conversation,
                     turn_id,

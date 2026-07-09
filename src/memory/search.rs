@@ -169,11 +169,11 @@ pub fn search(
                     let mut parts = Vec::new();
                     if entry.visibility != Visibility::Public {
                         let teller = graph.teller_display(&entry.told_by)?;
-                        let room = graph.marker_room(entry.told_in)?;
-                        if let Some(marker) =
-                            visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+                        let marker = graph.marker_ref(entry.told_in.as_ref())?;
+                        if let Some(marker_text) =
+                            visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
                         {
-                            parts.push(marker);
+                            parts.push(marker_text);
                         }
                     }
                     let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);

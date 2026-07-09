@@ -316,12 +316,12 @@ pub fn compose(
             let mut line = format!("- {when}: {} — {}", memory.name.as_str(), entry.text);
             if entry.visibility != Visibility::Public {
                 let teller = graph.teller_display(&entry.told_by)?;
-                let room = graph.marker_room(entry.told_in)?;
-                if let Some(marker) =
-                    visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+                let marker = graph.marker_ref(entry.told_in.as_ref())?;
+                if let Some(marker_text) =
+                    visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
                 {
                     line.push(' ');
-                    line.push_str(&marker);
+                    line.push_str(&marker_text);
                 }
             }
             lines.push(line);

@@ -30,10 +30,12 @@ impl MemoryBlock {
 
     /// The current conversation's context memory, or `None` — touches it so it enters the lock set.
     pub fn current_context(&mut self) -> Option<MemoryId> {
-        if let Some(id) = self.told_in {
+        if let Some(id) = self.context_memory {
             self.touched.insert(id);
+            Some(id)
+        } else {
+            None
         }
-        self.told_in
     }
 
     /// Discard everything this block buffered and end it, recording `reason` as the terminal cause.
@@ -163,7 +165,7 @@ impl MemoryBlock {
             occurred_at,
             text,
             told_by,
-            told_in: self.told_in,
+            told_in: self.told_in.clone(),
             visibility,
         });
         entry_id

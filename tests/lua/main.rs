@@ -18,7 +18,7 @@ pub(crate) use zuihitsu::{
     MemoryName, MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Session,
     SessionId, Store, TagName, Teller, TemporalRef, TerminalCause, Timestamp, TurnId, TurnRole,
     Visibility,
-    event::{ArbitrationResolution, EventPayload, EventSource, Initiation},
+    event::{ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation},
     ids::ConversationId,
     resolve_or_mint_conversation, turn_ref,
 };

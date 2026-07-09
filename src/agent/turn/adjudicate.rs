@@ -181,6 +181,7 @@ async fn adjudicate(
                 LinkSource::Adjudicated,
                 // No teller behind it: the adjudication pass authors this, not a participant's turn.
                 None,
+                // No told_in: the adjudication pass has no conversation context.
                 None,
                 Visibility::Public,
             ));

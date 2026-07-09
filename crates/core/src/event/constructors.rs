@@ -10,8 +10,9 @@ use crate::{
 };
 
 use super::{
-    ArbitrationResolution, EventPayload, EventSource, Initiation, LinkSource, MergeProposalSource,
-    ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation, LinkSource,
+    MergeProposalSource, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
+    Visibility, Volatility,
 };
 
 impl EventPayload {
@@ -200,7 +201,7 @@ impl EventPayload {
         relation: RelationName,
         source: LinkSource,
         told_by: Option<Teller>,
-        told_in: Option<MemoryId>,
+        told_in: Option<ConversationRef>,
         visibility: Visibility,
     ) -> EventPayload {
         EventPayload::LinkCreated {
@@ -267,7 +268,7 @@ impl EventPayload {
         id: SessionId,
         participants: Vec<MemoryId>,
         started_at: Timestamp,
-        seeded_from_turn: Option<TurnId>,
+        seeded_from_turn: Option<ConversationRef>,
         brief: impl Into<String>,
     ) -> EventPayload {
         EventPayload::SessionStarted {
@@ -329,7 +330,7 @@ impl EventPayload {
         conversation: ConversationId,
         session: SessionId,
         participant: MemoryId,
-        at_turn: TurnId,
+        at_turn: ConversationRef,
     ) -> EventPayload {
         EventPayload::ParticipantJoined {
             conversation,

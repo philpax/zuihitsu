@@ -1,5 +1,5 @@
 import { useContext, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { formatDateTime, formatTime } from "../../lib/format/format.ts";
 import { scanTurnRefs } from "../../lib/replica/replica.ts";
@@ -37,6 +37,7 @@ export function RefText({ text }: { text: string }) {
 export function TurnRefChip({ id }: { id: string }) {
   const targets = useContext(TurnRefs);
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const anchor = useRef<HTMLSpanElement>(null);
   // The popup's placement is measured at open: it prefers above-left of the chip, but flips to the
   // right edge or below when that would leave the viewport (a chip near the pane's right edge or the
@@ -63,10 +64,19 @@ export function TurnRefChip({ id }: { id: string }) {
     );
   }
   // The deep link keeps the current view's params (the timeline cursor rides along) and pins the
-  // room and turn — the same URL shape the transcript's timestamp anchors mint.
+  // room and turn — the same URL shape the transcript's timestamp anchors mint. When the chip
+  // is rendered outside the conversation view (Events, Background), the link navigates to the
+  // conversation view at the stream base.
+  const onConversation = location.pathname.endsWith("/conversation");
   const params = new URLSearchParams(searchParams);
   params.set("room", target.roomKey);
   params.set("turn", target.turn.turnId);
+  const to = onConversation
+    ? { search: params.toString() }
+    : {
+        pathname: `${location.pathname.replace(/\/[^/]*$/, "")}/conversation`,
+        search: params.toString(),
+      };
   return (
     <span
       ref={anchor}
@@ -77,11 +87,15 @@ export function TurnRefChip({ id }: { id: string }) {
       onBlur={() => setOpen(null)}
     >
       <Link
-        to={{ search: params.toString() }}
+        to={to}
         className="inline-flex items-baseline gap-1 rounded-sm border border-line bg-oat/40 px-1.5 font-mono text-2xs text-ink-soft no-underline transition-colors hover:border-line-strong hover:text-ink"
       >
         <span aria-hidden className="text-ink-faint">
           ↩
+        </span>
+        <span className="text-ink-faint">{target.roomKey}</span>
+        <span aria-hidden className="text-ink-faint">
+          ·
         </span>
         {speakerLabel(target.turn)}
       </Link>

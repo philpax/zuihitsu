@@ -191,7 +191,10 @@ impl Graph {
                     .as_ref()
                     .map(|teller| serde_json::to_string(teller).map_err(GraphError::Serialize))
                     .transpose()?;
-                let told_in = told_in.map(|id| id.0.to_string());
+                let told_in = told_in
+                    .as_ref()
+                    .map(|r| serde_json::to_string(r).map_err(GraphError::Serialize))
+                    .transpose()?;
                 let visibility_json =
                     serde_json::to_string(visibility).map_err(GraphError::Serialize)?;
                 self.conn

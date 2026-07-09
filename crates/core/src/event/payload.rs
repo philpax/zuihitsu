@@ -13,9 +13,9 @@ use crate::{
 };
 
 use super::{
-    ArbitrationResolution, Cardinality, EventSource, Initiation, LinkInferenceResult, LinkSource,
-    MergeProposalSource, ModelPhase, ProducedBy, PromptTemplateName, RequestRecord, Teller,
-    TerminalCause, TurnRole, Visibility, Volatility,
+    ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
+    LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
+    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
@@ -42,13 +42,12 @@ pub enum EventPayload {
     },
     /// Soft delete: contents are preserved for replay and audit; the projection sets a flag.
     MemoryDeleted { id: MemoryId },
-    /// Records a content entry. `told_by` is the teller, `told_in` the context it was told in (a
-    /// [`Namespace::Context`] memory, resolved to its confidentiality at Stage 8; `None` until
+    /// Records a content entry. `told_by` is the teller, `told_in` the conversation reference (a
+    /// turn or the room) it was told in (resolved to its confidentiality at Stage 8; `None` until
     /// contexts exist), and `visibility` governs the read-time predicate. `asserted_at` is when
-    /// the agent recorded the
-    /// fact; `occurred_at` is the optional real-world time the fact is *about* (spec §Time →
-    /// bi-temporality). `occurred_at` is `#[serde(default)]` so pre-Stage-9 logs, which lack the
-    /// field, replay as `None`.
+    /// the agent recorded the fact; `occurred_at` is the optional real-world time the fact is
+    /// *about* (spec §Time → bi-temporality). `occurred_at` is `#[serde(default)]` so pre-Stage-9
+    /// logs, which lack the field, replay as `None`.
     MemoryContentAppended {
         id: MemoryId,
         entry_id: EntryId,
@@ -57,7 +56,7 @@ pub enum EventPayload {
         occurred_at: Option<TemporalRef>,
         text: String,
         told_by: Teller,
-        told_in: Option<MemoryId>,
+        told_in: Option<ConversationRef>,
         visibility: Visibility,
     },
     /// Marks an entry superseded by a newer one: the agent corrected or retracted a fact, recording
@@ -251,9 +250,9 @@ pub enum EventPayload {
     /// the field (`#[serde(default)]`). `visibility` is the audience posture — `Public` for
     /// structural/operator/adjudicated links, `PrivateToTeller` for a participant-asserted belief about
     /// someone else, `Attributed` for a secondhand relayed relationship. Defaults to `Public` for
-    /// pre-visibility logs. `told_in` carries the context memory (room) the link was asserted in,
-    /// mirroring content entries' `told_in` — the provenance a teller-private marker's room reference
-    /// reads. Defaults to `None` for pre-visibility logs.
+    /// pre-visibility logs. `told_in` carries the [`ConversationRef`] (turn or room) the link was
+    /// asserted in, mirroring content entries' `told_in` — the provenance a teller-private marker's
+    /// reference reads. Defaults to `None` for pre-visibility logs.
     LinkCreated {
         from: MemoryId,
         to: MemoryId,
@@ -263,7 +262,7 @@ pub enum EventPayload {
         #[serde(default)]
         told_by: Option<Teller>,
         #[serde(default)]
-        told_in: Option<MemoryId>,
+        told_in: Option<ConversationRef>,
         #[serde(default)]
         visibility: Visibility,
     },
@@ -373,26 +372,26 @@ pub enum EventPayload {
     /// Opens a bounded activity window within a conversation — the brief-freeze unit.
     /// `participants` is the present set at open; `brief` is the composed brief captured verbatim so
     /// the frozen prompt is faithfully replayable (spec §System prompt → replay); `seeded_from_turn`
-    /// records the carryover extent when the session opened via compaction (`None` for a fresh or
-    /// idle-opened session).
+    /// records the carryover extent when the session opened via compaction, as a
+    /// [`ConversationRef`] with the turn set (`None` for a fresh or idle-opened session).
     SessionStarted {
         conversation: ConversationId,
         id: SessionId,
         participants: Vec<MemoryId>,
         started_at: Timestamp,
-        seeded_from_turn: Option<TurnId>,
+        seeded_from_turn: Option<ConversationRef>,
         brief: String,
     },
     SessionEnded {
         conversation: ConversationId,
         id: SessionId,
     },
-    /// A participant arriving mid-session, at turn `at_turn`.
+    /// A participant arriving mid-session, at `at_turn` (a [`ConversationRef`] with the turn set).
     ParticipantJoined {
         conversation: ConversationId,
         session: SessionId,
         participant: MemoryId,
-        at_turn: TurnId,
+        at_turn: ConversationRef,
     },
     /// Binds a [`Namespace::Person`] stub to a platform identity, seeding the `(platform,
     /// platform_user_id) -> memory_id` operational mapping (spec §Identity). Emitted on first

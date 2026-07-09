@@ -8,7 +8,7 @@ import { LabeledDivider, Meter } from "../../components/primitives.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
 import { RefText } from "./TurnRefs.tsx";
-import { ModelCalls, Names } from "./ConversationView.tsx";
+import { ConversationNames, ModelCalls, Names } from "./ConversationView.tsx";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
 import { Deliberation } from "./Deliberation.tsx";
@@ -191,5 +191,13 @@ export function TurnTimeAnchor({
 /// event viewer.
 function Outcomes({ outcomes }: { outcomes: TurnModel["outcomes"] }) {
   const names = useContext(Names);
-  return <OutcomeList outcomes={outcomes} nameById={names} className="mt-3 gap-1" />;
+  const convNames = useContext(ConversationNames);
+  return (
+    <OutcomeList
+      outcomes={outcomes}
+      nameById={names}
+      conversationNameById={convNames}
+      className="mt-3 gap-1"
+    />
+  );
 }

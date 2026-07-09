@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     event::{Teller, Visibility},
     graph::{EntryView, GraphError, LinkVis, MemoryView},
-    ids::{MemoryId, MemoryName, Namespace},
+    ids::{MemoryId, MemoryName, Namespace, TurnId},
 };
 
 /// Resolves a memory id to its `same_as`-class id (or itself when unmerged). Fallible because the
@@ -250,18 +250,18 @@ pub fn default_link_visibility(
 /// The inline marker a surviving non-public link carries when surfaced, chosen by its posture. Same
 /// registers as content entries: none for `Public`, `[via …]` for `Attributed`, the teller-private
 /// marker for a confidence. Appended to the relationship line (`relation: handle [marker]`) since a
-/// link has no text body. Takes the resolved `MarkerRoom` (from `told_in`) so a teller-private marker
-/// can name the room and its confidentiality, mirroring content entries.
+/// link has no text body. Takes the resolved `MarkerTurn` (from `told_in`) so a teller-private marker
+/// can name the room and its confidentiality and embed a turn token, mirroring content entries.
 pub fn link_marker(
     visibility: &Visibility,
     teller: &str,
-    room: Option<&MarkerRoom>,
+    marker: Option<&MarkerTurn>,
 ) -> Option<String> {
     match visibility {
         Visibility::Public => None,
-        Visibility::Attributed => Some(attributed_marker(teller, room)),
+        Visibility::Attributed => Some(attributed_marker(teller, marker)),
         Visibility::PrivateToTeller | Visibility::Exclude(_) => {
-            Some(teller_private_marker(teller, room))
+            Some(teller_private_marker(teller, marker))
         }
     }
 }
@@ -298,24 +298,39 @@ pub struct MarkerRoom {
     pub confidential: bool,
 }
 
+/// A resolved visibility marker: the turn the fact was asserted (for cross-linking) and the room it
+/// was told in (for display). Wraps [`MarkerRoom`] so the marker functions can embed a
+/// `[turn:<ulid>]` token alongside the room reference. Built from a `ConversationRef` by the caller
+/// (search, brief composition) via [`Graph::marker_ref`].
+pub struct MarkerTurn {
+    /// The turn the fact was asserted, when `told_in` is `Some(ConversationRef::Turn(...))`.
+    pub turn_id: Option<TurnId>,
+    /// The resolved room, when `told_in` is `Some(ConversationRef::Room(...))`.
+    pub room: Option<MarkerRoom>,
+}
+
 /// The inline marker a surviving teller-private entry carries when surfaced (spec §Visibility →
 /// marker), so the model sees it as a flagged judgment call rather than neutral fact. It names the
 /// teller, and — when the entry's `told_in` room is known — the room and, if the room is
 /// `#confidential`, that it was said in confidence: `[teller-private, told by Erin in #leads
-/// (confidential)]`. The marker is baked into `recent_facts` at brief-build time, so a later
-/// cross-context surfacing can be recognized as one.
-pub fn teller_private_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
-    match room {
+/// (confidential) [turn:01KX…]]`. When a turn id is known, a `[turn:<ulid>]` token is embedded so
+/// the frontend's `scanTurnRefs` can render a cross-linkable chip. The marker is baked into
+/// `recent_facts` at brief-build time, so a later cross-context surfacing can be recognized as one.
+pub fn teller_private_marker(teller: &str, marker: Option<&MarkerTurn>) -> String {
+    let room = marker.and_then(|m| m.room.as_ref());
+    let turn = marker.and_then(|m| m.turn_id.as_ref());
+    let body = match room {
         Some(MarkerRoom {
             name,
             confidential: true,
-        }) => format!("[teller-private, told by {teller} in {name} (confidential)]"),
+        }) => format!("told by {teller} in {name} (confidential)"),
         Some(MarkerRoom {
             name,
             confidential: false,
-        }) => format!("[teller-private, told by {teller} in {name}]"),
-        None => format!("[teller-private, told by {teller}]"),
-    }
+        }) => format!("told by {teller} in {name}"),
+        None => format!("told by {teller}"),
+    };
+    format_turn(&format!("[teller-private, {body}]"), turn)
 }
 
 /// The inline marker an entry carries when it surfaces, chosen by its posture (spec §Visibility →
@@ -325,13 +340,13 @@ pub fn teller_private_marker(teller: &str, room: Option<&MarkerRoom>) -> String 
 pub fn entry_marker(
     visibility: &Visibility,
     teller: &str,
-    room: Option<&MarkerRoom>,
+    marker: Option<&MarkerTurn>,
 ) -> Option<String> {
     match visibility {
         Visibility::Public => None,
-        Visibility::Attributed => Some(attributed_marker(teller, room)),
+        Visibility::Attributed => Some(attributed_marker(teller, marker)),
         Visibility::PrivateToTeller | Visibility::Exclude(_) => {
-            Some(teller_private_marker(teller, room))
+            Some(teller_private_marker(teller, marker))
         }
     }
 }
@@ -339,11 +354,31 @@ pub fn entry_marker(
 /// The inline marker an `Attributed` entry carries when surfaced (spec §Visibility → provenance
 /// markers): the lighter register, naming only the source without the language of confidence, since
 /// the entry is visible to anyone and the marker is the whole signal — secondhand, weigh it as such.
-/// `[via Erin]`, or `[via Erin in #general]` when the room is known.
-pub fn attributed_marker(teller: &str, room: Option<&MarkerRoom>) -> String {
-    match room {
-        Some(MarkerRoom { name, .. }) => format!("[via {teller} in {name}]"),
-        None => format!("[via {teller}]"),
+/// `[via Erin [turn:01KX…]]`, or `[via Erin in #general [turn:01KX…]]` when the room is known.
+pub fn attributed_marker(teller: &str, marker: Option<&MarkerTurn>) -> String {
+    let room = marker.and_then(|m| m.room.as_ref());
+    let turn = marker.and_then(|m| m.turn_id.as_ref());
+    let body = match room {
+        Some(MarkerRoom { name, .. }) => format!("via {teller} in {name}"),
+        None => format!("via {teller}"),
+    };
+    format_turn(&format!("[{body}]"), turn)
+}
+
+/// Append a `[turn:<ulid>]` token inside the closing bracket of a marker string, when a turn id is
+/// known. The token is picked up by the frontend's `scanTurnRefs` so it can render a cross-linkable
+/// chip. Without a turn id, the marker is returned unchanged.
+fn format_turn(marker: &str, turn: Option<&TurnId>) -> String {
+    match turn {
+        Some(id) => {
+            let turn_token = format!("[turn:{}]", id.0);
+            // Insert before the closing bracket.
+            let close = marker.rfind(']').unwrap_or(marker.len());
+            let (head, tail) = marker.split_at(close);
+            // `tail` starts at `]`; insert the turn token before it.
+            format!("{head} {turn_token}{tail}")
+        }
+        None => marker.to_owned(),
     }
 }
 

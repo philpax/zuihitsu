@@ -3,9 +3,12 @@ use crate::{
     InstanceFeatures,
     agent::genesis::{self, SeedSelf},
     clock::ManualClock,
-    event::{Cardinality, Event, EventPayload, LinkSource, Teller, Visibility, Volatility},
+    event::{
+        Cardinality, ConversationRef, Event, EventPayload, LinkSource, Teller, Visibility,
+        Volatility,
+    },
     graph::Graph,
-    ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
+    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq},
     memory::memory_block::LinkDirection,
     model::{
         embed::{Embedder, FakeEmbedder},
@@ -239,7 +242,7 @@ impl Corpus {
     }
 
     /// As [`Corpus::tell_private`], but told in a specific room (`told_in`), so the surfaced
-    /// marker can name it.
+    /// marker can name it. Creates a `ConversationStarted` so the context memory is resolvable.
     pub(super) async fn tell_private_in(
         &mut self,
         memory: MemoryId,
@@ -248,18 +251,29 @@ impl Corpus {
         told_in: MemoryId,
         at_ms: i64,
     ) {
+        let conversation = ConversationId::generate();
         self.commit(
             at_ms,
-            vec![EventPayload::MemoryContentAppended {
-                id: memory,
-                entry_id: EntryId::generate(),
-                asserted_at: Timestamp::from_millis(at_ms),
-                occurred_at: None,
-                text: text.to_owned(),
-                told_by: Teller::Participant(teller),
-                told_in: Some(told_in),
-                visibility: Visibility::PrivateToTeller,
-            }],
+            vec![
+                EventPayload::conversation_started(
+                    conversation,
+                    ConversationLocator::new("test", "room"),
+                    told_in,
+                ),
+                EventPayload::MemoryContentAppended {
+                    id: memory,
+                    entry_id: EntryId::generate(),
+                    asserted_at: Timestamp::from_millis(at_ms),
+                    occurred_at: None,
+                    text: text.to_owned(),
+                    told_by: Teller::Participant(teller),
+                    told_in: Some(ConversationRef {
+                        conversation,
+                        turn: None,
+                    }),
+                    visibility: Visibility::PrivateToTeller,
+                },
+            ],
         )
         .await;
     }

@@ -13,8 +13,8 @@ use ulid::Ulid;
 
 use crate::{
     db::query_map_into,
-    event::{Cardinality, LinkSource, Teller, Visibility, Volatility},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId},
+    event::{Cardinality, ConversationRef, LinkSource, Teller, Visibility, Volatility},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId},
     store::Store,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -68,7 +68,7 @@ pub struct EntryView {
     pub occurred_authored: bool,
     pub text: String,
     pub told_by: Teller,
-    pub told_in: Option<MemoryId>,
+    pub told_in: Option<ConversationRef>,
     pub visibility: Visibility,
     /// The entry that replaced this one, when it has been superseded (spec §Visibility → superseded
     /// entries are not live). `None` for a live entry. Live reads exclude superseded entries in SQL;
@@ -101,14 +101,14 @@ pub struct TagVocabularyEntry {
 /// The fields the link visibility predicate reasons over, extracted from any link view type. Keeps
 /// the predicate decoupled from the specific view shape (`LinkView`, `ClassLinkView`,
 /// `NeighborLinkView`) each caller holds. The `told_in` field is carried so the marker can resolve
-/// the room reference, mirroring how content entries carry `told_in` for `MarkerRoom`.
+/// the reference, mirroring how content entries carry `told_in` for `MarkerTurn`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkVis {
     pub from: MemoryId,
     pub to: MemoryId,
     pub visibility: Visibility,
     pub told_by: Option<Teller>,
-    pub told_in: Option<MemoryId>,
+    pub told_in: Option<ConversationRef>,
 }
 
 /// A stored edge in its canonical direction, carrying its visibility posture and provenance.
@@ -120,8 +120,9 @@ pub struct LinkView {
     /// The teller who asserted the relationship, if one is on record. `None` for links with no
     /// teller behind them (the adjudicated `same_as`) or predating link provenance.
     pub told_by: Option<Teller>,
-    /// The context memory (room) the link was asserted in, mirroring content entries' `told_in`.
-    pub told_in: Option<MemoryId>,
+    /// The conversation reference (turn or room) the link was asserted in, mirroring content
+    /// entries' `told_in`.
+    pub told_in: Option<ConversationRef>,
     /// The audience posture, governing the read-time `link_visible` predicate.
     pub visibility: Visibility,
 }
@@ -134,7 +135,7 @@ impl LinkView {
             to: self.to,
             visibility: self.visibility.clone(),
             told_by: self.told_by.clone(),
-            told_in: self.told_in,
+            told_in: self.told_in.clone(),
         }
     }
 }
@@ -151,8 +152,9 @@ pub struct ClassLinkView {
     /// The teller who asserted the relationship, if one is on record — `None` for a link with no
     /// teller behind it (the adjudicated `same_as`) or one predating link provenance.
     pub told_by: Option<Teller>,
-    /// The context memory (room) the link was asserted in, mirroring content entries' `told_in`.
-    pub told_in: Option<MemoryId>,
+    /// The conversation reference (turn or room) the link was asserted in, mirroring content
+    /// entries' `told_in`.
+    pub told_in: Option<ConversationRef>,
     /// The audience posture, governing the read-time `link_visible` predicate.
     pub visibility: Visibility,
 }
@@ -165,7 +167,7 @@ impl ClassLinkView {
             to: self.to,
             visibility: self.visibility.clone(),
             told_by: self.told_by.clone(),
-            told_in: self.told_in,
+            told_in: self.told_in.clone(),
         }
     }
 }
@@ -190,8 +192,9 @@ pub struct NeighborLinkView {
     pub to: MemoryId,
     /// The teller who asserted the relationship, if one is on record.
     pub told_by: Option<Teller>,
-    /// The context memory (room) the link was asserted in, mirroring content entries' `told_in`.
-    pub told_in: Option<MemoryId>,
+    /// The conversation reference (turn or room) the link was asserted in, mirroring content
+    /// entries' `told_in`.
+    pub told_in: Option<ConversationRef>,
     /// The audience posture, governing the read-time `link_visible` predicate.
     pub visibility: Visibility,
 }
@@ -204,7 +207,7 @@ impl NeighborLinkView {
             to: self.to,
             visibility: self.visibility.clone(),
             told_by: self.told_by.clone(),
-            told_in: self.told_in,
+            told_in: self.told_in.clone(),
         }
     }
 }
@@ -217,7 +220,7 @@ pub struct SessionView {
     pub id: SessionId,
     pub conversation: ConversationId,
     pub started_at: Timestamp,
-    pub seeded_from_turn: Option<TurnId>,
+    pub seeded_from_turn: Option<ConversationRef>,
     pub brief: String,
     pub participants: Vec<MemoryId>,
 }

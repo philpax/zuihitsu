@@ -1,5 +1,4 @@
 use serde::Serialize;
-use ulid::Ulid;
 use zuihitsu_core::{
     event::MergeProposalSource,
     graph::{EntryView, LinkView, MemoryView},

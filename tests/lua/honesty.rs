@@ -82,7 +82,10 @@ async fn append_carries_teller_context_and_default_visibility() {
     let entries = engine.graph.lock().entries_local(marcus).unwrap();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0].told_by, Teller::Participant(erin));
-    assert_eq!(entries[0].told_in, Some(context));
+    assert!(matches!(
+        entries[0].told_in,
+        Some(ConversationRef { turn: Some(_), .. })
+    ));
     assert_eq!(entries[0].visibility, Visibility::PrivateToTeller);
     assert_eq!(entries[1].told_by, Teller::Agent);
     assert_eq!(entries[1].visibility, Visibility::Public);

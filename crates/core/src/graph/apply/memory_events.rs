@@ -120,7 +120,12 @@ impl Graph {
                             occurred_authored,
                             text,
                             serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
-                            told_in.map(|memory| memory.0.to_string()),
+                            told_in
+                                .as_ref()
+                                .map(|r| {
+                                    serde_json::to_string(r).map_err(GraphError::Serialize)
+                                })
+                                .transpose()?,
                             serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
                             event.seq.0 as i64,
                         ],

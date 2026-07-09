@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, TurnRole};
+use zuihitsu::{ConversationRef, Event, EventPayload, TurnRole};
 
 use crate::{
     analysis,
@@ -144,7 +144,14 @@ impl Scenario for JoinBriefHoldsTheAside {
         // The join machinery held: the mid-session arrival was recorded, with its injected system
         // join-brief alongside (the two share a turn id, appended as one pair).
         let join_turn = events.iter().find_map(|event| match &event.payload {
-            EventPayload::ParticipantJoined { at_turn, .. } => Some(*at_turn),
+            EventPayload::ParticipantJoined {
+                at_turn:
+                    ConversationRef {
+                        turn: Some(turn_id),
+                        ..
+                    },
+                ..
+            } => Some(*turn_id),
             _ => None,
         });
         let brief_injected = join_turn.is_some_and(|at_turn| {

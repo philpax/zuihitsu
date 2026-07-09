@@ -4,6 +4,7 @@ import type { Replica } from "../lib/replica/replica.ts";
 import { nameById } from "../lib/model/labels.ts";
 import { buildBackgroundEvents, type BackgroundEvent } from "../lib/model/conversation.ts";
 import { EventRow } from "../components/EventRow.tsx";
+import { conversationNameById } from "../components/EventDetail.tsx";
 import { Eyebrow } from "../components/primitives.tsx";
 
 /// The Background view: the background passes' (describer, adjudicator, link-inference, merge)
@@ -24,6 +25,7 @@ export function BackgroundView({
   cursor: number;
 }) {
   const names = nameById(replica.memories(""));
+  const convNames = conversationNameById(replica.conversations());
   const background = buildBackgroundEvents(events, names, cursor);
   const groups = groupByPass(background);
 
@@ -52,6 +54,7 @@ export function BackgroundView({
                     key={event.seq}
                     row={event}
                     nameById={names}
+                    conversationNameById={convNames}
                     triggeredBy={event.triggeredBy}
                   />
                 ))}

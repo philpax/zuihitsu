@@ -8,7 +8,7 @@ use std::{
 use crate::{
     InstanceFeatures,
     agent::{Flush, bounded_buffer_turns, lua::Session, run_flush},
-    event::{EventPayload, Initiation, TurnRole},
+    event::{ConversationRef, EventPayload, Initiation, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, SessionId, TurnId},
     memory::{brief, scheduler},
     metrics::{
@@ -222,7 +222,10 @@ impl Instance {
         // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
         // brief as active threads (spec §Compaction → carryover).
         let carryover = self.sessions.take_carryover(conversation);
-        let seeded_from_turn = carryover.as_ref().map(|carry| carry.seeded_from_turn);
+        let seeded_from_turn = carryover.as_ref().map(|carry| ConversationRef {
+            conversation,
+            turn: Some(carry.seeded_from_turn),
+        });
         let working_set: &[MemoryId] = carryover
             .as_ref()
             .map_or(&[], |carry| carry.working_set.as_slice());

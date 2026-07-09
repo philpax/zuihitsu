@@ -19,8 +19,8 @@ use wasm_bindgen::prelude::*;
 use zuihitsu_core::{
     brief::{BriefRequest, compose_traced},
     event::{Event, EventPayload, MergeProposalSource},
-    graph::{EntryView, Graph, LinkView, MemoryView},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, Namespace, Seq, SessionId, TurnId},
+    graph::Graph,
+    ids::{MemoryId, MemoryName, Namespace, Seq},
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };

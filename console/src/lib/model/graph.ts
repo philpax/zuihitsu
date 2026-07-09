@@ -8,6 +8,7 @@
 
 import type { Cardinality } from "../../types/Cardinality.ts";
 import type { ConversationId } from "../../types/ConversationId.ts";
+import type { ConversationRef } from "../../types/ConversationRef.ts";
 import type { EntryId } from "../../types/EntryId.ts";
 import type { MemoryId } from "../../types/MemoryId.ts";
 import type { MemoryName } from "../../types/MemoryName.ts";
@@ -33,7 +34,7 @@ export interface EntryView {
   occurred_sort: Timestamp | null;
   text: string;
   told_by: Teller;
-  told_in: MemoryId | null;
+  told_in: ConversationRef | null;
   visibility: Visibility;
   superseded_by: EntryId | null;
 }
@@ -43,7 +44,7 @@ export interface LinkView {
   to: MemoryId;
   relation: string;
   told_by: Teller | null;
-  told_in: MemoryId | null;
+  told_in: ConversationRef | null;
   visibility: Visibility;
 }
 

@@ -44,7 +44,10 @@ pub(crate) fn participant_joined(
         conversation,
         session,
         participant,
-        at_turn: TurnId::generate(),
+        at_turn: ConversationRef {
+            conversation,
+            turn: Some(TurnId::generate()),
+        },
     }
 }
 

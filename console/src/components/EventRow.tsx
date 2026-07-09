@@ -26,10 +26,12 @@ export interface EventRowData {
 export function EventRow({
   row,
   nameById,
+  conversationNameById,
   triggeredBy,
 }: {
   row: EventRowData;
   nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
   triggeredBy?: {
     speaker: string | null;
     text: string;
@@ -63,6 +65,7 @@ export function EventRow({
           <EventDetail
             payload={row.payload}
             nameById={nameById}
+            conversationNameById={conversationNameById}
             base={base}
             seq={row.seq}
             recordedAt={row.recordedAt}

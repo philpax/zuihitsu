@@ -4,6 +4,7 @@ import type { MemoryGraph, MemoryGraphLink } from "../../lib/model/memoryGraph.t
 import { statePath } from "../../lib/nav/routes.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { Checkbox } from "../../components/primitives.tsx";
+import { ConversationRefLink } from "../../components/eventDetailParts.tsx";
 import { cardinalityLabel, relationColor } from "./graphUtilities.ts";
 
 /// The relation registry as a table. Each row is a toggle filter; clicking "all" clears the filter.
@@ -100,12 +101,14 @@ export function LinkedPairs({
   cursor,
   navigate,
   nameById,
+  conversationNameById,
 }: {
   graph: MemoryGraph;
   base: string;
   cursor: number;
   navigate: (path: string) => void;
   nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
 }) {
   if (graph.links.length === 0) {
     return <p className="font-mono text-2xs text-ink-faint">no links for these relations</p>;
@@ -124,6 +127,7 @@ export function LinkedPairs({
             cursor={cursor}
             navigate={navigate}
             nameById={nameById}
+            conversationNameById={conversationNameById}
           />
         ))}
       </ul>
@@ -139,12 +143,14 @@ function LinkRow({
   cursor,
   navigate,
   nameById,
+  conversationNameById,
 }: {
   link: MemoryGraphLink;
   base: string;
   cursor: number;
   navigate: (path: string) => void;
   nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetail = link.told_by !== null || link.told_in !== null || isPrivate(link.visibility);
@@ -202,15 +208,12 @@ function LinkRow({
             <div className="flex gap-2">
               <dt>told in</dt>
               <dd>
-                <button
-                  onClick={() =>
-                    navigate(statePath(base, cursor, nameById.get(link.told_in!) ?? link.told_in!))
-                  }
-                  title={`Open ${nameById.get(link.told_in!) ?? link.told_in!} in State`}
-                  className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-                >
-                  {nameById.get(link.told_in!) ?? link.told_in!}
-                </button>
+                <ConversationRefLink
+                  value={link.told_in}
+                  nameById={nameById}
+                  conversationNameById={conversationNameById}
+                  base={base}
+                />
               </dd>
             </div>
           )}

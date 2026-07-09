@@ -15,7 +15,7 @@ import { nameById } from "../lib/model/labels.ts";
 import { formatDateTime, formatTime } from "../lib/format/format.ts";
 import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
-import { EventDetail } from "../components/EventDetail.tsx";
+import { EventDetail, conversationNameById } from "../components/EventDetail.tsx";
 
 const CATEGORIES: EventCategory[] = [
   "memory",
@@ -39,6 +39,7 @@ export function EventsView({
   cursor: number;
 }) {
   const names = nameById(replica.memories(""));
+  const convNames = conversationNameById(replica.conversations());
   const base = useStreamBase();
   const [searchParams, setSearchParams] = useSearchParams();
   // The memory the view is pinned to (the State view's "events touching this" jump), carried in the
@@ -220,6 +221,7 @@ export function EventsView({
                     <EventDetail
                       payload={event.payload}
                       nameById={names}
+                      conversationNameById={convNames}
                       base={base}
                       seq={event.seq}
                       recordedAt={event.recorded_at}

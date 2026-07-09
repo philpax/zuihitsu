@@ -172,7 +172,7 @@ impl Graph {
 }
 
 /// Decode one content-entry row into an [`EntryView`], deserializing the structured `told_by` /
-/// `visibility` and parsing the `told_in` / `superseded_by` ids. A free helper rather than a
+/// `told_in` / `visibility` and parsing the `superseded_by` id. A free helper rather than a
 /// `TryFrom` impl because the entry shape is genuinely shared across the entry, calendar, and
 /// wake-up queries, all of which select these columns by these names.
 pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, GraphError> {
@@ -195,7 +195,7 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
         text: row.get("text")?,
         told_by: serde_json::from_str(&told_by)?,
         told_in: told_in
-            .map(|id| parse_ulid(&id).map(MemoryId))
+            .map(|json| serde_json::from_str(&json))
             .transpose()?,
         visibility: serde_json::from_str(&visibility)?,
         superseded_by: superseded_by

@@ -1,4 +1,4 @@
-import type { MemoryId } from "../../types/MemoryId.ts";
+import type { ConversationRef } from "../../types/ConversationRef.ts";
 import type { Teller } from "../../types/Teller.ts";
 import type { Visibility } from "../../types/Visibility.ts";
 import type { Replica } from "../replica/replica.ts";
@@ -24,8 +24,8 @@ export interface MemoryGraphLink {
   visibility: Visibility;
   /// Who asserted the relationship, if known — `null` for structural links with no teller.
   told_by: Teller | null;
-  /// The context memory (room) the link was asserted in, if any.
-  told_in: MemoryId | null;
+  /// The conversation reference (turn or room) the link was asserted in, if any.
+  told_in: ConversationRef | null;
 }
 
 export interface MemoryGraph {

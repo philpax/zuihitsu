@@ -9,11 +9,20 @@ import { DockContext } from "../lib/nav/dock.ts";
 import { resolveMerge } from "../lib/api/operator.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/state/StateView.tsx";
-import { ConversationView } from "../views/conversation/ConversationView.tsx";
+import {
+  ConversationNames,
+  ConversationView,
+  Names,
+} from "../views/conversation/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
 import { BackgroundView } from "../views/BackgroundView.tsx";
 import { DiffView } from "../views/DiffView.tsx";
+import { nameById } from "../lib/model/labels.ts";
+import { buildConversations } from "../lib/model/conversation.ts";
+import { conversationNameById } from "./EventDetail.tsx";
+import { channelKey } from "../views/conversation/channelUtilities.tsx";
+import { type TurnRefTarget, TurnRefs } from "../lib/view/turnRefs.ts";
 
 // The relations view pulls a force-graph/canvas library, so it loads only when the Relations tab is opened.
 const RelationsView = lazy(() =>
@@ -78,6 +87,28 @@ export function StreamWorkspace({
   extraViews?: ExtraView[];
 }) {
   const cursor = seq ?? head;
+
+  // Shared context maps built once per render, available to all views so `ConversationRefLink`
+  // and `TurnRefChip` work everywhere — not just inside the Conversation view.
+  const names = nameById(replica.memories(""));
+  const convNames = conversationNameById(replica.conversations());
+  const conversations = buildConversations(
+    events.filter((event) => event.seq <= cursor),
+    names,
+  );
+  const refTargets = new Map<string, TurnRefTarget>();
+  for (const conversation of conversations) {
+    const roomKey = channelKey(conversation.platform, conversation.scopePath);
+    conversation.turns.forEach((turn, index) => {
+      refTargets.set(turn.turnId, {
+        turn,
+        roomKey,
+        window: conversation.turns.slice(Math.max(0, index - 2), index + 3),
+        focusIndex: Math.min(index, 2),
+      });
+    });
+  }
+
   // The bottom dock a view can float its controls into (the conversation composer), held as state
   // rather than a ref so the provider re-renders its consumers once the element lands.
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
@@ -134,62 +165,70 @@ export function StreamWorkspace({
       </nav>
 
       <main className="relative flex-1 overflow-x-clip py-4">
-        <DockContext.Provider value={dock}>
-          <AnimatePresence mode="popLayout" custom={direction} initial={false}>
-            <motion.div
-              key={view}
-              custom={direction}
-              initial={{ x: direction * shift, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: direction * -shift, opacity: 0 }}
-              transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
-            >
-              {view === "state" && <StateView replica={replica} events={events} cursor={cursor} />}
-              {view === "relations" && (
-                <Suspense
-                  fallback={
-                    <div className="py-16 text-center text-sm text-ink-faint">
-                      Loading relations…
-                    </div>
-                  }
-                >
-                  <RelationsView
-                    key={cursor}
-                    replica={replica}
-                    cursor={cursor}
-                    merge={
-                      participant && cursor >= head
-                        ? {
-                            resolve: (from, to, accept) =>
-                              resolveMerge(participant.connection, from, to, accept),
+        <Names.Provider value={names}>
+          <ConversationNames.Provider value={convNames}>
+            <TurnRefs.Provider value={refTargets}>
+              <DockContext.Provider value={dock}>
+                <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+                  <motion.div
+                    key={view}
+                    custom={direction}
+                    initial={{ x: direction * shift, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: direction * -shift, opacity: 0 }}
+                    transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+                  >
+                    {view === "state" && (
+                      <StateView replica={replica} events={events} cursor={cursor} />
+                    )}
+                    {view === "relations" && (
+                      <Suspense
+                        fallback={
+                          <div className="py-16 text-center text-sm text-ink-faint">
+                            Loading relations…
+                          </div>
+                        }
+                      >
+                        <RelationsView
+                          key={cursor}
+                          replica={replica}
+                          cursor={cursor}
+                          merge={
+                            participant && cursor >= head
+                              ? {
+                                  resolve: (from, to, accept) =>
+                                    resolveMerge(participant.connection, from, to, accept),
+                                }
+                              : undefined
                           }
-                        : undefined
-                    }
-                  />
-                </Suspense>
-              )}
-              {view === "conversation" && (
-                <ConversationView
-                  replica={replica}
-                  events={events}
-                  cursor={cursor}
-                  participate={participant && { ...participant, atHead: cursor >= head }}
-                />
-              )}
-              {view === "agenda" && (
-                <AgendaView replica={replica} events={events} cursor={cursor} />
-              )}
-              {view === "background" && (
-                <BackgroundView replica={replica} events={events} cursor={cursor} />
-              )}
-              {view === "events" && (
-                <EventsView replica={replica} events={events} cursor={cursor} />
-              )}
-              {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
-              {extra?.node}
-            </motion.div>
-          </AnimatePresence>
-        </DockContext.Provider>
+                        />
+                      </Suspense>
+                    )}
+                    {view === "conversation" && (
+                      <ConversationView
+                        replica={replica}
+                        events={events}
+                        cursor={cursor}
+                        participate={participant && { ...participant, atHead: cursor >= head }}
+                      />
+                    )}
+                    {view === "agenda" && (
+                      <AgendaView replica={replica} events={events} cursor={cursor} />
+                    )}
+                    {view === "background" && (
+                      <BackgroundView replica={replica} events={events} cursor={cursor} />
+                    )}
+                    {view === "events" && (
+                      <EventsView replica={replica} events={events} cursor={cursor} />
+                    )}
+                    {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
+                    {extra?.node}
+                  </motion.div>
+                </AnimatePresence>
+              </DockContext.Provider>
+            </TurnRefs.Provider>
+          </ConversationNames.Provider>
+        </Names.Provider>
       </main>
 
       {/* The sticky bottom chrome: the dock (a view's floating controls) stacked over the global

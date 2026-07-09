@@ -4,23 +4,25 @@ import type { EventPayload } from "../types/EventPayload.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../lib/model/labels.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { Fields, Field, Tree } from "./Tree.tsx";
-import { Mono, Ref } from "./eventDetailParts.tsx";
+import { Mono, Ref, ConversationRefLink } from "./eventDetailParts.tsx";
 import { producedByLabel, temporalRefLabel } from "./eventDetailUtilities.ts";
 import { renderInteractionPayload } from "./renderInteraction.tsx";
 
 /// The shared context the per-payload render functions receive — the event's payload, the name map,
 /// and the `ref`/`refs` closures bound to the stream's base and seq (or `null` outside a routed
-/// stream, where references render as plain names).
+/// stream, where references render as plain names). `conversationNameById` maps conversation ids
+/// to their room display name, so `ConversationRef` links can label the room.
 export interface RenderContext {
   payload: EventPayload;
   nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
   base?: string;
   seq?: number;
 }
 
 /// Render the first half of payload cases: genesis, memory lifecycle, and entry-level events.
 export function renderMemoryPayload(ctx: RenderContext): ReactNode {
-  const { payload, nameById, base, seq } = ctx;
+  const { payload, nameById, conversationNameById, base, seq } = ctx;
   const ref = (id: string) => <Ref id={id} nameById={nameById} base={base} seq={seq} />;
   switch (payload.type) {
     case "GenesisCompleted":
@@ -76,7 +78,17 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
               {visibilityLabel(payload.visibility, nameById)}
             </span>
           </Field>
-          {payload.told_in && <Field label="told in">{ref(payload.told_in)}</Field>}
+          {payload.told_in && (
+            <Field label="told in">
+              <ConversationRefLink
+                value={payload.told_in}
+                nameById={nameById}
+                conversationNameById={conversationNameById}
+                base={base}
+                seq={seq}
+              />
+            </Field>
+          )}
         </Fields>
       );
 

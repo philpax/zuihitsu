@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import type { ConversationRef } from "../types/ConversationRef.ts";
 import {
   completionSummary,
   isPrivate,
@@ -11,17 +12,26 @@ import { formatMs } from "../lib/format/format.ts";
 import { Lua } from "../components/Lua.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 import { Fields, Field, Tree } from "./Tree.tsx";
-import { Mono, Prose, Ref, RefList } from "./eventDetailParts.tsx";
+import { Mono, Prose, Ref, RefList, ConversationRefLink } from "./eventDetailParts.tsx";
 import type { RenderContext } from "./renderPayload.tsx";
 
 /// Render the second half of payload cases: tags, links, config, Lua, model calls, and conversation
 /// events. Returns `undefined` if the payload type does not match any case here (so the caller can
 /// fall through to `renderMemoryPayload` or the default tree).
 export function renderInteractionPayload(ctx: RenderContext): ReactNode {
-  const { payload, nameById, base, seq } = ctx;
+  const { payload, nameById, conversationNameById, base, seq } = ctx;
   const ref = (id: string) => <Ref id={id} nameById={nameById} base={base} seq={seq} />;
   const refs = (ids: string[], empty?: string) => (
     <RefList ids={ids} nameById={nameById} base={base} seq={seq} empty={empty} />
+  );
+  const convRef = (value: ConversationRef) => (
+    <ConversationRefLink
+      value={value}
+      nameById={nameById}
+      conversationNameById={conversationNameById}
+      base={base}
+      seq={seq}
+    />
   );
   switch (payload.type) {
     case "TagCreated":
@@ -84,7 +94,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           {payload.told_by && (
             <Field label="told by">{tellerLabel(payload.told_by, nameById)}</Field>
           )}
-          {payload.told_in && <Field label="told in">{ref(payload.told_in)}</Field>}
+          {payload.told_in && <Field label="told in">{convRef(payload.told_in)}</Field>}
           <Field label="visibility">
             <span className={isPrivate(payload.visibility) ? "text-clay" : undefined}>
               {visibilityLabel(payload.visibility, nameById)}
@@ -210,7 +220,9 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
         <div className="flex flex-col gap-2">
           <Fields>
             <Field label="present">{refs(payload.participants, "no one")}</Field>
-            {payload.seeded_from_turn && <Field label="seeded from">a prior session</Field>}
+            {payload.seeded_from_turn && (
+              <Field label="seeded from">{convRef(payload.seeded_from_turn)}</Field>
+            )}
           </Fields>
           <Prose>{payload.brief}</Prose>
         </div>
@@ -229,6 +241,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
       return (
         <Fields>
           <Field label="participant">{ref(payload.participant)}</Field>
+          <Field label="at turn">{convRef(payload.at_turn)}</Field>
         </Fields>
       );
 

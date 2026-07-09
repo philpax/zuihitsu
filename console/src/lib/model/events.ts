@@ -103,7 +103,7 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "MemoryVolatilitySet":
       return payload.id === memoryId;
     case "MemoryContentAppended":
-      return payload.id === memoryId || payload.told_in === memoryId;
+      return payload.id === memoryId;
     case "ScheduledJobFired":
     case "ScheduledItemSurfaced":
     case "BeliefArbitrated":

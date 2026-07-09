@@ -110,11 +110,11 @@ fn visible_recent_facts(
         let mut markers = Vec::new();
         if entry.visibility != Visibility::Public {
             let teller = graph.teller_display(&entry.told_by)?;
-            let room = graph.marker_room(entry.told_in)?;
-            if let Some(marker) =
-                visibility::entry_marker(&entry.visibility, &teller, room.as_ref())
+            let marker = graph.marker_ref(entry.told_in.as_ref())?;
+            if let Some(marker_text) =
+                visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
             {
-                markers.push(marker);
+                markers.push(marker_text);
             }
         }
         let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
@@ -158,8 +158,8 @@ fn relationships(
                         .as_ref()
                         .unwrap_or(&crate::event::Teller::Agent),
                 )?;
-                let room = graph.marker_room(link.told_in)?;
-                visibility::link_marker(&link.visibility, &teller, room.as_ref())
+                let marker = graph.marker_ref(link.told_in.as_ref())?;
+                visibility::link_marker(&link.visibility, &teller, Some(&marker))
             } else {
                 None
             };

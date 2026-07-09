@@ -2,6 +2,21 @@ import type { EventPayload } from "../types/EventPayload.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { type RenderContext, renderPayload } from "./renderPayload.tsx";
 
+/// Build a `conversationId → contextMemoryName` map from conversations, so `ConversationRef`
+/// links can resolve the room name. The context memory name is what `nameById` holds for it
+/// (e.g. `context/discord:book-club`), so the caller can then resolve it to a display name.
+export function conversationNameById(
+  conversations: { id: string; context_name: string | null }[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const conv of conversations) {
+    if (conv.context_name) {
+      map.set(conv.id, conv.context_name);
+    }
+  }
+  return map;
+}
+
 /// The expanded view of a single event, rendered for its kind. Every payload gets a bespoke,
 /// label-and-value layout — a Lua block highlighted, a model call's reasoning and token usage, an
 /// entry's teller and visibility — and the handful with no dedicated case fall to a readable field
@@ -16,17 +31,19 @@ import { type RenderContext, renderPayload } from "./renderPayload.tsx";
 export function EventDetail({
   payload,
   nameById,
+  conversationNameById,
   base,
   seq,
   recordedAt,
 }: {
   payload: EventPayload;
   nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
   base?: string;
   seq?: number;
   recordedAt?: number;
 }) {
-  const ctx: RenderContext = { payload, nameById, base, seq };
+  const ctx: RenderContext = { payload, nameById, conversationNameById, base, seq };
   return (
     <div className="flex flex-col gap-2">
       {renderPayload(ctx)}

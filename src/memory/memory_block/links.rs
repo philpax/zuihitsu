@@ -279,7 +279,7 @@ impl MemoryBlock {
             )?;
             // The link carries the turn's context as its told_in, mirroring content entries — so a
             // teller-private marker can name the room it was said in.
-            let told_in = self.told_in;
+            let told_in = self.told_in.clone();
             (vis, told_in)
         } else {
             (Visibility::Public, None)

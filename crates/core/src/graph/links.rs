@@ -80,7 +80,7 @@ impl Graph {
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 told_in: told_in
-                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 visibility: serde_json::from_str(&visibility)?,
             })
@@ -129,7 +129,7 @@ impl Graph {
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 told_in: told_in
-                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 visibility: serde_json::from_str(&visibility)?,
             })
@@ -188,7 +188,7 @@ impl Graph {
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 told_in: told_in
-                    .map(|id| parse_ulid(&id).map(MemoryId))
+                    .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 visibility: serde_json::from_str(&visibility)?,
             })

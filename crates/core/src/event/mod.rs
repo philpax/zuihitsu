@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 use crate::{
-    ids::{EntryId, MemoryId, Seq},
+    ids::{ConversationId, EntryId, MemoryId, Seq, TurnId},
     model::{Message, ToolChoice, ToolSpec},
     time::Timestamp,
 };
@@ -394,6 +394,21 @@ pub enum Teller {
     Agent,
     /// Genesis-seeded content, before any real teller exists.
     Bootstrap,
+}
+
+/// A reference to a location in a conversation — either a specific turn or the
+/// conversation (room) itself. Used for attribution (`told_in`), session carryover
+/// (`seeded_from_turn`), and participant joins (`at_turn`), so the frontend can uniformly
+/// render every conversation reference as a cross-linkable chip. Carrying the
+/// `ConversationId` lets the frontend navigate to the right room without searching.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ConversationRef {
+    /// The conversation the reference belongs to.
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub conversation: ConversationId,
+    /// The specific turn, or `None` for the room itself.
+    pub turn: Option<TurnId>,
 }
 
 /// How widely a content entry may be surfaced (spec §Visibility). The read-time predicate

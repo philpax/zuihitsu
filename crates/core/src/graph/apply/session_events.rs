@@ -60,7 +60,12 @@ impl Graph {
                             id.0.to_string(),
                             conversation.0.to_string(),
                             started_at.as_millis(),
-                            seeded_from_turn.map(|turn| turn.0.to_string()),
+                            seeded_from_turn
+                                .as_ref()
+                                .map(|r| {
+                                    serde_json::to_string(r).map_err(GraphError::Serialize)
+                                })
+                                .transpose()?,
                             brief,
                             event.seq.0 as i64,
                         ],
@@ -98,7 +103,7 @@ impl Graph {
                         params![
                             session.0.to_string(),
                             participant.0.to_string(),
-                            at_turn.0.to_string(),
+                            serde_json::to_string(at_turn).map_err(GraphError::Serialize)?,
                         ],
                     )
                     .map_err(backend)?;

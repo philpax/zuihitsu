@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::{
-    MarkerRoom, default_link_visibility, default_visibility, link_explain, link_marker,
+    MarkerRoom, MarkerTurn, default_link_visibility, default_visibility, link_explain, link_marker,
     link_visible, room_display, teller_private_marker, visible,
 };
 use crate::{
@@ -53,18 +53,24 @@ fn teller_private_marker_carries_room_and_confidentiality() {
         "[teller-private, told by Erin]"
     );
     // A known but non-confidential room names the room.
-    let general = MarkerRoom {
-        name: room_display("context/general"),
-        confidential: false,
+    let general = MarkerTurn {
+        turn_id: None,
+        room: Some(MarkerRoom {
+            name: room_display("context/general"),
+            confidential: false,
+        }),
     };
     assert_eq!(
         teller_private_marker("Erin", Some(&general)),
         "[teller-private, told by Erin in #general]"
     );
     // A #confidential room says so — the cross-context signal the agent reasons over (scenario 13).
-    let leads = MarkerRoom {
-        name: room_display("context/leads"),
-        confidential: true,
+    let leads = MarkerTurn {
+        turn_id: None,
+        room: Some(MarkerRoom {
+            name: room_display("context/leads"),
+            confidential: true,
+        }),
     };
     assert_eq!(
         teller_private_marker("Erin", Some(&leads)),
@@ -90,9 +96,12 @@ fn attributed_is_visible_regardless_of_who_is_present() {
 #[test]
 fn entry_marker_picks_the_register_by_posture() {
     use super::entry_marker;
-    let general = MarkerRoom {
-        name: room_display("context/general"),
-        confidential: false,
+    let general = MarkerTurn {
+        turn_id: None,
+        room: Some(MarkerRoom {
+            name: room_display("context/general"),
+            confidential: false,
+        }),
     };
     // Public carries no marker; attributed the lighter provenance register; a confidence the
     // teller-private register.
@@ -457,9 +466,12 @@ fn link_subject_guard_is_class_aware() {
 
 #[test]
 fn link_marker_picks_the_register_by_posture() {
-    let general = MarkerRoom {
-        name: room_display("context/general"),
-        confidential: false,
+    let general = MarkerTurn {
+        turn_id: None,
+        room: Some(MarkerRoom {
+            name: room_display("context/general"),
+            confidential: false,
+        }),
     };
     // Public carries no marker; attributed the lighter provenance register; a confidence the
     // teller-private register.

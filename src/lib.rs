@@ -42,9 +42,10 @@ pub use config::{
     ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, ResilienceConfig, SnapshotConfig,
 };
 pub use event::{
-    Cardinality, Event, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
-    Initiation, LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
-    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    Cardinality, ConversationRef, Event, EventPayload, EventSource, InferredLinkSpec,
+    InferredRelationSpec, Initiation, LinkInferenceResult, LinkSource, MergeProposalSource,
+    ModelPhase, ProducedBy, PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole,
+    Visibility, Volatility,
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,

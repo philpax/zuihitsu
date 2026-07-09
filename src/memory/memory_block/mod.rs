@@ -15,9 +15,11 @@ use serde::Deserialize;
 
 use crate::{
     engine::Engine,
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
+    event::{
+        Cardinality, ConversationRef, EventPayload, LinkSource, Teller, Visibility, Volatility,
+    },
     graph::GraphError,
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, NamespacedMemoryName},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, NamespacedMemoryName, TurnId},
     time::TemporalRef,
     vocabulary::{RelationName, TagName},
 };
@@ -63,8 +65,14 @@ pub struct MemoryBlock {
     /// with a cheap id compare. `None` before the first imprint mints it (or in a non-operator
     /// instance). Content belongs on the operator's real profile, not this provisional anchor.
     operator_id: Option<MemoryId>,
-    /// The current conversation's [`Namespace::Context`] memory (where content is told in), if any.
-    told_in: Option<MemoryId>,
+    /// The current conversation's [`Namespace::Context`] memory (the room content is told in), if
+    /// any. Resolved independently of `told_in` (which carries the turn for attribution), so
+    /// `current_context` can still return the room for the agent to append to.
+    context_memory: Option<MemoryId>,
+    /// The current conversation's location reference — a turn or a room (context memory) — where
+    /// content is told in. Constructed from `turn_id` (when a turn is in context) and the
+    /// conversation's context memory.
+    told_in: Option<ConversationRef>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
     confidential_context: bool,
     /// Who is present in the conversation — the set `memory.search` filters its hits against (spec
@@ -274,28 +282,42 @@ const DEFAULT_OVERDUE_DAYS: i64 = 14;
 
 impl MemoryBlock {
     /// Open a block for `conversation`: resolve the context it writes in and whether that room is
-    /// `#confidential`. Fails only on a graph read error (infrastructure), never on agent input.
+    /// `#confidential`. `turn_id` is the current turn (for attribution), or `None` for the operator
+    /// console or genesis paths that have no turn. Fails only on a graph read error (infrastructure),
+    /// never on agent input.
     pub fn new(
         engine: Arc<Engine>,
         teller: Teller,
         authority: Authority,
         conversation: ConversationId,
+        turn_id: Option<TurnId>,
         present_set: Vec<MemoryId>,
     ) -> Result<MemoryBlock, GraphError> {
-        let (told_in, confidential_context, self_id, operator_id) = {
+        let (told_in, context_memory, confidential_context, self_id, operator_id) = {
             let graph = engine.graph.lock();
-            let told_in = graph.context_for_conversation(conversation)?;
-            let confidential_context = match told_in {
+            let context_memory = graph.context_for_conversation(conversation)?;
+            let confidential_context = match context_memory {
                 Some(context_id) => graph
                     .memory_by_id(context_id)?
                     .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
                 None => false,
             };
+            // The conversation reference carries the conversation id and the turn (when available).
+            let told_in = Some(ConversationRef {
+                conversation,
+                turn: turn_id,
+            });
             let self_id = graph.self_memory()?.map(|memory| memory.id);
             let operator_id = graph
                 .memory_by_name(NamespacedMemoryName::operator())?
                 .map(|memory| memory.id);
-            (told_in, confidential_context, self_id, operator_id)
+            (
+                told_in,
+                context_memory,
+                confidential_context,
+                self_id,
+                operator_id,
+            )
         };
         Ok(MemoryBlock {
             engine,
@@ -303,6 +325,7 @@ impl MemoryBlock {
             authority,
             self_id,
             operator_id,
+            context_memory,
             told_in,
             confidential_context,
             present_set,

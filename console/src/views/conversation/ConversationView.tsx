@@ -7,6 +7,7 @@ import { nameById } from "../../lib/model/labels.ts";
 import type { LiveConnection } from "../../lib/api/live.ts";
 import type { ConversationLocator } from "../../types/ConversationLocator.ts";
 import { buildConversations } from "../../lib/model/conversation.ts";
+import { conversationNameById } from "../../components/EventDetail.tsx";
 import {
   type ModelInteraction,
   buildInteractions,
@@ -51,6 +52,10 @@ export const ModelCalls = createContext<{ bySeq: Map<number, ModelInteraction>; 
 /// resolves memory and participant ids) without drilling the map through the transcript.
 export const Names = createContext<Map<string, string>>(new Map());
 
+/// The conversation id → context memory name map at the cursor, so `ConversationRef` links in
+/// event detail panels can resolve the room name without a separate prop chain.
+export const ConversationNames = createContext<Map<string, string>>(new Map());
+
 /// The Conversation view: every room the agent speaks in, browsed from a sidebar, with each
 /// session's frozen brief and the full transcript — every agent turn openable to the reasoning and
 /// Lua behind it, and to the prompt each model call actually saw ("what was the agent thinking,"
@@ -70,6 +75,7 @@ export function ConversationView({
   participate?: Participation;
 }) {
   const names = nameById(replica.memories(""));
+  const convNames = conversationNameById(replica.conversations());
   // The bare handles a user can type in the "you are" field, sourced from `participant_identities`
   // so the `@platform` disambiguation suffix never surfaces as a separate entry.
   const personHandles = replica.participantIds(DIRECT_PLATFORM);
@@ -169,90 +175,94 @@ export function ConversationView({
   return (
     <ModelCalls.Provider value={modelCalls}>
       <Names.Provider value={names}>
-        <TurnRefs.Provider value={refTargets}>
-          {/* The transcript-and-rooms grid — the room list sits to the right, so the horizontal read
+        <ConversationNames.Provider value={convNames}>
+          <TurnRefs.Provider value={refTargets}>
+            {/* The transcript-and-rooms grid — the room list sits to the right, so the horizontal read
             is content first, navigation second (and the eval frame's scenario rail keeps the left
             edge to itself). The docked composer below mirrors it, so keep the two template strings
             in step. On mobile the DOM order stands (dropdown above the transcript); md moves the
             list to the second column via order. */}
-          <div className="grid grid-cols-1 gap-1 md:grid-cols-[1fr_12rem] md:gap-8">
-            <div className="md:sticky md:top-4 md:order-last md:self-start">
-              <aside className="hidden flex-col gap-4 md:flex">
-                {participate && (
-                  <RoomControls
-                    sender={participate.sender}
-                    onSenderChange={participate.setSender}
-                    draftRoom={draftRoom}
-                    onDraftRoomChange={setDraftRoom}
-                    onCreateRoom={startRoom}
-                    personHandles={personHandles}
-                  />
-                )}
+            <div className="grid grid-cols-1 gap-1 md:grid-cols-[1fr_12rem] md:gap-8">
+              <div className="md:sticky md:top-4 md:order-last md:self-start">
+                <aside className="hidden flex-col gap-4 md:flex">
+                  {participate && (
+                    <RoomControls
+                      sender={participate.sender}
+                      onSenderChange={participate.setSender}
+                      draftRoom={draftRoom}
+                      onDraftRoomChange={setDraftRoom}
+                      onCreateRoom={startRoom}
+                      personHandles={personHandles}
+                    />
+                  )}
 
-                {groups.length === 0 ? (
-                  <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    {groups.map((group) => (
-                      <div key={group.key} className="flex flex-col gap-1.5">
-                        <Eyebrow>{group.key}</Eyebrow>
-                        <nav className="flex flex-col gap-0.5">
-                          {group.channels.map((channel) => (
-                            <ChannelLink
-                              key={channel.key}
-                              channel={channel}
-                              active={channel.key === selected?.key}
-                              onSelect={() => selectRoom(channel.key)}
-                            />
-                          ))}
-                        </nav>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </aside>
+                  {groups.length === 0 ? (
+                    <p className="font-mono text-2xs text-ink-faint">no conversations yet</p>
+                  ) : (
+                    <div className="flex flex-col gap-4">
+                      {groups.map((group) => (
+                        <div key={group.key} className="flex flex-col gap-1.5">
+                          <Eyebrow>{group.key}</Eyebrow>
+                          <nav className="flex flex-col gap-0.5">
+                            {group.channels.map((channel) => (
+                              <ChannelLink
+                                key={channel.key}
+                                channel={channel}
+                                active={channel.key === selected?.key}
+                                onSelect={() => selectRoom(channel.key)}
+                              />
+                            ))}
+                          </nav>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </aside>
 
-              {/* On mobile the list collapses to a dropdown and the identity-and-new-room controls
+                {/* On mobile the list collapses to a dropdown and the identity-and-new-room controls
                 fold behind a disclosure, so the transcript owns the screen. */}
-              <div className="flex flex-col gap-3 md:hidden">
-                <ChannelSelect
-                  groups={groups}
-                  selectedKey={selected?.key ?? null}
-                  onSelect={selectRoom}
-                />
-                {participate && (
-                  <MobileRoomControls
-                    sender={participate.sender}
-                    onSenderChange={participate.setSender}
-                    draftRoom={draftRoom}
-                    onDraftRoomChange={setDraftRoom}
-                    onCreateRoom={startRoom}
-                    personHandles={personHandles}
+                <div className="flex flex-col gap-3 md:hidden">
+                  <ChannelSelect
+                    groups={groups}
+                    selectedKey={selected?.key ?? null}
+                    onSelect={selectRoom}
                   />
-                )}
+                  {participate && (
+                    <MobileRoomControls
+                      sender={participate.sender}
+                      onSenderChange={participate.setSender}
+                      draftRoom={draftRoom}
+                      onDraftRoomChange={setDraftRoom}
+                      onCreateRoom={startRoom}
+                      personHandles={personHandles}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
 
-            {selected ? (
-              // Keyed by room, so per-room composer state (the in-flight optimistic turn) resets on a
-              // channel switch rather than leaking the last room's pending message into the next.
-              <Room
-                key={selected.key}
-                replica={replica}
-                cursor={cursor}
-                channel={selected}
-                participate={participate}
-                unknownTurn={linkedTurnId !== null && linkedChannel === null ? linkedTurnId : null}
-              />
-            ) : (
-              <div className="py-16 text-center text-sm text-ink-faint">
-                {participate
-                  ? "Name a conversation to start one."
-                  : "No conversations in this run."}
-              </div>
-            )}
-          </div>
-        </TurnRefs.Provider>
+              {selected ? (
+                // Keyed by room, so per-room composer state (the in-flight optimistic turn) resets on a
+                // channel switch rather than leaking the last room's pending message into the next.
+                <Room
+                  key={selected.key}
+                  replica={replica}
+                  cursor={cursor}
+                  channel={selected}
+                  participate={participate}
+                  unknownTurn={
+                    linkedTurnId !== null && linkedChannel === null ? linkedTurnId : null
+                  }
+                />
+              ) : (
+                <div className="py-16 text-center text-sm text-ink-faint">
+                  {participate
+                    ? "Name a conversation to start one."
+                    : "No conversations in this run."}
+                </div>
+              )}
+            </div>
+          </TurnRefs.Provider>
+        </ConversationNames.Provider>
       </Names.Provider>
     </ModelCalls.Provider>
   );
