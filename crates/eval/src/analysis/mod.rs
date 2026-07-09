@@ -96,6 +96,23 @@ pub fn turn_committed_write(events: &[Event], turn_id: TurnId) -> bool {
     })
 }
 
+/// Every Lua block the agent executed within the turn with `turn_id`, in order — the scope for an
+/// oracle that assesses one exchange's deliberation (how hard the agent looked for one answer) without
+/// charging it for the legitimate work of unrelated turns.
+pub fn lua_scripts_for_turn(events: &[Event], turn_id: TurnId) -> Vec<&str> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::LuaExecuted {
+                turn_id: id,
+                script,
+                ..
+            } if *id == turn_id => Some(script.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Every Lua block the agent executed, in order.
 pub fn lua_scripts(events: &[Event]) -> Vec<&str> {
     events

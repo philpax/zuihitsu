@@ -155,12 +155,19 @@ impl Scenario for AdmitsAbsence {
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
-        // Bounded deliberation: how many times the agent embedded a search across the whole run. A
-        // handful is fine (read the person, maybe a search or two); a pile is the flailing this guards.
-        let searches: usize = analysis::lua_scripts(events)
-            .iter()
-            .map(|script| script.matches("memory.search").count())
-            .sum();
+        // Bounded deliberation: how many times the agent embedded a search while answering the absence
+        // question — the final exchange's turn, not the whole run, so an earlier turn's legitimate
+        // recall does not erode the budget. A handful is fine (read the person, maybe a search or
+        // two); a pile is the flailing this guards.
+        let searches: usize = analysis::agent_replies_with_inbound(events)
+            .last()
+            .map(|(turn_id, _, _)| {
+                analysis::lua_scripts_for_turn(events, *turn_id)
+                    .iter()
+                    .map(|script| script.matches("memory.search").count())
+                    .sum()
+            })
+            .unwrap_or(0);
         let bounded = searches <= MAX_ABSENCE_SEARCHES;
         let judged = judge
             .assess(
@@ -191,6 +198,7 @@ impl Scenario for AdmitsAbsence {
     }
 }
 
-/// The most `memory.search` calls a bounded absence look-up should take: reading the person and a
-/// search or two is fine; past this it is the re-searching-an-absent-answer failure mode.
+/// The most `memory.search` calls a bounded absence look-up should take, counted within the answering
+/// turn alone: reading the person and a search or two is fine; past this it is the
+/// re-searching-an-absent-answer failure mode.
 const MAX_ABSENCE_SEARCHES: usize = 3;
