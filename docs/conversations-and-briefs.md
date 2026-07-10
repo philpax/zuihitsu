@@ -145,7 +145,7 @@ On a join: emit `ParticipantJoined`, build only *that* participant's brief (filt
 
 ### Size budget
 
-Each memory body is bounded on two axes: its facts by the `recent_facts` count (default 8) and its relationships by the `key_relationships` count (default 8), the latter ranked before it is capped (see [Per-participant body shape](#per-participant-body-shape)). There is no per-block token truncation (`brief.token_budget`, default 2000, is advisory and unenforced). The expensive synthesis happens at description-regeneration time, not here.
+Each memory body is bounded on two axes: its facts by the `recent_facts` count (default 8) and its relationships by the `key_relationships` count (default 8), the latter ranked before it is capped (see [Per-participant body shape](#per-participant-body-shape)). The whole brief is then bounded by a character budget, `brief.char_budget` (default 8000), which the composer packs by priority: the **self** and **current-room** blocks always render — a budget can neither erase who the agent is nor where it stands — then the ranked present-participant blocks are admitted while the budget affords them, each dropping to its name-only line once it cannot, then active threads, then upcoming. Packing is by whole block: a fact is never truncated mid-text, because the within-block flood vectors are already bounded by `recent_facts` and `key_relationships`, so block inclusion is what the budget governs. A name-only line still renders for every present participant, since presence drives the visibility predicate regardless of the budget (see [the cap invariant](#invariant-the-cap-never-narrows-the-present-set-for-visibility)). The expensive synthesis happens at description-regeneration time, not here.
 
 ### Present-set cap
 

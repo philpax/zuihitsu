@@ -780,6 +780,91 @@ fn the_relationships_cap_keeps_the_highest_ranked_edges() {
 }
 
 #[test]
+fn the_char_budget_collapses_lower_ranked_participants_to_name_only() {
+    // Two present participants each carry a full block. With the budget set to exactly the present
+    // header plus the top-ranked participant's block, the recency winner keeps its full block and the
+    // other collapses to a name-only line — the participant-axis flood is packed, not truncated.
+    let fresh = MemoryId::generate();
+    let stale = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(fresh, "person/fresh"),
+        created(stale, "person/stale"),
+        appended(
+            fresh,
+            5_000,
+            "fresh has news to share",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        appended(
+            stale,
+            1_000,
+            "stale has quiet news",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+    let present_set = [fresh, stale];
+
+    // Measure the top-ranked block against a generous budget, then set the budget to admit only it.
+    let mut generous = Settings::default().brief;
+    generous.char_budget = i64::MAX;
+    let fresh_block = brief::compose_participant(
+        &graph,
+        fresh,
+        &present_set,
+        &generous,
+        Timestamp::from_millis(0),
+    )
+    .unwrap();
+    let budget = "# Present\n".chars().count() + fresh_block.chars().count();
+
+    let mut settings = Settings::default().brief;
+    settings.char_budget = budget as i64;
+    let out = compose_at_epoch(&graph, &settings, &present_set, None, &[]);
+
+    assert!(out.contains("fresh has news to share")); // the recency winner keeps its full block
+    assert!(out.contains("- person/stale (present)")); // the other collapses to name-only
+    assert!(!out.contains("stale has quiet news")); // ...and its facts do not surface
+}
+
+#[test]
+fn a_zero_char_budget_still_renders_the_mandatory_self_block() {
+    // With the budget at zero, the self block — who the agent is — must still render in full; only the
+    // optional participant blocks collapse. A budget can bound the brief, never erase the agent's own
+    // memory.
+    let agent = MemoryId::generate();
+    let other = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(agent, "self"),
+        created(other, "person/other"),
+        appended(
+            agent,
+            1_000,
+            "the agent's own charter fact",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        appended(
+            other,
+            1_000,
+            "the other's fact",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+
+    let mut settings = Settings::default().brief;
+    settings.char_budget = 0;
+    let out = compose_at_epoch(&graph, &settings, &[other], None, &[]);
+
+    assert!(out.contains("# You"));
+    assert!(out.contains("the agent's own charter fact")); // self is mandatory, renders in full
+    assert!(out.contains("- person/other (present)")); // the participant collapses to name-only
+    assert!(!out.contains("the other's fact")); // ...and its facts do not surface
+}
+
+#[test]
 fn a_brief_relationship_without_latest_deserializes() {
     // An old log's `BriefRelationship` predates the `latest` spoke field. `serde(default)` must fill
     // `None` so the historical relationship deserializes unchanged.
