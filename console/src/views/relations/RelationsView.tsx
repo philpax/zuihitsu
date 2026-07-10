@@ -29,10 +29,12 @@ import {
   relationColor,
 } from "./graphUtilities.ts";
 
-/// The operator's merge-decision hook, supplied only by the live agent frame when the cursor is at the
-/// head — resolving a proposal authors an operator event, which the read-only eval viewer cannot do.
+/// The operator's merge-decision hooks, supplied only by the live agent frame when the cursor is at the
+/// head — each authors an operator event, which the read-only eval viewer cannot do. `resolve` decides
+/// a pending proposal; `unmerge` retracts a merge that was already made, splitting the class back apart.
 export interface MergeControls {
   resolve: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
+  unmerge: (from: MemoryId, to: MemoryId) => Promise<void>;
 }
 
 /// The Relations view: the relation registry as a filterable table at the top, the force-directed
@@ -185,6 +187,7 @@ export function RelationsView({
         base={base}
         cursor={cursor}
         onResolve={merge?.resolve}
+        onUnmerge={merge?.unmerge}
       />
 
       {raw.nodes.length === 0 ? (

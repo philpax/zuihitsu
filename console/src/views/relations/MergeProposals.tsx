@@ -8,8 +8,10 @@ import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 /// The operator's merge-decision surface: every cross-platform merge proposal the folded log holds,
 /// each with the proposer's stated grounds, its two stubs (linked into State), and where it now stands
 /// — pending, merged, or rejected. When `onResolve` is supplied (the live agent frame at the head),
-/// a still-pending proposal carries approve/decline buttons that author the operator's call; in the
-/// read-only eval viewer, or scrubbed back in time, the proposals render as a record without actions.
+/// a still-pending proposal carries approve/decline buttons that author the operator's call; a merged
+/// one carries an unmerge affordance (`onUnmerge`) that retracts the `same_as` — the undo of a wrong
+/// merge, splitting the two identities back apart. In the read-only eval viewer, or scrubbed back in
+/// time, the proposals render as a record without actions.
 ///
 /// Derived from the log rather than fetched, so the eval viewer and the live console show the same
 /// picture, and a resolution folds back through the same materializer that produced the list.
@@ -18,15 +20,19 @@ export function MergeProposals({
   base,
   cursor,
   onResolve,
+  onUnmerge,
 }: {
   proposals: MergeProposalView[];
   base: string;
   cursor: number;
   onResolve?: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
+  onUnmerge?: (from: MemoryId, to: MemoryId) => Promise<void>;
 }) {
   // The pair currently being resolved (keyed by its two ids), and the last failure, so the buttons
-  // disable in flight and a rejected request surfaces its reason.
+  // disable in flight and a rejected request surfaces its reason. `confirming` holds the pair whose
+  // unmerge is awaiting the second, deliberate click — retracting a merge is destructive.
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (proposals.length === 0) return null;
@@ -45,6 +51,21 @@ export function MergeProposals({
     }
   }
 
+  async function unmerge(proposal: MergeProposalView) {
+    if (!onUnmerge) return;
+    const key = `${proposal.from_id}:${proposal.to_id}`;
+    setBusy(key);
+    setConfirming(null);
+    setError(null);
+    try {
+      await onUnmerge(proposal.from_id, proposal.to_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="flex flex-col gap-2">
       <Eyebrow>{`identity merges · ${proposals.length}`}</Eyebrow>
@@ -52,6 +73,7 @@ export function MergeProposals({
         {proposals.map((proposal) => {
           const key = `${proposal.from_id}:${proposal.to_id}`;
           const pending = proposal.status === "pending";
+          const merged = proposal.status === "merged";
           return (
             <li key={key} className="flex flex-col gap-1.5 py-3">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -81,6 +103,28 @@ export function MergeProposals({
                   {busy === key && <Hint>working…</Hint>}
                 </div>
               )}
+
+              {merged &&
+                onUnmerge &&
+                (confirming === key ? (
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <Hint tone="error">retract this merge? the two identities split apart.</Hint>
+                    <Button disabled={busy !== null} onClick={() => unmerge(proposal)}>
+                      unmerge
+                    </Button>
+                    <Button disabled={busy !== null} onClick={() => setConfirming(null)}>
+                      cancel
+                    </Button>
+                    {busy === key && <Hint>working…</Hint>}
+                  </div>
+                ) : (
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <Button disabled={busy !== null} onClick={() => setConfirming(key)}>
+                      unmerge
+                    </Button>
+                    {busy === key && <Hint>working…</Hint>}
+                  </div>
+                ))}
             </li>
           );
         })}
