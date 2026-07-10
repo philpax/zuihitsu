@@ -65,6 +65,11 @@ pub(super) fn render_prompt(
             candidate.description
         ));
     }
-    prompt.push_str("\nIdentify relationships in the statements that link this memory to one of the candidates.\n");
+    prompt.push_str(
+        "\nIdentify relationships in the statements that link this memory to one of the \
+         candidates. Write each link as a sentence — subject, relation, object: \"A mentors B\" \
+         means A is the mentor, so subject A, relation mentors, object B. One of subject and \
+         object must be this memory's handle; the other must be a candidate's handle.\n",
+    );
     prompt
 }

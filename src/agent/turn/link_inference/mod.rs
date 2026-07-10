@@ -196,11 +196,21 @@ async fn infer_links(
                 links: result
                     .links
                     .iter()
-                    .map(|link| InferredLinkSpec {
-                        entry: link.entry,
-                        relation: link.relation.clone(),
-                        target: link.target.clone(),
-                        direction: link.direction.clone(),
+                    .map(|link| {
+                        // The record keeps its target/direction wire shape; both derive from the
+                        // sentence. A sentence that does not name this memory as its subject reads
+                        // as "from" (target → subject), matching the consumption below.
+                        let subject_is_memory = link.subject == context.memory.name.as_str();
+                        InferredLinkSpec {
+                            entry: link.entry,
+                            relation: link.relation.clone(),
+                            target: if subject_is_memory {
+                                link.object.clone()
+                            } else {
+                                link.subject.clone()
+                            },
+                            direction: if subject_is_memory { "to" } else { "from" }.to_owned(),
+                        }
                     })
                     .collect(),
             },
@@ -282,25 +292,35 @@ async fn infer_links(
                 );
                 continue;
             };
-            let Some(target_memory) = graph.memory_by_name(MemoryName::new(&link.target))? else {
+            // The sentence "subject relation object" carries the direction: exactly one endpoint
+            // must be the memory under inference, and the other names the linked memory. A sentence
+            // that names this memory on neither or both ends is unusable.
+            let memory_name = context.memory.name.as_str();
+            let target_label = match (link.subject == memory_name, link.object == memory_name) {
+                (true, false) => &link.object,
+                (false, true) => &link.subject,
+                _ => {
+                    tracing::debug!(
+                        memory = %memory_name,
+                        subject = %link.subject,
+                        object = %link.object,
+                        "dropping a link whose sentence does not have this memory on exactly one end"
+                    );
+                    continue;
+                }
+            };
+            let Some(target_memory) = graph.memory_by_name(MemoryName::new(target_label))? else {
                 tracing::debug!(
-                    memory = %context.memory.name.as_str(),
-                    target = %link.target,
+                    memory = %memory_name,
+                    target = %target_label,
                     "dropping a link whose target does not resolve to a live memory"
                 );
                 continue;
             };
-            let (from, to) = match link.direction.as_str() {
-                "to" => (id, target_memory.id),
-                "from" => (target_memory.id, id),
-                other => {
-                    tracing::debug!(
-                        memory = %context.memory.name.as_str(),
-                        direction = %other,
-                        "dropping a link with an unrecognized direction"
-                    );
-                    continue;
-                }
+            let (from, to) = if link.subject == memory_name {
+                (id, target_memory.id)
+            } else {
+                (target_memory.id, id)
             };
             let (from, to) = if via_inverse { (to, from) } else { (from, to) };
             if context.existing_links.iter().any(|existing| {

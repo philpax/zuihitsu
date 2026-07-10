@@ -13,9 +13,9 @@ fn a_well_formed_reply_parses_into_relations_and_links() {
         }],
         "links": [{
             "entry": 1,
+            "subject": "topic/novel",
             "relation": "authored_by",
-            "target": "person/clara",
-            "direction": "to"
+            "object": "person/clara"
         }]
     });
     let args = link_inference_argument(&reply).expect("a well-formed reply parses");
@@ -23,8 +23,8 @@ fn a_well_formed_reply_parses_into_relations_and_links() {
     assert_eq!(args.new_relations[0].name, "authored_by");
     assert_eq!(args.new_relations[0].inverse, "authored");
     assert_eq!(args.links.len(), 1);
-    assert_eq!(args.links[0].target, "person/clara");
-    assert_eq!(args.links[0].direction, "to");
+    assert_eq!(args.links[0].subject, "topic/novel");
+    assert_eq!(args.links[0].object, "person/clara");
 }
 
 #[test]
@@ -33,9 +33,9 @@ fn a_malformed_new_relation_is_skipped_while_links_survive() {
         "new_relations": [{ "name": "authored_by" }],
         "links": [{
             "entry": 1,
+            "subject": "person/dave",
             "relation": "knows",
-            "target": "person/clara",
-            "direction": "to"
+            "object": "person/clara"
         }]
     });
     let args = link_inference_argument(&reply).expect("the links are salvaged");

@@ -50,9 +50,9 @@ async fn link_inference_registers_and_links_from_content() {
             }],
             links: vec![InferredLink {
                 entry: 1,
+                subject: "topic/zephyr".to_owned(),
                 relation: "authored_by".to_owned(),
-                target: "person/dave".to_owned(),
-                direction: "to".to_owned(),
+                object: "person/dave".to_owned(),
             }],
         }),
     ]);
@@ -145,9 +145,9 @@ async fn link_inference_honors_a_seeded_inverse_label() {
             new_relations: vec![],
             links: vec![InferredLink {
                 entry: 1,
+                subject: "person/clara".to_owned(),
                 relation: "created".to_owned(),
-                target: "person/clara".to_owned(),
-                direction: "from".to_owned(),
+                object: "topic/zephyr".to_owned(),
             }],
         }),
     ]);
@@ -228,9 +228,9 @@ async fn link_inference_is_idempotent() {
             }],
             links: vec![InferredLink {
                 entry: 1,
+                subject: "topic/zephyr".to_owned(),
                 relation: "authored_by".to_owned(),
-                target: "person/dave".to_owned(),
-                direction: "to".to_owned(),
+                object: "person/dave".to_owned(),
             }],
         }),
     ]);
@@ -411,9 +411,9 @@ async fn disabled_linking_rejects_links_create_but_inference_still_links() {
             }],
             links: vec![InferredLink {
                 entry: 1,
+                subject: "topic/zephyr".to_owned(),
                 relation: "authored_by".to_owned(),
-                target: "person/dave".to_owned(),
-                direction: "to".to_owned(),
+                object: "person/dave".to_owned(),
             }],
         }),
     ]);

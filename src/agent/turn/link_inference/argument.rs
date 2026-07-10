@@ -29,19 +29,23 @@ pub struct NewRelationSpec {
     pub description: String,
 }
 
-/// A relationship the model identifies, grounded in a numbered statement.
+/// A relationship the model identifies, grounded in a numbered statement. The three fields read as
+/// a literal sentence — "`subject` `relation` `object`" — so the direction is carried by the
+/// sentence itself, never by a separate flag: "person/theo mentored_by person/clara" says Theo is
+/// mentored by Clara. An abstract direction field detached from the sentence invited inversions.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct InferredLink {
-    /// The statement number (1-based) that grounds this relationship. Read by the model to cite its
-    /// basis; not consumed by the pass (the relation and target are sufficient to create the link).
+    /// The statement number (1-based) that grounds this relationship.
     #[allow(dead_code)]
     pub entry: usize,
-    /// The relation label. Must be a registered relation or one in `new_relations`.
+    /// The sentence's subject: a memory handle, e.g. "person/theo". One of `subject` and `object`
+    /// must be the memory under consideration; the other must be one of the listed candidates.
+    pub subject: String,
+    /// The relation label, read in the sentence's active direction. Must be a registered relation
+    /// or one in `new_relations`.
     pub relation: String,
-    /// The candidate memory's handle, e.g. "person/clara".
-    pub target: String,
-    /// "to" (subject → target) or "from" (target → subject).
-    pub direction: String,
+    /// The sentence's object: a memory handle, e.g. "person/clara".
+    pub object: String,
 }
 
 /// Parse a structured reply leniently. A well-formed `links` array with a malformed `new_relations`
