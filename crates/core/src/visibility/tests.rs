@@ -231,6 +231,22 @@ fn non_person_memory_has_no_subject_guard() {
 }
 
 #[test]
+fn non_person_public_facts_survive_the_tellers_absence() {
+    // Scenario 12: a Public fact on a non-person memory, relayed by a participant who is now absent,
+    // still surfaces to whoever is present. Non-person knowledge (a project, a topic) defaults Public
+    // and does not fragment by teller-presence the way a person-memory confidence does, so
+    // project and topic knowledge stays discussable no matter who told it.
+    let project = memory("project/hooli");
+    let erin = MemoryId::generate();
+    let stranger = MemoryId::generate();
+    let fact = entry(Teller::Participant(erin), Visibility::Public);
+    // Teller absent, a different party present: still visible.
+    assert!(visible(&fact, &project, &[stranger], &identity).unwrap());
+    // And visible with no one present at all.
+    assert!(visible(&fact, &project, &[], &identity).unwrap());
+}
+
+#[test]
 fn public_is_unconditional() {
     // Scenario 9: a public entry surfaces to anyone, including the subject.
     let marcus = memory("person/marcus");

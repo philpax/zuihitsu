@@ -3,9 +3,10 @@
 use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
 use crate::{
     clock::ManualClock,
-    event::{EventPayload, Teller, Visibility},
+    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{MemoryId, Namespace},
+    store::{MemoryStore, Store},
     time::{Rrule, TemporalRef, Timestamp},
     vocabulary::RelationName,
 };
@@ -110,6 +111,93 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
     block
         .append(roadmap, "migration first", AppendOptions::default())
         .unwrap();
+}
+
+#[test]
+fn class_handle_write_lands_on_the_primary_stub() {
+    // Spec appendix scenario 15 (write half): the clean, unqualified handle is the merged class's
+    // primary stub (its earliest ULID), so recording a platform-agnostic human-fact through
+    // `memory.get("person/<name>")` lands the append on the primary. Writes are not traversed onto the
+    // primary — the clean handle simply *is* it — and the fact then surfaces for the whole class.
+    // The clean name is bound to the earlier of two ULIDs so it is deterministically the primary,
+    // regardless of the random low bits `MemoryId::generate` mints within one millisecond.
+    let mut ids = [MemoryId::generate(), MemoryId::generate()];
+    ids.sort();
+    let [primary, discord_stub] = ids;
+    let mut store = MemoryStore::new();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            vec![
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::SameAs,
+                    inverse: RelationName::SameAs,
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: true,
+                    reflexive: false,
+                    description: String::new(),
+                },
+                EventPayload::memory_created(primary, Namespace::Person.with_name("quinn")),
+                EventPayload::memory_created(
+                    discord_stub,
+                    Namespace::Person.with_name("quinn@discord"),
+                ),
+                EventPayload::link_created(
+                    primary,
+                    discord_stub,
+                    RelationName::SameAs,
+                    LinkSource::Operator,
+                    None,
+                    None,
+                    Visibility::Public,
+                ),
+            ],
+        )
+        .unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+
+    // The clean handle resolves to the primary stub, the earliest ULID of the class.
+    let (resolved, former) = block.get("person/quinn").unwrap().unwrap();
+    assert!(!former);
+    assert_eq!(resolved, primary);
+
+    // The append through the class handle lands without error, and its event is stamped with the
+    // primary stub — no rewrite onto some other member.
+    block
+        .append(
+            resolved,
+            "prefers async standups",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    // And it composes across the class: a live read from the other stub surfaces the same fact.
+    let from_discord = block.entries(discord_stub).unwrap();
+    assert!(
+        from_discord
+            .iter()
+            .any(|entry| entry.text == "prefers async standups"),
+        "the fact should surface for the whole class"
+    );
+
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(landed_on, vec![primary]);
 }
 
 #[test]
