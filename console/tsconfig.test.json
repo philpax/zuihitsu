@@ -1,0 +1,11 @@
+{
+  // The app project excludes tests so the production build never compiles them; this sibling
+  // project re-includes the whole tree (a composite project must list every file it reaches), so
+  // `tsc -b` typechecks the tests and their fixtures too.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
+  },
+  "include": ["src"],
+  "exclude": []
+}
