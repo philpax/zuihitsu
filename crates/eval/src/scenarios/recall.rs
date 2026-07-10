@@ -67,7 +67,6 @@ impl Scenario for Recall {
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
-        let searched = analysis::lua_called(events, "memory.search");
 
         let evidence = format!(
             "Earlier, in another room, the agent was told: the Friday standup is at 10am, in the \
@@ -82,15 +81,15 @@ impl Scenario for Recall {
             )
             .await;
 
-        vec![
-            Verdict::from_judge_outcome("recalls the standup details", VerdictKind::Metric, judged),
-            Verdict::metric_outcome(
-                "reached for memory.search",
-                searched,
-                "called memory.search",
-                "answered without calling memory.search",
-            ),
-        ]
+        // The recall itself is the whole property; the route is deliberately unjudged. There are
+        // several legitimate avenues to the fact — a semantic search, a remembered handle read, or
+        // the brief itself when its recent facts already carry the answer — and pinning any
+        // mechanism punishes a correct recall for its route.
+        vec![Verdict::from_judge_outcome(
+            "recalls the standup details",
+            VerdictKind::Metric,
+            judged,
+        )]
     }
 }
 
