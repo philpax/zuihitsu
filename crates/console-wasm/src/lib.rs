@@ -14,13 +14,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use ulid::Ulid;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{
     brief::{BriefRequest, compose_traced},
-    event::{Event, EventPayload, MergeProposalSource},
+    event::{Event, EventPayload, MergeProposalSource, RequestRecord},
     graph::Graph,
     ids::{MemoryId, MemoryName, Namespace, Seq},
+    model::{Message, ToolChoice, ToolSpec},
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };
@@ -256,16 +258,121 @@ impl Replica {
         to_js(&out)
     }
 
+    /// Verify every model call's recorded prompt against the digest stamped at send time: each
+    /// call's request is reconstructed from the recorded deltas (base plus continuations, the same
+    /// walk the frontend renders from), re-serialized, and hashed with the recorder's own code
+    /// path. A `verified` call's displayed prompt provably matches the request that was sent; a
+    /// `mismatch` means the reconstruction diverged and must not be trusted silently.
+    #[wasm_bindgen(js_name = requestDigests)]
+    pub fn request_digests(&self) -> Result<JsValue, JsError> {
+        struct Group {
+            system: String,
+            messages: Vec<Message>,
+            tools: Vec<ToolSpec>,
+            tool_choice: ToolChoice,
+            thinking: Option<bool>,
+        }
+        let mut groups: BTreeMap<String, Group> = BTreeMap::new();
+        let mut checks: Vec<DigestCheck> = Vec::new();
+        for event in &self.events {
+            let EventPayload::ModelCalled {
+                turn_id,
+                phase,
+                request_digest,
+                request,
+                ..
+            } = &event.payload
+            else {
+                continue;
+            };
+            let key = format!("{} {phase:?}", turn_id.0);
+            match request {
+                Some(RequestRecord::Base {
+                    system,
+                    messages,
+                    tools,
+                    tool_choice,
+                    thinking,
+                    ..
+                }) => {
+                    groups.insert(
+                        key.clone(),
+                        Group {
+                            system: system.clone(),
+                            messages: messages.clone(),
+                            tools: tools.clone(),
+                            tool_choice: *tool_choice,
+                            thinking: *thinking,
+                        },
+                    );
+                }
+                Some(RequestRecord::Continuation { appended_messages }) => {
+                    match groups.get_mut(&key) {
+                        Some(group) => group.messages.extend(appended_messages.iter().cloned()),
+                        // An orphaned continuation (its base fell outside the log) reconstructs
+                        // nothing.
+                        None => {
+                            checks.push(DigestCheck {
+                                seq: event.seq.0,
+                                status: "unrecorded",
+                            });
+                            continue;
+                        }
+                    }
+                }
+                None => {
+                    checks.push(DigestCheck {
+                        seq: event.seq.0,
+                        status: "unrecorded",
+                    });
+                    continue;
+                }
+            }
+            let group = groups.get(&key).expect("just inserted or extended");
+            let view = RequestDigestView {
+                system: &group.system,
+                messages: &group.messages,
+                tools: &group.tools,
+                tool_choice: group.tool_choice,
+                response_format: None,
+                thinking: group.thinking,
+            };
+            let mut hasher = Sha256::new();
+            hasher.update(serde_json::to_vec(&view).unwrap_or_default());
+            let digest: String = hasher
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            checks.push(DigestCheck {
+                seq: event.seq.0,
+                status: if digest == *request_digest {
+                    "verified"
+                } else if matches!(phase, zuihitsu_core::event::ModelPhase::Synthesis) {
+                    // A structured synthesis call carries a `response_format` the record does not
+                    // store, so its digest cannot be reproduced — unverifiable, not a mismatch.
+                    "unverifiable"
+                } else {
+                    "mismatch"
+                },
+            });
+        }
+        to_js(&checks)
+    }
+
     /// Re-derive a session's contextual brief and the trace of how it was composed — every memory the
     /// composer considered and, per entry, the visibility verdict and whether it reached the brief.
     /// The inputs are the session's present set (memory ids), its room's [`Namespace::Context`]
-    /// memory (if any), and its start time; the brief is composed against the graph at the current
-    /// fold horizon.
+    /// memory (if any), its start time, and its recorded working set (from the `SessionStarted`
+    /// payload; empty for sessions recorded before capture). The brief is composed against the graph
+    /// at the current fold horizon, with the brief settings folded from the log at the same horizon —
+    /// so a caller that folds to the session's seq re-derives exactly what the server composed.
     pub fn brief(
         &self,
         present_set: Vec<String>,
         context: Option<String>,
         now_ms: f64,
+        working_set: Vec<String>,
     ) -> Result<JsValue, JsError> {
         let present = present_set
             .iter()
@@ -275,13 +382,17 @@ impl Replica {
             Some(id) => Some(parse_memory_id(&id)?),
             None => None,
         };
+        let working = working_set
+            .iter()
+            .map(|id| parse_memory_id(id))
+            .collect::<Result<Vec<_>, _>>()?;
         let request = BriefRequest {
             present_set: &present,
             current_context,
-            working_set: &[],
+            working_set: &working,
             now: Timestamp::from_millis(now_ms as i64),
         };
-        let trace = compose_traced(&self.graph, &BriefSettings::default(), &request)
+        let trace = compose_traced(&self.graph, &self.brief_settings_at_fold(), &request)
             .map_err(|error| JsError::new(&format!("console: {error}")))?;
         to_js(&trace)
     }
@@ -439,6 +550,44 @@ impl Replica {
         self.head = up_to;
         Ok(())
     }
+
+    /// The brief settings in effect at the current fold horizon: the latest `ConfigSet` snapshot with
+    /// `seq <= head`, defaults when none has been folded. Mirrors `Settings::from_store`'s fold — the
+    /// replica holds a `Vec<Event>` rather than a `Store`, so the loop runs over the log directly.
+    fn brief_settings_at_fold(&self) -> BriefSettings {
+        let mut settings = BriefSettings::default();
+        for event in self.events.iter().filter(|event| event.seq <= self.head) {
+            if let EventPayload::ConfigSet {
+                settings: logged, ..
+            } = &event.payload
+            {
+                settings = logged.brief.clone();
+            }
+        }
+        settings
+    }
+}
+
+/// One call's digest verification result, keyed by the `ModelCalled` event's seq.
+#[derive(Serialize)]
+struct DigestCheck {
+    seq: u64,
+    status: &'static str,
+}
+
+/// Mirrors `zuihitsu::model::GenerateRequest`'s serialized shape exactly — same field names, order,
+/// and inner types — so the digest computed here matches the recorder's `serde_json::to_vec` byte
+/// for byte. The record does not carry `response_format`, so only requests without one (every Step
+/// call) can verify; a drift between this mirror and the real struct surfaces as visible mismatch
+/// verdicts in the console, never silently.
+#[derive(Serialize)]
+struct RequestDigestView<'a> {
+    system: &'a str,
+    messages: &'a [Message],
+    tools: &'a [ToolSpec],
+    tool_choice: ToolChoice,
+    response_format: Option<serde_json::Value>,
+    thinking: Option<bool>,
 }
 
 /// Serialize a value to a JS value with the JSON-compatible number policy (plain numbers, not
@@ -472,3 +621,27 @@ pub mod types;
 pub use types::{
     AgendaItem, ConversationDetail, MemoryDetail, MergeProposalView, MergeStatus, SessionSummary,
 };
+
+#[cfg(test)]
+mod digest_tests {
+    //! The digest mirror must serialize to exactly `GenerateRequest`'s bytes — the twin canary
+    //! pinning the same literal lives beside that struct in the main crate.
+    use super::RequestDigestView;
+    use zuihitsu_core::model::ToolChoice;
+
+    #[test]
+    fn the_digest_view_serializes_with_the_generate_request_shape() {
+        let view = RequestDigestView {
+            system: "",
+            messages: &[],
+            tools: &[],
+            tool_choice: ToolChoice::Auto,
+            response_format: None,
+            thinking: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&view).unwrap(),
+            r#"{"system":"","messages":[],"tools":[],"tool_choice":"Auto","response_format":null,"thinking":null}"#
+        );
+    }
+}
