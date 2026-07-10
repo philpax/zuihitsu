@@ -10,7 +10,9 @@ use crate::{
     event::{EventPayload, ModelPhase, RequestRecord, TurnRole},
     ids::{MemoryId, Seq, TurnId},
     metrics::observe_model_call,
-    model::{Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ToolChoice},
+    model::{
+        Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ToolCall, ToolChoice,
+    },
     prompt::PromptSectionSpan,
     settings::CaptureLevel,
     store::Store,
@@ -19,6 +21,7 @@ use crate::{
 use super::{
     Steps, TurnError, TurnOutcome,
     record::{TurnRecord, append_turn},
+    run::tool_call_id,
     tools::run_tool_call,
 };
 use crate::ids::ConversationId;
@@ -216,6 +219,18 @@ pub(crate) async fn run_steps(
             peak_prompt_tokens = peak_prompt_tokens.max(usage.prompt_tokens);
             match completion {
                 Completion::ToolCalls(calls) => {
+                    // Normalize the model's arbitrary call ids to the deterministic scheme the
+                    // buffer re-render mints, so the next turn's rebuilt buffer reproduces this
+                    // exchange byte for byte — a value-unstable id busts the prefix cache outright
+                    // on serving stacks whose chat template tokenizes it.
+                    let calls: Vec<ToolCall> = calls
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, call)| ToolCall {
+                            id: tool_call_id(context.turn_id, blocks + i),
+                            ..call
+                        })
+                        .collect();
                     messages.push(Message::assistant_tool_calls(calls.clone()));
                     for call in &calls {
                         let result = run_tool_call(session, &engine, &context, call).await?;

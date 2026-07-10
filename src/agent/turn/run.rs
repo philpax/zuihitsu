@@ -277,6 +277,15 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
 /// agent→assistant, system→system), skipping empty agent turns (silent terminals). The frozen brief
 /// stays in the system prefix only — the buffer never perturbs it (prefix-cache stability). The
 /// messages the agent *reads* — participant and system turns — are prefixed with the time they were
+/// The deterministic id for a turn's `index`-th tool call, shared by the live step loop (which
+/// normalizes the model's arbitrary ids to it) and the buffer re-render (which mints it from the
+/// logged steps) — so a re-sent exchange reproduces the live one byte for byte. The index counts
+/// tool calls across the whole turn, matching the one-`LuaExecuted`-per-call order the re-render
+/// reads back.
+pub(crate) fn tool_call_id(turn_id: TurnId, index: usize) -> String {
+    format!("call_{}_{}", turn_id.0, index)
+}
+
 /// recorded; its own turns are left unstamped so it never learns to emit timestamps (spec §Time).
 pub(crate) fn buffer_messages(
     buffer: &[TurnView],
@@ -302,9 +311,12 @@ pub(crate) fn buffer_messages(
                 // Re-play the turn's tool-call steps so the model re-sees what it already ran —
                 // the scripts, the results, the fetched pages and search hits — and does not
                 // re-issue them. Each step is an assistant tool-call message followed by its
-                // tool-result, matching the within-turn message order the model produced.
+                // tool-result, matching the within-turn message order the model produced. The ids
+                // reproduce what the live turn sent (the step loop normalizes to the same scheme),
+                // so the re-rendered exchange is byte-identical and the prefix cache survives on
+                // serving stacks whose template tokenizes the id.
                 for (i, step) in buffered.steps.iter().enumerate() {
-                    let call_id = format!("call_{}_{}", buffered.seq.0, i);
+                    let call_id = tool_call_id(buffered.turn_id, i);
                     messages.push(Message::assistant_tool_calls(vec![
                         crate::model::ToolCall {
                             id: call_id.clone(),

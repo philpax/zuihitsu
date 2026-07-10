@@ -165,6 +165,78 @@ async fn a_base_record_carries_the_prompt_section_spans() {
 }
 
 #[tokio::test]
+async fn a_rerendered_buffer_reproduces_the_live_tool_call_ids() {
+    // The step loop normalizes the model's arbitrary call ids to the scheme the buffer re-render
+    // mints, so a later turn's rebuilt buffer reproduces the earlier exchange byte for byte — a
+    // value-unstable id busts the prefix cache outright on serving stacks whose chat template
+    // tokenizes it.
+    let h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create(PERSON_DAVE, "Met at the gym")"#),
+        Completion::Reply("Noted.".to_owned()),
+        Completion::Reply("Hello again.".to_owned()),
+    ]);
+    run_turn(h.as_turn(&model, "Remember Dave", 8))
+        .await
+        .unwrap();
+
+    // The live exchange, as turn 1's continuation recorded it on the wire.
+    let calls = model_calls(&h.events());
+    let RequestRecord::Continuation { appended_messages } =
+        calls[1].1.clone().expect("Full captures the request")
+    else {
+        panic!(
+            "turn 1's second step records a Continuation, got {:?}",
+            calls[1].1
+        );
+    };
+    let live_call = appended_messages
+        .iter()
+        .find_map(|message| message.tool_calls.first())
+        .expect("the appended slice carries the tool call");
+    let live_id = live_call.id.clone();
+    assert!(
+        live_id.starts_with("call_"),
+        "the live id is normalized to the deterministic scheme, got {live_id:?}"
+    );
+    let live_result_id = appended_messages
+        .iter()
+        .find_map(|message| message.tool_call_id.clone())
+        .expect("the appended slice carries the tool result");
+    assert_eq!(
+        live_id, live_result_id,
+        "the live result pairs with its call"
+    );
+
+    // Turn 2 re-renders turn 1 from the log; the rebuilt exchange must carry the same ids.
+    let conversation = h.session.conversation();
+    let buffer = buffer_turns(h.engine.store.lock().as_ref(), conversation, Seq::ZERO).unwrap();
+    run_turn(h.as_turn_buffered(&model, "Anything else?", 8, &buffer))
+        .await
+        .unwrap();
+
+    let calls = model_calls(&h.events());
+    let RequestRecord::Base { messages, .. } =
+        calls[2].1.clone().expect("Full captures the request")
+    else {
+        panic!("turn 2's first step records a Base, got {:?}", calls[2].1);
+    };
+    let rerendered_call = messages
+        .iter()
+        .find_map(|message| message.tool_calls.first())
+        .expect("the rebuilt buffer replays the tool call");
+    assert_eq!(
+        rerendered_call.id, live_id,
+        "the re-rendered id reproduces the live one"
+    );
+    let rerendered_result_id = messages
+        .iter()
+        .find_map(|message| message.tool_call_id.clone())
+        .expect("the rebuilt buffer replays the tool result");
+    assert_eq!(rerendered_result_id, live_id);
+}
+
+#[tokio::test]
 async fn digest_capture_keeps_the_digest_but_drops_the_request() {
     let h = Harness::new();
     let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);

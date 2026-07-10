@@ -4,9 +4,11 @@ import type { ModelInteraction } from "./interactions.ts";
 import { resolveSections } from "./promptSections.ts";
 
 /// Why a call could not extend the previous call's prompt, most specific first.
-/// `tool-ids-reminted` is the near-lossless case: the rebuilt buffer re-mints tool-call ids while
-/// everything else extends — most chat templates tokenize little or none of the id, so the
-/// provider's measured warmth stays high despite the value-level difference.
+/// `tool-ids-reminted` is the near-lossless case: the rebuilt buffer re-minted tool-call ids while
+/// everything else extended — most chat templates tokenize little or none of the id, so the
+/// provider's measured warmth stays high despite the value-level difference. The agent now
+/// normalizes ids so live and re-rendered exchanges match byte for byte; this cause survives for
+/// logs recorded before that.
 export type CacheCause =
   | "first-call"
   | "system-changed"
@@ -94,10 +96,12 @@ function extendsMessages(prior: Message[], current: Message[], ignoreToolIds: bo
 }
 
 function withoutToolIds(message: Message): Message {
-  if (message.tool_calls.length === 0) return message;
+  if (message.tool_calls.length === 0 && message.tool_call_id === null) return message;
   return {
     ...message,
     tool_calls: message.tool_calls.map((call) => ({ ...call, id: "" })),
+    // The paired tool-result message carries the same re-minted id in `tool_call_id`.
+    tool_call_id: message.tool_call_id === null ? null : "",
   };
 }
 

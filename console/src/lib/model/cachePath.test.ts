@@ -77,18 +77,32 @@ describe("deriveCachePaths", () => {
   });
 
   it("attributes a buffer whose only difference is re-minted tool-call ids", () => {
-    // The rebuilt buffer re-renders the same tool exchange with a fresh call id; most templates
-    // tokenize little of it, so this must not read as a full rebuild.
+    // The rebuilt buffer re-renders the same tool exchange — the call and its paired result — with
+    // a fresh id; most templates tokenize little of it, so this must not read as a full rebuild.
     const toolCall = (id: string) => ({
       role: "assistant" as const,
       content: "",
       tool_calls: [{ id, name: "run_lua", arguments: '{"script":"return 1"}' }],
       tool_call_id: null,
     });
-    const first = call({ seq: 1, messages: [message("user", "hello"), toolCall("wire-id")] });
+    const toolResult = (id: string) => ({
+      role: "tool" as const,
+      content: "1",
+      tool_calls: [],
+      tool_call_id: id,
+    });
+    const first = call({
+      seq: 1,
+      messages: [message("user", "hello"), toolCall("wire-id"), toolResult("wire-id")],
+    });
     const rebuilt = call({
       seq: 2,
-      messages: [message("user", "hello"), toolCall("call_1_0"), message("user", "next")],
+      messages: [
+        message("user", "hello"),
+        toolCall("call_1_0"),
+        toolResult("call_1_0"),
+        message("user", "next"),
+      ],
     });
     const [, verdict] = deriveCachePaths([first, rebuilt], []);
     expect(verdict).toMatchObject({ path: "cold", cause: "tool-ids-reminted" });
