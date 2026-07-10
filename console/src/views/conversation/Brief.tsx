@@ -30,7 +30,14 @@ export function BriefBlock({
     if (trace === null) {
       const restore = replica.foldedSeq;
       replica.foldTo(session.seq);
-      setTrace(replica.brief(session.participantIds, contextMemory, session.startedAt));
+      setTrace(
+        replica.brief(
+          session.participantIds,
+          contextMemory,
+          session.startedAt,
+          session.workingSet ?? [],
+        ),
+      );
       replica.foldTo(restore);
     }
     setTraceOpen(!traceOpen);
@@ -54,6 +61,12 @@ export function BriefBlock({
             summary="· re-folds the replica to evaluate"
             className="mt-3"
           />
+          {traceOpen && session.workingSet === null && (
+            <p className="mt-2 text-2xs text-ink-faint">
+              The working set is unavailable for this session (recorded before capture); the trace
+              may omit active-thread memories.
+            </p>
+          )}
           {traceOpen && trace && <BriefSections sections={trace.sections} />}
         </>
       )}

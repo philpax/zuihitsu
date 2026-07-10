@@ -2,17 +2,13 @@ import { createContext, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import type { Event } from "../../types/Event.ts";
-import { type Replica } from "../../lib/replica/replica.ts";
+import { type DigestStatus, type Replica } from "../../lib/replica/replica.ts";
 import { nameById } from "../../lib/model/labels.ts";
 import type { LiveConnection } from "../../lib/api/live.ts";
 import type { ConversationLocator } from "../../types/ConversationLocator.ts";
 import { buildConversations } from "../../lib/model/conversation.ts";
 import { conversationNameById } from "../../components/EventDetail.tsx";
-import {
-  type ModelInteraction,
-  buildInteractions,
-  tokenBudgetAt,
-} from "../../lib/model/interactions.ts";
+import { type ContextDebug, deriveContextDebug } from "../../lib/model/contextDebug.ts";
 import { DIRECT_PLATFORM } from "../../lib/api/participant.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { type TurnRefTarget, TurnRefs } from "../../lib/view/turnRefs.ts";
@@ -40,12 +36,17 @@ export interface Participation {
   atHead: boolean;
 }
 
-/// The reconstructed model calls (by their `seq`) and the context budget in effect, so a turn's
-/// deliberation can show what each call fed the model and how much of the budget it consumed,
-/// without drilling the lookup through every layer of the transcript.
-export const ModelCalls = createContext<{ bySeq: Map<number, ModelInteraction>; budget: number }>({
+/// The reconstructed model calls with their derived context debugging — per-call cache verdicts,
+/// token attributions, digest verifications, and the denominators in effect — so a turn's
+/// deliberation can show what each call fed the model, how it was assembled, and whether the prefix
+/// cache survived, without drilling the lookups through every layer of the transcript.
+export const ModelCalls = createContext<ContextDebug & { digestBySeq: Map<number, DigestStatus> }>({
   bySeq: new Map(),
-  budget: 0,
+  verdictBySeq: new Map(),
+  attributionBySeq: new Map(),
+  denominatorsBySeq: new Map(),
+  denominators: { budget: null, contextLength: null },
+  digestBySeq: new Map(),
 });
 
 /// The id → handle map at the cursor, so a turn's outcome rows can expand into the event viewer (which
@@ -84,8 +85,10 @@ export function ConversationView({
     names,
   );
   const modelCalls = {
-    bySeq: new Map(buildInteractions(events, cursor).map((call) => [call.seq, call])),
-    budget: tokenBudgetAt(events, cursor),
+    ...deriveContextDebug(events, cursor),
+    // The wasm-side digest verification: the reconstruction re-hashed with the recorder's own
+    // serialization and compared against the digest stamped at send time.
+    digestBySeq: new Map(replica.requestDigests().map((check) => [check.seq, check.status])),
   };
   // The open room rides in the URL (`?room`), so it deep-links, survives a view switch, and moves
   // with browser back and forward like the rest of the stream's state.

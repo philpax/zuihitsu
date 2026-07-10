@@ -34,7 +34,8 @@ export function Room({
   const isOperator = channel.authority === "operator";
   const handle = participate?.sender.trim() ?? "";
   const handleScoped = hasScopeChar(handle);
-  const { bySeq, budget } = useContext(ModelCalls);
+  const { bySeq, denominators } = useContext(ModelCalls);
+  const budget = denominators.budget;
   // The conversation's running cost, shown in the header: total generated (additive across turns) and
   // the peak context any turn reached (the high-water mark against the compaction budget — not a sum,
   // which would double-count the re-sent buffer).
@@ -46,7 +47,7 @@ export function Room({
     { peakContext: 0, output: 0 },
   );
   const convoTowardCompaction =
-    budget > 0 ? Math.round((convoTokens.peakContext / budget) * 100) : null;
+    budget !== null && budget > 0 ? Math.round((convoTokens.peakContext / budget) * 100) : null;
   // True while a sent turn is in flight, so the conversation shows the agent at work.
   const [thinking, setThinking] = useState(false);
   // The just-sent turn, shown optimistically until the live tail folds the real one in — so the
@@ -121,7 +122,11 @@ export function Room({
           <p className="mt-1 font-mono text-2xs text-ink-faint">
             {formatTokens(convoTokens.output)} generated · peak{" "}
             {formatTokens(convoTokens.peakContext)}
-            {convoTowardCompaction !== null && <> · {convoTowardCompaction}% to compaction</>}
+            {convoTowardCompaction !== null ? (
+              <> · {convoTowardCompaction}% to compaction</>
+            ) : (
+              <> · budget unknown</>
+            )}
           </p>
         )}
       </header>

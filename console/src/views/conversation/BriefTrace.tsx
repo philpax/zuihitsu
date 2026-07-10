@@ -1,10 +1,14 @@
+import { useContext } from "react";
+
 import {
   type BriefSectionTrace,
   type EntryTrace,
   decisionInfo,
   sectionLabel,
 } from "../../lib/model/brief.ts";
+import { visibilityLabel } from "../../lib/model/labels.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
+import { Names } from "./ConversationView.tsx";
 
 /// Renders a brief composition trace's sections: each memory the composer considered and, per entry,
 /// whether it reached the brief and why — surfaced (sage), passed the predicate but trimmed by recency
@@ -42,11 +46,16 @@ function Section({ section }: { section: BriefSectionTrace }) {
 }
 
 function EntryRow({ entry }: { entry: EntryTrace }) {
+  const names = useContext(Names);
   const { visible, reason } = decisionInfo(entry.decision);
   // Three fates: surfaced, visible-but-trimmed by the recency window, or filtered by the predicate.
   const tone = entry.in_brief ? "in" : visible ? "trimmed" : "filtered";
-  const note =
-    tone === "in" ? reason : tone === "trimmed" ? `${reason} · beyond recency window` : reason;
+  const fate =
+    tone === "in"
+      ? `surfaced · ${reason}`
+      : tone === "trimmed"
+        ? `cut by the recency window · ${reason}`
+        : `filtered · ${reason}`;
 
   return (
     <li className="flex gap-2.5">
@@ -67,10 +76,11 @@ function EntryRow({ entry }: { entry: EntryTrace }) {
         >
           {entry.text}
         </p>
-        <p
-          className={"font-mono text-xs " + (tone === "filtered" ? "text-clay" : "text-ink-faint")}
-        >
-          {note}
+        <p className="font-mono text-xs">
+          <span className="text-clay" title="The visibility the entry was declared with.">
+            {visibilityLabel(entry.visibility, names)}
+          </span>
+          <span className={tone === "filtered" ? "text-clay" : "text-ink-faint"}> · {fate}</span>
         </p>
       </div>
     </li>

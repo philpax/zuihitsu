@@ -180,6 +180,16 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
               ({payload.usage.prompt_tokens ?? "?"} in · {payload.usage.completion_tokens ?? "?"}{" "}
               out)
             </span>
+            {/* Loose != null: a pre-capture event's raw JSON has no cache keys at all. */}
+            {payload.usage.cache_read_tokens != null && (
+              <span className="text-ink-faint"> · {payload.usage.cache_read_tokens} cached</span>
+            )}
+            {payload.usage.cache_write_tokens != null && (
+              <span className="text-ink-faint">
+                {" "}
+                · {payload.usage.cache_write_tokens} cache-written
+              </span>
+            )}
           </Field>
           <Field label="duration">{formatMs(Number(payload.duration_ms))}</Field>
         </Fields>
@@ -222,6 +232,10 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
             <Field label="present">{refs(payload.participants, "no one")}</Field>
             {payload.seeded_from_turn && (
               <Field label="seeded from">{convRef(payload.seeded_from_turn)}</Field>
+            )}
+            {/* Loose ?? []: a pre-capture event's raw JSON has no working_set key at all. */}
+            {(payload.working_set ?? []).length > 0 && (
+              <Field label="working set">{refs(payload.working_set, "none")}</Field>
             )}
           </Fields>
           <Prose>{payload.brief}</Prose>

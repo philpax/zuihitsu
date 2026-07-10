@@ -3,8 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 
 import type { TurnModel } from "../../lib/model/conversation.ts";
-import { formatDateTime, formatTime, formatTokens } from "../../lib/format/format.ts";
-import { LabeledDivider, Meter } from "../../components/primitives.tsx";
+import { formatDateTime, formatTime } from "../../lib/format/format.ts";
+import { LabeledDivider } from "../../components/primitives.tsx";
+import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
 import { RefText } from "./TurnRefs.tsx";
@@ -22,9 +23,14 @@ export function TurnItem({
   fresh: boolean;
   roomKey: string;
 }) {
-  const { bySeq, budget } = useContext(ModelCalls);
+  const { bySeq } = useContext(ModelCalls);
   const tokens = turnTokens(turn, bySeq);
-  const towardCompaction = budget > 0 ? Math.round((tokens.context / budget) * 100) : null;
+  // The turn's final Step-phase call — the conversational context the turn ended with, footing the
+  // turn with the same display each deliberation step carries. Synthesis calls are excluded: their
+  // prompts are separate structured requests, not the conversation's context.
+  const lastCallSeq = [...turn.deliberation]
+    .reverse()
+    .find((step) => step.kind === "model" && step.phase === "Step")?.seq;
   // The deep-linked turn (`?turn=<id>`) announces itself: scrolled into view once and washed in
   // fading sage, so a pasted link lands the reader on the moment it points at.
   const [searchParams] = useSearchParams();
@@ -132,26 +138,9 @@ export function TurnItem({
         </p>
       )}
       {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
-      {/* The agent turn's cost, footing the turn: the context it read (cumulative — the whole re-sent
-          buffer) as a fill against the compaction budget, and the tokens it generated (additive). */}
-      {tokens.output + tokens.context > 0 && (
-        <div className="mt-3 flex items-center gap-2 font-mono text-2xs text-ink-faint">
-          <span>
-            {formatTokens(tokens.context)} cumulative input · {formatTokens(tokens.output)} out
-            {towardCompaction !== null && " ·"}
-          </span>
-          {towardCompaction !== null && (
-            <>
-              <Meter
-                fraction={towardCompaction / 100}
-                className="w-16"
-                title={`${towardCompaction}% of the compaction budget (${formatTokens(budget)})`}
-              />
-              <span>
-                {towardCompaction}% to compaction ({formatTokens(budget)})
-              </span>
-            </>
-          )}
+      {lastCallSeq !== undefined && (
+        <div className="mt-2">
+          <CallContext seq={lastCallSeq} tokensOut={tokens.output} />
         </div>
       )}
     </motion.li>
