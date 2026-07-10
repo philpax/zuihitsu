@@ -293,9 +293,10 @@ impl std::fmt::Display for HandleError {
             ),
             HandleError::UnknownTeller { name } => write!(
                 f,
-                "no memory named \"{name}\" to attribute this entry to — told_by names the teller \
-                 the fact came from (a person handle, or their memory name); create it first, or \
-                 check the casing"
+                "no memory named \"{name}\" to attribute this entry to — told_by names the \
+                 participant who told you the fact (a person handle, or their memory name). When \
+                 you yourself are the source, omit told_by and pass by_agent = true instead. For a \
+                 real teller, create their memory first, or check the casing"
             ),
             HandleError::WrongTellerType { type_name } => write!(
                 f,
