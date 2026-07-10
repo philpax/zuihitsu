@@ -8,6 +8,7 @@
 mod a_reminder_comes_due;
 mod a_week_with_the_team;
 mod applies_a_remembered_preference;
+mod attributed_conflicting_accounts;
 mod conflicting_accounts;
 mod getting_to_know_someone;
 mod shifting_plans;
@@ -15,11 +16,13 @@ mod shifting_plans;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, Namespace};
+use zuihitsu::{
+    EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, Teller, Timestamp, Visibility,
+};
 
 use crate::{
     analysis,
-    context::MILLIS_PER_DAY,
+    context::{MILLIS_PER_DAY, RUN_START_MS},
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
@@ -29,6 +32,7 @@ use crate::{
 use crate::scenarios::conversations::{
     a_reminder_comes_due::AReminderComesDue, a_week_with_the_team::AWeekWithTheTeam,
     applies_a_remembered_preference::AppliesARememberedPreference,
+    attributed_conflicting_accounts::AttributedConflictingAccounts,
     conflicting_accounts::ConflictingAccounts, getting_to_know_someone::GettingToKnowSomeone,
     shifting_plans::ShiftingPlans,
 };
@@ -42,6 +46,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(AReminderComesDue),
         Arc::new(GettingToKnowSomeone),
         Arc::new(ConflictingAccounts),
+        Arc::new(AttributedConflictingAccounts),
     ]
 }
 

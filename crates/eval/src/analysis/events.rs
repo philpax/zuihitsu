@@ -134,6 +134,23 @@ pub fn superseded_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
         .collect()
 }
 
+/// How many `Attributed` entries the run recorded on a memory whose name contains `subject`. An
+/// `Attributed` entry surfaces like a `Public` one but carries a "via <teller>" provenance marker and
+/// is excluded from the memory's description — the posture a relayed secondhand fact is classified up
+/// into. A count of two or more is the precondition the widened arbitration pool needs: two
+/// relayed-but-conflicting accounts the agent marked `Attributed` are the case arbitration must still
+/// catch even though neither is `Public`.
+pub fn attributed_entries_on(events: &[Event], subject: &str) -> usize {
+    let subject = subject.to_lowercase();
+    entries(events)
+        .into_iter()
+        .filter(|entry| {
+            entry.visibility == Visibility::Attributed
+                && entry.memory.to_lowercase().contains(&subject)
+        })
+        .count()
+}
+
 /// How many distinct conversation participants are credited as the teller of a non-Public entry on a
 /// memory whose name contains `subject`. A confidence about `subject` should be held under exactly its
 /// one original teller; a count above one means it was re-recorded under a second teller — typically
