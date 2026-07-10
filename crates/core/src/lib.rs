@@ -17,6 +17,7 @@ pub mod graph;
 pub mod ids;
 pub mod instance_features;
 pub mod model;
+pub mod prompt;
 pub mod settings;
 pub mod store;
 pub mod time;

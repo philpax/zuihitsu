@@ -30,6 +30,7 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
         prompt_tokens: Some(100),
         completion_tokens: Some(20),
         total_tokens: Some(120),
+        ..Usage::default()
     };
     // Two steps so the delta path runs: a tool call, then a reply, each carrying reasoning.
     let model = ScriptedModel::with_deliberation([
@@ -90,6 +91,77 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
         &e.payload,
         EventPayload::LuaExecuted { duration_ms, .. } if *duration_ms < u64::MAX
     )));
+}
+
+#[tokio::test]
+async fn a_base_record_carries_the_prompt_section_spans() {
+    // context-debugger.AC1.2 (recording half): the first call of a phase records a `Base` whose
+    // `system_sections` tile the `system` string exactly and slice back to each section's contribution.
+    let h = Harness::new();
+    let model = ScriptedModel::new([Completion::Reply("Noted.".to_owned())]);
+
+    // Supply a brief so the `Brief` section is present and its header is assertable; the API reference
+    // and the current-time footer are always emitted, so several sections tile the prompt.
+    let mut turn = h.as_turn(&model, "Remember Dave", 8);
+    turn.brief = "you are chatting about the gym";
+    run_turn(turn).await.unwrap();
+
+    let calls = model_calls(&h.events());
+    assert_eq!(calls.len(), 1, "one step records one ModelCalled");
+    let RequestRecord::Base {
+        system,
+        system_sections,
+        ..
+    } = calls[0].1.clone().expect("Full captures the request")
+    else {
+        panic!("the first step records a Base, got {:?}", calls[0].1);
+    };
+
+    assert!(
+        !system_sections.is_empty(),
+        "a captured Base carries the prompt's section spans"
+    );
+
+    // The spans tile `system` exactly: contiguous from zero to its length, each on UTF-8 boundaries.
+    let mut cursor = 0u32;
+    for span in &system_sections {
+        assert_eq!(span.start, cursor, "a gap or overlap precedes {span:?}");
+        assert!(
+            span.start < span.end,
+            "an empty span was recorded: {span:?}"
+        );
+        assert!(
+            system.get(span.start as usize..span.end as usize).is_some(),
+            "the span lands off a UTF-8 boundary: {span:?}"
+        );
+        cursor = span.end;
+    }
+    assert_eq!(
+        cursor as usize,
+        system.len(),
+        "the spans reach the end of the system prompt"
+    );
+
+    // The Brief section's slice is the brief's whole contribution, its header included.
+    let brief_span = system_sections
+        .iter()
+        .find(|span| span.kind == PromptSectionKind::Brief)
+        .expect("a brief was supplied, so its section is present");
+    assert!(
+        system[brief_span.start as usize..brief_span.end as usize]
+            .starts_with("\n\n# What you know right now"),
+        "the Brief slice carries its header"
+    );
+
+    // The API reference is always present; its slice carries the capabilities header.
+    let api_span = system_sections
+        .iter()
+        .find(|span| span.kind == PromptSectionKind::ApiReference)
+        .expect("the API reference is always present");
+    assert!(
+        system[api_span.start as usize..api_span.end as usize].starts_with("\n\n# What you can do"),
+        "the ApiReference slice carries its header"
+    );
 }
 
 #[tokio::test]

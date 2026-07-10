@@ -84,7 +84,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // The time is frozen to the session's start, not the live clock: every turn in the session then
     // sends an identical system prefix (current time rides in the per-message stamps below), so the
     // serving layer can reuse its prefix cache across the session rather than re-encoding on each turn.
-    let system = system_prompt::assemble(
+    let assembled = system_prompt::assemble(
         &framing_body,
         &identity,
         &api_reference,
@@ -116,7 +116,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         session,
         model,
         engine: engine.clone(),
-        system: &system,
+        system: assembled.text(),
+        system_sections: assembled.sections(),
         context: BlockContext {
             teller,
             authority,
@@ -216,7 +217,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         (identity, vocabulary)
     };
     let api_reference = full_api_reference(session);
-    let system = system_prompt::assemble(
+    let assembled = system_prompt::assemble(
         &scaffold,
         &identity,
         &api_reference,
@@ -244,7 +245,8 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         session,
         model,
         engine: engine.clone(),
-        system: &system,
+        system: assembled.text(),
+        system_sections: assembled.sections(),
         // The flush's writes are the agent's own synthesis, not attributed to any participant. It
         // runs under platform authority — the flush of a platform conversation must not write `self`.
         context: BlockContext {

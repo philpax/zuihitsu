@@ -62,6 +62,7 @@ pub(super) use crate::{
     ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     memory::memory_block::Authority,
     model::{Message, ModelClient},
+    prompt::PromptSectionSpan,
     settings::CaptureLevel,
     store::{Store, StoreError},
     time::Timestamp,
@@ -216,6 +217,9 @@ pub(super) struct Steps<'a> {
     pub(super) model: &'a dyn ModelClient,
     pub(super) engine: Arc<Engine>,
     pub(super) system: &'a str,
+    /// The typed section spans of `system`, recorded on the phase's [`crate::event::RequestRecord::Base`]
+    /// so the console can break the prompt into its parts without re-deriving the boundaries.
+    pub(super) system_sections: &'a [PromptSectionSpan],
     pub(super) context: BlockContext,
     pub(super) messages: Vec<Message>,
     pub(super) initiation: Initiation,

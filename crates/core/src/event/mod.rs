@@ -12,6 +12,7 @@ use smol_str::SmolStr;
 use crate::{
     ids::{ConversationId, EntryId, MemoryId, Seq, TurnId},
     model::{Message, ToolChoice, ToolSpec},
+    prompt::PromptSectionSpan,
     time::Timestamp,
 };
 
@@ -373,6 +374,11 @@ pub enum RequestRecord {
     /// message buffer the call was sent.
     Base {
         system: String,
+        /// Byte spans of `system`'s typed sections, in emission order (spec §Observability). Empty for
+        /// records written before the sections were captured, so an older log replays with no spans and
+        /// the console falls back to deriving the boundaries itself.
+        #[serde(default)]
+        system_sections: Vec<PromptSectionSpan>,
         messages: Vec<Message>,
         tools: Vec<ToolSpec>,
         tool_choice: ToolChoice,

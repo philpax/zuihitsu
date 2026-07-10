@@ -103,7 +103,9 @@ pub(super) async fn ask_structured<T>(
     } = call;
     const ATTEMPTS: usize = 3;
     for attempt in 1..=ATTEMPTS {
-        let record = recording.request_record(request, None);
+        // The synthesis prompt is not the six-section assembled prompt, so it carries no typed
+        // section spans.
+        let record = recording.request_record(request, None, &[]);
         let GenerateResponse { completion, .. } = recording
             .generate(engine, model, request, ModelPhase::Synthesis, record)
             .await?;

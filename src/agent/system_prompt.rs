@@ -20,6 +20,7 @@ use std::fmt::Write as _;
 use crate::{
     graph::{EntryView, RelationView, TagVocabularyEntry},
     ids::Namespace,
+    prompt::{AssembledPrompt, PromptSectionKind},
     time::{self, Timestamp},
 };
 
@@ -53,42 +54,46 @@ pub fn assemble(
     vocabulary: &str,
     brief: &str,
     now: Timestamp,
-) -> String {
-    let mut prompt = String::with_capacity(
-        scaffold.len() + api_reference.len() + vocabulary.len() + brief.len() + 256,
-    );
-    prompt.push_str(scaffold);
+) -> AssembledPrompt {
+    let mut prompt = AssembledPrompt::default();
+    prompt.push(PromptSectionKind::Scaffold, scaffold);
 
     if !identity.is_empty() {
-        prompt.push_str("\n\n# Who you are\n\n");
+        prompt.push(PromptSectionKind::Identity, "\n\n# Who you are\n\n");
         for (index, entry) in identity.iter().enumerate() {
             if index > 0 {
-                prompt.push_str("\n\n");
+                prompt.push(PromptSectionKind::Identity, "\n\n");
             }
-            prompt.push_str(&entry.text);
+            prompt.push(PromptSectionKind::Identity, &entry.text);
         }
     }
 
     if !api_reference.is_empty() {
-        prompt.push_str("\n\n# What you can do\n\n");
-        prompt.push_str(&method_notation_legend());
-        prompt.push_str("\n\n");
-        prompt.push_str(api_reference);
+        prompt.push(PromptSectionKind::ApiReference, "\n\n# What you can do\n\n");
+        prompt.push(PromptSectionKind::ApiReference, &method_notation_legend());
+        prompt.push(PromptSectionKind::ApiReference, "\n\n");
+        prompt.push(PromptSectionKind::ApiReference, api_reference);
     }
 
     if !vocabulary.is_empty() {
-        prompt.push_str("\n\n");
-        prompt.push_str(vocabulary);
+        prompt.push(PromptSectionKind::Vocabulary, "\n\n");
+        prompt.push(PromptSectionKind::Vocabulary, vocabulary);
     }
 
     if !brief.is_empty() {
-        prompt.push_str("\n\n# What you know right now\n\n");
-        prompt.push_str(brief);
+        prompt.push(
+            PromptSectionKind::Brief,
+            "\n\n# What you know right now\n\n",
+        );
+        prompt.push(PromptSectionKind::Brief, brief);
     }
 
-    prompt.push_str("\n\n# Current time\n\nThe session begins on ");
-    prompt.push_str(&time::format_datetime(now));
-    prompt.push('.');
+    prompt.push(
+        PromptSectionKind::CurrentTime,
+        "\n\n# Current time\n\nThe session begins on ",
+    );
+    prompt.push(PromptSectionKind::CurrentTime, &time::format_datetime(now));
+    prompt.push(PromptSectionKind::CurrentTime, ".");
     prompt
 }
 
@@ -171,7 +176,7 @@ pub fn render_relation_registry(relations: &[RelationView]) -> String {
 mod tests {
     //! The scaffold framing, the agent's identity drawn from `self` (seeded as its description at
     //! genesis), and the declared current time are composed into one prompt.
-    use super::{assemble, render_vocabulary};
+    use super::{assemble, method_notation_legend, render_vocabulary};
     use crate::{
         InstanceFeatures,
         agent::{
@@ -180,10 +185,12 @@ mod tests {
             templates::latest_template,
         },
         clock::ManualClock,
-        event::PromptTemplateName,
-        graph::Graph,
+        event::{PromptTemplateName, Teller, Visibility},
+        graph::{EntryView, Graph},
+        ids::EntryId,
+        prompt::PromptSectionKind,
         store::MemoryStore,
-        time::Timestamp,
+        time::{self, Timestamp},
     };
 
     #[test]
@@ -215,7 +222,7 @@ mod tests {
         let vocabulary =
             render_vocabulary(&graph.all_tags().unwrap(), &graph.all_relations().unwrap());
         let brief = "<participant name=\"marcus\">a friend</participant>";
-        let prompt = assemble(
+        let assembled = assemble(
             &scaffold,
             &identity,
             &api,
@@ -223,6 +230,7 @@ mod tests {
             brief,
             Timestamp::from_millis(1_000),
         );
+        let prompt = assembled.text();
 
         // The durable scaffold framing.
         assert!(prompt.contains("run_lua"));
@@ -248,5 +256,158 @@ mod tests {
         // The declared session time, in human units (1_000 ms after the epoch).
         assert!(prompt.contains("01 January 1970"));
         assert!(prompt.contains("UTC"));
+    }
+
+    /// A synthetic content entry carrying only the `text` that `assemble` reads; the remaining fields
+    /// are inert defaults, so the fixture stays readable and free of personal names.
+    fn entry(text: &str) -> EntryView {
+        EntryView {
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(0),
+            occurred_sort: None,
+            occurred_at: None,
+            occurred_authored: false,
+            text: text.to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::default(),
+            superseded_by: None,
+        }
+    }
+
+    const SCAFFOLD: &str = "SCAFFOLD BODY";
+    const API_REFERENCE: &str = "API REFERENCE BODY";
+    const VOCABULARY: &str = "# Tags\n\ntag stuff";
+    const BRIEF: &str = "BRIEF BODY";
+
+    fn fixed_now() -> Timestamp {
+        Timestamp::from_millis(1_000)
+    }
+
+    /// context-debugger.AC7.2: with a full six-section fixture, `assemble`'s text is byte-for-byte the
+    /// concatenation the composer has always produced — the leading separators, the section headers,
+    /// the notation legend inside the API block, and the trailing time sentence, in order. The legend
+    /// and the formatted datetime are interpolated from the same shared helpers the composer uses, so
+    /// this pins the assembly structure the refactor could disturb rather than those helpers' bodies.
+    #[test]
+    fn assemble_output_is_stable() {
+        let identity = [
+            entry("I am the first entry"),
+            entry("I am the second entry"),
+        ];
+        let assembled = assemble(
+            SCAFFOLD,
+            &identity,
+            API_REFERENCE,
+            VOCABULARY,
+            BRIEF,
+            fixed_now(),
+        );
+
+        let expected = format!(
+            "SCAFFOLD BODY\
+             \n\n# Who you are\n\nI am the first entry\n\nI am the second entry\
+             \n\n# What you can do\n\n{legend}\n\nAPI REFERENCE BODY\
+             \n\n# Tags\n\ntag stuff\
+             \n\n# What you know right now\n\nBRIEF BODY\
+             \n\n# Current time\n\nThe session begins on {datetime}.",
+            legend = method_notation_legend(),
+            datetime = time::format_datetime(fixed_now()),
+        );
+        assert_eq!(assembled.text(), expected);
+    }
+
+    /// context-debugger.AC1.2 (assembly half): the recorded spans name every present section in
+    /// emission order, and slicing the text by each span yields that section's whole contribution —
+    /// its leading separator, its header, and its body.
+    #[test]
+    fn sections_slice_to_their_contributions() {
+        let identity = [
+            entry("I am the first entry"),
+            entry("I am the second entry"),
+        ];
+        let assembled = assemble(
+            SCAFFOLD,
+            &identity,
+            API_REFERENCE,
+            VOCABULARY,
+            BRIEF,
+            fixed_now(),
+        );
+        let text = assembled.text();
+        let sections = assembled.sections();
+
+        let kinds: Vec<_> = sections.iter().map(|span| span.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PromptSectionKind::Scaffold,
+                PromptSectionKind::Identity,
+                PromptSectionKind::ApiReference,
+                PromptSectionKind::Vocabulary,
+                PromptSectionKind::Brief,
+                PromptSectionKind::CurrentTime,
+            ],
+        );
+
+        let slice = |index: usize| {
+            let span = &sections[index];
+            &text[span.start as usize..span.end as usize]
+        };
+        assert_eq!(slice(0), "SCAFFOLD BODY");
+        assert_eq!(
+            slice(1),
+            "\n\n# Who you are\n\nI am the first entry\n\nI am the second entry",
+        );
+        assert_eq!(
+            slice(2),
+            format!(
+                "\n\n# What you can do\n\n{}\n\nAPI REFERENCE BODY",
+                method_notation_legend()
+            ),
+        );
+        assert_eq!(slice(3), format!("\n\n{VOCABULARY}"));
+        assert_eq!(slice(4), "\n\n# What you know right now\n\nBRIEF BODY");
+        assert_eq!(
+            slice(5),
+            format!(
+                "\n\n# Current time\n\nThe session begins on {}.",
+                time::format_datetime(fixed_now())
+            ),
+        );
+
+        // The spans tile the whole text: contiguous from zero to its length, with no gaps.
+        let mut cursor = 0usize;
+        for span in sections {
+            assert_eq!(span.start as usize, cursor);
+            cursor = span.end as usize;
+        }
+        assert_eq!(cursor, text.len());
+    }
+
+    /// The conditional sections drop out cleanly: with no identity, vocabulary, or brief, only the
+    /// three unconditional kinds are recorded, and the remaining spans still tile the text.
+    #[test]
+    fn absent_sections_have_no_span_and_tiling_still_holds() {
+        let assembled = assemble(SCAFFOLD, &[], API_REFERENCE, "", "", fixed_now());
+        let text = assembled.text();
+        let sections = assembled.sections();
+
+        let kinds: Vec<_> = sections.iter().map(|span| span.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PromptSectionKind::Scaffold,
+                PromptSectionKind::ApiReference,
+                PromptSectionKind::CurrentTime,
+            ],
+        );
+
+        let mut cursor = 0usize;
+        for span in sections {
+            assert_eq!(span.start as usize, cursor);
+            cursor = span.end as usize;
+        }
+        assert_eq!(cursor, text.len());
     }
 }

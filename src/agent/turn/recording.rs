@@ -11,6 +11,7 @@ use crate::{
     ids::{MemoryId, Seq, TurnId},
     metrics::observe_model_call,
     model::{Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ToolChoice},
+    prompt::PromptSectionSpan,
     settings::CaptureLevel,
     store::Store,
 };
@@ -91,6 +92,7 @@ impl Recording {
         &self,
         request: &GenerateRequest,
         prev_sent_len: Option<usize>,
+        system_sections: &[PromptSectionSpan],
     ) -> Option<RequestRecord> {
         if self.capture != CaptureLevel::Full {
             return None;
@@ -98,6 +100,7 @@ impl Recording {
         Some(match prev_sent_len {
             None => RequestRecord::Base {
                 system: request.system.clone(),
+                system_sections: system_sections.to_vec(),
                 messages: request.messages.clone(),
                 tools: request.tools.clone(),
                 tool_choice: request.tool_choice,
@@ -135,6 +138,7 @@ pub(crate) async fn run_steps(
         model,
         engine,
         system,
+        system_sections,
         context,
         mut messages,
         initiation,
@@ -201,7 +205,7 @@ pub(crate) async fn run_steps(
                 response_format: None,
                 thinking: None,
             };
-            let record = recording.request_record(&request, prev_sent_len);
+            let record = recording.request_record(&request, prev_sent_len, system_sections);
             prev_sent_len = Some(messages.len());
             let GenerateResponse {
                 completion, usage, ..
@@ -230,7 +234,8 @@ pub(crate) async fn run_steps(
                         malformed = %truncate_for_log(&text),
                         "the model leaked special-token markup in its reply; resampling once"
                     );
-                    let retry_record = recording.request_record(&request, prev_sent_len);
+                    let retry_record =
+                        recording.request_record(&request, prev_sent_len, system_sections);
                     let retry = recording
                         .generate(&engine, model, &request, ModelPhase::Step, retry_record)
                         .await?;
