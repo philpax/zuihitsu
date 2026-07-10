@@ -144,8 +144,10 @@ fn load_synthesis_templates(engine: &Engine) -> Result<Option<SynthesisTemplates
     }))
 }
 
-/// Describe one stale memory: regenerate its description and arbitrate its beliefs from its public
-/// class entries, and in the same pass resolve the occurrence of any entry it left untimed since
+/// Describe one stale memory: regenerate its description from its public class entries, arbitrate its
+/// beliefs over the wider `Public` + `Attributed` slice (so two relayed-but-conflicting accounts the
+/// agent marked `Attributed` still collide), and in the same pass resolve the occurrence of any entry
+/// it left untimed since
 /// `described_seq` (spec §Time → "in the same pass"). The synthesis events and a `DescribePassCompleted`
 /// listing this memory commit in one batch, then materialize — so the memory reads fresh and its
 /// `last_described_seq` advances past its content, whether or not synthesis produced anything (a memory
@@ -197,6 +199,23 @@ async fn describe_one(
         .filter(|entry| entry.visibility == Visibility::Public)
         .cloned()
         .collect();
+    // Arbitration scans a wider slice than description synthesis: an `Attributed` entry surfaces to
+    // any present set like a `Public` one — its exclusion from descriptions preserves the "via
+    // <teller>" provenance marker, not audience safety — so two relayed-but-conflicting accounts the
+    // agent marked `Attributed` must still be arbitrated. Numbering `Public` + `Attributed` in one
+    // pool lets a public account and an attributed account of the same fact collide with each other,
+    // which is exactly the cross-posture contradiction worth catching. The same slice feeds both
+    // `arbitrate` and `arbitration_event`, so the returned 1-based numbers key back to it.
+    let arbitration_entries: Vec<EntryView> = entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.visibility,
+                Visibility::Public | Visibility::Attributed
+            )
+        })
+        .cloned()
+        .collect();
     let call = SynthesisCall {
         model,
         engine,
@@ -238,14 +257,15 @@ async fn describe_one(
         }
     }
 
-    if public_entries.len() >= 2 {
-        match arbitration::arbitrate(&call, &memory, &public_entries, &teller_names, now).await {
+    if arbitration_entries.len() >= 2 {
+        match arbitration::arbitrate(&call, &memory, &arbitration_entries, &teller_names, now).await
+        {
             Ok(arbitration) => {
                 if let Some(event) = arbitration::arbitration_event(
                     id,
                     &memory,
                     arbitration,
-                    &public_entries,
+                    &arbitration_entries,
                     model.model_id(),
                     templates.description.version,
                 ) {

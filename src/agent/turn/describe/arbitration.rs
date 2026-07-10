@@ -35,8 +35,9 @@ const ARBITRATION_SYSTEM: &str = "You audit a numbered set of statements about o
 /// incompatible values for the same fact (spec §Write path → arbitration). This is deliberately a
 /// separate call from [`super::synthesis::synthesize`]: bundled with the mandatory description rewrite, the conditional
 /// contradiction check was crowded out and the model omitted it; alone, the check is the reply's whole
-/// job. The statements are the same numbered, teller-annotated list the description saw, so the returned
-/// 1-based numbers key back to `entries` in [`arbitration_event`]. `Ok(None)` means no usable reply came
+/// job. The statements are a numbered, teller-annotated list of the memory's `Public` + `Attributed`
+/// entries — wider than the `Public`-only slice the description saw — so the returned 1-based numbers
+/// key back to `entries` in [`arbitration_event`]. `Ok(None)` means no usable reply came
 /// back; a returned [`ExtractedArbitration`] is validated (>= 2 competing, non-empty statement) before
 /// it emits anything.
 pub(super) async fn arbitrate(
@@ -70,8 +71,9 @@ pub(super) async fn arbitrate(
 
 /// Map a flagged conflict to a `BeliefArbitrated`, or `None` if it is malformed — fewer than two
 /// distinct competing entries, or no reconciling statement (spec §Write path → arbitration). Statement
-/// numbers are 1-based into `entries`, which are the Public entries the description synthesizes over,
-/// so arbitration records a choice between conflicting *public* assertions.
+/// numbers are 1-based into `entries`, which are the `Public` + `Attributed` entries arbitration scans
+/// (a wider slice than the `Public`-only entries the description synthesizes over), so arbitration can
+/// record a collision between a public account and an account the agent relayed as `Attributed`.
 pub(super) fn arbitration_event(
     memory_id: MemoryId,
     memory: &MemoryView,
