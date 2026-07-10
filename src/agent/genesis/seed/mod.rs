@@ -38,8 +38,8 @@ pub(super) fn seed_tags() -> Vec<TagDef> {
 pub(super) fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, Operates, OperatorOf, PartOf,
-        ParticipatesIn, SameAs,
+        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, OperatedBy, OperatorOf,
+        PartOf, ParticipatesIn, SameAs,
     };
     vec![
         RelationDef {
@@ -54,7 +54,7 @@ pub(super) fn seed_relations() -> Vec<RelationDef> {
         },
         RelationDef {
             name: OperatorOf,
-            inverse: Operates,
+            inverse: OperatedBy,
             from_card: Many,
             to_card: Many,
             symmetric: false,

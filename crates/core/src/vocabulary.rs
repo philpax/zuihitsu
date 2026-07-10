@@ -78,7 +78,7 @@ pub enum RelationName {
     /// The inverse label of [`RelationName::CreatedBy`].
     Created,
     /// The inverse label of [`RelationName::OperatorOf`].
-    Operates,
+    OperatedBy,
     /// The inverse label of [`RelationName::Knows`].
     KnownBy,
     /// The inverse label of [`RelationName::ParticipatesIn`].
@@ -102,7 +102,7 @@ impl RelationName {
             "participates_in" => RelationName::ParticipatesIn,
             "part_of" => RelationName::PartOf,
             "created" => RelationName::Created,
-            "operates" => RelationName::Operates,
+            "operated_by" => RelationName::OperatedBy,
             "known_by" => RelationName::KnownBy,
             "has_participant" => RelationName::HasParticipant,
             "contains" => RelationName::Contains,
@@ -119,7 +119,7 @@ impl RelationName {
             RelationName::ParticipatesIn => "participates_in",
             RelationName::PartOf => "part_of",
             RelationName::Created => "created",
-            RelationName::Operates => "operates",
+            RelationName::OperatedBy => "operated_by",
             RelationName::KnownBy => "known_by",
             RelationName::HasParticipant => "has_participant",
             RelationName::Contains => "contains",

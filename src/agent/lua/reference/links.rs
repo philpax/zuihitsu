@@ -10,7 +10,11 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
             "Record a relationship between this memory and another under a registered relation. When \
              two memories relate — two people who know each other, an event that belongs to a topic — \
              capture it with link rather than only describing it in prose, so the connection is \
-             queryable and traversable (pick the fitting relation from the registry). For a symmetric \
+             queryable and traversable (pick the fitting relation from the registry). The relation \
+             reads as a sentence from this memory to the other: person:link(\"participates_in\", \
+             event) records that the person participates in the event. Linking from the other side, \
+             use the registry's inverse label — event:link(\"has_participant\", person) — rather \
+             than the forward label, which would record the relationship backwards. For a symmetric \
              relation (shown in the registry), link once — the reverse direction is implied. A \
              relationship you record about someone — a belief, a judgment — defaults private to the \
              teller when a participant asserts it, so an aside about B stays hidden from B; a relayed \
