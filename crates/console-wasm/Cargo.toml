@@ -1,6 +1,6 @@
 # The console's WASM bridge: a wasm-bindgen API over zuihitsu-core's materializer, so the frontend
 # folds an event log into queryable graph state with the agent's own projection code (see
-# console/PLAN.md). Built with wasm-pack; the generated package is checked in beside the ts-rs types.
+# console/CONTRIBUTING.md). Built with wasm-pack; the generated package is checked in beside the ts-rs types.
 [package]
 name = "console-wasm"
 version = "0.1.0"

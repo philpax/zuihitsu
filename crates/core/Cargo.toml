@@ -1,5 +1,5 @@
 # The wasm-compatible core of the agent: the event-log wire types, the materialized graph, and the
-# pure projection logic the console replays in the browser (see console/PLAN.md). Deliberately free
+# pure projection logic the console replays in the browser (see console/CONTRIBUTING.md). Deliberately free
 # of the host-only machinery (mlua, tokio, reqwest, axum, async-openai, file-backed SQLite), so it
 # compiles to wasm32-unknown-unknown. The main `zuihitsu` crate depends on this and re-exports it, so
 # the rest of the codebase reaches these types at their existing paths.

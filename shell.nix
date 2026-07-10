@@ -1,7 +1,7 @@
 # Development shell providing a wasm C toolchain for the console's WASM build.
 #
 # The console compiles the agent's rusqlite-backed materializer to wasm32-unknown-unknown (see
-# console/PLAN.md), so sqlite-wasm-rs must compile SQLite's C sources for that target. The default
+# console/CONTRIBUTING.md), so sqlite-wasm-rs must compile SQLite's C sources for that target. The default
 # Nix clang wrapper injects the host glibc include paths, which a freestanding wasm compile must
 # never see — it dies on `__GLIBC_USE` not being defined. The fix is to point cc-rs at an unwrapped
 # clang for the wasm target only; the host C toolchain (mlua, rusqlite's bundled SQLite, sqlite-vec)

@@ -1,7 +1,7 @@
 //! The console's WASM bridge.
 //!
 //! A [`Replica`] holds an event log and the graph it folds into, using `zuihitsu-core`'s real
-//! materializer — the same projection the live agent runs (see `console/PLAN.md`). The frontend
+//! materializer — the same projection the live agent runs (see `console/CONTRIBUTING.md`). The frontend
 //! constructs one from a run's `Event[]` (a stored run's events, or a live `/control` stream) and
 //! queries it for the State and Time-travel views. The event-stream views (Events, Conversation)
 //! and the surrounding chrome render off the JSON directly, so they need nothing here.

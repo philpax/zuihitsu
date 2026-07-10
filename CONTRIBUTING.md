@@ -215,7 +215,7 @@ eval replay --mode resume --step K -s <scenario> --run N eval/<name>.json  # red
 
 ## Frontend (the console)
 
-The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React Compiler enabled (so the data-heavy views auto-memoize; prefer plain derivation over hand-written `useMemo`/`useCallback`). See `console/PLAN.md` for the architecture and `docs/spec.md` → **Observability** for what the views are.
+The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React Compiler enabled (so the data-heavy views auto-memoize; prefer plain derivation over hand-written `useMemo`/`useCallback`). See `console/CONTRIBUTING.md` for an onboarding guide to its structure and motifs.
 
 ### Checks
 

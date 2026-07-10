@@ -29,11 +29,11 @@ The agent acts by reading and writing that memory. Each turn, it emits Lua again
 
 - `zuihitsu` (no subcommand) — the long-running agent server.
 - `zuihitsu <subcommand>` — the operator CLI, a client of the running server (`zuihitsu events`, `zuihitsu memory`, and so on).
-- `console/` — the web console (Vite, React, and TypeScript). See `console/PLAN.md`.
+- `console/` — the web console (Vite, React, and TypeScript). See `console/CONTRIBUTING.md`.
 - `crates/eval/` — the evaluation harness: scenario-based behavioral tests run against a real model.
 
 ## Going deeper
 
 - `docs/spec.md` — the design spec: the architecture, the trust model, and every subsystem in detail.
 - `CONTRIBUTING.md` — the conventions and the checks each change must pass.
-- `console/PLAN.md` — the console's architecture.
+- `console/CONTRIBUTING.md` — an onboarding guide to the console's structure and motifs.
