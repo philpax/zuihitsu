@@ -145,7 +145,7 @@ Console and platform URLs never reach the agent. A connector normalizes every de
 
 ### The seed ontology
 
-The relations seeded at genesis (`seed_relations()` in `src/agent/genesis/seed.rs`) are a minimum-viable ontology: the structural universals the system itself leans on — identity, participation, composition, origin, operatorship, and acquaintance. Social and environmental semantics are the agent's to coin at runtime, not ours to preload. Document any change to the set at `seed_relations()`, and point new prose there rather than restating it.
+The relations seeded at genesis (`seed_relations()` in `src/agent/genesis/seed/mod.rs`) are a minimum-viable ontology: the structural universals the system itself leans on — identity, participation, composition, placement, origin, operatorship, and acquaintance. Social and environmental semantics are the agent's to coin at runtime, not ours to preload. Document any change to the set at `seed_relations()`, and point new prose there rather than restating it.
 
 ### Prompt-surface discipline
 
