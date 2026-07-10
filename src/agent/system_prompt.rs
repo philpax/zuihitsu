@@ -135,14 +135,14 @@ pub fn render_tag_vocabulary(tags: &[TagVocabularyEntry]) -> String {
 
 /// Render the registered link relations as a prompt section, or the empty string when none exist.
 /// Each line is `name / inverse — from-to[, symmetric][, reflexive]: description`, so the agent
-/// knows which relations `mem:link` accepts and what each is for (register new ones with
+/// knows which relations `links.create` accepts and what each is for (register new ones with
 /// `links.register`).
 pub fn render_relation_registry(relations: &[RelationView]) -> String {
     if relations.is_empty() {
         return String::new();
     }
     let mut out = String::from(
-        "# Relations\n\nRelations you can link with <memory>:link (register new ones with links.register):",
+        "# Relations\n\nRelations you can link with links.create(subject, relation, object) (register new ones with links.register):",
     );
     for relation in relations {
         let mut traits = String::new();

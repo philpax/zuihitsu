@@ -127,7 +127,7 @@ fn occurred_at_from_lua(lua: &Lua, table: &Table) -> mlua::Result<Option<Tempora
 
 /// Resolve an append's `told_by` option to the participant [`Teller`] it attributes the entry to.
 /// Dual-accepts a person handle (from `memory.get`/`memory.create`) or a name string, mirroring
-/// `:link`'s target resolution, so a relayed claim recorded while someone else speaks is stamped with
+/// `links.create`'s target resolution, so a relayed claim recorded while someone else speaks is stamped with
 /// its real source — "X said …" told by X, not the current speaker. An unknown name is a teachable
 /// error; so is a value that is neither a handle nor a name.
 pub(crate) fn resolve_teller(api: &BlockApi, value: Value) -> mlua::Result<Teller> {

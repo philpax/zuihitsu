@@ -235,7 +235,7 @@ pub struct AppendOptions {
     pub told_by: Option<Teller>,
 }
 
-/// The overrides a `mem:link` call accepts: `visibility` forces the visibility instead of the
+/// The overrides a `links.create` call accepts: `visibility` forces the visibility instead of the
 /// write-time default. Deserialized from the Lua `opts` table.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]

@@ -171,7 +171,7 @@ async fn adjudicate(
             produced_by,
         });
         // On acceptance, author the `same_as` directly with `Adjudicated` provenance — the one path to a
-        // merge without the operator. The agent's own `mem:link("same_as")` is still rejected at
+        // merge without the operator. The agent's own `links.create(a, "same_as", b)` is still rejected at
         // `change_link`; only this pass emits an adjudicated link, on a passing verdict.
         if verdict.accepted {
             events.push(EventPayload::link_created(

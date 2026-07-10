@@ -2,14 +2,16 @@
 
 use super::*;
 
-/// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `revise`, `link`,
-/// `unlink`) on
-/// the metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
+/// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `revise`) on the
+/// metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
 /// backs the entry handles the content reads and `append` return.
 ///
-/// `features` gates the linking (`:link`, `:unlink`, `:outgoing`, `:incoming`, `:links`),
-/// merging (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods
-/// (`:append`, `:supersede`, `:revise`, `:set_volatility`, `:rename`) are always installed.
+/// `features` gates the link readers (`:outgoing`, `:incoming`, `:links`), merging
+/// (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods (`:append`,
+/// `:supersede`, `:revise`, `:set_volatility`, `:rename`) are always installed. Link *writes*
+/// (`links.create`/`links.remove`) live on the `links` module table rather than on a handle (see
+/// [`super::modules::links_table`]), so both endpoints read as explicit arguments and neither is a
+/// privileged receiver.
 pub(super) fn install_handle_methods(
     lua: &Lua,
     api: &BlockApi,
@@ -189,53 +191,11 @@ pub(super) fn install_handle_methods(
         })?,
     )?;
 
-    // mem:link(relation, other[, opts]) / mem:unlink(relation, other) — record (or clear) a relation
-    // such as `knows`, locking both endpoints. The script names the relation as a string; it is
-    // recognized into its typed [`RelationName`] here, at the wrapper boundary. The optional `opts`
-    // table carries `visibility` to force the link's posture instead of the write-time default.
+    // The link *writers* (`links.create`/`links.remove`) live on the `links` module table, not on a
+    // handle, so the subject and object read as explicit arguments with neither a privileged receiver
+    // (see [`super::modules::links_table`]). The link *readers* stay handle methods, gated on the same
+    // `linking` feature.
     if features.linking {
-        methods.set(
-            "link",
-            lua.create_async_function({
-                let api = api.clone();
-                move |lua, (this, relation, other, opts): (HandleSelf, String, Value, Value)| {
-                    let api = api.clone();
-                    async move {
-                        let from = handle_id(&this.0)?;
-                        let to = link_target_id(&api, other)?;
-                        api.lock_all([from, to]).await;
-                        let opts = if opts.is_nil() {
-                            None
-                        } else {
-                            Some(lua.from_value::<LinkOptions>(opts)?)
-                        };
-                        api.block
-                            .lock()
-                            .link(from, to, RelationName::new(&relation), opts)
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
-                    }
-                }
-            })?,
-        )?;
-        methods.set(
-            "unlink",
-            lua.create_async_function({
-                let api = api.clone();
-                move |_, (this, relation, other): (HandleSelf, String, Value)| {
-                    let api = api.clone();
-                    async move {
-                        let from = handle_id(&this.0)?;
-                        let to = link_target_id(&api, other)?;
-                        api.lock_all([from, to]).await;
-                        api.block
-                            .lock()
-                            .unlink(from, to, RelationName::new(&relation))
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))
-                    }
-                }
-            })?,
-        )?;
-
         // mem:outgoing(relation) / mem:incoming(relation) — the memory's links under `relation` out to
         // other memories, across its merged identity, in the canonical forward (outgoing) or reverse
         // (incoming) direction. Each result keeps the far memory as an actionable handle and renders as

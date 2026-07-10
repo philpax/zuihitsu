@@ -16,14 +16,14 @@ async fn outgoing_under_an_unregistered_relation_is_a_teachable_error() {
 async fn a_registered_relation_can_be_linked_and_listed() {
     let h = Harness::new();
     // Register a relation and use it to link two memories in the same block — read-your-writes makes
-    // the pending registration visible to mem:link.
+    // the pending registration visible to links.create.
     let seeded = h
         .run(
             r#"
         links.register({ name = "mentor_of", inverse = "mentored_by", from_card = "many", to_card = "many" })
         local dave = memory.create(PERSON_DAVE)
         local erin = memory.create(PERSON_ERIN)
-        dave:link("mentor_of", erin, { visibility = "public" })
+        links.create(dave, "mentor_of", erin, { visibility = "public" })
         return "ok"
         "#,
         )
@@ -80,7 +80,7 @@ async fn a_link_can_be_asserted_under_the_inverse_label() {
         links.register({ name = "mentor_of", inverse = "mentored_by", from_card = "many", to_card = "many" })
         local dave = memory.create(PERSON_DAVE)
         local erin = memory.create(PERSON_ERIN)
-        erin:link("mentored_by", dave, { visibility = "public" })
+        links.create(erin, "mentored_by", dave, { visibility = "public" })
         return "ok"
         "#,
         )

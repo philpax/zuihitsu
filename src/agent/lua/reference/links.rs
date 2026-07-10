@@ -1,54 +1,11 @@
-//! Link-related API reference entries: `<memory>:link`, `:unlink`, `:outgoing`, `:incoming`, `:links`,
-//! and the `links.*` module (`register`, `list`, `get`).
+//! Link-related API reference entries: the `<memory>:outgoing`/`:incoming`/`:links` readers, and
+//! the `links.*` module (`create`, `remove`, `register`, `list`, `get`).
 
 use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
 
-/// The link handle methods, gated on the `linking` feature.
+/// The link reader handle methods (`:outgoing`/`:incoming`/`:links`), gated on the `linking`
+/// feature. The link *writers* are `links.*` module functions (see [`module_entries`]).
 pub(super) fn handle_methods() -> Vec<ApiEntry> {
-    let link = AE::new("<memory>:link")
-        .description(
-            "Record a relationship between this memory and another under a registered relation. When \
-             two memories relate — two people who know each other, an event that belongs to a topic — \
-             capture it with link rather than only describing it in prose, so the connection is \
-             queryable and traversable (pick the fitting relation from the registry). The relation \
-             reads as a sentence from this memory to the other: person:link(\"participates_in\", \
-             event) records that the person participates in the event. Linking from the other side, \
-             use the registry's inverse label — event:link(\"has_participant\", person) — rather \
-             than the forward label, which would record the relationship backwards. For a symmetric \
-             relation (shown in the registry), link once — the reverse direction is implied. A \
-             relationship you record about someone — a belief, a judgment — defaults private to the \
-             teller when a participant asserts it, so an aside about B stays hidden from B; a relayed \
-             fact (the teller is neither endpoint) surfaces to anyone carrying provenance. Force the \
-             posture with opts.visibility when the default does not fit.",
-        )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
-        .required(
-            "other",
-            AT::Handle,
-            "the memory to link to — a handle (e.g. context.current()) or its name as a string, \
-             which is looked up",
-        )
-        .optional(
-            "opts",
-            object().optional(
-                "visibility",
-                enum_of(["public", "attributed", "private"]),
-                "force the link's visibility instead of the write-time default — same postures as \
-                 content: public, attributed (secondhand), or private (teller-gated, subject-guarded \
-                 at the target)",
-            ),
-            "overrides for the link — visibility forces the posture instead of the write-time default",
-        );
-
-    let unlink = AE::new("<memory>:unlink")
-        .description("Remove a link made with <memory>:link when the relationship no longer holds.")
-        .required("relation", AT::String, "the relation")
-        .required(
-            "other",
-            AT::Handle,
-            "the memory the link points to — a handle or its name as a string, which is looked up",
-        );
-
     let outgoing = AE::new("<memory>:outgoing")
         .description(
             "The memories this one links to under a relation, across its whole merged identity, \
@@ -87,14 +44,73 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
         )
         .returns(AT::Object(Vec::new()).list());
 
-    vec![link, unlink, outgoing, incoming, links]
+    vec![outgoing, incoming, links]
 }
 
-/// The `links.*` module entries, gated on the `linking` feature.
+/// The `links.*` module entries, gated on the `linking` feature — the `create`/`remove` edge writers
+/// and the `register`/`list`/`get` registry.
 pub(super) fn module_entries() -> Vec<ApiEntry> {
+    let links_create = AE::new("links.create")
+        .description(
+            "Record a relationship between two memories under a registered relation. When two \
+             memories relate — two people who know each other, an event that belongs to a topic — \
+             capture it with links.create rather than only describing it in prose, so the connection \
+             is queryable and traversable (pick the fitting relation from the registry). The \
+             arguments read as a sentence: links.create(person, \"participates_in\", event) records \
+             that the person participates in the event — give the subject first, then the relation, \
+             then the object, and the edge is stored subject → object. The registry's inverse label \
+             names the same edge read the other way, so the readers surface it from the object's side \
+             too (that event's incoming participants). For a symmetric relation (shown in the \
+             registry), create it once — the reverse direction is implied. A relationship you record \
+             about someone — a belief, a judgment — defaults private to the teller when a participant \
+             asserts it, so an aside about B stays hidden from B; a relayed fact (the teller is \
+             neither endpoint) surfaces to anyone carrying provenance. Force the posture with \
+             opts.visibility when the default does not fit.",
+        )
+        .required(
+            "subject",
+            AT::Handle,
+            "the memory the relation runs from — a handle (e.g. context.current()) or its name as a \
+             string, which is looked up",
+        )
+        .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
+        .required(
+            "object",
+            AT::Handle,
+            "the memory the relation runs to — a handle or its name as a string, which is looked up",
+        )
+        .optional(
+            "opts",
+            object().optional(
+                "visibility",
+                enum_of(["public", "attributed", "private"]),
+                "force the link's visibility instead of the write-time default — same postures as \
+                 content: public, attributed (secondhand), or private (teller-gated, subject-guarded \
+                 at the target)",
+            ),
+            "overrides for the link — visibility forces the posture instead of the write-time default",
+        );
+
+    let links_remove = AE::new("links.remove")
+        .description(
+            "Remove a link made with links.create when the relationship no longer holds; name the \
+             same subject, relation, and object.",
+        )
+        .required(
+            "subject",
+            AT::Handle,
+            "the memory the relation runs from — a handle or its name as a string, which is looked up",
+        )
+        .required("relation", AT::String, "the relation")
+        .required(
+            "object",
+            AT::Handle,
+            "the memory the relation runs to — a handle or its name as a string, which is looked up",
+        );
+
     let links_register = AE::new("links.register")
         .description(
-            "Register a link relation, usable thereafter under either label by <memory>:link — this \
+            "Register a link relation, usable thereafter under either label by links.create — this \
              declares the relation that edges instantiate. Re-registering a name updates it.",
         )
         .required(
@@ -134,7 +150,7 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
         .description(
             "The whole relation registry, each a table { name, inverse, from_card, to_card, \
              symmetric, reflexive, description } that prints as a readable line — the relations \
-             <memory>:link accepts.",
+             links.create accepts.",
         )
         .returns(AT::Object(Vec::new()).list());
 
@@ -143,5 +159,11 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
         .required("name", AT::String, "the relation or its inverse label")
         .returns(AT::Object(Vec::new()).optional());
 
-    vec![links_register, links_list, links_get]
+    vec![
+        links_create,
+        links_remove,
+        links_register,
+        links_list,
+        links_get,
+    ]
 }

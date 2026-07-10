@@ -250,9 +250,11 @@ pub(super) enum HandleError {
     InvalidMemoryHandle { id: String, source: UlidError },
     /// An entry handle's `id` is not a ULID.
     InvalidEntryHandle { id: String, source: UlidError },
-    /// `:link`/`:unlink` was given a name string that is not a known memory.
+    /// `links.create`/`links.remove` was given a name string — in the subject or the object
+    /// position — that is not a known memory.
     UnknownLinkTarget { name: String },
-    /// `:link`/`:unlink` was given a value that is neither a handle nor a name string.
+    /// `links.create`/`links.remove` was given a value — in the subject or the object position —
+    /// that is neither a handle nor a name string.
     WrongLinkTargetType { type_name: &'static str },
     /// An append's `told_by` was given a name string that is not a known memory.
     UnknownTeller { name: String },
@@ -286,8 +288,8 @@ impl std::fmt::Display for HandleError {
             ),
             HandleError::WrongLinkTargetType { type_name } => write!(
                 f,
-                "link target must be a memory handle (from memory.get/create) or a memory name, \
-                 got {type_name}"
+                "a link's subject and object must each be a memory handle (from memory.get/create) \
+                 or a memory name, got {type_name}"
             ),
             HandleError::UnknownTeller { name } => write!(
                 f,

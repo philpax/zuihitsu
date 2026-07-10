@@ -24,7 +24,7 @@ async fn details_renders_the_whole_record() {
         dave:append("Trip to Yosemite", { visibility = "public", occurred_at = calendar.date("2027-05-01") })
         dave:tag("hobbies")
         dave:set_volatility("high")
-        dave:link("part_of", topic)
+        links.create(dave, "part_of", topic)
         return "ok"
         "#,
         )

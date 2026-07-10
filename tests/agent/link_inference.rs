@@ -25,7 +25,7 @@ async fn link_inference_registers_and_links_from_content() {
     h.baseline_link_inference();
 
     // The turn creates person/dave and topic/zephyr, appending a public entry about authorship.
-    // The agent does NOT call mem:link — the inference pass should extract the relationship.
+    // The agent does NOT call links.create — the inference pass should extract the relationship.
     let model = ScriptedModel::new([
         run_lua_call(
             r#"memory.create(PERSON_DAVE, "a person")
@@ -336,12 +336,13 @@ async fn link_inference_degrades_gracefully_with_no_usable_reply() {
     );
 }
 
-/// With `linking` disabled, calling `:link` from Lua yields a nil-call error (the method is not
-/// installed), while the link-inference pass — which runs as a model call, not through the agent's
-/// Lua — still creates the link. This is the AC.9 contract: the three gates (Lua registration, API
-/// reference, scaffold) all drop linking, so the inference pass is the sole path to a link.
+/// With `linking` disabled, calling `links.create` from Lua yields a nil-index error (the `links`
+/// table is not installed), while the link-inference pass — which runs as a model call, not through
+/// the agent's Lua — still creates the link. This is the AC.9 contract: the three gates (Lua
+/// registration, API reference, scaffold) all drop linking, so the inference pass is the sole path
+/// to a link.
 #[tokio::test]
-async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
+async fn disabled_linking_rejects_links_create_but_inference_still_links() {
     let disabled = InstanceFeatures {
         linking: false,
         ..Default::default()
@@ -364,7 +365,7 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
     h.baseline_link_inference();
 
     // Create the two memories through a turn (the agent-authored path that sets visibility
-    // correctly), appending the authorship entry to topic/zephyr — but NOT calling mem:link.
+    // correctly), appending the authorship entry to topic/zephyr — but NOT calling links.create.
     let create_model = ScriptedModel::new([
         run_lua_call(
             r#"memory.create(PERSON_DAVE, "a person")
@@ -377,20 +378,21 @@ async fn disabled_linking_rejects_mem_link_but_inference_still_links() {
         .await
         .unwrap();
 
-    // Now attempt a `:link` call directly — it must fail because `:link` is not installed when
-    // linking is disabled. The block terminates with Luau's absent-method call error, which names
-    // the missing method ("attempt to call missing method 'link' of table").
+    // Now attempt a `links.create` call directly — it must fail because the `links` table is not
+    // installed when linking is disabled, so indexing it for `create` faults on a nil value. The
+    // block terminates with Luau's nil-index error naming the accessed field ("attempt to index nil
+    // with 'create'").
     let link_outcome = h
-        .run(r#"memory.get("topic/zephyr"):link("authored_by", memory.get(PERSON_DAVE))"#)
+        .run(r#"links.create(memory.get("topic/zephyr"), "authored_by", memory.get(PERSON_DAVE))"#)
         .await;
     match link_outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             assert!(
-                message.contains("'link'") && message.contains("missing method"),
-                "a disabled :link should surface an absent-method call error, got: {message}"
+                message.contains("create") && message.contains("nil"),
+                "a disabled links.create should surface a nil-index call error, got: {message}"
             );
         }
-        other => panic!("expected the :link call to terminate, got {other:?}"),
+        other => panic!("expected the links.create call to terminate, got {other:?}"),
     }
 
     // The link was not created by the agent (the block terminated before it). Now drive the

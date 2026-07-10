@@ -302,7 +302,7 @@ async fn a_traversing_read_locks_the_whole_class() {
             &h.engine,
             &operator,
             &common::prepare_script(
-                r#"memory.get(PERSON_A):link("same_as", memory.get(PERSON_B_AT_DISCORD))"#,
+                r#"links.create(memory.get(PERSON_A), "same_as", memory.get(PERSON_B_AT_DISCORD))"#,
             ),
         )
         .await

@@ -108,7 +108,7 @@ async fn memory_and_link_handles_concatenate_as_their_rendered_text() {
         links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
         local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
         local ship = memory.create(EVENT_LAUNCH, "Ship the migration")
-        ship:link("part_of", topic)
+        links.create(ship, "part_of", topic)
         "#,
     )
     .await;

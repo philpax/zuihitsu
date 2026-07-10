@@ -35,8 +35,8 @@ pub(crate) struct SearchOpts {
 /// toward reusing the memory it found rather than minting a duplicate. `more_relations` counts the
 /// salient links elided past the render cap, for the trailing `(+N more)` note. `id` backs the row's
 /// double life as a memory handle: it rides as the hit table's `id` field so the hit's metatable can
-/// fall through to the handle methods, letting `hit:append(…)`, `hit:details()`, and `hit:link(…)`
-/// act on the found memory without a `memory.get` round-trip.
+/// fall through to the handle methods, letting `hit:append(…)` and `hit:details()` act on the found
+/// memory without a `memory.get` round-trip.
 pub(crate) struct SearchRow {
     pub(crate) id: MemoryId,
     pub(crate) name: String,

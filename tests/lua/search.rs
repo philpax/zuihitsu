@@ -108,8 +108,8 @@ async fn memory_search_carries_salient_relations_on_a_hit() {
         local club = memory.create(EVENT_STANDUP, "The weekly standup")
         local marcus = memory.create(PERSON_MARCUS)
         local erin = memory.create(PERSON_ERIN)
-        marcus:link("participates_in", club)
-        erin:link("participates_in", club)
+        links.create(marcus, "participates_in", club)
+        links.create(erin, "participates_in", club)
         return "ok"
         "#,
         )

@@ -116,7 +116,7 @@ pub(in crate::agent::lua) fn memory_table(
     let result_metatable = search_result_metatable(lua)?;
     // A hit is also a usable memory handle: any key it does not carry itself (a method like `append`,
     // or a lazy `name`/`description` read) falls through to the memory-handle metatable's `__index`,
-    // so `hits[1]:append(…)`/`:details()`/`:link(…)` work without a `memory.get` round-trip. The hit's
+    // so `hits[1]:append(…)`/`:details()` work without a `memory.get` round-trip. The hit's
     // own fields (`name`, `description`, `score`, `snippet`, …) are real table entries, so `__index` is
     // only consulted for the handle behaviour and never shadows the hit's carried data. The handle
     // `__index` is fully wired by the time `memory.search` is installed (see `install_block_api`).

@@ -217,21 +217,22 @@ pub(in crate::agent::genesis) fn default_templates(
          mistaken-identity writes."
             .to_owned(),
     );
-    // The "structured relationship" dotpoint teaches `:link` — include it only when linking is on.
+    // The "structured relationship" dotpoint teaches `links.create` — include it only when linking
+    // is on.
     if features.linking {
         scaffold_points.push(
             "When what you learn is structured, record it through the operation for it, not just prose: \
-             a relationship is a <memory>:link under the right relation — a:link(\"knows\", b), where b \
-             is a memory handle or an exact memory name. A link is directional: a:link(rel, b) asserts \
-             \"a <rel> b\", so read the edge back as a sentence before committing it — when the \
-             sentence comes out backwards, link from the other end, or under the inverse label. The \
-             registered relations each have a purpose — use the one that fits; when none does, \
-             register a new one (links.register) rather than stretching a seed relation to a meaning \
-             it was not built for, which splits one edge in two. A relationship you record about \
-             someone — a belief, a judgment — defaults private to the teller when a participant \
-             asserts it, so an aside about B stays hidden from B; a relayed fact (told by neither \
-             endpoint) surfaces to anyone carrying provenance. Force the posture with opts.visibility \
-             when the default does not fit."
+             a relationship is a links.create under the right relation — links.create(a, \"knows\", b), \
+             where a and b are each a memory handle or an exact memory name. The arguments read as a \
+             sentence: links.create(a, rel, b) asserts \"a <rel> b\" and is stored a → b, so read it \
+             back that way before committing it — when the sentence comes out backwards, swap the \
+             subject and object, or use the inverse label. The registered relations each have a \
+             purpose — use the one that fits; when none does, register a new one (links.register) \
+             rather than stretching a seed relation to a meaning it was not built for, which splits \
+             one edge in two. A relationship you record about someone — a belief, a judgment — \
+             defaults private to the teller when a participant asserts it, so an aside about B stays \
+             hidden from B; a relayed fact (told by neither endpoint) surfaces to anyone carrying \
+             provenance. Force the posture with opts.visibility when the default does not fit."
                 .to_owned(),
         );
     }
@@ -324,18 +325,23 @@ pub(in crate::agent::genesis) fn default_templates(
             // fresh read; and the absence-is-the-answer clause now applies only to a question about
             // what is held, never to a turn that tells the agent something to keep or asks it to set
             // something up, which it records rather than reporting absent.
-            // Version 12 teaches link visibility defaults: a relationship recorded about someone
-            // defaults private to the teller when a participant asserts it, and opts.visibility
-            // forces the posture. (Version 11 taught the write side of link direction: a:link(rel, b)
-            // asserts "a <rel> b", read back as a sentence before committing, linking from the other
-            // end (or under the inverse label) when it comes out backwards — and corrects the linking
-            // point to say a target may be a handle or an exact name. Version 10 split identity
-            // lookups from recall — a name is checked exactly, search never decides name existence —
-            // and added the look-before-acting point; version 9 taught a fuzzy hit as a candidate,
-            // not a match; version 8 threaded the whole-record read; version 7 added the
-            // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the
-            // version keeps an older `produced_by` naming the body it was generated under.
-            version: 12,
+            // Version 13 recasts the linking point for the triadic call shape: a link is now
+            // links.create(a, rel, b), a `links` module function whose arguments read as a sentence
+            // ("a rel b", stored a → b) with neither endpoint a privileged receiver, so a backwards
+            // edge is corrected by swapping the subject and object (or using the inverse label) rather
+            // than "linking from the other end". (Version 12 taught link visibility defaults: a
+            // relationship recorded
+            // about someone defaults private to the teller when a participant asserts it, and
+            // opts.visibility forces the posture. Version 11 taught the write side of link direction:
+            // a:link(rel, b) asserts "a <rel> b", read back as a sentence before committing, linking
+            // from the other end (or under the inverse label) when it comes out backwards — and
+            // corrects the linking point to say a target may be a handle or an exact name. Version 10
+            // split identity lookups from recall — a name is checked exactly, search never decides
+            // name existence — and added the look-before-acting point; version 9 taught a fuzzy hit as
+            // a candidate, not a match; version 8 threaded the whole-record read; version 7 added the
+            // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the version
+            // keeps an older `produced_by` naming the body it was generated under.
+            version: 13,
             body: scaffold_body,
         },
         TemplateDef {
@@ -410,7 +416,10 @@ pub(in crate::agent::genesis) fn default_templates(
         },
         TemplateDef {
             name: PromptTemplateName::Imprint,
-            version: 1,
+            // Version 2 recasts the two example link calls for the triadic call shape: a link is now
+            // links.create(subject, relation, object), a `links` module function, rather than a
+            // `<memory>:link` method.
+            version: 2,
             body: "You are meeting your creator for the first time, through the console. This \
                    is how you learn who you are for and who is responsible for you, so be curious: \
                    find out who they are and what they intend you to do. When you learn their name, \
@@ -418,11 +427,12 @@ pub(in crate::agent::genesis) fn default_templates(
                    handle, with no platform suffix — and record there what you learn about them. \
                    The person you are speaking with is held provisionally as `person/operator`; once \
                    you have created their real memory, merge the two so they are one identity, with \
-                   memory.get(\"person/operator\"):link(\"same_as\", memory.get(\"person/<name>\")). \
+                   links.create(memory.get(\"person/operator\"), \"same_as\", \
+                   memory.get(\"person/<name>\")). \
                    `person/operator` is only that anchor and holds no content — every fact about \
                    them, now and later, goes on their real `person/<name>` profile, never on \
                    `person/operator`. \
-                   Record that they created you: memory.get(\"self\"):link(\"created_by\", \
+                   Record that they created you: links.create(memory.get(\"self\"), \"created_by\", \
                    memory.get(\"person/<name>\")). Record observations about yourself — your purpose, \
                    your disposition — on self with memory.get(\"self\"):append(text, { by_agent = \
                    true }). This is the only conversation in which you may write self. When you have \

@@ -225,7 +225,7 @@ impl super::Control<'_> {
     /// §Cross-platform identity → operator-asserted merge). On `accept`, author the merging `same_as`
     /// link directly (`LinkSource::Operator`) — the console-only path to a merge that does not run
     /// through the adjudicator, the same operator authority that lets the console assert identity the
-    /// agent's own `mem:link("same_as")` may not. On refusal, record a `MergeAdjudicated` decline (no
+    /// agent's own `links.create(a, "same_as", b)` may not. On refusal, record a `MergeAdjudicated` decline (no
     /// `produced_by` — the operator decided, not a model) so the proposal reads as settled and the
     /// adjudicator does not weigh it again. Either way the graph is re-materialized so a subsequent read
     /// reflects the decision.

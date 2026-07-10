@@ -174,8 +174,8 @@ mod harness {
         }
 
         /// As [`Harness::default`], but with a narrowed API feature set — for tests that exercise a
-        /// behaviour in isolation (e.g. disabling `linking` to verify the agent cannot call `:link`
-        /// while the link-inference pass still creates the link).
+        /// behaviour in isolation (e.g. disabling `linking` to verify the agent cannot call
+        /// `links.create` while the link-inference pass still creates the link).
         pub fn with_features(features: InstanceFeatures) -> Harness {
             let clock = ManualClock::new(TEST_NOW);
             Harness {

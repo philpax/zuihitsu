@@ -16,9 +16,10 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 12,
-        "the scaffold is registered at v12 (v12 teaches link visibility defaults: a relationship \
-         recorded about someone defaults private to the teller when a participant asserts it)"
+        scaffold.version, 13,
+        "the scaffold is registered at v13 (v13 recasts the linking point for the triadic call \
+         shape: a link is now link(a, rel, b), whose arguments read as a sentence with neither \
+         endpoint a privileged receiver)"
     );
     assert!(
         scaffold

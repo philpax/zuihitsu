@@ -1,13 +1,64 @@
-//! The `links` global: `register` adds a relation to the schema, `list` and `get` read it.
+//! The `links` global: `create`/`remove` write and clear edges, `register` adds a relation to the
+//! schema, and `list`/`get` read the registry.
 
 use super::{metatables::*, *};
 
-/// The `links` global: `register` adds a relation to the schema, `list` and `get` read it. Link
-/// *edges* are made on memory handles (`mem:link`/`mem:unlink`); this global manages the relation
-/// *registry* they instantiate (spec §Link relation registry).
+/// The `links` global. `create`/`remove` instantiate a relation as an edge; `register` adds a
+/// relation to the schema, and `list`/`get` read the registry (spec §Link relation registry). A
+/// link *edge* is written with `links.create(subject, relation, object[, opts])` — a triadic call
+/// whose subject and object are ordinary arguments (neither is a privileged receiver), so the call
+/// reads as a sentence and an asymmetric edge is not recorded backwards.
 pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     let links = lua.create_table()?;
     let result_metatable = relation_result_metatable(lua)?;
+    // links.create(subject, relation, object[, opts]) — record a relation such as `knows`, locking
+    // both endpoints. Both `subject` and `object` resolve through `link_target_id`, so either may be
+    // a memory handle or a name string. The script names the relation as a string; it is recognized
+    // into its typed `RelationName` here, at the wrapper boundary. The optional `opts` table carries
+    // `visibility` to force the link's posture instead of the write-time default.
+    links.set(
+        "create",
+        lua.create_async_function({
+            let api = api.clone();
+            move |lua, (subject, relation, object, opts): (Value, String, Value, Value)| {
+                let api = api.clone();
+                async move {
+                    let from = link_target_id(&api, subject)?;
+                    let to = link_target_id(&api, object)?;
+                    api.lock_all([from, to]).await;
+                    let opts = if opts.is_nil() {
+                        None
+                    } else {
+                        Some(lua.from_value::<LinkOptions>(opts)?)
+                    };
+                    api.block
+                        .lock()
+                        .link(from, to, RelationName::new(&relation), opts)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))
+                }
+            }
+        })?,
+    )?;
+    // links.remove(subject, relation, object) — clear a relation made with `links.create`, locking
+    // both endpoints. Mirrors `create`'s target resolution: either endpoint may be a handle or a name.
+    links.set(
+        "remove",
+        lua.create_async_function({
+            let api = api.clone();
+            move |_, (subject, relation, object): (Value, String, Value)| {
+                let api = api.clone();
+                async move {
+                    let from = link_target_id(&api, subject)?;
+                    let to = link_target_id(&api, object)?;
+                    api.lock_all([from, to]).await;
+                    api.block
+                        .lock()
+                        .unlink(from, to, RelationName::new(&relation))
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))
+                }
+            }
+        })?,
+    )?;
     // links.register{ name, inverse, from_card, to_card, symmetric?, reflexive? } — register one
     // relation, accessible under either label; the inverse view's cardinality is computed.
     links.set(

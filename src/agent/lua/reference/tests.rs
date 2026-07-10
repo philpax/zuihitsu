@@ -18,8 +18,8 @@ fn disabling_linking_omits_every_link_entry() {
     let entries = names(&features);
     // The write and read sides of linking both vanish.
     for name in [
-        "<memory>:link",
-        "<memory>:unlink",
+        "links.create",
+        "links.remove",
         "<memory>:outgoing",
         "<memory>:incoming",
         "<memory>:links",

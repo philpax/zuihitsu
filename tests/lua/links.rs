@@ -6,7 +6,7 @@ async fn link_with_an_unregistered_relation_is_a_teachable_error() {
     h.run(r#"memory.create(TOPIC_A)"#).await;
     // No such relation is registered: the block fails with a teachable error and commits nothing.
     let outcome = h
-        .run(r#"memory.get(TOPIC_A):link("bogus_rel", memory.get(TOPIC_A))"#)
+        .run(r#"links.create(memory.get(TOPIC_A), "bogus_rel", memory.get(TOPIC_A))"#)
         .await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
@@ -56,7 +56,7 @@ async fn link_and_unlink_resolve_a_name_string_target() {
     let outcome = h
         .run(
             r#"local dave = memory.get(PERSON_DAVE)
-               dave:link("knows", PERSON_ERIN, { visibility = "public" })
+               links.create(dave, "knows", PERSON_ERIN, { visibility = "public" })
                dave:append("a quiet aside", { visibility = "private" })"#,
         )
         .await;
@@ -79,7 +79,7 @@ async fn link_and_unlink_resolve_a_name_string_target() {
 
     // Unlink through the same seam: a name string clears the edge just as it made it.
     let unlink_outcome = h
-        .run(r#"memory.get(PERSON_DAVE):unlink("knows", PERSON_ERIN)"#)
+        .run(r#"links.remove(memory.get(PERSON_DAVE), "knows", PERSON_ERIN)"#)
         .await;
     assert!(
         matches!(unlink_outcome, BlockOutcome::Committed { .. }),
@@ -105,7 +105,7 @@ async fn link_to_an_unknown_name_teaches_creation() {
     let h = Harness::new();
     h.run(r#"memory.create(PERSON_DAVE)"#).await;
     let outcome = h
-        .run(r#"memory.get(PERSON_DAVE):link("knows", "person/nobody", { visibility = "public" })"#)
+        .run(r#"links.create(memory.get(PERSON_DAVE), "knows", "person/nobody", { visibility = "public" })"#)
         .await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
@@ -132,7 +132,7 @@ async fn a_memory_handle_renders_its_link_neighborhood() {
         links.register({ name = "part_of", inverse = "contains", from_card = "many", to_card = "many" })
         local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
         local ship = memory.create(EVENT_LAUNCH, "Ship the migration")
-        ship:link("part_of", topic)
+        links.create(ship, "part_of", topic)
         "#,
     )
     .await;
@@ -163,7 +163,7 @@ async fn a_dated_link_target_shows_its_occurrence_on_the_handle() {
         local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
         local ship = memory.create(EVENT_LAUNCH)
         ship:append("Ship it", { visibility = "public", occurred_at = { day = "2026-08-01" } })
-        ship:link("part_of", topic)
+        links.create(ship, "part_of", topic)
         "#,
     )
     .await;
@@ -189,7 +189,7 @@ async fn the_neighborhood_line_caps_and_notes_the_remainder() {
         local topic = memory.create(TOPIC_MIGRATION, "The billing migration")
         for i = 1, 9 do
             local ev = memory.create("event/spoke-" .. i)
-            ev:link("part_of", topic)
+            links.create(ev, "part_of", topic)
         end
         "#,
     )
@@ -281,7 +281,7 @@ async fn link_readers_traverse_the_merged_identity() {
             &h.engine,
             &operator,
             &common::prepare_script(
-                r#"memory.get(PERSON_DAVE):link("same_as", memory.get(PERSON_DAVE_AT_DISCORD))"#,
+                r#"links.create(memory.get(PERSON_DAVE), "same_as", memory.get(PERSON_DAVE_AT_DISCORD))"#,
             ),
         )
         .await
@@ -289,11 +289,11 @@ async fn link_readers_traverse_the_merged_identity() {
 
     // Links spread across the two stubs: one mentors Erin, Frank mentors the other, and the other
     // works at Hooli — so a class-blind read of the primary stub would miss two of the three.
-    h.run(r#"memory.get(PERSON_DAVE):link("mentor_of", memory.get(PERSON_ERIN), { visibility = "public" })"#)
+    h.run(r#"links.create(memory.get(PERSON_DAVE), "mentor_of", memory.get(PERSON_ERIN), { visibility = "public" })"#)
         .await;
-    h.run(r#"memory.get(PERSON_FRANK):link("mentor_of", memory.get(PERSON_DAVE_AT_DISCORD), { visibility = "public" })"#)
+    h.run(r#"links.create(memory.get(PERSON_FRANK), "mentor_of", memory.get(PERSON_DAVE_AT_DISCORD), { visibility = "public" })"#)
         .await;
-    h.run(r#"memory.get(PERSON_DAVE_AT_DISCORD):link("works_at", memory.get("company/hooli"))"#)
+    h.run(r#"links.create(memory.get(PERSON_DAVE_AT_DISCORD), "works_at", memory.get("company/hooli"))"#)
         .await;
 
     // outgoing: who Dave mentors — Erin, reached through the merged identity though queried via the

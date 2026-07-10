@@ -91,7 +91,7 @@ async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
         run_lua_call(
             r#"local a = memory.create("person/alpha")
                local b = memory.create("person/beta")
-               a:link("same_as", b)"#,
+               links.create(a, "same_as", b)"#,
         ),
         Completion::Reply("understood".to_owned()),
     ]);
@@ -134,8 +134,8 @@ async fn imprint_records_the_creator_and_links_created_by() {
     // records a self-observation — the writes that platform authority would bar.
     let script = r#"
         local marcus = memory.create("person/marcus", "Marcus, who created me to keep his memory.")
-        memory.get("person/operator"):link("same_as", marcus)
-        memory.get("self"):link("created_by", marcus)
+        links.create(memory.get("person/operator"), "same_as", marcus)
+        links.create(memory.get("self"), "created_by", marcus)
         memory.get("self"):append("I exist to keep Marcus's memory.", { by_agent = true })
     "#;
     let model = ScriptedModel::new([

@@ -80,8 +80,8 @@ fn every_reference_link_example_is_a_seeded_relation() {
 
     let reference = crate::agent::lua::api_reference(&InstanceFeatures::default());
     let link_entries = [
-        "<memory>:link",
-        "<memory>:unlink",
+        "links.create",
+        "links.remove",
         "<memory>:outgoing",
         "<memory>:incoming",
     ];
@@ -104,29 +104,40 @@ fn every_reference_link_example_is_a_seeded_relation() {
     }
 }
 
-/// Extract the relation labels a reference entry illustrates: the value after an `e.g. "…"`
-/// marker, and any label passed to a `:link("…")` / `:outgoing("…")` / `:incoming("…")` /
-/// `:unlink("…")` call form in the prose. Every one must resolve to a seeded relation.
+/// Extract the relation labels a reference entry illustrates: the value after an `e.g. "…"` marker
+/// or a reader call form (`:outgoing("…")` / `:incoming("…")`), where the label sits immediately
+/// after the marker; and the relation argument of a writer call form (`links.create(subject, "…")` /
+/// `links.remove(subject, "…")`), where it is the first quoted string after the opening paren. Every
+/// one must resolve to a seeded relation.
 fn relation_examples(text: &str) -> Vec<String> {
-    let markers = [
-        "e.g. \"",
-        ":link(\"",
-        ":outgoing(\"",
-        ":incoming(\"",
-        ":unlink(\"",
-    ];
+    // Markers whose relation label starts immediately after the marker (the marker ends in `"`).
+    let immediate_markers = ["e.g. \"", ":outgoing(\"", ":incoming(\""];
+    // Writer call forms whose relation label is the first quoted argument after the opening paren.
+    let call_markers = ["links.create(", "links.remove("];
     let mut examples = Vec::new();
-    for marker in markers {
+    let extract_from = |marker: &str, skip_to_quote: bool| {
+        let mut found = Vec::new();
         let mut rest = text;
         while let Some(start) = rest.find(marker) {
-            let after = &rest[start + marker.len()..];
+            let mut after = &rest[start + marker.len()..];
+            if skip_to_quote {
+                let Some(open) = after.find('"') else { break };
+                after = &after[open + 1..];
+            }
             if let Some(end) = after.find('"') {
-                examples.push(after[..end].to_owned());
+                found.push(after[..end].to_owned());
                 rest = &after[end..];
             } else {
                 break;
             }
         }
+        found
+    };
+    for marker in immediate_markers {
+        examples.extend(extract_from(marker, false));
+    }
+    for marker in call_markers {
+        examples.extend(extract_from(marker, true));
     }
     examples
 }
