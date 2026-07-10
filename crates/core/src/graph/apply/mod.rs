@@ -1,5 +1,6 @@
 //! The materializer: folding committed events into the graph projection in `Seq` order. Dispatch is
-//! on the payload's `(type, version)`; a wrong arm silently mis-projects, so the arms warrant care.
+//! on the payload variant, with schema-version differences absorbed by the payloads' serde defaults;
+//! a wrong arm silently mis-projects, so the arms warrant care.
 
 use rusqlite::params;
 
@@ -19,8 +20,8 @@ pub(super) struct OccurrenceColumns {
 }
 
 impl Graph {
-    /// Fold a single event into the projection, then advance the head. The match arm is the
-    /// `(type, version)` dispatch; a wrong arm is a silent-leak class — a mis-dispatched event folds
+    /// Fold a single event into the projection, then advance the head. The match is the per-variant
+    /// dispatch; a wrong arm is a silent-leak class — a mis-dispatched event folds
     /// into the wrong projection state with no error, so the match must stay exhaustive and exact.
     pub fn apply(&mut self, event: &Event) -> Result<(), GraphError> {
         match &event.payload {

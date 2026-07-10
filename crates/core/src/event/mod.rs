@@ -1,10 +1,12 @@
 //! The event envelope and the (deliberately growing) catalogue of event payloads.
 //!
-//! All state is events; graph state is a pure projection (spec §Event sourcing). Every payload
-//! carries a `type` tag and a `version`, and the materializer dispatches on `(type, version)`. A
-//! new capability adds a new variant or a higher version, and old logs replay unchanged —
-//! extensibility without migrations. The content-, link-, visibility-, and time-bearing events
-//! continue to arrive with the stages that need them (visibility at 6, time at 9).
+//! All state is events; graph state is a pure projection (see `docs/events-and-storage.md`). The
+//! serialized payload carries only a `type` tag; field evolution rides on `#[serde(default)]` and
+//! `#[serde(alias)]`, so a new capability adds a new variant or a defaulted field, and old logs
+//! replay unchanged — extensibility without migrations. The derived [`EventPayload::version`]
+//! stamps each type's current schema version onto the log's `version` column as recorded metadata,
+//! and the materializer dispatches on the payload variant, absorbing version differences via the
+//! serde defaults.
 
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
