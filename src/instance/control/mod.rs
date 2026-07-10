@@ -75,6 +75,21 @@ pub struct LuaConsoleOutcome {
     pub error: Option<String>,
 }
 
+/// The outcome of an operator unmerge (`Control::unmerge`): the retraction of an operator-asserted
+/// `same_as` merge, or the reason the request named nothing retractable. The console-only undo of a
+/// wrong cross-platform merge (spec §Cross-platform identity → operator-asserted merge), the mirror of
+/// [`Control::resolve_merge`]'s accept.
+pub enum UnmergeOutcome {
+    /// The `same_as` edge was removed and the graph re-materialized, so the two identities split back
+    /// into their own visibility classes on the next read.
+    Removed,
+    /// One of the two ids does not resolve to a live memory, so there is nothing to unmerge.
+    UnknownMemory(MemoryId),
+    /// The two memories share no direct `same_as` edge, so there is no merge to lift between exactly
+    /// this pair — only a direct edge is retractable, never a class two stubs joined transitively.
+    NotMerged,
+}
+
 /// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
 /// adjudication key on the same canonical pair regardless of which stub each named first.
 pub(super) fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {

@@ -21,7 +21,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{super::InstanceError, LuaConsoleOutcome};
+use super::{super::InstanceError, LuaConsoleOutcome, UnmergeOutcome};
 use crate::instance::session::RoutedTurn;
 
 impl super::Control<'_> {
@@ -261,5 +261,44 @@ impl super::Control<'_> {
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(())
+    }
+
+    /// Retract an operator-asserted `same_as` merge, splitting the two identities back into their own
+    /// visibility classes (spec §Cross-platform identity → operator-asserted merge). The console-only
+    /// undo of a wrong merge and the mirror of `resolve_merge`'s accept: it authors a `LinkRemoved` on
+    /// the `same_as` edge between the two stubs — the operator authority the agent's own turn is denied,
+    /// since a `same_as` retraction is operator-only (see `change_link`) — then re-materializes so the
+    /// classes split on the next read. Only a *direct* edge between exactly this pair is retractable: an
+    /// id that names no live memory, or a pair joined only transitively through a third member, is
+    /// refused (`UnknownMemory`/`NotMerged`) rather than authoring an event that would delete nothing.
+    /// The removal carries no provenance of its own — `LinkRemoved` records no source — so the operator's
+    /// authorship lives in this control path, not on the event.
+    pub fn unmerge(&self, from: MemoryId, to: MemoryId) -> Result<UnmergeOutcome, InstanceError> {
+        {
+            let graph = self.server.engine.graph.lock();
+            if graph.memory_by_id(from)?.is_none() {
+                return Ok(UnmergeOutcome::UnknownMemory(from));
+            }
+            if graph.memory_by_id(to)?.is_none() {
+                return Ok(UnmergeOutcome::UnknownMemory(to));
+            }
+            // `links(from)` returns every canonical edge touching `from`, so a `same_as` edge whose other
+            // endpoint is `to` is the direct merge — regardless of which way the canonical pair is stored.
+            let directly_merged = graph.links(from)?.iter().any(|link| {
+                link.relation == RelationName::SameAs && (link.from == to || link.to == to)
+            });
+            if !directly_merged {
+                return Ok(UnmergeOutcome::NotMerged);
+            }
+        }
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
+            now,
+            vec![EventPayload::link_removed(from, to, RelationName::SameAs)],
+        )?;
+        // Graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(UnmergeOutcome::Removed)
     }
 }
