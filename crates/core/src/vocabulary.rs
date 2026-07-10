@@ -85,6 +85,9 @@ pub enum RelationName {
     HasParticipant,
     /// The inverse label of [`RelationName::PartOf`].
     Contains,
+    LocatedAt,
+    /// The inverse label of [`RelationName::LocatedAt`].
+    LocationOf,
     Other(SmolStr),
 }
 
@@ -106,6 +109,8 @@ impl RelationName {
             "known_by" => RelationName::KnownBy,
             "has_participant" => RelationName::HasParticipant,
             "contains" => RelationName::Contains,
+            "located_at" => RelationName::LocatedAt,
+            "location_of" => RelationName::LocationOf,
             _ => RelationName::Other(SmolStr::new(name)),
         }
     }
@@ -123,6 +128,8 @@ impl RelationName {
             RelationName::KnownBy => "known_by",
             RelationName::HasParticipant => "has_participant",
             RelationName::Contains => "contains",
+            RelationName::LocatedAt => "located_at",
+            RelationName::LocationOf => "location_of",
             RelationName::Other(name) => name.as_str(),
         }
     }

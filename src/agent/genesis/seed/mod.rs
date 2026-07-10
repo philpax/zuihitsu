@@ -38,8 +38,8 @@ pub(super) fn seed_tags() -> Vec<TagDef> {
 pub(super) fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, OperatedBy, OperatorOf,
-        PartOf, ParticipatesIn, SameAs,
+        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, LocatedAt, LocationOf,
+        OperatedBy, OperatorOf, PartOf, ParticipatesIn, SameAs,
     };
     vec![
         RelationDef {
@@ -99,6 +99,19 @@ pub(super) fn seed_relations() -> Vec<RelationDef> {
             description: "An event, entry-bearing memory, or sub-topic belongs to a topic, \
                 project, or workstream — membership or aboutness. Not for people, who \
                 participates_in an event instead.",
+        },
+        // Placement is a structural universal the agent otherwise re-coins under scattered
+        // spellings (located_at, held_at, occurs_at, based_in — the soak-observed fragmentation),
+        // so it earns a seed: one canonical relation for where a thing is held or found.
+        RelationDef {
+            name: LocatedAt,
+            inverse: LocationOf,
+            from_card: Many,
+            to_card: One,
+            symmetric: false,
+            reflexive: false,
+            description: "Where a thing is held or found — an event's venue, a team's office, a \
+                thing's place. Many things can share one place.",
         },
     ]
 }

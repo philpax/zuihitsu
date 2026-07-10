@@ -60,9 +60,12 @@ fn genesis_does_not_seed_learned_social_relations() {
         !seeded("mentors"),
         "mentorship is learned, not seeded — genesis must not register mentors"
     );
+    // Placement (located_at) moved from learned to seeded: soak-scale evidence showed the agent
+    // re-coining it under four spellings (located_at, held_at, occurs_at, based_in) with
+    // crash-then-register cycles, which is the "structural universal the system leans on" bar.
     assert!(
-        !seeded("located_at"),
-        "venue semantics are learned, not seeded — genesis must not register located_at"
+        seeded("located_at"),
+        "placement is a structural universal — genesis seeds located_at"
     );
 }
 
