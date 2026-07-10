@@ -36,9 +36,10 @@
 - **Never** use title case in headings and titles. Always use sentence case.
 - Always use the Oxford comma.
 - Don't omit articles ("a", "an", "the"). Write "the file has a newer version" not "file has newer version".
+- Repository prose — the documents under `docs/`, the READMEs, and these guidelines — is written in Australian English (behaviour, materialise, judgement). The code itself is in American English: identifiers, API and event names, and code comments keep US spellings, and prose refers to a code item by its exact code spelling (`materialize_from`, `eval analyze`), never a translated one.
 - Comments describe the present state. Reserve past-tense narration for the rare case where history explains a standing "why".
 - Prose that names a namespace concept links the canonical enum ([`Namespace::Person`]), never a literal prefix string. Concrete handles, prefix-string argument examples, and agent-facing text are syntax, not prose, and are exempt.
-- Core code (`src/`, `crates/core`) never references the eval harness, scenarios, or run statistics in comments — state the behavior and its hazards directly. Only the eval crate may reference itself.
+- Core code (`src/`, `crates/core`) never references the eval harness, scenarios, or run statistics in comments — state the behaviour and its hazards directly. Only the eval crate may reference itself.
 
 ## Code style
 
@@ -56,7 +57,7 @@
 - **Type states** encoded in generics when state transitions matter
 - **Lifetimes** used extensively to avoid cloning (e.g., `TestInstance<'a>`)
 - **Restricted visibility**: Use `pub(crate)` and `pub(super)` liberally
-- **Parameter structs over long argument lists**: when a function approaches the `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct (a request struct, or a shared seam like `Engine { store, graph, clock }` that several call shapes pass along) rather than threading more positional arguments. **Never** silence the lint with `#[allow(clippy::too_many_arguments)]`; the lint firing means a struct is wanted. Recognized closed sets of values (relation labels, tags) likewise ride as enums, not bare strings.
+- **Parameter structs over long argument lists**: when a function approaches the `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct (a request struct, or a shared seam like `Engine { store, graph, clock }` that several call shapes pass along) rather than threading more positional arguments. **Never** silence the lint with `#[allow(clippy::too_many_arguments)]`; the lint firing means a struct is wanted. Recognised closed sets of values (relation labels, tags) likewise ride as enums, not bare strings.
 
 ### Error handling
 
@@ -81,7 +82,7 @@
 - Install the subscriber only in binaries, and send logs to stderr.
 - The CLI is an operator/diagnostic tool, so its output goes through `tracing` too — the user-facing interface is the web frontend. Reserve `stdout`/`println!` for genuine machine-readable command output if a command ever needs it.
 
-### Module organization
+### Module organisation
 
 - Use `mod.rs` files to re-export public items.
 - Keep module boundaries strict with restricted visibility.
@@ -90,7 +91,7 @@
 - It is okay to import enum variants for pattern matching, though.
 - When a path is used more than once in a module, import it at the top of the module (the specific items, not the module) rather than repeating the fully-qualified path at each call site. A path used only once may stay fully-qualified.
 
-Within each module, organize code as follows:
+Within each module, organise code as follows:
 1. **Public API first** - all `pub` structs, enums, and functions at the top
 2. **Private implementation below** - constants, helper functions, and internal types
 3. **Order by use** - private items should appear in the order they're called/used by the public API (topological order)
@@ -141,7 +142,7 @@ The block VM is Luau, frozen with `Lua::sandbox(true)` (`src/agent/lua/mod.rs`).
 
 ### The connector contract
 
-Console and platform URLs never reach the agent. A connector normalizes every deep link to a canonical `[turn:<id>]` token before a message posts (`normalize` in `crates/core/src/turn_ref.rs`); the console composer is one such connector. Agent-facing surfaces — the scaffold, the API reference, error messages — speak tokens only, never a URL.
+Console and platform URLs never reach the agent. A connector normalises every deep link to a canonical `[turn:<id>]` token before a message posts (`normalize` in `crates/core/src/turn_ref.rs`); the console composer is one such connector. Agent-facing surfaces — the scaffold, the API reference, error messages — speak tokens only, never a URL.
 
 ### The seed ontology
 
@@ -155,7 +156,7 @@ The scaffold teaches load-bearing practices as principles, stated once. API opti
 
 ### Testing tools
 
-- **test-case**: For parameterized tests.
+- **test-case**: For parameterised tests.
 - **proptest**: For property-based testing.
 - **insta**: For snapshot testing.
 - **libtest-mimic**: For custom test harnesses.
@@ -185,9 +186,9 @@ cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
 - The run writes `eval/<name>.json` and a resumable `.jsonl` sidecar. `eval/` is gitignored apart from the tracked `history.jsonl` trend record, so name runs descriptively.
 - `--runs N` sets the runs per scenario (the statistical N; default 8). `--scenario a,b,c` keeps only scenarios whose names contain one of the comma-separated substrings.
 - Serving is on by default — the live console is at http://127.0.0.1:7878/ while the run proceeds, and the process exits when it finishes. Keep it on: watching the deliberation unfold live is the point of running an eval, not just the pass/fail at the end. `--no-serve` is for CI or headless machines only. Do not pass `--serve-after-completion` unless explicitly requested: it leaves the process holding the console port indefinitely, which silently blocks the next run's live view, and a finished run is reviewed by loading `eval/<name>.json` into the viewer anyway. If a serving process does linger, stop it before the next launch; `--resume` recovers a run that had to be bounced.
-- The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar (`Bar::gating()`, or `Bar::gating_at(rate)` for a tolerance) fails the harness when the held rate of its gating verdicts falls below `min_rate`. `Bar::holds` decides it: at the default `min_rate` of 1.0 it reads the pass/fail boolean directly — the one-slip discipline for must-not-surface safety properties — while a `min_rate` below 1.0 compares the held rate and suits model-judgment behaviors with a known error band. A metric bar is a should-surface rate, reported against a threshold but never failing the run.
+- The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar (`Bar::gating()`, or `Bar::gating_at(rate)` for a tolerance) fails the harness when the held rate of its gating verdicts falls below `min_rate`. `Bar::holds` decides it: at the default `min_rate` of 1.0 it reads the pass/fail boolean directly — the one-slip discipline for must-not-surface safety properties — while a `min_rate` below 1.0 compares the held rate and suits model-judgement behaviours with a known error band. A metric bar is a should-surface rate, reported against a threshold but never failing the run.
 
-### Analyzing an eval
+### Analysing an eval
 
 ```
 eval analyze eval/<name>.json                      # per-scenario summary (rate, bar, gating)
@@ -209,13 +210,13 @@ eval replay --mode resume --step K -s <scenario> --run N eval/<name>.json  # red
 
 ### Designing a scenario
 
-- An oracle must align with the system's own rules. A gate must not punish behavior the visibility model permits — if the property under test is privacy, encode the isolated fact as a confidence, not a gating failure.
-- Prefer a structural check for an exact property; reserve the judge for a genuine language judgment. A list of needle phrases is a smell — it pins wording, not behavior.
+- An oracle must align with the system's own rules. A gate must not punish behaviour the visibility model permits — if the property under test is privacy, encode the isolated fact as a confidence, not a gating failure.
+- Prefer a structural check for an exact property; reserve the judge for a genuine language judgement. A list of needle phrases is a smell — it pins wording, not behaviour.
 - When a new scenario overlaps an existing one, distinct tested properties justify it. Trend history is a reason not to mutate an existing scenario's criteria set: add a scenario rather than redefine an old one out from under its history.
 
 ## Frontend (the console)
 
-The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React Compiler enabled (so the data-heavy views auto-memoize; prefer plain derivation over hand-written `useMemo`/`useCallback`). See `console/CONTRIBUTING.md` for an onboarding guide to its structure and motifs.
+The web console lives in `console/` — Vite, React, TypeScript, and Tailwind CSS v4, with the React Compiler enabled (so the data-heavy views auto-memoise; prefer plain derivation over hand-written `useMemo`/`useCallback`). See `console/CONTRIBUTING.md` for an onboarding guide to its structure and motifs.
 
 ### Checks
 
@@ -228,7 +229,7 @@ Run these from `console/`; all four must pass, and CI enforces them:
 
 ### Conventions
 
-- **Rust is the source of truth for the wire contract.** The TypeScript bindings in `console/src/types/`, the settings metadata in `console/src/types/settings-metadata.ts`, and the wasm materializer bundle in `console/src/wasm/` are *generated* — never hand-edit them, and never commit them (both directories are gitignored). Regenerate all three with `./console/regen.sh` (direnv provides the nix-shell locally; CI provides its own toolchain) whenever a wire type, the materializer's logic, or a settings `///` doc comment changes. This is not just for schema changes — any edit to the graph queries, the projection code, or anything the wasm exposes must be followed by a rebuild, or the console runs against a stale materializer. The CI `console` job runs `./console/regen.sh` before its checks, so it always builds against the current Rust source — a PR that changes a wire type, the materializer, or a settings doc comment is validated directly, with no separate commit step. Linting and formatting skip these directories.
+- **Rust is the source of truth for the wire contract.** The TypeScript bindings in `console/src/types/`, the settings metadata in `console/src/types/settings-metadata.ts`, and the wasm materialiser bundle in `console/src/wasm/` are *generated* — never hand-edit them, and never commit them (both directories are gitignored). Regenerate all three with `./console/regen.sh` (direnv provides the nix-shell locally; CI provides its own toolchain) whenever a wire type, the materialiser's logic, or a settings `///` doc comment changes. This is not just for schema changes — any edit to the graph queries, the projection code, or anything the wasm exposes must be followed by a rebuild, or the console runs against a stale materialiser. The CI `console` job runs `./console/regen.sh` before its checks, so it always builds against the current Rust source — a PR that changes a wire type, the materialiser, or a settings doc comment is validated directly, with no separate commit step. Linting and formatting skip these directories.
 - **Cast wasm crossings in one place.** The `Replica` wrapper (`src/lib/replica.ts`) is the only place the wasm `JsValue` results are typed; views consume the typed surface.
-- **Surface new state in the frontend.** When a backend change adds, renames, or restructures state that the console renders — a new field on an event payload, a new marker on a brief relationship, a new visibility posture, a new link provenance field — the frontend's rendering code must be updated to display it. Regenerating the TypeScript bindings (`./console/regen.sh`) makes the new fields *typed* but does not make them *visible*; the rendering components (`renderInteraction.tsx`, `renderPayload.tsx`, `JoinBrief.tsx`, etc.) must be updated to render the new state. A field that arrives typed but unrendered is a gap: the console shows stale behavior while the backend has moved on. Check every rendering component that touches the changed type, and add the new field's display alongside the existing ones, following the same patterns (provenance markers in faint ink, visibility in clay, etc.).
-- **The aesthetic is Japandi**, expressed as design tokens in `src/app.css` (`@theme`): a warm paper ground, sumi-ink text, clay and sage accents used sparingly, a real type scale, and hairline rules. Reach for the tokens (`text-ink`, `border-line`, `font-serif`, `text-clay`, …) rather than ad-hoc colors, so the system stays coherent. Craft over chrome — calm and legible over dense.
+- **Surface new state in the frontend.** When a backend change adds, renames, or restructures state that the console renders — a new field on an event payload, a new marker on a brief relationship, a new visibility posture, a new link provenance field — the frontend's rendering code must be updated to display it. Regenerating the TypeScript bindings (`./console/regen.sh`) makes the new fields *typed* but does not make them *visible*; the rendering components (`renderInteraction.tsx`, `renderPayload.tsx`, `JoinBrief.tsx`, etc.) must be updated to render the new state. A field that arrives typed but unrendered is a gap: the console shows stale behaviour while the backend has moved on. Check every rendering component that touches the changed type, and add the new field's display alongside the existing ones, following the same patterns (provenance markers in faint ink, visibility in clay, etc.).
+- **The aesthetic is Japandi**, expressed as design tokens in `src/app.css` (`@theme`): a warm paper ground, sumi-ink text, clay and sage accents used sparingly, a real type scale, and hairline rules. Reach for the tokens (`text-ink`, `border-line`, `font-serif`, `text-clay`, …) rather than ad-hoc colours, so the system stays coherent. Craft over chrome — calm and legible over dense.
