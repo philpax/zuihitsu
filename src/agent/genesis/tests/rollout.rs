@@ -217,7 +217,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
                 EventPayload::prompt_template_registered(
                     PromptTemplateName::Scaffold,
                     13,
-                    "<draft system-prompt scaffold — see docs/spec.md §System prompt>".to_owned(),
+                    "<draft system-prompt scaffold — see docs/conversations-and-briefs.md §System prompt>".to_owned(),
                     EventSource::Orchestration,
                 ),
                 EventPayload::prompt_template_registered(

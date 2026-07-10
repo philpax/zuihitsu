@@ -34,6 +34,6 @@ The agent acts by reading and writing that memory. Each turn, it emits Lua again
 
 ## Going deeper
 
-- `docs/spec.md` — the design spec: the architecture, the trust model, and every subsystem in detail.
+- `docs/overview.md` — the design spec: the goals, the architectural principles, and the map of the per-area documents covering every subsystem in detail.
 - `CONTRIBUTING.md` — the conventions and the checks each change must pass.
 - `console/CONTRIBUTING.md` — an onboarding guide to the console's structure and motifs.

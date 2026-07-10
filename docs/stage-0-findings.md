@@ -1,7 +1,7 @@
 # Stage 0 — model-floor spike findings
 
-The spike in `spike/` is throwaway; it gets deleted before Stage 1. Its job (per `spec.md`
-§Build order) was to check whether the local model can actually do sensitivity inference,
+The spike in `spike/` is throwaway; it gets deleted before Stage 1. Its job (per the
+design spec's then-current §Build order, since moved to the issue tracker) was to check whether the local model can actually do sensitivity inference,
 conflict detection, and structured tool-calling, using draft versions of the real scaffold and
 regen prompts. The results below set the reply-lane thresholds, settle the serving config, and
 inform model choice.
