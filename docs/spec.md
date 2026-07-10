@@ -297,7 +297,7 @@ The tag is set by the agent from conversational cues ("keep this in here," a pri
 
 ### `told_in` provenance
 
-Every `MemoryContentAppended` stamps the `ConversationRef` it was told in — the conversation and the turn. This is provenance, not a gate: it is deliberately not part of the visibility predicate (the `#confidential` check reads from the resolved room context, not from `told_in` directly).he `visible(...)` predicate, which would reopen the audience-gating we closed.
+Every `MemoryContentAppended` stamps the `ConversationRef` it was told in — the conversation and the turn. This is provenance, not a gate: it is deliberately not part of the visibility predicate (the `#confidential` check reads from the resolved room context, not from `told_in` directly) — gating on `told_in` would fold the originating context into the `visible(...)` predicate, which would reopen the audience-gating we closed.
 
 What it buys is judgment with memory. The agent can resolve an entry's `told_in` to its `context/*` memory and learn the room was confidential, and it knows the confidentiality of the room it is currently in (the current context memory is in the brief — see **Contextual briefs**). So an aside told in the private team channel can be treated as confidential when the agent later finds itself in a different room, and new asides in a room known to be confidential are marked private by judgment. Recording `told_in` now means the escalation lever — actually gating on context, if cross-context leakage proves real — has the data it needs, without committing the v1 predicate to it.
 
