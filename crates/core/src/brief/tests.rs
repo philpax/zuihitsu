@@ -645,6 +645,140 @@ fn an_over_long_spoke_is_clipped_on_a_char_boundary_with_an_ellipsis() {
     assert_eq!(text.chars().count(), 201);
 }
 
+/// Register a relation `name`/`inverse` (both `Many`, asymmetric) so a link can be created under it.
+fn register_relation(name: &str, inverse: &str) -> EventPayload {
+    EventPayload::LinkTypeRegistered {
+        name: RelationName::new(name),
+        inverse: RelationName::new(inverse),
+        from_card: Cardinality::Many,
+        to_card: Cardinality::Many,
+        symmetric: false,
+        reflexive: false,
+        description: String::new(),
+    }
+}
+
+/// A public `relation` link from `from` to `to`.
+fn linked(from: MemoryId, to: MemoryId, relation: &str) -> EventPayload {
+    EventPayload::link_created(
+        from,
+        to,
+        RelationName::new(relation),
+        LinkSource::Agent,
+        None,
+        None,
+        Visibility::Public,
+    )
+}
+
+/// The relationship lines of a rendered brief, in order — the `- {relation}: …` bullets under
+/// `<relationships>`, so a test can assert the ranking without pinning the whole block.
+fn relationship_lines(rendered: &str) -> Vec<String> {
+    rendered
+        .lines()
+        .skip_while(|line| *line != "<relationships>")
+        .skip(1)
+        .take_while(|line| *line != "</relationships>")
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn relationships_are_ranked_by_type_weight() {
+    // A hub touches an acquaintance edge (`knows`, low weight) and a structural origin edge
+    // (`created_by`, top weight). However the edges are laid down, the brief floats the structural
+    // relation above the social one — so "who created you" survives even a tight cap.
+    let hub = MemoryId::generate();
+    let creator = MemoryId::generate();
+    let friend = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        register_relation("knows", "known_by"),
+        register_relation("created_by", "created"),
+        created(hub, "person/hub"),
+        created(creator, "agent/self"),
+        created(friend, "person/friend"),
+        // The acquaintance edge is created first, so a stable-but-unranked list would show it first.
+        linked(hub, friend, "knows"),
+        linked(hub, creator, "created_by"),
+    ]);
+
+    let brief = brief::compose_participant_brief(
+        &graph,
+        hub,
+        &[hub],
+        &Settings::default().brief,
+        Timestamp::from_millis(0),
+    )
+    .unwrap()
+    .unwrap();
+    let lines = relationship_lines(&brief.render());
+    assert_eq!(
+        lines,
+        vec![
+            "- created_by: agent/self".to_owned(),
+            "- knows: person/friend".to_owned(),
+        ],
+        "the structural created_by edge ranks above the social knows edge"
+    );
+}
+
+#[test]
+fn the_relationships_cap_keeps_the_highest_ranked_edges() {
+    // A hub floods its own block with many `knows` edges. With the cap at two, the structural
+    // `created_by` is kept and, among the equal-weight `knows` edges, the neighbour with the most
+    // recent visible activity wins the remaining slot — recency breaks the type-weight tie.
+    let hub = MemoryId::generate();
+    let creator = MemoryId::generate();
+    let stale = MemoryId::generate();
+    let fresh = MemoryId::generate();
+    let idle = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        register_relation("knows", "known_by"),
+        register_relation("created_by", "created"),
+        created(hub, "person/hub"),
+        created(creator, "agent/self"),
+        created(stale, "person/stale"),
+        created(fresh, "person/fresh"),
+        created(idle, "person/idle"),
+        // Distinct recency: `fresh` is the most recently active acquaintance; `idle` has no activity.
+        appended(
+            stale,
+            1_000,
+            "older news",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        appended(
+            fresh,
+            5_000,
+            "recent news",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        linked(hub, creator, "created_by"),
+        linked(hub, stale, "knows"),
+        linked(hub, fresh, "knows"),
+        linked(hub, idle, "knows"),
+    ]);
+
+    let mut settings = Settings::default().brief;
+    settings.key_relationships = 2;
+    let brief =
+        brief::compose_participant_brief(&graph, hub, &[hub], &settings, Timestamp::from_millis(0))
+            .unwrap()
+            .unwrap();
+    let subjects: Vec<&str> = brief
+        .relationships
+        .iter()
+        .map(|relationship| relationship.subject.as_str())
+        .collect();
+    assert_eq!(
+        subjects,
+        vec!["agent/self", "person/fresh"],
+        "created_by is kept by weight, and the most recently active knows-neighbour wins the tie"
+    );
+}
+
 #[test]
 fn a_brief_relationship_without_latest_deserializes() {
     // An old log's `BriefRelationship` predates the `latest` spoke field. `serde(default)` must fill

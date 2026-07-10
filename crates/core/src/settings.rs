@@ -112,6 +112,10 @@ pub struct BriefSettings {
     /// How many recent facts the brief includes.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub recent_facts: i64,
+    /// How many key relationships each brief block includes, after ranking them by type-weight and
+    /// recency (a hub memory's edges are ranked and capped rather than all listed).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub key_relationships: i64,
     /// The most entries in the brief's present set.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub present_set_cap: i64,
@@ -274,6 +278,7 @@ impl Default for BriefSettings {
         BriefSettings {
             token_budget: 2_000,
             recent_facts: 8,
+            key_relationships: 8,
             present_set_cap: 10,
             upcoming_window_days: 7,
             max_upcoming_items: 5,

@@ -6,6 +6,7 @@ use crate::{
     settings::BriefSettings,
     time::Timestamp,
     visibility::{self, ClassOf},
+    vocabulary::RelationName,
 };
 
 use super::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP};
@@ -74,8 +75,8 @@ pub(super) fn render_memory_body(
 
 /// Assemble a memory's [`Brief`] — subject, summary, visible recent facts, and relationships — the
 /// structured form both [`compose`] (via [`render_memory_body`]) and the join path draw from. Reads
-/// the depth bounds from `settings` rather than taking them pre-extracted, so a single argument
-/// carries the whole composition budget.
+/// the depth bounds (`recent_facts`, `key_relationships`) from `settings` rather than taking them
+/// pre-extracted, so a single argument carries the whole composition budget.
 fn memory_brief(
     graph: &Graph,
     memory: &MemoryView,
@@ -85,11 +86,19 @@ fn memory_brief(
     now: Timestamp,
 ) -> Result<Brief, BriefError> {
     let recent = settings.recent_facts.max(0) as usize;
+    let key_relationships = settings.key_relationships.max(0) as usize;
     Ok(Brief {
         subject: memory.name.clone(),
         summary: (!memory.description.is_empty()).then(|| memory.description.clone()),
         recent_facts: visible_recent_facts(graph, memory, present_set, class_of, recent, now)?,
-        relationships: relationships(graph, memory.id, present_set, class_of, now)?,
+        relationships: relationships(
+            graph,
+            memory.id,
+            present_set,
+            class_of,
+            now,
+            key_relationships,
+        )?,
     })
 }
 
@@ -145,32 +154,37 @@ fn entry_fact(
     })
 }
 
-/// The neighbour's most recent entry visible to `present_set`, as a [`BriefFact`] with its text
-/// clipped to [`SPOKE_CLIP`] — the substance one hop away that the relationship line carries. It runs
-/// the *exact* same visibility predicate as a recent fact, so a confided aside on the neighbour never
-/// rides into a brief for an audience that may not see it; a hidden latest entry falls back to the
-/// most recent visible one, and `None` when the neighbour has no visible entry at all.
-fn latest_visible_spoke(
+/// The neighbour's most recent entry visible to `present_set` — the substance one hop away that the
+/// relationship line carries, and the recency signal that ranks the edge. It runs the *exact* same
+/// visibility predicate as a recent fact, so a confided aside on the neighbour never rides into a
+/// brief for an audience that may not see it; a hidden latest entry falls back to the most recent
+/// visible one, and `None` when the neighbour has no visible entry at all.
+fn latest_visible_entry(
     graph: &Graph,
     neighbour: &MemoryView,
     present_set: &[MemoryId],
     class_of: &ClassOf,
-    now: Timestamp,
-) -> Result<Option<BriefFact>, BriefError> {
+) -> Result<Option<EntryView>, BriefError> {
     let mut latest = None;
     for entry in graph.class_entries(neighbour.id)? {
         if visibility::visible(&entry, neighbour, present_set, class_of)? {
             latest = Some(entry);
         }
     }
-    match latest {
-        Some(entry) => {
-            let mut fact = entry_fact(graph, neighbour, &entry, now)?;
-            fact.text = clip(&fact.text, SPOKE_CLIP);
-            Ok(Some(fact))
-        }
-        None => Ok(None),
-    }
+    Ok(latest)
+}
+
+/// The [`SPOKE_CLIP`]-clipped spoke fact for a neighbour's latest visible entry — its text bounded on
+/// a `char` boundary so an arbitrarily long neighbour entry never bloats the relationship line.
+fn spoke_fact(
+    graph: &Graph,
+    neighbour: &MemoryView,
+    entry: &EntryView,
+    now: Timestamp,
+) -> Result<BriefFact, BriefError> {
+    let mut fact = entry_fact(graph, neighbour, entry, now)?;
+    fact.text = clip(&fact.text, SPOKE_CLIP);
+    Ok(fact)
 }
 
 /// Clip `text` to at most `max` Unicode scalar values, appending an ellipsis when it is shortened. The
@@ -185,21 +199,27 @@ fn clip(text: &str, max: usize) -> String {
     }
 }
 
-/// A memory's key relationships, as `relation → other-handle`, skipping soft-deleted neighbours and
-/// filtering through `link_visible` when an audience is present. An `Attributed` link carries a
-/// `[via teller]` provenance marker appended to the relationship line; a teller-private link carries
-/// its marker the same way. Each surviving edge also carries the neighbour's most recent visible entry
-/// as its inline spoke fact (via [`latest_visible_spoke`]), so the substance one hop away reaches the
-/// brief. The full ranking by recency × type-weight (spec §Per-participant brief) is a later
-/// refinement; this lists the live edges touching the memory.
+/// A memory's key relationships, as `relation → other-handle`, ranked by type-weight then recency and
+/// capped at `cap`. Soft-deleted neighbours are skipped and each edge is filtered through
+/// `link_visible` when an audience is present. An `Attributed` link carries a `[via teller]`
+/// provenance marker appended to the relationship line; a teller-private link carries its marker the
+/// same way. Each surviving edge also carries the neighbour's most recent visible entry as its inline
+/// spoke fact, so the substance one hop away reaches the brief.
+///
+/// A hub memory can touch many live edges, so the list is ranked rather than dumped whole: the
+/// structural, identity-bearing relations ([`relation_weight`]) float to the top and the high-volume
+/// social edges (`knows`) fall away first when the list overflows `cap`. Ties within a weight break by
+/// the neighbour's recency (its latest visible entry), then by relation label and neighbour id, so the
+/// order is fully deterministic.
 fn relationships(
     graph: &Graph,
     id: MemoryId,
     present_set: &[MemoryId],
     class_of: &ClassOf,
     now: Timestamp,
+    cap: usize,
 ) -> Result<Vec<BriefRelationship>, BriefError> {
-    let mut relationships = Vec::new();
+    let mut ranked: Vec<RankedRelationship> = Vec::new();
     for link in graph.links(id)? {
         let symmetric = graph
             .relation(link.relation.as_str())?
@@ -209,28 +229,89 @@ fn relationships(
             continue;
         }
         let other = if link.from == id { link.to } else { link.from };
-        if let Some(memory) = graph.memory_by_id(other)? {
-            let marker = if link.visibility != Visibility::Public {
-                let teller = graph.teller_display(
-                    link.told_by
-                        .as_ref()
-                        .unwrap_or(&crate::event::Teller::Agent),
-                )?;
-                let marker = graph.marker_ref(link.told_in.as_ref())?;
-                visibility::link_marker(&link.visibility, &teller, Some(&marker))
-            } else {
-                None
-            };
-            let latest = latest_visible_spoke(graph, &memory, present_set, class_of, now)?;
-            relationships.push(BriefRelationship {
+        let Some(memory) = graph.memory_by_id(other)? else {
+            continue;
+        };
+        let marker = if link.visibility != Visibility::Public {
+            let teller = graph.teller_display(
+                link.told_by
+                    .as_ref()
+                    .unwrap_or(&crate::event::Teller::Agent),
+            )?;
+            let marker = graph.marker_ref(link.told_in.as_ref())?;
+            visibility::link_marker(&link.visibility, &teller, Some(&marker))
+        } else {
+            None
+        };
+        let latest_entry = latest_visible_entry(graph, &memory, present_set, class_of)?;
+        // The neighbour's latest visible activity is the edge's recency signal; a neighbour with no
+        // visible entry ranks last on recency (it still keeps its type-weight).
+        let recency = latest_entry
+            .as_ref()
+            .map_or(i64::MIN, |entry| entry.asserted_at.as_millis());
+        let latest = latest_entry
+            .map(|entry| spoke_fact(graph, &memory, &entry, now))
+            .transpose()?;
+        ranked.push(RankedRelationship {
+            weight: relation_weight(&link.relation),
+            recency,
+            relationship: BriefRelationship {
                 relation: link.relation.clone(),
                 subject: memory.name.clone(),
                 marker,
                 latest,
-            });
-        }
+            },
+        });
     }
-    Ok(relationships)
+    ranked.sort_by(|a, b| {
+        b.weight
+            .cmp(&a.weight)
+            .then_with(|| b.recency.cmp(&a.recency))
+            .then_with(|| {
+                a.relationship
+                    .relation
+                    .as_str()
+                    .cmp(b.relationship.relation.as_str())
+            })
+            .then_with(|| {
+                a.relationship
+                    .subject
+                    .as_str()
+                    .cmp(b.relationship.subject.as_str())
+            })
+    });
+    ranked.truncate(cap);
+    Ok(ranked
+        .into_iter()
+        .map(|ranked| ranked.relationship)
+        .collect())
+}
+
+/// A relationship paired with its ranking keys, so the edge list can be sorted before it is capped.
+struct RankedRelationship {
+    weight: u8,
+    recency: i64,
+    relationship: BriefRelationship,
+}
+
+/// The type-weight of a relation for brief ranking (higher sorts earlier). The ordering floats the
+/// structural, identity-bearing relations the system seeds — origin, operatorship, composition,
+/// participation, and placement (see `seed_relations`) — above the high-volume social edges, so a hub
+/// memory's `created_by` survives a tight cap while its many `knows` edges are the first to fall away.
+/// The weights are deliberately spaced constants gathered here so the ranking is legible and tunable
+/// in one place; an agent-coined relation ([`RelationName::Other`]) sits mid-table, above bare
+/// acquaintance but below the seeded structure.
+fn relation_weight(relation: &RelationName) -> u8 {
+    match relation {
+        RelationName::CreatedBy | RelationName::Created => 100,
+        RelationName::OperatorOf | RelationName::OperatedBy => 90,
+        RelationName::PartOf | RelationName::Contains => 80,
+        RelationName::ParticipatesIn | RelationName::HasParticipant => 70,
+        RelationName::LocatedAt | RelationName::LocationOf => 60,
+        RelationName::Other(_) => 50,
+        RelationName::Knows | RelationName::KnownBy => 40,
+        RelationName::SameAs => 10,
+    }
 }
 
 /// The present participants ordered for the cap: most-recently-active first (by their latest
