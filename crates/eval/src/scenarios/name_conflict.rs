@@ -8,10 +8,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, Namespace};
+use zuihitsu::{
+    EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, Teller, TerminalCause,
+    Timestamp, Visibility,
+};
 
 use crate::{
     analysis,
+    context::RUN_START_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
     scenario::Scenario,
@@ -20,7 +24,10 @@ use crate::{
 
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
-    vec![Arc::new(DistinguishesCollidingPeople)]
+    vec![
+        Arc::new(DistinguishesCollidingPeople),
+        Arc::new(RecoversFromASeededCollision),
+    ]
 }
 
 /// Three distinct people who share a first name — three Daves — are introduced in separate sessions,
@@ -133,4 +140,160 @@ impl Scenario for DistinguishesCollidingPeople {
             ),
         ]
     }
+}
+
+/// Two same-stem people already exist in the graph — seeded directly, so their handles occupy the
+/// obvious stem before the conversation starts — and a turn introduces a third, explicitly distinct
+/// Dave. Reaching for the taken `person/dave` handle collides, and the teachable error lists the
+/// near-matching existing handles; the rewarded recovery is a distinguishing handle for the new
+/// person in at most one collision, never folding him onto an existing Dave and never colliding
+/// repeatedly on the same name. Seeding by state rather than by phrasing keeps the steering honest:
+/// nothing in the turn tells the agent which handles are taken.
+pub struct RecoversFromASeededCollision;
+
+#[async_trait]
+impl Scenario for RecoversFromASeededCollision {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "recovers_from_a_seeded_collision".to_owned(),
+            category: Category::Recall,
+            description: "Two same-stem people already occupy the obvious handles when a turn \
+                          introduces a third, explicitly distinct Dave. The agent should record him \
+                          under a distinguishing handle — recovering from a collision in at most one \
+                          attempt if it reaches for a taken name — rather than fold him onto an \
+                          existing Dave or collide repeatedly."
+                .to_owned(),
+            bar: Bar::Metric { threshold: 0.7 },
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    fn steps(&self) -> Vec<EvalStep> {
+        // The occupied stem, set up directly as a synthetic event log rather than by driving the
+        // agent: person/dave (the backend lead) and person/dave-ops (a different Dave in ops) exist
+        // with committed entries before any conversation opens, so a create that reaches for the
+        // obvious handle collides against real state.
+        let dave = MemoryId::generate();
+        let dave_ops = MemoryId::generate();
+        let now = Timestamp::from_millis(RUN_START_MS);
+        let seed = vec![
+            EventPayload::memory_created(dave, MemoryName::new("person/dave")),
+            EventPayload::MemoryContentAppended {
+                id: dave,
+                entry_id: EntryId::generate(),
+                asserted_at: now,
+                occurred_at: None,
+                text: "The team's backend lead; has been at the company for years.".to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+            EventPayload::memory_created(dave_ops, MemoryName::new("person/dave-ops")),
+            EventPayload::MemoryContentAppended {
+                id: dave_ops,
+                entry_id: EntryId::generate(),
+                asserted_at: now,
+                occurred_at: None,
+                text: "Runs the ops rotation; a different Dave from the backend lead.".to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ];
+        vec![
+            EvalStep::SeedEvents(seed),
+            // Settle so the seeded entries are described and indexed — the retrieval surface a
+            // careful agent would check before creating.
+            EvalStep::Settle,
+            Turn::new(
+                "discord",
+                "sales-sync",
+                "marcus",
+                "New face on the sales team starting today — also called Dave, no relation to any \
+                 Dave we already know. He came over from Aviato and closed a big account in his \
+                 first week there. Worth keeping track of him.",
+            )
+            .into(),
+            EvalStep::Settle,
+            // A later room with an empty buffer reads the roster back — correct only if the new Dave
+            // landed as his own memory beside the two seeded ones.
+            Turn::new(
+                "discord",
+                "planning",
+                "erin",
+                "How many Daves are we up to now, and who's who?",
+            )
+            .into(),
+        ]
+    }
+
+    async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
+        // Three distinct Daves: the two seeded handles plus one new distinguishing handle. Fewer
+        // means the new hire was folded onto an existing Dave; more means a duplicate was minted.
+        let dave_memories: Vec<String> =
+            analysis::memories_in_namespace(events, Namespace::Person.prefix())
+                .into_iter()
+                .filter(|name| name.to_lowercase().contains("dave"))
+                .collect();
+        let three_distinct = dave_memories.len() == 3;
+        // The collision-recovery discipline: reaching for a taken handle at most once. Zero
+        // collisions (the agent checked first, or guessed a free handle) passes; one collision
+        // followed by a distinguishing retry passes; hammering the same taken name does not.
+        let collisions = name_collision_count(events);
+        let recovered = collisions <= 1;
+        let reply = analysis::last_agent_reply(events).unwrap_or_default();
+        let judged = judge
+            .assess(
+                "The reply counts three Daves and tells them apart — the backend lead, the one in \
+                 ops, and the new sales hire from Aviato — without conflating any two of them.",
+                &format!(
+                    "Two people called Dave were already on record (the backend lead, and a \
+                     different Dave in ops), then a third — a new sales hire from Aviato — was \
+                     introduced. Asked how many Daves there are and who's who, the agent \
+                     replied:\n\"{reply}\""
+                ),
+            )
+            .await;
+
+        vec![
+            Verdict::metric_outcome(
+                "recorded the new Dave as a third distinct memory",
+                three_distinct,
+                format!("three separate person memories under the stem: {dave_memories:?}"),
+                format!("the new Dave did not land as a third distinct memory: {dave_memories:?}"),
+            ),
+            Verdict::metric_outcome(
+                "recovered from any name collision in at most one attempt",
+                recovered,
+                format!("{collisions} collision(s) — at most one create reached a taken name"),
+                format!("collided {collisions} times — kept reaching for taken names"),
+            ),
+            Verdict::from_judge_outcome(
+                "counted and distinguished all three Daves in its reply",
+                VerdictKind::Metric,
+                judged,
+            ),
+        ]
+    }
+}
+
+/// The number of Lua blocks in the run that terminated on a name or tag collision — a terminal cause
+/// carrying the "already exists" teachable error. The collision-recovery metric reads this: at most
+/// one is a clean recovery, more is the repeated-collision failure the suggestions exist to prevent.
+fn name_collision_count(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::LuaExecuted {
+                    terminal_cause: Some(TerminalCause::Error(message)),
+                    ..
+                } if message.contains("already exists")
+            )
+        })
+        .count()
 }
