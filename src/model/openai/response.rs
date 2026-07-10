@@ -54,6 +54,17 @@ pub(crate) struct ChatUsage {
     pub(crate) completion_tokens: Option<u32>,
     #[serde(default)]
     pub(crate) total_tokens: Option<u32>,
+    #[serde(default)]
+    pub(crate) prompt_tokens_details: Option<PromptTokensDetails>,
+}
+
+/// The cached-token breakdown some OpenAI-compatible servers attach to usage. llama.cpp's
+/// compatibility endpoint omits it entirely; an absent field means the cache behavior is unknown,
+/// never that zero tokens were cached.
+#[derive(Deserialize)]
+pub(crate) struct PromptTokensDetails {
+    #[serde(default)]
+    pub(crate) cached_tokens: Option<u32>,
 }
 
 /// Map the custom byot response into a [`GenerateResponse`], surfacing the deliberation the standard
@@ -70,6 +81,12 @@ pub(crate) fn into_response(response: ChatResponse) -> Result<GenerateResponse, 
             .as_ref()
             .and_then(|usage| usage.completion_tokens),
         total_tokens: response.usage.as_ref().and_then(|usage| usage.total_tokens),
+        cache_read_tokens: response
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.prompt_tokens_details.as_ref())
+            .and_then(|details| details.cached_tokens),
+        cache_write_tokens: None,
     };
     let ChatChoice {
         message,

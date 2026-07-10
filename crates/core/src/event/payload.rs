@@ -381,6 +381,12 @@ pub enum EventPayload {
         started_at: Timestamp,
         seeded_from_turn: Option<ConversationRef>,
         brief: String,
+        /// The working-set memory ids carried into this session from the previous segment, recorded
+        /// so the brief composition is reproducible after the fact. Empty for sessions recorded
+        /// before capture and for genuinely fresh sessions; consumers distinguish the two by the
+        /// field's presence in the raw payload.
+        #[serde(default)]
+        working_set: Vec<MemoryId>,
     },
     SessionEnded {
         conversation: ConversationId,

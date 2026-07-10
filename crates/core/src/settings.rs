@@ -63,6 +63,10 @@ pub struct CompactionSettings {
     /// there is working state worth flushing (spec §Compaction → pre-compaction flush).
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub flush_min_turns: i64,
+    /// The model's stated context window in tokens, recorded so observers can relate the buffer
+    /// budget to the true window. `None` when the instance was created without a configured model.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub context_length: Option<i64>,
 }
 
 /// The mid-session checkpoint flush (spec §Compaction → checkpoint flush): a flush turn run while the
@@ -250,6 +254,7 @@ impl Default for CompactionSettings {
             idle_gap_seconds: 30 * MINUTE,
             carryover_char_budget: 4_000,
             flush_min_turns: 4,
+            context_length: None,
         }
     }
 }

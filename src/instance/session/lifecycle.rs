@@ -276,6 +276,7 @@ impl Instance {
                 started_at: now,
                 seeded_from_turn,
                 brief: brief.clone(),
+                working_set: working_set.to_vec(),
             }],
         )?;
         observe_session_opened();

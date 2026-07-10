@@ -6,6 +6,7 @@ use crate::{
     brief::{Brief, BriefFact, BriefRelationship},
     ids::{ConversationId, MemoryName, SessionId, TurnId},
     model::{Completion, Message, ToolChoice, Usage},
+    prompt::{PromptSectionKind, PromptSectionSpan},
     time::{CivilDate, TemporalRef, Timestamp},
     vocabulary::RelationName,
 };
@@ -170,6 +171,11 @@ fn model_called_round_trips() {
         request_digest: "abc123".to_owned(),
         request: Some(RequestRecord::Base {
             system: "be concise".to_owned(),
+            system_sections: vec![PromptSectionSpan {
+                kind: PromptSectionKind::Scaffold,
+                start: 0,
+                end: 11,
+            }],
             messages: vec![Message::user("hi")],
             tools: Vec::new(),
             tool_choice: ToolChoice::Auto,
@@ -182,11 +188,61 @@ fn model_called_round_trips() {
             prompt_tokens: Some(10),
             completion_tokens: Some(2),
             total_tokens: Some(12),
+            cache_read_tokens: Some(8),
+            cache_write_tokens: None,
         },
         duration_ms: 1_234,
     };
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+}
+
+#[test]
+fn model_called_without_system_sections_replays_as_empty() {
+    // A `ModelCalled` recorded before the prompt sections were captured has no `system_sections` key
+    // on its `Base` request; `serde(default)` must fill an empty vec so the historical event still
+    // deserializes and the console falls back to deriving the section boundaries itself.
+    let event = EventPayload::ModelCalled {
+        conversation: ConversationId::generate(),
+        turn_id: TurnId::generate(),
+        phase: ModelPhase::Step,
+        request_digest: "abc123".to_owned(),
+        request: Some(RequestRecord::Base {
+            system: "be concise".to_owned(),
+            // Immaterial: the `system_sections` key is stripped from the serialized JSON below, so the
+            // constructed value never reaches the deserializer under test.
+            system_sections: Vec::new(),
+            messages: vec![Message::user("hi")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+            thinking: None,
+        }),
+        completion: Completion::Reply("hello".to_owned()),
+        reasoning: None,
+        finish_reason: None,
+        usage: Usage::default(),
+        duration_ms: 0,
+    };
+    let mut value = serde_json::to_value(&event).unwrap();
+    value["request"]["Base"]
+        .as_object_mut()
+        .unwrap()
+        .remove("system_sections");
+
+    let replayed = serde_json::from_value::<EventPayload>(value).unwrap();
+    let EventPayload::ModelCalled {
+        request: Some(RequestRecord::Base {
+            system_sections, ..
+        }),
+        ..
+    } = replayed
+    else {
+        panic!("expected a ModelCalled with a Base request, got {replayed:?}");
+    };
+    assert!(
+        system_sections.is_empty(),
+        "a pre-field Base defaults to no sections"
+    );
 }
 
 #[test]
@@ -269,6 +325,49 @@ fn a_version_two_merge_proposed_reads_with_no_rationale() {
             rationale: None,
         }
     );
+}
+
+#[test]
+fn a_usage_without_cache_fields_replays_as_unknown() {
+    // A usage recorded before cache capture has no cache keys; `serde(default)` must fill `None`
+    // (unknown, not zero) so the historical `ModelCalled` still deserializes, and a modern usage
+    // round-trips its cache counts intact.
+    let old = r#"{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}"#;
+    let replayed: Usage = serde_json::from_str(old).unwrap();
+    assert_eq!(replayed.cache_read_tokens, None);
+    assert_eq!(replayed.cache_write_tokens, None);
+
+    let modern = Usage {
+        prompt_tokens: Some(10),
+        cache_read_tokens: Some(8),
+        ..Usage::default()
+    };
+    let json = serde_json::to_string(&modern).unwrap();
+    assert_eq!(serde_json::from_str::<Usage>(&json).unwrap(), modern);
+}
+
+#[test]
+fn a_session_started_without_a_working_set_replays_as_empty() {
+    // A `SessionStarted` recorded before working-set capture has no `working_set` key; the field
+    // defaults empty so the historical event still deserializes, and consumers distinguish
+    // "recorded before capture" from "genuinely empty" by the key's presence in the raw payload.
+    let event = EventPayload::SessionStarted {
+        conversation: ConversationId::generate(),
+        id: SessionId::generate(),
+        participants: vec![MemoryId::generate()],
+        started_at: Timestamp::from_millis(1_000),
+        seeded_from_turn: None,
+        brief: "the brief".to_owned(),
+        working_set: Vec::new(),
+    };
+    let mut value = serde_json::to_value(&event).unwrap();
+    value.as_object_mut().unwrap().remove("working_set");
+
+    let replayed = serde_json::from_value::<EventPayload>(value).unwrap();
+    let EventPayload::SessionStarted { working_set, .. } = replayed else {
+        panic!("expected a SessionStarted, got {replayed:?}");
+    };
+    assert!(working_set.is_empty());
 }
 
 #[test]

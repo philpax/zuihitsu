@@ -31,6 +31,7 @@ pub(crate) fn session_started(
         started_at,
         seeded_from_turn: None,
         brief: String::new(),
+        working_set: Vec::new(),
     }
 }
 

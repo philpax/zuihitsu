@@ -39,6 +39,12 @@ pub struct ResponseSchema {
 }
 
 /// What the model is asked to produce a step for.
+///
+/// The serialized shape (field names and order) is load-bearing beyond the wire: the recorder's
+/// `request_digest` hashes `serde_json::to_vec` of this struct, and the console's digest verifier
+/// (`RequestDigestView` in `crates/console-wasm`) mirrors it to reproduce that hash from the
+/// recorded deltas. A field change here must be mirrored there, or every call reads as a digest
+/// mismatch in the console.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub system: String,
@@ -414,6 +420,18 @@ mod tests {
     //! The scripted model returns its programmed steps in order, then reports exhaustion — the
     //! determinism agent-level tests rely on (spec §Testability).
     use super::{Completion, GenerateRequest, ModelClient, ModelError, ScriptedModel, ToolCall};
+
+    #[test]
+    fn generate_request_serializes_with_the_digest_view_shape() {
+        // The console's digest verifier mirrors this struct's serialized shape
+        // (`RequestDigestView` in `crates/console-wasm`, which pins the identical literal); this
+        // canary pins the exact bytes `request_digest` hashes, so a field change here cannot
+        // silently break every digest verification.
+        assert_eq!(
+            serde_json::to_string(&GenerateRequest::default()).unwrap(),
+            r#"{"system":"","messages":[],"tools":[],"tool_choice":"Auto","response_format":null,"thinking":null}"#
+        );
+    }
 
     #[tokio::test]
     async fn scripted_model_returns_programmed_steps_then_exhausts() {

@@ -371,6 +371,7 @@ mod tests {
                     prompt_tokens: Some(120),
                     completion_tokens: Some(30),
                     total_tokens: Some(150),
+                    ..Usage::default()
                 },
             );
         });
@@ -409,6 +410,7 @@ mod tests {
                     prompt_tokens: Some(1),
                     completion_tokens: Some(1),
                     total_tokens: Some(2),
+                    ..Usage::default()
                 },
             );
             observe_mcp_call(Duration::from_millis(10));

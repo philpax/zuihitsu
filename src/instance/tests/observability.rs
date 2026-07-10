@@ -118,6 +118,7 @@ async fn model_call_tokens_accumulate_from_usage() {
             prompt_tokens: Some(120),
             completion_tokens: Some(30),
             total_tokens: Some(150),
+            ..crate::model::Usage::default()
         },
         reasoning: None,
         finish_reason: Some("stop".to_owned()),

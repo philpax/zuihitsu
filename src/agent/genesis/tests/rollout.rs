@@ -12,17 +12,22 @@ use crate::{
 
 use super::{clock, seed};
 
-/// The `token_budget` in the `ConfigSet` genesis wrote.
-fn logged_token_budget(store: &dyn Store) -> i64 {
+/// The compaction settings in the `ConfigSet` genesis wrote.
+fn logged_compaction(store: &dyn Store) -> crate::settings::CompactionSettings {
     store
         .read_from(Seq::ZERO)
         .unwrap()
         .into_iter()
         .find_map(|event| match event.payload {
-            EventPayload::ConfigSet { settings, .. } => Some(settings.compaction.token_budget),
+            EventPayload::ConfigSet { settings, .. } => Some(settings.compaction),
             _ => None,
         })
         .expect("genesis writes a ConfigSet")
+}
+
+/// The `token_budget` in the `ConfigSet` genesis wrote.
+fn logged_token_budget(store: &dyn Store) -> i64 {
+    logged_compaction(store).token_budget
 }
 
 #[test]
@@ -37,6 +42,8 @@ fn the_compaction_budget_is_derived_from_the_context_window() {
     )
     .unwrap();
     assert_eq!(logged_token_budget(&store), 80_000);
+    // The window itself is recorded beside the derived budget, so observers can relate the two.
+    assert_eq!(logged_compaction(&store).context_length, Some(100_000));
 
     let mut store = MemoryStore::new();
     genesis::rollout(
@@ -51,6 +58,8 @@ fn the_compaction_budget_is_derived_from_the_context_window() {
         logged_token_budget(&store),
         Settings::default().compaction.token_budget
     );
+    // A model-less instance records no window: unknown, not a fabricated number.
+    assert_eq!(logged_compaction(&store).context_length, None);
 }
 
 #[test]

@@ -50,6 +50,9 @@ impl Graph {
                 started_at,
                 seeded_from_turn,
                 brief,
+                // The working set is replay metadata for after-the-fact brief re-derivation; the
+                // materialized graph does not consume it.
+                working_set: _,
             } => {
                 self.conn
                     .execute(

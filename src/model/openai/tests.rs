@@ -85,8 +85,48 @@ fn deserializes_reasoning_and_full_usage_from_a_reply() {
             prompt_tokens: Some(12),
             completion_tokens: Some(5),
             total_tokens: Some(17),
+            ..Usage::default()
         }
     );
+}
+
+#[test]
+fn parses_cached_tokens_into_the_cache_read_field() {
+    // A server that reports `prompt_tokens_details.cached_tokens` (vLLM, OpenAI) surfaces it as
+    // `cache_read_tokens`; no OpenAI-compatible server reports a write signal, so writes stay `None`.
+    let body = serde_json::json!({
+        "choices": [{ "message": { "role": "assistant", "content": "ok" } }],
+        "usage": {
+            "prompt_tokens": 3112,
+            "completion_tokens": 4,
+            "total_tokens": 3116,
+            "prompt_tokens_details": { "cached_tokens": 2048 }
+        }
+    });
+    let response: ChatResponse = serde_json::from_value(body).expect("body deserializes");
+    let generated = into_response(response).expect("maps to a response");
+    assert_eq!(generated.usage.cache_read_tokens, Some(2048));
+    assert_eq!(generated.usage.cache_write_tokens, None);
+}
+
+#[test]
+fn absent_cache_details_stay_unknown_not_zero() {
+    // llama.cpp's compatibility endpoint reports usage without `prompt_tokens_details`; the cache
+    // fields must stay `None` (unknown), never a fabricated zero. The same holds when the details
+    // object is present but empty.
+    for usage in [
+        serde_json::json!({ "prompt_tokens": 10 }),
+        serde_json::json!({ "prompt_tokens": 10, "prompt_tokens_details": {} }),
+    ] {
+        let body = serde_json::json!({
+            "choices": [{ "message": { "role": "assistant", "content": "ok" } }],
+            "usage": usage,
+        });
+        let response: ChatResponse = serde_json::from_value(body).expect("body deserializes");
+        let generated = into_response(response).expect("maps to a response");
+        assert_eq!(generated.usage.cache_read_tokens, None);
+        assert_eq!(generated.usage.cache_write_tokens, None);
+    }
 }
 
 #[test]

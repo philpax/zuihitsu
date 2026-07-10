@@ -159,6 +159,7 @@ pub fn rollout(
         let mut settings = Settings::default();
         if let Some(context_length) = context_length {
             settings.compaction.token_budget = compaction_budget_for(context_length);
+            settings.compaction.context_length = Some(i64::from(context_length));
         }
         to_emit.push(EventPayload::config_set(settings, EventSource::Bootstrap));
     }

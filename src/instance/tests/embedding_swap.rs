@@ -129,6 +129,7 @@ async fn the_idle_sweep_closes_a_session_once_not_every_tick() {
                 started_at: Timestamp::from_millis(1_000),
                 seeded_from_turn: None,
                 brief: "brief".to_owned(),
+                working_set: Vec::new(),
             }],
         )
         .unwrap();
@@ -230,6 +231,7 @@ async fn concurrent_closes_of_one_session_record_a_single_end() {
                 started_at: Timestamp::from_millis(1_000),
                 seeded_from_turn: None,
                 brief: "brief".to_owned(),
+                working_set: Vec::new(),
             }],
         )
         .unwrap();

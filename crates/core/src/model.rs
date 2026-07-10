@@ -143,4 +143,12 @@ pub struct Usage {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
     pub total_tokens: Option<u32>,
+    /// Prompt tokens the provider served from its prefix cache. `None` when the provider does not
+    /// report cache usage — unknown, not zero.
+    #[serde(default)]
+    pub cache_read_tokens: Option<u32>,
+    /// Prompt tokens the provider wrote to its cache. `None` when unreported; no OpenAI-compatible
+    /// server emits a write signal today, so this exists for providers that do.
+    #[serde(default)]
+    pub cache_write_tokens: Option<u32>,
 }

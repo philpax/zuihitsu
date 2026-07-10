@@ -54,6 +54,168 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
 }
 
 #[tokio::test]
+async fn a_compaction_seeded_session_records_its_working_set() {
+    // The carried working set is recorded on the seeded `SessionStarted` verbatim, so the brief
+    // composition is reproducible from the log alone; a fresh session records an empty set.
+    let (server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    // Disable the pre-compaction flush, so each message is a single scripted model step.
+    settings.compaction.flush_min_turns = 1_000_000;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::with_usage([
+        // Session 1: touch a thread, then cross the budget so the next message compacts.
+        (
+            run_lua_call(r#"memory.create("topic/migration", "Plan the DB migration")"#),
+            10,
+        ),
+        (Completion::Reply("noted".to_owned()), 200),
+        // Session 2 opens seeded from the compaction; the carried thread is stale, so the pre-brief
+        // describe pass synthesizes it before the turn step runs.
+        (describe_call("The DB migration plan."), 0),
+        (Completion::Reply("back".to_owned()), 0),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "how is it going", &["dave"])
+        .await
+        .unwrap();
+
+    let migration = server
+        .control()
+        .memory("topic/migration")
+        .unwrap()
+        .expect("the touched thread exists")
+        .id;
+    let sessions: Vec<(Option<zuihitsu::ConversationRef>, Vec<MemoryId>)> = server
+        .control()
+        .events()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| match event.payload {
+            EventPayload::SessionStarted {
+                seeded_from_turn,
+                working_set,
+                ..
+            } => Some((seeded_from_turn, working_set)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sessions.len(), 2, "one fresh session, one seeded session");
+    let (fresh, seeded) = (&sessions[0], &sessions[1]);
+    assert!(
+        fresh.0.is_none() && fresh.1.is_empty(),
+        "a fresh session carries nothing"
+    );
+    assert!(
+        seeded.0.is_some(),
+        "the second session is compaction-seeded"
+    );
+    assert_eq!(
+        seeded.1,
+        vec![migration],
+        "the recorded working set is the touched set"
+    );
+}
+
+#[tokio::test]
+async fn the_recorded_brief_is_reproducible_from_the_log() {
+    // The faithfulness property the console's trace view relies on: folding the log to just before a
+    // seeded `SessionStarted`, resolving the settings from the folded `ConfigSet`, and composing with
+    // the payload's own participants, working set, and start time reproduces the recorded brief
+    // byte-for-byte. Composition is deterministic, so any drift means an input was not captured.
+    let (server, _clock) = born_agent();
+    let mut settings = server.control().settings().unwrap();
+    settings.compaction.token_budget = 100;
+    settings.compaction.flush_min_turns = 1_000_000;
+    server.control().set_settings(settings).unwrap();
+
+    let leads = ConversationLocator::new("discord", "leads");
+    let model = ScriptedModel::with_usage([
+        (
+            run_lua_call(r#"memory.create("topic/migration", "Plan the DB migration")"#),
+            10,
+        ),
+        (Completion::Reply("noted".to_owned()), 200),
+        (describe_call("The DB migration plan."), 0),
+        (Completion::Reply("back".to_owned()), 0),
+    ]);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "how is it going", &["dave"])
+        .await
+        .unwrap();
+
+    let events = server.control().events().unwrap();
+    let (session_seq, conversation, participants, started_at, working_set, recorded_brief) = events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::SessionStarted {
+                conversation,
+                participants,
+                started_at,
+                seeded_from_turn: Some(_),
+                brief,
+                working_set,
+                ..
+            } => Some((
+                event.seq,
+                *conversation,
+                participants.clone(),
+                *started_at,
+                working_set.clone(),
+                brief.clone(),
+            )),
+            _ => None,
+        })
+        .expect("a compaction-seeded session was recorded");
+
+    // Fold a fresh graph and the settings from the log alone, up to just before the session opened.
+    let mut graph = Graph::open_in_memory().unwrap();
+    let mut folded = zuihitsu::settings::Settings::default();
+    for event in events.iter().filter(|event| event.seq < session_seq) {
+        if let EventPayload::ConfigSet {
+            settings: logged, ..
+        } = &event.payload
+        {
+            folded = logged.clone();
+        }
+        graph.apply(event).unwrap();
+    }
+    let context = graph.context_for_conversation(conversation).unwrap();
+    let trace = zuihitsu::brief::compose_traced(
+        &graph,
+        &folded.brief,
+        &zuihitsu::brief::BriefRequest {
+            present_set: &participants,
+            current_context: context,
+            working_set: &working_set,
+            now: started_at,
+        },
+    )
+    .unwrap();
+    assert_eq!(trace.text, recorded_brief);
+    assert!(
+        trace.text.contains("topic/migration"),
+        "the carried thread reaches the reproduced brief: {}",
+        trace.text
+    );
+}
+
+#[tokio::test]
 async fn a_platform_conversation_cannot_write_self() {
     let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");

@@ -208,6 +208,7 @@ fn conversations_and_sessions_project() {
             started_at: Timestamp::from_millis(1_000),
             seeded_from_turn: None,
             brief: "first brief".to_owned(),
+            working_set: Vec::new(),
         },
         EventPayload::participant_joined(
             conv,
@@ -230,6 +231,7 @@ fn conversations_and_sessions_project() {
                 turn: Some(join_turn),
             }),
             brief: "second brief".to_owned(),
+            working_set: Vec::new(),
         },
     ]);
 
