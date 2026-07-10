@@ -13,6 +13,7 @@ mod identity;
 mod joins;
 mod merge;
 mod mutation_guards;
+mod name_conflict;
 mod privacy;
 mod recall;
 mod relations;
@@ -45,6 +46,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         arbitration::scenarios(),
         privacy::scenarios(),
         mutation_guards::scenarios(),
+        name_conflict::scenarios(),
         joins::scenarios(),
         description::scenarios(),
         compaction::scenarios(),

@@ -16,13 +16,24 @@ use crate::{
 /// nesting the graph error's own `materialized graph (…)` prefix.
 #[derive(Debug)]
 pub enum MemoryError {
-    /// A `create` collided with an existing name (names are unique).
-    NameExists(MemoryName),
+    /// A `create` or `rename` collided with an existing name (names are unique). `similar` carries the
+    /// near-matching existing handles in the same namespace, closest first, so the teachable error can
+    /// point the agent at the neighbours and it chooses a distinguishing name rather than colliding
+    /// again; it is empty when the handle is in no namespace or has no near-matches.
+    NameExists {
+        name: MemoryName,
+        similar: Vec<MemoryName>,
+    },
     /// A `link`/`unlink` named a relation that is not a registered link type.
     UnknownRelation(RelationName),
     /// A `tags.create` named a tag already in the vocabulary — creation forces a fresh purpose, so a
-    /// collision is a teachable error (apply it, or change its purpose with `tags.describe`).
-    TagExists(TagName),
+    /// collision is a teachable error (apply it, or change its purpose with `tags.describe`). `similar`
+    /// carries the near-matching existing tags, closest first, so the error can surface a near-duplicate
+    /// the agent may have meant; it is empty when there are no near-matches.
+    TagExists {
+        name: TagName,
+        similar: Vec<TagName>,
+    },
     /// A `mem:tag`/`tags.describe` named a tag that was never created. Tags are a described, shared
     /// vocabulary, so they must be created (`tags.create`) before they are applied or re-described.
     UnknownTag(TagName),
@@ -82,24 +93,30 @@ pub enum MemoryError {
 impl std::fmt::Display for MemoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MemoryError::NameExists(name) => write!(
-                f,
-                "a memory named {:?} already exists; fetch it with memory.get, or use \
-                 memory.get_or_create(name) when you are unsure whether it exists",
-                name.as_str()
-            ),
+            MemoryError::NameExists { name, similar } => {
+                write!(
+                    f,
+                    "a memory named {:?} already exists; fetch it with memory.get, or use \
+                     memory.get_or_create(name) when you are unsure whether it exists",
+                    name.as_str()
+                )?;
+                write_similar(f, "handles", similar.iter().map(MemoryName::as_str))
+            }
             MemoryError::UnknownRelation(relation) => write!(
                 f,
                 "unknown relation {:?}; register it with links.register first, or call links.list \
                  for the known relations",
                 relation.as_str()
             ),
-            MemoryError::TagExists(name) => write!(
-                f,
-                "a tag named {:?} already exists; apply it with mem:tag, or change its purpose with \
-                 tags.describe",
-                name.as_str()
-            ),
+            MemoryError::TagExists { name, similar } => {
+                write!(
+                    f,
+                    "a tag named {:?} already exists; apply it with mem:tag, or change its purpose \
+                     with tags.describe",
+                    name.as_str()
+                )?;
+                write_similar(f, "tags", similar.iter().map(TagName::as_str))
+            }
             MemoryError::UnknownTag(name) => write!(
                 f,
                 "unknown tag {:?}; create it first with tags.create(name, purpose)",
@@ -171,6 +188,30 @@ impl std::fmt::Display for MemoryError {
             MemoryError::Graph(error) => write!(f, "memory: {error}"),
         }
     }
+}
+
+/// Append a "similar existing …" clause naming the near-matching `names` (their kind, e.g. `handles`
+/// or `tags`), or nothing when there are none — the collision error lists the neighbours so the agent
+/// picks a distinguishing name rather than colliding again.
+fn write_similar<'a>(
+    f: &mut std::fmt::Formatter<'_>,
+    kind: &str,
+    names: impl ExactSizeIterator<Item = &'a str>,
+) -> std::fmt::Result {
+    if names.len() == 0 {
+        return Ok(());
+    }
+    write!(f, "; similar existing {kind}: ")?;
+    for (i, name) in names.enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{name}")?;
+    }
+    write!(
+        f,
+        " — pick a distinguishing name if you mean a different one"
+    )
 }
 
 impl std::error::Error for MemoryError {

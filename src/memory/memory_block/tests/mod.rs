@@ -1,6 +1,7 @@
 //! Shared fixtures and the concern-grouped test submodules for the memory block.
 
 mod authority;
+mod conflict_suggestions;
 mod content_limit;
 mod mutation_guards;
 mod writes;

@@ -20,7 +20,7 @@ fn create_rejects_a_duplicate_name() {
     block.create(&plan, None).unwrap();
     // Caught against the block's own pending create (read-your-writes), before any commit.
     let error = block.create(&plan, None).unwrap_err();
-    assert!(matches!(error, MemoryError::NameExists(_)));
+    assert!(matches!(error, MemoryError::NameExists { .. }));
 }
 
 #[test]

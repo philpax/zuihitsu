@@ -2,11 +2,12 @@
 
 use crate::{
     event::{EventPayload, Teller},
+    graph::GraphError,
     ids::{EntryId, MemoryId, MemoryName},
     time::TemporalRef,
 };
 
-use super::{AppendOptions, MemoryBlock, MemoryError};
+use super::{AppendOptions, MemoryBlock, MemoryError, suggest::most_similar};
 
 impl MemoryBlock {
     /// Create a memory, optionally with a first content entry. The name must be free — a collision is
@@ -35,7 +36,8 @@ impl MemoryBlock {
         self.transaction(|block| {
             let name = name.into();
             if block.resolve(name.as_str())?.is_some() {
-                return Err(MemoryError::NameExists(name));
+                let similar = block.similar_names(&name)?;
+                return Err(MemoryError::NameExists { name, similar });
             }
             let id = MemoryId::generate();
             // A first entry is told like any append: by the turn's teller, classified the same way (an
@@ -99,7 +101,11 @@ impl MemoryBlock {
         self.guard_self(id)?;
         match self.resolve(new_name)? {
             Some(existing) if existing == id => return Ok(()),
-            Some(_) => return Err(MemoryError::NameExists(MemoryName::new(new_name))),
+            Some(_) => {
+                let name = MemoryName::new(new_name);
+                let similar = self.similar_names(&name)?;
+                return Err(MemoryError::NameExists { name, similar });
+            }
             None => {}
         }
         // A rename always reaches here from a live handle, so the old name resolves; a vanished memory
@@ -242,6 +248,34 @@ impl MemoryBlock {
         self.buffer
             .push(EventPayload::memory_volatility_set(id, volatility));
         Ok(())
+    }
+
+    /// The near-matching existing handles in `attempted`'s namespace, closest first — the suggestions
+    /// a name collision surfaces so the agent picks a distinguishing name. Scoped to the namespace,
+    /// since a near-duplicate is a handle of the same kind; a handle in no known namespace (only the
+    /// reserved `self`) has none. Reads the committed graph, like the block's other lookups.
+    fn similar_names(&self, attempted: &MemoryName) -> Result<Vec<MemoryName>, GraphError> {
+        let Ok(namespaced) = attempted.namespaced() else {
+            return Ok(Vec::new());
+        };
+        let prefix = namespaced.namespace.prefix();
+        let candidates = self
+            .engine
+            .graph
+            .lock()
+            .memories_in_namespace(prefix)?
+            .into_iter()
+            .map(|memory| {
+                let subject = memory
+                    .name
+                    .as_str()
+                    .strip_prefix(prefix)
+                    .unwrap_or(memory.name.as_str())
+                    .to_owned();
+                (subject, memory.name)
+            })
+            .collect();
+        Ok(most_similar(&namespaced.subject, candidates))
     }
 }
 
