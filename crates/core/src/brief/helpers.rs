@@ -43,14 +43,13 @@ pub fn compose_participant_brief(
     now: Timestamp,
 ) -> Result<Option<Brief>, BriefError> {
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
-    let recent = settings.recent_facts.max(0) as usize;
     match graph.memory_by_id(participant)? {
         Some(memory) => Ok(Some(memory_brief(
             graph,
             &memory,
             present_set,
             &class_of,
-            recent,
+            settings,
             now,
         )?)),
         None => Ok(None),
@@ -66,23 +65,26 @@ pub(super) fn render_memory_body(
     memory: &MemoryView,
     present_set: &[MemoryId],
     class_of: &ClassOf,
-    recent: usize,
+    settings: &BriefSettings,
     now: Timestamp,
 ) -> Result<(), BriefError> {
-    memory_brief(graph, memory, present_set, class_of, recent, now)?.render_body(out);
+    memory_brief(graph, memory, present_set, class_of, settings, now)?.render_body(out);
     Ok(())
 }
 
 /// Assemble a memory's [`Brief`] — subject, summary, visible recent facts, and relationships — the
-/// structured form both [`compose`] (via [`render_memory_body`]) and the join path draw from.
+/// structured form both [`compose`] (via [`render_memory_body`]) and the join path draw from. Reads
+/// the depth bounds from `settings` rather than taking them pre-extracted, so a single argument
+/// carries the whole composition budget.
 fn memory_brief(
     graph: &Graph,
     memory: &MemoryView,
     present_set: &[MemoryId],
     class_of: &ClassOf,
-    recent: usize,
+    settings: &BriefSettings,
     now: Timestamp,
 ) -> Result<Brief, BriefError> {
+    let recent = settings.recent_facts.max(0) as usize;
     Ok(Brief {
         subject: memory.name.clone(),
         summary: (!memory.description.is_empty()).then(|| memory.description.clone()),

@@ -215,7 +215,6 @@ pub fn compose(
     } = request;
     // The visibility predicate resolves identity over the `same_as` class.
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
-    let recent = settings.recent_facts.max(0) as usize;
     let mut out = String::new();
 
     // 1. Self brief — the agent's own memory in the per-participant shape.
@@ -227,7 +226,7 @@ pub fn compose(
             &self_memory,
             present_set,
             &class_of,
-            recent,
+            settings,
             now,
         )?;
         out.push('\n');
@@ -267,7 +266,7 @@ pub fn compose(
                     &memory,
                     present_set,
                     &class_of,
-                    recent,
+                    settings,
                     now,
                 )?;
             } else {
@@ -300,7 +299,7 @@ pub fn compose(
                 &memory,
                 present_set,
                 &class_of,
-                recent,
+                settings,
                 now,
             )?;
             if body.trim().is_empty() {
