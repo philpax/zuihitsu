@@ -63,6 +63,9 @@ export interface SessionModel {
   /// True when the session opened by re-segmenting a prior one (compaction) rather than fresh — it
   /// carries `seeded_from_turn`, so the transcript can mark a continuity cut.
   compaction: boolean;
+  /// The recorded working-set memory ids the session opened with, or `null` for a session recorded
+  /// before capture — the raw payload lacks the key, which is distinct from a genuinely empty set.
+  workingSet: string[] | null;
 }
 
 export interface TurnModel {
@@ -214,6 +217,9 @@ export function buildConversations(
           participants: payload.participants.map((id) => name(id) ?? id),
           participantIds: payload.participants,
           compaction: payload.seeded_from_turn !== null,
+          // Serde defaults an absent key to an empty array before the typed payload reaches us, so
+          // the pre-capture distinction must come from the raw JSON key's presence.
+          workingSet: "working_set" in payload ? payload.working_set : null,
         });
         break;
       }

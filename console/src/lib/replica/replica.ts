@@ -31,6 +31,16 @@ function ensureWasm(): Promise<unknown> {
 /// ULID. The wire shape of the wasm scanner's segments (see `RefSegment` in console-wasm).
 export type TurnRefSegment = { kind: "prose"; text: string } | { kind: "ref"; id: string };
 
+/// How one model call's recorded prompt compares against the digest stamped at send time (see
+/// `DigestCheck` in console-wasm). `unverifiable` marks a structured synthesis call, whose response
+/// format is not recorded; `unrecorded` marks a call whose request was not captured.
+export type DigestStatus = "verified" | "mismatch" | "unverifiable" | "unrecorded";
+
+export interface DigestCheck {
+  seq: number;
+  status: DigestStatus;
+}
+
 // The turn-reference parser, crossing from `zuihitsu_core::turn_ref` — the same definition the
 // agent's `convo.turn` resolver reads, so what the console highlights, normalizes, and extracts
 // cannot drift from what the agent resolves. These are pure functions of their text, exported free
@@ -144,10 +154,24 @@ export class Replica {
     return this.#inner.agenda(nowMs, horizonDays) as AgendaItem[];
   }
 
+  /// Verify every model call's recorded prompt against the digest stamped at send time — the
+  /// reconstruction re-hashed with the recorder's own serialization. `verified` means the displayed
+  /// prompt provably matches the wire request; `mismatch` means it must not be trusted silently.
+  requestDigests(): DigestCheck[] {
+    return this.#inner.requestDigests() as DigestCheck[];
+  }
+
   /// Re-derive a session's brief and the trace of how it was composed, against the graph at the
-  /// current fold. `present` and `context` are memory ids; `nowMs` is the session start time.
-  brief(present: string[], context: string | null, nowMs: number): BriefTrace {
-    return this.#inner.brief(present, context, nowMs) as BriefTrace;
+  /// current fold, with the brief settings folded from the log at the same horizon. `present`,
+  /// `context`, and `workingSet` are memory ids; `nowMs` is the session start time; `workingSet` is
+  /// the `SessionStarted` payload's recorded working set (empty for pre-capture sessions).
+  brief(
+    present: string[],
+    context: string | null,
+    nowMs: number,
+    workingSet: string[],
+  ): BriefTrace {
+    return this.#inner.brief(present, context, nowMs, workingSet) as BriefTrace;
   }
 
   /// The memory name a freshly minted `person/*` participant would receive — delegates to the
