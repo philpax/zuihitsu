@@ -2,9 +2,9 @@
 
 **zuihitsu** is an agent system: the software a single conversational agent runs on. One instance hosts exactly one agent, whose entire life is a single event log read from `seq 0`. The agent itself is unnamed by the system — each operator names their own agent at creation time.
 
-The agent meets people across platforms, remembers what each has said, talks to any of them one-to-one or in a group, and keeps confidences between them. A platform is a free-form label carried on every turn alongside a `platform_user_id`, so a new adapter needs no schema change; today that surface is driven by the web console's direct interface and the operator CLI, with named adapters (Discord and others) to follow. Its whole history is replayable, its schema and logic are designed to evolve, and every consequential decision it makes leaves an auditable trace.
+The agent meets people across platforms, remembers what each has said, talks to any of them one-to-one or in a group, and keeps confidences between them. A platform is a free-form label carried on every turn alongside a `platform_user_id`, so a new adapter needs no schema change. Two surfaces drive that boundary: the web console's direct interface and the operator CLI. Its whole history is replayable, its schema and logic evolve additively, and every consequential decision it makes leaves an auditable trace.
 
-This document frames the system; the detail lives in the area documents listed under [The documents](#the-documents), whose order is the reading order — concatenating them in that order reconstructs the single-document spec.
+This document frames the system; [Life of a turn](#life-of-a-turn) traces one message end to end, and the detail lives in the area documents listed under [The documents](#the-documents) in reading order.
 
 ## Goals
 
@@ -13,7 +13,7 @@ This document frames the system; the detail lives in the area documents listed u
 - Treat privacy and confidence between participants as a first-class concern.
 - Recognize one human across multiple platforms once an operator has said they're the same person.
 - Provide full auditability and replayability of the agent's own evolution via event sourcing.
-- Stay extensible: new event fields, new link relations, new capabilities are additive, not migrations.
+- Stay extensible: new event fields, link relations, and capabilities land additively.
 
 ## Architectural principles
 
@@ -32,6 +32,18 @@ This document frames the system; the detail lives in the area documents listed u
 
 Two postures carry the whole design, stated in full in [Trust and authority](trust-and-authority.md). The **operator is trusted**: a single person runs the instance, owns the event log and the binary, and holds console access — but holds no platform identity and no conversational privilege, so in ordinary conversation the operator is just another participant. **Participants are not trusted with each other**: they have legitimate competing interests, so the visibility machinery keeps one participant's asides about another from reaching their subject, self-model writes are unreachable from platform conversations, and retroactive mutation of another participant's records is structurally gated.
 
+## Life of a turn
+
+One message travels the whole system before the reply lands:
+
+1. A platform client posts a message with its locator and present set ([Trust and authority](trust-and-authority.md#clients-and-the-server-boundary)).
+2. The server resolves the locator to a durable conversation and opens or continues a session, composing and freezing the brief-bearing system prompt at session open ([Conversations and briefs](conversations-and-briefs.md)).
+3. The agent loop runs model steps, each either running a Luau block or replying ([The agent loop](agent-loop.md)).
+4. A block's reads pass the visibility predicate against the present set ([Visibility](visibility.md)); its writes commit atomically to the event log, from which the graph materializes ([Events and storage](events-and-storage.md)).
+5. The reply returns to the client.
+6. Afterwards the background passes catch derived state up off the hot path — descriptions, temporal extraction, arbitration, link inference, and embeddings ([The write path](write-path.md)).
+7. Everything that happened is inspectable in the console ([Observability and testing](observability-and-testing.md)).
+
 ## The documents
 
 1. [Trust and authority](trust-and-authority.md) — the trust model in full; clients, the server boundary, and how authority is enforced.
@@ -44,4 +56,4 @@ Two postures carry the whole design, stated in full in [Trust and authority](tru
 8. [The agent loop](agent-loop.md) — the tool protocol, the server API and turn lifecycle, and the Lua API the agent acts through.
 9. [Initialization and lifecycle](lifecycle.md) — configuration, genesis, boot, and the imprint interview.
 10. [Observability and testing](observability-and-testing.md) — the console and its views, testability seams, and validation via the eval harness.
-11. [Known limitations and open questions](limitations.md) — named residual risks and recorded decisions; actionable work lives in the issue tracker.
+11. [Known limitations and recorded decisions](limitations.md) — named residual risks and recorded decisions; actionable work lives in the issue tracker.
