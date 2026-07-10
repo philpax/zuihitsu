@@ -8,7 +8,7 @@ use super::*;
 /// fact into `Attributed` is not what this scenario tests: an N=8 run showed the agent records such
 /// secondhand phrasing as `Public` with `told_by` provenance every time, so conversational steering
 /// never lands the `Attributed` posture the widened pool needs. Seeding fixes the state and isolates
-/// the behaviour under test.
+/// the behavior under test.
 ///
 /// What is under test starts once the two `Attributed` accounts stand side by side. Arbitration must
 /// still catch the contradiction over the widened `Public` + `Attributed` pool — two accounts marked

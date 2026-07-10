@@ -22,7 +22,7 @@ pub struct Judge {
     model: Arc<dyn ModelClient>,
 }
 
-/// One judgement: the decision, its one-line rationale, and the model's verbatim response.
+/// One judgment: the decision, its one-line rationale, and the model's verbatim response.
 pub struct JudgeOutcome {
     pub passed: bool,
     pub rationale: String,

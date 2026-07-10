@@ -33,7 +33,7 @@ pub trait Scenario: Send + Sync {
     }
 
     /// Which API features the scenario's instance enables — narrows the agent's Lua surface so a
-    /// scenario can test a behaviour in isolation (e.g. disable `linking` to test the link-inference
+    /// scenario can test a behavior in isolation (e.g. disable `linking` to test the link-inference
     /// pass as the sole path to a link). Defaults to all-on; a scenario overrides this to narrow.
     fn features(&self) -> InstanceFeatures {
         InstanceFeatures::default()

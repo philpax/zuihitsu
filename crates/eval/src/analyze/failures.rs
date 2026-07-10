@@ -8,7 +8,7 @@ use crate::package::{EvalPackage, RunRecord};
 use super::format::trunc;
 
 /// Every missed verdict across the (filtered) suite, rolled up by criterion — the cross-scenario view
-/// that tells you what to work on next. A criterion that slips in several scenarios is one behavioural
+/// that tells you what to work on next. A criterion that slips in several scenarios is one behavioral
 /// thread, not N unrelated fails; grouping surfaces that. Each line gives the miss count, the scenarios
 /// it appeared in, and one sample rationale. Sorted most-missed first.
 fn print_rollup(pkg: &EvalPackage, scenario: Option<&str>) {

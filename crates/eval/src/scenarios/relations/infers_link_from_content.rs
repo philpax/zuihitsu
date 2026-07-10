@@ -4,7 +4,7 @@ use super::*;
 /// carry it: `person/theo`, a junior engineer, has an entry saying Clara has been mentoring him — an
 /// honest person-to-person mentorship between two existing memories, with no explicit link — and the
 /// inference pass, driven afterward, must *register* a mentorship relation itself (mentorship is not
-/// seeded) and create the inferred link. This is the regression test for the link-inference behaviour
+/// seeded) and create the inferred link. This is the regression test for the link-inference behavior
 /// (spec §Write path → link inference), and specifically for its *minting*: with mentorship unseeded,
 /// the pass has no build-blessed relation to reach for, so the check is no longer vacuous — a run that
 /// fails to coin the relation fails the oracle.

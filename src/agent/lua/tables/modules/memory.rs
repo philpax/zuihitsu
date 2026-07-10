@@ -118,7 +118,7 @@ pub(in crate::agent::lua) fn memory_table(
     // or a lazy `name`/`description` read) falls through to the memory-handle metatable's `__index`,
     // so `hits[1]:append(…)`/`:details()` work without a `memory.get` round-trip. The hit's
     // own fields (`name`, `description`, `score`, `snippet`, …) are real table entries, so `__index` is
-    // only consulted for the handle behaviour and never shadows the hit's carried data. The handle
+    // only consulted for the handle behavior and never shadows the hit's carried data. The handle
     // `__index` is fully wired by the time `memory.search` is installed (see `install_block_api`).
     result_metatable.raw_set("__index", metatable.raw_get::<Value>("__index")?)?;
     memory.set(

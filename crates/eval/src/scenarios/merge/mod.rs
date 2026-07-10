@@ -1,6 +1,6 @@
 //! Agent-driven cross-platform merge (spec §Cross-platform identity → adjudicated merge): the agent
 //! proposes that two `person/*` stubs are one human, and an off-hot-path adjudication weighs the two
-//! stubs' independently-recorded facts before any merge. Three behaviours: merge on an improbable,
+//! stubs' independently-recorded facts before any merge. Three behaviors: merge on an improbable,
 //! independently-recorded coincidence; refuse a merge on only generic overlap; and resist an
 //! impersonator who recites a person's facts to reach their confidences.
 
