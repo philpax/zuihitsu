@@ -147,6 +147,32 @@ fn search_documents_the_relations_field() {
 }
 
 #[test]
+fn append_documents_the_exclude_option() {
+    // The append entry documents the exclude opt — a confidence additionally withheld whenever a
+    // named party is present — and that it is mutually exclusive with visibility.
+    let append = api_reference(&InstanceFeatures::default())
+        .into_iter()
+        .find(|entry| entry.call == "<memory>:append")
+        .expect("append is present");
+    let exclude = append
+        .params
+        .iter()
+        .find(|param| param.name == "opts")
+        .and_then(|opts| match &opts.ty {
+            crate::agent::api_doc::ApiType::Object(fields) => {
+                fields.iter().find(|field| field.name == "exclude")
+            }
+            _ => None,
+        })
+        .expect("opts carries an exclude field");
+    assert!(
+        exclude.doc.contains("withheld") && exclude.doc.contains("Mutually exclusive"),
+        "the exclude param should describe the posture and the conflict: {}",
+        exclude.doc
+    );
+}
+
+#[test]
 fn disabling_transcripts_omits_convo_turn() {
     let features = InstanceFeatures {
         transcripts: false,

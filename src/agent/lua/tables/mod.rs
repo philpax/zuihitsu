@@ -28,7 +28,7 @@ pub(super) use super::{
         link_target_id, make_capped_handle_list, make_date, make_entry_handle,
         make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
         make_relation_result, readonly_newindex, render, render_details, render_neighborhood,
-        render_salient_relations, route_error, run_memory_search, value_text,
+        render_salient_relations, resolve_exclude, route_error, run_memory_search, value_text,
     },
 };
 

@@ -9,6 +9,7 @@ mod content_limit;
 mod conversations;
 mod decay;
 mod description;
+mod exclude;
 mod identity;
 mod joins;
 mod merge;
@@ -45,6 +46,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         temporal::scenarios(),
         arbitration::scenarios(),
         privacy::scenarios(),
+        exclude::scenarios(),
         mutation_guards::scenarios(),
         name_conflict::scenarios(),
         joins::scenarios(),

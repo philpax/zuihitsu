@@ -6,6 +6,7 @@ use crate::{
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{MemoryId, Namespace},
+    memory::memory_block::{LinkOptions, RelationSpec},
     store::{MemoryStore, Store},
     time::{Rrule, TemporalRef, Timestamp},
     vocabulary::RelationName,
@@ -111,6 +112,155 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
     block
         .append(roadmap, "migration first", AppendOptions::default())
         .unwrap();
+}
+
+#[test]
+fn append_with_exclude_records_the_named_parties() {
+    // The exclude opt records the entry as a confidence additionally withheld whenever a named party
+    // is present — a Visibility::Exclude over the resolved ids. It also classifies the entry, so an
+    // agent-authored write about a person (which otherwise has no safe default and would be a
+    // VisibilityRequired error) is accepted: an exclude is itself an explicit classification.
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+    let dave = MemoryId::generate();
+    let frank = MemoryId::generate();
+    let erin = block
+        .create(Namespace::Person.with_name("erin"), None)
+        .unwrap();
+    block
+        .append(
+            erin,
+            "everyone but them is chipping in on the gift",
+            AppendOptions {
+                exclude: Some(vec![dave, frank]),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    let visibility = block
+        .into_effects()
+        .events
+        .into_iter()
+        .find_map(|event| match event {
+            EventPayload::MemoryContentAppended { visibility, .. } => Some(visibility),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(visibility, Visibility::Exclude(vec![dave, frank]));
+}
+
+#[test]
+fn exclude_and_visibility_together_is_a_conflict() {
+    // An exclude is already a private posture, so pairing it with an explicit visibility is
+    // contradictory — a teachable error, never a silent precedence.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let plan = block
+        .create(Namespace::Event.with_name("plan"), None)
+        .unwrap();
+    let error = block
+        .append(
+            plan,
+            "logistics",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Private),
+                exclude: Some(vec![MemoryId::generate()]),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, MemoryError::VisibilityConflict),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_empty_exclude_is_a_teachable_error() {
+    // An exclude naming no one is just a private confidence for its teller, so it is rejected pointing
+    // the agent at visibility = "private" for that case.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let plan = block
+        .create(Namespace::Event.with_name("plan"), None)
+        .unwrap();
+    let error = block
+        .append(
+            plan,
+            "logistics",
+            AppendOptions {
+                exclude: Some(Vec::new()),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(error, MemoryError::ExcludeEmpty), "{error:?}");
+    assert!(
+        error.to_string().contains("visibility = \"private\""),
+        "the error should point at the private posture: {error}"
+    );
+}
+
+#[test]
+fn link_with_exclude_records_the_named_parties() {
+    // The same exclude opt on links.create records the edge as a Visibility::Exclude over the named
+    // ids — so a relationship everyone but one person may know is held as a link-level confidence.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    block
+        .register_relation(RelationSpec {
+            name: "plans".to_owned(),
+            inverse: "planned_by".to_owned(),
+            from_card: "many".to_owned(),
+            to_card: "many".to_owned(),
+            symmetric: false,
+            reflexive: false,
+            description: String::new(),
+        })
+        .unwrap();
+    let erin = block
+        .create(Namespace::Person.with_name("erin"), None)
+        .unwrap();
+    let party = block
+        .create(Namespace::Event.with_name("party"), None)
+        .unwrap();
+    let dave = MemoryId::generate();
+    block
+        .link(
+            erin,
+            party,
+            RelationName::Other("plans".into()),
+            Some(LinkOptions {
+                visibility: None,
+                exclude: Some(vec![dave]),
+            }),
+        )
+        .unwrap();
+
+    let visibility = block
+        .into_effects()
+        .events
+        .into_iter()
+        .find_map(|event| match event {
+            EventPayload::LinkCreated { visibility, .. } => Some(visibility),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(visibility, Visibility::Exclude(vec![dave]));
 }
 
 #[test]

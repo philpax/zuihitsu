@@ -16,10 +16,10 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 13,
-        "the scaffold is registered at v13 (v13 recasts the linking point for the triadic call \
-         shape: a link is now link(a, rel, b), whose arguments read as a sentence with neither \
-         endpoint a privileged receiver)"
+        scaffold.version, 14,
+        "the scaffold is registered at v14 (v14 adds the exclude posture to the visibility point: a \
+         fact everyone but a named party may know is recorded excluding that party, holding like a \
+         confidence and additionally withheld whenever they are present)"
     );
     assert!(
         scaffold

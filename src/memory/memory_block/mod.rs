@@ -193,6 +193,37 @@ pub enum VisibilityChoice {
     Private,
 }
 
+/// The forced visibility an append or link opts selects once its `visibility` posture and `exclude`
+/// list have been reconciled: one of the three named postures, or an `exclude` list naming the
+/// parties a confidence is additionally withheld from (a [`Visibility::Exclude`]). The two opts are
+/// mutually exclusive — an exclude *is* a private posture, so it carries no separate `visibility` —
+/// and [`reconcile_forced_visibility`] rejects their combination, keeping the resolution paths
+/// ([`MemoryBlock::resolve_visibility`], [`MemoryBlock::resolve_link_visibility`]) fed a single
+/// already-reconciled choice.
+pub(super) enum ForcedVisibility {
+    Choice(VisibilityChoice),
+    Exclude(Vec<MemoryId>),
+}
+
+/// Reconcile an append's (or link's) `visibility` posture and `exclude` list into the single forced
+/// visibility the write is recorded at, or a teachable failure. The two opts are mutually exclusive:
+/// combining them is a [`MemoryError::VisibilityConflict`] (an exclude already fixes the posture), and
+/// an `exclude` naming no one is a [`MemoryError::ExcludeEmpty`] (a confidence for its teller alone is
+/// `visibility = "private"`, not an empty exclude). With neither set the write takes its write-time
+/// default, so this returns `None`.
+pub(super) fn reconcile_forced_visibility(
+    visibility: Option<VisibilityChoice>,
+    exclude: Option<Vec<MemoryId>>,
+) -> Result<Option<ForcedVisibility>, MemoryError> {
+    match (visibility, exclude) {
+        (Some(_), Some(_)) => Err(MemoryError::VisibilityConflict),
+        (Some(choice), None) => Ok(Some(ForcedVisibility::Choice(choice))),
+        (None, Some(ids)) if ids.is_empty() => Err(MemoryError::ExcludeEmpty),
+        (None, Some(ids)) => Ok(Some(ForcedVisibility::Exclude(ids))),
+        (None, None) => Ok(None),
+    }
+}
+
 /// The forced volatility a `volatility = "low" | "medium" | "high"` opt selects — how fast the
 /// memory's facts age (spec §Recency and volatility). Lets an append classify the memory inline,
 /// rather than a separate `set_volatility` call.
@@ -219,11 +250,13 @@ impl VolatilityChoice {
 /// relayed claim's source), overriding both `by_agent` and the speaker default; `visibility` forces
 /// the visibility instead of the write-time default; `occurred_at` records the real-world time the
 /// entry is *about*, distinct from when it is recorded (spec §Time); `volatility` classifies how fast
-/// the memory's facts age, set inline rather than via a separate `set_volatility` call. Deserialized
-/// from the Lua `opts` table, except `occurred_at` and `told_by`: those are resolved at the Lua
-/// boundary (a bare date string or handle for `occurred_at`, a handle or name for `told_by`) and set
-/// on the struct after, so they carry the resolved [`TemporalRef`] and [`Teller`] rather than a raw
-/// Lua value serde cannot decode.
+/// the memory's facts age, set inline rather than via a separate `set_volatility` call; `exclude`
+/// records the entry as a confidence additionally withheld whenever any named party is present (a
+/// [`Visibility::Exclude`]), mutually exclusive with `visibility`. Deserialized from the Lua `opts`
+/// table, except `occurred_at`, `told_by`, and `exclude`: those are resolved at the Lua boundary (a
+/// bare date string or handle for `occurred_at`, a handle or name for `told_by`, a list of handles or
+/// names for `exclude`) and set on the struct after, so they carry the resolved [`TemporalRef`],
+/// [`Teller`], and memory ids rather than a raw Lua value serde cannot decode.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct AppendOptions {
@@ -234,14 +267,21 @@ pub struct AppendOptions {
     pub volatility: Option<VolatilityChoice>,
     #[serde(skip)]
     pub told_by: Option<Teller>,
+    #[serde(skip)]
+    pub exclude: Option<Vec<MemoryId>>,
 }
 
 /// The overrides a `links.create` call accepts: `visibility` forces the visibility instead of the
-/// write-time default. Deserialized from the Lua `opts` table.
+/// write-time default; `exclude` records the link as a confidence additionally withheld whenever any
+/// named party is present (a [`Visibility::Exclude`]), mutually exclusive with `visibility`.
+/// `visibility` deserializes from the Lua `opts` table; `exclude` is resolved at the Lua boundary (a
+/// list of handles or names) and set after, carrying resolved memory ids rather than a raw Lua value.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct LinkOptions {
     pub visibility: Option<VisibilityChoice>,
+    #[serde(skip)]
+    pub exclude: Option<Vec<MemoryId>>,
 }
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities

@@ -59,6 +59,14 @@ pub enum MemoryError {
     VisibilityRequired,
     /// A `set_volatility` named a level that is not `low`, `medium`, or `high`.
     UnknownVolatility(String),
+    /// An append or link set both `visibility` and `exclude`. An exclude *is* a private posture (a
+    /// confidence additionally withheld when a named party is present), so it takes no separate
+    /// `visibility` — the two together are contradictory, a teachable error rather than a silent
+    /// precedence.
+    VisibilityConflict,
+    /// An `exclude` named no one — an empty list. An exclude withheld from nobody is just a confidence
+    /// for its teller, so the write is rejected pointing at `visibility = "private"` for that case.
+    ExcludeEmpty,
     /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
     /// or a non-`YYYY-MM-DD` date.
     BadCalendarArg(String),
@@ -151,6 +159,18 @@ impl std::fmt::Display for MemoryError {
             MemoryError::UnknownVolatility(level) => write!(
                 f,
                 "unknown volatility {level:?}; use \"low\", \"medium\", or \"high\""
+            ),
+            MemoryError::VisibilityConflict => write!(
+                f,
+                "set either visibility or exclude, not both — an exclude is already a private posture \
+                 (withheld from its teller's audience, and additionally whenever a named party is \
+                 present), so it takes no separate visibility"
+            ),
+            MemoryError::ExcludeEmpty => write!(
+                f,
+                "exclude must name at least one person to withhold this from — pass the handles or \
+                 names, e.g. exclude = {{ \"person/dave\" }}; to keep it a plain confidence for its \
+                 teller alone, use visibility = \"private\" instead"
             ),
             MemoryError::BadCalendarArg(arg) => write!(
                 f,

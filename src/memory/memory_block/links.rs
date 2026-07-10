@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    Authority, LinkDirection, LinkOptions, LinkRef, MemoryBlock, MemoryError, RelationSpec,
-    VisibilityChoice, parse_cardinality,
+    Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock, MemoryError,
+    RelationSpec, parse_cardinality, reconcile_forced_visibility,
 };
 
 impl MemoryBlock {
@@ -51,7 +51,11 @@ impl MemoryBlock {
         relation: RelationName,
         opts: Option<LinkOptions>,
     ) -> Result<(), MemoryError> {
-        self.change_link(from, to, relation, true, opts.and_then(|o| o.visibility))
+        let forced = match opts {
+            Some(opts) => reconcile_forced_visibility(opts.visibility, opts.exclude)?,
+            None => None,
+        };
+        self.change_link(from, to, relation, true, forced)
     }
 
     /// Remove such a link.
@@ -238,7 +242,7 @@ impl MemoryBlock {
         to: MemoryId,
         relation: RelationName,
         create: bool,
-        visibility: Option<VisibilityChoice>,
+        forced: Option<ForcedVisibility>,
     ) -> Result<(), MemoryError> {
         if !self.relation_registered(&relation)? {
             return Err(MemoryError::UnknownRelation(relation));
@@ -275,7 +279,7 @@ impl MemoryBlock {
                 to,
                 to_name.as_ref().map(|n| n.as_str()),
                 &self.teller,
-                visibility,
+                forced,
             )?;
             // The link carries the turn's context as its told_in, mirroring content entries — so a
             // teller-private marker can name the room it was said in.

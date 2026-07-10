@@ -165,6 +165,16 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                     "force the visibility; required for an entry you author about a person",
                 )
                 .optional(
+                    "exclude",
+                    AT::Handle.list(),
+                    "record it as a confidence additionally withheld whenever any named party is \
+                     present — a list of person handles (or names) to keep it from, on top of the \
+                     private posture (it still surfaces only to its teller's audience). Reach for it \
+                     when a fact is one everyone but a specific person may know: a surprise planned \
+                     for them, or something to be kept from one named individual while the others \
+                     may hear it. Mutually exclusive with visibility — an exclude is already private",
+                )
+                .optional(
                     "occurred_at",
                     object(),
                     format!(

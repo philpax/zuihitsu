@@ -7,7 +7,9 @@ use crate::{
     time::TemporalRef,
 };
 
-use super::{AppendOptions, MemoryBlock, MemoryError, suggest::most_similar};
+use super::{
+    AppendOptions, MemoryBlock, MemoryError, reconcile_forced_visibility, suggest::most_similar,
+};
 
 impl MemoryBlock {
     /// Create a memory, optionally with a first content entry. The name must be free — a collision is
@@ -45,14 +47,11 @@ impl MemoryBlock {
             // buffering anything, so an unclassified write fails without leaving a half-created memory.
             let first_entry = match content {
                 Some(text) => {
-                    let opts = opts.unwrap_or_default();
+                    let mut opts = opts.unwrap_or_default();
                     let teller = entry_teller(&opts, &block.teller);
-                    let visibility = block.resolve_visibility(
-                        Some(name.as_str()),
-                        id,
-                        &teller,
-                        opts.visibility,
-                    )?;
+                    let forced = reconcile_forced_visibility(opts.visibility, opts.exclude.take())?;
+                    let visibility =
+                        block.resolve_visibility(Some(name.as_str()), id, &teller, forced)?;
                     Self::validate_occurred_at(opts.occurred_at.as_ref())?;
                     Some((
                         text.to_owned(),
@@ -130,18 +129,15 @@ impl MemoryBlock {
         &mut self,
         id: MemoryId,
         text: &str,
-        opts: AppendOptions,
+        mut opts: AppendOptions,
     ) -> Result<EntryId, MemoryError> {
         self.guard_self(id)?;
         self.guard_operator(id)?;
         let told_by = entry_teller(&opts, &self.teller);
         let name = self.resolve_name(id)?;
-        let visibility = self.resolve_visibility(
-            name.as_ref().map(MemoryName::as_str),
-            id,
-            &told_by,
-            opts.visibility,
-        )?;
+        let forced = reconcile_forced_visibility(opts.visibility, opts.exclude.take())?;
+        let visibility =
+            self.resolve_visibility(name.as_ref().map(MemoryName::as_str), id, &told_by, forced)?;
         // Reject a recurrence the scheduler cannot interpret before it is buffered, rather than
         // committing a Recurring entry that silently never fires. Surfaced as a teachable error so the
         // agent reissues with a supported rule.

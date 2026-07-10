@@ -260,6 +260,11 @@ pub(super) enum HandleError {
     UnknownTeller { name: String },
     /// An append's `told_by` was given a value that is neither a memory handle nor a name string.
     WrongTellerType { type_name: &'static str },
+    /// An `exclude` list named a memory that does not exist — the party to withhold the entry from
+    /// could not be resolved.
+    UnknownExcludee { name: String },
+    /// An `exclude` entry was a value that is neither a memory handle nor a name string.
+    WrongExcludeeType { type_name: &'static str },
     /// `memory.get`/`get_or_create` was given a handle whose id resolves to no memory.
     UnknownMemoryHandle { id: String },
     /// `memory.get`/`get_or_create` was given a value that is neither a name string nor a memory
@@ -302,6 +307,17 @@ impl std::fmt::Display for HandleError {
                 f,
                 "told_by must be a person handle (from memory.get/create) or a memory name, \
                  got {type_name}"
+            ),
+            HandleError::UnknownExcludee { name } => write!(
+                f,
+                "no memory named \"{name}\" to exclude — exclude names the parties to withhold this \
+                 from (each a person handle from memory.get/create, or their memory name). Create \
+                 their memory first, or check the casing"
+            ),
+            HandleError::WrongExcludeeType { type_name } => write!(
+                f,
+                "exclude takes a list of person handles (from memory.get/create) or memory names, \
+                 e.g. exclude = {{ \"person/dave\" }}; one entry was {type_name}"
             ),
             HandleError::UnknownMemoryHandle { id } => write!(
                 f,

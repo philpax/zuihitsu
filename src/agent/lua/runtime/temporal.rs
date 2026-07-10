@@ -11,7 +11,7 @@ use crate::{
 use super::{
     super::error::{HandleError, TemporalArgError},
     BlockApi,
-    handles::handle_id,
+    handles::{handle_id, resolve_exclude},
     route_error,
 };
 
@@ -61,20 +61,25 @@ pub(crate) fn append_options_from_lua(
         // A non-nil, non-table opts is a shape slip the agent should see named; serde surfaces it.
         return Ok(Some(lua.from_value(opts)?));
     };
-    // Resolve the two options serde cannot decode from a raw Lua value: `occurred_at` may be a bare
-    // date string or a date handle, and `told_by` is a handle or name naming a teller. The rest
-    // deserializes from a copy with those two keys dropped — the agent's own opts table is never
-    // mutated, so a table reused across appends keeps its fields.
+    // Resolve the three options serde cannot decode from a raw Lua value: `occurred_at` may be a bare
+    // date string or a date handle, `told_by` is a handle or name naming a teller, and `exclude` is a
+    // list of handles or names to withhold the entry from. The rest deserializes from a copy with those
+    // three keys dropped — the agent's own opts table is never mutated, so a table reused across appends
+    // keeps its fields.
     let occurred_at = occurred_at_from_lua(lua, table)?;
     let told_by = match table.get::<Value>("told_by")? {
         Value::Nil => None,
         other => Some(resolve_teller(api, other)?),
     };
+    let exclude = resolve_exclude(api, table.get::<Value>("exclude")?)?;
     let rest = lua.create_table()?;
     for pair in table.pairs::<Value, Value>() {
         let (key, value) = pair?;
         if let Value::String(name) = &key
-            && matches!(name.to_string_lossy().as_str(), "occurred_at" | "told_by")
+            && matches!(
+                name.to_string_lossy().as_str(),
+                "occurred_at" | "told_by" | "exclude"
+            )
         {
             continue;
         }
@@ -83,6 +88,7 @@ pub(crate) fn append_options_from_lua(
     let mut options: AppendOptions = lua.from_value(Value::Table(rest))?;
     options.occurred_at = occurred_at;
     options.told_by = told_by;
+    options.exclude = exclude;
     Ok(Some(options))
 }
 
