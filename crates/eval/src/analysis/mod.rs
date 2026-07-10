@@ -141,6 +141,15 @@ pub fn tag_applied(events: &[Event], tag: &str) -> bool {
     })
 }
 
+/// Whether the tag named `tag` was removed from any memory — the structural signal that a retroactive
+/// untag landed. For `confidential` this is the mutation the untag gate forbids: it can only be cleared
+/// from the console, never by a turn.
+pub fn tag_removed(events: &[Event], tag: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(&event.payload, EventPayload::TagRemovedFromMemory { tag: removed, .. } if removed.as_str() == tag)
+    })
+}
+
 /// Whether a link of the relation named `relation` was created — the structural signal that the agent
 /// recorded a typed edge, not just any link or prose.
 pub fn link_created_with(events: &[Event], relation: &str) -> bool {

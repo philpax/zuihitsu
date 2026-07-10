@@ -59,6 +59,18 @@ pub enum MemoryError {
     /// unknown id, or one already superseded. The agent supersedes entries it read from the same
     /// memory, so this is a teachable misuse.
     UnknownEntry(EntryId),
+    /// A platform-authority turn tried to remove the `#confidential` tag. The teller-private marker
+    /// resolves a room's `#confidential` flag at read time, so removing the tag retroactively weakens
+    /// the disclosure-judgment signal on every historical aside told under it — a broadcast, retroactive
+    /// change with no legitimate platform-turn use, so it is barred outside the console (mirroring the
+    /// `self`-write rationale, spec §Trust model). Adding the tag stays ungated: adding is conservative.
+    ConfidentialUntagForbidden,
+    /// A platform-authority turn tried to supersede another participant's confidence — a non-public
+    /// entry (`PrivateToTeller`/`Exclude`) told by a participant who is not the current speaker (nor a
+    /// merged identity of theirs). Superseding it suppresses what someone else entrusted, so it is
+    /// reserved for its own teller's turn or the console (spec §Trust model). Its `Display` deliberately
+    /// does not name the foreign teller — who confided the fact is itself part of the confidence.
+    ForeignConfidenceSupersedeForbidden,
     /// A content entry exceeded the maximum length. Memory entries record distilled facts, not source
     /// content — the agent should summarize what it learned in under the limit rather than pasting a
     /// fetched page or raw transcript.
@@ -137,6 +149,18 @@ impl std::fmt::Display for MemoryError {
                 f,
                 "no live entry {} on this memory; supersede an entry you read from it",
                 entry.0
+            ),
+            MemoryError::ConfidentialUntagForbidden => write!(
+                f,
+                "removing #confidential retroactively changes how every aside told under it is marked, \
+                 so it can only be cleared from the console; if the room is no longer confidential, \
+                 ask the operator"
+            ),
+            MemoryError::ForeignConfidenceSupersedeForbidden => write!(
+                f,
+                "this is another participant's confidence; if the fact is out of date, append a \
+                 correction as a new entry rather than superseding what someone else entrusted — \
+                 superseding it is for its own teller's turn, or the console"
             ),
             MemoryError::ContentTooLong { length, limit } => write!(
                 f,

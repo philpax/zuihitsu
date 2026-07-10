@@ -158,7 +158,8 @@ impl MemoryBlock {
     /// entries of `id`'s `same_as` class (a live read, so the lock layer holds the class). Buffers a
     /// `MemorySuperseded`; the superseded entry then drops from every live surface while remaining in
     /// history. Like an append, it is a write to `id`, so platform authority may not supersede a
-    /// `self` entry.
+    /// `self` entry; nor may a platform turn supersede another participant's confidence
+    /// ([`MemoryBlock::guard_foreign_confidence_supersede`]).
     pub fn supersede(
         &mut self,
         id: MemoryId,
@@ -167,13 +168,14 @@ impl MemoryBlock {
     ) -> Result<(), MemoryError> {
         self.guard_self(id)?;
         self.guard_operator(id)?;
-        let live = self.live_class_entry_ids(id)?;
-        if !live.contains(&old) {
+        let live = self.live_class_entries(id)?;
+        let Some(old_entry) = live.iter().find(|entry| entry.entry_id == old) else {
             return Err(MemoryError::UnknownEntry(old));
-        }
-        if !live.contains(&new) {
+        };
+        if !live.iter().any(|entry| entry.entry_id == new) {
             return Err(MemoryError::UnknownEntry(new));
         }
+        self.guard_foreign_confidence_supersede(old_entry)?;
         self.touched.insert(id);
         self.buffer
             .push(EventPayload::memory_superseded(id, old, new));

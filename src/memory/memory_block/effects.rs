@@ -7,9 +7,20 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     ids::MemoryId,
     time::TemporalRef,
+    vocabulary::TagName,
 };
 
 use super::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError};
+
+/// A live entry of a memory's `same_as` class, reduced to the fields the supersede guards read: its
+/// id, who told it, and its visibility posture. Assembled from the committed class entries and this
+/// block's pending appends by [`MemoryBlock::live_class_entries`], so the guards read a corrected
+/// entry within the same block (read-your-writes) rather than only the committed graph.
+pub(super) struct LiveEntry {
+    pub entry_id: EntryId,
+    pub told_by: Teller,
+    pub visibility: Visibility,
+}
 
 impl MemoryBlock {
     /// A handle to the shared backends and the present set this block runs under — the inputs the
@@ -107,6 +118,69 @@ impl MemoryBlock {
         Ok(())
     }
 
+    /// Reject a platform-authority turn removing the `#confidential` tag from any memory. The
+    /// teller-private marker resolves a room's `#confidential` flag at read time, so removing the tag
+    /// retroactively weakens the disclosure-judgment signal on every historical aside told under it — a
+    /// broadcast, retroactive change with no legitimate platform-turn use, mirroring the `self`-write
+    /// rationale (spec §Trust model). Adding the tag stays ungated: adding is conservative, over-hedging
+    /// at worst, and the agent sets it from conversational cues. Operator authority (the console) passes.
+    pub(super) fn guard_confidential_untag(&self, tag: &TagName) -> Result<(), MemoryError> {
+        if self.authority == Authority::Platform && *tag == TagName::Confidential {
+            return Err(MemoryError::ConfidentialUntagForbidden);
+        }
+        Ok(())
+    }
+
+    /// Reject a platform-authority turn superseding another participant's confidence. Superseding drops
+    /// an entry from every live surface, so a platform turn suppressing what a *different* participant
+    /// confided would let one person retract another's entrusted fact. The gate fires only when the
+    /// superseded entry is both non-public (a `PrivateToTeller`/`Exclude` confidence — public and
+    /// attributed entries surface to anyone, so consolidating them is routine) and told by a participant
+    /// who is not the current speaker's identity. An entry told by the agent or genesis is never gated,
+    /// and operator authority (the console) passes. The teachable error deliberately does not name the
+    /// foreign teller — who confided the fact is itself part of the confidence.
+    pub(super) fn guard_foreign_confidence_supersede(
+        &self,
+        entry: &LiveEntry,
+    ) -> Result<(), MemoryError> {
+        if self.authority != Authority::Platform {
+            return Ok(());
+        }
+        // Public and attributed entries surface to anyone; only a confidence is protected.
+        if !matches!(
+            entry.visibility,
+            Visibility::PrivateToTeller | Visibility::Exclude(_)
+        ) {
+            return Ok(());
+        }
+        // Only a participant-told confidence can be foreign; agent- and genesis-told entries are not gated.
+        let Teller::Participant(teller) = &entry.told_by else {
+            return Ok(());
+        };
+        // The confidence is the current speaker's own (or a merged identity of theirs) iff the speaker is
+        // a participant in the same `same_as` class. An agent or bootstrap speaker is never that teller.
+        if let Teller::Participant(speaker) = &self.teller
+            && self.same_participant_class(*speaker, *teller)?
+        {
+            return Ok(());
+        }
+        Err(MemoryError::ForeignConfidenceSupersedeForbidden)
+    }
+
+    /// Whether two participant memories resolve to the same `same_as` class — so a confidence told by a
+    /// merged identity of the current speaker counts as the speaker's own. Falls back to the memory's
+    /// own id when it is unmerged (its own class), matching the read-time visibility predicate's
+    /// identity model.
+    fn same_participant_class(&self, a: MemoryId, b: MemoryId) -> Result<bool, MemoryError> {
+        if a == b {
+            return Ok(true);
+        }
+        let graph = self.engine.graph.lock();
+        let class_a = graph.class_id(a)?.unwrap_or(a);
+        let class_b = graph.class_id(b)?.unwrap_or(b);
+        Ok(class_a == class_b)
+    }
+
     /// A readable label for who an entry is attributed to: the participant's canonical handle, `you`
     /// for the agent's own observations, or `genesis` for seeded content.
     pub(super) fn teller_label(&self, teller: &Teller) -> String {
@@ -122,28 +196,46 @@ impl MemoryBlock {
         }
     }
 
-    /// The live entry ids of `id`'s `same_as` class: committed-live (the graph already excludes
+    /// The live entries of `id`'s `same_as` class: committed-live (the graph already excludes
     /// committed supersessions) plus this block's pending appends, minus what it has superseded —
-    /// the set [`MemoryBlock::supersede`] validates its arguments against.
-    pub(super) fn live_class_entry_ids(
-        &self,
-        id: MemoryId,
-    ) -> Result<BTreeSet<EntryId>, MemoryError> {
+    /// the set [`MemoryBlock::supersede`] validates its arguments against, carrying each entry's teller
+    /// and visibility so the same pass feeds [`MemoryBlock::guard_foreign_confidence_supersede`]
+    /// without a second read.
+    pub(super) fn live_class_entries(&self, id: MemoryId) -> Result<Vec<LiveEntry>, MemoryError> {
         let (members, committed) = {
             let graph = self.engine.graph.lock();
             (graph.class_members(id)?, graph.class_entries(id)?)
         };
         let members: BTreeSet<MemoryId> = members.into_iter().chain([id]).collect();
         let pending_superseded = self.pending_superseded();
-        let mut ids: BTreeSet<EntryId> = committed
+        let mut entries: Vec<LiveEntry> = committed
             .into_iter()
-            .map(|entry| entry.entry_id)
-            .filter(|entry_id| !pending_superseded.contains(entry_id))
+            .filter(|entry| !pending_superseded.contains(&entry.entry_id))
+            .map(|entry| LiveEntry {
+                entry_id: entry.entry_id,
+                told_by: entry.told_by,
+                visibility: entry.visibility,
+            })
             .collect();
-        for entry in self.pending_entries(&members, &pending_superseded) {
-            ids.insert(entry.entry_id);
+        for event in &self.buffer {
+            if let EventPayload::MemoryContentAppended {
+                id: entry_memory,
+                entry_id,
+                told_by,
+                visibility,
+                ..
+            } = event
+                && members.contains(entry_memory)
+                && !pending_superseded.contains(entry_id)
+            {
+                entries.push(LiveEntry {
+                    entry_id: *entry_id,
+                    told_by: told_by.clone(),
+                    visibility: visibility.clone(),
+                });
+            }
         }
-        Ok(ids)
+        Ok(entries)
     }
 
     /// Buffer a content entry and touch its memory, returning the minted entry id (so a write can be

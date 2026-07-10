@@ -44,9 +44,12 @@ impl MemoryBlock {
     }
 
     /// Remove a tag from a memory. Idempotent — removing a tag the memory does not carry is a no-op
-    /// at the projection — so it needs no vocabulary check.
+    /// at the projection — so it needs no vocabulary check. A platform turn may not remove
+    /// `#confidential` ([`MemoryBlock::guard_confidential_untag`]): weakening a room's confidentiality
+    /// retroactively re-marks every aside told under it, so it stays operator-only.
     pub fn untag(&mut self, id: MemoryId, tag: TagName) -> Result<(), MemoryError> {
         self.guard_self(id)?;
+        self.guard_confidential_untag(&tag)?;
         self.touched.insert(id);
         self.buffer
             .push(EventPayload::tag_removed_from_memory(id, tag));
