@@ -10,6 +10,7 @@ import { Composer } from "./Composer.tsx";
 import { Docked } from "./Docked.tsx";
 import { Transcript } from "./Transcript.tsx";
 import { type Participation, ModelCalls } from "./ConversationView.tsx";
+import { warmthAggregate } from "../../lib/model/contextDebug.ts";
 import { type Channel, hasScopeChar } from "./channelUtilities.tsx";
 import { turnTokens } from "./turnUtilities.ts";
 import { useFollowBottom } from "./useFollowBottom.ts";
@@ -36,6 +37,13 @@ export function Room({
   const handleScoped = hasScopeChar(handle);
   const { bySeq, denominators } = useContext(ModelCalls);
   const budget = denominators.budget;
+  // The conversation's measured cache health: median warmth and total fresh-encoded tokens across
+  // its calls, from the same reconstruction the per-call panels read.
+  const warmth = warmthAggregate(
+    [...bySeq.values()]
+      .filter((call) => call.conversation === channel.conversation?.id)
+      .map((call) => call.usage),
+  );
   // The conversation's running cost, shown in the header: total generated (additive across turns) and
   // the peak context any turn reached (the high-water mark against the compaction budget — not a sum,
   // which would double-count the re-sent buffer).
@@ -126,6 +134,12 @@ export function Room({
               <> · {convoTowardCompaction}% to compaction</>
             ) : (
               <> · budget unknown</>
+            )}
+            {warmth.median !== null && (
+              <span title="Median measured cache warmth across this conversation's calls, and the total tokens the provider encoded fresh.">
+                {" "}
+                · {Math.round(warmth.median * 100)}% warm · {formatTokens(warmth.rePrefilled)} ↻
+              </span>
             )}
           </p>
         )}

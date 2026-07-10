@@ -1,4 +1,5 @@
 import type { Event } from "../../types/Event.ts";
+import type { Usage } from "../../types/Usage.ts";
 import { type CacheVerdict, deriveCachePaths } from "./cachePath.ts";
 import {
   type ContextDenominators,
@@ -92,4 +93,41 @@ export function deriveContextDebug(events: Event[], cursor: number): ContextDebu
     denominatorsBySeq,
     denominators: contextDenominatorsAt(events, cursor),
   };
+}
+
+/// The cache-warmth rollup for a set of calls: how many reported both counts, the median measured
+/// warmth (`cache_read / prompt`), and the total tokens the provider encoded fresh. `median: null`
+/// when no call reported counts — unknown, never a fabricated number.
+export interface WarmthAggregate {
+  calls: number;
+  median: number | null;
+  rePrefilled: number;
+}
+
+export function warmthAggregate(usages: Iterable<Usage>): WarmthAggregate {
+  const fractions: number[] = [];
+  let rePrefilled = 0;
+  for (const usage of usages) {
+    const read = usage.cache_read_tokens;
+    const prompt = usage.prompt_tokens;
+    if (read === null || prompt === null || prompt <= 0) continue;
+    fractions.push(read / prompt);
+    rePrefilled += Math.max(0, prompt - read);
+  }
+  if (fractions.length === 0) return { calls: 0, median: null, rePrefilled: 0 };
+  fractions.sort((a, b) => a - b);
+  const mid = fractions.length / 2;
+  const median =
+    fractions.length % 2 === 1
+      ? fractions[(fractions.length - 1) / 2]
+      : (fractions[mid - 1] + fractions[mid]) / 2;
+  return { calls: fractions.length, median, rePrefilled };
+}
+
+/// The warmth rollup over a raw event log — every `ModelCalled`'s usage, for the eval frames where
+/// the reconstruction is not otherwise needed.
+export function eventsWarmth(events: Event[]): WarmthAggregate {
+  return warmthAggregate(
+    events.flatMap((event) => (event.payload.type === "ModelCalled" ? [event.payload.usage] : [])),
+  );
 }

@@ -8,8 +8,9 @@ import { type ReplicaState, useReplica } from "../../lib/replica/useReplica.ts";
 import { runBase, runPath } from "../../lib/nav/routes.ts";
 import { useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
 import { STREAM_VIEWS } from "../../lib/nav/streamViews.ts";
-import { formatMs, formatRate, formatTokenSplit } from "../../lib/format/format.ts";
+import { formatMs, formatRate, formatTokens, formatTokenSplit } from "../../lib/format/format.ts";
 import { Dot, Eyebrow } from "../../components/primitives.tsx";
+import { eventsWarmth } from "../../lib/model/contextDebug.ts";
 import { StreamWorkspace } from "../../components/StreamWorkspace.tsx";
 import { VerdictPanel } from "./VerdictPanel.tsx";
 
@@ -164,6 +165,17 @@ function ScenarioRail({
               </span>
             ) : completed > 0 ? (
               <span className="flex shrink-0 items-baseline gap-1">
+                {(() => {
+                  const warmth = eventsWarmth(entry.runs.flatMap((run) => run.events));
+                  return warmth.median !== null && warmth.median < 0.9 ? (
+                    <span
+                      className="text-clay"
+                      title={`median cache warmth ${Math.round(warmth.median * 100)}% — this scenario thrashes the prefix cache`}
+                    >
+                      {Math.round(warmth.median * 100)}%↻
+                    </span>
+                  ) : null;
+                })()}
                 {!held(entry) && (
                   <span className="text-clay" title="gate regressed">
                     ●
@@ -215,6 +227,7 @@ function rateColor(rate: number): string {
 function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
   const { meta, aggregate } = scenario;
   const threshold = meta.bar.kind === "metric" ? meta.bar.threshold : null;
+  const warmth = eventsWarmth(scenario.runs.flatMap((run) => run.events));
 
   return (
     <header className="border-b border-line pb-4">
@@ -243,6 +256,17 @@ function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
         <span>
           {formatTokenSplit(aggregate.tokens.prompt_mean, aggregate.tokens.completion_mean)}
         </span>
+        {warmth.median !== null && (
+          <>
+            <Dot />
+            <span
+              className={warmth.median < 0.9 ? "text-clay" : undefined}
+              title="Median measured cache warmth across the scenario's calls, with the total tokens the provider encoded fresh — a low median means the scenario thrashes the prefix cache."
+            >
+              {Math.round(warmth.median * 100)}% warm · {formatTokens(warmth.rePrefilled)} ↻
+            </span>
+          </>
+        )}
       </div>
       {meta.description && (
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">{meta.description}</p>
