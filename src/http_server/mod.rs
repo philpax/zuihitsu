@@ -40,7 +40,7 @@ use control::{
     interactions, lua_api, memories, memory, merge_proposals, metrics, recurring, register_prompt,
     resolve_merge, run_lua, sessions, set_settings, settings, snapshot as snapshot_handler,
 };
-use platform::{join, message};
+use platform::{join, message, roster};
 
 /// Shared HTTP handler state: the agent server behind an `Arc`, and the model client the conversing
 /// endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is configured, in
@@ -469,11 +469,12 @@ fn router(state: AppState) -> Router {
             state.clone(),
             require_control_key,
         ));
-    // The participant surface: delivering turns and mid-session joins (spec §Clients → platform
-    // clients). It carries platform identity in the payload, never operator authority.
+    // The participant surface: delivering turns, mid-session joins, and roster resyncs (spec §Clients
+    // → platform clients). It carries platform identity in the payload, never operator authority.
     let platform = Router::new()
         .route("/message", post(message))
         .route("/join", post(join))
+        .route("/roster", post(roster))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_platform_key,

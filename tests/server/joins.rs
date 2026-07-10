@@ -105,6 +105,173 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
 }
 
 #[tokio::test]
+async fn a_roster_resync_briefs_in_arrivals_and_leaves_departures_eventless() {
+    let (server, _clock) = born_agent();
+    let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // Open a session with Dave present.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
+
+    // A roster resync reports Dave (already a member) and Erin (new): Erin arrives, Dave is
+    // unchanged, and nobody has departed.
+    let resync = server
+        .platform()
+        .note_presence(None, &leads, &["dave", "erin"])
+        .await
+        .unwrap();
+    assert_eq!(resync.joined, vec!["erin".to_owned()]);
+    assert_eq!(resync.departed, 0);
+    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+
+    // Erin was briefed in through the same path as an explicit join: a system join-brief turn about
+    // her, and she is now a session member.
+    let events = server.control().events().unwrap();
+    assert!(events.iter().any(|event| matches!(
+        &event.payload,
+        EventPayload::ConversationTurn {
+            role: TurnRole::System,
+            participant: Some(participant),
+            ..
+        } if *participant == erin
+    )));
+    let sessions = server.control().sessions(&leads).unwrap();
+    assert!(sessions[0].participants.contains(&dave));
+    assert!(sessions[0].participants.contains(&erin));
+
+    // A resync that no longer lists Erin reports her departure — but records no event: her
+    // membership on the session is unchanged (departures are eventless), and the log is untouched.
+    let before = server.control().events().unwrap().len();
+    let resync = server
+        .platform()
+        .note_presence(None, &leads, &["dave"])
+        .await
+        .unwrap();
+    assert!(resync.joined.is_empty());
+    assert_eq!(resync.departed, 1);
+    assert_eq!(
+        server.control().events().unwrap().len(),
+        before,
+        "a departure appends no event"
+    );
+    assert!(
+        server.control().sessions(&leads).unwrap()[0]
+            .participants
+            .contains(&erin),
+        "the departed member's session membership is unchanged"
+    );
+}
+
+#[tokio::test]
+async fn a_roster_resync_both_adds_and_removes_in_one_call() {
+    let (server, _clock) = born_agent();
+    let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // Dave opens the session, then Erin joins via a resync.
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .note_presence(None, &leads, &["dave", "erin"])
+        .await
+        .unwrap();
+
+    // A single resync in which Erin has left and Frank has arrived: one join, one departure.
+    let resync = server
+        .platform()
+        .note_presence(None, &leads, &["dave", "frank"])
+        .await
+        .unwrap();
+    assert_eq!(resync.joined, vec!["frank".to_owned()]);
+    assert_eq!(resync.departed, 1);
+
+    let frank = server.control().memory("person/frank").unwrap().unwrap().id;
+    assert!(
+        server.control().sessions(&leads).unwrap()[0]
+            .participants
+            .contains(&frank)
+    );
+}
+
+#[tokio::test]
+async fn a_roster_resync_does_not_re_brief_existing_members() {
+    let (server, _clock) = born_agent();
+    let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+
+    // Resyncing the exact roster that is already present is a no-op: no arrival, no departure, and no
+    // event appended.
+    let before = server.control().events().unwrap().len();
+    let resync = server
+        .platform()
+        .note_presence(None, &leads, &["dave"])
+        .await
+        .unwrap();
+    assert!(resync.joined.is_empty());
+    assert_eq!(resync.departed, 0);
+    assert_eq!(server.control().events().unwrap().len(), before);
+}
+
+#[tokio::test]
+async fn an_empty_roster_departs_every_member_eventlessly() {
+    let (server, _clock) = born_agent();
+    let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
+    let leads = ConversationLocator::new("discord", "leads");
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .await
+        .unwrap();
+
+    let before = server.control().events().unwrap().len();
+    let resync = server
+        .platform()
+        .note_presence(None, &leads, &[])
+        .await
+        .unwrap();
+    assert!(resync.joined.is_empty());
+    assert_eq!(
+        resync.departed, 1,
+        "Dave is the sole member, counted departed"
+    );
+    assert_eq!(server.control().events().unwrap().len(), before);
+}
+
+#[tokio::test]
+async fn a_roster_resync_on_a_room_with_no_live_session_is_a_no_op() {
+    let (server, _clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+
+    // No message has opened a session in this room, so there is nothing to resync: an empty result,
+    // and no participant is minted or joined.
+    let before = server.control().events().unwrap().len();
+    let resync = server
+        .platform()
+        .note_presence(None, &leads, &["dave", "erin"])
+        .await
+        .unwrap();
+    assert!(resync.joined.is_empty());
+    assert_eq!(resync.departed, 0);
+    assert_eq!(server.control().events().unwrap().len(), before);
+}
+
+#[tokio::test]
 async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their_turn() {
     let (server, _clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");

@@ -118,6 +118,71 @@ async fn a_platform_message_runs_a_turn() {
 }
 
 #[tokio::test]
+async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
+    // A born agent with a scripted model: a /platform/message opens a session with Dave present,
+    // then a /platform/roster resync brings Erin in and drops Dave, returning the diff as JSON.
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let model: Arc<dyn zuihitsu::ModelClient> = Arc::new(ScriptedModel::new([Completion::Reply(
+        "Hi there.".to_owned(),
+    )]));
+    let app = router(AppState {
+        model: Some(model),
+        ..test_state(Arc::new(server))
+    });
+
+    let message = serde_json::json!({
+        "locator": { "platform": "discord", "scope_path": "general" },
+        "sender": "dave",
+        "text": "hello",
+        "present": ["dave"],
+    });
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("POST")
+                .uri("/platform/message")
+                .header("content-type", "application/json")
+                .body(Body::from(message.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let resync = serde_json::json!({
+        "locator": { "platform": "discord", "scope_path": "general" },
+        "roster": ["erin"],
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("POST")
+                .uri("/platform/roster")
+                .header("content-type", "application/json")
+                .body(Body::from(resync.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    // Erin arrived (briefed in); Dave, absent from the roster, is the one prior member reported as
+    // departed.
+    assert_eq!(&bytes[..], br#"{"joined":["erin"],"departed":1}"#);
+}
+
+#[tokio::test]
 async fn interactions_surface_the_recorded_model_calls() {
     // After a scripted turn, `/control/interactions` returns the model-interaction record.
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();

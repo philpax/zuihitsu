@@ -5,6 +5,8 @@
 
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
 use super::{Carryover, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{
@@ -24,6 +26,22 @@ use crate::{
 /// participants it represents, and cannot reach Control's operator surface.
 pub struct Platform<'a> {
     pub(super) server: &'a Instance,
+}
+
+/// The outcome of a roster resync ([`Platform::note_presence`]): the arrivals it briefed into the
+/// live session, and how many prior members the new roster no longer lists.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RosterResync {
+    /// The platform user ids that were newly present. Each received a `ParticipantJoined` and an
+    /// injected join-brief, exactly as an explicit [`Platform::note_join`] would.
+    pub joined: Vec<String>,
+    /// The count of the session's prior members absent from the new roster. Departures are
+    /// deliberately eventless (spec §Conversations and briefs → n is per-session): the per-message
+    /// present set drives visibility, so a departed participant stops affecting retrieval on the
+    /// next message with no event of its own, and membership drift is carried by each session's own
+    /// present set. The count is reported for the connector's confirmation and for observability,
+    /// never recorded.
+    pub departed: usize,
 }
 
 impl Platform<'_> {
@@ -219,6 +237,96 @@ impl Platform<'_> {
         self.server
             .join_participant(model, conversation, session, joiner)
             .await
+    }
+
+    /// Resync a room's full roster — the counterpart to `note_join` for a connector that observes
+    /// presence directly (a voice channel's member list, a presence event) rather than only through
+    /// messages. Given every platform id currently present, this diffs against the live session's
+    /// members: each arrival routes through the same join machinery as `note_join` — a
+    /// `ParticipantJoined` and an injected join-brief built against the now-present set — while a
+    /// departure is acknowledged but records no event, because the message-carried present set is
+    /// what drives per-turn visibility and membership drift is carried by each session's own present
+    /// set (spec §Conversations and briefs → n is per-session). A no-op returning an empty resync if
+    /// the room has never been seen or has no live session; the next message then opens a session
+    /// with the current roster present. `model`, when configured, feeds each arrival's describe
+    /// catch-up before its brief composes, as `note_join` does.
+    pub async fn note_presence(
+        &self,
+        model: Option<&dyn ModelClient>,
+        locator: &ConversationLocator,
+        roster: &[&str],
+    ) -> Result<RosterResync, InstanceError> {
+        let Some(conversation) = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .conversation_for_locator(locator)?
+        else {
+            return Ok(RosterResync::default());
+        };
+        let Some(session) = self.server.sessions.get(conversation).map(|open| open.id) else {
+            return Ok(RosterResync::default());
+        };
+
+        // Resolve the roster to memory ids, deduplicating first: resolution reads the graph, which is
+        // not re-materialized between mints within this pass, so the same id seen twice would
+        // otherwise be minted twice.
+        let platform = locator.platform.as_str();
+        let mut uids: Vec<&str> = Vec::new();
+        for uid in roster {
+            if !uids.contains(uid) {
+                uids.push(uid);
+            }
+        }
+        let mut present_ids = Vec::with_capacity(uids.len());
+        for uid in &uids {
+            let id = {
+                // Graph before store, per the lock-ordering rule.
+                let graph = self.server.engine.graph.lock();
+                resolve_or_mint_participant(
+                    self.server.engine.store.lock().as_mut(),
+                    self.server.engine.clock.as_ref(),
+                    &graph,
+                    platform,
+                    uid,
+                )?
+            };
+            present_ids.push(id);
+        }
+        self.server
+            .engine
+            .graph
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
+
+        // Diff against the session's members, read once. An id present but not a member is an arrival
+        // to brief in; a member absent from the roster is a departure to acknowledge. Two distinct
+        // platform ids can resolve to one memory (a merged cross-platform identity), so a joined-id
+        // guard keeps a single arrival from being briefed twice within the pass.
+        let members = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .session_participants(session)?;
+        let mut joined = Vec::new();
+        let mut joined_ids: Vec<MemoryId> = Vec::new();
+        for (uid, &id) in uids.iter().zip(present_ids.iter()) {
+            if !members.contains(&id) && !joined_ids.contains(&id) {
+                self.server
+                    .join_participant(model, conversation, session, id)
+                    .await?;
+                joined.push((*uid).to_owned());
+                joined_ids.push(id);
+            }
+        }
+        let departed = members
+            .iter()
+            .filter(|member| !present_ids.contains(member))
+            .count();
+
+        Ok(RosterResync { joined, departed })
     }
 
     /// Force the live session in `locator`'s room to end and compact right now, through the exact path
