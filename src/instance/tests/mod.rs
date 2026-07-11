@@ -12,6 +12,8 @@ mod embedding_swap;
 #[cfg(test)]
 mod observability;
 #[cfg(test)]
+mod priority;
+#[cfg(test)]
 mod self_edit;
 #[cfg(test)]
 mod unmerge;

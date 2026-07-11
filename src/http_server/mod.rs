@@ -26,8 +26,8 @@ use axum::{
 };
 use tokio::net::TcpListener;
 use zuihitsu::{
-    EnvConfig, Graph, ModelClient, OpenAiClient, OpenAiEmbedder, RetryingModel, Server,
-    SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, SystemClock, VectorIndex,
+    EnvConfig, Graph, ModelArbiter, ModelClient, OpenAiClient, OpenAiEmbedder, RetryingModel,
+    Server, SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, SystemClock, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
     snapshot,
@@ -233,9 +233,14 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
             &config.model.resilience,
         )))
     };
-    let model: Option<Arc<dyn ModelClient>> = backend
+    // The shared client is arbitrated so a waiting conversation turn dispatches ahead of queued
+    // background synthesis (spec §Write path → model sharing). The conversation path holds the
+    // turn-priority handle; each background worker holds a background handle minted from the same
+    // arbiter, so a background pass structurally cannot dispatch at turn priority.
+    let arbiter: Option<Arc<ModelArbiter>> = backend
         .clone()
-        .map(|backend| backend as Arc<dyn ModelClient>);
+        .map(|backend| ModelArbiter::new(backend as Arc<dyn ModelClient>));
+    let model: Option<Arc<dyn ModelClient>> = arbiter.as_ref().map(|arbiter| arbiter.turn());
     let server = Arc::new(server);
 
     // The background scheduler driver fires due wake-ups on its own timer (spec §Scheduled work),
@@ -259,13 +264,13 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // The background describer regenerates memory descriptions (and arbitration and temporal
     // extraction) off the hot path (spec §Write path → regenerate off the hot path). Spawned only when
     // a model is configured; without one there is nothing to run the synthesis call.
-    let describer = model.as_ref().map(|model| {
+    let describer = arbiter.as_ref().map(|arbiter| {
         let server = server.clone();
-        let model = model.clone();
+        let arbiter = arbiter.clone();
         tokio::spawn(async move {
             server
                 .run_describer(
-                    model,
+                    arbiter,
                     Duration::from_secs(DESCRIBE_TICK_SECONDS),
                     shutdown_signal(),
                 )
@@ -276,9 +281,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // The background adjudicator weighs proposed cross-platform merges off the hot path (spec
     // §Cross-platform identity → adjudicated merge). Spawned only when a model is configured; without
     // one there is no judge to run.
-    let adjudicator = model.as_ref().map(|model| {
+    let adjudicator = arbiter.as_ref().map(|arbiter| {
         let server = server.clone();
-        let model = model.clone();
+        let model = arbiter.background();
         tokio::spawn(async move {
             server
                 .run_adjudicator(
@@ -293,9 +298,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // The background link-inference pass extracts relationships implicit in memory content off the hot
     // path (spec §Write path → link inference). Spawned only when a model is configured; without one
     // there is nothing to run the extraction call.
-    let link_inference = model.as_ref().map(|model| {
+    let link_inference = arbiter.as_ref().map(|arbiter| {
         let server = server.clone();
-        let model = model.clone();
+        let model = arbiter.background();
         tokio::spawn(async move {
             server
                 .run_link_inference(
@@ -310,9 +315,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // The background idle sweep closes-with-flush sessions idle past the gap, so a conversation never
     // messaged again still has its working state consolidated (spec §Compaction → pre-compaction
     // flush). Spawned only when a model is configured; the flush turn needs one.
-    let sweeper = model.as_ref().map(|model| {
+    let sweeper = arbiter.as_ref().map(|arbiter| {
         let server = server.clone();
-        let model = model.clone();
+        let model = arbiter.background();
         tokio::spawn(async move {
             server
                 .run_sweeper(
@@ -327,9 +332,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // The background checkpoint sweep flushes a live session's working state to memory mid-session
     // (spec §Compaction → checkpoint flush), so a parallel conversation can read it before this one
     // goes idle. Spawned only when a model is configured; the flush turn needs one.
-    let checkpoint_sweeper = model.as_ref().map(|model| {
+    let checkpoint_sweeper = arbiter.as_ref().map(|arbiter| {
         let server = server.clone();
-        let model = model.clone();
+        let model = arbiter.background();
         tokio::spawn(async move {
             server
                 .run_checkpoint_sweeper(

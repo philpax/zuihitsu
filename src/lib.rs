@@ -52,8 +52,8 @@ pub use ids::{
     NamespacedMemoryName, Seq, SessionId, TurnId, UnknownNamespace,
 };
 pub use model::{
-    Completion, FlakyModel, GenerateRequest, GenerateResponse, Message, ModelClient, ModelError,
-    ResponseSchema, Role, ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
+    Completion, FlakyModel, GenerateRequest, GenerateResponse, Message, ModelArbiter, ModelClient,
+    ModelError, ResponseSchema, Role, ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
     embed::{Embedder, Embedding, FakeEmbedder},
     extract_json_object,
     index::{IndexError, Indexer},

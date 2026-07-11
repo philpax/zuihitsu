@@ -15,11 +15,12 @@ use crate::{
     },
     event::{EventPayload, EventSource},
     ids::{MemoryId, Seq},
-    metrics::observe_worker_error,
+    metrics::{observe_describe_priority_escape, observe_worker_error},
     model::{
-        ModelClient,
+        ModelArbiter, ModelClient,
         index::{IndexError, apply_batch, embed_batch},
     },
+    settings::Settings,
 };
 
 use super::{BackgroundPasses, Instance};
@@ -259,17 +260,38 @@ impl Instance {
     /// turn's hot path (spec §Write path). Idempotent and cursor-resumed, so an idle tick is cheap.
     /// Stops on the shutdown signal; a failure is logged, not fatal — a description stays stale until
     /// the next tick or the forcing guard before a brief.
+    ///
+    /// Takes the whole arbiter rather than a single handle so it can pick its priority per sweep:
+    /// normally it yields to conversation on the background handle, but when its backlog has aged past
+    /// the staleness-escape horizon it dispatches the sweep at turn priority instead, so a saturated
+    /// instance cannot starve a description that readers see (spec §Write path → freshness before a
+    /// brief).
     pub async fn run_describer(
         self: Arc<Self>,
-        model: Arc<dyn ModelClient>,
+        arbiter: Arc<ModelArbiter>,
         interval: Duration,
         shutdown: impl Future<Output = ()>,
     ) {
+        let background = arbiter.background();
         let mut ticker = tokio::time::interval(interval);
         tokio::pin!(shutdown);
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
+                    // A failed escape evaluation is non-fatal: fall back to yielding rather than
+                    // skipping the sweep, so a transient store or graph read never wedges the backlog.
+                    let model = match self.describe_should_escalate() {
+                        Ok(true) => {
+                            observe_describe_priority_escape();
+                            arbiter.turn()
+                        }
+                        Ok(false) => background.clone(),
+                        Err(error) => {
+                            observe_worker_error("describe");
+                            tracing::error!(%error, "describer: could not evaluate the staleness escape; yielding");
+                            background.clone()
+                        }
+                    };
                     match self.passes.describe_catch_up(&self.engine, model.as_ref()).await {
                         Ok(regenerated) if regenerated > 0 => {
                             tracing::debug!(regenerated, "describer caught descriptions up")
@@ -285,6 +307,33 @@ impl Instance {
             }
         }
         tracing::info!("describer stopped");
+    }
+
+    /// Whether the next describe sweep should escalate to conversation priority: its oldest pending
+    /// description has aged past the configured escape horizon. The describer is the one background
+    /// pass with a user-visible freshness horizon — a read surfaces a stale description — so it alone
+    /// escapes the turn-over-background yield; the other passes yield unconditionally. A zero horizon
+    /// disables the escape, and an empty backlog never escalates.
+    pub(super) fn describe_should_escalate(&self) -> Result<bool, InstanceError> {
+        let escape_seconds = Settings::from_store(self.engine.store.lock().as_ref())?
+            .concurrency
+            .describe_staleness_escape_seconds;
+        if escape_seconds <= 0 {
+            return Ok(false);
+        }
+        let Some(oldest) = self.engine.graph.lock().oldest_stale_content_seq()? else {
+            return Ok(false);
+        };
+        let Some(changed_at) = self.engine.store.lock().recorded_at(oldest)? else {
+            return Ok(false);
+        };
+        let age_ms = self
+            .engine
+            .clock
+            .now()
+            .as_millis()
+            .saturating_sub(changed_at.as_millis());
+        Ok(age_ms >= escape_seconds.saturating_mul(1_000))
     }
 
     /// The background adjudicator: on each tick, weigh proposed merges off the hot path. Idempotent and

@@ -9,7 +9,7 @@ use std::{
 };
 
 use fs2::FileExt;
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::{
     db::query_map_into,
@@ -184,6 +184,19 @@ impl Store for SqliteStore {
             })
             .map_err(backend)?;
         Ok(Seq(seq as u64))
+    }
+
+    fn recorded_at(&self, seq: Seq) -> Result<Option<Timestamp>, StoreError> {
+        let recorded_at: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT recorded_at FROM events WHERE seq = ?1",
+                params![seq.0 as i64],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        Ok(recorded_at.map(Timestamp::from_millis))
     }
 
     fn truncate_to(&mut self, to: Seq) -> Result<u64, StoreError> {

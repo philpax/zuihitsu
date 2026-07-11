@@ -11,7 +11,10 @@
 pub mod embed;
 pub mod index;
 pub mod openai;
+pub mod priority;
 pub mod retry;
+
+pub use priority::ModelArbiter;
 
 use std::{
     collections::VecDeque,
