@@ -1,63 +1,35 @@
 //! The scenario registry. The set grows over time (spec §Validation → the corpus is meant to grow).
-//! Each module owns its own scenarios; `all()` is their composition, in report order grouped by the
-//! surface each exercises.
+//! Each top-level module is a `Category` (`crates/eval/src/package.rs`) and owns the composition of
+//! its own submodules; `all()` composes the categories in the enum's order, so execution and report
+//! order both fill the console's category groups contiguously.
 
-mod arbitration;
-mod checkpoint;
-mod cold_open;
-mod compaction;
-mod content_limit;
-mod conversations;
-mod decay;
-mod description;
-mod exclude;
 mod identity;
-mod joins;
-mod merge;
-mod mutation_guards;
-mod name_conflict;
 mod privacy;
 mod recall;
 mod relations;
-mod rename;
-mod reuse;
-mod scheduling;
+mod sessions;
+mod synthesis;
 mod tagging;
-mod temporal;
-mod transcripts;
-mod write_honesty;
+mod time;
+mod writes;
 
 use std::sync::Arc;
 
 use crate::scenario::Scenario;
 
-/// Every scenario the harness knows, in report order.
+/// Every scenario the harness knows: the categories' own lists, concatenated in [`Category`]
+/// (`crates/eval/src/package.rs`) order.
 pub fn all() -> Vec<Arc<dyn Scenario>> {
     [
         recall::scenarios(),
-        transcripts::scenarios(),
-        reuse::scenarios(),
-        tagging::scenarios(),
-        relations::scenarios(),
-        merge::scenarios(),
         identity::scenarios(),
-        rename::scenarios(),
-        decay::scenarios(),
-        scheduling::scenarios(),
-        temporal::scenarios(),
-        arbitration::scenarios(),
+        relations::scenarios(),
+        tagging::scenarios(),
+        time::scenarios(),
         privacy::scenarios(),
-        exclude::scenarios(),
-        mutation_guards::scenarios(),
-        name_conflict::scenarios(),
-        joins::scenarios(),
-        description::scenarios(),
-        compaction::scenarios(),
-        cold_open::scenarios(),
-        checkpoint::scenarios(),
-        conversations::scenarios(),
-        write_honesty::scenarios(),
-        content_limit::scenarios(),
+        sessions::scenarios(),
+        writes::scenarios(),
+        synthesis::scenarios(),
     ]
     .into_iter()
     .flatten()
