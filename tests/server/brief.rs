@@ -7,6 +7,10 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
     let (server, clock) = born_agent();
     let mut settings = server.control().settings().unwrap();
     settings.compaction.token_budget = 100;
+    // Isolate the compaction working-set property from cold-open active threads: with the derivation
+    // off, session 2's idle reopen does not itself re-surface the migration thread, so the assertion
+    // measures the carryover working set alone (session 2 touched nothing, so nothing carries).
+    settings.brief.cold_open_window_days = 0;
     server.control().set_settings(settings).unwrap();
 
     let leads = ConversationLocator::new("discord", "leads");
@@ -50,6 +54,52 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
         !latest.brief.contains("topic/migration"),
         "brief was: {}",
         latest.brief
+    );
+}
+
+#[tokio::test]
+async fn a_cold_open_resurfaces_a_recently_touched_thread() {
+    // A session that opens cold — past the idle gap, with no compaction carryover — still re-surfaces
+    // the threads a warm continuation would: the memory the first session touched is derived into the
+    // fresh brief's active-threads section, rather than the section opening blank.
+    let (server, clock) = born_agent();
+    let leads = ConversationLocator::new("discord", "leads");
+    // A dispatching model so the cold session's pre-brief describe pass for the resurfaced thread is
+    // answered automatically, leaving the scripted steps to the conversational turns.
+    let model = DispatchingModel::new([
+        // Session 1: the agent works a concrete thread, touching topic/migration.
+        run_lua_call(
+            r#"memory.create("topic/migration", "Plan the DB migration"):append("cutover targeted before the November freeze", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        // Session 2 opens cold after the idle gap — no carryover, an empty buffer.
+        Completion::Reply("back".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .await
+        .unwrap();
+    clock.advance_millis(1_801 * 1_000);
+    server
+        .platform()
+        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .await
+        .unwrap();
+
+    // The cold session's brief carries the recently touched thread under its active-threads section.
+    let sessions = server.control().sessions(&leads).unwrap();
+    let cold = sessions.last().unwrap();
+    assert!(
+        cold.brief.contains("# Active threads"),
+        "the cold open renders an active-threads section: {}",
+        cold.brief
+    );
+    assert!(
+        cold.brief.contains("topic/migration"),
+        "the cold open re-surfaces the recently touched thread: {}",
+        cold.brief
     );
 }
 
@@ -415,6 +465,12 @@ async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
     // not the unrelated topic; a later whole-log catch-up then describes the topic.
     let (server, clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
+    // Isolate the narrowing property from cold-open active threads: with the derivation off, the
+    // recently-touched orphan topic stays out of the fresh session's brief read set, so this test
+    // still measures narrowing to the present set, the room's context, and self alone.
+    let mut settings = server.control().settings().unwrap();
+    settings.brief.cold_open_window_days = 0;
+    server.control().set_settings(settings).unwrap();
     let model = DispatchingModel::new([
         run_lua_call(
             r#"memory.get("person/dave"):append("Dave climbs on weekends", { by_agent = true, visibility = "public" })
@@ -500,6 +556,12 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
     // catch-up for their memory, so the injected brief reads fresh prose rather than stale.
     let (server, clock) = born_agent();
     let leads = ConversationLocator::new("discord", "leads");
+    // Isolate the join-brief freshness property from cold-open active threads: with the derivation
+    // off, absent Erin (touched in session 1) stays out of session 2's brief read set, so the test
+    // still measures that only her mid-session join forces her describe catch-up.
+    let mut settings = server.control().settings().unwrap();
+    settings.brief.cold_open_window_days = 0;
+    server.control().set_settings(settings).unwrap();
     let model = DispatchingModel::new([
         // Session 1: Erin is present, and the agent writes a public fact about her — left stale
         // for the background describer when the session lapses.

@@ -28,7 +28,7 @@ mod tools;
 
 pub use buffer::{
     ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, flushed_up_to,
-    session_touched,
+    recent_touched, session_touched,
 };
 pub use resolve::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn};
 pub(crate) use run::run_flush;

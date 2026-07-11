@@ -178,6 +178,45 @@ pub fn session_touched(
     Ok(ordered)
 }
 
+/// The distinct memory IDs recently touched across *every* conversation, most-recent-first — the
+/// cold-open analogue of the working-set carryover, for a session that opens without one (after an
+/// idle gap, or on first contact). It scans the `LuaExecuted` events recorded at or after `since`,
+/// unioning their `touched` sets in reverse-chronological first-touch order so the freshest thread
+/// ranks first and survives the brief's char budget, and caps the result at `limit`. The read half
+/// is as valuable as the write half, exactly as for the carryover: the agent looked something up
+/// because it was relevant. Cross-conversation privacy is not the concern here — every candidate is
+/// re-filtered through the visibility predicate against the opening session's present set when the
+/// brief renders it, so a thread from another room surfaces only what that audience may see. `limit`
+/// of `0` yields nothing, disabling the cold-open derivation.
+pub fn recent_touched(
+    store: &dyn Store,
+    since: Timestamp,
+    limit: usize,
+) -> Result<Vec<MemoryId>, StoreError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let events = store.read_from(Seq::ZERO)?;
+    let mut seen = BTreeSet::new();
+    let mut ordered = Vec::new();
+    for event in events.into_iter().rev() {
+        if event.recorded_at.as_millis() < since.as_millis() {
+            continue;
+        }
+        if let EventPayload::LuaExecuted { touched, .. } = event.payload {
+            for id in touched {
+                if seen.insert(id) {
+                    ordered.push(id);
+                    if ordered.len() == limit {
+                        return Ok(ordered);
+                    }
+                }
+            }
+        }
+    }
+    Ok(ordered)
+}
+
 /// The session's flush watermark, derived from the log: the seq of the buffer's last flush turn — an
 /// agent turn whose `produced_by` carries the `Flush` template, a checkpoint or a prior session's
 /// end-flush riding the carried tail — or `session_start` when no flush turn is in view. Everything at
