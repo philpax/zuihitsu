@@ -34,9 +34,11 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             "opts",
             object(),
             "the same overrides <memory>:append takes, applied to the first entry — including \
-             visibility, exclude, occurred_at, and volatility. Classify a guarded first entry here \
-             (visibility or exclude): seed content is an entry like any other, and unclassified it \
-             takes the write-time default",
+             visibility, exclude, occurred_at, and volatility. Seed content is an entry like any \
+             other: memory.create(name, \"<summary>\") with no opts lands the summary at the \
+             write-time default — Public on a non-person memory — so a guarded fact seeded this way \
+             sits in the open beside its guarded siblings. For a guarded memory, prefer creating it \
+             bare and appending under the guard",
         )
         .returns(AT::Handle);
 
@@ -90,8 +92,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             object(),
             "the same overrides <memory>:append takes, applied to the first entry when the memory is \
              created (ignored if it exists) — including visibility, exclude, occurred_at, and \
-             volatility. Classify a guarded first entry here rather than letting it take the \
-             write-time default",
+             volatility. As with memory.create, unclassified seed content takes the write-time \
+             default (Public on a non-person memory); for a guarded memory, prefer creating it bare \
+             and appending under the guard",
         )
         .returns(AT::Handle);
 
@@ -188,7 +191,13 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                      private posture (it still surfaces only to its teller's audience). Reach for it \
                      when a fact is one everyone but a specific person may know: a surprise planned \
                      for them, or something to be kept from one named individual while the others \
-                     may hear it. Mutually exclusive with visibility — an exclude is already private",
+                     may hear it. Mutually exclusive with visibility — an exclude is already private. \
+                     The recipe: create the memory bare, under a neutral handle, then append every \
+                     detail with exclude — local plan = memory.create(\"topic/upcoming_celebration\") \
+                     then plan:append(\"...\", { exclude = { dave } }). Do not pass the guarded fact \
+                     as create's content argument without opts: that one-liner lands the summary as \
+                     an unguarded Public entry beside the excluded ones, and the handle name itself \
+                     is never visibility-gated, so a telling name gives the fact away on its own",
                 )
                 .optional(
                     "occurred_at",

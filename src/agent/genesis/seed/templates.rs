@@ -298,7 +298,9 @@ pub(in crate::agent::genesis) fn default_templates(
          lands, not just in the entry you classified: keep it out of the memory's handle name, its \
          seed content, and anything else recorded beside it, because a name is never \
          visibility-gated and an unclassified sibling takes the open default — one plain copy \
-         undoes the guard. Your own notes have no \
+         undoes the guard. So record it the safe way round: give the memory a neutral handle that \
+         gives nothing away, put the guard on before any detail, and let every detail exist only \
+         under it. Your own notes have no \
          protective default either — classify them the same way."
             .to_owned(),
     );
@@ -333,6 +335,10 @@ pub(in crate::agent::genesis) fn default_templates(
             // fresh read; and the absence-is-the-answer clause now applies only to a question about
             // what is held, never to a turn that tells the agent something to keep or asks it to set
             // something up, which it records rather than reporting absent.
+            // Version 16 turns the guarded-everywhere clause affirmative — the safe way round is a
+            // neutral handle, the guard on before any detail, and every detail only under it —
+            // since the prohibition alone left the telling one-liner idiom (a guarded summary as
+            // create's content argument) in play.
             // Version 15 adds the guarded-everywhere clause to the visibility point: a guarded fact
             // stays out of the memory's handle name, its seed content, and any unclassified sibling
             // beside it, because a name is never visibility-gated and one plain copy undoes the
@@ -358,7 +364,7 @@ pub(in crate::agent::genesis) fn default_templates(
             // a candidate, not a match; version 8 threaded the whole-record read; version 7 added the
             // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the version
             // keeps an older `produced_by` naming the body it was generated under.
-            version: 15,
+            version: 16,
             body: scaffold_body,
         },
         TemplateDef {
