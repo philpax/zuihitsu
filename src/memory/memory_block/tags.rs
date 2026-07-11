@@ -88,7 +88,9 @@ impl MemoryBlock {
 
     /// The near-matching existing tags, closest first — the suggestions a tag collision surfaces so
     /// the agent applies a near-duplicate it may have meant rather than minting another. Tags share no
-    /// namespace, so the whole committed vocabulary is the candidate set.
+    /// namespace, so the whole committed vocabulary is the candidate set — and unlike memory names
+    /// it is deliberately not sliced by first character: the vocabulary is a small, curated set (one
+    /// row per described tag, nothing per-memory), so the whole fetch is already the cheap path.
     fn similar_tags(&self, attempted: &TagName) -> Result<Vec<TagName>, GraphError> {
         let candidates = self
             .engine

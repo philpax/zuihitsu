@@ -29,6 +29,16 @@ pub(super) fn most_similar<T>(attempted: &str, candidates: Vec<(String, T)>) -> 
                 return None;
             }
             let shared = shared_prefix_len(attempted, &key);
+            // When the stem gate fails, only the typo gate can admit the candidate, and two cheap
+            // necessary conditions for it — a shared leading character, and lengths within
+            // MAX_EDIT_DISTANCE (the distance is at least the length difference) — are checked
+            // before the quadratic distance program, so an irrelevant candidate costs no DP.
+            if shared < min_prefix
+                && (shared == 0
+                    || attempted_chars.abs_diff(key.chars().count()) > MAX_EDIT_DISTANCE)
+            {
+                return None;
+            }
             let distance = edit_distance(attempted, &key);
             // A shared stem (the same beginning, how a distinguishing suffix reads) or a near-typo that
             // still shares a leading character — the second gate keeps a same-length swap like
@@ -158,5 +168,20 @@ mod tests {
         assert_eq!(edit_distance("kitten", "sitting"), 3);
         assert_eq!(edit_distance("", "abc"), 3);
         assert_eq!(edit_distance("abc", "abc"), 0);
+    }
+
+    #[test]
+    fn a_long_suffix_on_a_shared_stem_is_kept_despite_the_length_gap() {
+        // The length pre-filter applies only when the stem gate fails — a candidate sharing the
+        // stem is admitted whatever its length.
+        let suggestions = rank("widget", &["widget-with-a-very-long-suffix"]);
+        assert_eq!(suggestions, vec!["widget-with-a-very-long-suffix"]);
+    }
+
+    #[test]
+    fn a_short_shared_prefix_with_a_large_length_gap_is_excluded() {
+        // Shares one leading character, but the length gap alone puts the edit distance beyond the
+        // typo gate — the candidate is dropped without running the distance program.
+        assert!(rank("meet", &["mortgage-repayments"]).is_empty());
     }
 }
