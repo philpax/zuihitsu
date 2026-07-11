@@ -183,8 +183,12 @@ a memory is; tags are what it's about. Disambiguating suffixes are encouraged wi
 (`person/dave-chen`, `person/dave-patel`). Names are unique: creating a second memory over an existing
 name is a teachable error that points the agent to `memory.get` (or `memory.get_or_create` when
 existence is uncertain) rather than minting a duplicate — the fail-on-exists strictness is
-load-bearing for the merge and identity flows. Likewise `tags.create` raises on an existing tag name,
-pointing the agent to apply it or change its purpose instead.
+load-bearing for the merge and identity flows. The collision error also lists the near-matching
+existing handles in the same namespace, closest first (`person/dave-chen`, `person/dave-patel` when a
+create for `person/dave` collides), so the agent picks a distinguishing name for a genuinely different
+subject rather than colliding again or minting a near-duplicate. Likewise `tags.create` raises on an
+existing tag name, listing the near-matching tags and pointing the agent to apply one or change its
+purpose instead.
 
 An event that recurs is held as ONE memory under a generic name (`event/book_club`), with each
 occurrence dated on its own entries — never a date-stamped clone per mention (`event/book-club-july`).

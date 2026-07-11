@@ -1,15 +1,21 @@
 //! Tag operations: creating, describing, applying, and removing tags, plus vocabulary reads.
 
-use crate::{event::EventPayload, graph::TagVocabularyEntry, ids::MemoryId, vocabulary::TagName};
+use crate::{
+    event::EventPayload,
+    graph::{GraphError, TagVocabularyEntry},
+    ids::MemoryId,
+    vocabulary::TagName,
+};
 
-use super::{MemoryBlock, MemoryError};
+use super::{MemoryBlock, MemoryError, suggest::most_similar};
 
 impl MemoryBlock {
     /// Create a tag with a one-line purpose. A tag's description is set only at creation; applying it
     /// never mutates it (spec §Tag operations). A name already in the vocabulary is a teachable error.
     pub fn create_tag(&mut self, name: TagName, description: &str) -> Result<(), MemoryError> {
         if self.tag_exists(&name)? {
-            return Err(MemoryError::TagExists(name));
+            let similar = self.similar_tags(&name)?;
+            return Err(MemoryError::TagExists { name, similar });
         }
         self.buffer
             .push(EventPayload::tag_created(name, description));
@@ -78,5 +84,22 @@ impl MemoryBlock {
             .lock()
             .tag_description(name.as_str())?
             .is_some())
+    }
+
+    /// The near-matching existing tags, closest first — the suggestions a tag collision surfaces so
+    /// the agent applies a near-duplicate it may have meant rather than minting another. Tags share no
+    /// namespace, so the whole committed vocabulary is the candidate set — and unlike memory names
+    /// it is deliberately not sliced by first character: the vocabulary is a small, curated set (one
+    /// row per described tag, nothing per-memory), so the whole fetch is already the cheap path.
+    fn similar_tags(&self, attempted: &TagName) -> Result<Vec<TagName>, GraphError> {
+        let candidates = self
+            .engine
+            .graph
+            .lock()
+            .all_tags()?
+            .into_iter()
+            .map(|entry| (entry.name.as_str().to_owned(), entry.name))
+            .collect();
+        Ok(most_similar(attempted.as_str(), candidates))
     }
 }

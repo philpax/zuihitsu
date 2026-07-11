@@ -150,6 +150,47 @@ impl Graph {
             .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, i64>(0))?
             as u64)
     }
+
+    /// The names of every live memory whose name begins with `prefix`, ordered by name — the
+    /// narrow candidate fetch behind the name-collision suggestions, so a collision on a graph with
+    /// thousands of memories ranks a first-character slice rather than the whole namespace. The
+    /// prefix is matched as an index range scan (`name >= prefix AND name < successor`) on the
+    /// unique `name` index, not with LIKE: the column's BINARY collation means the default
+    /// (ASCII-case-insensitive) LIKE cannot use the index and falls back to a table scan, while the
+    /// range form searches the index (`EXPLAIN QUERY PLAN` confirms it, and a test guards it) —
+    /// and, comparing literally, it needs no metacharacter escaping. Names are valid UTF-8, whose
+    /// bytewise order is code-point order, so the range `[prefix, successor)` captures exactly the
+    /// names carrying that character prefix. The range is case-sensitive; a caller wanting LIKE's
+    /// ASCII-case-insensitive semantics fetches each case variant's range.
+    pub fn memory_names_with_prefix(&self, prefix: &str) -> Result<Vec<MemoryName>, GraphError> {
+        match prefix_range_end(prefix) {
+            Some(end) => {
+                let stmt = self.conn.prepare(
+                    "SELECT name FROM memories
+                     WHERE name >= ?1 AND name < ?2 AND deleted = 0 ORDER BY name",
+                )?;
+                query_map_into(stmt, params![prefix, end], |row| {
+                    let name: String = row.get(0)?;
+                    Ok::<_, GraphError>(MemoryName::new(name))
+                })
+            }
+            // No exclusive upper bound is representable (the prefix is empty, or every character is
+            // the maximum scalar value); scan the index tail and keep the true prefix matches.
+            None => {
+                let stmt = self.conn.prepare(
+                    "SELECT name FROM memories WHERE name >= ?1 AND deleted = 0 ORDER BY name",
+                )?;
+                let names: Vec<MemoryName> = query_map_into(stmt, params![prefix], |row| {
+                    let name: String = row.get(0)?;
+                    Ok::<_, GraphError>(MemoryName::new(name))
+                })?;
+                Ok(names
+                    .into_iter()
+                    .filter(|name| name.as_str().starts_with(prefix))
+                    .collect())
+            }
+        }
+    }
 }
 
 /// Escape a `memory.list` prefix's LIKE metacharacters so the stem matches literally. `%`, `_`, and
@@ -165,4 +206,29 @@ fn escape_like(prefix: &str) -> String {
         escaped.push(ch);
     }
     escaped
+}
+
+/// The exclusive upper bound of the index range holding every string prefixed by `prefix`: the
+/// prefix with its final character replaced by the next Unicode scalar value. A final character
+/// with no successor (`char::MAX`) is dropped and the increment carries leftward — every string it
+/// prefixes still sorts below the shortened successor. `None` when no bound exists at all: an empty
+/// prefix, or one made entirely of the maximum scalar value.
+fn prefix_range_end(prefix: &str) -> Option<String> {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    while let Some(last) = chars.pop() {
+        if let Some(next) = next_scalar(last) {
+            chars.push(next);
+            return Some(chars.into_iter().collect());
+        }
+    }
+    None
+}
+
+/// The next Unicode scalar value after `c`, skipping the surrogate gap; `None` at `char::MAX`.
+fn next_scalar(c: char) -> Option<char> {
+    let mut code = u32::from(c) + 1;
+    if (0xD800..=0xDFFF).contains(&code) {
+        code = 0xE000;
+    }
+    char::from_u32(code)
 }

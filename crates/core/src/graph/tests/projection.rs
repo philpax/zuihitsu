@@ -194,3 +194,100 @@ fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
     let (_memory, entry) = graph.entry_by_id(old).unwrap().unwrap();
     assert_eq!(entry.superseded_by, Some(new));
 }
+
+#[test]
+fn name_prefix_query_matches_literally_and_orders_by_name() {
+    // The range fetch compares literally, so a prefix carrying a LIKE metacharacter matches that
+    // character rather than wildcarding — `person/_` must not match `person/xtest` the way an
+    // unescaped LIKE pattern would.
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/_test-b")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/_test")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/xtest")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/100%-effort")),
+    ]);
+    let names: Vec<String> = graph
+        .memory_names_with_prefix("person/_")
+        .unwrap()
+        .into_iter()
+        .map(|name| name.as_str().to_owned())
+        .collect();
+    assert_eq!(names, vec!["person/_test", "person/_test-b"]);
+    let names: Vec<String> = graph
+        .memory_names_with_prefix("person/1")
+        .unwrap()
+        .into_iter()
+        .map(|name| name.as_str().to_owned())
+        .collect();
+    assert_eq!(names, vec!["person/100%-effort"]);
+}
+
+#[test]
+fn name_prefix_query_handles_a_multi_byte_first_character() {
+    // A multi-byte first character must slice as a character, not a byte — the range's upper bound
+    // is the next Unicode scalar value, so the fetch returns exactly the accented stem and never a
+    // malformed pattern or a neighboring code point.
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/émile")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/émile-b")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/erin")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/êtienne")),
+    ]);
+    let names: Vec<String> = graph
+        .memory_names_with_prefix("person/é")
+        .unwrap()
+        .into_iter()
+        .map(|name| name.as_str().to_owned())
+        .collect();
+    assert_eq!(names, vec!["person/émile", "person/émile-b"]);
+}
+
+#[test]
+fn name_prefix_query_excludes_deleted_and_scopes_by_namespace() {
+    let deleted = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("person/dave")),
+        EventPayload::memory_created(deleted, MemoryName::new("person/dave-old")),
+        EventPayload::memory_created(MemoryId::generate(), MemoryName::new("place/dave-street")),
+        EventPayload::memory_deleted(deleted),
+    ]);
+    let names: Vec<String> = graph
+        .memory_names_with_prefix("person/d")
+        .unwrap()
+        .into_iter()
+        .map(|name| name.as_str().to_owned())
+        .collect();
+    assert_eq!(names, vec!["person/dave"]);
+}
+
+#[test]
+fn name_prefix_query_uses_the_name_index() {
+    // The point of the range form over LIKE: the `name` column's BINARY collation keeps the
+    // (ASCII-case-insensitive) LIKE prefix optimization off, so a LIKE fetch scans the table, while
+    // the explicit range is an index search. Guard the plan so a query rewrite cannot silently
+    // regress the collision-suggestion fetch to a scan.
+    let (_store, graph) = materialized(vec![EventPayload::memory_created(
+        MemoryId::generate(),
+        MemoryName::new("person/dave"),
+    )]);
+    let mut stmt = graph
+        .conn
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT name FROM memories
+             WHERE name >= ?1 AND name < ?2 AND deleted = 0 ORDER BY name",
+        )
+        .unwrap();
+    let columns = stmt.column_count();
+    let mut rows = stmt
+        .query(rusqlite::params!["person/d", "person/e"])
+        .unwrap();
+    let mut details = Vec::new();
+    while let Some(row) = rows.next().unwrap() {
+        details.push(row.get::<_, String>(columns - 1).unwrap());
+    }
+    let plan = details.join("; ");
+    assert!(
+        plan.contains("USING INDEX") && !plan.contains("SCAN memories"),
+        "the name-prefix fetch should search the name index, got: {plan}"
+    );
+}

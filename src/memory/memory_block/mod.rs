@@ -30,6 +30,7 @@ mod error;
 mod links;
 mod reads;
 mod resolve;
+mod suggest;
 mod tags;
 mod writes;
 
