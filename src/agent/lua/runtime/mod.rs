@@ -28,7 +28,7 @@ pub(crate) use handles::{
     HandleSelf, entry_handle_id, get_argument_name, handle_id, link_target_id,
     make_capped_handle_list, make_entry_handle, make_entry_handle_list, make_handle,
     make_handle_list, make_link_handle_list, make_relation_result, readonly_newindex,
-    render_details, render_neighborhood, render_salient_relations,
+    render_details, render_neighborhood, render_salient_relations, resolve_exclude,
 };
 pub(crate) use inspect::{
     combine_output, concat_via_tostring, date_text, install_inspect, install_table_concat, render,

@@ -290,7 +290,19 @@ pub(in crate::agent::genesis) fn default_templates(
          preference) is attributed — mark it so, or it stays private and you cannot answer about that \
          person once their teller has left. Reserve private for a genuine confidence — a hushed \
          register, \"between us\", a request not to repeat, or content plainly not for sharing yet \
-         (an unannounced decision, a personnel action, a medical fact). Your own notes have no \
+         (an unannounced decision, a personnel action, a medical fact). When a fact is one that \
+         everyone but a particular person may know — a surprise planned for them, or something to be \
+         kept from one named individual while the others may hear it — exclude that person: it holds \
+         like a private confidence and is additionally withheld whenever they are present, so it \
+         still reaches the others when they are not. A guarded fact must be guarded everywhere it \
+         lands, not just in the entry you classified: keep it out of the memory's handle name, its \
+         seed content, and anything else recorded beside it, because a name is never \
+         visibility-gated and an unclassified sibling takes the open default — one plain copy \
+         undoes the guard. So record it the safe way round: give the memory a neutral handle that \
+         names the occasion, never the plan — the handle is the one part of the record no guard \
+         covers, so a secret in the name is told by the name alone — put the guard on before any \
+         detail, and let every detail exist only \
+         under it. Your own notes have no \
          protective default either — classify them the same way."
             .to_owned(),
     );
@@ -325,6 +337,22 @@ pub(in crate::agent::genesis) fn default_templates(
             // fresh read; and the absence-is-the-answer clause now applies only to a question about
             // what is held, never to a turn that tells the agent something to keep or asks it to set
             // something up, which it records rather than reporting absent.
+            // Version 17 sharpens the neutral-handle clause into "names the occasion, never the
+            // plan", with its why (the handle is the one part of the record no guard covers): at
+            // v16 the guarded-record recipe landed but a telling handle could still be minted.
+            // Version 16 turns the guarded-everywhere clause affirmative — the safe way round is a
+            // neutral handle, the guard on before any detail, and every detail only under it —
+            // since the prohibition alone left the telling one-liner idiom (a guarded summary as
+            // create's content argument) in play.
+            // Version 15 adds the guarded-everywhere clause to the visibility point: a guarded fact
+            // stays out of the memory's handle name, its seed content, and any unclassified sibling
+            // beside it, because a name is never visibility-gated and one plain copy undoes the
+            // guard.
+            // Version 14 adds the exclude posture to the visibility point: a fact everyone but a
+            // particular named person may know — a surprise for them, something kept from one
+            // individual — is recorded excluding that person, holding like a confidence and
+            // additionally withheld whenever they are present. The mechanics (the exclude opt shape)
+            // live in the reference; the scaffold states only the principle and when to reach for it.
             // Version 13 recasts the linking point for the triadic call shape: a link is now
             // links.create(a, rel, b), a `links` module function whose arguments read as a sentence
             // ("a rel b", stored a → b) with neither endpoint a privileged receiver, so a backwards
@@ -341,7 +369,7 @@ pub(in crate::agent::genesis) fn default_templates(
             // a candidate, not a match; version 8 threaded the whole-record read; version 7 added the
             // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the version
             // keeps an older `produced_by` naming the body it was generated under.
-            version: 13,
+            version: 17,
             body: scaffold_body,
         },
         TemplateDef {

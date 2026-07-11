@@ -13,7 +13,10 @@ use crate::{
     },
 };
 
-use super::{Authority, EntryRef, MemoryBlock, MemoryError, VisibilityChoice, WITHHELD_STUB};
+use super::{
+    Authority, EntryRef, ForcedVisibility, MemoryBlock, MemoryError, VisibilityChoice,
+    WITHHELD_STUB,
+};
 
 impl MemoryBlock {
     /// The visibility a content entry is written at, or a teachable failure. An explicit choice is
@@ -28,14 +31,10 @@ impl MemoryBlock {
         name: Option<&str>,
         id: MemoryId,
         told_by: &Teller,
-        explicit: Option<VisibilityChoice>,
+        forced: Option<ForcedVisibility>,
     ) -> Result<Visibility, MemoryError> {
-        if let Some(choice) = explicit {
-            return Ok(match choice {
-                VisibilityChoice::Public => Visibility::Public,
-                VisibilityChoice::Attributed => Visibility::Attributed,
-                VisibilityChoice::Private => Visibility::PrivateToTeller,
-            });
+        if let Some(forced) = forced {
+            return Ok(forced_to_visibility(forced));
         }
         if self.confidential_context {
             return Ok(Visibility::PrivateToTeller);
@@ -63,14 +62,10 @@ impl MemoryBlock {
         to: MemoryId,
         to_name: Option<&str>,
         told_by: &Teller,
-        explicit: Option<VisibilityChoice>,
+        forced: Option<ForcedVisibility>,
     ) -> Result<Visibility, MemoryError> {
-        if let Some(choice) = explicit {
-            return Ok(match choice {
-                VisibilityChoice::Public => Visibility::Public,
-                VisibilityChoice::Attributed => Visibility::Attributed,
-                VisibilityChoice::Private => Visibility::PrivateToTeller,
-            });
+        if let Some(forced) = forced {
+            return Ok(forced_to_visibility(forced));
         }
         if self.confidential_context {
             return Ok(Visibility::PrivateToTeller);
@@ -292,5 +287,17 @@ impl MemoryBlock {
                 .memory_by_id(id)?
                 .map(|memory| memory.name)),
         }
+    }
+}
+
+/// Map a reconciled [`ForcedVisibility`] to the concrete [`Visibility`] a write is recorded at: an
+/// explicit posture verbatim, and an `exclude` list into a [`Visibility::Exclude`] over the named
+/// memory ids. The shared tail of both the content and link visibility resolvers.
+fn forced_to_visibility(forced: ForcedVisibility) -> Visibility {
+    match forced {
+        ForcedVisibility::Choice(VisibilityChoice::Public) => Visibility::Public,
+        ForcedVisibility::Choice(VisibilityChoice::Attributed) => Visibility::Attributed,
+        ForcedVisibility::Choice(VisibilityChoice::Private) => Visibility::PrivateToTeller,
+        ForcedVisibility::Exclude(ids) => Visibility::Exclude(ids),
     }
 }

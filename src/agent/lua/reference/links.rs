@@ -81,14 +81,23 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
         )
         .optional(
             "opts",
-            object().optional(
-                "visibility",
-                enum_of(["public", "attributed", "private"]),
-                "force the link's visibility instead of the write-time default — same postures as \
-                 content: public, attributed (secondhand), or private (teller-gated, subject-guarded \
-                 at the target)",
-            ),
-            "overrides for the link — visibility forces the posture instead of the write-time default",
+            object()
+                .optional(
+                    "visibility",
+                    enum_of(["public", "attributed", "private"]),
+                    "force the link's visibility instead of the write-time default — same postures as \
+                     content: public, attributed (secondhand), or private (teller-gated, \
+                     subject-guarded at the target)",
+                )
+                .optional(
+                    "exclude",
+                    AT::Handle.list(),
+                    "record the link as a confidence additionally withheld whenever any named party \
+                     is present — a list of person handles or names to keep it from, on top of the \
+                     private posture. Mutually exclusive with visibility",
+                ),
+            "overrides for the link — visibility or exclude forces the posture instead of the \
+             write-time default",
         );
 
     let links_remove = AE::new("links.remove")

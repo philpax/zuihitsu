@@ -147,6 +147,56 @@ fn search_documents_the_relations_field() {
 }
 
 #[test]
+fn append_documents_the_exclude_option() {
+    // The append entry documents the exclude opt — a confidence additionally withheld whenever a
+    // named party is present — and that it is mutually exclusive with visibility.
+    let append = api_reference(&InstanceFeatures::default())
+        .into_iter()
+        .find(|entry| entry.call == "<memory>:append")
+        .expect("append is present");
+    let exclude = append
+        .params
+        .iter()
+        .find(|param| param.name == "opts")
+        .and_then(|opts| match &opts.ty {
+            crate::agent::api_doc::ApiType::Object(fields) => {
+                fields.iter().find(|field| field.name == "exclude")
+            }
+            _ => None,
+        })
+        .expect("opts carries an exclude field");
+    assert!(
+        exclude.doc.contains("withheld") && exclude.doc.contains("Mutually exclusive"),
+        "the exclude param should describe the posture and the conflict: {}",
+        exclude.doc
+    );
+}
+
+#[test]
+fn create_and_get_or_create_document_the_first_entry_overrides() {
+    // Both creation calls document their opts parameter — the same overrides append takes, applied
+    // to the first entry — so a guarded seed entry is classified at creation instead of taking the
+    // write-time default (the Public-copy leak beside an excluded sibling).
+    let reference = api_reference(&InstanceFeatures::default());
+    for call in ["memory.create", "memory.get_or_create"] {
+        let entry = reference
+            .iter()
+            .find(|entry| entry.call == call)
+            .unwrap_or_else(|| panic!("{call} is present"));
+        let opts = entry
+            .params
+            .iter()
+            .find(|param| param.name == "opts")
+            .unwrap_or_else(|| panic!("{call} documents an opts param"));
+        assert!(
+            opts.doc.contains("<memory>:append") && opts.doc.contains("exclude"),
+            "{call}'s opts should defer to append's overrides and name exclude: {}",
+            opts.doc
+        );
+    }
+}
+
+#[test]
 fn disabling_transcripts_omits_convo_turn() {
     let features = InstanceFeatures {
         transcripts: false,

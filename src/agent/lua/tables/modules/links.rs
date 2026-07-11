@@ -26,11 +26,7 @@ pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Res
                     let from = link_target_id(&api, subject)?;
                     let to = link_target_id(&api, object)?;
                     api.lock_all([from, to]).await;
-                    let opts = if opts.is_nil() {
-                        None
-                    } else {
-                        Some(lua.from_value::<LinkOptions>(opts)?)
-                    };
+                    let opts = link_options_from_lua(&api, &lua, opts)?;
                     api.block
                         .lock()
                         .link(from, to, RelationName::new(&relation), opts)
@@ -105,6 +101,7 @@ pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Res
         })?,
     )?;
     // links.get(name) — one relation by either label, or nil.
+    // (The `create` opts resolver `link_options_from_lua` is defined below the table builder.)
     links.set(
         "get",
         lua.create_async_function({
@@ -131,4 +128,36 @@ pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Res
         })?,
     )?;
     Ok(links)
+}
+
+/// Deserialize a `links.create` `opts` table into [`LinkOptions`], resolving the `exclude` list of
+/// handles or names at the boundary (serde cannot decode a memory handle) before deserializing the
+/// rest. The `exclude` key is dropped from a copy so the agent's own table is left untouched, mirroring
+/// `append`'s option handling. `nil` opts yield `None`.
+fn link_options_from_lua(
+    api: &BlockApi,
+    lua: &Lua,
+    opts: Value,
+) -> mlua::Result<Option<LinkOptions>> {
+    if opts.is_nil() {
+        return Ok(None);
+    }
+    let Value::Table(table) = &opts else {
+        // A non-nil, non-table opts is a shape slip serde surfaces.
+        return Ok(Some(lua.from_value(opts)?));
+    };
+    let exclude = resolve_exclude(api, table.get::<Value>("exclude")?)?;
+    let rest = lua.create_table()?;
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair?;
+        if let Value::String(name) = &key
+            && name.to_string_lossy() == "exclude"
+        {
+            continue;
+        }
+        rest.set(key, value)?;
+    }
+    let mut options: LinkOptions = lua.from_value(Value::Table(rest))?;
+    options.exclude = exclude;
+    Ok(Some(options))
 }

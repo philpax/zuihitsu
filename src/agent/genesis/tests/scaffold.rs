@@ -16,10 +16,10 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 13,
-        "the scaffold is registered at v13 (v13 recasts the linking point for the triadic call \
-         shape: a link is now link(a, rel, b), whose arguments read as a sentence with neither \
-         endpoint a privileged receiver)"
+        scaffold.version, 17,
+        "the scaffold is registered at v17 (v17 sharpens the neutral-handle clause: the handle names \
+         the occasion, never the plan, because the handle is the one part of the record no guard \
+         covers)"
     );
     assert!(
         scaffold

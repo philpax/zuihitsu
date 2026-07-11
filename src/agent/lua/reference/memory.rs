@@ -30,6 +30,16 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             ),
         )
         .optional("content", AT::String, "an optional first content entry (subject to the same character limit as append)")
+        .optional(
+            "opts",
+            object(),
+            "the same overrides <memory>:append takes, applied to the first entry — including \
+             visibility, exclude, occurred_at, and volatility. Seed content is an entry like any \
+             other: memory.create(name, \"<summary>\") with no opts lands the summary at the \
+             write-time default — Public on a non-person memory — so a guarded fact seeded this way \
+             sits in the open beside its guarded siblings. For a guarded memory, prefer creating it \
+             bare and appending under the guard",
+        )
         .returns(AT::Handle);
 
     let get = AE::new("memory.get")
@@ -76,6 +86,15 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             "content",
             AT::String,
             "an optional first entry, used only when the memory is created (ignored if it exists)",
+        )
+        .optional(
+            "opts",
+            object(),
+            "the same overrides <memory>:append takes, applied to the first entry when the memory is \
+             created (ignored if it exists) — including visibility, exclude, occurred_at, and \
+             volatility. As with memory.create, unclassified seed content takes the write-time \
+             default (Public on a non-person memory); for a guarded memory, prefer creating it bare \
+             and appending under the guard",
         )
         .returns(AT::Handle);
 
@@ -163,6 +182,25 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                     "visibility",
                     enum_of(["public", "private"]),
                     "force the visibility; required for an entry you author about a person",
+                )
+                .optional(
+                    "exclude",
+                    AT::Handle.list(),
+                    "record it as a confidence additionally withheld whenever any named party is \
+                     present — a list of person handles (or names) to keep it from, on top of the \
+                     private posture (it still surfaces only to its teller's audience). Reach for it \
+                     when a fact is one everyone but a specific person may know: a surprise planned \
+                     for them, or something to be kept from one named individual while the others \
+                     may hear it. Mutually exclusive with visibility — an exclude is already private. \
+                     The recipe: create the memory bare, under a handle that reveals nothing on its \
+                     own — name the occasion at most, never the plan, so \
+                     \"topic/upcoming_celebration\", never a handle containing \"surprise\" or \
+                     \"secret\", which tells the secret by itself since a name is never \
+                     visibility-gated — then append every detail with exclude: local plan = \
+                     memory.create(\"topic/upcoming_celebration\") then \
+                     plan:append(\"...\", { exclude = { dave } }). Do not pass the guarded fact \
+                     as create's content argument without opts: that one-liner lands the summary as \
+                     an unguarded Public entry beside the excluded ones",
                 )
                 .optional(
                     "occurred_at",

@@ -367,6 +367,66 @@ pub(crate) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<Memor
     }
 }
 
+/// Resolve an append's or link's `exclude` option to the memory ids the entry is a confidence withheld
+/// from whenever they are present — the parties of a `Visibility::Exclude`. Accepts a Lua list
+/// (sequence) of person handles or name strings (each resolved through [`resolve_excludee`]), a bare
+/// handle or name for the single-party case, or `nil` (no exclusion). An empty list resolves to an
+/// empty vec, which the block rejects as a teachable error — an exclude naming no one is just a private
+/// confidence, not an exclusion. Mirrors `told_by`'s handle-or-name resolution.
+pub(crate) fn resolve_exclude(api: &BlockApi, value: Value) -> mlua::Result<Option<Vec<MemoryId>>> {
+    match value {
+        Value::Nil => Ok(None),
+        Value::String(_) => Ok(Some(vec![resolve_excludee(api, value)?])),
+        Value::Table(table) => {
+            // A sequence (a `[1]` element) is a list of parties resolved one by one; a bare handle
+            // table (an `id` field, no `[1]`) is a single party; anything else — an empty `{}` — yields
+            // an empty vec the block turns into the teachable "exclude names no one" error.
+            if !table.get::<Value>(1)?.is_nil() {
+                let mut ids = Vec::new();
+                for element in table.sequence_values::<Value>() {
+                    ids.push(resolve_excludee(api, element?)?);
+                }
+                Ok(Some(ids))
+            } else if table.contains_key("id")? {
+                Ok(Some(vec![resolve_excludee(api, Value::Table(table))?]))
+            } else {
+                Ok(Some(Vec::new()))
+            }
+        }
+        other => Err(HandleError::WrongExcludeeType {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Resolve one `exclude` party — a memory handle or a name string — to its memory id. An unknown name,
+/// or a value that is neither a handle nor a name, is a teachable error.
+fn resolve_excludee(api: &BlockApi, value: Value) -> mlua::Result<MemoryId> {
+    match value {
+        Value::Table(handle) => handle_id(&handle),
+        Value::String(name) => {
+            let name = name.to_string_lossy();
+            match api
+                .block
+                .lock()
+                .get(&name)
+                .map_err(|error| route_error(error, &mut api.infra.lock()))?
+            {
+                Some((id, _)) => Ok(id),
+                None => Err(HandleError::UnknownExcludee {
+                    name: name.to_string(),
+                }
+                .into()),
+            }
+        }
+        other => Err(HandleError::WrongExcludeeType {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
+}
+
 /// Resolve a `memory.get` / `memory.get_or_create` argument to the name to look up. The argument is
 /// normally a name string, but an existing memory handle (from `memory.list`, `memory.create`, or a
 /// prior `memory.get`) is accepted too — so the natural `memory.get(h)` over a handle the agent
