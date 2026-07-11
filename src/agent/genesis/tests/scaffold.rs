@@ -16,9 +16,10 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 16,
-        "the scaffold is registered at v16 (v16 turns the guarded-everywhere clause affirmative: a \
-         neutral handle, the guard on before any detail, and every detail only under it)"
+        scaffold.version, 17,
+        "the scaffold is registered at v17 (v17 sharpens the neutral-handle clause: the handle names \
+         the occasion, never the plan, because the handle is the one part of the record no guard \
+         covers)"
     );
     assert!(
         scaffold
