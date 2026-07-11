@@ -8,7 +8,7 @@ use anstyle::{AnsiColor, Style};
 use zuihitsu::{
     Event, MemoryId, Seq, SqliteStore, Store,
     config::EnvConfig,
-    event::{EventPayload, Teller, TerminalCause, TurnRole, Visibility},
+    event::{EventPayload, EventSource, Teller, TerminalCause, TurnRole, Visibility},
 };
 
 use crate::cli_error::CliError;
@@ -131,9 +131,16 @@ pub(crate) fn write_event(
         Style::new().fg_color(Some(category_color(&event.payload).into()))
     };
     let kind = event.payload.kind();
+    // The envelope authority, dimly, for every non-`Agent` event: the agent authors the bulk of a
+    // log, so annotating only the exceptions keeps the listing calm while a genesis, operator, or
+    // system write stands out.
+    let source = match event.source {
+        EventSource::Agent => String::new(),
+        other => format!("  [{}]", other.as_str().to_lowercase()),
+    };
     writeln!(
         out,
-        "{dim}{:>6}{dim:#}  {kind_style}{kind}{kind_style:#}",
+        "{dim}{:>6}{dim:#}  {kind_style}{kind}{kind_style:#}{dim}{source}{dim:#}",
         event.seq.0
     )?;
     let detail = describe_event(&event.payload, names);

@@ -5,7 +5,7 @@ import type { EventPayload } from "../../types/EventPayload.ts";
 import { buildInteractions, contextDenominatorsAt } from "./interactions.ts";
 
 function event(seq: number, payload: EventPayload): Event {
-  return { seq, recorded_at: seq * 1_000, payload };
+  return { seq, recorded_at: seq * 1_000, source: "Agent", payload };
 }
 
 function configSet(seq: number, compaction: Record<string, unknown>): Event {

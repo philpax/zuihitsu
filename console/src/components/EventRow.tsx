@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import type { EventPayload } from "../types/EventPayload.ts";
+import type { EventSource } from "../types/EventSource.ts";
 import type { EventCategory } from "../lib/model/events.ts";
 import { CATEGORY_COLOR } from "../lib/model/events.ts";
 import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
@@ -13,6 +14,8 @@ import { EventDetail } from "./EventDetail.tsx";
 export interface EventRowData {
   seq: number;
   recordedAt: number;
+  /// The envelope's authoring authority, shown as faint provenance in the expanded detail.
+  source: EventSource;
   type: EventPayload["type"];
   category: EventCategory;
   summary: string;
@@ -69,6 +72,7 @@ export function EventRow({
             base={base}
             seq={row.seq}
             recordedAt={row.recordedAt}
+            source={row.source}
           />
         </div>
       )}

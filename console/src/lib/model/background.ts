@@ -1,5 +1,6 @@
 import type { Event } from "../../types/Event.ts";
 import type { EventPayload } from "../../types/EventPayload.ts";
+import type { EventSource } from "../../types/EventSource.ts";
 import { type EventCategory, eventCategory, eventSummary, isBackgroundEvent } from "./events.ts";
 
 /// One background-pass event (a description regeneration, a belief arbitration, an inferred link
@@ -9,6 +10,8 @@ import { type EventCategory, eventCategory, eventSummary, isBackgroundEvent } fr
 export interface BackgroundEvent {
   seq: number;
   recordedAt: number;
+  /// The envelope's authoring authority, shown as faint provenance in the expanded row.
+  source: EventSource;
   type: EventPayload["type"];
   category: EventCategory;
   summary: string;
@@ -115,6 +118,7 @@ export function buildBackgroundEvents(
           result.push({
             seq: event.seq,
             recordedAt: event.recorded_at,
+            source: event.source,
             type: payload.type,
             category: eventCategory(payload.type),
             summary: eventSummary(payload, nameById),
