@@ -103,6 +103,13 @@ export interface MergeProposalView {
   source: MergeProposalSource;
   rationale: string | null;
   status: MergeStatus;
+  // Whether each stub is currently its class's primary — the id class-level reads resolve through.
+  from_primary: boolean;
+  to_primary: boolean;
+  // Whether the operator has pinned each stub as its class's primary, as opposed to it winning by the
+  // earliest-ULID default. A pinned stub can be released; an unpinned, non-primary stub can be pinned.
+  from_designated: boolean;
+  to_designated: boolean;
 }
 
 export interface AgendaItem {

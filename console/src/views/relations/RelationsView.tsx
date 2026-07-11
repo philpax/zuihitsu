@@ -31,10 +31,12 @@ import {
 
 /// The operator's merge-decision hooks, supplied only by the live agent frame when the cursor is at the
 /// head — each authors an operator event, which the read-only eval viewer cannot do. `resolve` decides
-/// a pending proposal; `unmerge` retracts a merge that was already made, splitting the class back apart.
+/// a pending proposal; `unmerge` retracts a merge that was already made, splitting the class back apart;
+/// `designatePrimary` pins (or releases) which stub a merged class resolves through.
 export interface MergeControls {
   resolve: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
   unmerge: (from: MemoryId, to: MemoryId) => Promise<void>;
+  designatePrimary: (memory: MemoryId, designated: boolean) => Promise<void>;
 }
 
 /// The Relations view: the relation registry as a filterable table at the top, the force-directed
@@ -188,6 +190,7 @@ export function RelationsView({
         cursor={cursor}
         onResolve={merge?.resolve}
         onUnmerge={merge?.unmerge}
+        onDesignatePrimary={merge?.designatePrimary}
       />
 
       {raw.nodes.length === 0 ? (

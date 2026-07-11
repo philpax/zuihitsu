@@ -203,6 +203,14 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "ClassPrimaryDesignated":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.memory)}</Field>
+          <Field label="primary">{payload.designated ? "pinned" : "released"}</Field>
+        </Fields>
+      );
+
     default:
       return undefined;
   }
