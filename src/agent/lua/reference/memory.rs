@@ -192,12 +192,15 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                      when a fact is one everyone but a specific person may know: a surprise planned \
                      for them, or something to be kept from one named individual while the others \
                      may hear it. Mutually exclusive with visibility — an exclude is already private. \
-                     The recipe: create the memory bare, under a neutral handle, then append every \
-                     detail with exclude — local plan = memory.create(\"topic/upcoming_celebration\") \
-                     then plan:append(\"...\", { exclude = { dave } }). Do not pass the guarded fact \
+                     The recipe: create the memory bare, under a handle that reveals nothing on its \
+                     own — name the occasion at most, never the plan, so \
+                     \"topic/upcoming_celebration\", never a handle containing \"surprise\" or \
+                     \"secret\", which tells the secret by itself since a name is never \
+                     visibility-gated — then append every detail with exclude: local plan = \
+                     memory.create(\"topic/upcoming_celebration\") then \
+                     plan:append(\"...\", { exclude = { dave } }). Do not pass the guarded fact \
                      as create's content argument without opts: that one-liner lands the summary as \
-                     an unguarded Public entry beside the excluded ones, and the handle name itself \
-                     is never visibility-gated, so a telling name gives the fact away on its own",
+                     an unguarded Public entry beside the excluded ones",
                 )
                 .optional(
                     "occurred_at",
