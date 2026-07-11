@@ -7,7 +7,7 @@ import type { StepRecord } from "../types/StepRecord.ts";
 import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
 import { DockContext } from "../lib/nav/dock.ts";
-import { designatePrimary, resolveMerge, unmerge } from "../lib/api/operator.ts";
+import { designatePrimary, editSelf, resolveMerge, unmerge } from "../lib/api/operator.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/state/StateView.tsx";
 import {
@@ -186,7 +186,17 @@ export function StreamWorkspace({
                     transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
                   >
                     {view === "state" && (
-                      <StateView replica={replica} events={events} cursor={cursor} />
+                      <StateView
+                        replica={replica}
+                        events={events}
+                        cursor={cursor}
+                        onEditSelf={
+                          participant && cursor >= head
+                            ? (text, supersedes) =>
+                                editSelf(participant.connection, text, supersedes).then(() => {})
+                            : undefined
+                        }
+                      />
                     )}
                     {view === "relations" && (
                       <Suspense

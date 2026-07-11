@@ -1,9 +1,11 @@
+import type { EntryId } from "../../types/EntryId.ts";
 import type { MemoryDetail } from "../../lib/model/graph.ts";
 import type { Arbitration, RecurringItem } from "../../lib/model/audit.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
 import { rruleLabel } from "../../lib/model/audit.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { EntryItem, MemoryRef, Section } from "./MemoryList.tsx";
+import { SelfEditor } from "./SelfEditor.tsx";
 
 export function MemoryDetailPane({
   detail,
@@ -12,6 +14,7 @@ export function MemoryDetailPane({
   recurring,
   onShowEvents,
   onSelect,
+  onEditSelf,
 }: {
   detail: MemoryDetail;
   nameById: Map<string, string>;
@@ -19,6 +22,9 @@ export function MemoryDetailPane({
   recurring: RecurringItem[];
   onShowEvents?: (id: string, name: string) => void;
   onSelect: (name: string) => void;
+  /// Present only in the live agent frame at the head, and exercised only on `self`: append a charter
+  /// entry, or revise one under operator authority (the operator side of self-editing).
+  onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
 }) {
   const { memory, entries, history, links } = detail;
   const superseded = history.filter((entry) => entry.superseded_by !== null);
@@ -93,6 +99,10 @@ export function MemoryDetailPane({
           </ul>
         )}
       </Section>
+
+      {memory.name === "self" && onEditSelf && (
+        <SelfEditor entries={entries} onEditSelf={onEditSelf} />
+      )}
 
       {links.length > 0 && (
         <Section label={`links · ${links.length}`}>

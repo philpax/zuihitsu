@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import type { EntryId } from "../../types/EntryId.ts";
 import type { Event } from "../../types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import type { MemoryView } from "../../lib/model/graph.ts";
@@ -22,6 +23,7 @@ export function MemoryBrowser({
   selected,
   onSelect,
   onShowEvents,
+  onEditSelf,
 }: {
   replica: Replica;
   events: Event[];
@@ -29,6 +31,7 @@ export function MemoryBrowser({
   selected: string | null;
   onSelect: (name: string) => void;
   onShowEvents?: (id: string, name: string) => void;
+  onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
 }) {
   const memories = replica.memories("");
   const names = nameById(memories);
@@ -98,6 +101,7 @@ export function MemoryBrowser({
           recurring={recurring.get(detail.memory.id) ?? []}
           onShowEvents={onShowEvents}
           onSelect={onSelect}
+          onEditSelf={onEditSelf}
         />
       ) : (
         <div className="py-16 text-center text-sm text-ink-faint">Select a memory.</div>
