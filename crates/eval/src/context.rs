@@ -333,19 +333,26 @@ async fn assemble(
     Ok(server)
 }
 
-/// Append `events` to a fresh store preserving each event's `recorded_at`. Consecutive events sharing a
-/// timestamp ride in one batch (the store stamps a batch with a single `recorded_at`), so the seqs
-/// regenerate `1..=N` in the recorded order while every event keeps its original recorded time.
+/// Append `events` to a fresh store preserving each event's `recorded_at` and `source`. Consecutive
+/// events sharing both a timestamp and an authority ride in one batch (the store stamps a batch with a
+/// single `recorded_at` and `source`), so the seqs regenerate `1..=N` in the recorded order while
+/// every event keeps its original recorded time and author.
 fn restore_verbatim(store: &mut MemoryStore, events: &[Event]) -> Result<(), EvalError> {
     let mut index = 0;
     while index < events.len() {
         let recorded_at = events[index].recorded_at;
+        let source = events[index].source;
         let mut batch = Vec::new();
-        while index < events.len() && events[index].recorded_at == recorded_at {
+        while index < events.len()
+            && events[index].recorded_at == recorded_at
+            && events[index].source == source
+        {
             batch.push(events[index].payload.clone());
             index += 1;
         }
-        store.append(recorded_at, batch).map_err(server_error)?;
+        store
+            .append(recorded_at, source, batch)
+            .map_err(server_error)?;
     }
     Ok(())
 }

@@ -23,8 +23,8 @@ mod tests;
 use crate::{
     engine::Engine,
     event::{
-        Cardinality, EventPayload, InferredLinkSpec, InferredRelationSpec, LinkInferenceResult,
-        LinkSource, ProducedBy, PromptTemplateName, Visibility,
+        Cardinality, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
+        LinkInferenceResult, LinkSource, ProducedBy, PromptTemplateName, Visibility,
     },
     graph::EntryView,
     ids::{MemoryId, MemoryName, Seq, TurnId},
@@ -352,7 +352,10 @@ async fn infer_links(
     }
 
     if !events.is_empty() {
-        engine.store.lock().append(now, events)?;
+        engine
+            .store
+            .lock()
+            .append(now, EventSource::Orchestration, events)?;
         let mut graph = engine.graph.lock();
         graph.materialize_from(engine.store.lock().as_ref())?;
     }

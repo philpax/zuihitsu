@@ -84,9 +84,9 @@ mod harness {
 
     use zuihitsu::{
         Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
-        Event, EventPayload, FakeEmbedder, Graph, InMemoryVectorIndex, InstanceFeatures,
-        ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller,
-        Turn, TurnId, TurnView, VectorIndex,
+        Event, EventPayload, EventSource, FakeEmbedder, Graph, InMemoryVectorIndex,
+        InstanceFeatures, ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Seq,
+        Session, Teller, Turn, TurnId, TurnView, VectorIndex,
         model::index::{apply_batch, embed_batch},
         run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -218,7 +218,11 @@ mod harness {
             self.engine
                 .store
                 .lock()
-                .append(now, vec![EventPayload::describe_pass_completed(stale)])
+                .append(
+                    now,
+                    EventSource::Agent,
+                    vec![EventPayload::describe_pass_completed(stale)],
+                )
                 .unwrap();
             let mut graph = self.engine.graph.lock();
             graph

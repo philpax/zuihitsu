@@ -22,6 +22,7 @@ async fn convo_turn_two_person_dm_resolves_only_when_both_attended() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 session_started(room, room_session, vec![alice, bob], clock.now()),
                 turn_event(
@@ -140,6 +141,7 @@ async fn convo_turn_window_filters_a_mid_session_join() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 session_started(conversation, session, vec![maya, tom], clock.now()),
                 turn_event(

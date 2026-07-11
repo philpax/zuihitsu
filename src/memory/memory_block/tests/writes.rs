@@ -3,7 +3,7 @@
 use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
 use crate::{
     clock::ManualClock,
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{EntryId, MemoryId, Namespace},
     memory::memory_block::{LinkOptions, RelationSpec},
@@ -312,6 +312,7 @@ fn exclude_is_accepted_on_a_previously_committed_memory() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 EventPayload::memory_created(plan, Namespace::Topic.with_name("celebration")),
                 EventPayload::MemoryContentAppended {
@@ -474,6 +475,7 @@ fn class_handle_write_lands_on_the_primary_stub() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::SameAs,
@@ -586,7 +588,9 @@ fn designated_primary_seed() -> (Vec<EventPayload>, MemoryId, MemoryId) {
 /// its write targets against.
 fn graph_from(events: Vec<EventPayload>) -> Graph {
     let mut store = MemoryStore::new();
-    store.append(Timestamp::from_millis(1_000), events).unwrap();
+    store
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, events)
+        .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();
     graph

@@ -2,7 +2,7 @@ use super::{TurnResolution, recording::reply_leaks_special_tokens, resolve_turn}
 use crate::{
     clock::ManualClock,
     engine::Engine,
-    event::{Cardinality, EventPayload, Initiation, LinkSource, TurnRole, Visibility},
+    event::{Cardinality, EventPayload, EventSource, Initiation, LinkSource, TurnRole, Visibility},
     graph::Graph,
     ids::{ConversationId, MemoryId, Namespace, SessionId, TurnId},
     store::{MemoryStore, Store},
@@ -64,7 +64,9 @@ fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, Turn
     }
 
     let mut store = MemoryStore::new();
-    store.append(Timestamp::from_millis(1_000), events).unwrap();
+    store
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, events)
+        .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();
     let engine = Engine::new(
@@ -149,12 +151,14 @@ fn recent_touched_ranks_recent_first_deduped_and_capped() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![lua_touch(room_a, vec![a, b])],
         )
         .unwrap();
     store
         .append(
             Timestamp::from_millis(2_000),
+            EventSource::Agent,
             vec![lua_touch(room_b, vec![c])],
         )
         .unwrap();
@@ -162,6 +166,7 @@ fn recent_touched_ranks_recent_first_deduped_and_capped() {
     store
         .append(
             Timestamp::from_millis(3_000),
+            EventSource::Agent,
             vec![lua_touch(room_a, vec![d, b])],
         )
         .unwrap();
@@ -183,12 +188,14 @@ fn recent_touched_excludes_blocks_before_the_cutoff() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![lua_touch(room, vec![old])],
         )
         .unwrap();
     store
         .append(
             Timestamp::from_millis(5_000),
+            EventSource::Agent,
             vec![lua_touch(room, vec![fresh])],
         )
         .unwrap();
@@ -204,6 +211,7 @@ fn recent_touched_is_empty_for_zero_limit_or_empty_log() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![lua_touch(room, vec![MemoryId::generate()])],
         )
         .unwrap();

@@ -2,7 +2,7 @@ use rusqlite::params;
 
 use super::Graph;
 use crate::{
-    event::{ArbitrationResolution, Event, EventPayload, Teller, Visibility},
+    event::{ArbitrationResolution, Event, EventPayload, EventSource, Teller, Visibility},
     ids::{EntryId, MemoryId, Namespace, Seq},
     time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, MILLIS_PER_DAY, Rrule, TemporalRef, Timestamp},
 };
@@ -11,6 +11,7 @@ fn event(seq: u64, payload: EventPayload) -> Event {
     Event {
         seq: Seq(seq),
         recorded_at: Timestamp::from_millis(1),
+        source: EventSource::Agent,
         payload,
     }
 }

@@ -2,6 +2,7 @@ import type { Event } from "../../types/Event.ts";
 import type { Brief } from "../../types/Brief.ts";
 import type { Completion } from "../../types/Completion.ts";
 import type { EventPayload } from "../../types/EventPayload.ts";
+import type { EventSource } from "../../types/EventSource.ts";
 import type { Initiation } from "../../types/Initiation.ts";
 import type { ModelPhase } from "../../types/ModelPhase.ts";
 import type { TerminalCause } from "../../types/TerminalCause.ts";
@@ -99,6 +100,8 @@ export interface TurnModel {
 export interface TurnOutcome {
   seq: number;
   recordedAt: number;
+  /// The envelope's authoring authority, shown as faint provenance in the expanded row.
+  source: EventSource;
   type: EventPayload["type"];
   category: EventCategory;
   summary: string;
@@ -192,6 +195,7 @@ export function buildConversations(
     turnId: string;
     seq: number;
     recordedAt: number;
+    source: EventSource;
     payload: EventPayload;
   }> = [];
 
@@ -282,6 +286,7 @@ export function buildConversations(
             turnId: currentTurnId,
             seq: event.seq,
             recordedAt: event.recorded_at,
+            source: event.source,
             payload,
           });
         }
@@ -292,7 +297,7 @@ export function buildConversations(
   // Attribute outcomes: a write belongs to a turn only if the turn's blocks touched its memory (or
   // it is a schema event — a tag/relation registration — with no memory to key on). Candidates are
   // in seq order, so outcomes land in order.
-  for (const { turnId, seq, recordedAt, payload } of candidates) {
+  for (const { turnId, seq, recordedAt, source, payload } of candidates) {
     const turnModel = turns.get(turnId);
     if (!turnModel) continue;
     const ids = outcomeMemoryIds(payload);
@@ -301,6 +306,7 @@ export function buildConversations(
       turnModel.outcomes.push({
         seq,
         recordedAt,
+        source,
         type: payload.type,
         category: eventCategory(payload.type),
         summary: eventSummary(payload, nameById),

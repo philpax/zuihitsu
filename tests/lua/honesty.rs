@@ -19,6 +19,7 @@ async fn append_carries_teller_context_and_default_visibility() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 EventPayload::memory_created(marcus, Namespace::Person.with_name("marcus")),
                 EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
@@ -193,6 +194,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 EventPayload::tag_created(
                     TagName::new("confidential"),

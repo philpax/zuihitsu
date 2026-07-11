@@ -20,7 +20,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     engine::Engine,
-    event::{EventPayload, LinkSource, ModelPhase, ProducedBy, PromptTemplateName, Visibility},
+    event::{
+        EventPayload, EventSource, LinkSource, ModelPhase, ProducedBy, PromptTemplateName,
+        Visibility,
+    },
     graph::{EntryView, MemoryView},
     ids::{MemoryId, Seq, TurnId},
     model::{
@@ -189,7 +192,10 @@ async fn adjudicate(
     }
 
     if !events.is_empty() {
-        engine.store.lock().append(now, events)?;
+        engine
+            .store
+            .lock()
+            .append(now, EventSource::Orchestration, events)?;
         // Graph (written) before store (read), per the lock-ordering rule.
         let mut graph = engine.graph.lock();
         graph.materialize_from(engine.store.lock().as_ref())?;

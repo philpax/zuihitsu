@@ -13,6 +13,7 @@ function modelCalled(
   return {
     seq,
     recorded_at: seq * 1_000,
+    source: "Agent",
     payload: {
       type: "ModelCalled",
       conversation: "conv-1",

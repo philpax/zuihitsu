@@ -4,7 +4,7 @@
 //! deterministic.
 use crate::{
     brief::{self, Brief, BriefFact, BriefRelationship, BriefRequest},
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, MemoryName},
     settings::{BriefSettings, Settings},
@@ -59,7 +59,7 @@ fn appended_at(
 fn materialized(payloads: Vec<EventPayload>) -> (MemoryStore, Graph) {
     let mut store = MemoryStore::new();
     store
-        .append(Timestamp::from_millis(1_000), payloads)
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, payloads)
         .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();

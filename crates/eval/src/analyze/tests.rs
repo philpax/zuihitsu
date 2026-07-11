@@ -1,6 +1,6 @@
 use zuihitsu::{
-    Cardinality, Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, Seq,
-    Timestamp, Visibility,
+    Cardinality, Event, EventPayload, EventSource, LinkSource, MemoryId, MemoryName, RelationName,
+    Seq, Timestamp, Visibility,
 };
 
 use super::{project_relations, render_locations, render_shapes};
@@ -13,6 +13,7 @@ fn event(payload: EventPayload) -> Event {
     Event {
         seq: Seq::ZERO,
         recorded_at: Timestamp::from_millis(0),
+        source: EventSource::Agent,
         payload,
     }
 }

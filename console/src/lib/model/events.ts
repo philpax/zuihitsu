@@ -1,5 +1,25 @@
 import type { EventPayload } from "../../types/EventPayload.ts";
+import type { EventSource } from "../../types/EventSource.ts";
 import { terminalCauseLabel } from "./labels.ts";
+
+/// The authoring authorities, in the order the Events view offers them as an author filter — genesis
+/// first, then the agent's turns, the operator's console actions, and the system's background work.
+export const EVENT_SOURCES: EventSource[] = ["Bootstrap", "Agent", "Operator", "Orchestration"];
+
+/// The human-facing label for an event's authoring authority — the envelope `source`. Lowercased
+/// against the mono type the log speaks; the enum's own words otherwise.
+export function sourceLabel(source: EventSource): string {
+  switch (source) {
+    case "Bootstrap":
+      return "genesis";
+    case "Agent":
+      return "agent";
+    case "Operator":
+      return "operator";
+    case "Orchestration":
+      return "system";
+  }
+}
 
 /// A coarse grouping of event kinds, for a calm colour rhythm in the log: memory writes, the link
 /// graph, conversation flow, the agent's deliberation, session/room lifecycle, and infrastructure.

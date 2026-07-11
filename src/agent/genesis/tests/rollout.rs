@@ -140,6 +140,10 @@ fn rollout_creates_a_complete_agent() {
         .iter()
         .any(|e| matches!(e.payload, EventPayload::LinkCreated { .. }));
     assert!(!any_link);
+
+    // Genesis is the one Bootstrap writer: every event it emits carries that authority on the
+    // envelope, so a log's birth is distinguishable from everything after it.
+    assert!(events.iter().all(|e| e.source == EventSource::Bootstrap));
 }
 
 #[test]
@@ -213,18 +217,17 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
     store
         .append(
             Timestamp::from_millis(500),
+            EventSource::Agent,
             vec![
                 EventPayload::prompt_template_registered(
                     PromptTemplateName::Scaffold,
                     17,
                     "<draft system-prompt scaffold — see docs/conversations-and-briefs.md §System prompt>".to_owned(),
-                    EventSource::Orchestration,
                 ),
                 EventPayload::prompt_template_registered(
                     PromptTemplateName::DescriptionRegen,
                     1,
                     "<draft description-regeneration template>",
-                    EventSource::Orchestration,
                 ),
             ],
         )
@@ -273,10 +276,8 @@ fn manifest_hash_is_stable_across_a_resume() {
     resumed
         .append(
             Timestamp::from_millis(500),
-            vec![EventPayload::config_set(
-                Settings::default(),
-                EventSource::Bootstrap,
-            )],
+            EventSource::Agent,
+            vec![EventPayload::config_set(Settings::default())],
         )
         .unwrap();
     genesis::rollout(

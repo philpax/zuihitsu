@@ -17,7 +17,7 @@ pub use memory::MemoryStore;
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::{
-    event::{Event, EventPayload},
+    event::{Event, EventPayload, EventSource},
     ids::Seq,
     time::Timestamp,
 };
@@ -32,12 +32,15 @@ pub type Subscription = Receiver<Event>;
 /// `Send` so the store can ride behind the shared `Arc<Mutex<Box<dyn Store>>>` the turn engine
 /// threads; both backends (`MemoryStore`, `SqliteStore`) are `Send`.
 pub trait Store: Send {
-    /// Append a batch atomically, stamping every payload with `recorded_at` and assigning
-    /// consecutive sequence numbers. Returns the committed events in order. A batch is the unit of
-    /// atomicity — it maps onto a block's buffered effects in the eventual commit path (Stage 4).
+    /// Append a batch atomically, stamping every payload with `recorded_at` and `source` and
+    /// assigning consecutive sequence numbers. Returns the committed events in order. A batch is the
+    /// unit of atomicity — it maps onto a block's buffered effects in the eventual commit path (Stage
+    /// 4) — and shares one authority: `source` is required so a writer must name the authority it
+    /// commits under rather than defaulting one silently (spec §Trust model).
     fn append(
         &mut self,
         recorded_at: Timestamp,
+        source: EventSource,
         payloads: Vec<EventPayload>,
     ) -> Result<Vec<Event>, StoreError>;
 
@@ -119,7 +122,7 @@ pub fn notify(subscribers: &mut Vec<Sender<Event>>, committed: &[Event]) {
 pub mod test_support {
     use super::{Seq, Store, Timestamp};
     use crate::{
-        event::EventPayload,
+        event::{EventPayload, EventSource},
         ids::{MemoryId, Namespace},
         vocabulary::TagName,
     };
@@ -148,7 +151,11 @@ pub mod test_support {
 
         let payloads = sample_payloads();
         let committed = store
-            .append(Timestamp::from_millis(1_000), payloads.clone())
+            .append(
+                Timestamp::from_millis(1_000),
+                EventSource::Agent,
+                payloads.clone(),
+            )
             .unwrap();
 
         assert_eq!(committed.len(), 3);
@@ -168,17 +175,45 @@ pub mod test_support {
         );
     }
 
+    /// Every event in a batch is stamped with the batch's `source`, both on the committed events the
+    /// append returns and on a later replay — the envelope's author axis survives the round trip
+    /// through the backend.
+    pub fn append_stamps_the_source<S: Store>(store: &mut S) {
+        let sources = [
+            EventSource::Bootstrap,
+            EventSource::Agent,
+            EventSource::Operator,
+            EventSource::Orchestration,
+        ];
+        for (index, source) in sources.into_iter().enumerate() {
+            let committed = store
+                .append(
+                    Timestamp::from_millis(1_000 + index as i64),
+                    source,
+                    vec![EventPayload::memory_deleted(MemoryId::generate())],
+                )
+                .unwrap();
+            assert_eq!(committed[0].source, source);
+        }
+
+        let replayed = store.read_from(Seq::ZERO).unwrap();
+        let replayed_sources: Vec<EventSource> = replayed.iter().map(|e| e.source).collect();
+        assert_eq!(replayed_sources, sources);
+    }
+
     /// Two appends continue the sequence, and `read_from` returns only the requested tail.
     pub fn read_from_returns_tail<S: Store>(store: &mut S) {
         store
             .append(
                 Timestamp::from_millis(1),
+                EventSource::Agent,
                 vec![EventPayload::memory_deleted(MemoryId::generate())],
             )
             .unwrap();
         store
             .append(
                 Timestamp::from_millis(2),
+                EventSource::Agent,
                 vec![EventPayload::memory_deleted(MemoryId::generate())],
             )
             .unwrap();
@@ -194,6 +229,7 @@ pub mod test_support {
         store
             .append(
                 Timestamp::from_millis(1),
+                EventSource::Agent,
                 vec![
                     EventPayload::memory_deleted(MemoryId::generate()),
                     EventPayload::memory_deleted(MemoryId::generate()),
@@ -220,6 +256,7 @@ pub mod test_support {
         store
             .append(
                 Timestamp::from_millis(5),
+                EventSource::Agent,
                 vec![EventPayload::tag_created(
                     TagName::new("colleagues"),
                     "People worked with".to_owned(),
@@ -240,14 +277,19 @@ mod tests {
     use super::{
         MemoryStore,
         test_support::{
-            append_is_ordered_and_faithful, read_from_returns_tail, subscriber_sees_appends,
-            truncate_removes_the_tail,
+            append_is_ordered_and_faithful, append_stamps_the_source, read_from_returns_tail,
+            subscriber_sees_appends, truncate_removes_the_tail,
         },
     };
 
     #[test]
     fn memory_truncate_removes_the_tail() {
         truncate_removes_the_tail(&mut MemoryStore::new());
+    }
+
+    #[test]
+    fn memory_append_stamps_the_source() {
+        append_stamps_the_source(&mut MemoryStore::new());
     }
 
     #[test]

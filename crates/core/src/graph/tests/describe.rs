@@ -4,7 +4,7 @@
 
 use super::materialized;
 use crate::{
-    event::{EventPayload, Teller, Visibility},
+    event::{EventPayload, EventSource, Teller, Visibility},
     ids::{EntryId, MemoryId, Namespace, Seq},
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -37,6 +37,7 @@ fn content_marks_a_memory_stale_and_a_describe_pass_clears_it() {
     store
         .append(
             Timestamp::from_millis(1_100),
+            EventSource::Agent,
             vec![EventPayload::describe_pass_completed(vec![dave])],
         )
         .unwrap();
@@ -48,6 +49,7 @@ fn content_marks_a_memory_stale_and_a_describe_pass_clears_it() {
     store
         .append(
             Timestamp::from_millis(1_200),
+            EventSource::Agent,
             vec![appended(dave, EntryId::generate(), false)],
         )
         .unwrap();
@@ -101,6 +103,7 @@ fn untimed_window_excludes_timed_and_already_described_entries() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 EventPayload::memory_created(mem, Namespace::Event.with_name("thing")),
                 appended(mem, timed, true),

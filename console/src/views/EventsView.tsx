@@ -3,14 +3,17 @@ import { useSearchParams } from "react-router-dom";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "../types/Event.ts";
+import type { EventSource } from "../types/EventSource.ts";
 import type { Replica } from "../lib/replica/replica.ts";
 import type { StepRecord } from "../types/StepRecord.ts";
 import {
   type EventCategory,
   CATEGORY_COLOR,
+  EVENT_SOURCES,
   eventCategory,
   eventSummary,
   eventTouchesMemory,
+  sourceLabel,
 } from "../lib/model/events.ts";
 import { buildStepMarkers, type StepMarker } from "../lib/model/stepJournal.ts";
 import { nameById } from "../lib/model/labels.ts";
@@ -54,6 +57,9 @@ export function EventsView({
   const focusId = searchParams.get("focus");
   const focusName = focusId ? (names.get(focusId) ?? focusId) : null;
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
+  const [activeSources, setActiveSources] = useState<Set<EventSource>>(
+    () => new Set(EVENT_SOURCES),
+  );
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -81,6 +87,7 @@ export function EventsView({
       if (focusId && !eventTouchesMemory(event.payload, focusId)) return false;
       if (typeFilter && event.payload.type !== typeFilter) return false;
       if (!active.has(category)) return false;
+      if (!activeSources.has(event.source)) return false;
       if (!needle) return true;
       return (
         event.payload.type.toLowerCase().includes(needle) || summary.toLowerCase().includes(needle)
@@ -101,6 +108,13 @@ export function EventsView({
     if (next.has(category)) next.delete(category);
     else next.add(category);
     setActive(next);
+  }
+
+  function toggleSource(source: EventSource) {
+    const next = new Set(activeSources);
+    if (next.has(source)) next.delete(source);
+    else next.add(source);
+    setActiveSources(next);
   }
 
   // A run's log is thousands of rows, so only the visible window is rendered. The list scrolls with
@@ -159,6 +173,27 @@ export function EventsView({
           placeholder="filter…"
           className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none sm:w-44"
         />
+      </div>
+
+      <div className="mb-7 flex items-baseline gap-x-4 gap-y-2">
+        <span className="shrink-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+          by
+        </span>
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {EVENT_SOURCES.map((source) => (
+            <button
+              key={source}
+              onClick={() => toggleSource(source)}
+              className={
+                "font-mono text-2xs uppercase tracking-widest transition-colors " +
+                (activeSources.has(source) ? "text-ink-soft" : "text-ink-faint/45 line-through")
+              }
+              title={`Filter to events authored by the ${sourceLabel(source)}`}
+            >
+              {sourceLabel(source)}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mb-3 flex items-baseline justify-between gap-4">
@@ -243,6 +278,7 @@ export function EventsView({
                       base={base}
                       seq={event.seq}
                       recordedAt={event.recorded_at}
+                      source={event.source}
                     />
                   </div>
                 )}

@@ -13,7 +13,7 @@ use crate::{
         run_adjudicate_catch_up, run_describe_catch_up, run_describe_catch_up_for,
         run_link_inference_catch_up,
     },
-    event::EventPayload,
+    event::{EventPayload, EventSource},
     ids::{MemoryId, Seq},
     metrics::observe_worker_error,
     model::{
@@ -116,6 +116,7 @@ impl BackgroundPasses {
                 let now = engine.clock.now();
                 engine.store.lock().append(
                     now,
+                    EventSource::Orchestration,
                     vec![EventPayload::embedding_model_changed(recorded, configured)],
                 )?;
                 // Apply the migration into the graph (a no-op there) so graph-head keeps pace with the

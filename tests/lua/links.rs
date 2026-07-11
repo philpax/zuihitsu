@@ -32,6 +32,7 @@ async fn link_and_unlink_resolve_a_name_string_target() {
         .lock()
         .append(
             h.clock.now(),
+            EventSource::Agent,
             vec![EventPayload::LinkTypeRegistered {
                 name: RelationName::Knows,
                 inverse: RelationName::Knows,
@@ -217,6 +218,7 @@ async fn link_readers_traverse_the_merged_identity() {
         .lock()
         .append(
             h.clock.now(),
+            EventSource::Agent,
             vec![
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::SameAs,

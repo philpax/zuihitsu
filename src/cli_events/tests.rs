@@ -1,14 +1,15 @@
 use super::*;
 use anstyle::AnsiColor;
 use zuihitsu::{
-    Event, EventPayload, MemoryId, Seq, Volatility, ids::MemoryName, time::Timestamp,
-    vocabulary::TagName,
+    Event, EventPayload, MemoryId, Seq, Volatility, event::EventSource, ids::MemoryName,
+    time::Timestamp, vocabulary::TagName,
 };
 
 fn ev(seq: u64, payload: EventPayload) -> Event {
     Event {
         seq: Seq(seq),
         recorded_at: Timestamp::from_millis(0),
+        source: EventSource::Agent,
         payload,
     }
 }

@@ -340,7 +340,7 @@ fn latest_dated_occurrence(
 mod tests {
     use super::latest_dated_occurrence;
     use crate::{
-        event::{Event, EventPayload, Teller, Visibility},
+        event::{Event, EventPayload, EventSource, Teller, Visibility},
         graph::Graph,
         ids::{EntryId, MemoryId, Namespace, Seq},
         time::{CivilDate, TemporalRef, Timestamp},
@@ -350,6 +350,7 @@ mod tests {
         Event {
             seq: Seq(seq),
             recorded_at: Timestamp::from_millis(1),
+            source: EventSource::Agent,
             payload,
         }
     }

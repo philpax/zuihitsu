@@ -12,7 +12,7 @@
 //! `ScheduledItemSurfaced` so each is raised once).
 
 use crate::{
-    event::EventPayload,
+    event::{EventPayload, EventSource},
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{EntryId, MemoryId},
     settings::SchedulerSettings,
@@ -81,7 +81,9 @@ pub fn fire_due(
         .into_iter()
         .map(|(memory, entry_id)| EventPayload::scheduled_job_fired(entry_id, memory, now))
         .collect();
-    Ok(store.append(now, payloads)?.len())
+    Ok(store
+        .append(now, EventSource::Orchestration, payloads)?
+        .len())
 }
 
 /// The content a session-open drain delivers: the formatted block to raise and the entries it covers
@@ -154,7 +156,7 @@ fn format_wakeup(memory: &MemoryView, entry: &EntryView) -> String {
 mod tests {
     use super::{drain, fire_due};
     use crate::{
-        event::{EventPayload, Teller, Visibility},
+        event::{EventPayload, EventSource, Teller, Visibility},
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
         settings::SchedulerSettings,
@@ -165,7 +167,9 @@ mod tests {
     /// A store + graph materialized from `payloads`, committed at `at`.
     fn world(at: i64, payloads: Vec<EventPayload>) -> (MemoryStore, Graph) {
         let mut store = MemoryStore::new();
-        store.append(Timestamp::from_millis(at), payloads).unwrap();
+        store
+            .append(Timestamp::from_millis(at), EventSource::Agent, payloads)
+            .unwrap();
         let mut graph = Graph::open_in_memory().unwrap();
         graph.materialize_from(&store).unwrap();
         (store, graph)
@@ -239,6 +243,16 @@ mod tests {
         );
         graph.materialize_from(&store).unwrap();
         assert_eq!(fired(&store), vec![entry]);
+
+        // The scheduler is system machinery: its firing carries the `Orchestration` authority on the
+        // envelope, distinguishable from the agent-authored entries it fired for.
+        let firing = store
+            .read_from(Seq::ZERO)
+            .unwrap()
+            .into_iter()
+            .find(|e| matches!(e.payload, EventPayload::ScheduledJobFired { .. }))
+            .unwrap();
+        assert_eq!(firing.source, EventSource::Orchestration);
 
         // A second pass fires nothing — the entry is already fired.
         assert_eq!(

@@ -1,12 +1,13 @@
 use super::{
-    EntryId, EventPayload, Initiation, MemoryId, MergeProposalSource, ModelPhase, RequestRecord,
-    Teller, TurnRole, Visibility,
+    EntryId, Event, EventPayload, EventSource, Initiation, MemoryId, MergeProposalSource,
+    ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
 };
 use crate::{
     brief::{Brief, BriefFact, BriefRelationship},
-    ids::{ConversationId, MemoryName, SessionId, TurnId},
+    ids::{ConversationId, MemoryName, Seq, SessionId, TurnId},
     model::{Completion, Message, ToolChoice, Usage},
     prompt::{PromptSectionKind, PromptSectionSpan},
+    settings::Settings,
     time::{CivilDate, TemporalRef, Timestamp},
     vocabulary::RelationName,
 };
@@ -396,6 +397,84 @@ fn a_session_started_without_a_working_set_replays_as_empty() {
         panic!("expected a SessionStarted, got {replayed:?}");
     };
     assert!(working_set.is_empty());
+}
+
+fn stamped(source: EventSource) -> Event {
+    Event {
+        seq: Seq(7),
+        recorded_at: Timestamp::from_millis(1_000),
+        source,
+        payload: EventPayload::memory_created(
+            MemoryId::generate(),
+            MemoryName::new("person/priya"),
+        ),
+    }
+}
+
+#[test]
+fn an_event_round_trips_its_source() {
+    // The `Event` envelope is a wire — it rides verbatim over the observability surfaces and into the
+    // eval package — so its `source` must survive a serialize/deserialize round trip intact.
+    for source in [
+        EventSource::Bootstrap,
+        EventSource::Agent,
+        EventSource::Operator,
+        EventSource::Orchestration,
+    ] {
+        let event = stamped(source);
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), event);
+    }
+}
+
+#[test]
+fn a_pre_source_event_replays_as_agent() {
+    // An envelope written before the `source` field existed has no `source` key; `serde(default)` must
+    // fill `EventSource::Agent` — the historical fallback — so the old log still deserializes.
+    let mut value = serde_json::to_value(stamped(EventSource::Operator)).unwrap();
+    value.as_object_mut().unwrap().remove("source");
+    let replayed: Event = serde_json::from_value(value).unwrap();
+    assert_eq!(replayed.source, EventSource::Agent);
+}
+
+#[test]
+fn event_source_debugger_alias_reads_as_operator() {
+    // `Debugger` was this variant's serialized name before the operator interface was renamed; the
+    // alias keeps an envelope written under the old name readable.
+    let mut value = serde_json::to_value(stamped(EventSource::Operator)).unwrap();
+    value["source"] = serde_json::json!("Debugger");
+    let replayed: Event = serde_json::from_value(value).unwrap();
+    assert_eq!(replayed.source, EventSource::Operator);
+}
+
+#[test]
+fn a_retired_config_set_source_still_deserialises() {
+    // The `source` field on `ConfigSet` and `PromptTemplateRegistered` is retired — the authoring
+    // authority now rides on the envelope — but a log written before the retirement still carries the
+    // key. Its `serde(default)` must let the old payload deserialize unchanged, and the current write
+    // path must no longer emit the key.
+    let legacy_config = r#"{"type":"ConfigSet","settings":{},"source":"Operator"}"#;
+    assert!(matches!(
+        serde_json::from_str::<EventPayload>(legacy_config).unwrap(),
+        EventPayload::ConfigSet { .. }
+    ));
+
+    let legacy_template = r#"{"type":"PromptTemplateRegistered","name":"scaffold","version":1,"body":"x","source":"Orchestration"}"#;
+    assert!(matches!(
+        serde_json::from_str::<EventPayload>(legacy_template).unwrap(),
+        EventPayload::PromptTemplateRegistered { .. }
+    ));
+
+    // The current serialization omits the retired key entirely.
+    let config_json = serde_json::to_value(EventPayload::config_set(Settings::default())).unwrap();
+    assert!(config_json.as_object().unwrap().get("source").is_none());
+    let template_json = serde_json::to_value(EventPayload::prompt_template_registered(
+        super::PromptTemplateName::Scaffold,
+        1,
+        "x",
+    ))
+    .unwrap();
+    assert!(template_json.as_object().unwrap().get("source").is_none());
 }
 
 #[test]

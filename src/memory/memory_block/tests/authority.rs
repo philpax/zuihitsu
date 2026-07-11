@@ -3,7 +3,7 @@
 use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block, graph_with_self};
 use crate::{
     clock::ManualClock,
-    event::{Cardinality, EventPayload, LinkSource, MergeProposalSource, Teller},
+    event::{Cardinality, EventPayload, EventSource, LinkSource, MergeProposalSource, Teller},
     graph::Graph,
     ids::{MemoryId, Namespace, NamespacedMemoryName},
     store::{MemoryStore, Store},
@@ -55,6 +55,7 @@ fn content_writes_to_the_operator_anchor_are_forbidden_but_links_are_not() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 EventPayload::memory_created(operator_id, NamespacedMemoryName::operator()),
                 EventPayload::LinkTypeRegistered {

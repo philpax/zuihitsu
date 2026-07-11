@@ -227,18 +227,20 @@ impl EventPayload {
         name: PromptTemplateName,
         version: u32,
         body: impl Into<String>,
-        source: EventSource,
     ) -> EventPayload {
         EventPayload::PromptTemplateRegistered {
             name,
             version,
             body: body.into(),
-            source,
+            source: EventSource::default(),
         }
     }
 
-    pub fn config_set(settings: Settings, source: EventSource) -> EventPayload {
-        EventPayload::ConfigSet { settings, source }
+    pub fn config_set(settings: Settings) -> EventPayload {
+        EventPayload::ConfigSet {
+            settings,
+            source: EventSource::default(),
+        }
     }
 
     pub fn embedding_model_changed(

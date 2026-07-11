@@ -4,7 +4,7 @@
 
 use super::Graph;
 use crate::{
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility, Volatility},
+    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility, Volatility},
     ids::{EntryId, MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -38,7 +38,7 @@ pub(super) fn mentor_relation() -> EventPayload {
 pub(super) fn materialized(payloads: Vec<EventPayload>) -> (MemoryStore, Graph) {
     let mut store = MemoryStore::new();
     store
-        .append(Timestamp::from_millis(1_000), payloads)
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, payloads)
         .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();

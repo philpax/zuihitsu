@@ -1,6 +1,6 @@
 use super::{materialized, recovery_log};
 use crate::{
-    event::{ConversationRef, EventPayload, Teller, Visibility, Volatility},
+    event::{ConversationRef, EventPayload, EventSource, Teller, Visibility, Volatility},
     graph::Graph,
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
@@ -111,7 +111,11 @@ fn a_snapshot_plus_a_nonempty_tail_equals_a_full_replay() {
     // Materialize the first half into a file graph, then snapshot it at that head.
     let mut store = MemoryStore::new();
     store
-        .append(Timestamp::from_millis(1_000), log[..split].to_vec())
+        .append(
+            Timestamp::from_millis(1_000),
+            EventSource::Agent,
+            log[..split].to_vec(),
+        )
         .unwrap();
     let graph_path = temp("recovery-graph");
     let snap_path = temp("recovery-snap");
@@ -123,7 +127,11 @@ fn a_snapshot_plus_a_nonempty_tail_equals_a_full_replay() {
 
     // The rest of the log arrives after the snapshot.
     store
-        .append(Timestamp::from_millis(2_000), log[split..].to_vec())
+        .append(
+            Timestamp::from_millis(2_000),
+            EventSource::Agent,
+            log[split..].to_vec(),
+        )
         .unwrap();
 
     // Restore from the snapshot (copy it over a graph path) and replay only the tail.
@@ -152,6 +160,7 @@ fn materialize_is_incremental() {
     store
         .append(
             Timestamp::from_millis(1),
+            EventSource::Agent,
             vec![EventPayload::memory_created(
                 id,
                 MemoryName::new("concept/recursion"),
@@ -167,6 +176,7 @@ fn materialize_is_incremental() {
     store
         .append(
             Timestamp::from_millis(2),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 id,
                 "A function defined in terms of itself.".to_owned(),

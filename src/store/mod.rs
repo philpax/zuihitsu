@@ -21,12 +21,13 @@ mod tests {
     //! shared `test_support` helpers from core against it, plus the durability properties unique to a
     //! file-backed log (persistence, the exclusive-writer lock, and corruption surfacing).
     use zuihitsu_core::{
+        event::EventSource,
         ids::{MemoryId, Seq},
         store::{
             Store,
             test_support::{
-                append_is_ordered_and_faithful, read_from_returns_tail, sample_payloads,
-                subscriber_sees_appends, truncate_removes_the_tail,
+                append_is_ordered_and_faithful, append_stamps_the_source, read_from_returns_tail,
+                sample_payloads, subscriber_sees_appends, truncate_removes_the_tail,
             },
         },
         time::Timestamp,
@@ -54,6 +55,63 @@ mod tests {
         truncate_removes_the_tail(&mut SqliteStore::open_in_memory().unwrap());
     }
 
+    #[test]
+    fn append_stamps_the_source_sqlite() {
+        append_stamps_the_source(&mut SqliteStore::open_in_memory().unwrap());
+    }
+
+    /// A log created before the envelope `source` column existed opens cleanly: the open migrates
+    /// the table (an `ADD COLUMN` back-filling `Agent`, the historical fallback), the old rows read
+    /// back as `Agent`, and a fresh append stamps its own source alongside them. Disk-backed because
+    /// the property under guard is the on-file schema of a pre-source log.
+    #[test]
+    fn a_pre_source_log_migrates_and_reads_as_agent() {
+        let path = temp_log_path("presource");
+
+        // A log written by the pre-source schema: the same table minus the `source` column.
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE events (
+                     seq         INTEGER PRIMARY KEY,
+                     recorded_at INTEGER NOT NULL,
+                     type        TEXT    NOT NULL,
+                     target_id   TEXT,
+                     version     INTEGER NOT NULL,
+                     payload     TEXT    NOT NULL
+                 );
+                 CREATE INDEX idx_events_target ON events(target_id);
+                 INSERT INTO events (seq, recorded_at, type, target_id, version, payload)
+                 VALUES (1, 1000, 'DescribePassCompleted', NULL,
+                         1, '{\"type\":\"DescribePassCompleted\",\"memories\":[]}');",
+            )
+            .unwrap();
+        }
+
+        let mut store = SqliteStore::open(&path).unwrap();
+        let replayed = store.read_from(Seq::ZERO).unwrap();
+        assert_eq!(replayed.len(), 1);
+        assert_eq!(replayed[0].source, EventSource::Agent);
+
+        // A post-migration append stamps its own authority next to the back-filled rows.
+        store
+            .append(
+                Timestamp::from_millis(2_000),
+                EventSource::Operator,
+                sample_payloads(),
+            )
+            .unwrap();
+        let replayed = store.read_from(Seq::ZERO).unwrap();
+        assert_eq!(replayed[0].source, EventSource::Agent);
+        assert!(
+            replayed[1..]
+                .iter()
+                .all(|event| event.source == EventSource::Operator)
+        );
+
+        cleanup(&path);
+    }
+
     /// The log survives a process boundary: append, drop, reopen, and the events are still there
     /// in order — the property the whole "rebuild from the log" story rests on.
     #[test]
@@ -64,7 +122,11 @@ mod tests {
         {
             let mut store = SqliteStore::open(&path).unwrap();
             store
-                .append(Timestamp::from_millis(1_000), sample_payloads())
+                .append(
+                    Timestamp::from_millis(1_000),
+                    EventSource::Agent,
+                    sample_payloads(),
+                )
                 .unwrap();
         }
         {
@@ -102,7 +164,11 @@ mod tests {
 
         let mut writer = SqliteStore::open(&path).unwrap();
         writer
-            .append(Timestamp::from_millis(1_000), sample_payloads())
+            .append(
+                Timestamp::from_millis(1_000),
+                EventSource::Agent,
+                sample_payloads(),
+            )
             .unwrap();
 
         // The write lock is still held; a read-only open takes no lock and still sees the committed log.
@@ -122,7 +188,11 @@ mod tests {
         {
             let mut store = SqliteStore::open(&path).unwrap();
             store
-                .append(Timestamp::from_millis(1_000), sample_payloads())
+                .append(
+                    Timestamp::from_millis(1_000),
+                    EventSource::Agent,
+                    sample_payloads(),
+                )
                 .unwrap(); // seq 1..=3
         }
         // Simulate a kill between INSERT and COMMIT: a raw connection opens a transaction, writes a
@@ -156,7 +226,11 @@ mod tests {
         {
             let mut store = SqliteStore::open(&path).unwrap();
             store
-                .append(Timestamp::from_millis(1_000), sample_payloads())
+                .append(
+                    Timestamp::from_millis(1_000),
+                    EventSource::Agent,
+                    sample_payloads(),
+                )
                 .unwrap();
         }
         // Clobber the SQLite header magic with a torn write at the start of the file.

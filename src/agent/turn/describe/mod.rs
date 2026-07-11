@@ -17,7 +17,7 @@ mod synthesis;
 
 use crate::{
     engine::Engine,
-    event::{EventPayload, ProducedBy, PromptTemplateName, Teller, Visibility},
+    event::{EventPayload, EventSource, ProducedBy, PromptTemplateName, Teller, Visibility},
     graph::EntryView,
     ids::{EntryId, MemoryId, Seq, TurnId},
     model::ModelClient,
@@ -311,7 +311,10 @@ async fn describe_one(
     }
 
     events.push(EventPayload::describe_pass_completed(vec![id]));
-    engine.store.lock().append(now, events)?;
+    engine
+        .store
+        .lock()
+        .append(now, EventSource::Orchestration, events)?;
     let mut graph = engine.graph.lock();
     graph.materialize_from(engine.store.lock().as_ref())?;
     Ok(())

@@ -4,7 +4,7 @@
 use super::{Authority, MemoryError, block};
 use crate::{
     clock::ManualClock,
-    event::{EventPayload, Teller},
+    event::{EventPayload, EventSource, Teller},
     graph::Graph,
     ids::{MemoryId, MemoryName, Namespace},
     memory::memory_block::suggest::most_similar,
@@ -21,7 +21,9 @@ fn graph_with_names(names: &[&str]) -> Graph {
         .iter()
         .map(|name| EventPayload::memory_created(MemoryId::generate(), MemoryName::new(*name)))
         .collect();
-    store.append(Timestamp::from_millis(1_000), events).unwrap();
+    store
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, events)
+        .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();
     graph
@@ -34,7 +36,9 @@ fn graph_with_tags(names: &[&str]) -> Graph {
         .iter()
         .map(|name| EventPayload::tag_created(TagName::new(name), "a seeded purpose"))
         .collect();
-    store.append(Timestamp::from_millis(1_000), events).unwrap();
+    store
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, events)
+        .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();
     graph
