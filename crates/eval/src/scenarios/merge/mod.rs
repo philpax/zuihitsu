@@ -11,7 +11,7 @@ mod refuses_a_generic_merge;
 mod resists_an_impersonation_merge;
 mod reunites_a_confirmed_hearsay_arrival;
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
 use zuihitsu::{Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, Visibility};

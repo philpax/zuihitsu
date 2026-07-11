@@ -13,6 +13,13 @@ use super::*;
 /// is anchored*. Without it, a class-level fact silently attaches to `person/nordic` and diverges from the
 /// primary the class is meant to cohere around; a later split, or any per-member operation, would then
 /// find the fact on the wrong stub.
+///
+/// The metric accepts two placements as sound. The fact anchored on the designated primary is the
+/// redirect firing. The fact anchored on a memory of the agent's own coinage *linked to the identity
+/// class* is legitimate modelling the ontology permits — the agent often models a warehouse relocation
+/// as a `place/` or `topic/` memory joined to the supplier by `operator_of`, and the link readers reach
+/// it from the identity — so the metric must not punish it. Only a fact on the non-primary person stub
+/// (the gate) or on a memory disconnected from the identity (a metric miss) is a wrong placement.
 pub struct RecordsAClassFactOnTheDesignatedPrimary;
 
 /// The day-to-day handle the supplier is known by in conversation — the stub bound to Discord and the
@@ -23,6 +30,11 @@ const BOUND_STUB: &str = "person/nordic";
 /// the bound stub the clean name resolves to.
 const DESIGNATED_PRIMARY: &str = "person/nordic_foods";
 
+/// The city the scripted disclosure names, matched (case-insensitively, with and without the diaeresis)
+/// against entry text to identify *which* recorded entry is the class fact — a structural anchor for the
+/// placement check, not a phrasing pin on the reply.
+const RELOCATION_CITY: [&str; 2] = ["malmö", "malmo"];
+
 #[async_trait]
 impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
     fn meta(&self) -> ScenarioMeta {
@@ -31,8 +43,9 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
             category: Category::Relations,
             description: "A merged identity whose primary is the stub the operator designated, not the \
                           one the day-to-day handle resolves to. A durable, platform-agnostic fact told \
-                          through the known handle must land on the designated primary, never on the \
-                          non-primary stub the clean name resolves to."
+                          through the known handle must never land on the non-primary stub the clean \
+                          name resolves to, and should anchor on the designated primary or on a memory \
+                          linked to the identity."
                 .to_owned(),
             bar: Bar::gating(),
         }
@@ -98,9 +111,38 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
             .filter(|entry| entry.memory == BOUND_STUB)
             .map(|entry| entry.text.as_str())
             .collect();
-        let on_primary = landed
+
+        // The placement check works on ids: the class members, the links the run created, and the
+        // entries that carry the relocation fact (identified by the scripted city).
+        let members: BTreeSet<MemoryId> = [BOUND_STUB, DESIGNATED_PRIMARY]
             .iter()
-            .any(|entry| entry.memory == DESIGNATED_PRIMARY);
+            .filter_map(|name| analysis::memory_id_named(events, name))
+            .collect();
+        let primary = analysis::memory_id_named(events, DESIGNATED_PRIMARY);
+        let links: Vec<(MemoryId, MemoryId)> = events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                EventPayload::LinkCreated { from, to, .. } => Some((*from, *to)),
+                _ => None,
+            })
+            .collect();
+        // A memory (outside the class itself) counts as reachable when any link joins it to a member,
+        // in either direction — the link readers traverse the class, so an edge on any member reaches
+        // the whole identity.
+        let linked_to_class = |id: MemoryId| {
+            !members.contains(&id)
+                && links.iter().any(|(from, to)| {
+                    (*from == id && members.contains(to)) || (*to == id && members.contains(from))
+                })
+        };
+        let fact_placed = events.iter().any(|event| match &event.payload {
+            EventPayload::MemoryContentAppended { id, text, .. } => {
+                let text = text.to_lowercase();
+                RELOCATION_CITY.iter().any(|city| text.contains(city))
+                    && (Some(*id) == primary || linked_to_class(*id))
+            }
+            _ => false,
+        });
 
         vec![
             // Gating: a class-spanning write must never land on the non-primary stub the clean name
@@ -118,14 +160,17 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
                      designated primary: {on_bound:?}"
                 ),
             ),
-            // Metric: the fact was recorded on the designated primary. Whether the agent records the
-            // disclosure at all is its own judgement, so this is reported rather than gating; the gate
-            // above is what fails a run where a recorded fact anchors on the wrong member.
+            // Metric: the relocation fact anchored somewhere the identity reaches — the designated
+            // primary (the redirect firing), or a memory of the agent's own coinage linked to the class
+            // (sound ontology modelling the link readers traverse). Reported rather than gating: whether
+            // and how the agent files the disclosure is its own judgement, and the gate above is what
+            // fails a run where a fact anchors on the wrong class member.
             Verdict::metric_outcome(
-                "anchored the class fact on the designated primary",
-                on_primary,
-                "the class-level fact was recorded on the operator's designated primary",
-                "no class-level fact was recorded on the designated primary",
+                "anchored the class fact on the identity or a memory linked to it",
+                fact_placed,
+                "the class-level fact anchored on the designated primary or a class-linked memory",
+                "the class-level fact was not recorded, or anchored on a memory disconnected from \
+                 the identity",
             ),
         ]
     }
