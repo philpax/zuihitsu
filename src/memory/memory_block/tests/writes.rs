@@ -152,6 +152,38 @@ fn append_with_exclude_records_the_named_parties() {
 }
 
 #[test]
+fn create_with_content_honors_the_exclude_opt() {
+    // A memory created with seed content takes the same overrides as an append, so a guarded fact's
+    // first entry is classified at creation — an unclassified seed entry on a non-person memory would
+    // otherwise take the Public default and leak beside its excluded siblings.
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+    let dave = MemoryId::generate();
+    block
+        .create_with_opts(
+            Namespace::Topic.with_name("gift"),
+            Some("collecting for a farewell gift"),
+            Some(AppendOptions {
+                exclude: Some(vec![dave]),
+                ..AppendOptions::default()
+            }),
+        )
+        .unwrap();
+
+    let visibility = block
+        .into_effects()
+        .events
+        .into_iter()
+        .find_map(|event| match event {
+            EventPayload::MemoryContentAppended { visibility, .. } => Some(visibility),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(visibility, Visibility::Exclude(vec![dave]));
+}
+
+#[test]
 fn exclude_and_visibility_together_is_a_conflict() {
     // An exclude is already a private posture, so pairing it with an explicit visibility is
     // contradictory — a teachable error, never a silent precedence.

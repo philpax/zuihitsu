@@ -30,6 +30,14 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             ),
         )
         .optional("content", AT::String, "an optional first content entry (subject to the same character limit as append)")
+        .optional(
+            "opts",
+            object(),
+            "the same overrides <memory>:append takes, applied to the first entry — including \
+             visibility, exclude, occurred_at, and volatility. Classify a guarded first entry here \
+             (visibility or exclude): seed content is an entry like any other, and unclassified it \
+             takes the write-time default",
+        )
         .returns(AT::Handle);
 
     let get = AE::new("memory.get")
@@ -76,6 +84,14 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             "content",
             AT::String,
             "an optional first entry, used only when the memory is created (ignored if it exists)",
+        )
+        .optional(
+            "opts",
+            object(),
+            "the same overrides <memory>:append takes, applied to the first entry when the memory is \
+             created (ignored if it exists) — including visibility, exclude, occurred_at, and \
+             volatility. Classify a guarded first entry here rather than letting it take the \
+             write-time default",
         )
         .returns(AT::Handle);
 

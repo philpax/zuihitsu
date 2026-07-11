@@ -16,10 +16,10 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 14,
-        "the scaffold is registered at v14 (v14 adds the exclude posture to the visibility point: a \
-         fact everyone but a named party may know is recorded excluding that party, holding like a \
-         confidence and additionally withheld whenever they are present)"
+        scaffold.version, 15,
+        "the scaffold is registered at v15 (v15 adds the guarded-everywhere clause to the visibility \
+         point: a guarded fact stays out of the memory's handle name, its seed content, and any \
+         unclassified sibling beside it, because a name is never visibility-gated)"
     );
     assert!(
         scaffold

@@ -294,7 +294,11 @@ pub(in crate::agent::genesis) fn default_templates(
          everyone but a particular person may know — a surprise planned for them, or something to be \
          kept from one named individual while the others may hear it — exclude that person: it holds \
          like a private confidence and is additionally withheld whenever they are present, so it \
-         still reaches the others when they are not. Your own notes have no \
+         still reaches the others when they are not. A guarded fact must be guarded everywhere it \
+         lands, not just in the entry you classified: keep it out of the memory's handle name, its \
+         seed content, and anything else recorded beside it, because a name is never \
+         visibility-gated and an unclassified sibling takes the open default — one plain copy \
+         undoes the guard. Your own notes have no \
          protective default either — classify them the same way."
             .to_owned(),
     );
@@ -329,6 +333,10 @@ pub(in crate::agent::genesis) fn default_templates(
             // fresh read; and the absence-is-the-answer clause now applies only to a question about
             // what is held, never to a turn that tells the agent something to keep or asks it to set
             // something up, which it records rather than reporting absent.
+            // Version 15 adds the guarded-everywhere clause to the visibility point: a guarded fact
+            // stays out of the memory's handle name, its seed content, and any unclassified sibling
+            // beside it, because a name is never visibility-gated and one plain copy undoes the
+            // guard.
             // Version 14 adds the exclude posture to the visibility point: a fact everyone but a
             // particular named person may know — a surprise for them, something kept from one
             // individual — is recorded excluding that person, holding like a confidence and
@@ -350,7 +358,7 @@ pub(in crate::agent::genesis) fn default_templates(
             // a candidate, not a match; version 8 threaded the whole-record read; version 7 added the
             // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the version
             // keeps an older `produced_by` naming the body it was generated under.
-            version: 14,
+            version: 15,
             body: scaffold_body,
         },
         TemplateDef {
