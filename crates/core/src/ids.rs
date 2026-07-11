@@ -155,6 +155,17 @@ impl MemoryName {
         self.0 == MemoryName::SELF
     }
 
+    /// Whether this handle is platform-qualified — its subject carries an `@<platform>` suffix
+    /// (`person/dave@discord`), the disambiguated name a stub is minted under when the clean handle is
+    /// already taken (the `resolve_or_mint_participant` mint path). Such a handle names one specific
+    /// platform binding, distinct from the clean, platform-agnostic handle (`person/dave`) that
+    /// spans a merged identity's whole class. The `@` sigil is reserved for this suffix — no namespace
+    /// prefix nor the reserved `self` handle carries one — so its presence anywhere in the name marks a
+    /// platform-qualified handle.
+    pub fn is_platform_qualified(&self) -> bool {
+        self.0.contains('@')
+    }
+
     /// The typed decomposition of this handle into its namespace and subject, if it is in a known
     /// namespace. The reserved `self` handle is in none, so it returns [`UnknownNamespace`].
     pub fn namespaced(&self) -> Result<NamespacedMemoryName, UnknownNamespace> {

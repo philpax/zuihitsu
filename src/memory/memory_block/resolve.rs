@@ -246,6 +246,50 @@ impl MemoryBlock {
             .map(|memory| memory.id))
     }
 
+    /// The memory a class-level content write on `id` lands on. A platform-agnostic handle
+    /// (`person/dave`) addresses a merged identity's whole `same_as` class, so a class-level fact
+    /// belongs on the class's primary stub — the id reads already resolve through — not on whichever
+    /// member the clean name happens to resolve to. This widens such a write to the primary; every other
+    /// case returns `id` unchanged, so the write stays exactly where it was aimed:
+    ///
+    /// - A **platform-qualified** handle (`person/dave@discord`) names one specific platform binding, so
+    ///   a fact deliberately scoped to that binding is left on its exact stub.
+    /// - A memory **created this block** is not yet committed, so it has no class: `memory_by_id` finds
+    ///   nothing and the write stays on the fresh stub (its class forms only once the create commits).
+    /// - The **no-op** case where `id` already is its class's primary (an unmerged memory is its own
+    ///   class) needs no redirect.
+    /// - The **operator anchor** (`person/operator`) and `self` are never redirect targets. The anchor
+    ///   holds no content by design (see [`MemoryBlock::guard_operator`]) and is the earliest-ULID
+    ///   primary of the operator's class, so redirecting the operator's real `person/<name>` profile to
+    ///   it would funnel every operator fact onto the anchor the guard forbids; `self` is never
+    ///   class-merged. In both cases the write stays on the addressed profile.
+    /// - A **soft-deleted** primary (a designated stub later deleted) is not a live write target, so the
+    ///   write stays on the addressed member.
+    ///
+    /// It reads the committed name and `class_id`, so the target is a deterministic function of the log
+    /// (a designation is a committed `ClassPrimaryDesignated`), and it is the redirect target the write
+    /// guards apply to, not the addressed handle.
+    pub(super) fn class_write_target(&self, id: MemoryId) -> Result<MemoryId, MemoryError> {
+        let graph = self.engine.graph.lock();
+        let Some(memory) = graph.memory_by_id(id)? else {
+            return Ok(id);
+        };
+        if memory.name.is_platform_qualified() {
+            return Ok(id);
+        }
+        let Some(primary) = graph.class_id(id)? else {
+            return Ok(id);
+        };
+        if primary == id
+            || Some(primary) == self.operator_id
+            || Some(primary) == self.self_id
+            || graph.memory_by_id(primary)?.is_none()
+        {
+            return Ok(id);
+        }
+        Ok(primary)
+    }
+
     /// A readable field of a memory by id — `name` or `description` — backing the handle metatable's
     /// lazy `handle.name` / `handle.description` accessors, so a memory handle minted from only an id (a
     /// calendar or link result) still reads its name. `name` honors this block's pending creates;
