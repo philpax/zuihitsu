@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     clock::Clock,
     engine::Engine,
-    event::{EventPayload, ModelPhase, RequestRecord, TurnRole},
+    event::{EventPayload, EventSource, ModelPhase, RequestRecord, TurnRole},
     ids::{MemoryId, Seq, TurnId},
     metrics::observe_model_call,
     model::{
@@ -80,7 +80,11 @@ impl Recording {
                 duration_ms,
             };
             let now = engine.clock.now();
-            if let Err(error) = engine.store.lock().append(now, vec![event]) {
+            if let Err(error) = engine
+                .store
+                .lock()
+                .append(now, EventSource::Agent, vec![event])
+            {
                 tracing::warn!(%error, "could not record the model-interaction event; the turn continues");
             }
         }

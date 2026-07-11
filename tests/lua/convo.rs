@@ -8,6 +8,7 @@ pub(crate) fn person(store: &mut MemoryStore, clock: &ManualClock, handle: &str)
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![EventPayload::memory_created(
                 id,
                 Namespace::Person.with_name(handle),
@@ -112,6 +113,7 @@ async fn convo_turn_resolves_within_audience_and_carries_a_ref() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 session_started(conversation, session, vec![sarah], clock.now()),
                 turn_event(
@@ -200,6 +202,7 @@ async fn convo_turn_warns_when_a_newcomer_was_not_in_the_audience() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 session_started(conversation, session_one, vec![maya, tom], clock.now()),
                 turn_event(
@@ -217,6 +220,7 @@ async fn convo_turn_warns_when_a_newcomer_was_not_in_the_audience() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![session_started(
                 conversation,
                 session_two,
@@ -281,6 +285,7 @@ async fn convo_turn_resolves_cross_room_for_a_solo_dm() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![
                 session_started(room, room_session, vec![maya, tom], clock.now()),
                 turn_event(
@@ -298,6 +303,7 @@ async fn convo_turn_resolves_cross_room_for_a_solo_dm() {
     store
         .append(
             clock.now(),
+            EventSource::Agent,
             vec![session_started(dm, dm_session, vec![maya], clock.now())],
         )
         .unwrap();

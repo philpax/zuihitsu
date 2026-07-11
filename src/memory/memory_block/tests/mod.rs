@@ -10,7 +10,7 @@ pub(super) use super::{AppendOptions, Authority, MemoryBlock, MemoryError, Visib
 use crate::{
     clock::ManualClock,
     engine::Engine,
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility},
     graph::Graph,
     ids::{ConversationId, MemoryId, MemoryName, Namespace},
     store::{MemoryStore, Store},
@@ -53,6 +53,7 @@ pub(super) fn graph_with_self() -> (Graph, MemoryId) {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 EventPayload::memory_created(self_id, MemoryName::new(MemoryName::SELF)),
                 EventPayload::LinkTypeRegistered {
@@ -111,6 +112,7 @@ pub(super) fn graph_with_merged_pair() -> (Graph, MemoryId, MemoryId) {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 EventPayload::LinkTypeRegistered {
                     name: RelationName::SameAs,

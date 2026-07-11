@@ -2,7 +2,7 @@
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, Initiation, ProducedBy, TurnRole},
+    event::{EventPayload, EventSource, Initiation, ProducedBy, TurnRole},
     ids::{ConversationId, MemoryId, TurnId},
     store::Store,
 };
@@ -32,6 +32,7 @@ pub(super) fn append_turn(
 ) -> Result<(), TurnError> {
     store.append(
         clock.now(),
+        EventSource::Agent,
         vec![EventPayload::ConversationTurn {
             conversation: record.conversation,
             turn_id: record.turn_id,

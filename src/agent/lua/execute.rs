@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 
 use crate::{
     engine::Engine,
-    event::TerminalCause,
+    event::{EventSource, TerminalCause},
     ids::MemoryId,
     memory::memory_block::{BlockEffects, MemoryBlock},
 };
@@ -248,7 +248,10 @@ impl Session {
         outcome: BlockOutcome,
     ) -> Result<BlockOutcome, LuaError> {
         let now = engine.clock.now();
-        engine.store.lock().append(now, events)?;
+        engine
+            .store
+            .lock()
+            .append(now, EventSource::Agent, events)?;
         // Two guards at once: graph (written) before store (read), per the lock-ordering rule.
         let mut graph = engine.graph.lock();
         graph.materialize_from(engine.store.lock().as_ref())?;

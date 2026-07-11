@@ -267,7 +267,8 @@ impl super::Control<'_> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
-            vec![EventPayload::config_set(settings, EventSource::Operator)],
+            EventSource::Operator,
+            vec![EventPayload::config_set(settings)],
         )?;
         Ok(())
     }
@@ -292,7 +293,13 @@ impl super::Control<'_> {
     /// subsequent catch-up pass sees the seeded state.
     pub fn seed_events(&self, events: Vec<EventPayload>) -> Result<(), InstanceError> {
         let now = self.server.engine.clock.now();
-        self.server.engine.store.lock().append(now, events)?;
+        // Seeded state stands in for memory the agent would have accumulated, so it is stamped
+        // `Agent` — the authority a real turn's writes carry.
+        self.server
+            .engine
+            .store
+            .lock()
+            .append(now, EventSource::Agent, events)?;
         // Graph (written) before store (read), per the lock-ordering rule.
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;

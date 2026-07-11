@@ -4,7 +4,7 @@
 
 use super::materialized;
 use crate::{
-    event::{Cardinality, EventPayload, LinkSource, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkSource, Visibility},
     ids::{MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -196,6 +196,7 @@ fn a_designated_class_refolds_identically_from_the_log() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![
                 same_as_relation(),
                 EventPayload::memory_created(lo, Namespace::Person.with_name("pat")),

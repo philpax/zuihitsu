@@ -33,6 +33,10 @@ async fn block_commits_and_projects_with_read_your_writes() {
         h.engine.graph.lock().entries_local(dave.id).unwrap().len(),
         2
     );
+
+    // The block commit is the agent's own write path: every event it appended carries the `Agent`
+    // authority on the envelope.
+    assert!(h.events().iter().all(|e| e.source == EventSource::Agent));
 }
 
 #[tokio::test]
@@ -73,6 +77,7 @@ async fn a_disputed_entry_reads_as_disputed() {
         .as_mut()
         .append(
             h.clock.now(),
+            EventSource::Agent,
             vec![EventPayload::belief_arbitrated(
                 memory,
                 competing,
@@ -266,6 +271,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         .lock()
         .append(
             h.clock.now(),
+            EventSource::Agent,
             vec![EventPayload::LinkTypeRegistered {
                 name: RelationName::SameAs,
                 inverse: RelationName::SameAs,

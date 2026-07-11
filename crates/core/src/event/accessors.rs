@@ -45,14 +45,17 @@ impl EventPayload {
         }
     }
 
-    /// The payload-schema version; higher versions add fields. `MergeProposed` is `3` since gaining
-    /// `source` (version 2) and then `rationale` (version 3); earlier payloads deserialize via those
-    /// fields' defaults. Everything else is `1`.
+    /// The payload-schema version; higher versions add or retire fields. `MergeProposed` is `3` since
+    /// gaining `source` (version 2) and then `rationale` (version 3); earlier payloads deserialize via
+    /// those fields' defaults. Everything else is `1`.
     pub fn version(&self) -> u32 {
         match self {
             EventPayload::MergeProposed { .. } => 3,
             // Version 2 since gaining the structured `brief`; version-1 payloads replay via its default.
             EventPayload::ConversationTurn { .. } => 2,
+            // Version 2 since retiring the redundant `source` field, now on the envelope; version-1
+            // payloads still carry it and deserialize via its default.
+            EventPayload::ConfigSet { .. } | EventPayload::PromptTemplateRegistered { .. } => 2,
             _ => 1,
         }
     }

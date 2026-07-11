@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 
-use zuihitsu::{Completion, Event, InstanceFeatures, ScriptedModel, Seq, Timestamp, TurnRole};
+use zuihitsu::{
+    Completion, Event, EventSource, InstanceFeatures, ScriptedModel, Seq, Timestamp, TurnRole,
+};
 
 use crate::{
     context::{RunContext, RunDeps},
@@ -217,6 +219,7 @@ fn event_at(seq: u64) -> Event {
     Event {
         seq: Seq(seq),
         recorded_at: Timestamp::from_millis(1_000 * seq as i64),
+        source: EventSource::Agent,
         payload: zuihitsu::EventPayload::genesis_completed("hash", Default::default()),
     }
 }

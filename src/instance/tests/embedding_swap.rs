@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     Instance,
     clock::ManualClock,
-    event::EventPayload,
+    event::{EventPayload, EventSource},
     graph::Graph,
     ids::{ConversationId, MemoryId, Seq, SessionId},
     model::{
@@ -64,6 +64,7 @@ async fn a_swap_logs_the_change_and_reembeds_under_the_new_model() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 mem,
                 "an avid climber".to_owned(),
@@ -122,6 +123,7 @@ async fn the_idle_sweep_closes_a_session_once_not_every_tick() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![EventPayload::SessionStarted {
                 conversation,
                 id: session,
@@ -224,6 +226,7 @@ async fn concurrent_closes_of_one_session_record_a_single_end() {
     store
         .append(
             Timestamp::from_millis(1_000),
+            EventSource::Agent,
             vec![EventPayload::SessionStarted {
                 conversation,
                 id: session,
@@ -333,6 +336,7 @@ async fn a_swap_is_detected_and_rebuilt_across_a_real_sqlite_restart() {
         store
             .append(
                 Timestamp::from_millis(1_000),
+                EventSource::Agent,
                 vec![
                     EventPayload::memory_created(mem, Namespace::Topic.with_name("x")),
                     EventPayload::memory_description_regenerated(

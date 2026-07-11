@@ -9,11 +9,11 @@ fn register_adjudication_template(h: &Harness) {
         .as_mut()
         .append(
             h.clock.now(),
+            EventSource::Agent,
             vec![EventPayload::prompt_template_registered(
                 PromptTemplateName::MergeAdjudication,
                 1,
                 "Decide whether two stubs are the same person, on the evidence.".to_owned(),
-                EventSource::Orchestration,
             )],
         )
         .unwrap();

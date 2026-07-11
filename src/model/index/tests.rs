@@ -4,7 +4,7 @@
 //! description retrieves it.
 use super::{Indexer, VectorKey};
 use crate::{
-    event::{Event, EventPayload},
+    event::{Event, EventPayload, EventSource},
     ids::{MemoryId, Namespace},
     model::embed::{Embedder, FakeEmbedder},
     store::{MemoryStore, Store},
@@ -25,6 +25,7 @@ async fn catch_up_embeds_each_memorys_description() {
     store
         .append(
             at(1),
+            EventSource::Agent,
             vec![
                 // The indexer ignores the create and reacts only to the description.
                 EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
@@ -62,6 +63,7 @@ async fn catch_up_resumes_from_the_cursor() {
     store
         .append(
             at(1),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 dave,
                 "An avid rock climber".to_owned(),
@@ -97,6 +99,7 @@ async fn catch_up_resumes_from_the_cursor() {
     store
         .append(
             at(2),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 erin,
                 "A tax accountant".to_owned(),
@@ -123,6 +126,7 @@ async fn drain_indexes_subscribed_events() {
     store
         .append(
             at(1),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 dave,
                 "An avid rock climber".to_owned(),
@@ -172,7 +176,11 @@ async fn a_later_regeneration_replaces_and_a_delete_removes() {
     // A delete drops the vector.
     let mut store = MemoryStore::new();
     let deletion = store
-        .append(at(2), vec![EventPayload::memory_deleted(dave)])
+        .append(
+            at(2),
+            EventSource::Agent,
+            vec![EventPayload::memory_deleted(dave)],
+        )
         .unwrap();
     Indexer::new(&embedder, &mut vectors)
         .index_batch(&deletion)
@@ -198,6 +206,7 @@ async fn a_blank_description_is_skipped_without_embedding() {
     store
         .append(
             at(1),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 ghost,
                 "   ".to_owned(),
@@ -250,6 +259,7 @@ fn events(store: &mut MemoryStore, id: MemoryId, description: &str) -> Vec<Event
     store
         .append(
             at(1),
+            EventSource::Agent,
             vec![EventPayload::memory_description_regenerated(
                 id,
                 description.to_owned(),

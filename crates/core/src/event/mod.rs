@@ -199,13 +199,29 @@ impl MergeProposalSource {
     }
 }
 
-/// Provenance for events that carry an authority, distinct from a participant teller: `Bootstrap`
-/// for genesis, `Orchestration` for prompt templates, `Operator` for operator/control writes, and
-/// `Agent` for the agent's own (spec §Initialization, §Trust model).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// The authority a committed event was written under — the author axis the log filters by (spec
+/// §Initialization, §Trust model). Stamped on every [`Event`] at append time, so "who wrote this"
+/// is answerable at the envelope without dredging through payload provenance. Distinct from a
+/// participant teller ([`Teller`]): the source is the *subsystem* that committed the batch, not the
+/// human whose words it may carry. The four authorities partition every writer:
+/// - `Bootstrap` — genesis rollout (`genesis::rollout`).
+/// - `Operator` — writes originating from the console/control surface: configuration, prompt
+///   registration, self-edits, merge resolution, unmerge, and primary designation.
+/// - `Agent` — the agent's turn hot path: its committed Lua block effects, the `ConversationTurn`
+///   records (inbound, reply, or system — the human speaker of an inbound message is carried by the
+///   turn's `participant`/`told_by`, not the envelope source), and the `ModelCalled` deltas.
+/// - `Orchestration` — the system's autonomous machinery around and after a turn: the background
+///   passes (description synthesis, temporal resolution, link inference, merge adjudication), the
+///   scheduler, the boot-time embedding migration, and the identity and session plumbing (opening a
+///   conversation, minting or joining a participant, opening and closing a session).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventSource {
     Bootstrap,
+    /// The default stands in for the envelope's absence in pre-source logs, which predate the field:
+    /// the overwhelming majority of a log's events are conversation turns, so an unstamped historical
+    /// event reads as the agent's (spec §Schema evolution: old events stay readable forever).
+    #[default]
     Agent,
     /// `Debugger` was this variant's name before the operator interface was renamed to the console;
     /// the alias keeps logs written under the old name readable (spec §Schema evolution: old events
@@ -213,6 +229,35 @@ pub enum EventSource {
     #[serde(alias = "Debugger")]
     Operator,
     Orchestration,
+}
+
+impl EventSource {
+    /// The stored/wire label, matching the serialized enum form so the event-store `source` column
+    /// carries the same string serde emits.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EventSource::Bootstrap => "Bootstrap",
+            EventSource::Agent => "Agent",
+            EventSource::Operator => "Operator",
+            EventSource::Orchestration => "Orchestration",
+        }
+    }
+}
+
+impl std::str::FromStr for EventSource {
+    type Err = ();
+
+    /// Parse the stored column form back into the enum. `Debugger` maps to `Operator`, matching the
+    /// serde alias, so a column written under the old name stays readable.
+    fn from_str(text: &str) -> Result<EventSource, Self::Err> {
+        match text {
+            "Bootstrap" => Ok(EventSource::Bootstrap),
+            "Agent" => Ok(EventSource::Agent),
+            "Operator" | "Debugger" => Ok(EventSource::Operator),
+            "Orchestration" => Ok(EventSource::Orchestration),
+            _ => Err(()),
+        }
+    }
 }
 
 /// The author of a conversation turn (spec §Event sourcing → ConversationTurn). The participant and
@@ -440,14 +485,20 @@ pub enum Visibility {
     Exclude(Vec<MemoryId>),
 }
 
-/// A committed event: a payload assigned a position in the log's total order and stamped with the
-/// wall-clock time it was recorded. This is what a read returns; it is immutable. Serializable so it
-/// rides verbatim over the observability surfaces (spec §Observability).
+/// A committed event: a payload assigned a position in the log's total order, stamped with the
+/// wall-clock time it was recorded, and tagged with the authority that wrote it. This is what a read
+/// returns; it is immutable. Serializable so it rides verbatim over the observability surfaces (spec
+/// §Observability).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Event {
     pub seq: Seq,
     pub recorded_at: Timestamp,
+    /// The authority the append was committed under (spec §Trust model). `#[serde(default)]` so a
+    /// pre-source log — whose events predate the envelope field — replays with every event reading as
+    /// [`EventSource::Agent`], the historical fallback.
+    #[serde(default)]
+    pub source: EventSource,
     pub payload: EventPayload,
 }
 mod accessors;

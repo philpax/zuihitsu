@@ -4,7 +4,7 @@
 use std::sync::mpsc::{Sender, channel};
 
 use crate::{
-    event::{Event, EventPayload},
+    event::{Event, EventPayload, EventSource},
     ids::Seq,
     time::Timestamp,
 };
@@ -27,6 +27,7 @@ impl Store for MemoryStore {
     fn append(
         &mut self,
         recorded_at: Timestamp,
+        source: EventSource,
         payloads: Vec<EventPayload>,
     ) -> Result<Vec<Event>, StoreError> {
         let mut seq = self.head()?;
@@ -37,6 +38,7 @@ impl Store for MemoryStore {
                 Event {
                     seq,
                     recorded_at,
+                    source,
                     payload,
                 }
             })

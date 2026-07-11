@@ -1,7 +1,7 @@
 //! Recording a participant arriving mid-session.
 
 use crate::{
-    event::{ConversationRef, EventPayload, Initiation, TurnRole},
+    event::{ConversationRef, EventPayload, EventSource, Initiation, TurnRole},
     ids::{ConversationId, MemoryId, SessionId, TurnId},
     memory::brief,
     model::ModelClient,
@@ -55,6 +55,7 @@ impl Instance {
         let turn_id = TurnId::generate();
         self.engine.store.lock().append(
             now,
+            EventSource::Orchestration,
             vec![
                 EventPayload::participant_joined(
                     conversation,

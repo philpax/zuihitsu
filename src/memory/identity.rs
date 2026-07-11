@@ -10,7 +10,7 @@
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, LinkSource, MergeProposalSource, Visibility},
+    event::{EventPayload, EventSource, LinkSource, MergeProposalSource, Visibility},
     graph::{Graph, GraphError},
     ids::{ConversationId, ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace},
     store::{Store, StoreError},
@@ -167,7 +167,7 @@ pub fn resolve_or_mint_participant(
                 );
             }
         }
-        store.append(clock.now(), events)?;
+        store.append(clock.now(), EventSource::Orchestration, events)?;
         tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
         Ok(id)
     })()
@@ -195,6 +195,7 @@ pub fn resolve_or_mint_conversation(
         let context_memory = MemoryId::generate();
         store.append(
             clock.now(),
+            EventSource::Orchestration,
             vec![
                 EventPayload::memory_created(context_memory, context_name(locator)),
                 EventPayload::conversation_started(id, locator.clone(), context_memory),
@@ -219,7 +220,7 @@ mod tests {
     use super::{resolve_or_mint_conversation, resolve_or_mint_participant};
     use crate::{
         clock::ManualClock,
-        event::{EventPayload, LinkSource, MergeProposalSource},
+        event::{EventPayload, EventSource, LinkSource, MergeProposalSource},
         graph::Graph,
         ids::{ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace, Seq},
         store::{MemoryStore, Store},
@@ -283,6 +284,7 @@ mod tests {
         store
             .append(
                 Timestamp::from_millis(1_000),
+                EventSource::Agent,
                 vec![EventPayload::memory_created(
                     hearsay,
                     Namespace::Person.with_name("nadia"),
@@ -330,6 +332,7 @@ mod tests {
         store
             .append(
                 Timestamp::from_millis(1_000),
+                EventSource::Agent,
                 vec![EventPayload::memory_created(
                     hearsay,
                     Namespace::Person.with_name("nadia"),

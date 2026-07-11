@@ -8,7 +8,7 @@ use std::{
 use crate::{
     InstanceFeatures,
     agent::{Flush, bounded_buffer_turns, lua::Session, recent_touched, run_flush},
-    event::{ConversationRef, EventPayload, Initiation, TurnRole},
+    event::{ConversationRef, EventPayload, EventSource, Initiation, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, SessionId, TurnId},
     memory::{brief, scheduler},
     metrics::{
@@ -106,6 +106,7 @@ impl Instance {
         let now = self.engine.clock.now();
         self.engine.store.lock().append(
             now,
+            EventSource::Orchestration,
             vec![EventPayload::session_ended(conversation, open.id)],
         )?;
         observe_session_closed();
@@ -291,6 +292,7 @@ impl Instance {
         let id = SessionId::generate();
         let committed = self.engine.store.lock().append(
             now,
+            EventSource::Orchestration,
             vec![EventPayload::SessionStarted {
                 conversation,
                 id,
@@ -347,7 +349,10 @@ impl Instance {
                     entry_id, memory, id, now,
                 ));
             }
-            self.engine.store.lock().append(now, payloads)?;
+            self.engine
+                .store
+                .lock()
+                .append(now, EventSource::Orchestration, payloads)?;
             observe_wakeups_surfaced(surface_count);
             self.engine
                 .graph
@@ -368,10 +373,11 @@ impl Instance {
         }
         let id = MemoryId::generate();
         let now = self.engine.clock.now();
-        self.engine
-            .store
-            .lock()
-            .append(now, vec![EventPayload::memory_created(id, operator)])?;
+        self.engine.store.lock().append(
+            now,
+            EventSource::Orchestration,
+            vec![EventPayload::memory_created(id, operator)],
+        )?;
         self.engine
             .graph
             .lock()

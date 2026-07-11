@@ -125,7 +125,6 @@ pub fn rollout(
                 template.name,
                 template.version,
                 template.body.clone(),
-                EventSource::Orchestration,
             ));
         }
     }
@@ -161,7 +160,7 @@ pub fn rollout(
             settings.compaction.token_budget = compaction_budget_for(context_length);
             settings.compaction.context_length = Some(i64::from(context_length));
         }
-        to_emit.push(EventPayload::config_set(settings, EventSource::Bootstrap));
+        to_emit.push(EventPayload::config_set(settings));
     }
 
     if !self_present {
@@ -198,7 +197,7 @@ pub fn rollout(
     ));
 
     let events_emitted = to_emit.len();
-    store.append(clock.now(), to_emit)?;
+    store.append(clock.now(), EventSource::Bootstrap, to_emit)?;
     tracing::info!(events_emitted, agent = %seed.agent_name, "rolled out genesis");
     Ok(Rollout::Created { events_emitted })
 }

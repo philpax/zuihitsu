@@ -4,8 +4,8 @@ use crate::{
     agent::genesis::{self, SeedSelf},
     clock::ManualClock,
     event::{
-        Cardinality, ConversationRef, Event, EventPayload, LinkSource, Teller, Visibility,
-        Volatility,
+        Cardinality, ConversationRef, Event, EventPayload, EventSource, LinkSource, Teller,
+        Visibility, Volatility,
     },
     graph::Graph,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq},
@@ -28,6 +28,7 @@ fn event(seq: u64, payload: EventPayload) -> Event {
     Event {
         seq: Seq(seq),
         recorded_at: Timestamp::from_millis(0),
+        source: EventSource::Agent,
         payload,
     }
 }
@@ -183,7 +184,7 @@ impl Corpus {
     /// index path, so descriptions and entries are embedded with their proper keys.
     async fn commit(&mut self, at_ms: i64, events: Vec<EventPayload>) {
         self.store
-            .append(Timestamp::from_millis(at_ms), events)
+            .append(Timestamp::from_millis(at_ms), EventSource::Agent, events)
             .unwrap();
         self.graph.materialize_from(&self.store).unwrap();
         Indexer::new(&self.embedder, &mut self.index)
@@ -343,6 +344,7 @@ impl Corpus {
         self.store
             .append(
                 Timestamp::from_millis(at_ms),
+                EventSource::Agent,
                 vec![
                     EventPayload::tag_created(TagName::new(tag), format!("about {tag}")),
                     EventPayload::tag_applied_to_memory(id, TagName::new(tag)),

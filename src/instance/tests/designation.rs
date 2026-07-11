@@ -5,7 +5,7 @@ use super::*;
 use crate::{
     DesignateOutcome,
     clock::ManualClock,
-    event::{EventPayload, LinkSource, Visibility},
+    event::{EventPayload, EventSource, LinkSource, Visibility},
     ids::{MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,
@@ -73,6 +73,37 @@ fn designate_primary_pins_the_chosen_stub_over_the_earliest_ulid() {
     assert_eq!(graph.class_id(older).unwrap().unwrap(), newer);
     assert_eq!(graph.class_id(newer).unwrap().unwrap(), newer);
     assert!(graph.is_primary_designated(newer).unwrap());
+}
+
+#[test]
+fn the_log_partitions_by_the_envelope_source() {
+    // One log, three authorities: genesis writes as `Bootstrap`, `seed_events` stands in for the
+    // agent's own accumulation (`Agent`), and a control action writes as `Operator` — so "show me
+    // everything the operator did" is a pure envelope filter.
+    let (server, _older, newer) = merged_server();
+    server.control().designate_primary(newer, true).unwrap();
+
+    let events = server.control().events().unwrap();
+    let genesis_end = events
+        .iter()
+        .position(|e| matches!(e.payload, EventPayload::GenesisCompleted { .. }))
+        .expect("genesis completed");
+    assert!(
+        events[..=genesis_end]
+            .iter()
+            .all(|e| e.source == EventSource::Bootstrap)
+    );
+    assert!(
+        events[genesis_end + 1..]
+            .iter()
+            .filter(|e| !matches!(e.payload, EventPayload::ClassPrimaryDesignated { .. }))
+            .all(|e| e.source == EventSource::Agent)
+    );
+    let designation = events
+        .iter()
+        .find(|e| matches!(e.payload, EventPayload::ClassPrimaryDesignated { .. }))
+        .expect("the designation was appended");
+    assert_eq!(designation.source, EventSource::Operator);
 }
 
 #[test]

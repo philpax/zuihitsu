@@ -192,11 +192,11 @@ impl super::Control<'_> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
+            EventSource::Operator,
             vec![EventPayload::prompt_template_registered(
                 name,
                 version,
                 body.to_owned(),
-                EventSource::Operator,
             )],
         )?;
         Ok(())
@@ -296,11 +296,11 @@ impl super::Control<'_> {
         };
 
         let now = self.server.engine.clock.now();
-        self.server
-            .engine
-            .store
-            .lock()
-            .append(now, block.into_effects().events)?;
+        self.server.engine.store.lock().append(
+            now,
+            EventSource::Operator,
+            block.into_effects().events,
+        )?;
         // Graph (written) before store (read), per the lock-ordering rule.
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
@@ -366,7 +366,11 @@ impl super::Control<'_> {
                 produced_by: None,
             }
         };
-        self.server.engine.store.lock().append(now, vec![event])?;
+        self.server
+            .engine
+            .store
+            .lock()
+            .append(now, EventSource::Operator, vec![event])?;
         // Graph (written) before store (read), per the lock-ordering rule.
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
@@ -404,6 +408,7 @@ impl super::Control<'_> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
+            EventSource::Operator,
             vec![EventPayload::link_removed(from, to, RelationName::SameAs)],
         )?;
         // Graph (written) before store (read), per the lock-ordering rule.
@@ -433,6 +438,7 @@ impl super::Control<'_> {
         let now = self.server.engine.clock.now();
         self.server.engine.store.lock().append(
             now,
+            EventSource::Operator,
             vec![EventPayload::class_primary_designated(memory, designated)],
         )?;
         // Graph (written) before store (read), per the lock-ordering rule.

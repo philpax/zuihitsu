@@ -13,7 +13,7 @@ use rusqlite::{Connection, OpenFlags, params};
 
 use crate::{
     db::query_map_into,
-    event::{Event, EventPayload},
+    event::{Event, EventPayload, EventSource},
     ids::Seq,
     time::Timestamp,
 };
@@ -77,16 +77,37 @@ impl SqliteStore {
                  type        TEXT    NOT NULL,
                  target_id   TEXT,
                  version     INTEGER NOT NULL,
+                 source      TEXT    NOT NULL DEFAULT 'Agent',
                  payload     TEXT    NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_id);",
         )
         .map_err(backend)?;
+        Self::migrate_source_column(&conn)?;
         Ok(SqliteStore {
             conn,
             subscribers: Vec::new(),
             _lock: lock,
         })
+    }
+
+    /// Add the envelope `source` column to a log written before it existed. A fresh table already
+    /// carries the column from `CREATE`; a pre-source table has every other column but not this one,
+    /// so a plain `ADD COLUMN` back-fills it with the [`EventSource::Agent`] default — the same
+    /// fallback the serde default gives an unstamped event on the wire (spec §Schema evolution).
+    fn migrate_source_column(conn: &Connection) -> Result<(), StoreError> {
+        let has_source = conn
+            .prepare("SELECT 1 FROM pragma_table_info('events') WHERE name = 'source'")
+            .map_err(backend)?
+            .exists([])
+            .map_err(backend)?;
+        if !has_source {
+            conn.execute_batch(
+                "ALTER TABLE events ADD COLUMN source TEXT NOT NULL DEFAULT 'Agent'",
+            )
+            .map_err(backend)?;
+        }
+        Ok(())
     }
 }
 
@@ -94,6 +115,7 @@ impl Store for SqliteStore {
     fn append(
         &mut self,
         recorded_at: Timestamp,
+        source: EventSource,
         payloads: Vec<EventPayload>,
     ) -> Result<Vec<Event>, StoreError> {
         let tx = self.conn.transaction().map_err(backend)?;
@@ -108,14 +130,15 @@ impl Store for SqliteStore {
             seq += 1;
             let json = serde_json::to_string(&payload)?;
             tx.execute(
-                "INSERT INTO events (seq, recorded_at, type, target_id, version, payload)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO events (seq, recorded_at, type, target_id, version, source, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     seq,
                     recorded_at.as_millis(),
                     payload.kind(),
                     payload.target_id(),
                     payload.version(),
+                    source.as_str(),
                     json,
                 ],
             )
@@ -123,6 +146,7 @@ impl Store for SqliteStore {
             committed.push(Event {
                 seq: Seq(seq as u64),
                 recorded_at,
+                source,
                 payload,
             });
         }
@@ -133,14 +157,20 @@ impl Store for SqliteStore {
     }
 
     fn read_from(&self, from: Seq) -> Result<Vec<Event>, StoreError> {
-        let stmt = self
-            .conn
-            .prepare("SELECT seq, recorded_at, payload FROM events WHERE seq >= ?1 ORDER BY seq")?;
+        let stmt = self.conn.prepare(
+            "SELECT seq, recorded_at, source, payload FROM events WHERE seq >= ?1 ORDER BY seq",
+        )?;
         query_map_into(stmt, params![from.0 as i64], |row| {
-            let (seq, recorded_at, payload): (i64, i64, String) = row.try_into()?;
+            let seq: i64 = row.get("seq")?;
+            let recorded_at: i64 = row.get("recorded_at")?;
+            let source: String = row.get("source")?;
+            let payload: String = row.get("payload")?;
             Ok(Event {
                 seq: Seq(seq as u64),
                 recorded_at: Timestamp::from_millis(recorded_at),
+                // A back-filled or legacy row carries the `Agent` default (the column default and the
+                // serde fallback agree), so an unrecognised label falling back to it stays faithful.
+                source: source.parse().unwrap_or_default(),
                 payload: serde_json::from_str(&payload)?,
             })
         })

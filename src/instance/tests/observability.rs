@@ -81,6 +81,7 @@ async fn a_turn_observes_its_metrics() {
         .lock()
         .append(
             now,
+            crate::event::EventSource::Agent,
             vec![crate::event::EventPayload::memory_created(
                 orphan,
                 crate::ids::MemoryName::new("topic/orphan"),
