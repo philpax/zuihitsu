@@ -139,6 +139,10 @@ impl MemoryBlock {
         text: &str,
         mut opts: AppendOptions,
     ) -> Result<EntryId, MemoryError> {
+        // A class-level fact told through a platform-agnostic handle lands on the class primary, not on
+        // whichever member the clean name resolves to — so the guards, the visibility default, and the
+        // entry itself all key on the redirect target (see [`MemoryBlock::class_write_target`]).
+        let id = self.class_write_target(id)?;
         self.guard_self(id)?;
         self.guard_operator(id)?;
         let told_by = entry_teller(&opts, &self.teller);
@@ -183,6 +187,11 @@ impl MemoryBlock {
         old: EntryId,
         new: EntryId,
     ) -> Result<(), MemoryError> {
+        // Recorded against the class primary when told through a platform-agnostic handle, matching where
+        // `append` lands a class-level fact — the supersession's effect keys on the entry ids, which
+        // `live_class_entries` gathers across the whole class either way, so the redirect only attributes
+        // the event to the primary.
+        let id = self.class_write_target(id)?;
         self.guard_self(id)?;
         self.guard_operator(id)?;
         let live = self.live_class_entries(id)?;
@@ -251,6 +260,10 @@ impl MemoryBlock {
     /// the recency decay in search and, for `high`, lets an aged entry read as stale so the agent hedges
     /// rather than asserting it as current (spec §Recency and volatility).
     pub fn set_volatility(&mut self, id: MemoryId, level: &str) -> Result<(), MemoryError> {
+        // Volatility classifies how fast a memory's facts age, so a class-level classification told
+        // through a platform-agnostic handle lands on the primary — the same node `append` funnels the
+        // class's facts to, keeping the inline `append` volatility opt and a standalone call consistent.
+        let id = self.class_write_target(id)?;
         self.guard_self(id)?;
         let volatility = level
             .parse()

@@ -546,6 +546,302 @@ fn class_handle_write_lands_on_the_primary_stub() {
     assert_eq!(landed_on, vec![primary]);
 }
 
+/// The seed events for a `same_as` class of two clean, platform-agnostic person handles with the
+/// *later*-ULID stub pinned as the class primary by a `ClassPrimaryDesignated` — so the earliest-ULID
+/// clean handle resolves to a *non-primary* member, the shape the class-spanning write redirect turns
+/// on. Returns the seed events, the earliest-ULID stub (`person/dave`), and the designated primary
+/// (`person/marcus`). The clean handles are bound to sorted ULIDs so the designation, not ULID order,
+/// decides the primary regardless of the random low bits minted within one millisecond.
+fn designated_primary_seed() -> (Vec<EventPayload>, MemoryId, MemoryId) {
+    let mut ids = [MemoryId::generate(), MemoryId::generate()];
+    ids.sort();
+    let [earliest, later] = ids;
+    let events = vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+            description: String::new(),
+        },
+        EventPayload::memory_created(earliest, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(later, Namespace::Person.with_name("marcus")),
+        EventPayload::link_created(
+            earliest,
+            later,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
+        EventPayload::class_primary_designated(later, true),
+    ];
+    (events, earliest, later)
+}
+
+/// Materialize a set of seed events into a fresh in-memory graph — the committed state a block resolves
+/// its write targets against.
+fn graph_from(events: Vec<EventPayload>) -> Graph {
+    let mut store = MemoryStore::new();
+    store.append(Timestamp::from_millis(1_000), events).unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+    graph
+}
+
+#[test]
+fn class_handle_write_redirects_to_the_designated_primary() {
+    // The clean handle `person/dave` resolves to its own (non-primary) stub, but a class-level fact told
+    // through it belongs on the class primary the operator designated (`person/marcus`) — so the append
+    // is redirected there rather than attaching to the member the name happens to resolve to.
+    let (seed, dave, marcus) = designated_primary_seed();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph_from(seed), clock, Teller::Agent, Authority::Platform);
+
+    let (resolved, _) = block.get("person/dave").unwrap().unwrap();
+    assert_eq!(
+        resolved, dave,
+        "the clean handle resolves to its exact stub"
+    );
+
+    block
+        .append(
+            resolved,
+            "ships on Fridays",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        landed_on,
+        vec![marcus],
+        "the write should redirect to the designated primary, not land on person/dave"
+    );
+}
+
+#[test]
+fn a_platform_qualified_handle_write_stays_on_its_exact_stub() {
+    // `person/quinn@discord` names one specific platform binding; a fact deliberately scoped to it stays
+    // on that stub even though its class primary (`person/quinn`) is another member — the redirect is for
+    // the clean, class-spanning handle only.
+    let (graph, quinn, quinn_discord) = super::graph_with_merged_pair();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+
+    block
+        .append(
+            quinn_discord,
+            "logs in from the Berlin office",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        landed_on,
+        vec![quinn_discord],
+        "a platform-qualified handle keeps its write, never widening to the class primary {quinn:?}"
+    );
+}
+
+#[test]
+fn a_same_block_create_write_is_not_redirected() {
+    // A memory created this block is not yet committed, so it has no class — the append to its fresh stub
+    // must land on it, never widen to a primary the uncommitted create cannot have.
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        clock,
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let dana = block
+        .create(Namespace::Person.with_name("dana"), None)
+        .unwrap();
+    block
+        .append(
+            dana,
+            "keeps a bullet journal",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(landed_on, vec![dana]);
+}
+
+#[test]
+fn a_write_is_never_redirected_onto_the_operator_anchor() {
+    // The operator anchor (`person/operator`) holds no content by design and is the earliest-ULID
+    // primary of the operator's class, so a class-spanning write on the operator's real `person/<name>`
+    // profile must stay on that profile — never redirect onto the anchor `guard_operator` forbids.
+    let mut ids = [MemoryId::generate(), MemoryId::generate()];
+    ids.sort();
+    let [anchor, dana] = ids;
+    let seed = vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+            description: String::new(),
+        },
+        EventPayload::memory_created(anchor, Namespace::Person.with_name("operator")),
+        EventPayload::memory_created(dana, Namespace::Person.with_name("dana")),
+        EventPayload::link_created(
+            anchor,
+            dana,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
+    ];
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph_from(seed), clock, Teller::Agent, Authority::Operator);
+
+    // The anchor is the earliest ULID, so it is the class primary — the case that would misfire without
+    // the carve-out.
+    block
+        .append(
+            dana,
+            "prefers evening syncs",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .expect("the operator write should land, not be forbidden by the anchor guard");
+
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        landed_on,
+        vec![dana],
+        "the operator fact stays on person/dana, never on the anchor {anchor:?}"
+    );
+}
+
+#[test]
+fn supersede_and_set_volatility_redirect_to_the_designated_primary() {
+    // supersede and set_volatility are class-level writes like append, so they too attribute to the
+    // designated primary when told through the clean, non-primary handle.
+    let (seed, dave, marcus) = designated_primary_seed();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph_from(seed), clock, Teller::Agent, Authority::Platform);
+
+    let opts = || AppendOptions {
+        visibility: Some(VisibilityChoice::Public),
+        ..AppendOptions::default()
+    };
+    let old = block.append(dave, "on the mobile team", opts()).unwrap();
+    let new = block.append(dave, "on the platform team", opts()).unwrap();
+    block.supersede(dave, old, new).unwrap();
+    block.set_volatility(dave, "high").unwrap();
+
+    let effects = block.into_effects();
+    let superseded_on = effects.events.iter().find_map(|event| match event {
+        EventPayload::MemorySuperseded { id, .. } => Some(*id),
+        _ => None,
+    });
+    let volatility_on = effects.events.iter().find_map(|event| match event {
+        EventPayload::MemoryVolatilitySet { id, .. } => Some(*id),
+        _ => None,
+    });
+    assert_eq!(superseded_on, Some(marcus));
+    assert_eq!(volatility_on, Some(marcus));
+}
+
+#[test]
+fn a_redirected_write_replays_deterministically() {
+    // The redirect reads committed state and emits an event carrying the concrete primary id, so
+    // refolding the log reproduces the same placement: the entry sits on the primary and reads back
+    // across the whole class from either handle.
+    let (seed, dave, marcus) = designated_primary_seed();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(
+        graph_from(seed.clone()),
+        clock,
+        Teller::Agent,
+        Authority::Platform,
+    );
+    block
+        .append(
+            dave,
+            "ships on Fridays",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+    let mut replayed = seed;
+    replayed.extend(block.into_effects().events);
+    let graph = graph_from(replayed);
+
+    let on_primary = graph.class_entries(marcus).unwrap();
+    assert!(
+        on_primary
+            .iter()
+            .any(|entry| entry.text == "ships on Fridays"),
+        "the refolded entry sits on the primary"
+    );
+    // The clean, non-primary handle reads the same class, so the fact surfaces from it too.
+    let from_dave = graph.class_entries(dave).unwrap();
+    assert!(
+        from_dave
+            .iter()
+            .any(|entry| entry.text == "ships on Fridays"),
+        "the fact reads back across the whole class"
+    );
+}
+
 #[test]
 fn append_rejects_an_unsupported_recurrence_with_a_teachable_error() {
     // A free-phrased cadence the model emits in place of an rrule arms no wake-up, so the write is
