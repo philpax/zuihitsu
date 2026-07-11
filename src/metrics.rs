@@ -53,6 +53,9 @@ pub const MODEL_CIRCUIT_FAST_FAILS_TOTAL: &str = "zuihitsu_model_circuit_fast_fa
 pub const MODEL_CIRCUIT_STATE: &str = "zuihitsu_model_circuit_state";
 pub const TURNS_DEFERRED_TOTAL: &str = "zuihitsu_turns_deferred_total";
 
+// Turn-over-background priority at the shared model client.
+pub const BACKGROUND_MODEL_DEFERRALS_TOTAL: &str = "zuihitsu_background_model_deferrals_total";
+
 // Saturation: tokens.
 pub const MODEL_PROMPT_TOKENS_TOTAL: &str = "zuihitsu_model_prompt_tokens_total";
 pub const MODEL_COMPLETION_TOKENS_TOTAL: &str = "zuihitsu_model_completion_tokens_total";
@@ -131,6 +134,11 @@ pub fn describe() {
         "Routed turns deferred because the model backend was unreachable (the inbound stays \
          durable; the next successful turn covers it)."
     );
+    describe_counter!(
+        BACKGROUND_MODEL_DEFERRALS_TOTAL,
+        "Background model calls that waited for a pending conversation turn to dispatch first \
+         (turn-over-background priority at the shared model client)."
+    );
     // Saturation: tokens.
     describe_counter!(
         MODEL_PROMPT_TOKENS_TOTAL,
@@ -198,6 +206,13 @@ pub fn observe_turn_error(category: &str, cause: &str, duration: Duration) {
 /// `adjudicate`, `indexer`, `scheduler`, `sweep`.
 pub fn observe_worker_error(category: &str) {
     counter!(ERRORS_TOTAL, "category" => category.to_string(), "cause" => "none").increment(1);
+}
+
+/// Observe one background model call deferred behind a pending conversation turn — the arbiter held
+/// the background pass back until the turn dispatched (spec §Write path → model sharing). Counted
+/// once per background call that had to wait at all, not per wait iteration.
+pub fn observe_background_model_deferral() {
+    counter!(BACKGROUND_MODEL_DEFERRALS_TOTAL).increment(1);
 }
 
 /// Observe one model `generate` call: saturation (calls, latency, tokens).
