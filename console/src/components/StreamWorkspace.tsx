@@ -7,7 +7,7 @@ import type { StepRecord } from "../types/StepRecord.ts";
 import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
 import { DockContext } from "../lib/nav/dock.ts";
-import { resolveMerge } from "../lib/api/operator.ts";
+import { resolveMerge, unmerge } from "../lib/api/operator.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/state/StateView.tsx";
 import {
@@ -205,6 +205,7 @@ export function StreamWorkspace({
                               ? {
                                   resolve: (from, to, accept) =>
                                     resolveMerge(participant.connection, from, to, accept),
+                                  unmerge: (from, to) => unmerge(participant.connection, from, to),
                                 }
                               : undefined
                           }

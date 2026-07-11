@@ -246,6 +246,59 @@ async fn interactions_surface_the_recorded_model_calls() {
 }
 
 #[tokio::test]
+async fn unmerge_endpoint_retracts_a_merge_then_404s_when_nothing_to_retract() {
+    use zuihitsu::{EventPayload, LinkSource, MemoryId, Namespace, RelationName, Visibility};
+
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let a = MemoryId::generate();
+    let b = MemoryId::generate();
+    server
+        .control()
+        .seed_events(vec![
+            EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
+            EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
+            EventPayload::link_created(
+                a,
+                b,
+                RelationName::SameAs,
+                LinkSource::Operator,
+                None,
+                None,
+                Visibility::Public,
+            ),
+        ])
+        .unwrap();
+    let app = router(test_state(Arc::new(server)));
+
+    let post = |from: MemoryId, to: MemoryId| {
+        let body = serde_json::json!({ "from": from.0.to_string(), "to": to.0.to_string() });
+        Request::builder()
+            .extension(loopback())
+            .method("POST")
+            .uri("/control/unmerge")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+
+    // The first retraction removes the `same_as` edge.
+    let removed = app.clone().oneshot(post(a, b)).await.unwrap();
+    assert_eq!(removed.status(), StatusCode::NO_CONTENT);
+
+    // A second retraction finds nothing directly merged — 404.
+    let again = app.oneshot(post(a, b)).await.unwrap();
+    assert_eq!(again.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn snapshot_endpoint_writes_a_file_or_409s_when_disabled() {
     let born = || {
         let server =

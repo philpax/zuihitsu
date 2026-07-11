@@ -9,3 +9,5 @@ use {
 mod embedding_swap;
 #[cfg(test)]
 mod observability;
+#[cfg(test)]
+mod unmerge;

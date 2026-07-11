@@ -20,7 +20,9 @@ mod workers;
 pub use error::InstanceError;
 use session::{Carryover, OpenSession, RoutedTurn};
 
-pub use control::{Arbitration, Control, LuaConsoleOutcome, MergeProposal, ModelCall};
+pub use control::{
+    Arbitration, Control, LuaConsoleOutcome, MergeProposal, ModelCall, UnmergeOutcome,
+};
 pub use platform::{Platform, RosterResync};
 
 use std::{

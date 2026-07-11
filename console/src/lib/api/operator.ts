@@ -70,6 +70,24 @@ export async function resolveMerge(
   if (!response.ok) throw new Error(await errorMessage(response));
 }
 
+/// Retract an operator-asserted `same_as` merge — the undo of `resolveMerge`'s accept (spec
+/// §Cross-platform identity → operator-asserted merge). Removes the `same_as` edge between the two
+/// stubs, so their visibility classes split back apart on the next fold. The resulting `LinkRemoved`
+/// arrives through the live tail, so the derived proposal list re-derives on the next poll. Throws with
+/// the agent's reason on failure (a `404` when the pair is not directly merged — nothing to retract).
+export async function unmerge(
+  connection: LiveConnection,
+  from: MemoryId,
+  to: MemoryId,
+): Promise<void> {
+  const response = await fetch(`${connection.baseUrl}/control/unmerge`, {
+    method: "POST",
+    headers: authHeaders(connection),
+    body: JSON.stringify({ from, to }),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+}
+
 /// Write a graph snapshot now — the operator's take-one-before-an-experiment trigger. Returns the file
 /// written, or `null` when the graph was already checkpointed at its current head (nothing to do).
 /// Throws when snapshotting is disabled (the server answers `409`).

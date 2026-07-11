@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, EntryView, EnvConfig, Event,
     LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout,
-    SeedSelf, Seq, SessionView, Settings, TurnOutcome, genesis::GenesisStatus,
+    SeedSelf, Seq, SessionView, Settings, TurnOutcome, UnmergeOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
@@ -195,6 +195,34 @@ pub(super) async fn resolve_merge(
         .control()
         .resolve_merge(request.from, request.to, request.accept)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The body of a `POST /control/unmerge` — the two stubs of a merged pair (by memory id) whose
+/// `same_as` edge the operator retracts.
+#[derive(Deserialize)]
+pub(super) struct UnmergeRequest {
+    from: MemoryId,
+    to: MemoryId,
+}
+
+/// `POST /control/unmerge` — lift a wrong cross-platform merge in place: retract the operator-asserted
+/// `same_as` between the two stubs so their visibility classes split back apart (spec §Cross-platform
+/// identity → operator-asserted merge), the undo of `POST /control/merge`'s accept. Operator authority
+/// (the whole `/control` surface is key-gated); the two stubs ride as their memory ids. `404` when an id
+/// names no memory, or the pair is not directly merged — nothing to retract.
+pub(super) async fn unmerge(
+    State(state): State<AppState>,
+    Json(request): Json<UnmergeRequest>,
+) -> Result<StatusCode, ApiError> {
+    match state.server.control().unmerge(request.from, request.to)? {
+        UnmergeOutcome::Removed => Ok(StatusCode::NO_CONTENT),
+        UnmergeOutcome::UnknownMemory(id) => {
+            Err(ApiError::NotFound(format!("no memory with id {}", id.0)))
+        }
+        UnmergeOutcome::NotMerged => Err(ApiError::NotFound(
+            "the two memories share no direct same_as merge to retract".to_owned(),
+        )),
+    }
 }
 
 /// `GET /control/interactions` — the recorded model interactions, oldest first (the deliberation
