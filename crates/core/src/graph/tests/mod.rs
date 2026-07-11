@@ -12,6 +12,7 @@ use crate::{
 };
 
 mod describe;
+mod designation;
 mod merge;
 mod occurrence;
 mod participants;

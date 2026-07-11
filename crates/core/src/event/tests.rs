@@ -61,6 +61,34 @@ fn conversation_turn_without_a_brief_replays_as_none() {
     ));
 }
 
+#[test]
+fn class_primary_designation_without_the_flag_replays_as_a_pin() {
+    // The earliest shape carried only `memory` and meant "designate". A payload missing `designated`
+    // models such a log; the field's default must fill `true` so replay does not silently release the
+    // operator's pin (the bool `Default` would give `false`).
+    let mut value = serde_json::to_value(EventPayload::class_primary_designated(
+        MemoryId::generate(),
+        true,
+    ))
+    .unwrap();
+    value.as_object_mut().unwrap().remove("designated");
+    let replayed: EventPayload = serde_json::from_value(value).unwrap();
+    assert!(matches!(
+        replayed,
+        EventPayload::ClassPrimaryDesignated {
+            designated: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn class_primary_designation_round_trips_a_release() {
+    let event = EventPayload::class_primary_designated(MemoryId::generate(), false);
+    let json = serde_json::to_string(&event).unwrap();
+    assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+}
+
 fn content_with(occurred_at: Option<TemporalRef>) -> EventPayload {
     EventPayload::MemoryContentAppended {
         id: MemoryId::generate(),

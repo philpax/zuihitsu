@@ -36,10 +36,10 @@ use zuihitsu::{
 use auth::{require_control_key, require_platform_key};
 use console::{console, ensure_parent_dir, shutdown_signal};
 use control::{
-    arbitrations, create_agent, entries, env_config, events, genesis, health, imprint,
-    interactions, lua_api, memories, memory, merge_proposals, metrics, recurring, register_prompt,
-    resolve_merge, run_lua, sessions, set_settings, settings, snapshot as snapshot_handler,
-    unmerge,
+    arbitrations, create_agent, designate_primary, entries, env_config, events, genesis, health,
+    imprint, interactions, lua_api, memories, memory, merge_proposals, metrics, recurring,
+    register_prompt, resolve_merge, run_lua, sessions, set_settings, settings,
+    snapshot as snapshot_handler, unmerge,
 };
 use platform::{join, message, roster};
 
@@ -457,6 +457,7 @@ fn router(state: AppState) -> Router {
         .route("/merge-proposals", get(merge_proposals))
         .route("/merge", post(resolve_merge))
         .route("/unmerge", post(unmerge))
+        .route("/designate-primary", post(designate_primary))
         .route("/interactions", get(interactions))
         .route("/events", get(events))
         .route("/snapshot", post(snapshot_handler))

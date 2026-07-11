@@ -180,6 +180,21 @@ pub enum EventPayload {
         rationale: String,
         produced_by: Option<ProducedBy>,
     },
+    /// Records the operator's choice of a `same_as` class's primary stub — the id class-level facts and
+    /// reads resolve through. Without a designation the primary is derived by earliest ULID (whichever
+    /// stub was created first), which loses to a throwaway stub minted before the real handle was known.
+    /// A designation pins the operator's canonical stub instead: the recompute honours it over the ULID
+    /// rule for whatever component the stub is in, so the choice stays independent of the order merges
+    /// arrived in. `designated` is `true` to pin the stub and `false` to release it back to the ULID
+    /// rule; it defaults to `true` so a bare (fieldless) designation replays as a pin. The choice lives
+    /// on the memory, so it survives the stub's unmerge out of one class into another — it simply
+    /// governs whichever component the stub then belongs to — and a designation naming a stub outside a
+    /// component has no bearing on that component's primary.
+    ClassPrimaryDesignated {
+        memory: MemoryId,
+        #[serde(default = "designated_default")]
+        designated: bool,
+    },
     /// The link-inference pass's parsed result for one memory (spec §Write path → link inference):
     /// the new relations the model proposed and the links it identified, whether or not any were
     /// committed (a pass that found no relationships is as diagnostic as one that found the wrong
@@ -412,4 +427,11 @@ pub enum EventPayload {
         #[cfg_attr(feature = "ts", ts(type = "string"))]
         platform_user_id: SmolStr,
     },
+}
+
+/// A `ClassPrimaryDesignated` with no `designated` field is a pin: the only shape early on was the
+/// bare designation, so a fieldless payload replays as `true` rather than as the bool `Default`
+/// (`false`), which would silently release the operator's choice.
+fn designated_default() -> bool {
+    true
 }

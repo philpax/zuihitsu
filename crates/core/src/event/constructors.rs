@@ -219,6 +219,10 @@ impl EventPayload {
         EventPayload::LinkRemoved { from, to, relation }
     }
 
+    pub fn class_primary_designated(memory: MemoryId, designated: bool) -> EventPayload {
+        EventPayload::ClassPrimaryDesignated { memory, designated }
+    }
+
     pub fn prompt_template_registered(
         name: PromptTemplateName,
         version: u32,

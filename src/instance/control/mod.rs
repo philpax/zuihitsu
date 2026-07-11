@@ -90,6 +90,17 @@ pub enum UnmergeOutcome {
     NotMerged,
 }
 
+/// The outcome of an operator primary designation (`Control::designate_primary`): the stub was pinned
+/// (or released) as its `same_as` class's primary, or the request named no live memory. The console's
+/// lever for choosing which stub a merged class resolves through, over the earliest-ULID default.
+pub enum DesignateOutcome {
+    /// The designation was recorded and the graph re-materialized, so the class resolves through the
+    /// pinned stub (or falls back to earliest-ULID on a release) from the next read.
+    Designated,
+    /// The id does not resolve to a live memory, so there is nothing to designate.
+    UnknownMemory(MemoryId),
+}
+
 /// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
 /// adjudication key on the same canonical pair regardless of which stub each named first.
 pub(super) fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {

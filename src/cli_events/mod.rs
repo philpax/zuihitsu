@@ -373,6 +373,7 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         EventPayload::LinkCreated { .. }
         | EventPayload::LinkRemoved { .. }
         | EventPayload::LinkTypeRegistered { .. }
+        | EventPayload::ClassPrimaryDesignated { .. }
         | EventPayload::ParticipantIdentified { .. } => AnsiColor::Blue,
         // Tags and scheduling.
         EventPayload::TagCreated { .. }

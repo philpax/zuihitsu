@@ -100,15 +100,28 @@ impl Graph {
     }
 
     /// Recompute the denormalized `class_id` on every memory by union-find over the `same_as` edges,
-    /// setting each class's id to its **earliest member by ULID** — the primary stub. Run on every
-    /// `same_as` link change: a merge unions two classes, an unmerge re-splits the component, and a
-    /// whole recompute is correct for both without a local patch (trivial at personal-agent class
-    /// sizes). Operator-designated primaries are a later refinement.
+    /// setting each class's id to its primary stub. Run on every `same_as` link change and on every
+    /// primary designation: a merge unions two classes, an unmerge re-splits the component, and a whole
+    /// recompute is correct for all three without a local patch (trivial at personal-agent class sizes).
+    ///
+    /// The primary is the component's **earliest member by ULID** (ULIDs sort chronologically), unless
+    /// the operator has designated one — then it is the earliest-ULID **designated** member instead, so
+    /// the operator's canonical stub wins over a throwaway that merely predates it. Both rules are
+    /// order-independent: the whole component is examined, so the merge order that assembled it does not
+    /// bear on the outcome. A component with two designations falls back to the earliest-ULID designated
+    /// stub; a designation on a stub in another component has no bearing here, since only this
+    /// component's members are ranked.
     pub(super) fn recompute_classes(&self) -> Result<(), GraphError> {
-        let ids: Vec<String> =
-            query_map_into(self.conn.prepare("SELECT id FROM memories")?, [], |row| {
-                Ok::<_, GraphError>(row.get(0)?)
-            })?;
+        // `(id, designated)` for every memory — the flag decides the primary, so it rides the read.
+        let members: Vec<(String, bool)> = query_map_into(
+            self.conn
+                .prepare("SELECT id, designated_primary FROM memories")?,
+            [],
+            |row| {
+                let (id, designated): (String, i64) = row.try_into()?;
+                Ok::<_, GraphError>((id, designated != 0))
+            },
+        )?;
         let edges: Vec<(String, String)> = query_map_into(
             self.conn
                 .prepare("SELECT from_id, to_id FROM links WHERE relation = ?1")?,
@@ -116,8 +129,10 @@ impl Graph {
             |row| Ok::<(String, String), GraphError>(row.try_into()?),
         )?;
 
-        let mut parent: BTreeMap<String, String> =
-            ids.iter().map(|id| (id.clone(), id.clone())).collect();
+        let mut parent: BTreeMap<String, String> = members
+            .iter()
+            .map(|(id, _)| (id.clone(), id.clone()))
+            .collect();
         for (a, b) in &edges {
             let (ra, rb) = (find(&parent, a), find(&parent, b));
             if ra != rb {
@@ -125,20 +140,27 @@ impl Graph {
             }
         }
 
-        // Each component's class id is its earliest member by ULID (ULIDs sort chronologically).
-        let mut primary: BTreeMap<String, String> = BTreeMap::new();
-        for id in &ids {
+        // Rank each member by `(is_not_designated, id)` and keep the minimum per component: a designated
+        // member (rank `false`) beats an underived one (rank `true`), and ULID order breaks the tie —
+        // yielding the earliest-ULID designated member, or the earliest member overall when none is.
+        let mut primary: BTreeMap<String, (bool, &String)> = BTreeMap::new();
+        for (id, designated) in &members {
             let root = find(&parent, id);
-            let slot = primary.entry(root).or_insert_with(|| id.clone());
-            if id < slot {
-                *slot = id.clone();
-            }
+            let candidate = (!designated, id);
+            primary
+                .entry(root)
+                .and_modify(|best| {
+                    if candidate < *best {
+                        *best = candidate;
+                    }
+                })
+                .or_insert(candidate);
         }
-        for id in &ids {
+        for (id, _) in &members {
             self.conn
                 .execute(
                     "UPDATE memories SET class_id = ?1 WHERE id = ?2",
-                    params![primary[&find(&parent, id)], id],
+                    params![primary[&find(&parent, id)].1, id],
                 )
                 .map_err(backend)?;
         }

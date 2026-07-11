@@ -21,7 +21,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{super::InstanceError, LuaConsoleOutcome, UnmergeOutcome};
+use super::{super::InstanceError, DesignateOutcome, LuaConsoleOutcome, UnmergeOutcome};
 use crate::instance::session::RoutedTurn;
 
 impl super::Control<'_> {
@@ -300,5 +300,34 @@ impl super::Control<'_> {
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(UnmergeOutcome::Removed)
+    }
+
+    /// Designate (or release) a `same_as` class's primary stub — the id class-level facts and reads
+    /// resolve through (spec §Cross-platform identity). Without a designation the primary is the class's
+    /// earliest member by ULID, so a throwaway stub minted before the real handle wins by age; pinning
+    /// the operator's canonical stub overrides that. `designated` is `true` to pin and `false` to
+    /// release back to the earliest-ULID rule. The choice is recorded as a `ClassPrimaryDesignated` on
+    /// the memory, so it persists on the log and survives the stub's later unmerge into another class.
+    /// An id that names no live memory is refused (`UnknownMemory`) rather than authoring an inert event.
+    pub fn designate_primary(
+        &self,
+        memory: MemoryId,
+        designated: bool,
+    ) -> Result<DesignateOutcome, InstanceError> {
+        {
+            let graph = self.server.engine.graph.lock();
+            if graph.memory_by_id(memory)?.is_none() {
+                return Ok(DesignateOutcome::UnknownMemory(memory));
+            }
+        }
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
+            now,
+            vec![EventPayload::class_primary_designated(memory, designated)],
+        )?;
+        // Graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(DesignateOutcome::Designated)
     }
 }

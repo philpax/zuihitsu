@@ -79,6 +79,23 @@ impl Graph {
         class.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
     }
 
+    /// Whether the operator has pinned `id` as its `same_as` class's primary (spec §Cross-platform
+    /// identity). `false` for an unpinned, unknown, or soft-deleted memory. The pin lives on the stub
+    /// regardless of whether it currently wins its class, so a console can mark a designation the
+    /// earliest-ULID rule would otherwise mask.
+    pub fn is_primary_designated(&self, id: MemoryId) -> Result<bool, GraphError> {
+        let designated: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT designated_primary FROM memories WHERE id = ?1 AND deleted = 0",
+                params![id.0.to_string()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        Ok(designated == Some(1))
+    }
+
     /// The live members of `id`'s `same_as` class (including `id`), ordered by id. Empty if the
     /// memory is unknown or soft-deleted.
     pub fn class_members(&self, id: MemoryId) -> Result<Vec<MemoryId>, GraphError> {

@@ -299,6 +299,61 @@ async fn unmerge_endpoint_retracts_a_merge_then_404s_when_nothing_to_retract() {
 }
 
 #[tokio::test]
+async fn designate_primary_endpoint_pins_a_stub_then_404s_on_an_unknown_memory() {
+    use zuihitsu::{EventPayload, LinkSource, MemoryId, Namespace, RelationName, Visibility};
+
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let mut ids = [MemoryId::generate(), MemoryId::generate()];
+    ids.sort();
+    let (older, newer) = (ids[0], ids[1]);
+    server
+        .control()
+        .seed_events(vec![
+            EventPayload::memory_created(older, Namespace::Person.with_name("pat")),
+            EventPayload::memory_created(newer, Namespace::Person.with_name("patricia")),
+            EventPayload::link_created(
+                older,
+                newer,
+                RelationName::SameAs,
+                LinkSource::Operator,
+                None,
+                None,
+                Visibility::Public,
+            ),
+        ])
+        .unwrap();
+    let app = router(test_state(Arc::new(server)));
+
+    let post = |memory: MemoryId, designated: bool| {
+        let body = serde_json::json!({ "memory": memory.0.to_string(), "designated": designated });
+        Request::builder()
+            .extension(loopback())
+            .method("POST")
+            .uri("/control/designate-primary")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+
+    // Pinning the later-minted stub succeeds.
+    let pinned = app.clone().oneshot(post(newer, true)).await.unwrap();
+    assert_eq!(pinned.status(), StatusCode::NO_CONTENT);
+
+    // A designation naming no live memory is a 404.
+    let ghost = MemoryId::generate();
+    let missing = app.oneshot(post(ghost, true)).await.unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn snapshot_endpoint_writes_a_file_or_409s_when_disabled() {
     let born = || {
         let server =

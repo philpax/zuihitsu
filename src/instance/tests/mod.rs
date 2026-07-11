@@ -6,6 +6,8 @@ use {
 };
 
 #[cfg(test)]
+mod designation;
+#[cfg(test)]
 mod embedding_swap;
 #[cfg(test)]
 mod observability;

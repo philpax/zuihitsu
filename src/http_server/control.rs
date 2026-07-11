@@ -10,9 +10,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ApiEntry, Arbitration, BackendHealth, ConversationLocator, EntryView, EnvConfig, Event,
-    LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall, PromptTemplateName, Rollout,
-    SeedSelf, Seq, SessionView, Settings, TurnOutcome, UnmergeOutcome, genesis::GenesisStatus,
+    ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryView,
+    EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
+    PromptTemplateName, Rollout, SeedSelf, Seq, SessionView, Settings, TurnOutcome, UnmergeOutcome,
+    genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
@@ -222,6 +223,34 @@ pub(super) async fn unmerge(
         UnmergeOutcome::NotMerged => Err(ApiError::NotFound(
             "the two memories share no direct same_as merge to retract".to_owned(),
         )),
+    }
+}
+
+/// The body of a `POST /control/designate-primary` — the stub (by memory id) to pin as its `same_as`
+/// class's primary, and whether to pin it (`true`) or release it back to the earliest-ULID default
+/// (`false`).
+#[derive(Deserialize)]
+pub(super) struct DesignateRequest {
+    memory: MemoryId,
+    designated: bool,
+}
+
+/// `POST /control/designate-primary` — choose which stub a merged `same_as` class resolves through,
+/// overriding the earliest-ULID default (spec §Cross-platform identity). Operator authority (the whole
+/// `/control` surface is key-gated); the stub rides as its memory id. `404` when the id names no memory.
+pub(super) async fn designate_primary(
+    State(state): State<AppState>,
+    Json(request): Json<DesignateRequest>,
+) -> Result<StatusCode, ApiError> {
+    match state
+        .server
+        .control()
+        .designate_primary(request.memory, request.designated)?
+    {
+        DesignateOutcome::Designated => Ok(StatusCode::NO_CONTENT),
+        DesignateOutcome::UnknownMemory(id) => {
+            Err(ApiError::NotFound(format!("no memory with id {}", id.0)))
+        }
     }
 }
 
