@@ -5,7 +5,7 @@ use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
-    ids::{MemoryId, Namespace},
+    ids::{EntryId, MemoryId, Namespace},
     memory::memory_block::{LinkOptions, RelationSpec},
     store::{MemoryStore, Store},
     time::{Rrule, TemporalRef, Timestamp},
@@ -181,6 +181,170 @@ fn create_with_content_honors_the_exclude_opt() {
         })
         .unwrap();
     assert_eq!(visibility, Visibility::Exclude(vec![dave]));
+}
+
+#[test]
+fn exclude_beside_a_defaulted_open_seed_is_a_teachable_error() {
+    // The one-plain-copy leak, caught at its point of failure: a memory created with unclassified
+    // seed content (which lands Public on a non-person memory) may not take an exclude append in the
+    // same block — the open seed beside the guard undoes it. The agent reissues with the seed
+    // classified, or created bare.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let dave = MemoryId::generate();
+    let plan = block
+        .create(
+            Namespace::Topic.with_name("celebration"),
+            Some("planning the anniversary do"),
+        )
+        .unwrap();
+    let error = block
+        .append(
+            plan,
+            "it is a surprise — keep it from them",
+            AppendOptions {
+                exclude: Some(vec![dave]),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, MemoryError::UnguardedSeedBesideExclude),
+        "{error:?}"
+    );
+    assert!(
+        error.to_string().contains("create the memory bare"),
+        "the error should name the fix: {error}"
+    );
+}
+
+#[test]
+fn exclude_is_accepted_beside_a_deliberately_classified_seed() {
+    // The guard is scoped to the *unforced* default: a seed explicitly classified public is the
+    // agent's own call, a seed classified exclude is already guarded, and a bare create has no seed
+    // at all — all three take a same-block exclude append.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let dave = MemoryId::generate();
+    let exclude_opts = || AppendOptions {
+        exclude: Some(vec![dave]),
+        ..AppendOptions::default()
+    };
+
+    let deliberate = block
+        .create_with_opts(
+            Namespace::Topic.with_name("openly-public"),
+            Some("a stated public fact"),
+            Some(AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            }),
+        )
+        .unwrap();
+    block
+        .append(deliberate, "a guarded detail", exclude_opts())
+        .unwrap();
+
+    let guarded = block
+        .create_with_opts(
+            Namespace::Topic.with_name("guarded-seed"),
+            Some("a guarded seed"),
+            Some(exclude_opts()),
+        )
+        .unwrap();
+    block
+        .append(guarded, "another guarded detail", exclude_opts())
+        .unwrap();
+
+    let bare = block
+        .create(Namespace::Topic.with_name("bare"), None)
+        .unwrap();
+    block
+        .append(bare, "a guarded detail", exclude_opts())
+        .unwrap();
+}
+
+#[test]
+fn exclude_is_accepted_when_the_defaulted_seed_landed_private() {
+    // A participant's aside about another person defaults PrivateToTeller — not open — so a
+    // same-block exclude append is not a leak and passes.
+    let speaker = MemoryId::generate();
+    let dave = MemoryId::generate();
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Participant(speaker),
+        Authority::Platform,
+    );
+    let marcus = block
+        .create(
+            Namespace::Person.with_name("marcus"),
+            Some("mentioned in passing"),
+        )
+        .unwrap();
+    block
+        .append(
+            marcus,
+            "keep this from the named party",
+            AppendOptions {
+                exclude: Some(vec![dave]),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn exclude_is_accepted_on_a_previously_committed_memory() {
+    // The guard is same-block only: a memory whose seed committed in an earlier block is standing
+    // state, not this block's slip, so an exclude append to it passes. (The Public-copy hazard there
+    // is real but historical — rejecting the append would not remove the committed copy.)
+    let mut store = MemoryStore::new();
+    let plan = MemoryId::generate();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            vec![
+                EventPayload::memory_created(plan, Namespace::Topic.with_name("celebration")),
+                EventPayload::MemoryContentAppended {
+                    id: plan,
+                    entry_id: EntryId::generate(),
+                    asserted_at: Timestamp::from_millis(1_000),
+                    occurred_at: None,
+                    text: "planning the anniversary do".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ],
+        )
+        .unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+    let mut block = block(
+        graph,
+        ManualClock::new(Timestamp::from_millis(2_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    block
+        .append(
+            plan,
+            "it is a surprise — keep it from them",
+            AppendOptions {
+                exclude: Some(vec![MemoryId::generate()]),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
 }
 
 #[test]

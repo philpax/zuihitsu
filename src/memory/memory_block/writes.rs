@@ -1,7 +1,7 @@
 //! Content write operations: create, rename, append, supersede, revise, and set volatility.
 
 use crate::{
-    event::{EventPayload, Teller},
+    event::{EventPayload, Teller, Visibility},
     graph::GraphError,
     ids::{EntryId, MemoryId, MemoryName},
     time::TemporalRef,
@@ -50,9 +50,17 @@ impl MemoryBlock {
                     let mut opts = opts.unwrap_or_default();
                     let teller = entry_teller(&opts, &block.teller);
                     let forced = reconcile_forced_visibility(opts.visibility, opts.exclude.take())?;
+                    let unforced = forced.is_none();
                     let visibility =
                         block.resolve_visibility(Some(name.as_str()), id, &teller, forced)?;
                     Self::validate_occurred_at(opts.occurred_at.as_ref())?;
+                    // A seed that took the unforced default and landed open is remembered, so a
+                    // later exclude append to this memory in the same block fails teachably rather
+                    // than leaving the open copy beside the guard (see `open_default_seeds`).
+                    if unforced && matches!(visibility, Visibility::Public | Visibility::Attributed)
+                    {
+                        block.open_default_seeds.insert(id);
+                    }
                     Some((
                         text.to_owned(),
                         teller,
@@ -138,6 +146,13 @@ impl MemoryBlock {
         let forced = reconcile_forced_visibility(opts.visibility, opts.exclude.take())?;
         let visibility =
             self.resolve_visibility(name.as_ref().map(MemoryName::as_str), id, &told_by, forced)?;
+        // An exclude landing beside this block's own unguarded seed is the one-plain-copy leak: the
+        // seed took the unforced default and sits open, so the guard is undone the moment it
+        // commits. Caught here, at the point of failure, so the agent reissues the block with the
+        // seed classified too (or created bare) — no pre-teaching needed.
+        if matches!(visibility, Visibility::Exclude(_)) && self.open_default_seeds.contains(&id) {
+            return Err(MemoryError::UnguardedSeedBesideExclude);
+        }
         // Reject a recurrence the scheduler cannot interpret before it is buffered, rather than
         // committing a Recurring entry that silently never fires. Surfaced as a teachable error so the
         // agent reissues with a supported rule.

@@ -67,6 +67,13 @@ pub enum MemoryError {
     /// An `exclude` named no one — an empty list. An exclude withheld from nobody is just a confidence
     /// for its teller, so the write is rejected pointing at `visibility = "private"` for that case.
     ExcludeEmpty,
+    /// An `exclude` append targeted a memory whose same-block seed entry (the `create(name, content)`
+    /// argument) took the *unforced* write-time default and landed open. The open seed beside the
+    /// guard is the one plain copy that undoes it, so the append is rejected for the agent to reissue
+    /// the block with the seed classified too — or created bare, every detail under the guard. An
+    /// explicitly classified seed never trips this: a deliberate `visibility = "public"` is the
+    /// agent's own call.
+    UnguardedSeedBesideExclude,
     /// A `calendar.*` query was given an argument that does not parse — a malformed `within` duration
     /// or a non-`YYYY-MM-DD` date.
     BadCalendarArg(String),
@@ -171,6 +178,13 @@ impl std::fmt::Display for MemoryError {
                 "exclude must name at least one person to withhold this from — pass the handles or \
                  names, e.g. exclude = {{ \"person/dave\" }}; to keep it a plain confidence for its \
                  teller alone, use visibility = \"private\" instead"
+            ),
+            MemoryError::UnguardedSeedBesideExclude => write!(
+                f,
+                "this memory's creation content took the default visibility, so it would sit in the \
+                 open beside the excluded entry you are adding — one plain copy undoes the guard. \
+                 Reissue the block: create the memory bare and append every detail with exclude, or \
+                 classify the creation content explicitly in the create opts (visibility or exclude)"
             ),
             MemoryError::BadCalendarArg(arg) => write!(
                 f,

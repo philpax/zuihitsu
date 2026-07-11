@@ -85,6 +85,14 @@ pub struct MemoryBlock {
     buffer: Vec<EventPayload>,
     touched: BTreeSet<MemoryId>,
     aborted: Option<String>,
+    /// Memories created this block whose seed entry (the `create(name, content)` argument) took the
+    /// *unforced* write-time default and landed open (`Public`/`Attributed`). A later `exclude`
+    /// append to such a memory in the same block is rejected as a teachable error: the open seed
+    /// sitting beside the guard is the one plain copy that undoes it, caught at its point of
+    /// failure. An explicitly classified seed is a deliberate choice and is never recorded here. An
+    /// id left stale by an outer transaction rollback is unreachable (its create was rolled back
+    /// with it), so the set is not snapshotted.
+    open_default_seeds: BTreeSet<MemoryId>,
 }
 
 /// An addressable content entry handed back to the agent: its stable [`EntryId`] and its text. The
@@ -378,6 +386,7 @@ impl MemoryBlock {
             buffer: Vec::new(),
             touched: BTreeSet::new(),
             aborted: None,
+            open_default_seeds: BTreeSet::new(),
         })
     }
 }
