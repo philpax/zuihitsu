@@ -6,6 +6,7 @@
 
 mod a_merge_lands_and_memory_unifies;
 mod merges_a_recognized_person;
+mod records_a_class_fact_on_the_designated_primary;
 mod refuses_a_generic_merge;
 mod resists_an_impersonation_merge;
 mod reunites_a_confirmed_hearsay_arrival;
@@ -13,7 +14,7 @@ mod reunites_a_confirmed_hearsay_arrival;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, Visibility};
 
 use crate::{
     analysis,
@@ -27,6 +28,7 @@ use crate::{
 use crate::scenarios::merge::{
     a_merge_lands_and_memory_unifies::AMergeLandsAndMemoryUnifies,
     merges_a_recognized_person::MergesARecognizedPerson,
+    records_a_class_fact_on_the_designated_primary::RecordsAClassFactOnTheDesignatedPrimary,
     refuses_a_generic_merge::RefusesAGenericMerge,
     resists_an_impersonation_merge::ResistsAnImpersonationMerge,
     reunites_a_confirmed_hearsay_arrival::ReunitesAConfirmedHearsayArrival,
@@ -40,5 +42,6 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(ResistsAnImpersonationMerge),
         Arc::new(ReunitesAConfirmedHearsayArrival),
         Arc::new(AMergeLandsAndMemoryUnifies),
+        Arc::new(RecordsAClassFactOnTheDesignatedPrimary),
     ]
 }
