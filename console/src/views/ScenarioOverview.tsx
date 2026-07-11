@@ -2,6 +2,7 @@ import { Link, useOutletContext } from "react-router-dom";
 
 import type { ScenarioReport } from "../types/ScenarioReport.ts";
 import { type EvalContext, activeScenarios, liveRunOf } from "../lib/api/liveEval.ts";
+import { groupScenariosByCategory } from "../lib/model/scenarioGroups.ts";
 import { formatMs, formatRate, formatTokenSplit } from "../lib/format/format.ts";
 import { runPath } from "../lib/nav/routes.ts";
 import { Dot } from "../components/primitives.tsx";
@@ -53,18 +54,26 @@ export function ScenarioOverview() {
         </span>
       </div>
 
-      <ul>
-        {pkg.scenarios.map((scenario, index) => (
-          <ScenarioRow
-            key={scenario.meta.name}
-            scenario={scenario}
-            runsPlanned={runsPlanned}
-            active={active.has(index)}
-            liveRun={liveRunOf(liveRuns, index)}
-            isLive={isLive}
-          />
-        ))}
-      </ul>
+      {groupScenariosByCategory(pkg.scenarios).map((group) => (
+        <section key={group.category} className="mb-8 last:mb-0">
+          <h3 className="mb-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            {group.category}
+            <span className="ml-2 normal-case tracking-normal">· {group.entries.length}</span>
+          </h3>
+          <ul>
+            {group.entries.map(({ scenario, index }) => (
+              <ScenarioRow
+                key={scenario.meta.name}
+                scenario={scenario}
+                runsPlanned={runsPlanned}
+                active={active.has(index)}
+                liveRun={liveRunOf(liveRuns, index)}
+                isLive={isLive}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
     </main>
   );
 }
@@ -127,9 +136,6 @@ function ScenarioRow({
             // Not started: the name stays put, quietly, until a run lands or one begins driving.
             <span className="font-mono text-sm text-ink-soft">{meta.name}</span>
           )}
-          <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
-            {meta.category}
-          </span>
           {showRuns && (
             <span className="flex items-baseline gap-1.5">
               {scenario.runs.map((run) => (

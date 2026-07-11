@@ -6,6 +6,7 @@ import type { Event } from "../../types/Event.ts";
 import { type EvalContext, liveRunOf, runningKey } from "../../lib/api/liveEval.ts";
 import { type ReplicaState, useReplica } from "../../lib/replica/useReplica.ts";
 import { runBase, runPath } from "../../lib/nav/routes.ts";
+import { groupScenariosByCategory } from "../../lib/model/scenarioGroups.ts";
 import { useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
 import { STREAM_VIEWS } from "../../lib/nav/streamViews.ts";
 import { formatMs, formatRate, formatTokens, formatTokenSplit } from "../../lib/format/format.ts";
@@ -133,81 +134,91 @@ function ScenarioRail({
       <div className="sticky top-4 flex flex-col">
         <Eyebrow>scenarios</Eyebrow>
         <nav className="mt-3 flex flex-col gap-0.5">
-          {pkg.scenarios.map((entry, index) => {
-            const isActive = entry.meta.name === active;
-            const liveIndex = liveRunOf(liveRuns, index);
-            const completed = entry.runs.length;
-            const first = entry.runs[0];
-            // Open the first completed run, or — if none has landed — the one driving live.
-            const openRun = first ? first.index : liveIndex;
-            // Ongoing: a run is driving now, or the scenario is part-way through its planned runs on a
-            // live eval. Its rate is provisional, so the row shows progress, not a percentage.
-            const ongoing = liveIndex !== null || (completed > 0 && completed < runsPlanned);
-            const tint = isActive
-              ? "border-clay text-ink"
-              : "border-transparent text-ink-soft hover:text-ink";
-            const rowClass =
-              "-ml-3 flex min-w-0 items-baseline justify-between gap-1.5 border-l-2 py-1 pl-2.5 font-mono text-2xs transition-colors " +
-              tint;
-            const status = ongoing ? (
-              // The working pulse is the console's established in-flight cue (sage); the tally itself
-              // stays neutral ink-faint so it never reads as a point on the clay→sage rate scale.
-              // items-baseline with the dot self-centered: the dot is a baseline-less box, so left to
-              // lead the flex line it would drag the tally off the scenario name's baseline.
-              <span className="flex shrink-0 items-baseline gap-1 text-ink-faint" title="running">
-                <span className="relative flex h-1 w-1 self-center">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
-                  <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
-                </span>
-                <span>
-                  {completed}/{runsPlanned}
-                </span>
+          {groupScenariosByCategory(pkg.scenarios).map((group) => (
+            <div key={group.category} className="mb-2 flex flex-col gap-0.5 last:mb-0">
+              <span className="pt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+                {group.category}
               </span>
-            ) : completed > 0 ? (
-              <span className="flex shrink-0 items-baseline gap-1">
-                {(() => {
-                  const warmth = eventsWarmth(entry.runs.flatMap((run) => run.events));
-                  return warmth.median !== null && warmth.median < 0.9 ? (
-                    <span
-                      className="text-clay"
-                      title={`median cache warmth ${Math.round(warmth.median * 100)}% — this scenario thrashes the prefix cache`}
-                    >
-                      {Math.round(warmth.median * 100)}%↻
+              {group.entries.map(({ scenario: entry, index }) => {
+                const isActive = entry.meta.name === active;
+                const liveIndex = liveRunOf(liveRuns, index);
+                const completed = entry.runs.length;
+                const first = entry.runs[0];
+                // Open the first completed run, or — if none has landed — the one driving live.
+                const openRun = first ? first.index : liveIndex;
+                // Ongoing: a run is driving now, or the scenario is part-way through its planned runs on a
+                // live eval. Its rate is provisional, so the row shows progress, not a percentage.
+                const ongoing = liveIndex !== null || (completed > 0 && completed < runsPlanned);
+                const tint = isActive
+                  ? "border-clay text-ink"
+                  : "border-transparent text-ink-soft hover:text-ink";
+                const rowClass =
+                  "-ml-3 flex min-w-0 items-baseline justify-between gap-1.5 border-l-2 py-1 pl-2.5 font-mono text-2xs transition-colors " +
+                  tint;
+                const status = ongoing ? (
+                  // The working pulse is the console's established in-flight cue (sage); the tally itself
+                  // stays neutral ink-faint so it never reads as a point on the clay→sage rate scale.
+                  // items-baseline with the dot self-centered: the dot is a baseline-less box, so left to
+                  // lead the flex line it would drag the tally off the scenario name's baseline.
+                  <span
+                    className="flex shrink-0 items-baseline gap-1 text-ink-faint"
+                    title="running"
+                  >
+                    <span className="relative flex h-1 w-1 self-center">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
+                      <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
                     </span>
-                  ) : null;
-                })()}
-                {!held(entry) && (
-                  <span className="text-clay" title="gate regressed">
-                    ●
+                    <span>
+                      {completed}/{runsPlanned}
+                    </span>
                   </span>
-                )}
-                <span style={{ color: rateColor(entry.aggregate.rate) }} title="success rate">
-                  {formatRate(entry.aggregate.rate)}
-                </span>
-              </span>
-            ) : null;
-            // Not started and not driving: a quiet, non-clickable row until a run lands or begins.
-            return openRun !== null ? (
-              <Link
-                key={entry.meta.name}
-                to={runPath(entry.meta.name, openRun, view)}
-                title={entry.meta.name}
-                className={rowClass}
-              >
-                <span className="truncate">{entry.meta.name}</span>
-                {status}
-              </Link>
-            ) : (
-              <span
-                key={entry.meta.name}
-                title={entry.meta.name}
-                className={rowClass + " opacity-60"}
-              >
-                <span className="truncate">{entry.meta.name}</span>
-                {status}
-              </span>
-            );
-          })}
+                ) : completed > 0 ? (
+                  <span className="flex shrink-0 items-baseline gap-1">
+                    {(() => {
+                      const warmth = eventsWarmth(entry.runs.flatMap((run) => run.events));
+                      return warmth.median !== null && warmth.median < 0.9 ? (
+                        <span
+                          className="text-clay"
+                          title={`median cache warmth ${Math.round(warmth.median * 100)}% — this scenario thrashes the prefix cache`}
+                        >
+                          {Math.round(warmth.median * 100)}%↻
+                        </span>
+                      ) : null;
+                    })()}
+                    {!held(entry) && (
+                      <span className="text-clay" title="gate regressed">
+                        ●
+                      </span>
+                    )}
+                    <span style={{ color: rateColor(entry.aggregate.rate) }} title="success rate">
+                      {formatRate(entry.aggregate.rate)}
+                    </span>
+                  </span>
+                ) : null;
+                // Not started and not driving: a quiet, non-clickable row until a run lands or begins.
+                return openRun !== null ? (
+                  <Link
+                    key={entry.meta.name}
+                    to={runPath(entry.meta.name, openRun, view)}
+                    title={entry.meta.name}
+                    className={rowClass}
+                  >
+                    <span className="truncate">{entry.meta.name}</span>
+                    {status}
+                  </Link>
+                ) : (
+                  <span
+                    key={entry.meta.name}
+                    title={entry.meta.name}
+                    className={rowClass + " opacity-60"}
+                  >
+                    <span className="truncate">{entry.meta.name}</span>
+                    {status}
+                  </span>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </div>
     </aside>
