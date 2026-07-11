@@ -82,6 +82,21 @@ impl EvalStep {
     pub fn imprint(text: impl Into<String>) -> EvalStep {
         EvalStep::Imprint { text: text.into() }
     }
+
+    /// Whether performing this step routes an inbound and runs the agent's model-driven turn loop —
+    /// the steps that unconditionally issue at least one generation. Only [`EvalStep::Turn`] and
+    /// [`EvalStep::Imprint`] qualify; the catch-up, seeding, and tuning steps never call the
+    /// conversational model. [`EvalStep::ForceCompaction`] is deliberately excluded even though its
+    /// flush can call the model: the flush is a no-op when no `Flush` template is registered, so a
+    /// forced compaction may legitimately record no calls, and counting it here would let the
+    /// infra-failure detector mistake that no-op for an outage.
+    ///
+    /// The [`infra_failed`](crate::live::infra_failed) detector reads this to tell a run whose every
+    /// turn deferred (the model backend was unreachable) from a scenario that legitimately never calls
+    /// the model at all.
+    pub(crate) fn drives_model(&self) -> bool {
+        matches!(self, EvalStep::Turn(_) | EvalStep::Imprint { .. })
+    }
 }
 
 /// One inbound participant message — the payload of [`EvalStep::Turn`], carrying the arguments
