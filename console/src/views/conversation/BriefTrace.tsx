@@ -48,13 +48,14 @@ function Section({ section }: { section: BriefSectionTrace }) {
 function EntryRow({ entry }: { entry: EntryTrace }) {
   const names = useContext(Names);
   const { visible, reason } = decisionInfo(entry.decision);
-  // Three fates: surfaced, visible-but-trimmed by the recency window, or filtered by the predicate.
+  // Three fates: surfaced, visible-but-trimmed to fit the brief (by the recency window or the char
+  // budget collapsing its block), or filtered by the predicate.
   const tone = entry.in_brief ? "in" : visible ? "trimmed" : "filtered";
   const fate =
     tone === "in"
       ? `surfaced · ${reason}`
       : tone === "trimmed"
-        ? `cut by the recency window · ${reason}`
+        ? `cut to fit the brief · ${reason}`
         : `filtered · ${reason}`;
 
   return (

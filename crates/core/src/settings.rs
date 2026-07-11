@@ -106,12 +106,20 @@ pub fn compaction_budget_for(context_length: u32) -> i64 {
 #[serde(default)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefSettings {
-    /// Token budget for composing each brief.
+    /// Character budget for a composed session brief. The composer packs blocks by priority until this
+    /// is spent: the self and current-room blocks always render, then present-participant blocks in
+    /// rank order, each dropping to a name-only line once the budget can no longer afford it, so a
+    /// populous room cannot produce an unbounded brief. `0` disables everything but the mandatory
+    /// blocks.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
-    pub token_budget: i64,
+    pub char_budget: i64,
     /// How many recent facts the brief includes.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub recent_facts: i64,
+    /// How many key relationships each brief block includes, after ranking them by type-weight and
+    /// recency (a hub memory's edges are ranked and capped rather than all listed).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub key_relationships: i64,
     /// The most entries in the brief's present set.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub present_set_cap: i64,
@@ -272,8 +280,9 @@ impl Default for CheckpointSettings {
 impl Default for BriefSettings {
     fn default() -> Self {
         BriefSettings {
-            token_budget: 2_000,
+            char_budget: 8_000,
             recent_facts: 8,
+            key_relationships: 8,
             present_set_cap: 10,
             upcoming_window_days: 7,
             max_upcoming_items: 5,
@@ -374,7 +383,7 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureLevel, CheckpointSettings, ConcurrencySettings, MemorySettings,
+        BriefSettings, CaptureLevel, CheckpointSettings, ConcurrencySettings, MemorySettings,
         ObservabilitySettings, SchedulerSettings, Settings, TurnSettings,
     };
 
@@ -445,5 +454,19 @@ mod tests {
     fn memory_defaults_match_the_spec_starting_values() {
         let memory = MemorySettings::default();
         assert_eq!(memory.max_entry_chars, 1_000);
+    }
+
+    #[test]
+    fn a_brief_snapshot_with_the_retired_token_budget_adopts_the_char_budget_default() {
+        // The dead `token_budget` knob was replaced by an enforced `char_budget`. An older `ConfigSet`
+        // snapshot still carries `token_budget`; the unknown key is ignored, and the absent
+        // `char_budget` deserializes to its build default rather than failing.
+        let legacy = serde_json::json!({ "brief": { "token_budget": 2_000, "recent_facts": 5 } });
+        let settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.brief.recent_facts, 5);
+        assert_eq!(
+            settings.brief.char_budget,
+            BriefSettings::default().char_budget
+        );
     }
 }

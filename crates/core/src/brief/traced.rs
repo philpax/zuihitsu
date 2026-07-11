@@ -9,7 +9,7 @@ use crate::{
     vocabulary::TagName,
 };
 
-use super::{BriefError, BriefRequest, compose, helpers::ranked_present};
+use super::{BriefError, BriefRequest, compose_packed, helpers::ranked_present};
 
 /// The composed brief plus its derivation: every memory the composer considered and, for each of
 /// their entries, the visibility verdict and whether it reached the brief. Re-derived (not stored),
@@ -65,11 +65,15 @@ pub fn compose_traced(
     settings: &BriefSettings,
     request: &BriefRequest,
 ) -> Result<BriefTrace, BriefError> {
-    let text = compose(graph, settings, request)?;
+    let packed = compose_packed(graph, settings, request)?;
+    let plan = &packed.plan;
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
     let recent = settings.recent_facts.max(0) as usize;
     let mut sections = Vec::new();
 
+    // The self and current-room blocks are mandatory, so a surviving windowed entry always surfaces;
+    // a participant or thread block surfaces its entries only when the budget admitted it as a full
+    // block (an unadmitted one collapsed to name-only or dropped, so nothing on it reached the brief).
     if let Some(self_memory) = graph.self_memory()? {
         sections.push(section_trace(
             graph,
@@ -78,6 +82,7 @@ pub fn compose_traced(
             &class_of,
             recent,
             SectionKind::SelfBrief,
+            true,
         )?);
     }
 
@@ -91,6 +96,7 @@ pub fn compose_traced(
             &class_of,
             recent,
             SectionKind::CurrentRoom,
+            true,
         )?;
         section.confidential = context.tags.contains(&TagName::Confidential);
         sections.push(section);
@@ -105,6 +111,7 @@ pub fn compose_traced(
                 &class_of,
                 recent,
                 SectionKind::Participant,
+                plan.full_participants.contains(&participant),
             )?);
         }
     }
@@ -125,13 +132,20 @@ pub fn compose_traced(
                 &class_of,
                 recent,
                 SectionKind::ActiveThread,
+                plan.included_threads.contains(&id),
             )?);
         }
     }
 
-    Ok(BriefTrace { text, sections })
+    Ok(BriefTrace {
+        text: packed.text,
+        sections,
+    })
 }
 
+/// Trace one memory's contribution. `surfaced` is whether the char budget admitted this block as a
+/// full block: only then can a windowed entry be marked `in_brief`, since a block the budget did not
+/// admit contributed nothing to the brief text.
 fn section_trace(
     graph: &Graph,
     memory: &MemoryView,
@@ -139,6 +153,7 @@ fn section_trace(
     class_of: &ClassOf,
     recent: usize,
     kind: SectionKind,
+    surfaced: bool,
 ) -> Result<BriefSectionTrace, BriefError> {
     let mut entries = Vec::new();
     let mut visible_positions = Vec::new();
@@ -154,9 +169,11 @@ fn section_trace(
             in_brief: false,
         });
     }
-    let keep_from = visible_positions.len().saturating_sub(recent);
-    for &position in &visible_positions[keep_from..] {
-        entries[position].in_brief = true;
+    if surfaced {
+        let keep_from = visible_positions.len().saturating_sub(recent);
+        for &position in &visible_positions[keep_from..] {
+            entries[position].in_brief = true;
+        }
     }
     Ok(BriefSectionTrace {
         kind,
