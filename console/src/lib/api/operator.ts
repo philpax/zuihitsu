@@ -88,6 +88,25 @@ export async function unmerge(
   if (!response.ok) throw new Error(await errorMessage(response));
 }
 
+/// Designate (or release) a `same_as` class's primary stub — the id class-level facts and reads resolve
+/// through (spec §Cross-platform identity). Passing `designated` `true` pins the stub over the
+/// earliest-ULID default, so a canonical handle wins over a throwaway that merely predates it; `false`
+/// releases the pin. The resulting `ClassPrimaryDesignated` arrives through the live tail, so the derived
+/// proposal list re-derives on the next poll. Throws with the agent's reason on failure (a `404` when the
+/// id names no memory).
+export async function designatePrimary(
+  connection: LiveConnection,
+  memory: MemoryId,
+  designated: boolean,
+): Promise<void> {
+  const response = await fetch(`${connection.baseUrl}/control/designate-primary`, {
+    method: "POST",
+    headers: authHeaders(connection),
+    body: JSON.stringify({ memory, designated }),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+}
+
 /// Write a graph snapshot now — the operator's take-one-before-an-experiment trigger. Returns the file
 /// written, or `null` when the graph was already checkpointed at its current head (nothing to do).
 /// Throws when snapshotting is disabled (the server answers `409`).

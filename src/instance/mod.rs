@@ -21,7 +21,8 @@ pub use error::InstanceError;
 use session::{Carryover, OpenSession, RoutedTurn};
 
 pub use control::{
-    Arbitration, Control, LuaConsoleOutcome, MergeProposal, ModelCall, UnmergeOutcome,
+    Arbitration, Control, DesignateOutcome, LuaConsoleOutcome, MergeProposal, ModelCall,
+    UnmergeOutcome,
 };
 pub use platform::{Platform, RosterResync};
 

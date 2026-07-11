@@ -19,6 +19,7 @@ impl EventPayload {
             EventPayload::BeliefArbitrated { .. } => "BeliefArbitrated",
             EventPayload::MergeProposed { .. } => "MergeProposed",
             EventPayload::MergeAdjudicated { .. } => "MergeAdjudicated",
+            EventPayload::ClassPrimaryDesignated { .. } => "ClassPrimaryDesignated",
             EventPayload::LinksInferred { .. } => "LinksInferred",
             EventPayload::DescribePassCompleted { .. } => "DescribePassCompleted",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
@@ -73,6 +74,7 @@ impl EventPayload {
             | EventPayload::BeliefArbitrated { memory: id, .. }
             | EventPayload::MergeProposed { from: id, .. }
             | EventPayload::MergeAdjudicated { from: id, .. }
+            | EventPayload::ClassPrimaryDesignated { memory: id, .. }
             | EventPayload::LinksInferred { memory: id, .. }
             | EventPayload::MemoryVolatilitySet { id, .. }
             | EventPayload::ScheduledJobFired { memory: id, .. }

@@ -255,6 +255,18 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::ClassPrimaryDesignated { memory, designated } => {
+                // The flag lives on the memory, so it travels with the stub across a later unmerge and
+                // is inert while the stub names no live memory. Recompute the classes so the pin (or its
+                // release) takes effect on this read, the same whole recompute a `same_as` change runs.
+                self.conn
+                    .execute(
+                        "UPDATE memories SET designated_primary = ?1 WHERE id = ?2",
+                        params![i64::from(*designated), memory.0.to_string()],
+                    )
+                    .map_err(backend)?;
+                self.recompute_classes()?;
+            }
             _ => return Ok(false),
         }
         Ok(true)

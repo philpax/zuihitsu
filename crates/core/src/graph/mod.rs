@@ -282,6 +282,10 @@ impl Graph {
                  deleted     INTEGER NOT NULL DEFAULT 0,
                  created_at  INTEGER NOT NULL,
                  class_id    TEXT    NOT NULL DEFAULT '',
+                 -- Whether the operator has pinned this stub as its `same_as` class's primary. When any
+                 -- member of a component carries the flag, recompute_classes resolves the class id to
+                 -- the earliest-ULID designated member rather than the earliest member overall.
+                 designated_primary INTEGER NOT NULL DEFAULT 0,
                  -- The describer's per-memory watermarks: the seq of the memory's latest content
                  -- change, and the seq of the describer pass that last considered it. A memory is
                  -- stale — needs (re)describing — exactly while last_content_seq > last_described_seq.

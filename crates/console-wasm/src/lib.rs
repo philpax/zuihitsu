@@ -236,8 +236,8 @@ impl Replica {
         for (from, to) in order {
             let pair = canonical_pair(from, to);
             let from_class = self.graph.class_id(from).map_err(graph_error)?;
-            let merged = from_class.is_some()
-                && from_class == self.graph.class_id(to).map_err(graph_error)?;
+            let to_class = self.graph.class_id(to).map_err(graph_error)?;
+            let merged = from_class.is_some() && from_class == to_class;
             let status = if merged {
                 MergeStatus::Merged
             } else if refused.contains(&pair) {
@@ -253,6 +253,14 @@ impl Replica {
                 source: source[&pair],
                 rationale: rationale[&pair].clone(),
                 status,
+                // A stub is its class's primary when the class id resolves to itself.
+                from_primary: from_class == Some(from),
+                to_primary: to_class == Some(to),
+                from_designated: self
+                    .graph
+                    .is_primary_designated(from)
+                    .map_err(graph_error)?,
+                to_designated: self.graph.is_primary_designated(to).map_err(graph_error)?,
             });
         }
         to_js(&out)

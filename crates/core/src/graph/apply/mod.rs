@@ -111,7 +111,8 @@ impl Graph {
             | EventPayload::ScheduledJobFired { .. }
             | EventPayload::ScheduledItemSurfaced { .. }
             | EventPayload::MemoryDescriptionRegenerated { .. }
-            | EventPayload::MemoryVolatilitySet { .. } => {
+            | EventPayload::MemoryVolatilitySet { .. }
+            | EventPayload::ClassPrimaryDesignated { .. } => {
                 self.apply_memory_event(event)?;
             }
             EventPayload::TagCreated { name, description } => {

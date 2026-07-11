@@ -37,6 +37,16 @@ pub struct MergeProposalView {
     /// an orchestration handle match or a `same_as`-via-link, which carry no rationale.
     pub rationale: Option<String>,
     pub status: MergeStatus,
+    /// Whether each stub is currently its `same_as` class's primary — the id class-level reads resolve
+    /// through — so the view marks the canonical stub. Once merged exactly one of a pair is primary,
+    /// unless a third, older member holds the class, in which case neither is.
+    pub from_primary: bool,
+    pub to_primary: bool,
+    /// Whether the operator has pinned each stub as its class's primary (`ClassPrimaryDesignated`), as
+    /// opposed to it winning by the earliest-ULID default. The view offers a pinned stub a release and
+    /// an unpinned, non-primary stub a designation.
+    pub from_designated: bool,
+    pub to_designated: bool,
 }
 
 /// Where a merge proposal stands at the current fold horizon: still awaiting a decision, merged (the two
