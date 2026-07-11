@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     event::{MergeProposalSource, ModelPhase, RequestRecord},
-    ids::{ConversationId, MemoryId, MemoryName, Seq, TurnId},
+    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, TurnId},
     model::{Completion, Usage},
     time::Timestamp,
 };
@@ -99,6 +99,26 @@ pub enum DesignateOutcome {
     Designated,
     /// The id does not resolve to a live memory, so there is nothing to designate.
     UnknownMemory(MemoryId),
+}
+
+/// The outcome of an operator `self` edit ([`Control::edit_self`]): the entry the write appended, or the
+/// reason the request named nothing writable. The console-direct counterpart to the imprint interview —
+/// the operator editing the agent's own profile under operator authority (spec §Imprint interview → the
+/// operator owns `self`), the same authority that lets the console edit the scaffold and settings.
+#[derive(Debug)]
+pub enum SelfEditOutcome {
+    /// The edit applied: the new charter entry (the replacement, when the edit superseded a prior
+    /// entry, which then drops from every live surface while remaining in history). The graph was
+    /// re-materialized, so `self` reads the new state on the next read.
+    Applied(EntryId),
+    /// The agent has no `self` yet — genesis has not run — so there is nothing to edit.
+    NotBorn,
+    /// The edit carried no text (empty or whitespace only); a `self` entry must have content.
+    EmptyText,
+    /// `supersedes` named an entry that is not a live entry of `self`, so there is nothing to replace.
+    UnknownEntry(EntryId),
+    /// The text exceeds the per-entry character limit; the operator shortens it and retries.
+    TooLong { length: usize, limit: usize },
 }
 
 /// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its

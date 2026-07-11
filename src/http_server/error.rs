@@ -11,6 +11,9 @@ use zuihitsu::ServerError;
 pub(super) enum ApiError {
     Server(ServerError),
     NotFound(String),
+    /// A request the handler rejected on its own terms — malformed or out-of-range operator input the
+    /// axum extractor could not catch (e.g. an empty or over-long `self` edit).
+    BadRequest(String),
     /// A conversing endpoint was called but no model is configured.
     NoModel,
     /// The snapshot endpoint was called but snapshotting is disabled (`[snapshots] enabled = false`).
@@ -33,6 +36,7 @@ impl IntoResponse for ApiError {
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
             }
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
+            ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             ApiError::NoModel => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "no model endpoint is configured".to_owned(),

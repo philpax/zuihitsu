@@ -396,3 +396,80 @@ async fn snapshot_endpoint_writes_a_file_or_409s_when_disabled() {
     let response = app.oneshot(post()).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn self_edit_endpoint_appends_revises_and_validates() {
+    // A born agent whose `self` carries only its seeded persona entry.
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "A discreet companion with a long memory.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let app = router(test_state(Arc::new(server)));
+
+    let edit = |body: serde_json::Value| {
+        app.clone().oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("POST")
+                .uri("/control/self")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+    };
+
+    // An append returns 200 and the new entry id.
+    let appended = edit(serde_json::json!({ "text": "I keep Marcus's memory." }))
+        .await
+        .unwrap();
+    assert_eq!(appended.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(appended.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let appended_id = value["entry_id"].as_str().unwrap().to_owned();
+    assert!(!appended_id.is_empty(), "the response names the new entry");
+
+    // The seeded persona entry's id, read back through the entries endpoint, to revise it.
+    let entries = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .uri("/control/entries?name=self")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(entries.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+    let persona_id = entries[0]["entry_id"].as_str().unwrap().to_owned();
+
+    // A revision (supersedes the persona entry) returns 200.
+    let revised = edit(serde_json::json!({
+        "text": "A discreet companion who keeps Marcus's memory.",
+        "supersedes": persona_id,
+    }))
+    .await
+    .unwrap();
+    assert_eq!(revised.status(), StatusCode::OK);
+
+    // An empty edit is a 400.
+    let empty = edit(serde_json::json!({ "text": "   " })).await.unwrap();
+    assert_eq!(empty.status(), StatusCode::BAD_REQUEST);
+
+    // Superseding an unknown entry is a 404.
+    let ghost = zuihitsu::EntryId::generate();
+    let unknown = edit(serde_json::json!({ "text": "replacement", "supersedes": ghost }))
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+}
