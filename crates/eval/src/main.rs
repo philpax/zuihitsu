@@ -73,6 +73,16 @@ enum Command {
         /// runs it does not already hold. Ignored if no sidecar is present.
         #[arg(long)]
         resume: bool,
+        /// With `--resume`, also re-drive the completed runs bearing the infrastructure-failure
+        /// signature — the model backend was unreachable for the run's whole life, so every turn
+        /// deferred and no reply was produced — replacing each poisoned record in the package rather
+        /// than keeping it. The signature is detected structurally from the recorded journal and
+        /// metrics, never from an error string. Oracle-failed runs — whose turns all ran but whose
+        /// verdicts missed — are legitimate data and are never retried, since redoing them would bias
+        /// the suite's rates toward passing. Works on both an interrupted sidecar and a
+        /// finished-but-poisoned one; a heal that finds nothing to re-drive is a clean no-op.
+        #[arg(long, requires = "resume")]
+        retry_infra_failed: bool,
         /// Serve the run live over SSE for the console to watch — the scoreboard fills in as runs
         /// complete. On by default at `127.0.0.1:7878`; pass an address to bind somewhere else.
         /// Serving stops when the run finishes unless `--serve-after-completion` is set.
@@ -248,6 +258,7 @@ async fn main() -> ExitCode {
             name,
             config,
             resume,
+            retry_infra_failed,
             serve,
             no_serve,
             serve_after_completion,
@@ -257,7 +268,10 @@ async fn main() -> ExitCode {
             scenario.as_deref(),
             &name,
             &config,
-            resume,
+            run::Resume {
+                enabled: resume,
+                retry_infra_failed,
+            },
             run::resolve_serve(serve, no_serve, serve_after_completion),
         )
         .await

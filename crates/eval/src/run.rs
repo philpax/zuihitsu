@@ -12,6 +12,35 @@ use crate::{
     retry::{RetryingEmbedder, RetryingModel},
 };
 
+/// Log which completed runs `--retry-infra-failed` will re-drive, naming each by its scenario so the
+/// operator can see what the heal touches. A clean no-op — the flag set but nothing poisoned — says so
+/// explicitly, since a finished-but-healthy sidecar is a legitimate resume target.
+fn report_infra_retries(enabled: bool, retried: &[(u32, u32)], scenarios: &[ScenarioMeta]) {
+    if !enabled {
+        return;
+    }
+    if retried.is_empty() {
+        tracing::info!(
+            "no infra-failed runs to heal; every completed run reached the model — resuming only the \
+             runs still missing"
+        );
+        return;
+    }
+    for (scenario, run) in retried {
+        let name = scenarios
+            .get(*scenario as usize)
+            .map(|meta| meta.name.as_str())
+            .unwrap_or("<unknown>");
+        tracing::warn!(
+            scenario = name,
+            run,
+            "re-driving an infra-failed run: the model backend was unreachable for its whole life, so \
+             its record will be superseded"
+        );
+    }
+    tracing::info!(count = retried.len(), "re-driving infra-failed runs");
+}
+
 /// The directory every eval run is filed under — kept together so runs are findable rather than
 /// scattered to arbitrary paths (or `/tmp`, where they are lost to GC). Gitignored; only the small
 /// `history.jsonl` trend record is tracked.
@@ -57,7 +86,7 @@ pub(crate) async fn run_named(
     filter: Option<&str>,
     name: &str,
     config_path: &Path,
-    resume: bool,
+    resume: Resume,
     serve: ServeConfig,
 ) -> Result<bool, EvalError> {
     if name.is_empty()
@@ -82,6 +111,16 @@ pub(crate) async fn run_named(
     .await
 }
 
+/// How a run continues an existing sidecar. `enabled` is `--resume`; `retry_infra_failed` additionally
+/// re-drives the completed runs an infrastructure outage poisoned (the `live::infra_failed` signature),
+/// replacing each in the package rather than keeping it. The retry flag is meaningful only alongside
+/// `enabled` (the CLI enforces `requires = "resume"`).
+#[derive(Clone, Copy)]
+pub(crate) struct Resume {
+    pub(crate) enabled: bool,
+    pub(crate) retry_infra_failed: bool,
+}
+
 /// Where a run's artifacts are filed: the run `name` (the trend record correlates a line back to its
 /// package by it) and its resolved `eval/<name>.json` path. The two travel together — the name names
 /// the run and the path is derived from it — so they ride as one parameter rather than two.
@@ -97,7 +136,7 @@ async fn run(
     filter: Option<&str>,
     output: RunOutput<'_>,
     config_path: &Path,
-    resume: bool,
+    resume: Resume,
     serve: ServeConfig,
 ) -> Result<bool, EvalError> {
     let RunOutput { name, path: out } = output;
@@ -190,11 +229,27 @@ async fn run(
 
     // Resume continues the existing sidecar (its manifest, its completed runs) and skips them; a fresh
     // run seeds a new one from the manifest just built.
-    let sink = if resume && sidecar.exists() {
-        let state = live::read_sidecar(&sidecar)?;
+    let sink = if resume.enabled && sidecar.exists() {
+        let mut state = live::read_sidecar(&sidecar)?;
+        // With `--retry-infra-failed`, drop the infrastructure-poisoned runs from the seeded set so the
+        // harness re-drives them; their fresh records supersede the poisoned ones in the sidecar. The
+        // kept runs — including every oracle-failed one, which is legitimate data — seed the package
+        // verbatim.
+        let retried = if resume.retry_infra_failed {
+            live::take_infra_failed(&mut state.completed)
+        } else {
+            Vec::new()
+        };
+        report_infra_retries(resume.retry_infra_failed, &retried, &state.scenarios);
         tracing::info!(completed = state.completed.len(), path = %sidecar.display(), "resuming from sidecar");
         Arc::new(live::EvalSink::resume(state, &sidecar)?)
     } else {
+        if resume.retry_infra_failed {
+            tracing::warn!(
+                path = %sidecar.display(),
+                "--retry-infra-failed has no sidecar to heal; starting a fresh run"
+            );
+        }
         Arc::new(live::EvalSink::new(meta, scenario_metas, &sidecar)?)
     };
     let done = sink.done_runs();
