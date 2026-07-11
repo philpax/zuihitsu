@@ -266,11 +266,11 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // a model is configured; without one there is nothing to run the synthesis call.
     let describer = arbiter.as_ref().map(|arbiter| {
         let server = server.clone();
-        let model = arbiter.background();
+        let arbiter = arbiter.clone();
         tokio::spawn(async move {
             server
                 .run_describer(
-                    model,
+                    arbiter,
                     Duration::from_secs(DESCRIBE_TICK_SECONDS),
                     shutdown_signal(),
                 )

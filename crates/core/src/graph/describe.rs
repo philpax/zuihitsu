@@ -65,6 +65,24 @@ impl Graph {
         )? as u64)
     }
 
+    /// The `last_content_seq` of the most-starved stale memory — the smallest content watermark among
+    /// memories the describer still owes a pass — or `None` when the backlog is empty. Paired with the
+    /// log's `recorded_at` for that seq, it dates the oldest pending description, which the describer's
+    /// staleness escape compares against its horizon. Ordering by `last_content_seq` matches
+    /// [`Graph::stale_memories`], so this is the watermark of the memory that pass reaches last.
+    pub fn oldest_stale_content_seq(&self) -> Result<Option<Seq>, GraphError> {
+        let seq: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT MIN(last_content_seq) FROM memories
+                 WHERE deleted = 0 AND last_content_seq > last_described_seq",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(backend)?;
+        Ok(seq.map(|seq| Seq(seq as u64)))
+    }
+
     /// A memory's `(last_content_seq, last_described_seq)` watermarks, or `None` if it is unknown or
     /// soft-deleted. The describer re-reads these under its per-memory guard to skip a memory a
     /// concurrent pass already caught up, and reads `last_described_seq` as the lower bound of the

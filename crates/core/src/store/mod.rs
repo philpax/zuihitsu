@@ -51,6 +51,18 @@ pub trait Store: Send {
     /// The highest committed sequence number, or `Seq::ZERO` if the log is empty.
     fn head(&self) -> Result<Seq, StoreError>;
 
+    /// The wall-clock stamp of the event at `seq`, or `None` if no event holds it. Dates a single
+    /// committed event without replaying the tail — used to age a watermark (the describer's oldest
+    /// pending content change) against the clock. The default scans from `seq`; a backend that can
+    /// index a single row overrides it (the file-backed store does).
+    fn recorded_at(&self, seq: Seq) -> Result<Option<Timestamp>, StoreError> {
+        Ok(self
+            .read_from(seq)?
+            .first()
+            .filter(|event| event.seq == seq)
+            .map(|event| event.recorded_at))
+    }
+
     /// Remove every event with `seq > to`, leaving `to` as the new head; returns the number removed.
     /// The inverse of `append`, and the sole exception to the append-only log: it exists only for the
     /// operator's revert path. The derived stores (the materialized graph, the vector index, and any

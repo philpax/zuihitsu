@@ -55,6 +55,7 @@ pub const TURNS_DEFERRED_TOTAL: &str = "zuihitsu_turns_deferred_total";
 
 // Turn-over-background priority at the shared model client.
 pub const BACKGROUND_MODEL_DEFERRALS_TOTAL: &str = "zuihitsu_background_model_deferrals_total";
+pub const DESCRIBE_PRIORITY_ESCAPES_TOTAL: &str = "zuihitsu_describe_priority_escapes_total";
 
 // Saturation: tokens.
 pub const MODEL_PROMPT_TOKENS_TOTAL: &str = "zuihitsu_model_prompt_tokens_total";
@@ -139,6 +140,11 @@ pub fn describe() {
         "Background model calls that waited for a pending conversation turn to dispatch first \
          (turn-over-background priority at the shared model client)."
     );
+    describe_counter!(
+        DESCRIBE_PRIORITY_ESCAPES_TOTAL,
+        "Describe sweeps escalated to conversation priority because the oldest pending description \
+         aged past the staleness-escape horizon."
+    );
     // Saturation: tokens.
     describe_counter!(
         MODEL_PROMPT_TOKENS_TOTAL,
@@ -213,6 +219,12 @@ pub fn observe_worker_error(category: &str) {
 /// once per background call that had to wait at all, not per wait iteration.
 pub fn observe_background_model_deferral() {
     counter!(BACKGROUND_MODEL_DEFERRALS_TOTAL).increment(1);
+}
+
+/// Observe one describe sweep escalated to conversation priority because its backlog aged past the
+/// staleness-escape horizon (spec §Write path → freshness before a brief).
+pub fn observe_describe_priority_escape() {
+    counter!(DESCRIBE_PRIORITY_ESCAPES_TOTAL).increment(1);
 }
 
 /// Observe one model `generate` call: saturation (calls, latency, tokens).

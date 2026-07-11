@@ -186,6 +186,13 @@ pub struct ConcurrencySettings {
     /// The most conversation turns that may be in flight at once; further streams queue for a slot.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_concurrent_streams: i64,
+    /// How stale the oldest pending description may get, in seconds, before the background describer
+    /// escalates a sweep to conversation priority. Turn-over-background priority lets a busy instance
+    /// hold the describer back indefinitely, so this is the release valve: once the oldest undescribed
+    /// content change is older than this horizon, the next describe sweep runs at turn priority
+    /// instead of yielding, keeping a persistent backlog from starving. Zero disables the escape.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub describe_staleness_escape_seconds: i64,
 }
 
 /// Observability (spec §Observability): how much of each model call the model-interaction record
@@ -326,6 +333,7 @@ impl Default for ConcurrencySettings {
     fn default() -> Self {
         ConcurrencySettings {
             max_concurrent_streams: 4,
+            describe_staleness_escape_seconds: 5 * MINUTE,
         }
     }
 }
