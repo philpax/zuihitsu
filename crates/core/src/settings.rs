@@ -123,6 +123,17 @@ pub struct BriefSettings {
     /// The most entries in the brief's present set.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub present_set_cap: i64,
+    /// How far back a cold open looks for recently touched memories to re-surface as active threads,
+    /// in days. A session that opens without a compaction carryover has no working set, so it derives
+    /// one from the memories recent sessions across every conversation touched (their `LuaExecuted`
+    /// touch sets), each still filtered through the visibility predicate against the new present set.
+    /// `0` disables the cold-open derivation, leaving a fresh session's active-threads section empty.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub cold_open_window_days: i64,
+    /// The most active threads a cold open re-surfaces, after ranking the recently touched memories
+    /// most-recent-first. Bounds the derived working set before the brief's own char budget packs it.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub cold_open_threads: i64,
     /// How far ahead the `<upcoming/>` block looks, in days.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub upcoming_window_days: i64,
@@ -284,6 +295,8 @@ impl Default for BriefSettings {
             recent_facts: 8,
             key_relationships: 8,
             present_set_cap: 10,
+            cold_open_window_days: 7,
+            cold_open_threads: 4,
             upcoming_window_days: 7,
             max_upcoming_items: 5,
         }

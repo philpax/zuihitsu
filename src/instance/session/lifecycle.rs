@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     InstanceFeatures,
-    agent::{Flush, bounded_buffer_turns, lua::Session, run_flush},
+    agent::{Flush, bounded_buffer_turns, lua::Session, recent_touched, run_flush},
     event::{ConversationRef, EventPayload, Initiation, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, SessionId, TurnId},
     memory::{brief, scheduler},
@@ -17,6 +17,7 @@ use crate::{
     },
     model::ModelClient,
     settings::Settings,
+    time::{self, Timestamp},
 };
 
 use super::super::{Instance, InstanceError, OpenSession};
@@ -227,9 +228,30 @@ impl Instance {
             conversation,
             turn: Some(carry.seeded_from_turn),
         });
-        let working_set: &[MemoryId] = carryover
-            .as_ref()
-            .map_or(&[], |carry| carry.working_set.as_slice());
+        // The active threads the new session re-surfaces. A compaction carryover supplies the ending
+        // session's touch-derived working set — even an empty one, a warm continuation that simply
+        // touched nothing. A session that opens with *no* carryover at all — an idle gap, or first
+        // contact — is a cold open: it derives a working set from the memories recent sessions across
+        // every conversation touched, so a fresh session re-surfaces the threads a warm continuation
+        // would rather than opening blank. Either source is re-filtered through the brief's visibility
+        // predicate against the new present set like any carried thread (spec §Compaction →
+        // working-set carryover).
+        let working_set: Vec<MemoryId> = match carryover.as_ref() {
+            Some(carry) => carry.working_set.clone(),
+            None => {
+                let window_days = settings.brief.cold_open_window_days.max(0);
+                let limit = settings.brief.cold_open_threads.max(0) as usize;
+                if window_days == 0 || limit == 0 {
+                    Vec::new()
+                } else {
+                    let since = Timestamp::from_millis(
+                        now.as_millis()
+                            .saturating_sub(window_days * time::MILLIS_PER_DAY),
+                    );
+                    recent_touched(self.engine.store.lock().as_ref(), since, limit)?
+                }
+            }
+        };
 
         // Force the description catch-up before composing the brief, so it never reads stale prose for
         // memories a prior turn or the pre-compaction flush just wrote (spec §Starvation bound →
@@ -246,7 +268,7 @@ impl Instance {
         let brief_memories = {
             let graph = self.engine.graph.lock();
             let mut ids = present_set.to_vec();
-            ids.extend_from_slice(working_set);
+            ids.extend_from_slice(&working_set);
             ids.extend(context);
             ids.extend(graph.self_memory()?.map(|memory| memory.id));
             ids
@@ -262,7 +284,7 @@ impl Instance {
             &brief::BriefRequest {
                 present_set,
                 current_context: context,
-                working_set,
+                working_set: &working_set,
                 now,
             },
         )?;
@@ -276,7 +298,7 @@ impl Instance {
                 started_at: now,
                 seeded_from_turn,
                 brief: brief.clone(),
-                working_set: working_set.to_vec(),
+                working_set,
             }],
         )?;
         observe_session_opened();

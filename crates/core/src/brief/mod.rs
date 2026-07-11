@@ -334,12 +334,14 @@ pub(super) fn compose_packed(
         }
     }
 
-    // 4. Active threads — the working set carried across a compaction seam: the memories the ending
-    //    session touched, re-surfaced so the new session does not lose the thread. Each is rendered
-    //    in the per-participant shape, so its facts are re-filtered through `visible` against the new
-    //    present set (an aside about a now-present subject is suppressed). Self, the current room, and
-    //    present participants are already shown above, so they are skipped to avoid duplication. Packed
-    //    per thread, under a header charged only if at least one thread is admitted.
+    // 4. Active threads — the working set the session opened with: either the memories the ending
+    //    session touched, carried across a compaction seam, or, for a session that opens cold (an idle
+    //    gap or first contact, with no carryover), the memories recent sessions touched, so a fresh
+    //    session re-surfaces the threads a warm continuation would. Either way each is rendered in the
+    //    per-participant shape, so its facts are re-filtered through `visible` against the new present
+    //    set (an aside about a now-present subject is suppressed). Self, the current room, and present
+    //    participants are already shown above, so they are skipped to avoid duplication. Packed per
+    //    thread, under a header charged only if at least one thread is admitted.
     if !working_set.is_empty() {
         let self_id = graph.self_memory()?.map(|memory| memory.id);
         let header = "# Active threads\n";

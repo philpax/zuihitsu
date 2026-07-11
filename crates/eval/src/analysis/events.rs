@@ -53,6 +53,22 @@ pub fn session_count(events: &[Event]) -> usize {
         .count()
 }
 
+/// Each session's frozen brief and the working set it opened with, in open order — the
+/// `SessionStarted` payloads' `brief` and `working_set`. Lets an oracle inspect what the composed
+/// brief carried at a given open: whether a cold open re-surfaced an active thread (a non-empty
+/// working set and a `# Active threads` section), or whether a warm carryover did.
+pub fn session_briefs(events: &[Event]) -> Vec<(&str, &[MemoryId])> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::SessionStarted {
+                brief, working_set, ..
+            } => Some((brief.as_str(), working_set.as_slice())),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether a fired wake-up was raised into a session — the recurrence actually surfaced, not merely
 /// got recorded.
 pub fn scheduled_item_surfaced(events: &[Event]) -> bool {

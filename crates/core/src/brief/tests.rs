@@ -227,6 +227,39 @@ fn the_working_set_is_re_filtered_against_the_new_present_set() {
 }
 
 #[test]
+fn an_active_thread_the_budget_cannot_afford_drops_with_its_header() {
+    // The active-threads section — cold-open-derived here, an absent memory in the working set — is
+    // packed per thread under the char budget, and its header is charged only if a thread is admitted.
+    // With the budget spent on the mandatory blocks, the thread and its header both drop rather than
+    // truncating the thread mid-body.
+    let absent = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(absent, "person/absent"),
+        appended(
+            absent,
+            1_000,
+            "the absent thread's fact",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+
+    // A generous budget admits the thread: the section and its fact both render.
+    let mut generous = Settings::default().brief;
+    generous.char_budget = i64::MAX;
+    let full = compose_at_epoch(&graph, &generous, &[], None, &[absent]);
+    assert!(full.contains("# Active threads"));
+    assert!(full.contains("the absent thread's fact"));
+
+    // A zero budget cannot afford it: neither the header nor the body surfaces.
+    let mut tight = Settings::default().brief;
+    tight.char_budget = 0;
+    let out = compose_at_epoch(&graph, &tight, &[], None, &[absent]);
+    assert!(!out.contains("# Active threads"));
+    assert!(!out.contains("the absent thread's fact"));
+}
+
+#[test]
 fn the_present_set_cap_does_not_narrow_the_predicate() {
     // Scenario 21: with the present-set cap set to 1, Dave is present but ranks below the cap (only a
     // name-only entry, no full block). A fact on Marcus (in the cap, rendered) excludes Dave; the
