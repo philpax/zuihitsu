@@ -1,5 +1,6 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import type { EntryId } from "../../types/EntryId.ts";
 import type { Event } from "../../types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
@@ -16,10 +17,14 @@ export function StateView({
   replica,
   events,
   cursor,
+  onEditSelf,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
+  /// Present only in the live agent frame at the head: the operator's `self`-editing callback, threaded
+  /// to the `self` memory's detail pane.
+  onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
 }) {
   const navigate = useNavigate();
   const base = useStreamBase();
@@ -56,6 +61,7 @@ export function StateView({
       selected={selected}
       onSelect={onSelect}
       onShowEvents={showEvents}
+      onEditSelf={onEditSelf}
     />
   );
 }

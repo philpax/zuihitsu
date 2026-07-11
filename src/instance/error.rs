@@ -5,7 +5,10 @@ use crate::{
     agent::lua::LuaError,
     graph::GraphError,
     ids::ConversationId,
-    memory::{brief::BriefError, identity::IdentityError, scheduler::SchedulerError},
+    memory::{
+        brief::BriefError, identity::IdentityError, memory_block::MemoryError,
+        scheduler::SchedulerError,
+    },
     model::index::IndexError,
     store::StoreError,
 };
@@ -39,6 +42,10 @@ pub enum InstanceError {
         conversation: Option<ConversationId>,
         error: LuaError,
     },
+    /// A direct operator memory write (the console `self` edit) failed inside the block. The
+    /// operator-input cases the edit anticipates are returned as outcomes, not this; this carries a
+    /// genuinely unexpected block failure that should not arise under operator authority.
+    Memory(MemoryError),
 }
 
 impl std::fmt::Display for InstanceError {
@@ -64,6 +71,7 @@ impl std::fmt::Display for InstanceError {
                 Some(id) => write!(f, "instance (lua {}): {error}", id.0),
                 None => write!(f, "instance (lua): {error}"),
             },
+            InstanceError::Memory(error) => write!(f, "instance (memory): {error}"),
         }
     }
 }
@@ -79,6 +87,7 @@ impl std::error::Error for InstanceError {
             InstanceError::Index(error) => Some(error),
             InstanceError::Search(error) => Some(error),
             InstanceError::Lua { error, .. } => Some(error),
+            InstanceError::Memory(error) => Some(error),
         }
     }
 }

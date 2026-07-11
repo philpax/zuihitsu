@@ -1,3 +1,4 @@
+import type { EntryId } from "../../types/EntryId.ts";
 import type { MemoryId } from "../../types/MemoryId.ts";
 import type { TurnOutcome } from "../../types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
@@ -49,6 +50,29 @@ export async function imprint(connection: LiveConnection, text: string): Promise
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as TurnOutcome;
+}
+
+/// Edit the agent's own `self` profile under operator authority — the console-direct counterpart to
+/// the imprint interview (spec §Imprint interview → the operator owns `self`), and the operator side
+/// of self-editing. With `supersedes` omitted it appends a new charter entry; with it set the write is
+/// a revision — the new text replaces the named entry, which drops from every live surface while
+/// remaining in history. The resulting events arrive through the live tail, so the memory browser
+/// re-folds on the next poll. Returns the new entry's id. Throws with the server's reason on failure
+/// (a `400` on an empty or over-long edit, a `404` when the agent is unborn or `supersedes` names no
+/// live entry).
+export async function editSelf(
+  connection: LiveConnection,
+  text: string,
+  supersedes?: EntryId,
+): Promise<EntryId> {
+  const response = await fetch(`${connection.baseUrl}/control/self`, {
+    method: "POST",
+    headers: authHeaders(connection),
+    body: JSON.stringify(supersedes === undefined ? { text } : { text, supersedes }),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  const body = (await response.json()) as { entry_id: EntryId };
+  return body.entry_id;
 }
 
 /// Resolve a pending cross-platform merge proposal as the operator (spec §Cross-platform identity →

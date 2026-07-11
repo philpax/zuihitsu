@@ -14,14 +14,19 @@ use crate::{
         EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, TerminalCause,
         Visibility,
     },
-    ids::{ConversationLocator, MemoryId, TurnId},
-    memory::{identity::resolve_or_mint_conversation, memory_block::Authority},
+    ids::{ConversationLocator, EntryId, MemoryId, TurnId},
+    memory::{
+        identity::resolve_or_mint_conversation,
+        memory_block::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice},
+    },
     model::ModelClient,
     settings::Settings,
     vocabulary::RelationName,
 };
 
-use super::{super::InstanceError, DesignateOutcome, LuaConsoleOutcome, UnmergeOutcome};
+use super::{
+    super::InstanceError, DesignateOutcome, LuaConsoleOutcome, SelfEditOutcome, UnmergeOutcome,
+};
 use crate::instance::session::RoutedTurn;
 
 impl super::Control<'_> {
@@ -195,6 +200,111 @@ impl super::Control<'_> {
             )],
         )?;
         Ok(())
+    }
+
+    /// Append to — or revise an entry on — `self`, the agent's own profile, from the console under
+    /// operator authority (spec §Imprint interview → the operator owns `self`). The direct counterpart
+    /// to [`Control::imprint`]: where the imprint writes `self` by running the model conversationally,
+    /// this writes it outright, the same operator authority that lets the console edit every other
+    /// prompt-shaping surface — the scaffold via [`Control::register_prompt`], the behaviour via
+    /// [`Control::set_settings`]. (Distinct from the agent writing its *own* `self`, which stays barred
+    /// from a conversation.)
+    ///
+    /// The write runs through a real operator-authority [`MemoryBlock`], so `guard_self` passes for the
+    /// operator exactly as a platform turn's is rejected — the guard is honoured, not weakened — and the
+    /// edit reuses the block's length validation, visibility resolution, and (for a revision) its
+    /// live-entry checks rather than authoring raw events. A `self` entry is charter content: authored
+    /// in the agent's own voice (`Teller::Agent`) and `Public`, so it feeds the system prompt's identity
+    /// verbatim and the describer's regeneration. With `supersedes` set the write is a revision — the new
+    /// entry replaces the named one, which drops from every live surface while remaining in history; with
+    /// none, it is a plain append.
+    ///
+    /// No description rerun is triggered here, and none is needed: the append advances `self`'s content
+    /// watermark, so the background describer regenerates its description on its next pass, and the
+    /// identity the system prompt reads is drawn from the entries verbatim regardless of the description.
+    /// The operator-input cases (an empty edit, an unknown `supersedes` id, over-long text, or an agent
+    /// not yet born) return as [`SelfEditOutcome`] variants the console renders; only a genuinely
+    /// unexpected block failure escalates to [`InstanceError`].
+    pub fn edit_self(
+        &self,
+        text: &str,
+        supersedes: Option<EntryId>,
+    ) -> Result<SelfEditOutcome, InstanceError> {
+        if text.trim().is_empty() {
+            return Ok(SelfEditOutcome::EmptyText);
+        }
+        let Some(self_id) = self
+            .server
+            .engine
+            .graph
+            .lock()
+            .self_memory()?
+            .map(|memory| memory.id)
+        else {
+            return Ok(SelfEditOutcome::NotBorn);
+        };
+
+        // A dedicated console conversation carries the edit's provenance (graph before store, per the
+        // lock-ordering rule), minted once and reused across edits.
+        let conversation = {
+            let graph = self.server.engine.graph.lock();
+            resolve_or_mint_conversation(
+                self.server.engine.store.lock().as_mut(),
+                self.server.engine.clock.as_ref(),
+                &graph,
+                &ConversationLocator::new("console", "self"),
+            )?
+        };
+        self.server
+            .engine
+            .graph
+            .lock()
+            .materialize_from(self.server.engine.store.lock().as_ref())?;
+
+        let max_entry_chars = Settings::from_store(self.server.engine.store.lock().as_ref())?
+            .memory
+            .max_entry_chars
+            .max(1) as usize;
+        let mut block = MemoryBlock::new(
+            self.server.engine.clone(),
+            Teller::Agent,
+            Authority::Operator,
+            conversation,
+            None,
+            Vec::new(),
+            max_entry_chars,
+        )?;
+        // Charter content is `Public` — the identity surface the system prompt reads verbatim and the
+        // describer regenerates its description from.
+        let opts = AppendOptions {
+            visibility: Some(VisibilityChoice::Public),
+            ..AppendOptions::default()
+        };
+        let entry_id = match supersedes {
+            Some(old) => block.revise(self_id, old, text, opts),
+            None => block.append(self_id, text, opts),
+        };
+        let entry_id = match entry_id {
+            Ok(entry_id) => entry_id,
+            Err(MemoryError::UnknownEntry(entry)) => {
+                return Ok(SelfEditOutcome::UnknownEntry(entry));
+            }
+            Err(MemoryError::ContentTooLong { length, limit }) => {
+                return Ok(SelfEditOutcome::TooLong { length, limit });
+            }
+            Err(error) => return Err(InstanceError::Memory(error)),
+        };
+
+        let now = self.server.engine.clock.now();
+        self.server
+            .engine
+            .store
+            .lock()
+            .append(now, block.into_effects().events)?;
+        // Graph (written) before store (read), per the lock-ordering rule.
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(SelfEditOutcome::Applied(entry_id))
     }
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads

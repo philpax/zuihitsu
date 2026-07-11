@@ -10,10 +10,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryView,
-    EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
-    PromptTemplateName, Rollout, SeedSelf, Seq, SessionView, Settings, TurnOutcome, UnmergeOutcome,
-    genesis::GenesisStatus,
+    ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryId,
+    EntryView, EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
+    PromptTemplateName, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView, Settings,
+    TurnOutcome, UnmergeOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
@@ -335,6 +335,55 @@ pub(super) async fn imprint(
         .imprint(model.as_ref(), &request.text)
         .await?;
     Ok(Json(outcome))
+}
+
+/// The body of a `POST /control/self` — the charter text to write to the agent's `self` profile, and
+/// optionally the entry it supersedes. With `supersedes` omitted it appends a new entry; with it set the
+/// write is a revision — the new entry replaces the named one, which drops from every live surface.
+#[derive(Deserialize)]
+pub(super) struct SelfEditRequest {
+    text: String,
+    #[serde(default)]
+    supersedes: Option<EntryId>,
+}
+
+/// The entry a `POST /control/self` wrote — the new charter entry's id (the replacement, when the edit
+/// superseded a prior entry). The console reflects the change from the event tail regardless; the id is
+/// returned so a caller can address the entry it just wrote.
+#[derive(Serialize)]
+pub(super) struct SelfEditResponse {
+    entry_id: EntryId,
+}
+
+/// `POST /control/self` — edit the agent's own `self` profile under operator authority (the console
+/// counterpart to the imprint interview, and the operator side of self-editing). Appends a charter entry,
+/// or revises one when `supersedes` names a live entry. `404` when the agent is unborn or `supersedes`
+/// names no live entry; `400` on an empty or over-long edit. Operator authority (the whole `/control`
+/// surface is key-gated).
+pub(super) async fn edit_self(
+    State(state): State<AppState>,
+    Json(request): Json<SelfEditRequest>,
+) -> Result<Json<SelfEditResponse>, ApiError> {
+    match state
+        .server
+        .control()
+        .edit_self(&request.text, request.supersedes)?
+    {
+        SelfEditOutcome::Applied(entry_id) => Ok(Json(SelfEditResponse { entry_id })),
+        SelfEditOutcome::NotBorn => Err(ApiError::NotFound(
+            "the agent has no self to edit; create it first".to_owned(),
+        )),
+        SelfEditOutcome::EmptyText => Err(ApiError::BadRequest(
+            "a self entry must have text".to_owned(),
+        )),
+        SelfEditOutcome::UnknownEntry(entry) => Err(ApiError::NotFound(format!(
+            "no live self entry with id {}",
+            entry.0
+        ))),
+        SelfEditOutcome::TooLong { length, limit } => Err(ApiError::BadRequest(format!(
+            "the entry is {length} characters; the per-entry limit is {limit}"
+        ))),
+    }
 }
 
 /// `POST /control/lua` — run an ad-hoc operator Lua block in a no-commit sandbox and return its
