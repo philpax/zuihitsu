@@ -170,7 +170,7 @@ The scaffold teaches load-bearing practices as principles, stated once. API opti
 
 - Tests use the in-memory backends by default (`MemoryStore`, `Graph::open_in_memory`, `SqliteVectorIndex::open_in_memory`): the system is a pure function of the event log modulo declared nondeterminism, so replay through memory exercises exactly that function. Reach for a disk-backed backend only in a test that guards a genuine filesystem property, and name it for that.
 - Do not write a test that only exercises serde or a derive. A round-trip earns its place only when it guards a real wire: a versioned payload, the control API, or a package file.
-- No personal names in fixtures.
+- No personal names in fixtures, and never the operator's own identity. Anonymise every test, scenario, and eval to invented placeholders (`person/rowan`, `person/rowan@direct`); do not seed one from the operator's — or any real person's — real name, handles, or biographical details, even when a live instance's data reproduces the behaviour under test. The operator is a collaborator debugging the system, not an eval subject: reproduce the *shape* of what you observed in their instance, never their actual content.
 - Scenario dates are computed from `RUN_START_MS` and the shared time constants (`MILLIS_PER_DAY`, …), never bare epoch literals.
 
 ## Evaluations
