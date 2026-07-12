@@ -675,3 +675,60 @@ async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
     assert!(collected.contains("event: event"));
     assert!(collected.contains("\"kind\":\"reply\""));
 }
+
+#[tokio::test]
+async fn the_event_stream_ends_when_shutdown_is_signalled() {
+    // The SSE loop has no feed that closes on its own, so it must end when the shutdown flag fires —
+    // otherwise `with_graceful_shutdown` waits on the open connection forever and the server never
+    // exits (the deadlock this arm fixes). Open the stream, read its snapshot, fire shutdown, and
+    // assert the body then completes rather than hanging on its now-idle feeds.
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let (shutdown, fire) = crate::http_server::console::ShutdownFlag::controllable();
+    let app = router(AppState {
+        shutdown,
+        ..test_state(server)
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("GET")
+                .uri("/control/events/stream?from=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    use futures_util::StreamExt as _;
+    let mut frames = response.into_body().into_data_stream();
+    // The committed snapshot arrives first, ahead of the tail loop the shutdown must break.
+    tokio::time::timeout(std::time::Duration::from_secs(5), frames.next())
+        .await
+        .expect("the snapshot arrives promptly")
+        .expect("the stream is open")
+        .expect("the frame reads");
+
+    // Fire shutdown: the tail loop must break and the body complete, rather than blocking forever on
+    // feeds that never close. Without the shutdown arm this drain never finishes.
+    fire.send(true).unwrap();
+    let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while frames.next().await.is_some() {}
+    })
+    .await;
+    assert!(
+        drained.is_ok(),
+        "the stream ends after shutdown is signalled rather than hanging"
+    );
+}

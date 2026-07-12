@@ -60,6 +60,7 @@ pub(super) async fn events_stream(
 ) -> Result<impl IntoResponse, ApiError> {
     let mut events = state.live.subscribe();
     let mut progress = state.server.subscribe_progress();
+    let shutdown = state.shutdown.clone();
     let snapshot = state.server.control().events_from(Seq(query.from))?;
     // An empty snapshot still honours `from`: falling back to zero would let the tail deliver
     // events below the requested horizon.
@@ -76,6 +77,10 @@ pub(super) async fn events_stream(
         }
         loop {
             tokio::select! {
+                // The shared shutdown flag: without this arm the loop is unbounded (its feeds never
+                // close on their own), so `with_graceful_shutdown` would wait on this connection
+                // forever and the server would never exit. Breaking lets the connection drain.
+                _ = shutdown.clone().wait() => break,
                 committed = events.recv() => match committed {
                     Ok(event) => {
                         // The snapshot/subscription overlap: anything at or below the snapshot's

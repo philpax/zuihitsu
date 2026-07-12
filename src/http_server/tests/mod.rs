@@ -28,6 +28,7 @@ fn no_keys() -> Arc<[String]> {
 fn test_state(server: Arc<Server>) -> AppState {
     AppState {
         live: Arc::new(crate::http_server::stream::LiveEvents::start(&server)),
+        shutdown: crate::http_server::console::ShutdownFlag::never(),
         server,
         model: None,
         backend: None,

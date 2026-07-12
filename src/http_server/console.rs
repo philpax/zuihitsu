@@ -1,4 +1,5 @@
-//! The embedded web console: asset resolution and the Ctrl-C shutdown signal.
+//! The embedded web console: asset resolution and the process's single Ctrl-C shutdown signal, fanned
+//! out to every path that must stop on interrupt.
 
 use std::path::Path;
 
@@ -7,6 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use rust_embed::RustEmbed;
+use tokio::sync::watch;
 
 use crate::http_server::serve_error::ServeError;
 
@@ -47,10 +49,53 @@ fn console_asset(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
     }
 }
 
-/// Resolve on the next Ctrl-C. Driving both the HTTP server and the scheduler driver off independent
-/// instances of this means a single interrupt stops both.
-pub(crate) async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+/// The process's single shutdown source, fanned out to every path that must stop on Ctrl-C — the HTTP
+/// server's graceful shutdown, each background driver, and the streaming handlers. [`install`] spawns
+/// one interrupt listener that latches the flag; every consumer holds a clone and awaits [`wait`], so
+/// there is a single source of shutdown truth rather than one interrupt registration per consumer. The
+/// flag latches, so a consumer that only checks after the interrupt (a stream opened late) still sees
+/// it.
+///
+/// [`install`]: ShutdownFlag::install
+/// [`wait`]: ShutdownFlag::wait
+#[derive(Clone)]
+pub(crate) struct ShutdownFlag(watch::Receiver<bool>);
+
+impl ShutdownFlag {
+    /// Spawn the process's single Ctrl-C listener and return the flag it latches on the first
+    /// interrupt. Call once, inside the runtime, before handing clones to the shutdown paths.
+    pub(crate) fn install() -> ShutdownFlag {
+        let (tx, rx) = watch::channel(false);
+        tokio::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            let _ = tx.send(true);
+        });
+        ShutdownFlag(rx)
+    }
+
+    /// Resolve once shutdown has been signalled (or the source is gone, so a late awaiter never blocks
+    /// past shutdown). Consumes a clone, so each consumer takes its own future — clone the flag per
+    /// await in a `select!` loop, or hand a fresh clone to each driver.
+    pub(crate) async fn wait(mut self) {
+        let _ = self.0.wait_for(|&stop| stop).await;
+    }
+
+    /// A flag that never fires, for a test that builds an [`AppState`] without a running server.
+    #[cfg(test)]
+    pub(crate) fn never() -> ShutdownFlag {
+        let (tx, rx) = watch::channel(false);
+        // Leak the sender so the flag stays pending rather than reading as an already-closed channel.
+        std::mem::forget(tx);
+        ShutdownFlag(rx)
+    }
+
+    /// A flag whose firing the caller controls, for a test that asserts a consumer stops when
+    /// shutdown is signalled: send `true` on the returned sender to fire it.
+    #[cfg(test)]
+    pub(crate) fn controllable() -> (ShutdownFlag, watch::Sender<bool>) {
+        let (tx, rx) = watch::channel(false);
+        (ShutdownFlag(rx), tx)
+    }
 }
 
 pub(crate) fn ensure_parent_dir(path: &Path) -> Result<(), ServeError> {

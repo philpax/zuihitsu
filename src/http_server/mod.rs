@@ -35,7 +35,7 @@ use zuihitsu::{
 };
 
 use auth::{require_control_key, require_platform_key};
-use console::{console, ensure_parent_dir, shutdown_signal};
+use console::{ShutdownFlag, console, ensure_parent_dir};
 use control::{
     arbitrations, create_agent, designate_primary, edit_self, entries, env_config, events, genesis,
     health, imprint, interactions, lua_api, memories, memory, merge_proposals, metrics, recurring,
@@ -61,6 +61,10 @@ struct AppState {
     /// The committed-event fan-out behind `GET /control/events/stream` — one store subscription,
     /// shared by every connected viewer.
     live: Arc<stream::LiveEvents>,
+    /// The shared shutdown flag ([`ShutdownFlag`]). The long-lived SSE handler watches its own clone
+    /// so it breaks its otherwise-unbounded loop when Ctrl-C fires, letting the connection drain — the
+    /// same signal `with_graceful_shutdown` and the background drivers observe.
+    shutdown: ShutdownFlag,
     /// The Prometheus metrics handle — `render()` produces the `/control/metrics` text. `None` when
     /// the recorder could not be installed (a boot failure leaves the server up but the metrics
     /// endpoint answers `503`).
@@ -247,20 +251,27 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     let model: Option<Arc<dyn ModelClient>> = arbiter.as_ref().map(|arbiter| arbiter.turn());
     let server = Arc::new(server);
 
+    // The process's single shutdown source: one Ctrl-C listener latches a flag that graceful
+    // shutdown, every background driver, and the streaming handlers observe through their own clones,
+    // so one interrupt stops them all without each registering its own signal.
+    let shutdown = ShutdownFlag::install();
+
     // The background scheduler driver fires due wake-ups on its own timer (spec §Scheduled work),
     // stopping on the same Ctrl-C that ends the HTTP server.
     let driver = tokio::spawn({
         let server = server.clone();
-        async move { server.run_scheduler(tick, shutdown_signal()).await }
+        let shutdown = shutdown.clone();
+        async move { server.run_scheduler(tick, shutdown.wait()).await }
     });
 
     // The background indexer catches the vector index up to the log off the hot path (spec §Storage →
     // vector store). A no-op (returns immediately) on a graph-only instance.
     let indexer = tokio::spawn({
         let server = server.clone();
+        let shutdown = shutdown.clone();
         async move {
             server
-                .run_indexer(Duration::from_secs(INDEX_TICK_SECONDS), shutdown_signal())
+                .run_indexer(Duration::from_secs(INDEX_TICK_SECONDS), shutdown.wait())
                 .await
         }
     });
@@ -269,16 +280,19 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // extraction) off the hot path (spec §Write path → regenerate off the hot path). Spawned only when
     // a model is configured; without one there is nothing to run the synthesis call.
     let describer = arbiter.as_ref().map(|arbiter| {
-        let server = server.clone();
-        let arbiter = arbiter.clone();
-        tokio::spawn(async move {
-            server
-                .run_describer(
-                    arbiter,
-                    Duration::from_secs(DESCRIBE_TICK_SECONDS),
-                    shutdown_signal(),
-                )
-                .await
+        tokio::spawn({
+            let server = server.clone();
+            let arbiter = arbiter.clone();
+            let shutdown = shutdown.clone();
+            async move {
+                server
+                    .run_describer(
+                        arbiter,
+                        Duration::from_secs(DESCRIBE_TICK_SECONDS),
+                        shutdown.wait(),
+                    )
+                    .await
+            }
         })
     });
 
@@ -286,16 +300,19 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // §Cross-platform identity → adjudicated merge). Spawned only when a model is configured; without
     // one there is no judge to run.
     let adjudicator = arbiter.as_ref().map(|arbiter| {
-        let server = server.clone();
-        let model = arbiter.background();
-        tokio::spawn(async move {
-            server
-                .run_adjudicator(
-                    model,
-                    Duration::from_secs(ADJUDICATE_TICK_SECONDS),
-                    shutdown_signal(),
-                )
-                .await
+        tokio::spawn({
+            let server = server.clone();
+            let model = arbiter.background();
+            let shutdown = shutdown.clone();
+            async move {
+                server
+                    .run_adjudicator(
+                        model,
+                        Duration::from_secs(ADJUDICATE_TICK_SECONDS),
+                        shutdown.wait(),
+                    )
+                    .await
+            }
         })
     });
 
@@ -303,16 +320,19 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // path (spec §Write path → link inference). Spawned only when a model is configured; without one
     // there is nothing to run the extraction call.
     let link_inference = arbiter.as_ref().map(|arbiter| {
-        let server = server.clone();
-        let model = arbiter.background();
-        tokio::spawn(async move {
-            server
-                .run_link_inference(
-                    model,
-                    Duration::from_secs(LINK_INFERENCE_TICK_SECONDS),
-                    shutdown_signal(),
-                )
-                .await
+        tokio::spawn({
+            let server = server.clone();
+            let model = arbiter.background();
+            let shutdown = shutdown.clone();
+            async move {
+                server
+                    .run_link_inference(
+                        model,
+                        Duration::from_secs(LINK_INFERENCE_TICK_SECONDS),
+                        shutdown.wait(),
+                    )
+                    .await
+            }
         })
     });
 
@@ -320,16 +340,19 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // messaged again still has its working state consolidated (spec §Compaction → pre-compaction
     // flush). Spawned only when a model is configured; the flush turn needs one.
     let sweeper = arbiter.as_ref().map(|arbiter| {
-        let server = server.clone();
-        let model = arbiter.background();
-        tokio::spawn(async move {
-            server
-                .run_sweeper(
-                    model,
-                    Duration::from_secs(SWEEP_TICK_SECONDS),
-                    shutdown_signal(),
-                )
-                .await
+        tokio::spawn({
+            let server = server.clone();
+            let model = arbiter.background();
+            let shutdown = shutdown.clone();
+            async move {
+                server
+                    .run_sweeper(
+                        model,
+                        Duration::from_secs(SWEEP_TICK_SECONDS),
+                        shutdown.wait(),
+                    )
+                    .await
+            }
         })
     });
 
@@ -337,34 +360,41 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // (spec §Compaction → checkpoint flush), so a parallel conversation can read it before this one
     // goes idle. Spawned only when a model is configured; the flush turn needs one.
     let checkpoint_sweeper = arbiter.as_ref().map(|arbiter| {
-        let server = server.clone();
-        let model = arbiter.background();
-        tokio::spawn(async move {
-            server
-                .run_checkpoint_sweeper(
-                    model,
-                    Duration::from_secs(CHECKPOINT_TICK_SECONDS),
-                    shutdown_signal(),
-                )
-                .await
+        tokio::spawn({
+            let server = server.clone();
+            let model = arbiter.background();
+            let shutdown = shutdown.clone();
+            async move {
+                server
+                    .run_checkpoint_sweeper(
+                        model,
+                        Duration::from_secs(CHECKPOINT_TICK_SECONDS),
+                        shutdown.wait(),
+                    )
+                    .await
+            }
         })
     });
 
     // The background snapshotter checkpoints the graph on its own activity-gated cadence (spec
     // §Snapshots), when enabled. Stops on the same shutdown signal.
     let snapshotter = config.snapshots.enabled.then(|| {
-        let server = server.clone();
-        let schedule = SnapshotSchedule {
-            dir: snapshot_dir.clone(),
-            check_interval: Duration::from_secs(config.snapshots.check_interval_seconds.max(1)),
-            min_new_events: config.snapshots.min_new_events,
-            keep: config.snapshots.keep,
-        };
-        tokio::spawn(async move { server.run_snapshotter(schedule, shutdown_signal()).await })
+        tokio::spawn({
+            let server = server.clone();
+            let shutdown = shutdown.clone();
+            let schedule = SnapshotSchedule {
+                dir: snapshot_dir.clone(),
+                check_interval: Duration::from_secs(config.snapshots.check_interval_seconds.max(1)),
+                min_new_events: config.snapshots.min_new_events,
+                keep: config.snapshots.keep,
+            };
+            async move { server.run_snapshotter(schedule, shutdown.wait()).await }
+        })
     });
 
     let app = router(AppState {
         live: Arc::new(stream::LiveEvents::start(&server)),
+        shutdown: shutdown.clone(),
         server: server.clone(),
         model,
         backend,
@@ -415,7 +445,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown.clone().wait())
     .await
     .map_err(ServeError::Serve)?;
 
