@@ -53,8 +53,10 @@ If step 2 did not fully resolve the scope, use `ask_user_question` with up to tw
 Use `ask_user_question` to show the exact command and ask for confirmation. The explainer must
 include:
 
-- The **name** of the run (a bare filename, no path or extension). Derive it from the change being
-  evaluated (e.g. `post-god-class-refactor`, `tag-privacy-fix`, `prompt-v2`). If no context, ask.
+- The **name** of the run (a bare filename, no path or extension). Prefix it with today's date in
+  `YYYY-MM-DD` form, then a descriptor derived from the change being evaluated — e.g.
+  `2026-07-12-post-god-class-refactor`, `2026-07-12-tag-privacy-fix`, `2026-07-12-full-n10`. If the
+  descriptor has no context, ask.
 - The **scenarios** (all, or the `--scenario` filter with substrings).
 - The **runs** (`--runs N`).
 
