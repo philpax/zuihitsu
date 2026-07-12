@@ -24,6 +24,36 @@ use crate::{
 
 use super::{Instance, InstanceError, OpenSession, SnapshotSchedule};
 
+/// What drove a checkpoint sweep. The two triggers apply different gate sets, so
+/// [`Instance::checkpoint_live_sessions`] and [`Instance::checkpoint_delta`] branch on it: a timer
+/// tick is throttled by all three gates, while a fresh session open needs the parallel state
+/// immediately and so waives the cooldown and audience gates.
+#[derive(Clone, Copy, Debug)]
+pub enum CheckpointTrigger {
+    /// The background timer: all three gates (substance, cooldown, and audience) apply.
+    Timer,
+    /// A fresh session opening for the carried conversation: the substance gate alone applies, the
+    /// opener is the audience so audience is waived, and the cooldown is waived — the opening
+    /// session's brief needs the parallel conversations' state now. The opener is skipped in the
+    /// sweep loop; its own lapsed session is flush-and-ended separately under its lifecycle lock.
+    SessionOpen(ConversationId),
+}
+
+impl CheckpointTrigger {
+    /// Whether the conversation is the session-open trigger's own opener, which the sweep skips —
+    /// the opener's lapsed session is flush-and-ended under its lifecycle lock in `ensure_session`,
+    /// not swept here. The timer trigger skips nothing.
+    fn skips(self, conversation: ConversationId) -> bool {
+        matches!(self, CheckpointTrigger::SessionOpen(opener) if opener == conversation)
+    }
+
+    /// Whether the cooldown and audience gates apply. The timer sweep throttles on both; a session
+    /// open waives them, gating on substance alone.
+    fn applies_cooldown_and_audience(self) -> bool {
+        matches!(self, CheckpointTrigger::Timer)
+    }
+}
+
 impl Instance {
     /// Fire every globally-due wake-up as of `now` and reconcile the graph if any fired (spec §Scheduled
     /// work). Shared by the session-open catch-up and the background driver, so both fire with identical
@@ -230,18 +260,31 @@ impl Instance {
     /// Checkpoint-flush every live session whose unflushed working state is due to reach memory
     /// mid-session (spec §Compaction → checkpoint flush) — the cross-conversation sync a session's
     /// end-flush alone cannot give: without it, conversation B learns nothing of a parallel
-    /// conversation A until A goes idle or compacts. Each candidate is gated three ways
-    /// ([`Instance::checkpoint_delta`]); an eligible one is flushed under its conversation's
-    /// lifecycle lock, with the gates re-validated there, so a message arriving mid-flush waits in
-    /// `ensure_session` (on its own conversation's flush only — the flush is delta-sized) and the
-    /// idle sweep's close of the same session never interleaves. The flush turn is ordinary and the
-    /// session stays open: no `SessionEnded`, no carryover, no brief rebuild — the turn simply rides
-    /// the live buffer, and its seq becomes the next watermark. Returns how many sessions flushed.
-    /// Driven on a timer by [`Instance::run_checkpoint_sweeper`]; also callable directly to sweep
-    /// once on demand.
+    /// conversation A until A goes idle or compacts. Two triggers drive it, distinguished by
+    /// `trigger`:
+    ///
+    /// - [`CheckpointTrigger::Timer`]: the background sweeper's tick. Each candidate is gated three
+    ///   ways ([`Instance::checkpoint_delta`]) — substance, cooldown, and audience.
+    /// - [`CheckpointTrigger::SessionOpen`]: a fresh session opening for the opener conversation, so
+    ///   the parallel conversations' state reaches memory before the opener's brief composes. The
+    ///   opener is skipped entirely (its own lapsed session is flush-and-ended separately under its
+    ///   lifecycle lock in `ensure_session`), and the substance gate alone applies — cooldown and
+    ///   audience are waived, since the opener is the audience and is not yet in the live map for the
+    ///   audience check to see.
+    ///
+    /// An eligible candidate is flushed under its conversation's lifecycle lock, with the gates
+    /// re-validated there, so a message arriving mid-flush waits in `ensure_session` (on its own
+    /// conversation's flush only — the flush is delta-sized) and the idle sweep's close of the same
+    /// session never interleaves. The flush turn is ordinary and the session stays open: no
+    /// `SessionEnded`, no carryover, no brief rebuild — the turn simply rides the live buffer, and its
+    /// seq becomes the next watermark. Both triggers respect `settings.checkpoint.enabled` as the
+    /// master switch. Returns how many sessions flushed. Driven on a timer by
+    /// [`Instance::run_checkpoint_sweeper`]; also driven at a session open by `ensure_session`, and
+    /// callable directly to sweep once on demand.
     pub async fn checkpoint_live_sessions(
         &self,
         model: &dyn ModelClient,
+        trigger: CheckpointTrigger,
     ) -> Result<usize, InstanceError> {
         let now = self.engine.clock.now();
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
@@ -250,10 +293,15 @@ impl Instance {
         }
         let mut flushed = 0;
         for (conversation, open) in self.sessions.live() {
+            // The opener drives its own lapsed session's close through `ensure_session`; a
+            // session-open sweep must not touch it here.
+            if trigger.skips(conversation) {
+                continue;
+            }
             // A cheap pre-check without the lock, so the lifecycle lock is taken only for a real
             // candidate rather than serializing every live conversation each tick.
             if self
-                .checkpoint_delta(conversation, &open, &settings, now)?
+                .checkpoint_delta(conversation, &open, &settings, now, trigger)?
                 .is_none()
             {
                 continue;
@@ -270,7 +318,9 @@ impl Instance {
             {
                 continue;
             }
-            let Some(delta) = self.checkpoint_delta(conversation, &open, &settings, now)? else {
+            let Some(delta) =
+                self.checkpoint_delta(conversation, &open, &settings, now, trigger)?
+            else {
                 continue;
             };
             // An ordinary flush turn over the unflushed delta only — the frozen brief still frames
@@ -324,7 +374,7 @@ impl Instance {
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
-                    match self.checkpoint_live_sessions(model.as_ref()).await {
+                    match self.checkpoint_live_sessions(model.as_ref(), CheckpointTrigger::Timer).await {
                         Ok(flushed) if flushed > 0 => {
                             tracing::info!(flushed, "checkpoint sweep flushed live sessions")
                         }
@@ -341,24 +391,30 @@ impl Instance {
         tracing::info!("checkpoint sweep driver stopped");
     }
 
-    /// Evaluate the checkpoint gates over one live session, returning its unflushed delta when all
-    /// three pass and `None` when any blocks. The gates, each keyed to the session's flush watermark
-    /// (the last flush turn in its buffer, or its start — [`flushed_up_to`], derived from the log so
-    /// replay reproduces it):
+    /// Evaluate the checkpoint gates over one live session, returning its unflushed delta when the
+    /// gates that `trigger` applies pass and `None` when any blocks. The gates, each keyed to the
+    /// session's flush watermark (the last flush turn in its buffer, or its start — [`flushed_up_to`],
+    /// derived from the log so replay reproduces it):
     ///
     /// 1. *Substance*: the delta past the watermark carries at least `min_delta_chars` of
-    ///    participant and agent turn text — there is working state worth a model call.
+    ///    participant and agent turn text — there is working state worth a model call. Both triggers
+    ///    apply it.
     /// 2. *Cooldown*: at least `cooldown_seconds` have passed since the watermark turn was recorded
-    ///    (or since the session started, if it has never flushed) — checkpoints never thrash.
+    ///    (or since the session started, if it has never flushed) — checkpoints never thrash. Applied
+    ///    by [`CheckpointTrigger::Timer`], waived by [`CheckpointTrigger::SessionOpen`] (the opening
+    ///    session's brief needs the parallel state now, not after a cooldown).
     /// 3. *Audience*: some other conversation has a live session active at or since the watermark —
     ///    with a single live conversation, the only reader of the flushed tail is the conversation
-    ///    itself, which already has it in the buffer.
+    ///    itself, which already has it in the buffer. Applied by [`CheckpointTrigger::Timer`], waived
+    ///    by [`CheckpointTrigger::SessionOpen`] (the opener *is* the audience, and it is not yet in
+    ///    the live map for this check to see).
     fn checkpoint_delta(
         &self,
         conversation: ConversationId,
         open: &OpenSession,
         settings: &Settings,
         now: Timestamp,
+        trigger: CheckpointTrigger,
     ) -> Result<Option<UnflushedDelta>, InstanceError> {
         let checkpoint = &settings.checkpoint;
         let buffer = bounded_buffer_turns(
@@ -386,18 +442,23 @@ impl Instance {
             return Ok(None);
         }
 
-        if now.as_millis() - anchor.as_millis() < checkpoint.cooldown_seconds.saturating_mul(1_000)
-        {
-            return Ok(None);
-        }
+        // The cooldown and audience gates apply to the timer sweep only; a session open waives both
+        // (see [`CheckpointTrigger`]).
+        if trigger.applies_cooldown_and_audience() {
+            if now.as_millis() - anchor.as_millis()
+                < checkpoint.cooldown_seconds.saturating_mul(1_000)
+            {
+                return Ok(None);
+            }
 
-        // Activity "since the watermark" is inclusive: a tie (coarse clocks stamp a burst at one
-        // instant) errs toward flushing, the safe direction.
-        let audience = self.sessions.live().iter().any(|(other, session)| {
-            *other != conversation && session.last_activity_millis() >= anchor.as_millis()
-        });
-        if !audience {
-            return Ok(None);
+            // Activity "since the watermark" is inclusive: a tie (coarse clocks stamp a burst at one
+            // instant) errs toward flushing, the safe direction.
+            let audience = self.sessions.live().iter().any(|(other, session)| {
+                *other != conversation && session.last_activity_millis() >= anchor.as_millis()
+            });
+            if !audience {
+                return Ok(None);
+            }
         }
 
         Ok(Some(UnflushedDelta { buffer, start }))

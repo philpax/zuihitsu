@@ -84,9 +84,17 @@ pub struct CheckpointSettings {
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub min_delta_chars: i64,
     /// Minimum seconds since the session's last flush turn (or its start, if it has never flushed)
-    /// before another checkpoint may run — the cooldown gate.
+    /// before another checkpoint may run — the cooldown gate. Applies to the background timer sweep
+    /// only; a fresh session opening waives it, since the opening session's brief needs the parallel
+    /// conversations' state now.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub cooldown_seconds: i64,
+    /// Whether a fresh session opening for a conversation first checkpoint-flushes the *other* live
+    /// conversations, so their working state reaches memory before the opening session's brief
+    /// composes and its first turn dispatches. Substance-gated only (the cooldown and audience gates
+    /// the timer sweep applies are waived); independent of the background timer, which `enabled`
+    /// governs.
+    pub flush_on_open: bool,
 }
 
 /// The fraction of the model's context window the compaction budget defaults to — the headroom left
@@ -291,6 +299,7 @@ impl Default for CheckpointSettings {
             enabled: true,
             min_delta_chars: 2_000,
             cooldown_seconds: 5 * MINUTE,
+            flush_on_open: true,
         }
     }
 }
@@ -466,6 +475,9 @@ mod tests {
         // sweeper enabled.
         assert_eq!(settings.checkpoint, CheckpointSettings::default());
         assert!(settings.checkpoint.enabled);
+        // `flush_on_open` postdates the checkpoint group; its absence must default the open-triggered
+        // sweep on.
+        assert!(settings.checkpoint.flush_on_open);
         // The memory group postdates many logged snapshots; its absence must default to the limit.
         assert_eq!(settings.memory, MemorySettings::default());
         assert_eq!(settings.memory.max_entry_chars, 1_000);

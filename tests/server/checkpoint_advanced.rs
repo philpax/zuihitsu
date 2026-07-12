@@ -28,7 +28,13 @@ async fn a_checkpointed_memory_is_retrievable_in_another_room() {
         .route_message(&model, &room_b, "erin", "hello", &["erin"])
         .await
         .unwrap();
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 
     // Room A's session is still open (mid-conversation), yet its working state is already durable.
     assert!(
@@ -164,7 +170,11 @@ async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
     let sweep = tokio::spawn({
         let server = server.clone();
         let model = model.clone();
-        async move { server.checkpoint_live_sessions(model.as_ref()).await }
+        async move {
+            server
+                .checkpoint_live_sessions(model.as_ref(), CheckpointTrigger::Timer)
+                .await
+        }
     });
     while !model.entered() {
         tokio::task::yield_now().await;

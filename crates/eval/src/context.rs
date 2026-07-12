@@ -6,9 +6,10 @@
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use zuihitsu::{
-    ConversationLocator, Embedder, Event, EventPayload, FakeMcpHost, Graph, InstanceFeatures,
-    LinkSource, ManualClock, McpServerConfig, MemoryId, MemoryStore, ModelClient, RelationName,
-    SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome, Visibility,
+    CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeMcpHost, Graph,
+    InstanceFeatures, LinkSource, ManualClock, McpServerConfig, MemoryId, MemoryStore, ModelClient,
+    RelationName, SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome,
+    Visibility,
 };
 
 use crate::error::EvalError;
@@ -212,16 +213,20 @@ impl RunContext {
             .await?)
     }
 
-    /// Tune the checkpoint gates so a scripted two-room exchange trips them: the substance threshold
-    /// and the cooldown, leaving the enable flag and the rest of the settings as seeded.
+    /// Tune the checkpoint gates so a scripted two-room exchange trips them: the substance threshold,
+    /// the cooldown, and whether a fresh session open flushes the other rooms first (`flush_on_open`),
+    /// leaving the enable flag and the rest of the settings as seeded. A timer-path scenario disables
+    /// `flush_on_open` so the open trigger does not pre-empt the explicit sweep it drives.
     pub(crate) fn tune_checkpoint(
         &self,
         min_delta_chars: i64,
         cooldown_seconds: i64,
+        flush_on_open: bool,
     ) -> Result<(), EvalError> {
         let mut settings = self.server.control().settings()?;
         settings.checkpoint.min_delta_chars = min_delta_chars;
         settings.checkpoint.cooldown_seconds = cooldown_seconds;
+        settings.checkpoint.flush_on_open = flush_on_open;
         self.server.control().set_settings(settings)?;
         Ok(())
     }
@@ -233,7 +238,7 @@ impl RunContext {
     pub(crate) async fn checkpoint_sweep(&self) -> Result<usize, EvalError> {
         Ok(self
             .server
-            .checkpoint_live_sessions(self.model.as_ref())
+            .checkpoint_live_sessions(self.model.as_ref(), CheckpointTrigger::Timer)
             .await?)
     }
 

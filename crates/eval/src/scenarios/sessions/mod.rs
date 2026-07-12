@@ -1,14 +1,15 @@
 //! Sessions: how memory behaves across the seams of a session — compaction and its flush
 //! visibility (`compaction`), a cold open resurfacing recent threads (`cold_open`), a checkpoint
-//! syncing parallel rooms (`checkpoint`), lived multi-turn conversations (`conversations`), the
-//! join brief handed to a newcomer (`joins`), and transcript linking and its audience gate
-//! (`transcripts`).
+//! syncing parallel rooms via the timer sweep (`checkpoint`) and via a fresh session opening
+//! (`session_open`), lived multi-turn conversations (`conversations`), the join brief handed to a
+//! newcomer (`joins`), and transcript linking and its audience gate (`transcripts`).
 
 pub(crate) mod checkpoint;
 pub(crate) mod cold_open;
 pub(crate) mod compaction;
 pub(crate) mod conversations;
 pub(crate) mod joins;
+pub(crate) mod session_open;
 pub(crate) mod transcripts;
 
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub(super) fn scenarios() -> Vec<Arc<dyn Scenario>> {
         compaction::scenarios(),
         cold_open::scenarios(),
         checkpoint::scenarios(),
+        session_open::scenarios(),
     ]
     .into_iter()
     .flatten()

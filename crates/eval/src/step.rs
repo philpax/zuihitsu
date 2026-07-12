@@ -69,12 +69,24 @@ pub enum EvalStep {
         min_delta_chars: i64,
         #[ts(type = "number")]
         cooldown_seconds: i64,
+        /// Whether a fresh session open flushes the other live rooms first. A timer-path scenario
+        /// sets this `false` so the open trigger does not pre-empt its explicit `CheckpointSweep`.
+        /// Absent from a package recorded before the field existed, it defaults `true` — the setting's
+        /// own default — so an older run's `TuneCheckpoint` still deserializes.
+        #[serde(default = "default_flush_on_open")]
+        flush_on_open: bool,
     },
     /// Confirm the first merge proposed in the live log as the operator would, resolved at execution
     /// time: the proposed pair is looked up against the run's log and, if found, an operator `same_as`
     /// merge is authored ([`RunContext::operator_merge`](crate::context::RunContext::operator_merge)).
     /// When no proposal is present, `on_missing` decides — skip the step or fail the run.
     ConfirmProposedMerge { on_missing: OnMissing },
+}
+
+/// The serde default for [`EvalStep::TuneCheckpoint`]'s `flush_on_open`, matching the setting's own
+/// build default, so a package recorded before the field existed deserializes with the open trigger on.
+fn default_flush_on_open() -> bool {
+    true
 }
 
 impl EvalStep {

@@ -45,8 +45,10 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
         EvalStep::TuneCheckpoint {
             min_delta_chars,
             cooldown_seconds,
+            flush_on_open,
         } => format!(
-            "TuneCheckpoint min_delta_chars={min_delta_chars} cooldown_seconds={cooldown_seconds}"
+            "TuneCheckpoint min_delta_chars={min_delta_chars} cooldown_seconds={cooldown_seconds} \
+             flush_on_open={flush_on_open}"
         ),
         EvalStep::ConfirmProposedMerge { on_missing } => {
             let on_missing = match on_missing {

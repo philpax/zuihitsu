@@ -17,6 +17,7 @@ mod session;
 mod tests;
 mod workers;
 
+pub use drivers::CheckpointTrigger;
 pub use error::InstanceError;
 use session::{Carryover, OpenSession, RoutedTurn};
 

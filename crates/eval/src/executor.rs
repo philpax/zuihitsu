@@ -114,7 +114,8 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
         EvalStep::TuneCheckpoint {
             min_delta_chars,
             cooldown_seconds,
-        } => ctx.tune_checkpoint(*min_delta_chars, *cooldown_seconds)?,
+            flush_on_open,
+        } => ctx.tune_checkpoint(*min_delta_chars, *cooldown_seconds, *flush_on_open)?,
         EvalStep::ConfirmProposedMerge { on_missing } => {
             return confirm_proposed_merge(*on_missing, ctx);
         }

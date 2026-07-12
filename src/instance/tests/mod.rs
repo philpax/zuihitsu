@@ -10,6 +10,8 @@ mod designation;
 #[cfg(test)]
 mod embedding_swap;
 #[cfg(test)]
+mod flush_on_open;
+#[cfg(test)]
 mod observability;
 #[cfg(test)]
 mod priority;

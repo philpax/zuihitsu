@@ -20,7 +20,7 @@ use crate::{
     time::{self, Timestamp},
 };
 
-use super::super::{Instance, InstanceError, OpenSession};
+use super::super::{CheckpointTrigger, Instance, InstanceError, OpenSession};
 
 impl Instance {
     /// The features this instance enables — the gate the Lua registration, the API reference, and the
@@ -133,6 +133,56 @@ impl Instance {
         present_set: &[MemoryId],
         model: &dyn ModelClient,
     ) -> Result<Arc<OpenSession>, InstanceError> {
+        // Before taking this conversation's lifecycle lock, checkpoint-flush the *other* live
+        // conversations if a fresh session is about to open for this one — so their working state
+        // reaches memory before this session's brief composes (the brief then reads the just-flushed
+        // state) and before its first turn dispatches, rather than the two racing at the shared model.
+        //
+        // The ordering is load-bearing: the sweep takes each other conversation's lifecycle lock
+        // internally, and no code path may ever hold two lifecycle locks at once (that is the deadlock
+        // guard), so this must run before this conversation's lock is acquired below.
+        //
+        // A cheap unlocked pre-check keeps the hot reuse path free: if this conversation has a live
+        // session within the idle gap, the call below will reuse it — no fresh session, so nothing to
+        // sweep for. The pre-check is unlocked, so a concurrent open may have inserted a live session
+        // by the time the lock is taken; the sweep was then unnecessary but harmless — the substance
+        // gate self-limits, and each candidate is re-validated under its own lifecycle lock. The
+        // `SessionOpen` trigger skips this conversation's own lapsed session, which is flush-and-ended
+        // separately under the lock below.
+        {
+            let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
+            let now = self.engine.clock.now();
+            let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
+            let will_reuse = self
+                .sessions
+                .get(conversation)
+                .is_some_and(|open| now.as_millis() - open.last_activity_millis() <= idle_gap_ms);
+            if settings.checkpoint.flush_on_open && !will_reuse {
+                match self
+                    .checkpoint_live_sessions(model, CheckpointTrigger::SessionOpen(conversation))
+                    .await
+                {
+                    Ok(flushed) if flushed > 0 => {
+                        tracing::info!(
+                            flushed,
+                            ?conversation,
+                            "session-open checkpoint flushed live sessions"
+                        )
+                    }
+                    Ok(_) => {}
+                    // Another conversation's flush failure must not fail this conversation's turn — log
+                    // it and continue; the background timer sweep retries it.
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            ?conversation,
+                            "session-open checkpoint flush failed; proceeding with the new session"
+                        )
+                    }
+                }
+            }
+        }
+
         // Serialize this conversation's lifecycle: hold its lock across the whole recover/close/open so an
         // idle-sweep close already in flight for it finishes first — its flush's writes are then in the
         // graph the new session's brief reads — and so the close and the next open never interleave.

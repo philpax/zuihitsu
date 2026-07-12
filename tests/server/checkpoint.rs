@@ -112,11 +112,14 @@ async fn a_low_activity_session_skips_the_flush() {
 
 /// Point the checkpoint gates at a test's scale: a small substance threshold (30 chars — a one-line
 /// greeting stays under it, a substantive message clears it) and no cooldown unless the test is about
-/// it.
+/// it. Disables `flush_on_open` so these tests exercise the timer sweep in isolation: with it on, the
+/// second room opening would itself checkpoint-flush the first (the substance-gated open trigger),
+/// pre-empting the explicit sweep the tests drive.
 pub(crate) fn tune_checkpoint(server: &Server, min_delta_chars: i64, cooldown_seconds: i64) {
     let mut settings = server.control().settings().unwrap();
     settings.checkpoint.min_delta_chars = min_delta_chars;
     settings.checkpoint.cooldown_seconds = cooldown_seconds;
+    settings.checkpoint.flush_on_open = false;
     server.control().set_settings(settings).unwrap();
 }
 
@@ -151,7 +154,13 @@ async fn a_checkpoint_fires_only_past_the_substance_threshold() {
 
     // Cooldown passes (zero) and the audience is live (room B), but neither room's delta reaches the
     // threshold — the substance gate alone blocks.
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        0
+    );
 
     // A substantive message pushes room A's delta past the threshold; the same sweep now flushes it.
     let long = SUBSTANTIVE.repeat(3);
@@ -160,7 +169,13 @@ async fn a_checkpoint_fires_only_past_the_substance_threshold() {
         .route_message(&model, &room_a, "dave", &long, &["dave"])
         .await
         .unwrap();
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -188,12 +203,24 @@ async fn a_checkpoint_waits_out_the_cooldown() {
 
     // Substance and audience pass, but the session is younger than the cooldown (measured from its
     // start, since it has never flushed) — the cooldown gate alone blocks.
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        0
+    );
 
     // Past the cooldown (still within the idle gap), the sweep flushes room A. Room B's delta stays
     // under the substance threshold, so it does not ride along.
     clock.advance_millis(601 * 1_000);
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -216,7 +243,13 @@ async fn a_checkpoint_requires_a_live_audience() {
 
     // Substance and cooldown pass, but room A is the only live conversation — the tail's only reader
     // is room A itself, which already has it in the buffer, so the audience gate alone blocks.
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 0);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        0
+    );
 
     // Another conversation coming live gives the flush a reader; the same sweep now flushes room A
     // (room B's own delta stays under the substance threshold).
@@ -225,7 +258,13 @@ async fn a_checkpoint_requires_a_live_audience() {
         .route_message(&model, &room_b, "erin", "hi", &["erin"])
         .await
         .unwrap();
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -253,7 +292,13 @@ async fn a_checkpoint_flush_leaves_the_session_open_and_rides_the_buffer() {
         .route_message(&model, &room_b, "erin", "hi", &["erin"])
         .await
         .unwrap();
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 
     // The flush turn landed with the Flush provenance, and the session is still open: no
     // SessionEnded, and the next message continues the same session rather than opening a new one.
@@ -329,7 +374,13 @@ async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
         .route_message(&model, &room_b, "erin", "hi", &["erin"])
         .await
         .unwrap();
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 
     server
         .platform()
@@ -342,7 +393,13 @@ async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
         )
         .await
         .unwrap();
-    assert_eq!(server.checkpoint_live_sessions(&model).await.unwrap(), 1);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1
+    );
 
     let seen = model.recorded_messages();
     assert_eq!(seen.len(), 5);

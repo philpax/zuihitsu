@@ -71,9 +71,14 @@ impl Scenario for CheckpointSyncsParallelRooms {
 
     fn steps(&self) -> Vec<EvalStep> {
         vec![
+            // Room B opens (step 6) after room A's substance has already accrued, so the open trigger
+            // would flush room A itself and pre-empt the explicit `CheckpointSweep` this scenario
+            // tests. Disable `flush_on_open` to keep exercising the timer path — the open trigger has
+            // its own scenario (`session_open_syncs_parallel_rooms`).
             EvalStep::TuneCheckpoint {
                 min_delta_chars: MIN_DELTA_CHARS,
                 cooldown_seconds: 0,
+                flush_on_open: false,
             },
             // Room A: the planning exchange — concrete decisions, a deadline, and texture.
             Turn::new(
