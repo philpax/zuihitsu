@@ -10,6 +10,7 @@ import { Composer } from "./Composer.tsx";
 import { Docked } from "./Docked.tsx";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { Transcript } from "./Transcript.tsx";
+import { TurnMarkdown } from "./TurnMarkdown.tsx";
 import { type Participation, ModelCalls } from "./ConversationView.tsx";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
 import { type Channel, hasScopeChar } from "./channelUtilities.tsx";
@@ -269,7 +270,7 @@ function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
         </span>
         <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">sending…</span>
       </div>
-      <p className="whitespace-pre-wrap text-base leading-relaxed text-ink">{text}</p>
+      <TurnMarkdown text={text} softBreaks />
     </div>
   );
 }

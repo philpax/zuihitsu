@@ -8,7 +8,6 @@ import { LabeledDivider } from "../../components/primitives.tsx";
 import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
-import { RefText } from "./TurnRefs.tsx";
 import { ConversationNames, ModelCalls, Names } from "./ConversationView.tsx";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
@@ -118,22 +117,12 @@ export function TurnItem({
         <Deliberation steps={turn.deliberation} inflight={inflight} />
       )}
       {turn.text ? (
-        isAgent ? (
-          // The agent composes its replies as Markdown; render them so. Participant and operator input
-          // stays raw text below — only its line breaks are preserved.
-          <div className={turn.deliberation.length > 0 ? "mt-3" : ""}>
-            <TurnMarkdown text={turn.text} />
-          </div>
-        ) : (
-          <p
-            className={
-              "whitespace-pre-wrap text-base leading-relaxed text-ink" +
-              (turn.deliberation.length > 0 ? " mt-3" : "")
-            }
-          >
-            <RefText text={turn.text} />
-          </p>
-        )
+        // Both sides render as Markdown, so a URL is clickable and formatting is honored either way.
+        // The agent composes deliberate Markdown; a participant or operator types plain text, so
+        // `softBreaks` keeps their single newlines as line breaks.
+        <div className={turn.deliberation.length > 0 ? "mt-3" : ""}>
+          <TurnMarkdown text={turn.text} softBreaks={!isAgent} />
+        </div>
       ) : inflight && !inflight.superseded && inflight.reply ? (
         // The reply streams into the message position it will occupy on commit — same spot, same
         // Markdown rendering, so the committed text simply takes over in place.

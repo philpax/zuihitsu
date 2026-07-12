@@ -1,6 +1,7 @@
 import type { ComponentProps, ComponentType } from "react";
 import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeKatex from "rehype-katex";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
@@ -8,15 +9,16 @@ import { TURNREF_SCHEME, remarkTurnRefs } from "../../lib/view/turnRefs.ts";
 import { turnComponents } from "../../components/markdownComponents.tsx";
 import { TurnRefChip } from "./TurnRefs.tsx";
 
-/// An agent conversation turn rendered as Markdown — paragraphs, emphasis, lists, links, fenced
-/// code blocks, GFM tables, and LaTeX math — in the console's tokens, with turn references
-/// (`[turn:<ulid>]` tokens and pasted deep-link URLs) rendered as inline chips. The operator's and
-/// participants' own input stays raw text (only its newlines are preserved, with `RefText` chipping
-/// its references); just the agent's prose, which it composes as Markdown, is here.
-export function TurnMarkdown({ text }: { text: string }) {
+/// A conversation turn rendered as Markdown — paragraphs, emphasis, lists, links, fenced code
+/// blocks, GFM tables, and LaTeX math — in the console's tokens, with turn references
+/// (`[turn:<ulid>]` tokens and pasted deep-link URLs) rendered as inline chips. The agent composes
+/// its prose as Markdown deliberately, so its blank-line paragraphing carries the structure. A
+/// participant or operator types plain text, so `softBreaks` preserves their single newlines as
+/// line breaks (as chat surfaces do) while still linking URLs and rendering any Markdown they write.
+export function TurnMarkdown({ text, softBreaks }: { text: string; softBreaks?: boolean }) {
   return (
     <ReactMarkdown
-      remarkPlugins={plugins}
+      remarkPlugins={softBreaks ? breaksPlugins : plugins}
       rehypePlugins={rehypePlugins}
       components={components}
       urlTransform={keepTurnRefs}
@@ -28,6 +30,7 @@ export function TurnMarkdown({ text }: { text: string }) {
 
 // Module-level plugin arrays and component maps, so the React Compiler sees stable objects.
 const plugins = [remarkGfm, remarkMath, remarkTurnRefs];
+const breaksPlugins = [remarkGfm, remarkMath, remarkTurnRefs, remarkBreaks];
 const rehypePlugins = [rehypeKatex];
 
 /// The styled anchor from the shared component map, for the non-reference links the override below

@@ -2,34 +2,16 @@ import { useContext, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { formatDateTime, formatTime } from "../../lib/format/format.ts";
-import { scanTurnRefs } from "../../lib/replica/replica.ts";
 import { type TurnRefTarget, TurnRefs, speakerLabel } from "../../lib/view/turnRefs.ts";
 
 // Turn references in rendered transcript text (spec §Conversations → Transcript references). Turn
 // text is scanned through the wasm `turn_ref` parser — the same definition the agent's resolver
 // reads — and each `[turn:<ulid>]` token or pasted deep-link URL renders as an inline chip labeled
-// with the referenced turn's speaker. Hovering previews the moment and a couple of neighbors either
-// side from the folded replica (the console is the operator's surface, so no audience filtering
-// here); clicking follows the deep link the transcript already honors (scroll + arrival wash). The
-// lookup context and the Markdown-side remark plugin live in `lib/turnRefs.ts`.
-
-/// Raw turn text with its turn references rendered as chips — the participant-turn counterpart of
-/// the Markdown pipeline's remark plugin. Text without references passes through untouched.
-export function RefText({ text }: { text: string }) {
-  const segments = scanTurnRefs(text);
-  if (!segments.some((segment) => segment.kind === "ref")) return <>{text}</>;
-  return (
-    <>
-      {segments.map((segment, index) =>
-        segment.kind === "prose" ? (
-          <span key={index}>{segment.text}</span>
-        ) : (
-          <TurnRefChip key={index} id={segment.id} />
-        ),
-      )}
-    </>
-  );
-}
+// with the referenced turn's speaker. Both sides' text runs through the Markdown pipeline, whose
+// remark plugin mints the `turnref:` links this chip renders. Hovering previews the moment and a
+// couple of neighbors either side from the folded replica (the console is the operator's surface, so
+// no audience filtering here); clicking follows the deep link the transcript already honors (scroll +
+// arrival wash). The lookup context and the remark plugin live in `lib/turnRefs.ts`.
 
 /// An inline reference chip: faint mono, labeled with the referenced turn's speaker. Hover (or
 /// focus) opens the preview popup; click follows the deep link. An id the fold does not hold —
