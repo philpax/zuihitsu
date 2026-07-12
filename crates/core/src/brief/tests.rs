@@ -227,6 +227,96 @@ fn the_working_set_is_re_filtered_against_the_new_present_set() {
 }
 
 #[test]
+fn a_same_as_class_collapses_to_a_single_block() {
+    // One identity spanning a present stub and two working-set stubs (a person merged across
+    // platforms). The class reads (`class_entries`, `class_neighbor_links`) already resolve the whole
+    // class, so rendering each stub would repeat the same facts and relationships. The brief collapses
+    // the class to one block, headed by the present stub, and drops the intra-class `same_as` plumbing.
+    let direct = MemoryId::generate();
+    let canonical = MemoryId::generate();
+    let discord = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+            description: String::new(),
+        },
+        register_relation("knows", "known_by"),
+        created(direct, "person/rowan@direct"),
+        created(canonical, "person/rowan"),
+        created(discord, "person/rowan@discord"),
+        created(erin, "person/erin"),
+        // Merge all three stubs into one class: direct ↔ canonical ↔ discord.
+        EventPayload::link_created(
+            direct,
+            canonical,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
+        EventPayload::link_created(
+            discord,
+            canonical,
+            RelationName::SameAs,
+            LinkSource::Operator,
+            None,
+            None,
+            Visibility::Public,
+        ),
+        // A distinctive class-wide fact, filed on a non-present stub — it merges across the class, so
+        // before the collapse it rendered once per stub (three times).
+        appended(
+            canonical,
+            1_000,
+            "maintains an open-source build tool",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        // A summary on the present stub, to confirm it heads the single block.
+        EventPayload::MemoryDescriptionRegenerated {
+            id: direct,
+            new_text: "An engineer known across two chat platforms.".to_owned(),
+            produced_by: None,
+        },
+        // An external relationship carried by a non-present stub: it must surface on the collapsed
+        // block through the class read, while the `same_as` edges holding the class together do not.
+        linked(canonical, erin, "knows"),
+    ]);
+    let settings = Settings::default().brief;
+
+    // The present stub is present; the other two ride in the working set as would-be active threads.
+    let out = compose_at_epoch(&graph, &settings, &[direct], None, &[canonical, discord]);
+
+    // One block for the identity, headed by the present stub — the bare stubs never get their own.
+    assert!(out.contains("## person/rowan@direct"));
+    assert!(!out.contains("## person/rowan\n"));
+    assert!(!out.contains("## person/rowan@discord"));
+    // The two working-set stubs are the same identity as the present one, so nothing is left to render
+    // as an active thread and the whole section drops.
+    assert!(!out.contains("# Active threads"));
+    // The class-wide fact and the present stub's summary each appear exactly once, not once per stub.
+    assert_eq!(
+        out.matches("maintains an open-source build tool").count(),
+        1
+    );
+    assert_eq!(
+        out.matches("An engineer known across two chat platforms.")
+            .count(),
+        1
+    );
+    // The external edge surfaces on the collapsed block; the intra-class `same_as` plumbing does not.
+    assert!(out.contains("knows: person/erin"));
+    assert!(!out.contains("same_as"));
+}
+
+#[test]
 fn an_active_thread_the_budget_cannot_afford_drops_with_its_header() {
     // The active-threads section — cold-open-derived here, an absent memory in the working set — is
     // packed per thread under the char budget, and its header is charged only if a thread is admitted.

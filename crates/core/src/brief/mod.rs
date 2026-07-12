@@ -256,6 +256,11 @@ pub(super) fn compose_packed(
     let mut out = String::new();
     let mut full_participants = HashSet::new();
     let mut included_threads = HashSet::new();
+    // A `same_as` class is one identity, so it earns one block: the class reads (`class_entries`,
+    // `class_neighbor_links`) already resolve the whole class, so a second stub would render the same
+    // facts and relationships again. This tracks the classes already rendered (self, each present
+    // participant, each active thread) so a later stub of an identity already shown is skipped.
+    let mut rendered_classes: HashSet<MemoryId> = HashSet::new();
 
     // 1. Self brief — the agent's own memory in the per-participant shape. Mandatory.
     if let Some(self_memory) = graph.self_memory()? {
@@ -272,6 +277,7 @@ pub(super) fn compose_packed(
         block.push('\n');
         budget.charge(char_len(&block));
         out.push_str(&block);
+        rendered_classes.insert(class_of(self_memory.id)?);
     }
 
     // 2. Current context — the room — with its #confidential tag, visible regardless of who is
@@ -304,6 +310,11 @@ pub(super) fn compose_packed(
             let Some(memory) = graph.memory_by_id(participant)? else {
                 continue;
             };
+            // One block per identity: a present stub whose class is already shown (self, or an
+            // earlier-ranked present stub of the same person) is skipped rather than repeated.
+            if !rendered_classes.insert(class_of(participant)?) {
+                continue;
+            }
             let mut placed_full = false;
             if index < cap {
                 let mut block = String::new();
@@ -351,6 +362,15 @@ pub(super) fn compose_packed(
                 if Some(id) == self_id || Some(id) == current_context || present_set.contains(&id) {
                     continue;
                 }
+                // Collapse a same_as class to one thread: skip a working-set stub whose identity is
+                // already shown (self, a present participant, or an earlier thread of the same person),
+                // which would otherwise repeat the same class-wide facts and relationships. The class is
+                // marked below only once a block actually renders, so a stub with an all-filtered body
+                // does not suppress a sibling that carries a summary.
+                let class = class_of(id)?;
+                if rendered_classes.contains(&class) {
+                    continue;
+                }
                 let Some(memory) = graph.memory_by_id(id)? else {
                     continue;
                 };
@@ -373,6 +393,7 @@ pub(super) fn compose_packed(
                 if budget.take(char_len(&block)) {
                     threads.push_str(&block);
                     included_threads.insert(id);
+                    rendered_classes.insert(class);
                 }
             }
             if threads.is_empty() {

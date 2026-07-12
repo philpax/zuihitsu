@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{
     decay,
     event::Visibility,
@@ -199,12 +201,15 @@ fn clip(text: &str, max: usize) -> String {
     }
 }
 
-/// A memory's key relationships, as `relation → other-handle`, ranked by type-weight then recency and
-/// capped at `cap`. Soft-deleted neighbours are skipped and each edge is filtered through
-/// `link_visible` when an audience is present. An `Attributed` link carries a `[via teller]`
-/// provenance marker appended to the relationship line; a teller-private link carries its marker the
-/// same way. Each surviving edge also carries the neighbour's most recent visible entry as its inline
-/// spoke fact, so the substance one hop away reaches the brief.
+/// A memory's key relationships across its whole `same_as` class, as `relation → other-handle`, ranked
+/// by type-weight then recency and capped at `cap`. Reads [`Graph::class_neighbor_links`], so the class
+/// is collapsed to one relationship set that points *out* of the identity: the intra-class `same_as`
+/// plumbing (both endpoints in the class) is dropped, and an external edge carried by more than one stub
+/// is shown once (deduplicated by relation and neighbour). Soft-deleted neighbours are skipped and each
+/// edge is filtered through `link_visible` when an audience is present. An `Attributed` link carries a
+/// `[via teller]` provenance marker appended to the relationship line; a teller-private link carries its
+/// marker the same way. Each surviving edge also carries the neighbour's most recent visible entry as
+/// its inline spoke fact, so the substance one hop away reaches the brief.
 ///
 /// A hub memory can touch many live edges, so the list is ranked rather than dumped whole: the
 /// structural, identity-bearing relations ([`relation_weight`]) float to the top and the high-volume
@@ -220,7 +225,13 @@ fn relationships(
     cap: usize,
 ) -> Result<Vec<BriefRelationship>, BriefError> {
     let mut ranked: Vec<RankedRelationship> = Vec::new();
-    for link in graph.links(id)? {
+    let mut seen: HashSet<(RelationName, MemoryId)> = HashSet::new();
+    for link in graph.class_neighbor_links(id)? {
+        // One relationship per (relation, neighbour): a class can carry the same external edge from
+        // more than one of its stubs, and the collapsed block shows it once.
+        if !seen.insert((link.relation.clone(), link.other)) {
+            continue;
+        }
         let symmetric = graph
             .relation(link.relation.as_str())?
             .map(|r| r.symmetric)
@@ -228,8 +239,7 @@ fn relationships(
         if !visibility::link_visible(&link.link_vis(), symmetric, present_set, class_of)? {
             continue;
         }
-        let other = if link.from == id { link.to } else { link.from };
-        let Some(memory) = graph.memory_by_id(other)? else {
+        let Some(memory) = graph.memory_by_id(link.other)? else {
             continue;
         };
         let marker = if link.visibility != Visibility::Public {
