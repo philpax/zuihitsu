@@ -250,3 +250,119 @@ fn an_empty_stream_is_an_error_not_an_empty_reply() {
     assert!(error.is_transient());
     assert!(error.to_string().contains("without a single chunk"));
 }
+
+/// The truncation ladder: a generous first clip, a 0.9× trim per length-overflow rejection, a
+/// floor at a quarter of the window, and immediate surfacing of unrelated failures.
+mod embed_truncation {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use parking_lot::Mutex;
+
+    use super::super::{embed_truncated, is_length_overflow, truncate_chars};
+    use crate::model::ModelError;
+
+    fn overflow() -> ModelError {
+        ModelError::Backend {
+            model: "embedder".to_owned(),
+            message: "the input exceeds the maximum context length of 512 tokens".to_owned(),
+            transient: false,
+        }
+    }
+
+    #[test]
+    fn truncation_cuts_whole_characters_only() {
+        assert_eq!(truncate_chars("hello", 3), "hel");
+        assert_eq!(truncate_chars("hello", 10), "hello");
+        // Multi-byte characters count as one each; the cut can never split one.
+        assert_eq!(truncate_chars("日本語のテキスト", 3), "日本語");
+        assert_eq!(truncate_chars("", 4), "");
+    }
+
+    #[tokio::test]
+    async fn the_first_attempt_clips_to_two_and_a_half_chars_per_token() {
+        let seen = Mutex::new(Vec::new());
+        let long = "x".repeat(4_000);
+        embed_truncated(&[long], 512, |inputs| {
+            seen.lock().push(inputs[0].chars().count());
+            async { Ok(vec![vec![0.0]]) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*seen.lock(), vec![1_280]);
+    }
+
+    #[tokio::test]
+    async fn a_length_overflow_trims_the_budget_by_a_tenth_and_retries() {
+        let seen = Mutex::new(Vec::new());
+        let long = "x".repeat(4_000);
+        let result = embed_truncated(&[long], 512, |inputs| {
+            let mut seen = seen.lock();
+            seen.push(inputs[0].chars().count());
+            let fail = seen.len() == 1;
+            async move {
+                if fail {
+                    Err(overflow())
+                } else {
+                    Ok(vec![vec![0.0]])
+                }
+            }
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(*seen.lock(), vec![1_280, 1_152]);
+    }
+
+    #[tokio::test]
+    async fn persistent_overflows_stop_at_the_floor_and_surface_the_error() {
+        let attempts = AtomicUsize::new(0);
+        let long = "x".repeat(4_000);
+        let result = embed_truncated(&[long], 512, |_| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            async { Err(overflow()) }
+        })
+        .await;
+        assert!(matches!(result, Err(ModelError::Backend { .. })));
+        // 1280 shrinking by 0.9x per attempt stays above the 128-char floor for 22 attempts;
+        // the 23rd step would fall below it.
+        assert_eq!(attempts.load(Ordering::SeqCst), 22);
+    }
+
+    #[tokio::test]
+    async fn an_unrelated_failure_surfaces_without_a_retry() {
+        let attempts = AtomicUsize::new(0);
+        let result = embed_truncated(&["hi".to_owned()], 512, |_| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            async {
+                Err(ModelError::Backend {
+                    model: "embedder".to_owned(),
+                    message: "invalid api key".to_owned(),
+                    transient: false,
+                })
+            }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn the_overflow_heuristic_matches_the_backends_vocabularies() {
+        let backend = |message: &str| ModelError::Backend {
+            model: "embedder".to_owned(),
+            message: message.to_owned(),
+            transient: false,
+        };
+        // The recurring wordings across llama.cpp, vLLM, and TEI.
+        assert!(is_length_overflow(&backend(
+            "input is too large to process"
+        )));
+        assert!(is_length_overflow(&backend(
+            "This model's maximum context length is 512 tokens"
+        )));
+        assert!(is_length_overflow(&backend(
+            "`inputs` must have less than 512 tokens"
+        )));
+        assert!(!is_length_overflow(&backend("invalid api key")));
+        assert!(!is_length_overflow(&ModelError::Exhausted));
+    }
+}

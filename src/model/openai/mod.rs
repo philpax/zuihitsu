@@ -189,11 +189,14 @@ impl ModelClient for OpenAiClient {
 type ChunkStream =
     std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<ChatChunk, OpenAIError>> + Send>>;
 
-/// An embedder backed by an OpenAI-compatible `/embeddings` endpoint (jina v5 in our deployment).
+/// An embedder backed by an OpenAI-compatible `/embeddings` endpoint.
 pub struct OpenAiEmbedder {
     client: Client<OpenAIConfig>,
     model: String,
     dimensions: usize,
+    /// The backend's context window in tokens, when configured — drives the truncation ladder in
+    /// [`Self::embed`]. `None` sends inputs whole.
+    context_length: Option<usize>,
 }
 
 impl OpenAiEmbedder {
@@ -207,7 +210,28 @@ impl OpenAiEmbedder {
             ),
             model: config.model.clone(),
             dimensions: config.dimensions,
+            context_length: config.context_length,
         }
+    }
+
+    /// One embeddings request over `inputs` as given, no truncation.
+    async fn request(&self, inputs: Vec<String>) -> Result<Vec<Embedding>, ModelError> {
+        let request = CreateEmbeddingRequestArgs::default()
+            .model(self.model.clone())
+            .input(EmbeddingInput::StringArray(inputs))
+            .build()
+            .map_err(backend)?;
+        let response = self
+            .client
+            .embeddings()
+            .create(request)
+            .await
+            .map_err(backend)?;
+        Ok(response
+            .data
+            .into_iter()
+            .map(|datum| datum.embedding)
+            .collect())
     }
 }
 
@@ -222,28 +246,76 @@ impl Embedder for OpenAiEmbedder {
     }
 
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, ModelError> {
-        let model = &self.model;
-        let result: Result<Vec<Embedding>, ModelError> = async {
-            let request = CreateEmbeddingRequestArgs::default()
-                .model(self.model.clone())
-                .input(EmbeddingInput::StringArray(inputs.to_vec()))
-                .build()
-                .map_err(backend)?;
-            let response = self
-                .client
-                .embeddings()
-                .create(request)
-                .await
-                .map_err(backend)?;
-            Ok(response
-                .data
-                .into_iter()
-                .map(|datum| datum.embedding)
-                .collect())
-        }
-        .await;
-        result.map_err(|e| e.with_model(model))
+        let result = match self.context_length {
+            Some(context_length) => {
+                embed_truncated(inputs, context_length, |clipped| self.request(clipped)).await
+            }
+            None => self.request(inputs.to_vec()).await,
+        };
+        result.map_err(|e| e.with_model(&self.model))
     }
+}
+
+/// Drive `attempt` down the truncation ladder, keeping every input inside the backend's context
+/// window. Inputs are first truncated to 2.5 characters per context token — a deliberately
+/// generous ratio, since prose averages fewer tokens than that and over-trimming loses recall
+/// signal. The character heuristic can still undershoot the real token count (multi-byte text
+/// tokenizes denser), so a rejection that reads as a length overflow trims the character budget by
+/// a tenth and retries — a gentle step, since each retry is cheap and every character kept is
+/// recall signal — down to a quarter of the window; any other error, or the floor, surfaces as-is.
+/// Generic over the attempt so the ladder is testable without an HTTP backend.
+async fn embed_truncated<F, Fut>(
+    inputs: &[String],
+    context_length: usize,
+    attempt: F,
+) -> Result<Vec<Embedding>, ModelError>
+where
+    F: Fn(Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<Embedding>, ModelError>>,
+{
+    let mut budget = context_length * 5 / 2;
+    let floor = context_length.div_ceil(4);
+    loop {
+        let clipped = inputs
+            .iter()
+            .map(|input| truncate_chars(input, budget))
+            .collect();
+        match attempt(clipped).await {
+            Ok(embeddings) => return Ok(embeddings),
+            Err(error) if is_length_overflow(&error) && budget * 9 / 10 >= floor => {
+                budget = budget * 9 / 10;
+                tracing::debug!(
+                    budget,
+                    "the embedding backend rejected the batch as over-length; retrying with a smaller truncation"
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// The leading `max_chars` characters of `text` — a whole-`char` cut, so a multi-byte boundary can
+/// never split.
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    match text.char_indices().nth(max_chars) {
+        Some((cut, _)) => text[..cut].to_owned(),
+        None => text.to_owned(),
+    }
+}
+
+/// Whether a backend rejection reads as the input exceeding the model's context window. The
+/// OpenAI-compatible servers do not standardise this failure — llama.cpp says "input is too large
+/// to process", vLLM "maximum context length", TEI "must have less than N tokens" — so this matches
+/// the recurring vocabulary rather than any one wording. A false negative only skips the retry; a
+/// false positive only spends a smaller retry on a request that fails identically.
+fn is_length_overflow(error: &ModelError) -> bool {
+    let ModelError::Backend { message, .. } = error else {
+        return false;
+    };
+    let message = message.to_lowercase();
+    ["context length", "too large", "too long", "token"]
+        .iter()
+        .any(|needle| message.contains(needle))
 }
 
 #[derive(Serialize)]

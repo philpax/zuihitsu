@@ -127,6 +127,11 @@ pub struct EmbeddingConfig {
     /// The whole-request timeout for one embedding HTTP call, in seconds — the same hung-backend
     /// guard the model client has (see [`ResilienceConfig::request_timeout_seconds`]).
     pub request_timeout_seconds: u64,
+    /// The embedding model's context window, in tokens. When set, every input is truncated to 2.5
+    /// characters per context token before the request, and a backend length-overflow rejection
+    /// retries with progressively smaller truncations (see `OpenAiEmbedder::embed`). `None` sends
+    /// inputs whole, for a backend whose window comfortably exceeds any memory entry.
+    pub context_length: Option<usize>,
 }
 
 /// Where this instance's databases live — one directory holding all three. The event log is the

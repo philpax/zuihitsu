@@ -39,6 +39,7 @@ impl Default for EmbeddingConfig {
             model: String::new(),
             dimensions: 0,
             request_timeout_seconds: DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            context_length: None,
         }
     }
 }
