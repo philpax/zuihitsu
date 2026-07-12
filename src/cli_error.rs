@@ -26,6 +26,8 @@ pub(crate) enum CliError {
     Mcp(String),
     /// The `events` inspection command could not open or read the event log.
     Events(String),
+    /// The `brief` command could not reproduce a session's contextual brief.
+    Brief(String),
     /// The `revert` command could not truncate the log or reset the derived stores.
     Revert(String),
 }
@@ -59,6 +61,7 @@ impl std::fmt::Display for CliError {
             CliError::Render(source) => write!(f, "could not render the response: {source}"),
             CliError::Mcp(message) => write!(f, "mcp: {message}"),
             CliError::Events(message) => write!(f, "events: {message}"),
+            CliError::Brief(message) => write!(f, "brief: {message}"),
             CliError::Revert(message) => write!(f, "revert: {message}"),
         }
     }
@@ -74,7 +77,7 @@ impl std::error::Error for CliError {
             CliError::ParseSettings { source, .. } => Some(source),
             CliError::Render(source) => Some(source),
             CliError::Mcp(_) => None,
-            CliError::Events(_) | CliError::Revert(_) => None,
+            CliError::Events(_) | CliError::Brief(_) | CliError::Revert(_) => None,
         }
     }
 }

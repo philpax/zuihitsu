@@ -16,12 +16,14 @@ use crate::{
     client::Client,
 };
 
+mod cli_brief;
 mod cli_error;
 mod cli_events;
 mod cli_handlers;
 mod client;
 mod http_server;
 
+use cli_brief::{BriefSelector, brief};
 use cli_events::{EventQuery, events};
 
 fn main() -> ExitCode {
@@ -150,6 +152,18 @@ enum Command {
         #[arg(long)]
         summary: bool,
     },
+    /// Re-compose a session's contextual brief with the current code and print it beside the brief
+    /// frozen at session start (a session's brief is baked into the log, so this is how you see a change
+    /// to brief composition against real data without re-running the agent). Reads the log read-only, so
+    /// it is safe while the agent is running. Select the session by an event seq it covers, or by its id.
+    Brief {
+        /// Reproduce the brief of the session active at this event seq (as `events --seq` reports it).
+        #[arg(long)]
+        seq: Option<u64>,
+        /// Reproduce the brief of the session with this id, or a unique prefix of it.
+        #[arg(long)]
+        session: Option<String>,
+    },
     /// Revert the agent to a prior event: truncate the log past `seq`, then reset the derived stores so
     /// the next boot rebuilds at that point. Destructive and irreversible. It opens the log read-write,
     /// so the agent must be stopped first, and it requires `--yes` to proceed.
@@ -250,6 +264,18 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
                 summary: *summary,
             },
         ),
+        Command::Brief { seq, session } => {
+            let selector = match (seq, session) {
+                (Some(seq), None) => BriefSelector::Seq(*seq),
+                (None, Some(session)) => BriefSelector::Session(session.clone()),
+                _ => {
+                    return Err(CliError::Brief(
+                        "pass exactly one of --seq or --session".to_owned(),
+                    ));
+                }
+            };
+            brief(&config, selector)
+        }
         Command::Revert { seq, yes } => revert(&config, *seq, *yes),
     }
 }
