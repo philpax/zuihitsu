@@ -27,14 +27,14 @@ import { ChannelLink, ChannelSelect, MobileRoomControls, RoomControls } from "./
 import { Room } from "./Room.tsx";
 
 /// The participate capability the agent frame hands the Conversation view (absent in the eval frame,
-/// which is a finished log and so read-only). `atHead` is whether the timeline cursor follows the
-/// head — you can speak into the present, but a scrub back is read-only history. `sender` is the
-/// handle you converse under as a participant, lifted to the frame so it survives view switches.
+/// which is a finished log and so read-only). `sender` is the handle you converse under as a
+/// participant, lifted to the frame so it survives view switches. Whether the cursor is at the head
+/// — the gate on speaking into the present, and on following the live tail — rides the view's own
+/// `atHead` prop, since a read-only eval run at its head follows the tail too.
 export interface Participation {
   connection: LiveConnection;
   sender: string;
   setSender: (value: string) => void;
-  atHead: boolean;
 }
 
 /// The reconstructed model calls with their derived context debugging — per-call cache verdicts,
@@ -69,12 +69,17 @@ export function ConversationView({
   replica,
   events,
   cursor,
+  atHead = false,
   participate,
   progress,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
+  /// Whether the timeline cursor sits at the head. Gates speaking into the present (live) and
+  /// following the live tail as new turns and tokens arrive (both frames), so a run watched at its
+  /// head auto-scrolls while a scrub back into history is left undisturbed.
+  atHead?: boolean;
   participate?: Participation;
   /// Each conversation's in-flight generation (live mode only): the open room renders its own at
   /// the transcript tail, so the operator watches the deliberation arrive rather than a silence.
@@ -277,6 +282,7 @@ export function ConversationView({
                   key={selected.key}
                   replica={replica}
                   cursor={cursor}
+                  atHead={atHead}
                   channel={selected}
                   inflight={
                     (selected.conversation && progress?.get(selected.conversation.id)) || null

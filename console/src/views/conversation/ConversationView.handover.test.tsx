@@ -34,6 +34,9 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   };
+  // The at-head view follows its foot as the in-flight generation streams in; jsdom's own `scrollTo`
+  // only logs "Not implemented", so replace it outright with a no-op.
+  window.scrollTo = () => {};
 });
 
 /// The read surface the view actually queries during render; everything else is behind click
@@ -124,7 +127,13 @@ function render(
     root.render(
       <StrictMode>
         <MemoryRouter>
-          <ConversationView replica={replica} events={events} cursor={cursor} progress={progress} />
+          <ConversationView
+            replica={replica}
+            events={events}
+            cursor={cursor}
+            atHead
+            progress={progress}
+          />
         </MemoryRouter>
       </StrictMode>,
     );

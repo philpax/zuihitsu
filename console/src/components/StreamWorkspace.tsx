@@ -42,8 +42,8 @@ const RelationsView = lazy(() =>
 
 /// What the agent frame passes so its Conversation view can also *speak*: the live connection and
 /// the handle you converse under (lifted here so it survives view switches). Absent in the eval
-/// frame, which is read-only. The workspace adds whether the cursor is at the head, since you may
-/// speak into the present but a scrub back is read-only history.
+/// frame, which is read-only. Whether the cursor is at the head — the gate on speaking into the
+/// present — rides the view's own `atHead` prop, since the eval frame follows the tail at its head too.
 export interface Participant {
   connection: LiveConnection;
   sender: string;
@@ -234,7 +234,8 @@ export function StreamWorkspace({
                         replica={replica}
                         events={events}
                         cursor={cursor}
-                        participate={participant && { ...participant, atHead: cursor >= head }}
+                        atHead={cursor >= head}
+                        participate={participant}
                         progress={progress}
                       />
                     )}

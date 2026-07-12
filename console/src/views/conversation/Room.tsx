@@ -23,6 +23,7 @@ import { useFollowBottom } from "./useFollowBottom.ts";
 export function Room({
   replica,
   cursor,
+  atHead,
   channel,
   inflight,
   participate,
@@ -30,6 +31,10 @@ export function Room({
 }: {
   replica: Replica;
   cursor: number;
+  /// Whether the timeline cursor sits at the head: the transcript follows its own foot only here, so
+  /// scrubbing history never drags the reader forward. Gates the composer too — you speak into the
+  /// present, not into replayed history.
+  atHead: boolean;
   channel: Channel;
   /// This room's in-flight generation (live mode only), rendered at the transcript's tail while
   /// the agent deliberates.
@@ -111,12 +116,17 @@ export function Room({
       .slice(deferred.baseline)
       .some((turn) => turn.role === "Agent");
 
-  // Follow the foot of the transcript while live and at the head, so a landing turn — ours or the
-  // agent's — and the in-flight echo and thinking pulse stay in view. Gated to `atHead`, so scrubbing
-  // history never drags the reader back to the present. The signal changes on every event that moves
-  // the foot: a turn count change, the optimistic echo appearing, or the thinking pulse toggling.
-  const turnCount = channel.conversation?.turns.length ?? 0;
-  useFollowBottom(participate?.atHead === true, `${turnCount}|${optimistic !== null}|${thinking}`);
+  // Follow the foot of the transcript while at the head, so everything that lands at the tail stays in
+  // view — a new turn, a streamed reasoning or reply token, a committed deliberation step (a tool-call
+  // notice), the optimistic echo, and the thinking pulse. Gated to `atHead`, so scrubbing history never
+  // drags the reader forward; it holds in both frames, so a read-only eval run watched at its head
+  // follows the tail too. The signal changes whenever the foot moves: `cursor` advances on every
+  // committed event (new turns and deliberation steps alike), and the in-flight lengths grow with each
+  // streamed token before that step commits — so the follow tracks token growth, not just whole turns.
+  const inflightSignal = inflight
+    ? `${inflight.step}:${inflight.phase}:${inflight.reasoning.length}:${inflight.reply.length}:${inflight.restarts}`
+    : "";
+  useFollowBottom(atHead, `${cursor}|${optimistic !== null}|${thinking}|${inflightSignal}`);
 
   return (
     <div className="flex w-full min-w-0 max-w-[60rem] flex-col">
@@ -186,7 +196,7 @@ export function Room({
         <Docked>
           <div className="pb-2.5 pt-2 md:grid md:grid-cols-[1fr_12rem] md:gap-8">
             <div className="w-full min-w-0 max-w-[60rem]">
-              {participate.atHead ? (
+              {atHead ? (
                 <Composer
                   onSend={onSend}
                   onPendingChange={setThinking}
