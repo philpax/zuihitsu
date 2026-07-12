@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use zuihitsu::ConfigError;
 
-use crate::{client::ClientError, http_server};
+use crate::{cli::client::ClientError, http_server};
 
 #[derive(Debug)]
 pub(crate) enum CliError {

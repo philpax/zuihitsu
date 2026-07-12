@@ -28,7 +28,7 @@ The agent acts by reading and writing that memory. Each turn, it emits Lua again
 ## The pieces
 
 - `zuihitsu` (no subcommand) — the long-running agent server.
-- `zuihitsu <subcommand>` — the operator CLI, a client of the running server (`zuihitsu events`, `zuihitsu memory`, and so on).
+- `zuihitsu <subcommand>` — the operator CLI, a client of the running server (`zuihitsu debug events`, `zuihitsu state memory`, and so on).
 - `console/` — the web console (Vite, React, and TypeScript). See `console/CONTRIBUTING.md`.
 - `crates/eval/` — the evaluation harness: scenario-based behavioural tests run against a real model.
 

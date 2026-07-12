@@ -11,7 +11,7 @@ use zuihitsu::{
     event::{EventPayload, EventSource, Teller, TerminalCause, TurnRole, Visibility},
 };
 
-use crate::cli_error::CliError;
+use crate::cli::error::CliError;
 
 /// The filters and output mode for the `events` command, bundled so the inspection call stays one
 /// argument rather than a fistful of options.

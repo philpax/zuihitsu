@@ -10,7 +10,7 @@ use zuihitsu::{
     Store, compose, config::EnvConfig,
 };
 
-use crate::cli_error::CliError;
+use crate::cli::error::CliError;
 
 /// Which session's brief to reproduce.
 pub(crate) enum BriefSelector {
