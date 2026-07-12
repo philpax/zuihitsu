@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 
 import type { EvalPackage } from "../../types/EvalPackage.ts";
 import type { Event } from "../../types/Event.ts";
+import {
+  type InFlightGeneration,
+  foldFrame,
+  supersede,
+  supersededConversation,
+} from "../model/inflight.ts";
 import type { LiveEvent } from "../../types/LiveEvent.ts";
 
 /// Where a running `eval --serve` is reachable. The base URL is the harness's address (e.g.
@@ -27,9 +33,17 @@ export interface LiveEval {
   pkg: EvalPackage | null;
   status: LiveEvalStatus;
   liveRuns: ReadonlyMap<string, Event[]>;
+  /// Each driving run's in-flight generations by conversation — the same token accumulation the
+  /// live agent console folds (`lib/model/inflight.ts`), keyed by the run's `scenario:run` key.
+  progress: ReadonlyMap<string, ReadonlyMap<string, InFlightGeneration>>;
 }
 
-const IDLE: LiveEval = { pkg: null, status: { status: "connecting" }, liveRuns: new Map() };
+const IDLE: LiveEval = {
+  pkg: null,
+  status: { status: "connecting" },
+  liveRuns: new Map(),
+  progress: new Map(),
+};
 
 /// What the eval frame hands its nested routes: the package, the runs currently driving (keyed
 /// `scenario:run`, with their events-so-far), and the live status (when watching a running eval).
@@ -38,10 +52,13 @@ export interface EvalContext {
   pkg: EvalPackage;
   liveRuns: ReadonlyMap<string, Event[]>;
   live: LiveEvalStatus | null;
+  /// In-flight token accumulations per driving run (empty for a static package).
+  progress: ReadonlyMap<string, ReadonlyMap<string, InFlightGeneration>>;
 }
 
-/// No run is driving — the live map a static package carries.
+/// No run is driving — the live maps a static package carries.
 export const NO_LIVE_RUNS: ReadonlyMap<string, Event[]> = new Map();
+export const NO_PROGRESS: ReadonlyMap<string, ReadonlyMap<string, InFlightGeneration>> = new Map();
 
 /// The current epoch time, re-read on `intervalMs` so an elapsed readout ticks without any data change.
 /// Freezes when `active` is false (e.g. once the run has finished, there is nothing left to tick). A
@@ -150,8 +167,10 @@ export function useLiveEval(connection: LiveEvalConnection | null): LiveEval {
 
 /// Apply one live delta. `RunStarted` opens a live run; `RunEvent` appends to it as the run deliberates;
 /// `RunCompleted` is authoritative — it folds the run's record into the package and retires the live
-/// buffer. `Manifest` only seeds via the snapshot, never as a delta.
-function fold(state: LiveEval, event: LiveEvent): LiveEval {
+/// buffer. `Manifest` only seeds via the snapshot, never as a delta. Exported for its tests: the
+/// mark-not-delete supersede wiring lives here, and it is what keeps the pending turn mounted
+/// through the replica's refold lag.
+export function fold(state: LiveEval, event: LiveEvent): LiveEval {
   switch (event.kind) {
     case "run_started": {
       const liveRuns = new Map(state.liveRuns);
@@ -164,20 +183,58 @@ function fold(state: LiveEval, event: LiveEvent): LiveEval {
       // Append to a fresh array (a new reference) so the deep-dive re-folds on each event; keep the
       // earlier elements by reference, so the same run reads as one growing log, not a different one.
       liveRuns.set(key, [...(state.liveRuns.get(key) ?? []), event.event]);
-      return { ...state, liveRuns };
+      // A committed ModelCalled (or the agent's turn) supersedes that conversation's in-flight
+      // text — marking it mid-turn, dropping it at the turn's end (see `supersede`).
+      const superseded = supersededConversation(event.event);
+      const runProgress = superseded ? state.progress.get(key) : undefined;
+      const current = superseded ? runProgress?.get(superseded) : undefined;
+      let progress = state.progress;
+      if (superseded && current) {
+        const updated = new Map(runProgress);
+        const next = supersede(current, event.event);
+        if (next) updated.set(superseded, next);
+        else updated.delete(superseded);
+        const nextProgress = new Map(state.progress);
+        nextProgress.set(key, updated);
+        progress = nextProgress;
+      }
+      return { ...state, liveRuns, progress };
+    }
+    case "run_progress": {
+      const key = runningKey(event.scenario, event.run);
+      const progress = new Map(state.progress);
+      const runProgress = new Map(state.progress.get(key) ?? []);
+      const next = foldFrame(runProgress.get(event.frame.conversation), event.frame);
+      if (next) runProgress.set(event.frame.conversation, next);
+      else runProgress.delete(event.frame.conversation);
+      progress.set(key, runProgress);
+      return { ...state, progress };
     }
     case "run_completed": {
+      const key = runningKey(event.scenario, event.run);
       const liveRuns = new Map(state.liveRuns);
-      liveRuns.delete(runningKey(event.scenario, event.run));
-      return { ...state, pkg: applyRunCompleted(state.pkg, event), liveRuns };
+      liveRuns.delete(key);
+      const progress = new Map(state.progress);
+      progress.delete(key);
+      return { ...state, pkg: applyRunCompleted(state.pkg, event), liveRuns, progress };
     }
     case "finished": {
       const pkg = state.pkg
         ? { ...state.pkg, meta: { ...state.pkg.meta, finished_at_ms: event.finished_at_ms } }
         : state.pkg;
-      return { ...state, pkg, status: { status: "finished" }, liveRuns: new Map() };
+      return {
+        ...state,
+        pkg,
+        status: { status: "finished" },
+        liveRuns: new Map(),
+        progress: new Map(),
+      };
     }
     case "manifest":
+      return state;
+    default:
+      // A frame kind this bundle predates (an embedded viewer older than the server): ignore it
+      // rather than crash — the authoritative RunCompleted still converges the package.
       return state;
   }
 }

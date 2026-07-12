@@ -292,6 +292,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
             name(to)
         ),
         EventPayload::ModelCalled { phase, .. } => format!("{phase:?}"),
+        EventPayload::ModelCallAborted { attempt, cause, .. } => {
+            format!("attempt {attempt} discarded: {cause}")
+        }
         EventPayload::EmbeddingModelChanged { from, to } => {
             format!("embedding model {from} → {to}")
         }
@@ -397,6 +400,7 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         | EventPayload::DescribePassCompleted { .. } => AnsiColor::Magenta,
         // Telemetry and structural or config events — the quiet background.
         EventPayload::ModelCalled { .. }
+        | EventPayload::ModelCallAborted { .. }
         | EventPayload::LuaExecuted { .. }
         | EventPayload::GenesisCompleted { .. }
         | EventPayload::ConfigSet { .. }

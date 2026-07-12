@@ -12,6 +12,7 @@ zuihitsu = { path = "../..", features = ["ts"] }
 anstream = { workspace = true }
 anstyle = { workspace = true }
 async-stream = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 async-trait = { workspace = true }
 axum = "0.8"
 clap = { workspace = true }

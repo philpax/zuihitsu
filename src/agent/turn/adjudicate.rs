@@ -52,17 +52,8 @@ pub async fn run_adjudicate_catch_up(
         return Ok((cursor, 0));
     }
     let proposals = collect_pending_proposals(engine.store.lock().as_ref(), cursor)?;
-    adjudicate(
-        model,
-        engine,
-        &proposals,
-        Recording {
-            conversation: None,
-            turn_id: TurnId::generate(),
-            capture: CaptureLevel::Off,
-        },
-    )
-    .await?;
+    let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
+    adjudicate(model, engine, &proposals, &recording).await?;
     Ok((head, proposals.len()))
 }
 
@@ -74,7 +65,7 @@ async fn adjudicate(
     model: &dyn ModelClient,
     engine: &Engine,
     proposals: &[PendingProposal],
-    recording: Recording,
+    recording: &Recording,
 ) -> Result<(), TurnError> {
     let Some(template) = templates::latest_template(
         engine.store.lock().as_ref(),
@@ -210,7 +201,7 @@ async fn adjudicate(
 async fn adjudicate_pair(
     model: &dyn ModelClient,
     engine: &Engine,
-    recording: Recording,
+    recording: &Recording,
     system: &str,
     from: Stub<'_>,
     to: Stub<'_>,

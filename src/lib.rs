@@ -24,8 +24,8 @@ pub mod vector;
 // is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
 pub use zuihitsu_core::{
-    brief, decay, event, graph, ids, instance_features::InstanceFeatures, prompt, settings, time,
-    turn_ref, vocabulary,
+    brief, decay, event, graph, ids, instance_features::InstanceFeatures, progress, prompt,
+    settings, time, turn_ref, vocabulary,
 };
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
@@ -52,14 +52,15 @@ pub use ids::{
     NamespacedMemoryName, Seq, SessionId, TurnId, UnknownNamespace,
 };
 pub use model::{
-    Completion, FlakyModel, GenerateRequest, GenerateResponse, Message, ModelArbiter, ModelClient,
-    ModelError, ResponseSchema, Role, ScriptedModel, ToolCall, ToolChoice, ToolSpec, Usage,
+    Completion, FlakyModel, GenerateDelta, GenerateRequest, GenerateResponse, GenerateStream,
+    Message, ModelArbiter, ModelClient, ModelError, ResponseSchema, Role, ScriptedModel, ToolCall,
+    ToolChoice, ToolSpec, Usage,
     embed::{Embedder, Embedding, FakeEmbedder},
     extract_json_object,
     index::{IndexError, Indexer},
     parse_structured,
     retry::{BackendHealth, CircuitState, RetryingModel},
-    schema_of,
+    schema_of, stream_response,
 };
 pub use settings::{
     BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings, ConcurrencySettings,

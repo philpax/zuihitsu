@@ -27,6 +27,7 @@ fn no_keys() -> Arc<[String]> {
 /// `router(AppState { model: Some(m), ..test_state(server) })`.
 fn test_state(server: Arc<Server>) -> AppState {
     AppState {
+        live: Arc::new(crate::http_server::stream::LiveEvents::start(&server)),
         server,
         model: None,
         backend: None,

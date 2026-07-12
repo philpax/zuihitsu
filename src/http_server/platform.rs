@@ -4,7 +4,12 @@
 //! platform, the sender, the present set — never operator authority. The auth layer is applied to the
 //! whole surface in [`super::router`].
 
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::sse::{Event as SseEvent, KeepAlive, Sse},
+};
 use serde::Deserialize;
 use zuihitsu::{ConversationLocator, RosterResync, TurnOutcome};
 
@@ -89,4 +94,92 @@ pub(super) async fn roster(
         .note_presence(state.model.as_deref(), &request.locator, &roster)
         .await?;
     Ok(Json(resync))
+}
+
+/// `POST /platform/message/stream` — deliver a turn and watch its generation arrive: the reply (and
+/// reasoning) tokens as `progress` frames while the agent deliberates, then the whole
+/// `TurnOutcome` as the terminal `outcome` frame — the same outcome the unary endpoint returns, so
+/// a connector that ignores every `progress` frame behaves identically to one that never upgraded.
+/// A connector uses this to drive a typing indicator or a partial-message edit; the frames are
+/// ephemeral (never stored), and a turn's failure arrives as a terminal `error` frame with the
+/// failure's message.
+pub(super) async fn message_stream(
+    State(state): State<AppState>,
+    Json(request): Json<MessageRequest>,
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let model = state.model.clone().ok_or(ApiError::NoModel)?;
+    // Resolve (or mint) the conversation up front so the progress subscription can filter this
+    // room's frames from the shared feed; route_message resolves to the same id.
+    let conversation = state
+        .server
+        .platform()
+        .ensure_conversation(&request.locator)?;
+    let mut progress = state.server.subscribe_progress();
+
+    let server = state.server.clone();
+    let mut turn = tokio::spawn(async move {
+        let present: Vec<&str> = request.present.iter().map(String::as_str).collect();
+        server
+            .platform()
+            .route_message(
+                model.as_ref(),
+                &request.locator,
+                &request.sender,
+                &request.text,
+                &present,
+            )
+            .await
+    });
+
+    let body = async_stream::stream! {
+        let mut progress_open = true;
+        loop {
+            tokio::select! {
+                frame = progress.recv(), if progress_open => match frame {
+                    Ok(frame) if frame.conversation == conversation => {
+                        if let Ok(json) = serde_json::to_string(&frame) {
+                            yield Ok::<_, std::convert::Infallible>(
+                                SseEvent::default().event("progress").data(json),
+                            );
+                        }
+                    }
+                    Ok(_) => continue,
+                    // Progress is cosmetic: a lag skips ahead. A closed feed would otherwise
+                    // resolve instantly forever, so its arm is disabled — the turn's completion
+                    // still ends the stream.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        progress_open = false;
+                        continue;
+                    }
+                },
+                result = &mut turn => {
+                    // The turn is done; drain the frames it published before we observed
+                    // completion, so the tail of the reply is not dropped.
+                    while let Ok(frame) = progress.try_recv() {
+                        if frame.conversation == conversation
+                            && let Ok(json) = serde_json::to_string(&frame)
+                        {
+                            yield Ok(SseEvent::default().event("progress").data(json));
+                        }
+                    }
+                    match result {
+                        Ok(Ok(outcome)) => {
+                            if let Ok(json) = serde_json::to_string(&outcome) {
+                                yield Ok(SseEvent::default().event("outcome").data(json));
+                            }
+                        }
+                        Ok(Err(error)) => {
+                            yield Ok(SseEvent::default().event("error").data(error.to_string()));
+                        }
+                        Err(join_error) => {
+                            yield Ok(SseEvent::default().event("error").data(join_error.to_string()));
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+    };
+    Ok(Sse::new(body).keep_alive(KeepAlive::default()))
 }

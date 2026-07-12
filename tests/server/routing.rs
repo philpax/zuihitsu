@@ -72,19 +72,23 @@ impl ModelClient for ConcurrencyProbe {
         "concurrency-probe"
     }
 
-    async fn generate(&self, _request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
-        self.peak.fetch_max(active, Ordering::SeqCst);
-        // The permitted streams (== the limit) rendezvous here before any returns, so they are all
-        // simultaneously "in flight" and the peak reflects the full limit.
-        self.barrier.wait().await;
-        self.active.fetch_sub(1, Ordering::SeqCst);
-        Ok(GenerateResponse {
-            completion: Completion::Reply("done".to_owned()),
-            usage: Usage::default(),
-            reasoning: None,
-            finish_reason: None,
-        })
+    async fn generate_stream(&self, _request: &GenerateRequest) -> GenerateStream {
+        let step: Result<GenerateResponse, ModelError> = async {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            // The permitted streams (== the limit) rendezvous here before any returns, so they are all
+            // simultaneously "in flight" and the peak reflects the full limit.
+            self.barrier.wait().await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(GenerateResponse {
+                completion: Completion::Reply("done".to_owned()),
+                usage: Usage::default(),
+                reasoning: None,
+                finish_reason: None,
+            })
+        }
+        .await;
+        stream_response(step)
     }
 }
 

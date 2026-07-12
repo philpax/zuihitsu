@@ -188,6 +188,17 @@ export function Segmented({
 /// A disclosure toggle — the `▸ label` / `▾ label` affordance used for briefs, deliberations,
 /// prompts, and the API reference. One component so the arrow, spacing, and hover behavior agree
 /// everywhere. `summary` is the always-visible row beside the label (a count, a duration).
+/// The console's established in-flight cue: the sage working pulse. `className` positions the
+/// wrapper (e.g. `self-center`, `ml-2`).
+export function WorkingPulse({ className = "" }: { className?: string }) {
+  return (
+    <span className={"relative flex h-1 w-1 " + className}>
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
+      <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
+    </span>
+  );
+}
+
 export function Disclosure({
   open,
   onToggle,

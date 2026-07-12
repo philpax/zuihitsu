@@ -78,3 +78,58 @@ fn a_stamped_run_survives_the_sidecar_and_resume() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Progress frames broadcast to live subscribers but never persist: the sidecar and the folded
+/// package are identical with or without them, so replay and resume are unaffected by who watched.
+#[test]
+fn run_progress_broadcasts_without_persisting() {
+    let dir = std::env::temp_dir().join(format!(
+        "zuihitsu-progress-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let sidecar = dir.join("progress.jsonl");
+    let meta = RunMeta {
+        harness_version: "test".to_owned(),
+        git_sha: None,
+        git_dirty: false,
+        model_id: "test-model".to_owned(),
+        embedding_model: None,
+        scenario_filter: None,
+        started_at_ms: 100,
+        finished_at_ms: 100,
+        runs_per_scenario: 1,
+        concurrency: 1,
+        rejudged_from: None,
+        resumed_from: None,
+    };
+    let scenario = ScenarioMeta {
+        name: "progress".to_owned(),
+        category: Category::Recall,
+        description: "progress seam".to_owned(),
+        bar: Bar::gating(),
+    };
+    let sink = EvalSink::new(meta, vec![scenario], &sidecar).unwrap();
+    let (_, _, mut receiver) = sink.subscribe();
+
+    let before = std::fs::read_to_string(&sidecar).unwrap_or_default();
+    sink.run_progress(
+        0,
+        0,
+        zuihitsu::progress::TurnProgress {
+            conversation: zuihitsu::ConversationId::generate(),
+            turn_id: zuihitsu::TurnId::generate(),
+            phase: zuihitsu::event::ModelPhase::Step,
+            kind: zuihitsu::progress::ProgressKind::Reply,
+            text: "Hel".to_owned(),
+            step: 0,
+        },
+    );
+    let (_, event) = receiver.try_recv().expect("the frame broadcasts");
+    assert!(matches!(event, LiveEvent::RunProgress { frame, .. } if frame.text == "Hel"));
+    let after = std::fs::read_to_string(&sidecar).unwrap_or_default();
+    assert_eq!(before, after, "nothing lands in the sidecar");
+}

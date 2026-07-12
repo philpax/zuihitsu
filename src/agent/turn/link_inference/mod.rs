@@ -62,17 +62,8 @@ pub async fn run_link_inference_catch_up(
         return Ok((cursor, 0));
     }
     let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
-    infer_links(
-        model,
-        engine,
-        &written,
-        Recording {
-            conversation: None,
-            turn_id: TurnId::generate(),
-            capture: CaptureLevel::Off,
-        },
-    )
-    .await?;
+    let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
+    infer_links(model, engine, &written, &recording).await?;
     Ok((head, written.len()))
 }
 
@@ -86,7 +77,7 @@ async fn infer_links(
     model: &dyn ModelClient,
     engine: &Engine,
     written: &[MemoryId],
-    recording: Recording,
+    recording: &Recording,
 ) -> Result<(), TurnError> {
     let Some(template) = templates::latest_template(
         engine.store.lock().as_ref(),

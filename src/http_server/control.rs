@@ -267,7 +267,7 @@ pub(super) async fn interactions(
 #[derive(Deserialize)]
 pub(super) struct FromQuery {
     #[serde(default)]
-    from: u64,
+    pub(super) from: u64,
 }
 
 /// `GET /control/events?from=` — the event log from `from` onward, in order (the whole log when

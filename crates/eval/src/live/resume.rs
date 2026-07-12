@@ -80,6 +80,7 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
             }
             LiveEvent::RunStarted { .. }
             | LiveEvent::RunEvent { .. }
+            | LiveEvent::RunProgress { .. }
             | LiveEvent::Finished { .. } => {}
         }
     }

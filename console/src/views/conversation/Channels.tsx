@@ -1,6 +1,13 @@
 import { useState } from "react";
 
-import { Disclosure, Eyebrow, Hint, Select, TextInput } from "../../components/primitives.tsx";
+import {
+  Disclosure,
+  Eyebrow,
+  Hint,
+  Select,
+  TextInput,
+  WorkingPulse,
+} from "../../components/primitives.tsx";
 import { type Channel, type ChannelGroup, hasScopeChar } from "./channelUtilities.tsx";
 
 /// The mobile face of the conversation list: a native dropdown grouped by context (one optgroup per
@@ -9,10 +16,14 @@ import { type Channel, type ChannelGroup, hasScopeChar } from "./channelUtilitie
 export function ChannelSelect({
   groups,
   selectedKey,
+  working,
   onSelect,
 }: {
   groups: ChannelGroup[];
   selectedKey: string | null;
+  /// The keys of channels with a generation in flight; a native option cannot carry the pulse, so
+  /// these are marked in text.
+  working?: ReadonlySet<string>;
   onSelect: (key: string) => void;
 }) {
   return (
@@ -26,6 +37,7 @@ export function ChannelSelect({
           {group.channels.map((channel) => (
             <option key={channel.key} value={channel.key}>
               {channel.label}
+              {working?.has(channel.key) ? " · deliberating" : ""}
             </option>
           ))}
         </optgroup>
@@ -133,10 +145,14 @@ export function MobileRoomControls(props: {
 export function ChannelLink({
   channel,
   active,
+  working,
   onSelect,
 }: {
   channel: Channel;
   active: boolean;
+  /// True while a generation is in flight in this room — the sage pulse marks where the agent is
+  /// working, so the reader can find the action without the view following it uninvited.
+  working?: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -144,7 +160,7 @@ export function ChannelLink({
       onClick={onSelect}
       title={channel.label}
       className={
-        "flex w-full min-w-0 items-baseline border-l-2 py-1.5 pl-2.5 text-left text-sm transition-colors " +
+        "flex w-full min-w-0 items-baseline gap-2 border-l-2 py-1.5 pl-2.5 text-left text-sm transition-colors " +
         (active
           ? "border-clay font-medium text-ink"
           : "border-transparent text-ink-soft hover:text-ink") +
@@ -152,6 +168,7 @@ export function ChannelLink({
       }
     >
       <span className="truncate">{channel.label}</span>
+      {working && <WorkingPulse className="shrink-0 self-center" />}
     </button>
   );
 }

@@ -67,24 +67,10 @@ impl Platform<'_> {
             .await
             .expect("the stream semaphore is never closed");
 
-        // Resolve the room (minting its context memory on first contact) and the participants. Each
-        // call borrows the store, clock, and graph fields disjointly and releases before the next,
-        // so the interleaved `materialize_from` calls are free to take the graph mutably.
-        let conversation = {
-            // Graph before store, per the lock-ordering rule (this resolve holds both at once).
-            let graph = self.server.engine.graph.lock();
-            resolve_or_mint_conversation(
-                self.server.engine.store.lock().as_mut(),
-                self.server.engine.clock.as_ref(),
-                &graph,
-                locator,
-            )?
-        };
-        self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
+        // Resolve the room (minting its context memory on first contact), then the participants.
+        // Each resolution borrows the store, clock, and graph fields disjointly and releases before
+        // the next, so the interleaved `materialize_from` calls are free to take the graph mutably.
+        let conversation = self.ensure_conversation(locator)?;
 
         // The unique platform ids to resolve: everyone present, plus the sender. Deduplicating
         // matters because resolution reads the graph, which is not re-materialized between mints
@@ -237,6 +223,29 @@ impl Platform<'_> {
         self.server
             .join_participant(model, conversation, session, joiner)
             .await
+    }
+
+    /// Resolve `locator`'s conversation, minting it if this is the room's first contact — the same
+    /// resolution `route_message` performs, exposed so the streaming message endpoint can subscribe
+    /// to the room's progress frames before the turn begins. Idempotent: an existing conversation is
+    /// returned untouched.
+    pub fn ensure_conversation(
+        &self,
+        locator: &ConversationLocator,
+    ) -> Result<ConversationId, InstanceError> {
+        // One graph guard spans the mint and the materialization: released between them, a
+        // concurrent first contact for the same locator would resolve against a graph that does
+        // not yet hold the mint and mint the room a second time. Graph before store, per the
+        // lock-ordering rule; the store is locked briefly twice within the span.
+        let mut graph = self.server.engine.graph.lock();
+        let id = resolve_or_mint_conversation(
+            self.server.engine.store.lock().as_mut(),
+            self.server.engine.clock.as_ref(),
+            &graph,
+            locator,
+        )?;
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(id)
     }
 
     /// Resync a room's full roster — the counterpart to `note_join` for a connector that observes

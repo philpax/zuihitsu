@@ -42,7 +42,7 @@ use std::sync::{
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
-use super::{GenerateRequest, GenerateResponse, ModelClient, ModelError};
+use super::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError};
 use crate::metrics::observe_background_model_deferral;
 
 /// Arbitrates one shared [`ModelClient`] between conversation turns and background passes, giving a
@@ -144,9 +144,16 @@ impl ModelClient for TurnModel {
         self.arbiter.inner.model_id()
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        let _turn = self.arbiter.enter_turn();
-        self.arbiter.inner.generate(request).await
+    /// The turn marker covers the stream's whole life, not just its creation: the guard moves into
+    /// the yielded stream and drops when the stream does, so background yields until the turn's
+    /// generation has fully finished (or the turn dropped it).
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
+        let turn = self.arbiter.enter_turn();
+        let inner = self.arbiter.inner.generate_stream(request).await;
+        Box::pin(HoldWhileStreaming {
+            inner,
+            _guard: turn,
+        })
     }
 }
 
@@ -161,9 +168,29 @@ impl ModelClient for BackgroundModel {
         self.arbiter.inner.model_id()
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+    /// Background streaming yields before dispatch exactly as the unary call does; once dispatched
+    /// the stream runs to completion (ordering, not preemption).
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
         self.arbiter.yield_to_turns().await;
-        self.arbiter.inner.generate(request).await
+        self.arbiter.inner.generate_stream(request).await
+    }
+}
+
+/// A stream that keeps a [`TurnGuard`] alive for as long as it does, so the pending-turn marker
+/// spans every delta of a streamed turn generation.
+struct HoldWhileStreaming {
+    inner: GenerateStream,
+    _guard: TurnGuard,
+}
+
+impl futures_util::Stream for HoldWhileStreaming {
+    type Item = Result<GenerateDelta, ModelError>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
     }
 }
 
@@ -173,9 +200,9 @@ mod tests {
 
     use tokio::sync::{Notify, Semaphore, mpsc};
 
-    use super::ModelArbiter;
+    use super::{GenerateStream, ModelArbiter};
     use crate::model::{
-        Completion, GenerateRequest, GenerateResponse, ModelClient, ModelError, Usage,
+        Completion, GenerateRequest, GenerateResponse, ModelClient, ScriptedModel, Usage,
     };
 
     /// A fake whose every `generate` blocks on a shared gate until the test releases a permit, then
@@ -212,20 +239,51 @@ mod tests {
             "gated-model"
         }
 
-        async fn generate(
-            &self,
-            request: &GenerateRequest,
-        ) -> Result<GenerateResponse, ModelError> {
+        async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
             let permit = self.gate.acquire().await.expect("the gate is never closed");
             permit.forget();
             let _ = self.completed.send(request.system.clone());
-            Ok(GenerateResponse {
+            super::super::stream_response(Ok(GenerateResponse {
                 completion: Completion::Reply("ok".to_owned()),
                 usage: Usage::default(),
                 reasoning: None,
                 finish_reason: None,
-            })
+            }))
         }
+    }
+
+    /// The property `HoldWhileStreaming` exists for: a turn's stream holds the pending-turn marker
+    /// from creation until the stream drops, so background yields the whole time the turn's
+    /// generation is open — even while the caller has not yet polled it.
+    #[tokio::test]
+    async fn a_turn_stream_held_open_blocks_background_until_dropped() {
+        let inner = Arc::new(ScriptedModel::new([
+            Completion::Reply("turn".to_owned()),
+            Completion::Reply("background".to_owned()),
+        ]));
+        let arbiter = ModelArbiter::new(inner);
+        // Create (and hold, undrained) the turn's stream: the marker arms here.
+        let turn_model = arbiter.turn();
+        let turn_stream = turn_model.generate_stream(&req("turn")).await;
+
+        let background_model = arbiter.background();
+        let background =
+            tokio::spawn(async move { background_model.generate(&req("background")).await });
+        // Give background every chance to (incorrectly) dispatch.
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            !background.is_finished(),
+            "background dispatched while a turn stream was open"
+        );
+
+        drop(turn_stream);
+        let response = background.await.expect("joins").expect("generates");
+        assert!(matches!(
+            response.completion,
+            Completion::Reply(reply) if reply == "background"
+        ));
     }
 
     /// A request tagged so the gated model reports it by name on completion.

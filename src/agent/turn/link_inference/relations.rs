@@ -42,7 +42,7 @@ pub(super) struct ExistingLink {
 pub(super) async fn infer_relationships(
     model: &dyn ModelClient,
     engine: &Engine,
-    recording: Recording,
+    recording: &Recording,
     system: &str,
     context: &InferenceContext,
     now: Timestamp,

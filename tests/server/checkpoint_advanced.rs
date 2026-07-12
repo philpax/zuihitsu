@@ -103,26 +103,30 @@ impl ModelClient for GatedModel {
         "gated-model"
     }
 
-    async fn generate(&self, _request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        let call = self.calls.fetch_add(1, Ordering::SeqCst);
-        if call == self.gated_call {
-            self.entered.store(true, Ordering::SeqCst);
-            // `notify_one` before this await stores a permit, so a release observed via `entered`
-            // can never be missed.
-            self.release.notified().await;
+    async fn generate_stream(&self, _request: &GenerateRequest) -> GenerateStream {
+        let step: Result<GenerateResponse, ModelError> = async {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call == self.gated_call {
+                self.entered.store(true, Ordering::SeqCst);
+                // `notify_one` before this await stores a permit, so a release observed via `entered`
+                // can never be missed.
+                self.release.notified().await;
+            }
+            let completion = self
+                .completions
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("a scripted completion for every call");
+            Ok(GenerateResponse {
+                completion,
+                usage: Usage::default(),
+                reasoning: None,
+                finish_reason: None,
+            })
         }
-        let completion = self
-            .completions
-            .lock()
-            .unwrap()
-            .pop_front()
-            .expect("a scripted completion for every call");
-        Ok(GenerateResponse {
-            completion,
-            usage: Usage::default(),
-            reasoning: None,
-            finish_reason: None,
-        })
+        .await;
+        stream_response(step)
     }
 }
 

@@ -243,27 +243,31 @@ impl ModelClient for DispatchingModel {
         "dispatching-model"
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        // A description-regeneration call: serve a fixed valid synthesis (a non-empty description so
-        // it parses and exits on the first attempt rather than retrying) without touching the step
-        // deque. Its result is a no-op for the test, which checks writes, not prose.
-        if request.response_format.is_some() {
-            return Ok(GenerateResponse {
-                completion: Completion::Reply(
-                    r#"{"description":"undescribed","occurrences":[]}"#.to_owned(),
-                ),
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
+        let step: Result<GenerateResponse, ModelError> = async {
+            // A description-regeneration call: serve a fixed valid synthesis (a non-empty description so
+            // it parses and exits on the first attempt rather than retrying) without touching the step
+            // deque. Its result is a no-op for the test, which checks writes, not prose.
+            if request.response_format.is_some() {
+                return Ok(GenerateResponse {
+                    completion: Completion::Reply(
+                        r#"{"description":"undescribed","occurrences":[]}"#.to_owned(),
+                    ),
+                    usage: Usage::default(),
+                    reasoning: None,
+                    finish_reason: None,
+                });
+            }
+            let completion = self.steps.lock().pop_front().ok_or(ModelError::Exhausted)?;
+            Ok(GenerateResponse {
+                completion,
                 usage: Usage::default(),
                 reasoning: None,
                 finish_reason: None,
-            });
+            })
         }
-        let completion = self.steps.lock().pop_front().ok_or(ModelError::Exhausted)?;
-        Ok(GenerateResponse {
-            completion,
-            usage: Usage::default(),
-            reasoning: None,
-            finish_reason: None,
-        })
+        .await;
+        stream_response(step)
     }
 }
 

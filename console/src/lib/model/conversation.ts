@@ -119,6 +119,18 @@ export type DeliberationStep =
       durationMs: number;
     }
   | {
+      /// A discarded streaming attempt: a transient mid-generation failure the retry wrapper
+      /// re-drove. The partials are what was thrown away — the successful attempt follows as its
+      /// own "model" step.
+      kind: "aborted";
+      seq: number;
+      phase: ModelPhase;
+      attempt: number;
+      cause: string;
+      partialReasoning: string;
+      partialReply: string;
+    }
+  | {
       kind: "lua";
       seq: number;
       script: string;
@@ -126,6 +138,29 @@ export type DeliberationStep =
       terminalCause: TerminalCause | null;
       durationMs: number;
     };
+
+/// The shape a turn materialises through. A turn is built up incrementally — the fold creates it at
+/// its first deliberation event and the `ConversationTurn` commit completes it (`recordedAt` stays
+/// `0` until then; a deferred turn keeps this shape for good). The live transcript uses the same
+/// constructor for a turn that so far exists only as streamed tokens, so an in-progress turn is an
+/// ordinary `TurnModel` early in the one lifecycle every consumer already handles, not a parallel
+/// pending type.
+export function emptyTurn(turnId: string, seq: number): TurnModel {
+  return {
+    turnId,
+    seq,
+    recordedAt: 0,
+    role: "Agent",
+    text: "",
+    speaker: null,
+    initiation: "Responding",
+    deliberation: [],
+    outcomes: [],
+    entrance: false,
+    wakeup: null,
+    brief: null,
+  };
+}
 
 /// Fold a run's events into its conversations, resolving participant and room ids to handles through
 /// `nameById`. A single pass, tolerant of order: an agent turn's deliberation events precede its
@@ -157,20 +192,7 @@ export function buildConversations(
   function turn(conversationId: string, turnId: string, seq: number): TurnModel {
     let model = turns.get(turnId);
     if (!model) {
-      model = {
-        turnId,
-        seq,
-        recordedAt: 0,
-        role: "Agent",
-        text: "",
-        speaker: null,
-        initiation: "Responding",
-        deliberation: [],
-        outcomes: [],
-        entrance: false,
-        wakeup: null,
-        brief: null,
-      };
+      model = emptyTurn(turnId, seq);
       turns.set(turnId, model);
       conversation(conversationId).turns.push(model);
     }
@@ -247,6 +269,19 @@ export function buildConversations(
       }
       case "ScheduledItemSurfaced": {
         pendingWakeup = name(payload.memory);
+        break;
+      }
+      case "ModelCallAborted": {
+        turn(payload.conversation, payload.turn_id, event.seq).deliberation.push({
+          kind: "aborted",
+          seq: event.seq,
+          phase: payload.phase,
+          attempt: payload.attempt,
+          cause: payload.cause,
+          partialReasoning: payload.partial_reasoning,
+          partialReply: payload.partial_reply,
+        });
+        currentTurnId = payload.turn_id;
         break;
       }
       case "ModelCalled": {

@@ -23,7 +23,8 @@ use async_openai::{
     error::OpenAIError,
     types::{
         chat::{
-            ChatCompletionToolChoiceOption, CreateChatCompletionRequestArgs, ToolChoiceOptions,
+            ChatCompletionStreamOptions, ChatCompletionToolChoiceOption,
+            CreateChatCompletionRequestArgs, ToolChoiceOptions,
         },
         embeddings::{CreateEmbeddingRequestArgs, EmbeddingInput},
     },
@@ -34,13 +35,15 @@ use serde::Serialize;
 
 use crate::config::{EmbeddingConfig, ModelConfig};
 
+use futures_util::StreamExt;
+
 use super::{
-    GenerateRequest, GenerateResponse, ModelClient, ModelError, ToolChoice,
+    GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError, ToolChoice,
     embed::{Embedder, Embedding},
 };
 
 pub(crate) use request::{ChatRequest, to_messages, to_tools};
-pub(crate) use response::{ChatResponse, into_response};
+pub(crate) use response::{ChatChunk, StreamAssembler};
 
 /// A generation client backed by an OpenAI-compatible `/chat/completions` endpoint. Holds the
 /// `[model]` config, which carries both the model name and the (optional) sampling parameters.
@@ -130,21 +133,61 @@ impl ModelClient for OpenAiClient {
         &self.config.llm
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        let model = &self.config.llm;
-        let result: Result<GenerateResponse, ModelError> = async {
-            let response: ChatResponse = self
-                .client
-                .chat()
-                .create_byot(self.build_request(request)?)
-                .await
-                .map_err(backend)?;
-            into_response(response)
-        }
-        .await;
-        result.map_err(|e| e.with_model(model))
+    /// The one transport: a byot request with `stream: true` and usage requested on the final
+    /// chunk. The assembler yields text fragments as they arrive and rebuilds the terminal
+    /// [`super::GenerateResponse`] through the same `into_response` mapper the whole-body shape
+    /// uses, so the assembled terminal is exactly what a non-streaming request would have returned.
+    /// A transport failure mid-stream ends the stream with that error as its last item; the retry
+    /// wrapper above decides whether to re-drive.
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
+        let model = self.config.llm.clone();
+        let mut chat_request = match self.build_request(request) {
+            Ok(chat_request) => chat_request,
+            Err(error) => {
+                let error = error.with_model(&model);
+                return Box::pin(futures_util::stream::once(async move { Err(error) }));
+            }
+        };
+        chat_request.base.stream = Some(true);
+        chat_request.base.stream_options = Some(ChatCompletionStreamOptions {
+            include_usage: Some(true),
+            include_obfuscation: None,
+        });
+        let chunks: Result<ChunkStream, OpenAIError> =
+            self.client.chat().create_stream_byot(chat_request).await;
+        let mut chunks = match chunks {
+            Ok(chunks) => chunks,
+            Err(error) => {
+                let error = backend(error).with_model(&model);
+                return Box::pin(futures_util::stream::once(async move { Err(error) }));
+            }
+        };
+        Box::pin(async_stream::stream! {
+            let mut assembler = StreamAssembler::default();
+            while let Some(chunk) = chunks.next().await {
+                match chunk {
+                    Ok(chunk) => {
+                        for fragment in assembler.fold(chunk) {
+                            yield Ok(fragment);
+                        }
+                    }
+                    Err(error) => {
+                        yield Err(backend(error).with_model(&model));
+                        return;
+                    }
+                }
+            }
+            yield assembler
+                .finish()
+                .map(GenerateDelta::Finished)
+                .map_err(|e| e.with_model(&model));
+        })
     }
 }
+
+/// The byot streaming item feed: chunks as our custom [`ChatChunk`], errors as the crate's.
+type ChunkStream =
+    std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<ChatChunk, OpenAIError>> + Send>>;
 
 /// An embedder backed by an OpenAI-compatible `/embeddings` endpoint (jina v5 in our deployment).
 pub struct OpenAiEmbedder {

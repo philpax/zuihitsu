@@ -1,8 +1,15 @@
 //! The model-interaction recording seam and the shared step loop.
 
-use std::{collections::BTreeSet, time::Instant};
+use std::{
+    collections::BTreeSet,
+    sync::atomic::{AtomicU32, Ordering},
+    time::Instant,
+};
 
 use sha2::{Digest, Sha256};
+
+use futures_util::StreamExt;
+use zuihitsu_core::progress::{ProgressKind, TurnProgress};
 
 use crate::{
     clock::Clock,
@@ -11,7 +18,8 @@ use crate::{
     ids::{MemoryId, Seq, TurnId},
     metrics::observe_model_call,
     model::{
-        Completion, GenerateRequest, GenerateResponse, Message, ModelClient, ToolCall, ToolChoice,
+        Completion, GenerateDelta, GenerateRequest, GenerateResponse, Message, ModelClient,
+        ToolCall, ToolChoice,
     },
     prompt::PromptSectionSpan,
     settings::CaptureLevel,
@@ -32,7 +40,6 @@ use crate::ids::ConversationId;
 /// uniformly. [`Recording::generate`] is the single chokepoint that times a call and best-effort
 /// appends a `ModelCalled`; telemetry never breaks a turn, so an append failure is logged, not
 /// propagated.
-#[derive(Clone, Copy)]
 pub(crate) struct Recording {
     /// The conversation the recorded calls belong to, or `None` for off-conversation background work
     /// (the description catch-up). A `None` recording emits no `ModelCalled` telemetry — there is no
@@ -40,11 +47,36 @@ pub(crate) struct Recording {
     pub(crate) conversation: Option<ConversationId>,
     pub(crate) turn_id: TurnId,
     pub(crate) capture: CaptureLevel,
+    /// How many model calls this recording has started, counted so a progress frame names which
+    /// generation of the turn it belongs to (the console resets its accumulated text per step).
+    /// Atomic only for `Sync`'s sake — a recording serves one sequential loop.
+    pub(crate) steps_started: AtomicU32,
 }
 
 impl Recording {
+    /// A fresh recording for one turn (or one background pass), its step counter at zero.
+    pub(crate) fn new(
+        conversation: Option<ConversationId>,
+        turn_id: TurnId,
+        capture: CaptureLevel,
+    ) -> Recording {
+        Recording {
+            conversation,
+            turn_id,
+            capture,
+            steps_started: AtomicU32::new(0),
+        }
+    }
+
     /// Run one model call, timing it and recording its interaction. The caller passes the
     /// delta-encoded `record` (the request side), since only it owns the per-phase buffer state.
+    ///
+    /// Every call streams — streaming is the model seam's one transport. Text fragments are
+    /// published as ephemeral [`TurnProgress`] frames as they arrive (publishing to no subscriber
+    /// is free), and the loop acts only on the stream's terminal response, so everything recorded
+    /// below (the timing, the metrics, the `ModelCalled` event) reads a complete single-attempt
+    /// response. A `Restarted` marker from the retry wrapper lands durably as a `ModelCallAborted`
+    /// carrying the discarded partial, and resets the viewer's accumulation.
     pub(crate) async fn generate(
         &self,
         engine: &Engine,
@@ -54,7 +86,9 @@ impl Recording {
         record: Option<RequestRecord>,
     ) -> Result<GenerateResponse, crate::model::ModelError> {
         let started = Instant::now();
-        let response = model.generate(request).await?;
+        let response = self
+            .generate_streaming(engine, model, request, phase)
+            .await?;
         let duration = started.elapsed();
         // The metrics chokepoint (spec §Observability → metrics): every model call — a turn step, a
         // flush, or a background describe/adjudicate pass — observes its latency and token usage
@@ -89,6 +123,97 @@ impl Recording {
             }
         }
         Ok(response)
+    }
+
+    /// Drive the streaming call: publish each text fragment as a progress frame, accumulate the
+    /// partials so a discarded attempt can be recorded whole, and return the terminal response. On
+    /// a `Restarted` marker the discarded partial lands as a `ModelCallAborted` event (durable
+    /// visibility for the retry — off-conversation work skips it, exactly like `ModelCalled`) and
+    /// a `restart` progress frame voids the viewer's accumulation. A stream that ends without a
+    /// terminal is a client contract violation, surfaced as a non-transient error rather than
+    /// silently inventing an empty response. Either failure exit publishes an `abandoned` frame
+    /// first: a deferral records no agent `ConversationTurn`, so this marker is a viewer's only
+    /// signal to drop the dead generation rather than show it generating forever.
+    async fn generate_streaming(
+        &self,
+        engine: &Engine,
+        model: &dyn ModelClient,
+        request: &GenerateRequest,
+        phase: ModelPhase,
+    ) -> Result<GenerateResponse, crate::model::ModelError> {
+        let step = self.steps_started.fetch_add(1, Ordering::Relaxed);
+        let publish = |kind: ProgressKind, text: String| {
+            if let Some(conversation) = self.conversation {
+                engine.progress.publish(TurnProgress {
+                    conversation,
+                    turn_id: self.turn_id,
+                    phase,
+                    kind,
+                    text,
+                    step,
+                });
+            }
+        };
+        let mut partial_reasoning = String::new();
+        let mut partial_reply = String::new();
+        let mut stream = model.generate_stream(request).await;
+        while let Some(delta) = stream.next().await {
+            let delta = match delta {
+                Ok(delta) => delta,
+                Err(error) => {
+                    publish(ProgressKind::Abandoned, error.to_string());
+                    return Err(error);
+                }
+            };
+            match delta {
+                GenerateDelta::Reasoning(text) => {
+                    partial_reasoning.push_str(&text);
+                    publish(ProgressKind::Reasoning, text);
+                }
+                GenerateDelta::Reply(text) => {
+                    partial_reply.push_str(&text);
+                    publish(ProgressKind::Reply, text);
+                }
+                GenerateDelta::Restarted { attempt, cause } => {
+                    // Gated exactly like `ModelCalled`: at `CaptureLevel::Off` the log records no
+                    // deliberation text, discarded or not.
+                    if self.capture != CaptureLevel::Off
+                        && let Some(conversation) = self.conversation
+                    {
+                        let aborted = EventPayload::ModelCallAborted {
+                            conversation,
+                            turn_id: self.turn_id,
+                            phase,
+                            attempt,
+                            cause: cause.clone(),
+                            partial_reasoning: std::mem::take(&mut partial_reasoning),
+                            partial_reply: std::mem::take(&mut partial_reply),
+                        };
+                        let now = engine.clock.now();
+                        if let Err(error) =
+                            engine
+                                .store
+                                .lock()
+                                .append(now, EventSource::Agent, vec![aborted])
+                        {
+                            tracing::warn!(%error, "could not record the aborted model call; the retry continues");
+                        }
+                    } else {
+                        partial_reasoning.clear();
+                        partial_reply.clear();
+                    }
+                    publish(ProgressKind::Restart, cause);
+                }
+                GenerateDelta::Finished(response) => return Ok(response),
+            }
+        }
+        let error = crate::model::ModelError::Backend {
+            model: model.model_id().to_owned(),
+            message: "the stream ended without a terminal response".to_owned(),
+            transient: false,
+        };
+        publish(ProgressKind::Abandoned, error.to_string());
+        Err(error)
     }
 
     /// The delta record for a call: a [`RequestRecord::Base`] for the first call of a phase
@@ -154,11 +279,7 @@ pub(crate) async fn run_steps(
         capture,
     } = steps;
     let conversation = session.conversation();
-    let recording = Recording {
-        conversation: Some(conversation),
-        turn_id: context.turn_id,
-        capture,
-    };
+    let recording = Recording::new(Some(conversation), context.turn_id, capture);
     let tools = vec![super::tools::run_lua_tool()];
 
     let record_agent_turn =

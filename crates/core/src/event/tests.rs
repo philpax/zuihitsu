@@ -487,3 +487,34 @@ fn cardinality_from_str_matches_case_insensitively() {
     assert!("several".parse::<Cardinality>().is_err());
     assert!("".parse::<Cardinality>().is_err());
 }
+
+#[test]
+fn model_call_aborted_round_trips() {
+    // The abort record is a real wire: a discarded streaming attempt lands durably so the retry is
+    // visible after the fact, and an old console (or a rejudge) must read it back whole.
+    let event = EventPayload::ModelCallAborted {
+        conversation: ConversationId::generate(),
+        turn_id: TurnId::generate(),
+        phase: ModelPhase::Step,
+        attempt: 2,
+        cause: "model: m: http error: connection reset".to_owned(),
+        partial_reasoning: "Considering the".to_owned(),
+        partial_reply: "Hello th".to_owned(),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"ModelCallAborted\""));
+    let back: EventPayload = serde_json::from_str(&json).unwrap();
+    match back {
+        EventPayload::ModelCallAborted {
+            attempt,
+            cause,
+            partial_reply,
+            ..
+        } => {
+            assert_eq!(attempt, 2);
+            assert!(cause.contains("connection reset"));
+            assert_eq!(partial_reply, "Hello th");
+        }
+        other => panic!("expected the abort back, got {other:?}"),
+    }
+}

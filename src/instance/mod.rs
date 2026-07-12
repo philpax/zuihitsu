@@ -220,6 +220,20 @@ impl Instance {
         Ok(())
     }
 
+    /// Subscribe to committed events — the store's live feed, which the control surface's push
+    /// channel (`GET /control/events/stream`) fans out to its viewers.
+    pub fn subscribe_events(&self) -> zuihitsu_core::store::Subscription {
+        self.engine.store.lock().subscribe()
+    }
+
+    /// Subscribe to the ephemeral turn-progress feed (see [`crate::engine::ProgressFeed`]): the
+    /// token-by-token deliberation of in-flight turns, never stored and never replayed.
+    pub fn subscribe_progress(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<zuihitsu_core::progress::TurnProgress> {
+        self.engine.progress.subscribe()
+    }
+
     /// An instance backed entirely in memory (in-memory store and graph), for tests.
     pub fn in_memory(clock: Box<dyn Clock>) -> Result<Instance, InstanceError> {
         Ok(Instance::new(

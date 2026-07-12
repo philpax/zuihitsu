@@ -71,6 +71,7 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "ParticipantIdentified":
       return "conversation";
     case "ModelCalled":
+    case "ModelCallAborted":
     case "LuaExecuted":
       return "deliberation";
     case "ConversationStarted":
@@ -209,6 +210,8 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${payload.role.toLowerCase()} — ${quote(payload.text)}`;
     case "ModelCalled":
       return `${payload.phase.toLowerCase()} call`;
+    case "ModelCallAborted":
+      return `attempt ${payload.attempt} discarded — ${payload.cause}`;
     case "LuaExecuted":
       return payload.terminal_cause
         ? terminalCauseLabel(payload.terminal_cause)

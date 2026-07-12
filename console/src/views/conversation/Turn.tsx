@@ -13,15 +13,19 @@ import { ConversationNames, ModelCalls, Names } from "./ConversationView.tsx";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
 import { Deliberation } from "./Deliberation.tsx";
+import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 
 export function TurnItem({
   turn,
   fresh,
   roomKey,
+  inflight,
 }: {
   turn: TurnModel;
   fresh: boolean;
   roomKey: string;
+  /// This turn's in-flight generation (live mode): streamed into the deliberation collapsible.
+  inflight?: InFlightGeneration | null;
 }) {
   const { bySeq } = useContext(ModelCalls);
   const tokens = turnTokens(turn, bySeq);
@@ -110,7 +114,9 @@ export function TurnItem({
         )}
       </div>
       {/* Deliberation precedes the response — the agent thinks, then speaks. */}
-      {turn.deliberation.length > 0 && <Deliberation steps={turn.deliberation} />}
+      {(turn.deliberation.length > 0 || inflight) && (
+        <Deliberation steps={turn.deliberation} inflight={inflight} />
+      )}
       {turn.text ? (
         isAgent ? (
           // The agent composes its replies as Markdown; render them so. Participant and operator input
@@ -128,7 +134,13 @@ export function TurnItem({
             <RefText text={turn.text} />
           </p>
         )
-      ) : (
+      ) : inflight && !inflight.superseded && inflight.reply ? (
+        // The reply streams into the message position it will occupy on commit — same spot, same
+        // Markdown rendering, so the committed text simply takes over in place.
+        <div className={turn.deliberation.length > 0 || inflight ? "mt-3" : ""}>
+          <TurnMarkdown text={inflight.reply} />
+        </div>
+      ) : inflight ? null : ( // An in-progress turn has no text yet — "silent" is a finished turn's verdict.
         <p
           className={
             "text-sm italic text-ink-faint" + (turn.deliberation.length > 0 ? " mt-3" : "")

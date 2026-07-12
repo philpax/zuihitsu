@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import type { DeliberationStep } from "../../lib/model/conversation.ts";
+import type { InFlightGeneration } from "../../lib/model/inflight.ts";
+import { StreamingStep } from "./InFlightDeliberation.tsx";
 import { completionSummary, terminalCauseLabel } from "../../lib/model/labels.ts";
 import { formatMs } from "../../lib/format/format.ts";
 import { Disclosure } from "../../components/primitives.tsx";
@@ -8,9 +10,21 @@ import { Lua } from "../../components/Lua.tsx";
 import { ThinkingMarkdown } from "../../components/ThinkingMarkdown.tsx";
 import { CallContext } from "./CallContext.tsx";
 
-export function Deliberation({ steps }: { steps: DeliberationStep[] }) {
+export function Deliberation({
+  steps,
+  inflight,
+}: {
+  steps: DeliberationStep[];
+  /// The step currently generating (live mode): appended below the committed steps inside the
+  /// collapsible — new steps grow downward, exactly as committed ones do. Collapsed by default,
+  /// streaming included, so tokens never shift the layout unless the reader opted in by opening.
+  /// The open state is this component's own; continuity across the pending → committed handover
+  /// comes from the transcript rendering both through the same `TurnItem` under the same key, so
+  /// React preserves the instance and the state simply survives.
+  inflight?: InFlightGeneration | null;
+}) {
   const [open, setOpen] = useState(false);
-  const total = steps.reduce((sum, step) => sum + step.durationMs, 0);
+  const total = steps.reduce((sum, step) => sum + ("durationMs" in step ? step.durationMs : 0), 0);
   // The turn's footer shows the final Step-phase call's context (the state the turn ended with),
   // so that step skips its own here — the two would be identical. A trailing synthesis call keeps
   // its context: its prompt is a different, unrelated request.
@@ -24,17 +38,26 @@ export function Deliberation({ steps }: { steps: DeliberationStep[] }) {
         open={open}
         onToggle={() => setOpen(!open)}
         label="deliberation"
-        summary={`· ${steps.length} step${steps.length > 1 ? "s" : ""} · ${formatMs(total)}`}
+        summary={
+          inflight
+            ? `· ${steps.length} step${steps.length === 1 ? "" : "s"} · generating…`
+            : `· ${steps.length} step${steps.length > 1 ? "s" : ""} · ${formatMs(total)}`
+        }
       />
       {open && (
         <div className="mt-3 flex flex-col gap-3 border-l border-line pl-4">
           {steps.map((step, index) =>
             step.kind === "model" ? (
               <ModelStep key={index} step={step} showContext={index !== lastModelIndex} />
+            ) : step.kind === "aborted" ? (
+              <AbortedStep key={index} step={step} />
             ) : (
               <LuaStep key={index} step={step} />
             ),
           )}
+          {/* A superseded accumulation keeps the turn's transcript slot but yields its display:
+              the committed step is the durable record, and showing both would read as a duplicate. */}
+          {inflight && !inflight.superseded && <StreamingStep generation={inflight} />}
         </div>
       )}
     </div>
@@ -80,6 +103,26 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
             → {step.result}
           </p>
         )
+      )}
+    </div>
+  );
+}
+
+/// A discarded streaming attempt: the retry wrapper re-drove the call after a transient
+/// mid-generation failure, and this is what was thrown away — rendered faint and struck through,
+/// so the deliberation shows the restart without confusing the discarded text for the record.
+function AbortedStep({ step }: { step: Extract<DeliberationStep, { kind: "aborted" }> }) {
+  return (
+    <div className="text-xs">
+      <div className="font-mono text-2xs uppercase tracking-widest text-clay">
+        attempt {step.attempt} discarded
+        <span className="ml-2 normal-case tracking-normal text-ink-faint">· {step.cause}</span>
+      </div>
+      {(step.partialReasoning || step.partialReply) && (
+        <div className="mt-1 text-ink-faint line-through opacity-60">
+          {step.partialReasoning && <span>{step.partialReasoning} </span>}
+          {step.partialReply && <span>{step.partialReply}</span>}
+        </div>
       )}
     </div>
   );

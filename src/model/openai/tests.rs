@@ -5,7 +5,10 @@
 use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
 use reqwest::StatusCode;
 
-use super::{ChatResponse, into_response, is_transient};
+use super::{
+    is_transient,
+    response::{ChatResponse, into_response},
+};
 use crate::model::{Completion, Usage};
 
 fn api_error(status: StatusCode) -> OpenAIError {
@@ -158,4 +161,92 @@ fn deserializes_a_tool_call_and_tolerates_absent_reasoning() {
     assert_eq!(generated.reasoning, None);
     assert_eq!(generated.usage, Usage::default());
     assert_eq!(generated.finish_reason.as_deref(), Some("tool_calls"));
+}
+
+/// The streaming assembler must reproduce the whole-body mapping exactly: folding the chunked form
+/// of a response and finishing yields the same `GenerateResponse` as mapping the equivalent
+/// non-streaming body — the contract the recorded `ModelCalled` relies on.
+#[test]
+fn assembled_chunks_equal_the_whole_body_mapping() {
+    use super::response::{ChatChunk, StreamAssembler};
+    use crate::model::GenerateDelta;
+
+    let chunks = [
+        serde_json::json!({"choices": [{"delta": {"reasoning_content": "Thinking "}}]}),
+        serde_json::json!({"choices": [{"delta": {"reasoning_content": "hard."}}]}),
+        serde_json::json!({"choices": [{"delta": {"content": "Hello "}}]}),
+        serde_json::json!({"choices": [{"delta": {"content": "there."}, "finish_reason": "stop"}]}),
+        serde_json::json!({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}}),
+    ];
+    let mut assembler = StreamAssembler::default();
+    let mut fragments = Vec::new();
+    for chunk in chunks {
+        let chunk: ChatChunk = serde_json::from_value(chunk).expect("chunk deserializes");
+        fragments.extend(assembler.fold(chunk));
+    }
+    assert_eq!(
+        fragments,
+        vec![
+            GenerateDelta::Reasoning("Thinking ".to_owned()),
+            GenerateDelta::Reasoning("hard.".to_owned()),
+            GenerateDelta::Reply("Hello ".to_owned()),
+            GenerateDelta::Reply("there.".to_owned()),
+        ]
+    );
+    let streamed = assembler.finish().expect("assembles");
+
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {"content": "Hello there.", "reasoning_content": "Thinking hard."},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
+    });
+    let whole: ChatResponse = serde_json::from_value(body).expect("body deserializes");
+    assert_eq!(streamed, into_response(whole).expect("maps"));
+}
+
+/// Tool-call argument fragments concatenate across chunks by their shared index, and `id`/`name`
+/// arrive once on the first fragment — the OpenAI streaming shape for tool calls.
+#[test]
+fn fragmented_tool_call_arguments_reassemble() {
+    use super::response::{ChatChunk, StreamAssembler};
+
+    let chunks = [
+        serde_json::json!({"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "call_1", "function": {"name": "run_lua", "arguments": "{\"scr"}}
+        ]}}]}),
+        serde_json::json!({"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": "ipt\":\"return 1\"}"}}
+        ]}}]}),
+        serde_json::json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
+    ];
+    let mut assembler = StreamAssembler::default();
+    for chunk in chunks {
+        let chunk: ChatChunk = serde_json::from_value(chunk).expect("chunk deserializes");
+        // Tool-call fragments are not display text, so folding them yields no fragments.
+        assert!(assembler.fold(chunk).is_empty());
+    }
+    let response = assembler.finish().expect("assembles");
+    match response.completion {
+        Completion::ToolCalls(calls) => {
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].id, "call_1");
+            assert_eq!(calls[0].name, "run_lua");
+            assert_eq!(calls[0].arguments, "{\"script\":\"return 1\"}");
+        }
+        other => panic!("expected a tool call, got {other:?}"),
+    }
+    assert_eq!(response.finish_reason.as_deref(), Some("tool_calls"));
+}
+
+/// A body that closes without a single chunk is the backend producing nothing — surfaced as a
+/// transient error rather than assembled into an empty reply the turn would record.
+#[test]
+fn an_empty_stream_is_an_error_not_an_empty_reply() {
+    use super::response::StreamAssembler;
+
+    let error = StreamAssembler::default().finish().expect_err("no chunks");
+    assert!(error.is_transient());
+    assert!(error.to_string().contains("without a single chunk"));
 }

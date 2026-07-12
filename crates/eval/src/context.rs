@@ -288,6 +288,14 @@ impl RunContext {
         Ok(self.server.control().events()?)
     }
 
+    /// Subscribe to the booted instance's ephemeral turn-progress feed, so the harness can forward
+    /// the deliberation's tokens into the live stream as [`crate::live::LiveEvent::RunProgress`].
+    pub(crate) fn subscribe_progress(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<zuihitsu::progress::TurnProgress> {
+        self.server.subscribe_progress()
+    }
+
     /// The run's events recorded at or after `from` — for streaming a run's deliberation live as it
     /// drives, reading only what is new since the last poll.
     pub(crate) fn events_from(&self, from: Seq) -> Result<Vec<Event>, EvalError> {

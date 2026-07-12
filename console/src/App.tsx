@@ -176,6 +176,7 @@ function Console({ autoWatchEval = false }: { autoWatchEval?: boolean }) {
                     pkg={liveEval.pkg}
                     live={liveEval.status}
                     liveRuns={liveEval.liveRuns}
+                    progress={liveEval.progress}
                     onClose={() => setLiveEvalConn(null)}
                   />
                 ) : (

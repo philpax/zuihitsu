@@ -7,11 +7,12 @@ mod common;
 use std::time::Duration;
 use zuihitsu::{
     Completion, ConcurrencySettings, ConversationLocator, Embedder, FakeEmbedder, GenerateRequest,
-    GenerateResponse, Graph, InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore,
-    ModelClient, ModelError, Namespace, ScriptedModel, SeedSelf, Server, SqliteStore, Store,
-    ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
+    GenerateResponse, GenerateStream, Graph, InMemoryVectorIndex, ManualClock, MemoryId,
+    MemoryName, MemoryStore, ModelClient, ModelError, Namespace, ScriptedModel, SeedSelf, Server,
+    SqliteStore, Store, ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
     event::{EventPayload, MergeProposalSource, PromptTemplateName},
     genesis::{GenesisStatus, Rollout},
+    stream_response,
     time::MILLIS_PER_DAY,
 };
 
@@ -40,6 +41,7 @@ mod checkpoint_advanced;
 mod control;
 mod joins;
 mod routing;
+mod streaming;
 
 pub(crate) fn born_agent() -> (Server, ManualClock) {
     let clock = ManualClock::new(TEST_NOW);

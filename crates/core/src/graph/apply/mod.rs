@@ -55,7 +55,7 @@ impl Graph {
             }
             // The model-interaction record is log-only telemetry, read from the log rather than
             // projected (spec §Observability), and replay-inert by construction.
-            EventPayload::ModelCalled { .. } => {}
+            EventPayload::ModelCalled { .. } | EventPayload::ModelCallAborted { .. } => {}
             // An embedding-model swap bears only on the vector index (a separate projection); it is
             // acted on at boot, never in the graph materializer.
             EventPayload::EmbeddingModelChanged { .. } => {}

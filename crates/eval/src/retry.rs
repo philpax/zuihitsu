@@ -17,7 +17,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use zuihitsu::{Embedder, Embedding, GenerateRequest, GenerateResponse, ModelClient, ModelError};
+use futures_util::StreamExt;
+use zuihitsu::{
+    Embedder, Embedding, GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError,
+};
 
 /// The backoff schedule: the first delay, the per-retry ceiling, and the total time to keep trying
 /// before giving up. The production values ride out a host rebuild; tests pass tiny ones.
@@ -59,8 +62,68 @@ impl ModelClient for RetryingModel {
         self.inner.model_id()
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        with_backoff(self.backoff, "generate", || self.inner.generate(request)).await
+    /// Streaming with restart-on-failure under the backoff budget: an attempt that fails at any
+    /// point — even mid-stream — is discarded whole, a [`GenerateDelta::Restarted`] marker voids
+    /// what the consumer accumulated (the turn loop records it as a `ModelCallAborted`), and the
+    /// request re-drives after the delay. `Exhausted` is a test-logic error, never retried. The
+    /// unary `generate` is the trait's drain of this same stream.
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
+        let inner = self.inner.clone();
+        let cfg = self.backoff;
+        let request = request.clone();
+        Box::pin(async_stream::stream! {
+            let start = Instant::now();
+            let mut delay = cfg.base;
+            let mut attempt = 1u32;
+            'attempts: loop {
+                let mut stream = inner.generate_stream(&request).await;
+                loop {
+                    match stream.next().await {
+                        Some(Ok(delta)) => {
+                            let finished = matches!(delta, GenerateDelta::Finished(_));
+                            yield Ok(delta);
+                            if finished {
+                                return;
+                            }
+                        }
+                        Some(Err(ModelError::Exhausted)) => {
+                            yield Err(ModelError::Exhausted);
+                            return;
+                        }
+                        Some(Err(error)) => {
+                            if start.elapsed() + delay > cfg.budget {
+                                tracing::warn!(call = "generate_stream", %error, "model endpoint still failing after the backoff budget; giving up");
+                                yield Err(error);
+                                return;
+                            }
+                            tracing::warn!(
+                                call = "generate_stream",
+                                %error,
+                                backoff_secs = delay.as_secs_f64(),
+                                elapsed_secs = start.elapsed().as_secs(),
+                                "model endpoint failed; discarding the attempt and retrying"
+                            );
+                            yield Ok(GenerateDelta::Restarted {
+                                attempt,
+                                cause: error.to_string(),
+                            });
+                            tokio::time::sleep(delay).await;
+                            delay = (delay * 2).min(cfg.max);
+                            attempt += 1;
+                            continue 'attempts;
+                        }
+                        None => {
+                            yield Err(ModelError::Backend {
+                                model: inner.model_id().to_owned(),
+                                message: "the stream ended without a terminal response".to_owned(),
+                                transient: false,
+                            });
+                            return;
+                        }
+                    }
+                }
+            }
+        })
     }
 }
 
@@ -130,7 +193,7 @@ where
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use zuihitsu::{Completion, Usage};
+    use zuihitsu::{Completion, GenerateResponse, Usage};
 
     fn reply() -> GenerateResponse {
         GenerateResponse {
@@ -152,12 +215,9 @@ mod tests {
         fn model_id(&self) -> &str {
             "flaky"
         }
-        async fn generate(
-            &self,
-            _request: &GenerateRequest,
-        ) -> Result<GenerateResponse, ModelError> {
+        async fn generate_stream(&self, _request: &GenerateRequest) -> GenerateStream {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
-            if n < self.fail_times {
+            let step = if n < self.fail_times {
                 Err(ModelError::Backend {
                     model: String::new(),
                     message: "error sending request".to_owned(),
@@ -165,7 +225,8 @@ mod tests {
                 })
             } else {
                 Ok(reply())
-            }
+            };
+            zuihitsu::stream_response(step)
         }
     }
 

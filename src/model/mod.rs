@@ -9,20 +9,16 @@
 //! the transport-resilience wrapper (retries plus the circuit breaker) in [`retry`].
 
 pub mod embed;
+mod fakes;
 pub mod index;
 pub mod openai;
 pub mod priority;
 pub mod retry;
 
+pub use fakes::{FlakyModel, ScriptedModel, stream_response};
 pub use priority::ModelArbiter;
 
-use std::{
-    collections::VecDeque,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -140,13 +136,71 @@ pub struct GenerateResponse {
     pub finish_reason: Option<String>,
 }
 
+/// One fragment of a streaming generation. Text fragments arrive as the backend produces them; the
+/// stream always ends with [`GenerateDelta::Finished`] carrying the same fully-assembled
+/// [`GenerateResponse`] the non-streaming path returns, so a consumer that ignores every fragment
+/// and keeps only the terminal sees exactly what `generate` would have given it — which is the
+/// invariant that keeps the event log byte-identical whether or not anyone watched the tokens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerateDelta {
+    /// A fragment of the serving layer's `reasoning_content` deliberation.
+    Reasoning(String),
+    /// A fragment of the reply text.
+    Reply(String),
+    /// The retry wrapper discarded a partially streamed attempt (a transient failure mid-stream)
+    /// and is starting over: everything streamed since the last marker (or the start) is void.
+    /// `attempt` is the failed attempt's number, counting from one; `cause` is its failure. A
+    /// consumer clears what it accumulated — and the turn loop records the discarded partial as a
+    /// `ModelCallAborted` event, so the retry is visible after the fact.
+    Restarted { attempt: u32, cause: String },
+    /// The stream's end: the complete response, assembled by the client from everything above plus
+    /// the pieces that only exist at the end (tool calls, usage, the finish reason).
+    Finished(GenerateResponse),
+}
+
+/// A boxed stream of generation fragments; an `Err` item ends the stream with the failure.
+pub type GenerateStream =
+    std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<GenerateDelta, ModelError>> + Send>>;
+
 /// The inference interface. The agent server holds one of these; tests substitute a fake.
+///
+/// Streaming is the primary and only fundamental operation: every implementation streams, and the
+/// unary [`ModelClient::generate`] is a derived convenience that drains the stream to its terminal.
+/// There is one transport path, and it is the streamed one — what a live viewer watches, what an
+/// eval evaluates, and what a turn records are the same code.
 #[async_trait]
 pub trait ModelClient: Send + Sync {
     /// The id of the model behind this client, recorded as `produced_by` provenance on the events
     /// its inference produces (spec §Storage → provenance on inference).
     fn model_id(&self) -> &str;
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError>;
+
+    /// Stream a generation as it is produced: zero or more text fragments (and, from the retry
+    /// wrapper, [`GenerateDelta::Restarted`] markers), always ending in a terminal — one
+    /// [`GenerateDelta::Finished`] carrying the fully assembled response, or an `Err`. The terminal
+    /// is the whole truth: a consumer treats fragments as advisory (display-only) and acts solely
+    /// on the terminal, so every consumer behaves identically however the text arrived.
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream;
+
+    /// The drained form: run the stream to its terminal and return it, discarding fragments. For
+    /// call sites with no viewer to feed (structured extractions, the judge); never overridden, so
+    /// the two forms cannot diverge.
+    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
+        use futures_util::StreamExt as _;
+        let mut stream = self.generate_stream(request).await;
+        while let Some(delta) = stream.next().await {
+            match delta? {
+                GenerateDelta::Finished(response) => return Ok(response),
+                GenerateDelta::Reasoning(_)
+                | GenerateDelta::Reply(_)
+                | GenerateDelta::Restarted { .. } => {}
+            }
+        }
+        Err(ModelError::Backend {
+            model: self.model_id().to_owned(),
+            message: "the stream ended without a terminal response".to_owned(),
+            transient: false,
+        })
+    }
 }
 
 /// A model-inference failure.
@@ -235,188 +289,6 @@ impl std::fmt::Display for ModelError {
 }
 
 impl std::error::Error for ModelError {}
-
-/// A deterministic fake returning programmed responses in order. Drives agent-loop tests
-/// without a real model; `generate` records the request's messages (so a test can assert what the
-/// model saw — e.g. that a later turn replayed the live buffer), then pops the next scripted step.
-pub struct ScriptedModel {
-    steps: Mutex<VecDeque<GenerateResponse>>,
-    seen: Mutex<Vec<Vec<Message>>>,
-    seen_tool_choice: Mutex<Vec<ToolChoice>>,
-}
-
-impl ScriptedModel {
-    /// Script the completions a turn will see, each reporting no usage. The common case for tests
-    /// that don't exercise the compaction trigger.
-    pub fn new(steps: impl IntoIterator<Item = Completion>) -> ScriptedModel {
-        ScriptedModel::with_responses(steps.into_iter().map(|completion| GenerateResponse {
-            completion,
-            usage: Usage::default(),
-            reasoning: None,
-            finish_reason: None,
-        }))
-    }
-
-    /// Script completions paired with the `prompt_tokens` each reports, for tests that drive the
-    /// compaction trigger deterministically (a step reporting more than the budget forces a
-    /// re-segment).
-    pub fn with_usage(steps: impl IntoIterator<Item = (Completion, u32)>) -> ScriptedModel {
-        ScriptedModel::with_responses(steps.into_iter().map(|(completion, prompt_tokens)| {
-            GenerateResponse {
-                completion,
-                usage: Usage {
-                    prompt_tokens: Some(prompt_tokens),
-                    ..Usage::default()
-                },
-                reasoning: None,
-                finish_reason: None,
-            }
-        }))
-    }
-
-    /// Script completions paired with the reasoning text and token usage each reports, for tests that
-    /// exercise the model-interaction record (the deliberation surface the console captures).
-    pub fn with_deliberation(
-        steps: impl IntoIterator<Item = (Completion, String, Usage)>,
-    ) -> ScriptedModel {
-        ScriptedModel::with_responses(steps.into_iter().map(|(completion, reasoning, usage)| {
-            GenerateResponse {
-                completion,
-                usage,
-                reasoning: Some(reasoning),
-                finish_reason: Some("stop".to_owned()),
-            }
-        }))
-    }
-
-    pub fn with_responses(steps: impl IntoIterator<Item = GenerateResponse>) -> ScriptedModel {
-        ScriptedModel {
-            steps: Mutex::new(steps.into_iter().collect()),
-            seen: Mutex::new(Vec::new()),
-            seen_tool_choice: Mutex::new(Vec::new()),
-        }
-    }
-
-    /// The `messages` of each `generate` call so far, in order — lets a test assert what the model
-    /// saw (e.g. that a later turn replayed the prior turns as the prompt suffix).
-    pub fn recorded_messages(&self) -> Vec<Vec<Message>> {
-        self.seen.lock().clone()
-    }
-
-    /// The `tool_choice` of each `generate` call so far, in order — lets a test assert the loop
-    /// withdraws the tools (`ToolChoice::None`) on its final step.
-    pub fn recorded_tool_choices(&self) -> Vec<ToolChoice> {
-        self.seen_tool_choice.lock().clone()
-    }
-}
-
-#[async_trait]
-impl ModelClient for ScriptedModel {
-    fn model_id(&self) -> &str {
-        "scripted-model"
-    }
-
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        self.seen.lock().push(request.messages.clone());
-        self.seen_tool_choice.lock().push(request.tool_choice);
-        self.steps.lock().pop_front().ok_or(ModelError::Exhausted)
-    }
-}
-
-/// A fault-injecting fake: fails a programmed number of leading calls (or every call) with a
-/// backend error, then serves scripted completions like [`ScriptedModel`]. Drives the
-/// transport-resilience paths — retries, the circuit breaker, deferred turns — without a real
-/// endpoint, and is distinguishable from [`ScriptedModel`], which never fails with a backend error
-/// (its only failure is [`ModelError::Exhausted`], a test-logic error).
-pub struct FlakyModel {
-    /// How many leading calls fail; `None` means every call fails.
-    remaining_faults: Mutex<Option<usize>>,
-    /// The failure each faulted call returns, as a rebuildable template (`ModelError` is not `Clone`).
-    fault_message: String,
-    fault_transient: bool,
-    then: ScriptedModel,
-    calls: AtomicUsize,
-}
-
-impl FlakyModel {
-    /// Fail the first `faults` calls with a transient backend error, then serve `steps`.
-    pub fn transient_then(
-        faults: usize,
-        steps: impl IntoIterator<Item = Completion>,
-    ) -> FlakyModel {
-        FlakyModel {
-            remaining_faults: Mutex::new(Some(faults)),
-            fault_message: "error sending request (injected transient fault)".to_owned(),
-            fault_transient: true,
-            then: ScriptedModel::new(steps),
-            calls: AtomicUsize::new(0),
-        }
-    }
-
-    /// Fail every call with a transient backend error — a backend that stays down.
-    pub fn always_transient() -> FlakyModel {
-        FlakyModel {
-            remaining_faults: Mutex::new(None),
-            fault_message: "error sending request (injected transient fault)".to_owned(),
-            fault_transient: true,
-            then: ScriptedModel::new([]),
-            calls: AtomicUsize::new(0),
-        }
-    }
-
-    /// Fail every call with a non-transient backend error — a backend that rejects the request
-    /// (schema, auth, a plain 4xx), which must be neither retried nor deferred.
-    pub fn always_permanent() -> FlakyModel {
-        FlakyModel {
-            remaining_faults: Mutex::new(None),
-            fault_message: "the backend rejected the request (injected permanent fault)".to_owned(),
-            fault_transient: false,
-            then: ScriptedModel::new([]),
-            calls: AtomicUsize::new(0),
-        }
-    }
-
-    /// How many `generate` calls reached this model — what a retry or fast-fail assertion counts.
-    pub fn calls(&self) -> usize {
-        self.calls.load(Ordering::SeqCst)
-    }
-
-    fn fault(&self) -> ModelError {
-        ModelError::Backend {
-            model: String::new(),
-            message: self.fault_message.clone(),
-            transient: self.fault_transient,
-        }
-    }
-}
-
-#[async_trait]
-impl ModelClient for FlakyModel {
-    fn model_id(&self) -> &str {
-        "flaky-model"
-    }
-
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        // Decide under the guard, then release it before delegating: the scripted delegate's
-        // `generate` is an await point, and the synchronous lock must not be held across it.
-        let faulted = {
-            let mut remaining = self.remaining_faults.lock();
-            match remaining.as_mut() {
-                None => true,
-                Some(0) => false,
-                Some(n) => {
-                    *n -= 1;
-                    true
-                }
-            }
-        };
-        if faulted {
-            return Err(self.fault());
-        }
-        self.then.generate(request).await
-    }
-}
 
 #[cfg(test)]
 mod tests {

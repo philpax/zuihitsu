@@ -5,6 +5,7 @@ import type { Event } from "../../types/Event.ts";
 import { type DigestStatus, type Replica } from "../../lib/replica/replica.ts";
 import { nameById } from "../../lib/model/labels.ts";
 import type { LiveConnection } from "../../lib/api/live.ts";
+import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { ConversationLocator } from "../../types/ConversationLocator.ts";
 import { buildConversations } from "../../lib/model/conversation.ts";
 import { conversationNameById } from "../../components/EventDetail.tsx";
@@ -69,11 +70,15 @@ export function ConversationView({
   events,
   cursor,
   participate,
+  progress,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
   participate?: Participation;
+  /// Each conversation's in-flight generation (live mode only): the open room renders its own at
+  /// the transcript tail, so the operator watches the deliberation arrive rather than a silence.
+  progress?: ReadonlyMap<string, InFlightGeneration>;
 }) {
   const names = nameById(replica.memories(""));
   const convNames = conversationNameById(replica.conversations());
@@ -145,12 +150,32 @@ export function ConversationView({
         channel.conversation?.turns.some((turn) => turn.turnId === linkedTurnId),
       ) ?? null)
     : null;
+  // Without an explicit `?room`, the default room is *pinned to the first resolution* rather than
+  // recomputed per render: the channel list is sorted by activity, so a default that followed it
+  // would yank the reader to whichever room last received a message. Landing on the busiest room is
+  // right once, at open; after that the reader moves rooms only by choosing (the pulse in the list
+  // shows where the action is). Set during render (React's reset-on-prop-change pattern), so the
+  // pin lands in the same pass the first channel appears.
+  const [defaultKey, setDefaultKey] = useState<string | null>(null);
+  const first = groups[0]?.channels[0] ?? null;
+  if (defaultKey === null && first) setDefaultKey(first.key);
   const selected =
     all.find((channel) => channel.key === selectedKey) ??
     linkedChannel ??
     pending ??
-    groups[0]?.channels[0] ??
+    all.find((channel) => channel.key === defaultKey) ??
+    first ??
     null;
+
+  // The rooms with a generation in flight, marked in the channel list (the pulse in the sidebar,
+  // text in the mobile dropdown) so a stable selection still shows where the agent is working.
+  const workingKeys = new Set(
+    progress
+      ? all
+          .filter((channel) => channel.conversation && progress.has(channel.conversation.id))
+          .map((channel) => channel.key)
+      : [],
+  );
 
   function selectRoom(key: string) {
     setSearchParams(
@@ -212,6 +237,7 @@ export function ConversationView({
                                 key={channel.key}
                                 channel={channel}
                                 active={channel.key === selected?.key}
+                                working={workingKeys.has(channel.key)}
                                 onSelect={() => selectRoom(channel.key)}
                               />
                             ))}
@@ -228,6 +254,7 @@ export function ConversationView({
                   <ChannelSelect
                     groups={groups}
                     selectedKey={selected?.key ?? null}
+                    working={workingKeys}
                     onSelect={selectRoom}
                   />
                   {participate && (
@@ -251,6 +278,9 @@ export function ConversationView({
                   replica={replica}
                   cursor={cursor}
                   channel={selected}
+                  inflight={
+                    (selected.conversation && progress?.get(selected.conversation.id)) || null
+                  }
                   participate={participate}
                   unknownTurn={
                     linkedTurnId !== null && linkedChannel === null ? linkedTurnId : null

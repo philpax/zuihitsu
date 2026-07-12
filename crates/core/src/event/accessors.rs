@@ -35,6 +35,7 @@ impl EventPayload {
             EventPayload::EmbeddingModelChanged { .. } => "EmbeddingModelChanged",
             EventPayload::LuaExecuted { .. } => "LuaExecuted",
             EventPayload::ModelCalled { .. } => "ModelCalled",
+            EventPayload::ModelCallAborted { .. } => "ModelCallAborted",
             EventPayload::ConversationTurn { .. } => "ConversationTurn",
             EventPayload::ConversationStarted { .. } => "ConversationStarted",
             EventPayload::ConversationEnded { .. } => "ConversationEnded",
@@ -104,6 +105,7 @@ impl EventPayload {
             | EventPayload::ConversationEnded { id } => Some(id.0.to_string()),
             EventPayload::LuaExecuted { conversation, .. }
             | EventPayload::ModelCalled { conversation, .. }
+            | EventPayload::ModelCallAborted { conversation, .. }
             | EventPayload::ConversationTurn { conversation, .. }
             | EventPayload::SessionStarted { conversation, .. }
             | EventPayload::SessionEnded { conversation, .. }

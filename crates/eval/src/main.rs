@@ -353,6 +353,7 @@ fn export_types(dir: &Path) -> ExitCode {
     use zuihitsu::{
         BackendHealth, TurnOutcome,
         ids::{Namespace, NamespacedMemoryName},
+        progress::TurnProgress,
     };
     let export = EvalPackage::export_all_to(dir)
         .and_then(|()| LiveEvent::export_all_to(dir))
@@ -360,6 +361,7 @@ fn export_types(dir: &Path) -> ExitCode {
         .and_then(|()| NamespacedMemoryName::export_all_to(dir))
         .and_then(|()| TurnOutcome::export_all_to(dir))
         .and_then(|()| BackendHealth::export_all_to(dir))
+        .and_then(|()| TurnProgress::export_all_to(dir))
         .map_err(|error| error.to_string())
         .and_then(|()| write_console_constants(dir).map_err(|error| error.to_string()));
     match export {

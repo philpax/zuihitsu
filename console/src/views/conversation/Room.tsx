@@ -8,6 +8,7 @@ import { formatTokens } from "../../lib/format/format.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { Composer } from "./Composer.tsx";
 import { Docked } from "./Docked.tsx";
+import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { Transcript } from "./Transcript.tsx";
 import { type Participation, ModelCalls } from "./ConversationView.tsx";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
@@ -22,12 +23,16 @@ export function Room({
   replica,
   cursor,
   channel,
+  inflight,
   participate,
   unknownTurn,
 }: {
   replica: Replica;
   cursor: number;
   channel: Channel;
+  /// This room's in-flight generation (live mode only), rendered at the transcript's tail while
+  /// the agent deliberates.
+  inflight?: InFlightGeneration | null;
   participate?: Participation;
   /// A `?turn` deep link whose id resolved to no folded turn — surfaced as a quiet notice.
   unknownTurn?: string | null;
@@ -148,7 +153,12 @@ export function Room({
       {unknownTurn && <UnknownTurnNotice />}
 
       {channel.conversation ? (
-        <Transcript replica={replica} conversation={channel.conversation} cursor={cursor} />
+        <Transcript
+          replica={replica}
+          conversation={channel.conversation}
+          cursor={cursor}
+          inflight={inflight}
+        />
       ) : (
         <p className="text-sm text-ink-faint">
           {isOperator

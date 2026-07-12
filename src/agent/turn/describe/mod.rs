@@ -44,7 +44,7 @@ pub(super) struct SynthesisTemplates {
 pub(super) struct SynthesisCall<'a> {
     pub(super) model: &'a dyn ModelClient,
     pub(super) engine: &'a Engine,
-    pub(super) recording: Recording,
+    pub(super) recording: &'a Recording,
     pub(super) system: &'a str,
 }
 
@@ -98,11 +98,7 @@ async fn describe_memories(
     let Some(templates) = load_synthesis_templates(engine)? else {
         return Ok(0);
     };
-    let recording = Recording {
-        conversation: None,
-        turn_id: TurnId::generate(),
-        capture: CaptureLevel::Off,
-    };
+    let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
     let mut considered = 0;
     for &id in candidates {
         let _guard = guard.lock().await;
@@ -112,7 +108,7 @@ async fn describe_memories(
         if content_seq <= described_seq {
             continue;
         }
-        describe_one(engine, model, recording, &templates, id, described_seq).await?;
+        describe_one(engine, model, &recording, &templates, id, described_seq).await?;
         considered += 1;
     }
     Ok(considered)
@@ -156,7 +152,7 @@ fn load_synthesis_templates(engine: &Engine) -> Result<Option<SynthesisTemplates
 async fn describe_one(
     engine: &Engine,
     model: &dyn ModelClient,
-    recording: Recording,
+    recording: &Recording,
     templates: &SynthesisTemplates,
     id: MemoryId,
     described_seq: Seq,

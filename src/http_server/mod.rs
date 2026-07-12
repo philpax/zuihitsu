@@ -15,6 +15,7 @@ mod control;
 mod error;
 mod platform;
 mod serve_error;
+mod stream;
 
 pub use serve_error::ServeError;
 
@@ -41,7 +42,7 @@ use control::{
     register_prompt, resolve_merge, run_lua, sessions, set_settings, settings,
     snapshot as snapshot_handler, unmerge,
 };
-use platform::{join, message, roster};
+use platform::{join, message, message_stream, roster};
 
 /// Shared HTTP handler state: the agent server behind an `Arc`, and the model client the conversing
 /// endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is configured, in
@@ -57,6 +58,9 @@ struct AppState {
     /// Where an on-demand snapshot is written — `Some` when snapshotting is enabled, `None`
     /// otherwise (the snapshot endpoint then answers `409`).
     snapshot_dir: Option<std::path::PathBuf>,
+    /// The committed-event fan-out behind `GET /control/events/stream` — one store subscription,
+    /// shared by every connected viewer.
+    live: Arc<stream::LiveEvents>,
     /// The Prometheus metrics handle — `render()` produces the `/control/metrics` text. `None` when
     /// the recorder could not be installed (a boot failure leaves the server up but the metrics
     /// endpoint answers `503`).
@@ -360,6 +364,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     });
 
     let app = router(AppState {
+        live: Arc::new(stream::LiveEvents::start(&server)),
         server: server.clone(),
         model,
         backend,
@@ -465,6 +470,7 @@ fn router(state: AppState) -> Router {
         .route("/designate-primary", post(designate_primary))
         .route("/interactions", get(interactions))
         .route("/events", get(events))
+        .route("/events/stream", get(stream::events_stream))
         .route("/snapshot", post(snapshot_handler))
         .route("/settings", get(settings).put(set_settings))
         .route("/config", get(env_config))
@@ -482,6 +488,7 @@ fn router(state: AppState) -> Router {
     // → platform clients). It carries platform identity in the payload, never operator authority.
     let platform = Router::new()
         .route("/message", post(message))
+        .route("/message/stream", post(message_stream))
         .route("/join", post(join))
         .route("/roster", post(roster))
         .layer(axum::middleware::from_fn_with_state(

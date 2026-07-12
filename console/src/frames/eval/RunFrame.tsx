@@ -25,7 +25,7 @@ import { VerdictPanel } from "./VerdictPanel.tsx";
 /// The layout reads as a drill-down: the scenario list on the left, then the scenario's summary, the
 /// run picker, this run's verdicts, and finally the run's views — outer scope to inner, top to bottom.
 export function RunFrame() {
-  const { pkg, liveRuns } = useOutletContext<EvalContext>();
+  const { pkg, liveRuns, progress } = useOutletContext<EvalContext>();
   const params = useParams();
   const scenarioIndex = pkg.scenarios.findIndex((entry) => entry.meta.name === params.scenario);
   const scenario = scenarioIndex >= 0 ? pkg.scenarios[scenarioIndex] : null;
@@ -95,6 +95,9 @@ export function RunFrame() {
           <StreamWorkspace
             key={`stream:${runKey}`}
             replica={ready}
+            progress={
+              runIndex !== null ? progress.get(runningKey(scenarioIndex, runIndex)) : undefined
+            }
             events={events}
             head={ready.headSeq}
             view={view!}

@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use ts_rs::TS;
-use zuihitsu::Event;
+use zuihitsu::{Event, progress::TurnProgress};
 
 use crate::{
     error::EvalError,
@@ -66,6 +66,16 @@ pub enum LiveEvent {
         scenario: u32,
         run: u32,
         event: Event,
+    },
+    /// One in-flight generation fragment from a run's deliberation — the same [`TurnProgress`]
+    /// frame the live agent console streams, multiplexed with which run produced it. Broadcast-only
+    /// and deliberately not buffered for catch-up: a viewer joining mid-generation misses earlier
+    /// tokens and simply picks up from the next frame, because the durable record (`ModelCalled`,
+    /// or `ModelCallAborted` for a discarded attempt) arrives as a `RunEvent` regardless.
+    RunProgress {
+        scenario: u32,
+        run: u32,
+        frame: TurnProgress,
     },
     /// A run finished: its whole record (events, verdicts, metrics) and the scenario's aggregate
     /// recomputed over its runs so far. Authoritative — folding it reproduces the canonical package
@@ -200,6 +210,20 @@ impl EvalSink {
             },
         );
         Ok(())
+    }
+
+    /// Broadcast one in-flight generation fragment. Nothing is persisted and nothing is buffered:
+    /// progress exists only for whoever is watching right now.
+    pub fn run_progress(&self, scenario: u32, run: u32, frame: TurnProgress) {
+        let mut inner = self.inner.lock();
+        self.broadcast_locked(
+            &mut inner,
+            LiveEvent::RunProgress {
+                scenario,
+                run,
+                frame,
+            },
+        );
     }
 
     /// Fold a finished run in: append its record to the scenario, recompute the scenario aggregate, and

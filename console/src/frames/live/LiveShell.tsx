@@ -115,6 +115,7 @@ export function LiveShell({
             following.current = value;
           }}
           participant={{ connection, sender, setSender }}
+          progress={log.progress}
           extraViews={[
             { id: "console", label: "Console", node: <LuaConsole connection={connection} /> },
             {

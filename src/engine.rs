@@ -16,6 +16,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::Mutex;
 
+use zuihitsu_core::progress::TurnProgress;
+
 use crate::{
     clock::Clock, graph::Graph, ids::MemoryId, model::embed::Embedder, store::Store,
     vector::VectorIndex,
@@ -35,6 +37,35 @@ pub struct Engine {
     /// graph-only instance (no embedding endpoint, and most tests), where `memory.search` reports
     /// itself unavailable rather than failing obscurely.
     pub retrieval: Option<Retrieval>,
+    /// The live turn-progress feed the console's stream endpoint subscribes to (spec
+    /// §Observability). Ephemeral by design: frames never touch the store, publishing to no
+    /// subscriber is a no-op, and the recorded events are identical whether or not anyone watched.
+    pub progress: ProgressFeed,
+}
+
+/// A lossy broadcast of [`TurnProgress`] frames. Publishing to no subscribers is free and dropped
+/// frames cost only smoothness, so the turn loop publishes unconditionally.
+pub struct ProgressFeed {
+    sender: tokio::sync::broadcast::Sender<TurnProgress>,
+}
+
+impl ProgressFeed {
+    fn new() -> ProgressFeed {
+        // Deep enough that a briefly stalled SSE writer does not lag out mid-reply at token rate;
+        // a receiver that still falls behind reconnects and simply misses cosmetic frames.
+        let (sender, _) = tokio::sync::broadcast::channel(1024);
+        ProgressFeed { sender }
+    }
+
+    /// Publish one frame; with no subscriber this is a no-op.
+    pub fn publish(&self, frame: TurnProgress) {
+        let _ = self.sender.send(frame);
+    }
+
+    /// A new subscription over frames published from now on.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<TurnProgress> {
+        self.sender.subscribe()
+    }
 }
 
 /// The embedder and vector index that back semantic search (spec §Storage → vector store). The vector
@@ -58,6 +89,7 @@ impl Engine {
             clock,
             memory_locks: Arc::new(MemoryLocks::new()),
             retrieval: None,
+            progress: ProgressFeed::new(),
         })
     }
 
@@ -75,6 +107,7 @@ impl Engine {
             graph: Mutex::new(graph),
             clock,
             memory_locks: Arc::new(MemoryLocks::new()),
+            progress: ProgressFeed::new(),
             retrieval: Some(Retrieval {
                 embedder,
                 vectors: Mutex::new(vectors),

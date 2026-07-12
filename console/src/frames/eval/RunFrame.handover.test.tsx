@@ -1,0 +1,214 @@
+// @vitest-environment jsdom
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { act, StrictMode } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
+
+import type { Event } from "../../types/Event.ts";
+import type { EvalPackage } from "../../types/EvalPackage.ts";
+import type { EvalContext } from "../../lib/api/liveEval.ts";
+import type { InFlightGeneration } from "../../lib/model/inflight.ts";
+import { RunFrame } from "./RunFrame.tsx";
+
+// Only the wasm boundary is mocked: `Replica.fromEvents` yields a fresh query stub per call — a new
+// instance per refold, exactly as production behaves — and the ref scanner scans nothing. The rest
+// of the stack (`useReplica` included) is the real code under test.
+vi.mock("../../lib/replica/replica.ts", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  scanTurnRefs: (text: string) => [{ kind: "prose", text }],
+  Replica: {
+    fromEvents: (events: Event[]) =>
+      Promise.resolve({
+        headSeq: events.length > 0 ? events[events.length - 1].seq : 0,
+        foldedSeq: events.length > 0 ? events[events.length - 1].seq : 0,
+        foldTo() {},
+        memories: () => [],
+        conversations: () => [],
+        participantIds: () => [],
+        requestDigests: () => [],
+      }),
+  },
+}));
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  window.matchMedia ??= ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as typeof window.matchMedia;
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
+
+function event(seq: number, payload: unknown): Event {
+  return { seq, recorded_at: 1_000 + seq, source: "Agent", payload } as unknown as Event;
+}
+
+const beforeCommit: Event[] = [
+  event(1, {
+    type: "ConversationStarted",
+    id: "conv-1",
+    locator: { platform: "test", scope_path: "room" },
+    context_memory: null,
+  }),
+  event(2, {
+    type: "SessionStarted",
+    id: "sess-1",
+    conversation: "conv-1",
+    brief: "a room",
+    started_at: 1_000,
+    participants: [],
+    seeded_from_turn: null,
+    working_set: [],
+  }),
+  event(3, {
+    type: "ConversationTurn",
+    conversation: "conv-1",
+    turn_id: "U1",
+    role: "Participant",
+    text: "hello?",
+    participant: null,
+    initiation: "Responding",
+    brief: null,
+  }),
+];
+
+// Appended, so the earlier elements keep their identity — the shape the live fold guarantees and
+// the same-run heuristic in `useReplica` relies on.
+const afterCommit: Event[] = [
+  ...beforeCommit,
+  event(4, {
+    type: "ModelCalled",
+    conversation: "conv-1",
+    turn_id: "T1",
+    phase: "Step",
+    reasoning: "pondered the reply",
+    completion: { Reply: "hello" },
+    finish_reason: null,
+    duration_ms: 100,
+    usage: {
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+      cache_read_tokens: null,
+      cache_write_tokens: null,
+    },
+    request: null,
+  }),
+];
+
+const generating: InFlightGeneration = {
+  turnId: "T1",
+  step: 0,
+  phase: "Step",
+  reasoning: "pondering the reply",
+  reply: "",
+  restarts: 0,
+  superseded: false,
+};
+
+const pkg = {
+  meta: {
+    harness_version: "test",
+    git_sha: null,
+    git_dirty: false,
+    model_id: "test-model",
+    embedding_model: null,
+    scenario_filter: null,
+    started_at_ms: 0,
+    finished_at_ms: 0,
+    runs_per_scenario: 1,
+    concurrency: 1,
+    rejudged_from: null,
+    resumed_from: null,
+  },
+  scenarios: [
+    {
+      meta: {
+        name: "scenario-a",
+        category: "Recall",
+        description: "a scenario",
+        bar: { kind: "gating", min_rate: 1 },
+      },
+      runs: [],
+      aggregate: {
+        runs: 0,
+        rate: 0,
+        gating_passed: true,
+        gating_rate: 1,
+        wall_clock_ms: { p50: 0, p95: 0, mean: 0 },
+        latency_ms: { p50: 0, p95: 0, mean: 0 },
+        tokens: { prompt_mean: 0, completion_mean: 0 },
+        steps_mean: 0,
+      },
+    },
+  ],
+} as unknown as EvalPackage;
+
+function context(events: Event[], progress: ReadonlyMap<string, InFlightGeneration>): EvalContext {
+  return {
+    pkg,
+    liveRuns: new Map([["0:0", events]]),
+    live: { status: "streaming" },
+    progress: new Map([["0:0", progress]]),
+  };
+}
+
+async function render(root: Root, ctx: EvalContext) {
+  await act(async () => {
+    root.render(
+      <StrictMode>
+        <MemoryRouter initialEntries={["/eval/scenario-a/0/conversation"]}>
+          <Routes>
+            <Route path="/eval" element={<Outlet context={ctx} />}>
+              <Route path=":scenario/:run/:view" element={<RunFrame />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    );
+  });
+}
+
+function disclosureButton(container: HTMLElement): HTMLButtonElement {
+  const button = [...container.querySelectorAll("button")].find((candidate) =>
+    candidate.textContent?.includes("deliberation"),
+  );
+  if (!button) throw new Error("no deliberation disclosure rendered");
+  return button;
+}
+
+describe("the run frame across the first step's commit", () => {
+  it("keeps an opened deliberation open through the event landing and the replica refolding", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    // Streaming: the run is live, tokens are arriving, the reader opens the deliberation.
+    await render(root, context(beforeCommit, new Map([["conv-1", generating]])));
+    act(() => disclosureButton(container).click());
+    expect(container.textContent).toContain("pondering the reply");
+
+    // The step commits: the run's log grows, the supersede marks the in-flight accumulation (the
+    // fold keeps the object so the pending turn holds its slot while the replica refolds
+    // asynchronously — deleting it here is exactly the remount bug this test pins), and the new
+    // replica instance lands. The disclosure must ride through all of it.
+    await render(
+      root,
+      context(afterCommit, new Map([["conv-1", { ...generating, superseded: true }]])),
+    );
+    expect(container.textContent).toContain("pondered the reply");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});

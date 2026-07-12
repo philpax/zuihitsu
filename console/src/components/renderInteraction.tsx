@@ -160,6 +160,25 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
         </div>
       );
 
+    case "ModelCallAborted":
+      return (
+        <Fields>
+          <Field label="phase">{payload.phase}</Field>
+          <Field label="attempt">{`${payload.attempt} (discarded)`}</Field>
+          <Field label="cause">{payload.cause}</Field>
+          {payload.partial_reasoning && (
+            <Field label="discarded reasoning">
+              <span className="text-ink-faint line-through">{payload.partial_reasoning}</span>
+            </Field>
+          )}
+          {payload.partial_reply && (
+            <Field label="discarded reply">
+              <span className="text-ink-faint line-through">{payload.partial_reply}</span>
+            </Field>
+          )}
+        </Fields>
+      );
+
     case "ModelCalled":
       return (
         <Fields>

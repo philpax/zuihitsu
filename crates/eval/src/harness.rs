@@ -157,15 +157,28 @@ async fn drive_streaming(
         Err(error) => return Ok(Err(error.to_string())),
     };
     let steps = scenario.steps();
+    // The instance's ephemeral token feed, forwarded into the live stream so the deep-dive watches
+    // the deliberation arrive — the same frames the agent console streams, tagged with this run.
+    let mut progress = ctx.subscribe_progress();
     let run = execute(&steps, &ctx);
     tokio::pin!(run);
     let mut cursor = Seq::ZERO;
+    // A persistent interval, not a per-iteration sleep: every progress frame completes a `select!`
+    // iteration, and during dense token streaming a recreated sleep would never fire — starving the
+    // committed-event feed until the run's final drain.
+    let mut poll = tokio::time::interval(POLL_INTERVAL);
     let outcome = loop {
         tokio::select! {
             // Bias toward the run: when a turn completes, finish it before polling again.
             biased;
             result = &mut run => break result,
-            _ = tokio::time::sleep(POLL_INTERVAL) => {
+            frame = progress.recv() => {
+                if let Ok(frame) = frame {
+                    // A lagged receiver just skips ahead — progress is cosmetic and uncached.
+                    sink.run_progress(scenario_index, run_index, frame);
+                }
+            }
+            _ = poll.tick() => {
                 cursor = stream_new_events(&ctx, sink, scenario_index, run_index, cursor)?;
             }
         }

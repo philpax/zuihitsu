@@ -473,3 +473,205 @@ async fn self_edit_endpoint_appends_revises_and_validates() {
         .unwrap();
     assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn the_event_stream_opens_with_the_committed_snapshot() {
+    // A born agent has genesis events; the stream's first frames replay them as `event` records
+    // before the live tail begins. The stream never ends on its own (keep-alive), so the test reads
+    // the first body chunk and asserts its shape rather than draining to completion.
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let app = router(test_state(Arc::new(server)));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("GET")
+                .uri("/control/events/stream?from=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream"))
+    );
+
+    use futures_util::StreamExt as _;
+    let mut frames = response.into_body().into_data_stream();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(5), frames.next())
+        .await
+        .expect("the snapshot arrives promptly")
+        .expect("the stream is open")
+        .expect("the frame reads");
+    let text = String::from_utf8_lossy(&first);
+    assert!(
+        text.contains("event: event"),
+        "the first frames are committed events, got: {text}"
+    );
+    assert!(
+        text.contains("\"seq\":1") && text.contains("\"source\":\"Bootstrap\""),
+        "the snapshot replays the log from seq 1 with its envelope source, got: {text}"
+    );
+}
+
+#[tokio::test]
+async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
+    // The streamed sibling of `/platform/message`: reply tokens arrive as `progress` frames while
+    // the turn runs, and the terminal `outcome` frame carries the same TurnOutcome the unary
+    // endpoint would return. The scripted model streams word fragments, so the frames are real.
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let model: Arc<dyn zuihitsu::ModelClient> = Arc::new(ScriptedModel::new([Completion::Reply(
+        "Hello there, Dave.".to_owned(),
+    )]));
+    let app = router(AppState {
+        model: Some(model),
+        ..test_state(Arc::new(server))
+    });
+
+    let message = serde_json::json!({
+        "locator": { "platform": "discord", "scope_path": "general" },
+        "sender": "dave",
+        "text": "hello",
+        "present": ["dave"],
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("POST")
+                .uri("/platform/message/stream")
+                .header("content-type", "application/json")
+                .body(Body::from(message.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    // The stream ends itself after the terminal frame, so the whole body is finite and readable.
+    let bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        axum::body::to_bytes(response.into_body(), usize::MAX),
+    )
+    .await
+    .expect("the stream ends after the outcome")
+    .unwrap();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("event: progress"),
+        "progress frames arrive: {text}"
+    );
+    assert!(
+        text.contains("\"kind\":\"reply\"") && text.contains("Hello "),
+        "the reply streams as fragments: {text}"
+    );
+    let outcome_at = text
+        .find("event: outcome")
+        .expect("the terminal outcome frame arrives");
+    assert!(
+        text[outcome_at..].contains("Hello there, Dave."),
+        "the outcome carries the whole reply: {text}"
+    );
+}
+
+#[tokio::test]
+async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
+    // Beyond the snapshot: a turn driven after the stream opens pushes its committed events, and
+    // the generation's ephemeral progress frames ride through as their own frame type — the full
+    // push channel, exercised by a real scripted turn rather than a synthetic publish.
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let model: Arc<dyn zuihitsu::ModelClient> = Arc::new(ScriptedModel::new([Completion::Reply(
+        "Hello there.".to_owned(),
+    )]));
+    let app = router(AppState {
+        model: Some(model),
+        ..test_state(server.clone())
+    });
+
+    // Opening just past the current head skips the whole snapshot (the genesis events), so
+    // everything read below was pushed live. The `from` horizon is honoured exactly: a tail
+    // event below it would be withheld, so an inflated horizon would hang the read loop.
+    let head = server
+        .control()
+        .events()
+        .unwrap()
+        .last()
+        .map(|event| event.seq.0)
+        .unwrap_or_default();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("GET")
+                .uri(format!("/control/events/stream?from={}", head + 1))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    use futures_util::StreamExt as _;
+    let mut frames = response.into_body().into_data_stream();
+
+    let message = serde_json::json!({
+        "locator": { "platform": "discord", "scope_path": "general" },
+        "sender": "dave",
+        "text": "hello",
+        "present": ["dave"],
+    });
+    app.oneshot(
+        Request::builder()
+            .extension(loopback())
+            .method("POST")
+            .uri("/platform/message")
+            .header("content-type", "application/json")
+            .body(Body::from(message.to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // The turn's progress frames and its committed events both arrive over the one stream.
+    let mut collected = String::new();
+    while !(collected.contains("event: progress") && collected.contains("ConversationTurn")) {
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(5), frames.next())
+            .await
+            .expect("the pushed frames arrive")
+            .expect("the stream is open")
+            .expect("the frame reads");
+        collected.push_str(&String::from_utf8_lossy(&chunk));
+    }
+    assert!(collected.contains("event: event"));
+    assert!(collected.contains("\"kind\":\"reply\""));
+}

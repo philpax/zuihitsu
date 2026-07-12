@@ -422,39 +422,43 @@ impl ModelClient for DispatchingModel {
         "dispatching-model"
     }
 
-    async fn generate(&self, request: &GenerateRequest) -> Result<GenerateResponse, ModelError> {
-        // A synthesis is the response-format-constrained call; a step offers tools or a plain reply.
-        if request.response_format.is_some() {
-            if let Some(name) = request
-                .messages
-                .first()
-                .and_then(|message| message.content.strip_prefix("Memory: "))
-                .and_then(|rest| rest.split('\n').next())
-            {
-                self.synthesized.lock().unwrap().push(name.to_owned());
+    async fn generate_stream(&self, request: &GenerateRequest) -> GenerateStream {
+        let step: Result<GenerateResponse, ModelError> = async {
+            // A synthesis is the response-format-constrained call; a step offers tools or a plain reply.
+            if request.response_format.is_some() {
+                if let Some(name) = request
+                    .messages
+                    .first()
+                    .and_then(|message| message.content.strip_prefix("Memory: "))
+                    .and_then(|rest| rest.split('\n').next())
+                {
+                    self.synthesized.lock().unwrap().push(name.to_owned());
+                }
+                return Ok(GenerateResponse {
+                    completion: Completion::Reply(
+                        serde_json::json!({ "description": DISPATCH_DESCRIPTION, "occurrences": [] })
+                            .to_string(),
+                    ),
+                    usage: Usage::default(),
+                    reasoning: None,
+                    finish_reason: None,
+                });
             }
-            return Ok(GenerateResponse {
-                completion: Completion::Reply(
-                    serde_json::json!({ "description": DISPATCH_DESCRIPTION, "occurrences": [] })
-                        .to_string(),
-                ),
+            let completion = self
+                .steps
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or(ModelError::Exhausted)?;
+            Ok(GenerateResponse {
+                completion,
                 usage: Usage::default(),
                 reasoning: None,
                 finish_reason: None,
-            });
+            })
         }
-        let completion = self
-            .steps
-            .lock()
-            .unwrap()
-            .pop_front()
-            .ok_or(ModelError::Exhausted)?;
-        Ok(GenerateResponse {
-            completion,
-            usage: Usage::default(),
-            reasoning: None,
-            finish_reason: None,
-        })
+        .await;
+        stream_response(step)
     }
 }
 

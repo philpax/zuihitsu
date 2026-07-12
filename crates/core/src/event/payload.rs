@@ -360,6 +360,25 @@ pub enum EventPayload {
         usage: Usage,
         duration_ms: u64,
     },
+    /// A partially streamed model call the retry wrapper discarded after a transient mid-stream
+    /// failure, before re-driving the request (spec §Transport resilience). Log-only telemetry like
+    /// `ModelCalled` — the materializer ignores it, so replay is unaffected — but durable, so an
+    /// operator can see after the fact that a turn's generation restarted, which attempt failed,
+    /// why, and what text was thrown away. The successful attempt still lands as the one
+    /// `ModelCalled`; an aborted attempt never carries usage (the backend did not finish counting).
+    ModelCallAborted {
+        conversation: ConversationId,
+        turn_id: TurnId,
+        phase: ModelPhase,
+        /// The failed attempt's number, counting from one.
+        attempt: u32,
+        /// The transient failure that ended the attempt.
+        cause: String,
+        /// The deliberation text streamed before the failure, discarded on restart.
+        partial_reasoning: String,
+        /// The reply text streamed before the failure, discarded on restart.
+        partial_reply: String,
+    },
     /// A turn in the conversation: an inbound participant message, the agent's response (a reply, a
     /// silent terminal with empty `text`, or a surfaced `max_steps` error), or a system message.
     /// `participant` is the speaker of an inbound message (`None` for the agent's own and system

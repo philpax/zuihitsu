@@ -6,6 +6,7 @@ import type { Replica } from "../lib/replica/replica.ts";
 import type { StepRecord } from "../types/StepRecord.ts";
 import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
+import type { InFlightGeneration } from "../lib/model/inflight.ts";
 import { DockContext } from "../lib/nav/dock.ts";
 import { designatePrimary, editSelf, resolveMerge, unmerge } from "../lib/api/operator.ts";
 import { Timeline } from "./Timeline.tsx";
@@ -77,6 +78,7 @@ export function StreamWorkspace({
   extraViews = [],
   journal,
   resumedFromStep,
+  progress,
 }: {
   replica: Replica;
   events: Event[];
@@ -92,6 +94,9 @@ export function StreamWorkspace({
   // renders without step markers. `resumedFromStep`, when set, marks a resumed run's live boundary.
   journal?: readonly StepRecord[];
   resumedFromStep?: number | null;
+  /// Each conversation's in-flight generation from the live push channel — ephemeral display state
+  /// the Conversation view renders at the transcript tail. Absent in the read-only viewers.
+  progress?: ReadonlyMap<string, InFlightGeneration>;
 }) {
   const cursor = seq ?? head;
 
@@ -230,6 +235,7 @@ export function StreamWorkspace({
                         events={events}
                         cursor={cursor}
                         participate={participant && { ...participant, atHead: cursor >= head }}
+                        progress={progress}
                       />
                     )}
                     {view === "agenda" && (

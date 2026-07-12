@@ -2,10 +2,12 @@ import { Outlet, useMatch } from "react-router-dom";
 
 import type { EvalPackage } from "../../types/EvalPackage.ts";
 import type { Event } from "../../types/Event.ts";
+import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import {
   type EvalContext,
   type LiveEvalStatus,
   NO_LIVE_RUNS,
+  NO_PROGRESS,
   projectFinishMs,
   useNow,
 } from "../../lib/api/liveEval.ts";
@@ -25,15 +27,22 @@ export function EvalFrame({
   fileName,
   live,
   liveRuns,
+  progress,
   onClose,
 }: {
   pkg: EvalPackage;
   fileName?: string | null;
   live?: LiveEvalStatus;
   liveRuns?: ReadonlyMap<string, Event[]>;
+  progress?: ReadonlyMap<string, ReadonlyMap<string, InFlightGeneration>>;
   onClose: () => void;
 }) {
-  const context: EvalContext = { pkg, liveRuns: liveRuns ?? NO_LIVE_RUNS, live: live ?? null };
+  const context: EvalContext = {
+    pkg,
+    liveRuns: liveRuns ?? NO_LIVE_RUNS,
+    live: live ?? null,
+    progress: progress ?? NO_PROGRESS,
+  };
   // The route still names the view for the document title; the scenario and run themselves are
   // legible in the frame's own rail, summary, and run picker, so the header carries no breadcrumb.
   const runMatch = useMatch("/eval/:scenario/:run/:view");
