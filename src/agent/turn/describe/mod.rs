@@ -22,6 +22,7 @@ use crate::{
     ids::{EntryId, MemoryId, Seq, TurnId},
     model::ModelClient,
     settings::CaptureLevel,
+    time::TemporalRef,
 };
 
 use super::{Recording, TurnError, templates};
@@ -190,6 +191,14 @@ async fn describe_one(
         (memory, entries, eligible, teller_names)
     };
 
+    // The live occurrences already on the memory's entries — the description mirror's authored date
+    // among them — feed the current-day guard in `resolve_occurrences`, so an extracted resolution on
+    // "now" cannot silently override a differently-dated sibling.
+    let siblings: Vec<TemporalRef> = entries
+        .iter()
+        .filter_map(|entry| entry.occurred_at.clone())
+        .collect();
+
     let public_entries: Vec<EntryView> = entries
         .iter()
         .filter(|entry| entry.visibility == Visibility::Public)
@@ -235,11 +244,15 @@ async fn describe_one(
                 if let Some(provenance) = &extraction_provenance {
                     occurrences::resolve_occurrences(
                         synthesis.occurrences,
-                        &public_entries,
-                        &eligible,
+                        &occurrences::ResolveContext {
+                            list: &public_entries,
+                            eligible: &eligible,
+                            memory: &memory,
+                            now,
+                            siblings: &siblings,
+                        },
                         &mut resolved,
                         provenance,
-                        &memory,
                         &mut events,
                     );
                 }
@@ -289,11 +302,15 @@ async fn describe_one(
             {
                 Ok(Some(synthesis)) => occurrences::resolve_occurrences(
                     synthesis.occurrences,
-                    &private_untimed,
-                    &eligible,
+                    &occurrences::ResolveContext {
+                        list: &private_untimed,
+                        eligible: &eligible,
+                        memory: &memory,
+                        now,
+                        siblings: &siblings,
+                    },
                     &mut resolved,
                     provenance,
-                    &memory,
                     &mut events,
                 ),
                 Ok(None) => {}

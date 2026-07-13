@@ -372,17 +372,10 @@ pub(in crate::agent::genesis) fn default_templates(
         },
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            // Version 3: invert the emphasis toward the omit-default. The prior body spent most of its
-            // words on the resolve-against-the-anchor path, which nudged the model to over-resolve and
-            // stamp the current time on any statement it could not otherwise place — a description, an
-            // intention, or an explicitly-unscheduled note read back as having happened on the
-            // authorship day. This body leads with the default (most statements get no occurrence),
-            // keeps the two extract cases subordinate, and hardens the prohibition on resolving an
-            // unanchored phrase against the clock. (Version 2 introduced the anchor rule: a relative
-            // phrase resolves against the current time only when it is anchored to the moment of
-            // speaking, never when its referent is another stated date or event.) Bumping the version
-            // keeps an older `produced_by` naming the body it was generated under.
-            version: 3,
+            // The body leads with the omit-default because over-resolution is the dangerous
+            // direction: a statement stamped with a fabricated now-relative date reads back as fact,
+            // while an untimed one merely sends the reader to the entry.
+            version: 4,
             body: "Alongside the description, extract when each numbered statement is *about* in the \
                    real world. The default is to extract nothing: most statements get no occurrence. \
                    Add an entry to `occurrences`, keyed by its statement number, only for a statement \
@@ -393,14 +386,18 @@ pub(in crate::agent::genesis) fn default_templates(
                    \"last Tuesday\", \"next Friday\", \"a couple of years ago\", \"this week\", where \
                    the speaker's now is plainly the reference point — resolves against the current \
                    time. Second, a time anchored to another stated date or event — \"that weekend\", \
-                   \"the day after the launch\", \"the following Monday\", or any anaphora pointing \
-                   back at a date already given in another numbered statement — resolves against THAT \
-                   anchor: as a `before_after` relative to the anchoring memory when you can name it \
-                   (e.g. event/dave-wedding), otherwise as the day the anchor's own date implies.\n\n\
+                   \"the day after the launch\", \"the following Monday\", or a phrase like \"this \
+                   date\" or \"that day\" that points back at a date given elsewhere — resolves \
+                   against that anchor, never against the current time. A statement's bracket may \
+                   show its recorded occurrence (`· occurred YYYY-MM-DD`); a phrase pointing at \
+                   another statement takes that statement's occurrence. When the anchor is a memory \
+                   you can name (e.g. event/dave-wedding), emit a `before_after` relative to it; \
+                   otherwise emit the day the anchor implies.\n\n\
                    Never resolve against the current time a phrase that is not anchored to the moment \
                    of speaking. A statement that names no time at all is never assigned the current \
-                   day. A fabricated now-relative date reads back as fact and is relayed as one, so it \
-                   is worse than no date, which simply sends the reader to the entry.\n\n\
+                   day, and a phrase whose anchor you cannot find is omitted. A fabricated \
+                   now-relative date reads back as fact and is relayed as one, so it is worse than no \
+                   date, which simply sends the reader to the entry.\n\n\
                    When you do extract, use the most specific form you can justify: a single `day`; a \
                    `range` between two days; an `approx` center with a tolerance in `fuzz_days`; a \
                    `recurring` rule; or `before_after` relative to another memory named as its \

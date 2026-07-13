@@ -88,6 +88,184 @@ pub(super) fn temporal_resolutions(events: &[Event]) -> Vec<EventPayload> {
         .collect()
 }
 
+pub(super) fn temporal_resolve_failures(events: &[Event]) -> Vec<EventPayload> {
+    events
+        .iter()
+        .map(|e| &e.payload)
+        .filter(|p| matches!(p, EventPayload::EntryTemporalResolveFailed { .. }))
+        .cloned()
+        .collect()
+}
+
+/// A no-conflict arbitration reply — the describe pass poses a focused arbitration call whenever a
+/// memory has two or more public entries (here the seed mirror plus the appended back-pointing entry), so these
+/// current-day guard scenarios script it to find nothing.
+fn no_conflict() -> Completion {
+    arbitrate_call(SynthesizeArbitration {
+        competing: Vec::new(),
+        credited: Vec::new(),
+        statement: String::new(),
+    })
+}
+
+#[tokio::test]
+async fn an_authored_occurrence_survives_a_current_day_extraction() {
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // A memory created with an authored October occurrence, then an untimed back-pointing entry ("this date") that
+    // the extraction mis-resolves to the conversation's now (2026-06-08, the suite's TEST_NOW).
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { occurred_at = "2026-10-03", visibility = "public" })
+               demo:append("The demo is locked for this date.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, locked.")
+                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Lock the demo", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    // The authored October occurrence still stands on the seed entry — recall reads October 3rd.
+    assert_eq!(entries[0].occurred_sort, Some(day_noon("2026-10-03")));
+    assert_eq!(
+        entries[0].occurred_at,
+        Some(TemporalRef::Day(CivilDate("2026-10-03".into())))
+    );
+    assert!(entries[0].occurred_authored);
+    // The back-pointing entry stays untimed: the current-day resolution was suppressed, not applied.
+    assert_eq!(entries[1].occurred_sort, None);
+    assert!(temporal_resolutions(&h.events()).is_empty());
+    assert_eq!(temporal_resolve_failures(&h.events()).len(), 1);
+}
+
+#[tokio::test]
+async fn a_differently_dated_extraction_still_applies() {
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // Same shape, but the extraction resolves the new entry to a genuinely different day — the demo
+    // moved to October 12th — which is not the current day, so the guard leaves it alone.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { occurred_at = "2026-10-03", visibility = "public" })
+               demo:append("The demo moved to the 12th.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, moved.")
+                .with_occurrence(SynthesizeOccurrence::day(2, "2026-10-12")),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "The demo moved", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    assert_eq!(entries[1].occurred_sort, Some(day_noon("2026-10-12")));
+    assert_eq!(temporal_resolutions(&h.events()).len(), 1);
+    assert!(temporal_resolve_failures(&h.events()).is_empty());
+}
+
+#[tokio::test]
+async fn a_current_day_extraction_applies_without_a_dated_sibling() {
+    let h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // No occurrence anywhere on the memory, so the guard has no differently-dated sibling to fire
+    // against: a current-day resolution ("today") applies as an ordinary same-day fact.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { visibility = "public" })
+               demo:append("It kicked off today.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, underway.")
+                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "The demo started", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    assert_eq!(entries[1].occurred_sort, Some(day_noon("2026-06-08")));
+    assert_eq!(temporal_resolutions(&h.events()).len(), 1);
+    assert!(temporal_resolve_failures(&h.events()).is_empty());
+}
+
 #[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
     let h = Harness::new();

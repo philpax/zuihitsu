@@ -172,11 +172,19 @@ fn the_temporal_extraction_template_teaches_the_anchor_rule() {
         })
         .expect("genesis registers a TemporalExtraction template");
 
-    assert_eq!(version, 3, "the omit-default body is registered at v3");
+    assert_eq!(
+        version, 4,
+        "the sibling-occurrence body is registered at v4"
+    );
     assert!(body.contains("The default is to extract nothing"));
     assert!(body.contains("anchored to the moment of speaking"));
     assert!(body.contains("that weekend"));
-    assert!(body.contains("resolves against THAT"));
+    assert!(body.contains("resolves against that anchor"));
+    // A back-pointing phrase takes the sibling's stated occurrence from its bracket, and one whose
+    // anchor cannot be found is omitted rather than defaulted to now.
+    assert!(body.contains("· occurred YYYY-MM-DD"));
+    assert!(body.contains("takes that statement's occurrence"));
+    assert!(body.contains("a phrase whose anchor you cannot find is omitted"));
     assert!(body.contains(
         "Never resolve against the current time a phrase that is not anchored to the moment \
          of speaking"

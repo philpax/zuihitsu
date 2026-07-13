@@ -46,9 +46,10 @@ pub(super) async fn synthesize(
 
 /// The prompt body both synthesis calls share: the memory's name, the current time (so relative
 /// phrases resolve), and the numbered, teller-annotated statements. Each statement carries its
-/// attribution and assertion date, so the arbitration rules — which turn on who holds which account,
-/// and when — have the facts they judge by; the bracketed metadata is for the model's judgment, never
-/// content to restate.
+/// attribution, assertion date, and — when it has one — its recorded occurrence, so the arbitration
+/// rules (which turn on who holds which account, and when) and the temporal extraction (which anchors
+/// a back-pointing phrase like "this date" against a sibling's stated occurrence) have the facts they judge by; the
+/// bracketed metadata is for the model's judgment, never content to restate.
 pub(super) fn statements_prompt(
     memory: &MemoryView,
     entries: &[EntryView],
@@ -69,8 +70,14 @@ pub(super) fn statements_prompt(
             crate::event::Teller::Agent => "the agent",
             crate::event::Teller::Bootstrap => "genesis",
         };
+        // A dated statement carries its occurrence in the bracket, so a back-pointing phrase in an undated sibling
+        // ("this date") resolves against the stated date rather than the conversation's "now".
+        let occurred = match &entry.occurred_at {
+            Some(occurred_at) => format!(" · occurred {}", time::format_occurrence(occurred_at)),
+            None => String::new(),
+        };
         prompt.push_str(&format!(
-            "{}. [from {teller} · {}] {}\n",
+            "{}. [from {teller} · {}{occurred}] {}\n",
             index + 1,
             time::format_day(entry.asserted_at),
             entry.text

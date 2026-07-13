@@ -11,8 +11,8 @@ use zuihitsu::{
     BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Event, EventPayload,
     InferredLink, InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace,
     NewRelationSpec, OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq,
-    TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole, Usage,
-    buffer_turns, genesis, prompt::PromptSectionKind, run_turn,
+    TemporalRef, TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole,
+    Usage, buffer_turns, genesis, prompt::PromptSectionKind, run_turn,
 };
 
 pub(crate) use temporal::{

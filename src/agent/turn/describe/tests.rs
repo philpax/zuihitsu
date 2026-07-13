@@ -1,11 +1,65 @@
-use super::extract::ExtractedTime;
+use std::collections::BTreeMap;
+
+use super::{extract::ExtractedTime, synthesis::statements_prompt};
 use crate::{
-    ids::MemoryName,
+    event::{Teller, Visibility, Volatility},
+    graph::{EntryView, MemoryView},
+    ids::{EntryId, MemoryId, MemoryName},
     time::{self, CivilDate, Rrule, TemporalRef, Timestamp},
 };
 
 fn ms(date: &str) -> i64 {
     time::civil_date_to_millis(date).unwrap()
+}
+
+/// A minimal agent-told entry carrying `text` and an optional occurrence, for the prompt-shape tests.
+fn entry(text: &str, occurred_at: Option<TemporalRef>) -> EntryView {
+    EntryView {
+        entry_id: EntryId::generate(),
+        asserted_at: Timestamp::from_millis(ms("2026-06-08")),
+        occurred_sort: None,
+        occurred_at,
+        occurred_authored: false,
+        text: text.to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+        superseded_by: None,
+    }
+}
+
+fn memory(name: &str) -> MemoryView {
+    MemoryView {
+        id: MemoryId::generate(),
+        name: MemoryName::new(name),
+        description: String::new(),
+        volatility: Volatility::Medium,
+        created_at: Timestamp::from_millis(ms("2026-06-08")),
+        tags: Vec::new(),
+    }
+}
+
+#[test]
+fn statements_prompt_annotates_a_dated_statement_and_leaves_an_undated_one() {
+    let memory = memory("event/demo");
+    let entries = [
+        entry(
+            "Vendor demo",
+            Some(TemporalRef::Day(CivilDate("2026-10-03".into()))),
+        ),
+        entry("The demo is locked for this date.", None),
+    ];
+    let prompt = statements_prompt(
+        &memory,
+        &entries,
+        &BTreeMap::new(),
+        Timestamp::from_millis(ms("2026-06-08")),
+    );
+    // The dated statement's bracket carries its occurrence, so a back-pointing phrase in a sibling resolves against
+    // it rather than the conversation's now.
+    assert!(prompt.contains("1. [from the agent · Mon 08 Jun · occurred 2026-10-03] Vendor demo"));
+    // The undated statement's bracket is unchanged — no occurrence, no trailing annotation.
+    assert!(prompt.contains("2. [from the agent · Mon 08 Jun] The demo is locked for this date."));
 }
 
 #[test]

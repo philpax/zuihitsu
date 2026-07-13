@@ -80,9 +80,12 @@ pub enum EventPayload {
         occurred_at: TemporalRef,
         produced_by: Option<ProducedBy>,
     },
-    /// Records that the turn-end extraction pass could not parse the model's date string for this
-    /// entry. Log-only: the appended entry remains untimed, and this event surfaces the failure for
-    /// operator review. `raw` is the JSON form of the extracted value for debugging.
+    /// Records that the turn-end extraction pass declined an extracted occurrence for this entry —
+    /// either because the model's date string would not parse, or because the resolution landed on the
+    /// current day beside a differently-dated sibling and so read as a back-pointing phrase mis-anchored to "Current
+    /// time" (which would otherwise clobber an authored occurrence on the memory). Log-only: the
+    /// appended entry remains untimed, and this event surfaces the reason for operator review. `raw` is
+    /// the JSON form of the extracted value for debugging, and `reason` names why it was declined.
     EntryTemporalResolveFailed {
         id: MemoryId,
         entry_id: EntryId,
