@@ -167,7 +167,9 @@ function ScenarioRail({
                 const completed = entry.runs.length;
                 const first = entry.runs[0];
                 // Open the first completed run, or — if none has landed — the one driving live.
-                const openRun = first ? first.index : liveIndex;
+                // The driving run wins the row's link — opening a scenario mid-run lands on the
+                // action — else the first completed run.
+                const openRun = liveIndex ?? (first ? first.index : null);
                 // Ongoing: a run is driving now, or the scenario is part-way through its planned runs on a
                 // live eval. Its rate is provisional, so the row shows progress, not a percentage.
                 const ongoing = liveIndex !== null || (completed > 0 && completed < runsPlanned);

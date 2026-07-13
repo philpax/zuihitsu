@@ -108,8 +108,9 @@ function ScenarioRow({
   // driving live (which has no completed record yet).
   const showRuns = completed > 1 || (completed >= 1 && liveRun !== null);
   const firstRun = scenario.runs[0];
-  // The run to open: the first completed one, or — if none has landed yet — the one driving live.
-  const openRun = firstRun ? firstRun.index : liveRun;
+  // The run to open: the one driving live right now — opening an eval mid-run should land on the
+  // action — else the first completed run.
+  const openRun = liveRun ?? (firstRun ? firstRun.index : null);
   // A pending scenario dims on a static package (nothing is coming), but stays at full opacity on a
   // live eval (the first run is queued, not absent).
   const dim = pending && !isLive;
