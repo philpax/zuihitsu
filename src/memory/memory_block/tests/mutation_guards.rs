@@ -216,6 +216,61 @@ fn operator_authority_may_supersede_a_foreign_confidence() {
 }
 
 #[test]
+fn platform_authority_cannot_retract_a_foreign_confidence() {
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let speaker = MemoryId::generate();
+    let other = MemoryId::generate();
+    let mut block = block(
+        graph,
+        clock,
+        Teller::Participant(speaker),
+        Authority::Platform,
+    );
+    let topic = block
+        .create(Namespace::Topic.with_name("aside"), None)
+        .unwrap();
+    // Retract routes the same foreign-confidence gate supersede does: the current speaker's turn cannot
+    // withdraw a confidence a different participant entrusted.
+    let confided = block
+        .append(
+            topic,
+            "confided",
+            told(Teller::Participant(other), VisibilityChoice::Private),
+        )
+        .unwrap();
+    assert!(matches!(
+        block.retract(topic, confided, "out of date").unwrap_err(),
+        MemoryError::ForeignConfidenceSupersedeForbidden
+    ));
+}
+
+#[test]
+fn a_teller_may_retract_their_own_confidence() {
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let speaker = MemoryId::generate();
+    let mut block = block(
+        graph,
+        clock,
+        Teller::Participant(speaker),
+        Authority::Platform,
+    );
+    let topic = block
+        .create(Namespace::Topic.with_name("aside"), None)
+        .unwrap();
+    // The confidence is the speaker's own, so withdrawing it is their own turn's business.
+    let mine = block
+        .append(
+            topic,
+            "confided",
+            told(Teller::Participant(speaker), VisibilityChoice::Private),
+        )
+        .unwrap();
+    block.retract(topic, mine, "no longer true").unwrap();
+}
+
+#[test]
 fn a_merged_identity_counts_as_the_same_teller() {
     let (graph, quinn, quinn_discord) = graph_with_merged_pair();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));

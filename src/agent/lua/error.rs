@@ -250,6 +250,8 @@ pub(super) enum HandleError {
     InvalidMemoryHandle { id: String, source: UlidError },
     /// An entry handle's `id` is not a ULID.
     InvalidEntryHandle { id: String, source: UlidError },
+    /// `mem:retract` was given a value that is neither an entry handle nor an entry-id string.
+    WrongEntryType { type_name: &'static str },
     /// `links.create`/`links.remove` was given a name string — in the subject or the object
     /// position — that is not a known memory.
     UnknownLinkTarget { name: String },
@@ -287,6 +289,11 @@ impl std::fmt::Display for HandleError {
             HandleError::InvalidEntryHandle { id, source } => {
                 write!(f, "invalid entry handle id {id:?}: {source}")
             }
+            HandleError::WrongEntryType { type_name } => write!(
+                f,
+                "retract's entry must be an entry object (from <memory>:entries or \
+                 <memory>:history) or an entry-id string, got {type_name}"
+            ),
             HandleError::UnknownLinkTarget { name } => write!(
                 f,
                 "no memory named \"{name}\" — create it first, or check the casing"

@@ -26,7 +26,7 @@ impl Graph {
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
                     e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.occurred_authored,
                     e.text, e.told_by, e.told_in,
-                    e.visibility, e.superseded_by
+                    e.visibility, e.superseded_by, e.retracted_reason
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL AND e.occurred_sort IS NOT NULL
                AND e.occurred_sort BETWEEN ?1 AND ?2
@@ -111,7 +111,7 @@ impl Graph {
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
                     e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.occurred_authored,
                     e.text, e.told_by, e.told_in,
-                    e.visibility, e.superseded_by
+                    e.visibility, e.superseded_by, e.retracted_reason
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL
                AND e.fired_at IS NOT NULL AND e.surfaced_at IS NULL

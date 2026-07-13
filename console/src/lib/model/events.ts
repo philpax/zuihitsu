@@ -49,6 +49,7 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "MemoryDeleted":
     case "MemoryContentAppended":
     case "MemorySuperseded":
+    case "EntryRetracted":
     case "EntryTemporalResolved":
     case "EntryDescriptionMirrored":
     case "MemoryDescriptionRegenerated":
@@ -126,6 +127,7 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
       return payload.id === memoryId;
     case "MemoryContentAppended":
       return payload.id === memoryId;
+    case "EntryRetracted":
     case "ScheduledJobFired":
     case "ScheduledItemSurfaced":
     case "BeliefArbitrated":
@@ -171,6 +173,8 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${ref(payload.id)} — ${quote(payload.text)}`;
     case "MemorySuperseded":
       return `${ref(payload.id)} — an entry replaced`;
+    case "EntryRetracted":
+      return `${ref(payload.memory)} — an entry retracted`;
     case "EntryTemporalResolved":
       return `${ref(payload.id)} — time resolved`;
     case "EntryDescriptionMirrored":

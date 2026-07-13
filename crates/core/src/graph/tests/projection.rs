@@ -196,6 +196,58 @@ fn a_superseded_entry_drops_from_live_reads_but_stays_in_history() {
 }
 
 #[test]
+fn a_retracted_entry_drops_from_live_reads_but_stays_in_history_with_its_reason() {
+    let dave = MemoryId::generate();
+    let kept = EntryId::generate();
+    let withdrawn = EntryId::generate();
+    let appended = |entry_id, text: &str| EventPayload::MemoryContentAppended {
+        id: dave,
+        entry_id,
+        asserted_at: Timestamp::from_millis(900),
+        occurred_at: None,
+        text: text.to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+    };
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        appended(kept, "Dave leads the platform team"),
+        appended(withdrawn, "Dave plays the cello"),
+        EventPayload::entry_retracted(dave, withdrawn, "filed on the wrong person", None),
+    ]);
+
+    let texts = |entries: Vec<EntryView>| entries.into_iter().map(|e| e.text).collect::<Vec<_>>();
+
+    // Live reads (local and class) drop the retracted entry; history keeps both in commit order.
+    assert_eq!(
+        texts(graph.entries_local(dave).unwrap()),
+        ["Dave leads the platform team"]
+    );
+    assert_eq!(
+        texts(graph.class_entries(dave).unwrap()),
+        ["Dave leads the platform team"]
+    );
+    assert_eq!(
+        texts(graph.entries_local_history(dave).unwrap()),
+        ["Dave leads the platform team", "Dave plays the cello"]
+    );
+
+    // The retracted entry carries its reason in history and is tombstoned by a self-referential
+    // superseded_by (its own id), so every live filter hides it with no successor to point at.
+    let history = graph.entries_local_history(dave).unwrap();
+    let tombstone = history.iter().find(|e| e.entry_id == withdrawn).unwrap();
+    assert_eq!(
+        tombstone.retracted_reason.as_deref(),
+        Some("filed on the wrong person")
+    );
+    assert_eq!(tombstone.superseded_by, Some(withdrawn));
+    let live = history.iter().find(|e| e.entry_id == kept).unwrap();
+    assert_eq!(live.retracted_reason, None);
+    assert_eq!(live.superseded_by, None);
+}
+
+#[test]
 fn name_prefix_query_matches_literally_and_orders_by_name() {
     // The range fetch compares literally, so a prefix carrying a LIKE metacharacter matches that
     // character rather than wildcarding — `person/_` must not match `person/xtest` the way an

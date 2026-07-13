@@ -56,7 +56,9 @@ export function recurringByMemory(events: Event[], cursor: number): Map<string, 
     } else if (payload.type === "EntryTemporalResolved") {
       const entry = entries.get(payload.entry_id);
       if (entry) entry.occurred = payload.occurred_at;
-    } else if (payload.type === "MemorySuperseded") {
+    } else if (payload.type === "MemorySuperseded" || payload.type === "EntryRetracted") {
+      // A retraction tombstones an entry exactly as a supersession does, so a retracted recurring
+      // entry drops from the live recurring list too.
       const entry = entries.get(payload.entry);
       if (entry) entry.superseded = true;
     }

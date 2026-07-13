@@ -32,6 +32,11 @@ pub(in crate::agent::lua) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
             if this.get::<Option<bool>>("stale")?.unwrap_or(false) {
                 segments.push(crate::decay::STALE_LABEL.to_owned());
             }
+            // A retracted entry (surfaced only by history) leads with its tombstone reason, so a
+            // history read shows *why* a withdrawn fact was withdrawn beside it.
+            if let Some(reason) = this.get::<Option<String>>("retracted_reason")? {
+                segments.push(format!("retracted: {reason}"));
+            }
             if let (Some(visibility), Some(teller)) = (
                 this.get::<Option<String>>("visibility")?,
                 this.get::<Option<String>>("told_by")?,

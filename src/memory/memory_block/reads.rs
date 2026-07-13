@@ -174,6 +174,7 @@ impl MemoryBlock {
                 occurred_at: occurred_at.clone(),
                 withheld: false,
                 stale: false,
+                retracted_reason: None,
             }),
             _ => None,
         })

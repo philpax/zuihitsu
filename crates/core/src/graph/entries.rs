@@ -20,7 +20,7 @@ impl Graph {
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by
+                    superseded_by, retracted_reason
              FROM content_entries WHERE memory_id = ?1 AND superseded_by IS NULL ORDER BY seq",
             id,
         )
@@ -32,7 +32,7 @@ impl Graph {
     pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by
+                    superseded_by, retracted_reason
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
         )
@@ -47,7 +47,7 @@ impl Graph {
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by
+                    superseded_by, retracted_reason
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -101,7 +101,7 @@ impl Graph {
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by
+                    superseded_by, retracted_reason
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -146,7 +146,7 @@ impl Graph {
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, occurred_authored,
-                    text, told_by, told_in, visibility, superseded_by
+                    text, told_by, told_in, visibility, superseded_by, retracted_reason
              FROM content_entries WHERE entry_id = ?1",
         )?;
         let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
@@ -201,6 +201,7 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
         superseded_by: superseded_by
             .map(|id| parse_ulid(&id).map(EntryId))
             .transpose()?,
+        retracted_reason: row.get("retracted_reason")?,
     })
 }
 

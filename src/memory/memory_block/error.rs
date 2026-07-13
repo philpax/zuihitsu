@@ -97,6 +97,10 @@ pub enum MemoryError {
     /// reserved for its own teller's turn or the console (spec §Trust model). Its `Display` deliberately
     /// does not name the foreign teller — who confided the fact is itself part of the confidence.
     ForeignConfidenceSupersedeForbidden,
+    /// A `retract` was given an empty reason. A retraction withdraws a fact outright, leaving a
+    /// tombstone in history, so it must state why it was withdrawn — an unexplained retraction is
+    /// unauditable, a teachable error rather than a silent tombstone.
+    RetractionReasonRequired,
     /// A content entry exceeded the maximum length. Memory entries record distilled facts, not source
     /// content — the agent should summarize what it learned in under the limit rather than pasting a
     /// fetched page or raw transcript.
@@ -212,6 +216,12 @@ impl std::fmt::Display for MemoryError {
                 "this is another participant's confidence; if the fact is out of date, append a \
                  correction as a new entry rather than superseding what someone else entrusted — \
                  superseding it is for its own teller's turn, or the console"
+            ),
+            MemoryError::RetractionReasonRequired => write!(
+                f,
+                "state why you are retracting this entry — pass a non-empty reason, e.g. \
+                 mem:retract(entry, \"filed on the wrong person\"); a retraction with no reason is \
+                 unauditable"
             ),
             MemoryError::ContentTooLong { length, limit } => write!(
                 f,

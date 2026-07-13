@@ -150,6 +150,50 @@ pub fn superseded_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
         .collect()
 }
 
+/// The set of entry ids withdrawn by a retraction (`EntryRetracted`) — hidden from every live surface
+/// like superseded ones, but kept in history with a stated reason.
+pub fn retracted_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::EntryRetracted { entry, .. } => Some(*entry),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether the run retracted an entry with a stated (non-empty) reason — the structured, auditable
+/// withdrawal of a fact, distinct from an in-place supersession. The write path rejects an empty
+/// reason, so a landed `EntryRetracted` always carries one; the trim guards against a whitespace-only
+/// reason slipping the check in a future regression.
+pub fn retraction_with_reason(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::EntryRetracted { reason, .. } if !reason.trim().is_empty()
+        )
+    })
+}
+
+/// Whether a *live* content entry whose text contains `needle` sits on a memory whose name contains
+/// `subject` — an entry that was appended and neither superseded nor retracted. Matching is
+/// case-insensitive and substring-based, so it reads the fact's presence however the run cased or
+/// prefixed the handle and phrased the entry. Used to assert both that a mis-filed fact left no live
+/// residue on the wrong memory and that it now lives on the right one.
+pub fn live_entry_on(events: &[Event], subject: &str, needle: &str) -> bool {
+    let hidden: BTreeSet<EntryId> = superseded_entry_ids(events)
+        .union(&retracted_entry_ids(events))
+        .copied()
+        .collect();
+    let subject = subject.to_lowercase();
+    let needle = needle.to_lowercase();
+    entries(events).into_iter().any(|entry| {
+        entry.memory.to_lowercase().contains(&subject)
+            && entry.text.to_lowercase().contains(&needle)
+            && !hidden.contains(&entry.entry_id)
+    })
+}
+
 /// How many `Attributed` entries the run recorded on a memory whose name contains `subject`. An
 /// `Attributed` entry surfaces like a `Public` one but carries a "via <teller>" provenance marker and
 /// is excluded from the memory's description — the posture a relayed secondhand fact is classified up

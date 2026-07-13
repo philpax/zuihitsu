@@ -37,6 +37,10 @@ export interface EntryView {
   told_in: ConversationRef | null;
   visibility: Visibility;
   superseded_by: EntryId | null;
+  /// The stated reason this entry was retracted, or null for a live or plainly-superseded entry. A
+  /// retraction tombstones the entry (its superseded_by holds its own id), so it is hidden from live
+  /// surfaces and shown only in history, where this reason renders beside it.
+  retracted_reason: string | null;
 }
 
 export interface LinkView {

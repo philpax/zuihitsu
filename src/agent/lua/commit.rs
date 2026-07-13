@@ -51,6 +51,7 @@ pub(super) fn summarize_committed(engine: &Engine, events: &[EventPayload]) -> O
     let mut created: Vec<String> = Vec::new();
     let mut appended: BTreeMap<MemoryId, usize> = BTreeMap::new();
     let mut superseded: Vec<MemoryId> = Vec::new();
+    let mut retracted: Vec<MemoryId> = Vec::new();
     let mut other: Vec<String> = Vec::new();
     for event in events {
         match event {
@@ -59,6 +60,7 @@ pub(super) fn summarize_committed(engine: &Engine, events: &[EventPayload]) -> O
                 *appended.entry(*id).or_default() += 1
             }
             EventPayload::MemorySuperseded { id, .. } => superseded.push(*id),
+            EventPayload::EntryRetracted { memory, .. } => retracted.push(*memory),
             EventPayload::LinkCreated {
                 from, to, relation, ..
             } => other.push(format!(
@@ -118,6 +120,9 @@ pub(super) fn summarize_committed(engine: &Engine, events: &[EventPayload]) -> O
     }
     for id in &superseded {
         summary.push(format!("superseded an entry on {}", name_of(*id)));
+    }
+    for id in &retracted {
+        summary.push(format!("retracted an entry on {}", name_of(*id)));
     }
     summary.extend(other);
 

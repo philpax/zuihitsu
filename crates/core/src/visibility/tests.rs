@@ -37,6 +37,7 @@ fn entry(told_by: Teller, visibility: Visibility) -> EntryView {
         told_in: None,
         visibility,
         superseded_by: None,
+        retracted_reason: None,
     }
 }
 
@@ -132,6 +133,19 @@ fn a_superseded_entry_is_never_visible() {
     let mut fact = entry(Teller::Agent, Visibility::Public);
     assert!(visible(&fact, &dave, &[], &identity).unwrap());
     fact.superseded_by = Some(EntryId::generate());
+    assert!(!visible(&fact, &dave, &[], &identity).unwrap());
+}
+
+#[test]
+fn a_retracted_entry_is_never_visible() {
+    // A retraction tombstones an entry by stamping its own id into `superseded_by` and recording a
+    // reason, so the same not-live predicate hides it from every surface — including the search path,
+    // which resolves a vector hit before this predicate.
+    let dave = memory("person/dave");
+    let mut fact = entry(Teller::Agent, Visibility::Public);
+    assert!(visible(&fact, &dave, &[], &identity).unwrap());
+    fact.superseded_by = Some(fact.entry_id);
+    fact.retracted_reason = Some("filed on the wrong person".to_owned());
     assert!(!visible(&fact, &dave, &[], &identity).unwrap());
 }
 

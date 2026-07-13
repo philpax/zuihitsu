@@ -105,6 +105,18 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "EntryRetracted":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.memory)}</Field>
+          <Field label="entry">
+            <Mono>{payload.entry}</Mono>
+          </Field>
+          <Field label="reason">{payload.reason}</Field>
+          {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
+        </Fields>
+      );
+
     case "EntryTemporalResolved":
       return (
         <Fields>

@@ -272,6 +272,7 @@ mod tests {
             told_in: None,
             visibility: Visibility::default(),
             superseded_by: None,
+            retracted_reason: None,
         }
     }
 

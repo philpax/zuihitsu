@@ -10,6 +10,7 @@ impl EventPayload {
             EventPayload::MemoryDeleted { .. } => "MemoryDeleted",
             EventPayload::MemoryContentAppended { .. } => "MemoryContentAppended",
             EventPayload::MemorySuperseded { .. } => "MemorySuperseded",
+            EventPayload::EntryRetracted { .. } => "EntryRetracted",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
             EventPayload::EntryTemporalResolveFailed { .. } => "EntryTemporalResolveFailed",
             EventPayload::EntryDescriptionMirrored { .. } => "EntryDescriptionMirrored",
@@ -72,6 +73,7 @@ impl EventPayload {
             | EventPayload::MemoryDeleted { id }
             | EventPayload::MemoryContentAppended { id, .. }
             | EventPayload::MemorySuperseded { id, .. }
+            | EventPayload::EntryRetracted { memory: id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::EntryTemporalResolveFailed { id, .. }
             | EventPayload::EntryDescriptionMirrored { id, .. }

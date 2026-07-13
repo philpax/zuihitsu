@@ -25,6 +25,7 @@ fn entry(text: &str, occurred_at: Option<TemporalRef>) -> EntryView {
         told_in: None,
         visibility: Visibility::Public,
         superseded_by: None,
+        retracted_reason: None,
     }
 }
 

@@ -104,13 +104,15 @@ impl MemoryBlock {
         set
     }
 
-    /// The entries this block has superseded but not yet committed — applied to the live reads so a
-    /// correction's effect is visible within the block (read-your-writes).
+    /// The entries this block has superseded or retracted but not yet committed — applied to the live
+    /// reads so a correction's effect is visible within the block (read-your-writes). A retraction
+    /// tombstones its entry exactly as a supersession does, so both drop from the live read here.
     pub(super) fn pending_superseded(&self) -> BTreeSet<EntryId> {
         self.buffer
             .iter()
             .filter_map(|event| match event {
-                EventPayload::MemorySuperseded { entry, .. } => Some(*entry),
+                EventPayload::MemorySuperseded { entry, .. }
+                | EventPayload::EntryRetracted { entry, .. } => Some(*entry),
                 _ => None,
             })
             .collect()
@@ -143,6 +145,7 @@ impl MemoryBlock {
                     occurred_at: occurred_at.clone(),
                     withheld: false,
                     stale: false,
+                    retracted_reason: None,
                 }),
                 _ => None,
             })
@@ -173,6 +176,7 @@ impl MemoryBlock {
             occurred_at: view.occurred_at,
             withheld,
             stale,
+            retracted_reason: view.retracted_reason,
         }
     }
 

@@ -56,7 +56,8 @@ ContentEntry {
   told_by:       Teller               -- Participant(MemoryId) | Agent | Bootstrap; who told the agent this
   told_in:       Option<ConversationRef> -- provenance: the conversation + turn it was said in (not a visibility gate)
   visibility:    Visibility
-  superseded_by: Option<EntryId>     -- the newer entry that replaced this one, once superseded
+  superseded_by: Option<EntryId>     -- the newer entry that replaced this one, once superseded; a retraction stamps the entry's own id here as a tombstone (no successor)
+  retracted_reason: Option<string>   -- why the entry was retracted, once withdrawn; None for a live or plainly-superseded entry
 }
 
 Visibility =
@@ -89,6 +90,8 @@ marked `EntryDescriptionMirrored` and skipped by the extraction pass, since rest
 Supersession is append-only: `MemorySuperseded` stamps the original entry's `superseded_by` and
 leaves the original `MemoryContentAppended` immutable. Live surfaces then exclude the superseded
 entry, while history surfaces (`<memory>:history()`, the console) still show it.
+
+Retraction is the tombstone counterpart, for when a fact has no in-place replacement — most often because it was filed on the wrong memory. `EntryRetracted` (via `<memory>:retract(entry, reason)`) records why the fact was withdrawn and drops the entry from every live surface exactly as supersession does: the projection stamps `superseded_by` with the entry's *own* id — a self-referential tombstone, so every `superseded_by IS NULL` live filter hides it with no successor to point at — and records the reason in `retracted_reason`, which is what tells a retraction apart from a supersession. The original `MemoryContentAppended` stays immutable, and history surfaces show the tombstone with its reason. A reason is required (an unexplained retraction is unauditable). There is deliberately no move affordance: because visibility resolves per memory (see [Visibility](visibility.md)), relocating an entry in place would silently rewrite its meaning, so the honest correction is to retract it here and re-assert it on the right memory with a fresh append (carrying the original `told_by`, and `occurred_at` when the date is known).
 
 The visibility enum is deliberately small. `Public` is the default, so an entry recorded without a visibility replays as public. The enum has no explicit-allowlist lock-down variant; private group chats do not require one, and omitting it keeps the predicate small. The write-time *default* posture is computed,
 not fixed at `Public`: a participant relaying something about *someone else* defaults

@@ -72,8 +72,15 @@ pub struct EntryView {
     pub visibility: Visibility,
     /// The entry that replaced this one, when it has been superseded (spec §Visibility → superseded
     /// entries are not live). `None` for a live entry. Live reads exclude superseded entries in SQL;
-    /// this field surfaces on the history reads that deliberately include them.
+    /// this field surfaces on the history reads that deliberately include them. A retracted entry
+    /// carries its *own* id here — the self-referential tombstone that makes every `superseded_by IS
+    /// NULL` live filter hide it — so a consumer distinguishes a retraction from a supersession by
+    /// `retracted_reason`, never by reading this as a successor.
     pub superseded_by: Option<EntryId>,
+    /// The stated reason this entry was retracted, or `None` for a live or plainly-superseded entry.
+    /// Present only on the history reads (a retraction drops from every live surface); the surfaces
+    /// that show a retracted entry render this reason beside it.
+    pub retracted_reason: Option<String>,
 }
 
 /// A registered relation as projected.
@@ -322,6 +329,13 @@ impl Graph {
                  told_in       TEXT,
                  visibility    TEXT    NOT NULL,
                  superseded_by TEXT,
+                 -- The stated reason an entry was retracted (`EntryRetracted`), or NULL for a live or
+                 -- plainly-superseded entry. A retraction tombstones the entry by stamping
+                 -- superseded_by with the entry's own id (so every `superseded_by IS NULL` live filter
+                 -- hides it with no extra predicate) and records why here, which the history reads
+                 -- surface. A non-NULL retracted_reason is what tells a retraction apart from a
+                 -- supersession, whose superseded_by names a distinct successor entry.
+                 retracted_reason TEXT,
                  seq           INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_entries_memory ON content_entries(memory_id);

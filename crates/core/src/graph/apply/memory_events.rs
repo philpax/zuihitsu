@@ -170,6 +170,20 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::EntryRetracted { entry, reason, .. } => {
+                // Tombstone the retracted entry: stamp its own id into superseded_by so every live
+                // filter (`superseded_by IS NULL`) hides it exactly as a supersession would — with no
+                // successor to point at — and record the reason, which the history reads surface. The
+                // FTS blob is left as-is for the same reason supersession leaves it: a lexical hit
+                // returns the memory, never the tombstoned entry.
+                self.conn
+                    .execute(
+                        "UPDATE content_entries SET superseded_by = ?1, retracted_reason = ?2
+                         WHERE entry_id = ?1",
+                        params![entry.0.to_string(), reason],
+                    )
+                    .map_err(backend)?;
+            }
             EventPayload::EntryDescriptionMirrored { entry_id, .. } => {
                 // Flag the seed entry as a description mirror in place; the append row is otherwise
                 // immutable. The turn-end temporal extraction then skips it, so its untimed text never

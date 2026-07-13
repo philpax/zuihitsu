@@ -70,6 +70,23 @@ pub enum EventPayload {
         entry: EntryId,
         superseded_by: EntryId,
     },
+    /// Retracts an entry to a tombstone: the agent withdraws a fact outright rather than replacing it
+    /// with a correction in place, recording why (spec §Visibility → superseded entries are not live).
+    /// Unlike [`EventPayload::MemorySuperseded`], there is no successor — a retraction is the honest
+    /// correction when a fact was filed on the wrong memory, since the fix is to re-assert it on the
+    /// right one, not to rewrite this entry. The original `MemoryContentAppended` stays immutable;
+    /// applying this drops the entry from every live surface (the same tombstone `MemorySuperseded`
+    /// stamps) and records `reason`, which history surfaces (`mem:history()`, the console) show beside
+    /// it. `reason` is always non-empty — a retraction with no stated reason is unauditable, so the
+    /// write path rejects an empty one. `produced_by` is `None` for the agent's own Lua retraction (a
+    /// mechanical write, not a model-inference pass) and carries provenance only for a future
+    /// inference-driven retraction.
+    EntryRetracted {
+        memory: MemoryId,
+        entry: EntryId,
+        reason: String,
+        produced_by: Option<ProducedBy>,
+    },
     /// Resolves an entry's `occurred_at` after the fact: the turn-end extraction pass read the
     /// entry's natural language ("last Tuesday") and produced a structured [`TemporalRef`]. The
     /// original `MemoryContentAppended` stays immutable; applying this recomputes the entry's

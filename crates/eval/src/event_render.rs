@@ -62,6 +62,9 @@ pub(crate) fn diagnostic_summary(payload: &EventPayload) -> Option<String> {
             superseded_by,
             ..
         } => Some(format!("superseded {entry:?} by {superseded_by:?}")),
+        EventPayload::EntryRetracted { entry, reason, .. } => {
+            Some(format!("retracted {entry:?}: {reason:?}"))
+        }
         EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
             Some(format!("described {id:?}: {:?}", new_text.trim()))
         }

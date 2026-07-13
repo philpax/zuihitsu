@@ -62,6 +62,20 @@ impl EventPayload {
         }
     }
 
+    pub fn entry_retracted(
+        memory: MemoryId,
+        entry: EntryId,
+        reason: impl Into<String>,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::EntryRetracted {
+            memory,
+            entry,
+            reason: reason.into(),
+            produced_by,
+        }
+    }
+
     pub fn entry_temporal_resolved(
         id: MemoryId,
         entry_id: EntryId,

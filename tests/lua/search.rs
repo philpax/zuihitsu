@@ -503,6 +503,56 @@ async fn a_fuzzy_write_through_a_mismatched_hit_is_refused() {
 }
 
 #[tokio::test]
+async fn a_retract_through_a_mismatched_hit_is_refused() {
+    // Retract is a guarded content writer like append, so withdrawing an entry through a fuzzy hit the
+    // query did not name is refused before it commits — the guards compose. A correction that mistook
+    // the referent must not launder itself through a retraction any more than through an append.
+    let h = Harness::with_retrieval();
+    let seeded = h
+        .run(
+            r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(matches!(seeded, BlockOutcome::Committed { .. }));
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        if #hits == 0 then return "none" end
+        local entry = hits[1]:history()[1]
+        hits[1]:retract(entry, "wrong person")
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the fuzzy-write guard to refuse, got {outcome:?}");
+    };
+    assert!(
+        message.contains("search for \"Davina\"") && message.contains("names person/david"),
+        "the error names the query and the handle: {message}"
+    );
+
+    // Nothing was withdrawn: David's seeded entry is still live.
+    let read_back = h
+        .run(r#"return memory.get("person/david"):details()"#)
+        .await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        result.contains("Introduced to Davina at the design sync"),
+        "the refused retract must not have committed: {result}"
+    );
+}
+
+#[tokio::test]
 async fn an_exact_token_hit_writes_through_directly() {
     // A search whose word names the hit passes the guard: "David" names person/david, so appending
     // through the hit commits without a memory.get round-trip.

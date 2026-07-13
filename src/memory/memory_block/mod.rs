@@ -129,6 +129,10 @@ pub struct EntryRef {
     /// Always `false` for the default `Medium` and durable `Low` memories, so the marker is opt-in, and
     /// always `false` for a superseded entry (its successor is the newer version).
     pub stale: bool,
+    /// The stated reason this entry was retracted, when it is a tombstone surfaced only by
+    /// `mem:history()` — so a history read shows *why* a withdrawn fact was withdrawn beside it.
+    /// `None` for a live or plainly-superseded entry.
+    pub retracted_reason: Option<String>,
 }
 
 /// Which way a link runs relative to the memory it was read from. A class-traversing read orients

@@ -1,5 +1,5 @@
 //! Memory API reference entries: create, get, get_or_create, search, list, append, entries, history,
-//! details, supersede, revise, rename, set_volatility, and the always-on block.abort.
+//! details, supersede, retract, revise, rename, set_volatility, and the always-on block.abort.
 
 use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
 use crate::ids::Namespace;
@@ -261,14 +261,15 @@ pub(super) fn entries() -> Vec<ApiEntry> {
 
     let supersede = AE::new("<memory>:supersede")
         .description(
-            "Correct or retract a fact: mark an old entry superseded by a new one. Append the \
-             correction first to get the new entry object, then supersede with the old entry object \
-             (from <memory>:entries) and the new one. The old entry drops from live reads but stays \
-             in <memory>:history. Use this only when the same fact genuinely changed — a correction, \
-             a retraction, or an update (often a teller revising their own earlier statement). For \
-             two participants' conflicting accounts, do not supersede one with the other: record both \
-             separately and leave the disagreement standing, to be reconciled rather than silently \
-             resolved to whoever spoke last.",
+            "Correct a fact in place: mark an old entry superseded by a new one on the same memory. \
+             Append the correction first to get the new entry object, then supersede with the old \
+             entry object (from <memory>:entries) and the new one. The old entry drops from live \
+             reads but stays in <memory>:history. Use this only when the same fact genuinely changed \
+             — a correction or an update (often a teller revising their own earlier statement). To \
+             withdraw a fact with no replacement — or to move one filed on the wrong memory — use \
+             <memory>:retract instead. For two participants' conflicting accounts, do not supersede \
+             one with the other: record both separately and leave the disagreement standing, to be \
+             reconciled rather than silently resolved to whoever spoke last.",
         )
         .required(
             "old",
@@ -279,6 +280,29 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             "new",
             AT::Entry,
             "the entry object that replaces it (from <memory>:append)",
+        );
+
+    let retract = AE::new("<memory>:retract")
+        .description(
+            "Withdraw a fact outright, recording why — the honest fix when a fact was filed on the \
+             wrong memory (a fuzzy search took the wrong person, say). Unlike <memory>:supersede \
+             there is no replacement in place: the entry drops from live reads and stays in \
+             <memory>:history with your reason. To put a fact on the right memory, retract it here \
+             and append it afresh on the correct one — pass told_by to keep the original teller, and \
+             occurred_at when you know the date. That two-step is deliberate: a fact's visibility is \
+             resolved on the memory it sits on, so moving it in place would quietly change its \
+             meaning; re-asserting it on the right memory is the honest correction. A reason is \
+             required — an unexplained retraction is unauditable.",
+        )
+        .required(
+            "entry",
+            AT::Entry,
+            "the entry being withdrawn (from <memory>:entries or <memory>:history)",
+        )
+        .required(
+            "reason",
+            AT::String,
+            "why the fact is being withdrawn — kept in history for audit",
         );
 
     let revise = AE::new("<memory>:revise")
@@ -343,6 +367,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         details,
         history,
         supersede,
+        retract,
         revise,
         rename,
         set_volatility,

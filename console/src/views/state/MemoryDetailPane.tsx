@@ -27,7 +27,12 @@ export function MemoryDetailPane({
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
 }) {
   const { memory, entries, history, links } = detail;
-  const superseded = history.filter((entry) => entry.superseded_by !== null);
+  // A retraction tombstones an entry with its own id in superseded_by and a reason; a plain
+  // supersession points at a distinct successor. Split them so each reads as what it is.
+  const retracted = history.filter((entry) => entry.retracted_reason !== null);
+  const superseded = history.filter(
+    (entry) => entry.superseded_by !== null && entry.retracted_reason === null,
+  );
   const classPeers = detail.class.filter((peer) => peer.id !== memory.id);
   const disputed = new Set(detail.disputed);
 
@@ -129,6 +134,16 @@ export function MemoryDetailPane({
         <Section label={`superseded · ${superseded.length}`}>
           <ul className="flex flex-col gap-4">
             {superseded.map((entry) => (
+              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded />
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {retracted.length > 0 && (
+        <Section label={`retracted · ${retracted.length}`}>
+          <ul className="flex flex-col gap-4">
+            {retracted.map((entry) => (
               <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded />
             ))}
           </ul>

@@ -100,6 +100,12 @@ export function EntryItem({
         {entry.text}
       </p>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">
+        {entry.retracted_reason !== null && (
+          <>
+            <span className="text-clay">retracted: {entry.retracted_reason}</span>
+            <span className="text-ink-faint/45">·</span>
+          </>
+        )}
         {disputed && (
           <>
             <span className="text-clay">disputed</span>

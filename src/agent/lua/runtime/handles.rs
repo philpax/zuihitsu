@@ -639,6 +639,11 @@ pub(crate) fn make_entry_handle(
     if let Some(occurred_at) = &entry.occurred_at {
         handle.set("occurred_at", lua.to_value(occurred_at)?)?;
     }
+    // A retracted entry surfaces only through `mem:history`; its reason is carried so the metatable
+    // renders it as a tombstone (`[retracted: …]`) and a script can branch on `entry.retracted_reason`.
+    if let Some(reason) = &entry.retracted_reason {
+        handle.set("retracted_reason", reason.as_str())?;
+    }
     handle.set_metatable(Some(entry_metatable.clone()))?;
     Ok(handle)
 }
@@ -673,4 +678,23 @@ pub(crate) fn entry_handle_id(handle: &Table) -> mlua::Result<EntryId> {
     Ulid::from_string(&id)
         .map(EntryId)
         .map_err(|source| HandleError::InvalidEntryHandle { id, source }.into())
+}
+
+/// Resolve an entry argument that is either an entry handle (a `{ id = … }` table read from
+/// `mem:entries`/`mem:history`/`mem:append`) or a bare entry-id string — the two forms `mem:retract`
+/// accepts, so a script can retract an entry it holds a handle to or one it names by id.
+pub(crate) fn entry_arg_id(value: &Value) -> mlua::Result<EntryId> {
+    match value {
+        Value::Table(handle) => entry_handle_id(handle),
+        Value::String(id) => {
+            let id = id.to_str()?.to_owned();
+            Ulid::from_string(&id)
+                .map(EntryId)
+                .map_err(|source| HandleError::InvalidEntryHandle { id, source }.into())
+        }
+        other => Err(HandleError::WrongEntryType {
+            type_name: other.type_name(),
+        }
+        .into()),
+    }
 }

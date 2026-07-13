@@ -208,6 +208,43 @@ impl MemoryBlock {
         Ok(())
     }
 
+    /// Retract `entry` on `id` to a tombstone, recording `reason` — the agent withdraws a fact
+    /// outright rather than replacing it in place (spec §Visibility → superseded entries are not live).
+    /// This is the honest correction when a fact was filed on the wrong memory: `supersede` demands a
+    /// replacement text on the *same* entry, which cannot move a fact to another memory, so the fix is
+    /// to retract here and re-assert on the right memory with a fresh append. `entry` must be a live
+    /// entry of `id`'s `same_as` class (a live read, so the lock layer holds the class), and `reason`
+    /// must be non-empty (an unexplained retraction is unauditable). Buffers an `EntryRetracted`; the
+    /// entry then drops from every live surface while remaining in history with its reason. Guarded
+    /// exactly like `supersede`: platform authority may not retract a `self` entry, nor another
+    /// participant's confidence ([`MemoryBlock::guard_foreign_confidence_supersede`]).
+    pub fn retract(
+        &mut self,
+        id: MemoryId,
+        entry: EntryId,
+        reason: &str,
+    ) -> Result<(), MemoryError> {
+        // Recorded against the class primary when told through a platform-agnostic handle, matching where
+        // `supersede` lands the tombstone — `live_class_entries` gathers the whole class either way, so
+        // the redirect only attributes the event to the primary.
+        let id = self.class_write_target(id)?;
+        self.guard_self(id)?;
+        self.guard_operator(id)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(MemoryError::RetractionReasonRequired);
+        }
+        let live = self.live_class_entries(id)?;
+        let Some(target) = live.iter().find(|e| e.entry_id == entry) else {
+            return Err(MemoryError::UnknownEntry(entry));
+        };
+        self.guard_foreign_confidence_supersede(target)?;
+        self.touched.insert(id);
+        self.buffer
+            .push(EventPayload::entry_retracted(id, entry, reason, None));
+        Ok(())
+    }
+
     /// Revise a fact in one call: append `text` as a new entry on `id`, then supersede `old` with it.
     /// This is the find-and-supersede flow without the append-then-supersede two-step — and it cannot
     /// half-apply: the append and supersede run as a [`MemoryBlock::transaction`], so if the supersede

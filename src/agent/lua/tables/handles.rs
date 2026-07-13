@@ -2,16 +2,16 @@
 
 use super::*;
 
-/// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `revise`) on the
+/// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `retract`, `revise`) on the
 /// metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
 /// backs the entry handles the content reads and `append` return.
 ///
 /// `features` gates the link readers (`:outgoing`, `:incoming`, `:links`), merging
 /// (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods (`:append`,
-/// `:supersede`, `:revise`, `:set_volatility`, `:rename`) are always installed. The content writers
-/// (`:append`, `:supersede`, `:revise`) each run [`guard_search_write`] on their receiver first, so a
-/// write through a `memory.search` hit the query did not name is refused before it commits — the
-/// fuzzy-write guard. Link *writes*
+/// `:supersede`, `:retract`, `:revise`, `:set_volatility`, `:rename`) are always installed. The content
+/// writers (`:append`, `:supersede`, `:retract`, `:revise`) each run [`guard_search_write`] on their
+/// receiver first, so a write through a `memory.search` hit the query did not name is refused before it
+/// commits — the fuzzy-write guard. Link *writes*
 /// (`links.create`/`links.remove`) live on the `links` module table rather than on a handle (see
 /// [`super::modules::links_table`]), so both endpoints read as explicit arguments and neither is a
 /// privileged receiver.
@@ -160,6 +160,34 @@ pub(super) fn install_handle_methods(
                     api.block
                         .lock()
                         .supersede(id, old, new)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))
+                }
+            }
+        })?,
+    )?;
+
+    // mem:retract(entry, reason) — withdraw a fact outright to a tombstone, recording why (an entry
+    // handle or a bare entry-id string, like supersede's argument). Unlike supersede there is no
+    // replacement: this is the honest fix when a fact was filed on the wrong memory — retract it here
+    // and re-assert it on the right memory with a fresh append. Runs the same fuzzy-write guard and
+    // block taint as the other content writers, and locks the whole class (the block validates the
+    // entry against the merged identity and runs the foreign-confidence guard).
+    methods.set(
+        "retract",
+        lua.create_async_function({
+            let api = api.clone();
+            move |_, (this, entry, reason): (HandleSelf, Value, String)| {
+                let api = api.clone();
+                async move {
+                    check_interpolated("retraction reason", &reason)?;
+                    guard_search_write(&this.0)?;
+                    let id = handle_id(&this.0)?;
+                    guard_search_taint(&api, id)?;
+                    let entry = entry_arg_id(&entry)?;
+                    api.lock_class(id).await?;
+                    api.block
+                        .lock()
+                        .retract(id, entry, &reason)
                         .map_err(|error| route_error(error, &mut api.infra.lock()))
                 }
             }
