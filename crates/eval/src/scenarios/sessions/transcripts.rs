@@ -10,12 +10,17 @@
 //!   turn is referenced, its reference blocks (the newcomer was absent), so the agent must drop to
 //!   memory — relaying the shareable decision while the confidence stays withheld (the gating property).
 //! - [`TranscriptDmLookup`] — the cross-room loosening: a solo DM and a two-person DM each resolve a
-//!   group-room moment their whole present set attended.
+//!   group-room moment their whole present set attended, where the moment's precise details live only in
+//!   that referenced turn — never in a memory the pre-turn ambient recall pass could surface — so
+//!   resolving the reference is the sole path to the answer.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{
+    ConversationId, ConversationLocator, Event, EventPayload, Initiation, MemoryId, MemoryName,
+    Namespace, TurnId, TurnRole,
+};
 
 use crate::{
     analysis,
@@ -281,9 +286,23 @@ impl Scenario for TranscriptAudienceGate {
 
 pub struct TranscriptDmLookup;
 
-/// The group-room moment beat 1's solo DM points back to — a specific commitment Maya attended.
-const ROOM_MOMENT: &str = "Final call for the room: we're standardizing on Postgres, and Jordan is \
-                           on-call for the migration weekend of the 21st.";
+/// The decision-level state the team settles in the processed room beats. The agent processes these
+/// turns and records this as a topic memory, so the pre-turn ambient recall pass surfaces it when the DM
+/// asks about the cutover. It is deliberately *insufficient* for the probe: it names the decision — the
+/// database, the migration weekend — but never the precise cutover mechanics the DM asks for, so
+/// ambient awareness of it cannot answer the question. Only resolving the referenced turn can.
+const DECISION_MOMENT: &str = "Final call for the room: we're standardizing on Postgres, and Jordan's \
+                               on-call for the migration weekend of the 21st.";
+
+/// The referenced moment: a participant turn seeded into the room's live session that no agent loop
+/// ever processes (the trigger-gating normal case — most group-room chatter is never routed to the
+/// agent, though the log still records the room). It carries precise incidentals — an exact
+/// write-freeze window and a keep-warm condition — that exist nowhere else: no memory holds them and
+/// the lexical index that ambient recall reads never indexes conversation turns, so `convo.turn` on
+/// this turn is the only path to the answer.
+const CUTOVER_DETAIL: &str = "Runbook specifics before we go: the write freeze runs 02:00–04:30 UTC on \
+                              Saturday, and we keep the old connection pool warm until Thursday before \
+                              we tear it down.";
 
 #[async_trait]
 impl Scenario for TranscriptDmLookup {
@@ -294,26 +313,110 @@ impl Scenario for TranscriptDmLookup {
             description:
                 "The cross-room loosening: a solo DM (the requester attended the source room) and a \
                  two-person DM (both attended) each resolve a group-room moment their whole present \
-                 set was party to, and the reply engages that moment's actual content."
+                 set was party to. The referenced moment is a seeded participant turn the agent never \
+                 processed, holding precise cutover details that exist in no memory — so only \
+                 resolving the reference with convo.turn can answer, and ambient recall of the room's \
+                 decision cannot."
                     .to_owned(),
             bar: Bar::Metric { threshold: 0.6 },
         }
     }
 
     fn steps(&self) -> Vec<EvalStep> {
+        // Stable ids for the room, its people, and the referenced turn, minted here so the static seed
+        // is self-consistent and the DM beats can point at the seeded turn. The room is seeded *open*
+        // (a `ConversationStarted` under a fixed locator) so the processed decision beats below reuse
+        // that same conversation — which is what lets the referenced turn be seeded, later, into the
+        // very session the agent was part of. The people are seeded with their `discord` bindings, so a
+        // later `route_message` resolves `maya`/`tom`/`jordan` to these exact stubs rather than minting
+        // fresh ones, keeping identity continuous across the room and the DMs.
+        let maya = MemoryId::generate();
+        let tom = MemoryId::generate();
+        let jordan = MemoryId::generate();
+        let context_memory = MemoryId::generate();
+        let conversation = ConversationId::generate();
+        let detail_turn = TurnId::generate();
+        let locator = ConversationLocator::new("discord", "eng-leads");
+        let context_name: MemoryName = Namespace::Context
+            .with_name(format!("{}:{}", locator.platform, locator.scope_path))
+            .into();
+
+        let room_seed = vec![
+            EventPayload::memory_created(maya, MemoryName::new("person/maya")),
+            EventPayload::participant_identified(maya, "discord", "maya"),
+            EventPayload::memory_created(tom, MemoryName::new("person/tom")),
+            EventPayload::participant_identified(tom, "discord", "tom"),
+            EventPayload::memory_created(jordan, MemoryName::new("person/jordan")),
+            EventPayload::participant_identified(jordan, "discord", "jordan"),
+            EventPayload::memory_created(context_memory, context_name),
+            EventPayload::conversation_started(conversation, locator, context_memory),
+        ];
+
+        // The referenced moment, seeded as an inbound participant turn (Jordan's, matching how a real
+        // inbound is recorded: `Participant` role, `Responding`, no `produced_by`) into the room's open
+        // session. Seeded *after* the processed decision beats, so no agent loop ever sees it: it lands
+        // in the session's log span but is never routed through a turn, exactly as the group-room
+        // chatter the trigger gating leaves unprocessed.
+        let detail_seed = vec![EventPayload::conversation_turn(
+            conversation,
+            detail_turn,
+            TurnRole::Participant,
+            CUTOVER_DETAIL,
+            Some(jordan),
+            Initiation::Responding,
+            None,
+        )];
+
         vec![
-            // The source room: Maya, Tom, and Jordan settle a decision together. All three are the
-            // moment's audience.
-            Turn::new("discord", "eng-leads", "maya", ROOM_MOMENT)
+            // Open the room and its people directly, so the referenced turn can later be seeded into
+            // this exact conversation and the DM requesters resolve to the stubs that were party to it.
+            EvalStep::SeedEvents(room_seed),
+            // The processed decision beats: the team settles the database question together, all three
+            // present. The first beat opens the room's live session with `[maya, tom, jordan]` as its
+            // audience; the agent processes these turns and records the decision as a topic memory — the
+            // fodder the pre-turn ambient recall pass will surface at the DM. This is the realistic
+            // half of the test: the agent *does* have relevant awareness, and it is still not enough.
+            Turn::new(
+                "discord",
+                "eng-leads",
+                "tom",
+                "Are we settling the database question before the weekend, or does it slip again?",
+            )
+            .with_present(&["maya", "tom", "jordan"])
+            .into(),
+            Turn::new("discord", "eng-leads", "maya", DECISION_MOMENT)
                 .with_present(&["maya", "tom", "jordan"])
                 .into(),
-            // Catch the background describer and vector index up to the room's write (mirroring
-            // checkpoint.rs), so if a DM beat falls back to `memory.search` rather than resolving the
-            // reference, the room moment is both described and searchable — a hit renders with a fresh
-            // description, as the deployed describer would have supplied before the next session.
+            // Catch the describer and vector index up to the decision memory (mirroring checkpoint.rs),
+            // so the ambient recall pass at the DM finds it described and searchable — the honest
+            // condition where ambient awareness of the decision is available yet cannot answer the
+            // probe's precise-mechanics question.
             EvalStep::Settle,
-            EvalStep::Advance {
-                millis: MILLIS_PER_HOUR,
+            // Seed the referenced moment into the room's live session, now that the decision is
+            // processed and its memory written. From here the isolation chain must hold — the probe is
+            // answerable ONLY by resolving this turn, so nothing may fold its details into a memory:
+            //   - The scenario never sends another message to `eng-leads` after this seed. A second
+            //     inbound would replay the buffer (which now includes this turn, since the live buffer
+            //     reconstructs from the log) and sweep it into a real response cycle — processing it.
+            //   - The room's working state must never flush after this seed. `flush_on_open = false`
+            //     (below) stops the DM session opens from checkpoint-flushing the still-live `eng-leads`
+            //     session, and no `CheckpointSweep` or `ForceCompaction` is driven over it. A flush
+            //     would read this turn from the buffer and could consolidate its details into memory,
+            //     re-confounding the probe.
+            //   - The DM requesters are in this turn's audience: it belongs to the session opened with
+            //     `[maya, tom, jordan]` present, so the audience rule rightly permits Maya's and Tom's
+            //     reads through `convo.turn`.
+            // A `replay resume` from a step between the two seeds would re-mint these ids and land
+            // the detail turn in a conversation the restored prefix does not hold; resume from a DM
+            // beat (or rerun whole) instead.
+            EvalStep::SeedEvents(detail_seed),
+            // Pin `flush_on_open = false`: the DM session opens below must not checkpoint-flush the live
+            // `eng-leads` session holding the seeded turn. The substance and cooldown gates are inert
+            // here (no sweep is ever driven), so only the open-flush behavior is being changed.
+            EvalStep::TuneCheckpoint {
+                min_delta_chars: 400,
+                cooldown_seconds: 0,
+                flush_on_open: false,
             },
             // The DM beats stay on the SAME platform as the source room (`discord`), so `person/maya`
             // and `person/tom` are the same stubs that attended the room — identity is continuous, and
@@ -324,14 +427,19 @@ impl Scenario for TranscriptDmLookup {
             // scopes are just one- and two-person rooms on that platform.
             //
             // Beat 1: a solo DM with Maya. She attended the room, so the moment resolves for her alone
-            // — she pastes the console link form (resolved to the room moment's id at execution time).
+            // — she pastes the console link form (resolved to the seeded turn's id at execution time)
+            // and asks for the precise cutover mechanics, which only that turn holds.
+            EvalStep::Advance {
+                millis: MILLIS_PER_HOUR,
+            },
             Turn::new(
                 "discord",
                 "dm/maya",
                 "maya",
                 StepText::with_turn_ref(
-                    "Quick one for me — what did we lock in on the database? {turn}",
-                    ROOM_MOMENT,
+                    "Quick one for me — what's the exact write-freeze window for the cutover, and \
+                     how long do we keep the old pool around? {turn}",
+                    CUTOVER_DETAIL,
                 ),
             )
             .into(),
@@ -339,14 +447,16 @@ impl Scenario for TranscriptDmLookup {
                 millis: MILLIS_PER_HOUR,
             },
             // Beat 2: a two-person DM with Maya and Tom, both of whom attended. Tom pastes the
-            // canonical token form and asks about the on-call detail.
+            // canonical token form and asks for the same mechanics — the freeze window and the tear-down
+            // timing — that live only in the referenced turn.
             Turn::new(
                 "discord",
                 "dm/maya+tom",
                 "tom",
                 StepText::with_turn_ref(
-                    "Refresh us both — who's on-call for the migration, and when? {turn}",
-                    ROOM_MOMENT,
+                    "Refresh us both on the cutover mechanics — the freeze window, and when the old \
+                     pool gets torn down. {turn}",
+                    CUTOVER_DETAIL,
                 ),
             )
             .with_present(&["maya", "tom"])
@@ -355,23 +465,26 @@ impl Scenario for TranscriptDmLookup {
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
-        // convo.turn should have been reached for in both beats.
+        // convo.turn should have been reached for in both beats — it is the only path to the answer,
+        // since the details live in a turn no memory holds and ambient recall never indexes.
         let resolved = analysis::lua_called(events, "convo.turn");
         let replies = analysis::agent_replies(events);
         let joined = replies.join("\n---\n");
 
         let evidence = format!(
-            "In a group room, the team decided: standardize on Postgres, with Jordan on-call for the \
-             migration weekend of the 21st. Afterwards, in two separate direct messages — one with \
-             just Maya, one with Maya and Tom — the participants referenced that room moment and \
-             asked to be reminded of it (the database decision, and who is on-call and when). The \
-             agent's replies were:\n{joined}"
+            "In a group room, Jordan posted the cutover runbook: the write freeze runs 02:00–04:30 \
+             UTC on Saturday, and the old connection pool is kept warm until Thursday before it is \
+             torn down. Afterwards, in two separate direct messages — one with just Maya, one with \
+             Maya and Tom — the participants referenced that room moment and asked for the precise \
+             mechanics: the write-freeze window, and how long the old pool is kept before tear-down. \
+             The agent's replies were:\n{joined}"
         );
         let engaged = judge
             .assess(
                 "Across the replies, the agent engages the referenced moment's actual content — it \
-                 names Postgres as the database decision and that Jordan is on-call for the weekend \
-                 of the 21st — rather than a vague paraphrase or a refusal.",
+                 names the 02:00–04:30 UTC write-freeze window and that the old connection pool is \
+                 kept warm until Thursday — rather than a vague paraphrase, the room's higher-level \
+                 decision alone, or a refusal.",
                 &evidence,
             )
             .await;

@@ -119,22 +119,11 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
             .filter_map(|name| analysis::memory_id_named(events, name))
             .collect();
         let primary = analysis::memory_id_named(events, DESIGNATED_PRIMARY);
-        let links: Vec<(MemoryId, MemoryId)> = events
-            .iter()
-            .filter_map(|event| match &event.payload {
-                EventPayload::LinkCreated { from, to, .. } => Some((*from, *to)),
-                _ => None,
-            })
-            .collect();
-        // A memory (outside the class itself) counts as reachable when any link joins it to a member,
-        // in either direction — the link readers traverse the class, so an edge on any member reaches
-        // the whole identity.
-        let linked_to_class = |id: MemoryId| {
-            !members.contains(&id)
-                && links.iter().any(|(from, to)| {
-                    (*from == id && members.contains(to)) || (*to == id && members.contains(from))
-                })
-        };
+        // A memory (outside the class itself) counts as reachable when the class's link closure
+        // reaches it — the link readers traverse edges from the identity, so a fact on
+        // `place/warehouse` joined via `topic/company` is as recallable as one joined directly.
+        let reachable = analysis::link_closure(events, &members);
+        let linked_to_class = |id: MemoryId| !members.contains(&id) && reachable.contains(&id);
         let fact_placed = events.iter().any(|event| match &event.payload {
             EventPayload::MemoryContentAppended { id, text, .. } => {
                 let text = text.to_lowercase();

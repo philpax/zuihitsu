@@ -5,6 +5,8 @@
 mod events;
 mod state;
 
+use std::collections::BTreeSet;
+
 use zuihitsu::{
     Event, EventPayload, Initiation, LinkSource, MemoryId, MergeProposalSource, Teller, TurnId,
     TurnRole, Visibility, Volatility,
@@ -148,6 +150,35 @@ pub fn tag_removed(events: &[Event], tag: &str) -> bool {
     events.iter().any(|event| {
         matches!(&event.payload, EventPayload::TagRemovedFromMemory { tag: removed, .. } if removed.as_str() == tag)
     })
+}
+
+/// The set of memories a run's links connect to `seeds`, transitively and in either direction — the
+/// closure the link readers can traverse from those memories. Computed over the run's own
+/// `LinkCreated` events (a handful), so a simple fixpoint suffices. The seeds themselves are
+/// included; a caller distinguishing "reached" from "is a seed" filters them out.
+pub fn link_closure(events: &[Event], seeds: &BTreeSet<MemoryId>) -> BTreeSet<MemoryId> {
+    let links: Vec<(MemoryId, MemoryId)> = events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::LinkCreated { from, to, .. } => Some((*from, *to)),
+            _ => None,
+        })
+        .collect();
+    let mut reachable = seeds.clone();
+    loop {
+        let mut grew = false;
+        for (from, to) in &links {
+            if reachable.contains(from) && reachable.insert(*to) {
+                grew = true;
+            }
+            if reachable.contains(to) && reachable.insert(*from) {
+                grew = true;
+            }
+        }
+        if !grew {
+            return reachable;
+        }
+    }
 }
 
 /// Whether a link of the relation named `relation` was created — the structural signal that the agent
