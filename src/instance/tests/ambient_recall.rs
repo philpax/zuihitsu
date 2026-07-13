@@ -5,12 +5,15 @@
 
 use super::*;
 use crate::{
-    ConversationLocator, SeedSelf,
+    ConversationLocator, InstanceFeatures, SeedSelf,
     clock::ManualClock,
     event::{EventPayload, EventSource, Teller, Visibility},
-    ids::{EntryId, MemoryId, Namespace},
+    graph::Graph,
+    ids::{EntryId, MemoryId, Namespace, TurnId},
     model::{Completion, Role, ScriptedModel},
+    store::MemoryStore,
     time::Timestamp,
+    turn_ref,
 };
 
 /// Boot and birth a fresh in-memory agent, so the genesis templates are registered and turns can run.
@@ -237,5 +240,134 @@ async fn the_recorded_hint_replays_byte_identical_next_turn() {
             .iter()
             .any(|message| message.role == Role::System && message.content == first_hint),
         "the second turn replays the first turn's hint verbatim"
+    );
+}
+
+/// Every ambient system message a model call saw whose content carries `needle`, across all calls.
+fn hints_containing(model: &ScriptedModel, needle: &str) -> Vec<String> {
+    model
+        .recorded_messages()
+        .into_iter()
+        .flatten()
+        .filter(|message| message.role == Role::System && message.content.contains(needle))
+        .map(|message| message.content)
+        .collect()
+}
+
+#[tokio::test]
+async fn a_turn_token_leads_the_hint_with_a_convo_turn_pointer() {
+    let server = born_server();
+    // No seeded topic, so the message matches nothing lexically: the token alone drives the hint.
+    let turn = TurnId::generate();
+    let token = turn_ref::construct(turn);
+    let model = ScriptedModel::new([Completion::Reply("let me look".to_owned())]);
+    let room = ConversationLocator::new("discord", "general");
+    let message = format!("what did we decide in {token}?");
+    server
+        .platform()
+        .route_message(&model, &room, "dave", &message, &["dave"])
+        .await
+        .unwrap();
+
+    // The hint reached the model, leading with the convo.turn pointer for the exact cited id.
+    let pointer = format!("convo.turn(\"{}\")", turn.0);
+    let hints = hints_containing(&model, &pointer);
+    assert!(
+        hints.iter().any(|hint| hint
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains(&pointer))),
+        "the hint leads with the token's resolver: {hints:?}"
+    );
+
+    // And it is recorded, with no lexical hits riding along.
+    let events = ambient_events(&server);
+    assert!(
+        events
+            .iter()
+            .any(|(text, hits)| text.contains(&pointer) && hits.is_empty()),
+        "a token-only AmbientRecallSurfaced event is recorded: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_turn_token_is_inert_when_transcripts_are_off() {
+    // The convo.turn resolver is transcripts-gated, so with the feature off a token yields no pointer —
+    // and, matching nothing lexically either, no hint at all (nudging at a nil call would be cruel).
+    let features = InstanceFeatures {
+        transcripts: false,
+        ..InstanceFeatures::default()
+    };
+    let server = Instance::with_features(
+        Box::new(MemoryStore::new()),
+        Graph::open_in_memory().unwrap(),
+        Box::new(ManualClock::new(Timestamp::from_millis(1_000))),
+        features,
+    );
+    server
+        .control()
+        .create_agent(&SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "A discreet companion with a long memory.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+
+    let turn = TurnId::generate();
+    let token = turn_ref::construct(turn);
+    let model = ScriptedModel::new([Completion::Reply("hmm".to_owned())]);
+    let room = ConversationLocator::new("discord", "general");
+    let message = format!("what did we decide in {token}?");
+    server
+        .platform()
+        .route_message(&model, &room, "dave", &message, &["dave"])
+        .await
+        .unwrap();
+
+    assert!(
+        hints_containing(&model, "convo.turn").is_empty(),
+        "no convo.turn pointer is injected when transcripts are off"
+    );
+    assert!(
+        ambient_events(&server).is_empty(),
+        "no ambient event is recorded for a token-only message with the feature off"
+    );
+}
+
+#[tokio::test]
+async fn a_token_hint_replays_byte_identical_next_turn() {
+    let server = born_server();
+    let turn = TurnId::generate();
+    let token = turn_ref::construct(turn);
+    // Two turns in one session: the second replays the first's buffer, which now holds the token hint.
+    let model = ScriptedModel::new([
+        Completion::Reply("looking".to_owned()),
+        Completion::Reply("still looking".to_owned()),
+    ]);
+    let room = ConversationLocator::new("discord", "general");
+    let first = format!("what did we decide in {token}?");
+    server
+        .platform()
+        .route_message(&model, &room, "dave", &first, &["dave"])
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(&model, &room, "dave", "anything else?", &["dave"])
+        .await
+        .unwrap();
+
+    let calls = model.recorded_messages();
+    let first_hint = calls[0]
+        .iter()
+        .find(|message| message.role == Role::System && message.content.contains("convo.turn"))
+        .expect("the first turn injected a token hint")
+        .content
+        .clone();
+    assert!(
+        calls[1]
+            .iter()
+            .any(|message| message.role == Role::System && message.content == first_hint),
+        "the second turn replays the first turn's token hint verbatim"
     );
 }

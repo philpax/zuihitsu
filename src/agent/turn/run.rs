@@ -128,7 +128,13 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         let graph = engine.graph.lock();
         let exclude: HashSet<MemoryId> =
             present_set.iter().chain(brief_memories).copied().collect();
-        super::ambient::ambient_recall(&graph, &ambient, inbound, &exclude)?
+        super::ambient::ambient_recall(
+            &graph,
+            &ambient,
+            inbound,
+            &exclude,
+            session.features().transcripts,
+        )?
     };
     if let Some(hint) = hint {
         let now = engine.clock.now();

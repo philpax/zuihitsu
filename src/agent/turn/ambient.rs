@@ -21,13 +21,18 @@ use whatlang::Lang;
 use crate::{
     event::AmbientHit,
     graph::{Graph, GraphError},
-    ids::{MemoryId, MemoryName},
+    ids::{MemoryId, MemoryName, TurnId},
     settings::AmbientSettings,
+    turn_ref,
 };
 
 /// The most queries a single message fans out — a bound so a pathological message stays cheap. The
 /// budget is filled longest-subphrase-first, so the most specific phrases claim it.
 const MAX_QUERIES: usize = 48;
+
+/// The most turn tokens the hint names — a message citing many moments points at the first few, so the
+/// lead-in stays terse rather than reprinting a wall of resolvers.
+const MAX_TURN_TOKENS: usize = 3;
 
 /// The most lexical hits fetched per query — small, since the pass unions and re-ranks across queries.
 const PER_QUERY_LIMIT: usize = 3;
@@ -42,25 +47,41 @@ pub(crate) struct AmbientHint {
 
 /// Run the ambient recall pass over `inbound`, excluding any memory whose id is in `exclude` — the ids
 /// the frozen brief already surfaces (present set, working set, current room, and self), so the hint
-/// never restates what the prompt already carries. Returns `None` when the pass is disabled, the text
-/// yields no query, or nothing salient and un-excluded survives.
+/// never restates what the prompt already carries. `transcripts_enabled` reflects the instance's
+/// `transcripts` feature: when it is on, a `[turn:<id>]` token in the message leads the hint with an
+/// explicit `convo.turn` pointer, so the reference is never treated as inert (the resolver is
+/// feature-gated, so a token line would be cruel where the feature is off). Returns `None` when the
+/// pass is disabled, or when neither a turn token nor a salient, un-excluded lexical hit survives.
 pub(crate) fn ambient_recall(
     graph: &Graph,
     settings: &AmbientSettings,
     inbound: &str,
     exclude: &HashSet<MemoryId>,
+    transcripts_enabled: bool,
 ) -> Result<Option<AmbientHint>, GraphError> {
     if !settings.enabled {
         return Ok(None);
     }
-    let queries = extract_queries(inbound);
-    if queries.is_empty() {
-        return Ok(None);
-    }
+    // The turn tokens the message cites, capped, when transcript resolution is on. A message may point
+    // at a recorded moment and carry no lexical hit at all, so the pass now fires on tokens alone —
+    // meeting the reluctance to call `convo.turn` structurally rather than leaving the pointer inert.
+    let tokens: Vec<TurnId> = if transcripts_enabled {
+        // A message repeating one token gets one line: dedup (first occurrence wins) before the cap.
+        let mut seen = HashSet::new();
+        let mut ids: Vec<TurnId> = turn_ref::extract_ids(inbound)
+            .into_iter()
+            .filter(|id| seen.insert(*id))
+            .collect();
+        ids.truncate(MAX_TURN_TOKENS);
+        ids
+    } else {
+        Vec::new()
+    };
 
     // The best (most negative bm25) score seen for each memory across every query that matched it, with
     // the snippet of that best-scoring query — so a memory hit by several queries keeps its strongest
     // evidence rather than the last one seen.
+    let queries = extract_queries(inbound);
     let mut best: HashMap<MemoryId, (f32, String)> = HashMap::new();
     for query in &queries {
         for hit in graph.search_lexical(query, PER_QUERY_LIMIT)? {
@@ -105,12 +126,14 @@ pub(crate) fn ambient_recall(
             snippet,
         });
     }
-    if resolved.is_empty() {
+    // Fire when there is anything to say: a surviving lexical hit, a cited turn token, or both. A
+    // token-only hint carries no `hits`, which the recorded event and its replay handle unchanged.
+    if resolved.is_empty() && tokens.is_empty() {
         return Ok(None);
     }
 
     Ok(Some(AmbientHint {
-        message: render(&resolved),
+        message: render(&tokens, &resolved),
         hits,
     }))
 }
@@ -231,18 +254,35 @@ fn stopword_code(lang: Lang) -> Option<&'static str> {
     }
 }
 
-/// Render the hint the turn injects: a one-line lead-in, then one line per hit naming the handle and
-/// its snippet. It sits after the inbound message in the prompt, so it reads as a note about that
-/// message.
-fn render(hits: &[ResolvedHit]) -> String {
-    let mut out =
-        String::from("Possibly relevant to the message above — read with memory.get if useful:");
-    for hit in hits {
-        let snippet = hit.snippet.trim();
-        if snippet.is_empty() {
-            let _ = write!(out, "\n- {}", hit.name.as_str());
-        } else {
-            let _ = write!(out, "\n- {} — \"{snippet}\"", hit.name.as_str());
+/// Render the hint the turn injects: first one line per cited turn token pointing at its `convo.turn`
+/// resolver (so an explicit reference is never inert), then — when lexical hits survive — the
+/// "possibly relevant" block, one line per hit naming the handle and its snippet. It sits after the
+/// inbound message in the prompt, so it reads as a note about that message. At least one of `tokens`
+/// or `hits` is non-empty (the caller returns `None` otherwise).
+fn render(tokens: &[TurnId], hits: &[ResolvedHit]) -> String {
+    let mut out = String::new();
+    for token in tokens {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let _ = write!(
+            out,
+            "The message above references a recorded moment — read it with convo.turn(\"{}\").",
+            token.0
+        );
+    }
+    if !hits.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("Possibly relevant to the message above — read with memory.get if useful:");
+        for hit in hits {
+            let snippet = hit.snippet.trim();
+            if snippet.is_empty() {
+                let _ = write!(out, "\n- {}", hit.name.as_str());
+            } else {
+                let _ = write!(out, "\n- {} — \"{snippet}\"", hit.name.as_str());
+            }
         }
     }
     out
@@ -250,11 +290,11 @@ fn render(hits: &[ResolvedHit]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ResolvedHit, ambient_recall, extract_queries, render};
+    use super::{ResolvedHit, ambient_recall, extract_queries, render, turn_ref};
     use crate::{
         event::{EventPayload, Teller, Visibility},
         graph::Graph,
-        ids::{EntryId, MemoryId, MemoryName, Namespace},
+        ids::{EntryId, MemoryId, MemoryName, Namespace, TurnId},
         settings::AmbientSettings,
         store::{MemoryStore, Store},
         time::Timestamp,
@@ -416,6 +456,7 @@ mod tests {
             &AmbientSettings::default(),
             "What do you think of bonsai?",
             &HashSet::new(),
+            true,
         )
         .unwrap()
         .expect("a salient hit surfaces");
@@ -433,6 +474,7 @@ mod tests {
             &AmbientSettings::default(),
             "Thanks, talk soon!",
             &HashSet::new(),
+            true,
         )
         .unwrap();
         assert!(hint.is_none(), "no query term matches the memory");
@@ -453,6 +495,7 @@ mod tests {
             &AmbientSettings::default(),
             "What do you think of bonsai?",
             &exclude,
+            true,
         )
         .unwrap();
         assert!(hint.is_none(), "an excluded memory is dropped");
@@ -477,6 +520,7 @@ mod tests {
             &strict,
             "What do you think of bonsai?",
             &HashSet::new(),
+            true,
         )
         .unwrap();
         assert!(
@@ -500,9 +544,15 @@ mod tests {
             max_hits: 2,
             ..AmbientSettings::default()
         };
-        let hint = ambient_recall(&graph, &capped, "database migration tool", &HashSet::new())
-            .unwrap()
-            .expect("several memories match");
+        let hint = ambient_recall(
+            &graph,
+            &capped,
+            "database migration tool",
+            &HashSet::new(),
+            true,
+        )
+        .unwrap()
+        .expect("several memories match");
         assert_eq!(hint.hits.len(), 2, "the cap bounds the surfaced hits");
     }
 
@@ -523,7 +573,8 @@ mod tests {
                 &graph,
                 &off,
                 "What do you think of bonsai?",
-                &HashSet::new()
+                &HashSet::new(),
+                true,
             )
             .unwrap()
             .is_none()
@@ -542,11 +593,141 @@ mod tests {
                 snippet: String::new(),
             },
         ];
-        let out = render(&hits);
+        let out = render(&[], &hits);
         let lines: Vec<&str> = out.lines().filter(|l| l.starts_with("- ")).collect();
         assert_eq!(lines.len(), 2, "one line per hit");
         assert!(lines[0].contains("topic/bonsai") && lines[0].contains("schema-migration"));
         // An empty snippet renders the handle alone, with no dangling quotes.
         assert_eq!(lines[1], "- topic/driftwood");
+    }
+
+    #[test]
+    fn a_turn_token_leads_the_hint_and_fires_without_a_lexical_hit() {
+        // A message that cites a recorded moment but matches nothing lexically still surfaces a hint:
+        // the token line leads, pointing at convo.turn, so the reference is never inert.
+        let bonsai = MemoryId::generate();
+        let graph = corpus(topic(
+            bonsai,
+            "bonsai",
+            "A schema-migration tool Erin built.",
+        ));
+        let turn = TurnId::generate();
+        let message = format!(
+            "Can you dig up what we said in {}?",
+            turn_ref::construct(turn)
+        );
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            &message,
+            &HashSet::new(),
+            true,
+        )
+        .unwrap()
+        .expect("the token fires the hint even with no lexical hit");
+        assert!(hint.hits.is_empty(), "no lexical hit rode along");
+        let first = hint.message.lines().next().unwrap();
+        assert!(
+            first.contains(&format!("convo.turn(\"{}\")", turn.0)),
+            "the hint leads with the token's resolver: {first}"
+        );
+    }
+
+    #[test]
+    fn a_turn_token_leads_before_the_lexical_block() {
+        // With both a token and a salient lexical hit, the token line leads and the "possibly relevant"
+        // block follows.
+        let bonsai = MemoryId::generate();
+        let graph = corpus(topic(
+            bonsai,
+            "bonsai",
+            "A schema-migration tool Erin built; it versions and applies database migrations.",
+        ));
+        let turn = TurnId::generate();
+        let message = format!(
+            "What do you think of bonsai, given {}?",
+            turn_ref::construct(turn)
+        );
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            &message,
+            &HashSet::new(),
+            true,
+        )
+        .unwrap()
+        .expect("both a token and a lexical hit surface");
+        assert_eq!(hint.hits.len(), 1);
+        let token_line = hint
+            .message
+            .lines()
+            .position(|l| l.contains("convo.turn"))
+            .expect("a token line");
+        let lexical_line = hint
+            .message
+            .lines()
+            .position(|l| l.contains("Possibly relevant"))
+            .expect("the lexical block");
+        assert!(
+            token_line < lexical_line,
+            "the token line leads: {}",
+            hint.message
+        );
+    }
+
+    #[test]
+    fn a_turn_token_is_silent_when_transcripts_are_off() {
+        // The convo.turn resolver is transcripts-gated, so with the feature off a token yields no line —
+        // and, with no lexical hit either, no hint at all (nudging at a nil call would be cruel).
+        let bonsai = MemoryId::generate();
+        let graph = corpus(topic(
+            bonsai,
+            "bonsai",
+            "A schema-migration tool Erin built.",
+        ));
+        let turn = TurnId::generate();
+        let message = format!(
+            "Can you dig up what we said in {}?",
+            turn_ref::construct(turn)
+        );
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            &message,
+            &HashSet::new(),
+            false,
+        )
+        .unwrap();
+        assert!(
+            hint.is_none(),
+            "no token line and no lexical hit means no hint"
+        );
+    }
+
+    #[test]
+    fn the_token_lead_caps_at_the_first_few() {
+        // A message citing many moments names only the first MAX_TURN_TOKENS, so the lead-in stays terse.
+        let turns: Vec<TurnId> = (0..5).map(|_| TurnId::generate()).collect();
+        let mut message = String::from("Compare these:");
+        for turn in &turns {
+            message.push(' ');
+            message.push_str(&turn_ref::construct(*turn));
+        }
+        let graph = corpus(Vec::new());
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            &message,
+            &HashSet::new(),
+            true,
+        )
+        .unwrap()
+        .expect("the tokens fire the hint");
+        let token_lines = hint
+            .message
+            .lines()
+            .filter(|l| l.contains("convo.turn"))
+            .count();
+        assert_eq!(token_lines, super::MAX_TURN_TOKENS, "the lead-in is capped");
     }
 }
