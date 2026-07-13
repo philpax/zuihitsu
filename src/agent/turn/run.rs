@@ -134,6 +134,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
             inbound,
             &exclude,
             session.features().transcripts,
+            session.features().browsing,
         )?
     };
     if let Some(hint) = hint {

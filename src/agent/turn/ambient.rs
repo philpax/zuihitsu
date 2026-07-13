@@ -34,6 +34,10 @@ const MAX_QUERIES: usize = 48;
 /// lead-in stays terse rather than reprinting a wall of resolvers.
 const MAX_TURN_TOKENS: usize = 3;
 
+/// The most URLs the hint names — a message carrying many links points at the first few, so the
+/// lead-in stays terse rather than reprinting a wall of fetch pointers.
+const MAX_URLS: usize = 2;
+
 /// The most lexical hits fetched per query — small, since the pass unions and re-ranks across queries.
 const PER_QUERY_LIMIT: usize = 3;
 
@@ -50,14 +54,18 @@ pub(crate) struct AmbientHint {
 /// never restates what the prompt already carries. `transcripts_enabled` reflects the instance's
 /// `transcripts` feature: when it is on, a `[turn:<id>]` token in the message leads the hint with an
 /// explicit `convo.turn` pointer, so the reference is never treated as inert (the resolver is
-/// feature-gated, so a token line would be cruel where the feature is off). Returns `None` when the
-/// pass is disabled, or when neither a turn token nor a salient, un-excluded lexical hit survives.
+/// feature-gated, so a token line would be cruel where the feature is off). `browsing_enabled`
+/// reflects the instance's `browsing` feature: when it is on, an http(s) URL in the message adds a line
+/// pointing at reading it with `web.markdown`, so a shared link is never treated as inert (the tool is
+/// feature-gated, so a URL line would be cruel where the feature is off). Returns `None` when the pass
+/// is disabled, or when no turn token, URL, or salient, un-excluded lexical hit survives.
 pub(crate) fn ambient_recall(
     graph: &Graph,
     settings: &AmbientSettings,
     inbound: &str,
     exclude: &HashSet<MemoryId>,
     transcripts_enabled: bool,
+    browsing_enabled: bool,
 ) -> Result<Option<AmbientHint>, GraphError> {
     if !settings.enabled {
         return Ok(None);
@@ -74,6 +82,22 @@ pub(crate) fn ambient_recall(
             .collect();
         ids.truncate(MAX_TURN_TOKENS);
         ids
+    } else {
+        Vec::new()
+    };
+
+    // The http(s) URLs the message carries, capped, when browsing is on. A message may share a link and
+    // carry no lexical hit at all, so the pass fires on URLs alone — meeting the `web.markdown` pointer
+    // structurally rather than leaving a shared link inert.
+    let urls: Vec<String> = if browsing_enabled {
+        // A message repeating one URL gets one line: dedup (first occurrence wins) before the cap.
+        let mut seen = HashSet::new();
+        let mut found: Vec<String> = extract_urls(inbound)
+            .into_iter()
+            .filter(|url| seen.insert(url.clone()))
+            .collect();
+        found.truncate(MAX_URLS);
+        found
     } else {
         Vec::new()
     };
@@ -126,14 +150,15 @@ pub(crate) fn ambient_recall(
             snippet,
         });
     }
-    // Fire when there is anything to say: a surviving lexical hit, a cited turn token, or both. A
-    // token-only hint carries no `hits`, which the recorded event and its replay handle unchanged.
-    if resolved.is_empty() && tokens.is_empty() {
+    // Fire when there is anything to say: a surviving lexical hit, a cited turn token, a shared URL, or
+    // any combination. A token- or URL-only hint carries no `hits`, which the recorded event and its
+    // replay handle unchanged.
+    if resolved.is_empty() && tokens.is_empty() && urls.is_empty() {
         return Ok(None);
     }
 
     Ok(Some(AmbientHint {
-        message: render(&tokens, &resolved),
+        message: render(&tokens, &urls, &resolved),
         hits,
     }))
 }
@@ -255,11 +280,12 @@ fn stopword_code(lang: Lang) -> Option<&'static str> {
 }
 
 /// Render the hint the turn injects: first one line per cited turn token pointing at its `convo.turn`
-/// resolver (so an explicit reference is never inert), then — when lexical hits survive — the
+/// resolver (so an explicit reference is never inert), then one line per shared URL pointing at reading
+/// it with `web.markdown` (so a shared link is never inert), then — when lexical hits survive — the
 /// "possibly relevant" block, one line per hit naming the handle and its snippet. It sits after the
-/// inbound message in the prompt, so it reads as a note about that message. At least one of `tokens`
-/// or `hits` is non-empty (the caller returns `None` otherwise).
-fn render(tokens: &[TurnId], hits: &[ResolvedHit]) -> String {
+/// inbound message in the prompt, so it reads as a note about that message. At least one of `tokens`,
+/// `urls`, or `hits` is non-empty (the caller returns `None` otherwise).
+fn render(tokens: &[TurnId], urls: &[String], hits: &[ResolvedHit]) -> String {
     let mut out = String::new();
     for token in tokens {
         if !out.is_empty() {
@@ -269,6 +295,15 @@ fn render(tokens: &[TurnId], hits: &[ResolvedHit]) -> String {
             out,
             "The message above references a recorded moment — read it with convo.turn(\"{}\").",
             token.0
+        );
+    }
+    for url in urls {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let _ = write!(
+            out,
+            "The message includes a link — read it with web.markdown(\"{url}\")."
         );
     }
     if !hits.is_empty() {
@@ -288,9 +323,57 @@ fn render(tokens: &[TurnId], hits: &[ResolvedHit]) -> String {
     out
 }
 
+/// Extract the http(s) URLs an inbound message carries, in order of appearance. The scan is minimal and
+/// scheme-anchored: from each `http://` or `https://` it takes characters up to the first ASCII
+/// whitespace or a closing delimiter that bounds a URL embedded in prose, markdown, or brackets, then
+/// strips trailing sentence punctuation. A bare scheme with no host is discarded. A missed exotic form
+/// costs nothing — the pointer is a nudge, not a parser. Dedup and the cap happen in the caller.
+fn extract_urls(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    let mut search_from = 0;
+    while let Some(start) = find_scheme(text, search_from) {
+        let rest = &text[start..];
+        let scheme_len = if rest.starts_with("https://") { 8 } else { 7 };
+        // Take the span from the scheme up to the first bounding character.
+        let span_end = rest[scheme_len..]
+            .find(|c: char| c.is_ascii_whitespace() || is_url_boundary(c))
+            .map(|offset| scheme_len + offset)
+            .unwrap_or(rest.len());
+        let span = &rest[..span_end];
+        let trimmed = span.trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '>']);
+        // Keep only a URL that carries a host after the scheme.
+        if trimmed.len() > scheme_len {
+            urls.push(trimmed.to_owned());
+        }
+        search_from = start + span_end;
+    }
+    urls
+}
+
+/// The byte index at or after `from` where the next `http://` or `https://` scheme begins, or `None`.
+/// `str::find` returns a char-boundary index, so the caller may slice `text` at it safely.
+fn find_scheme(text: &str, from: usize) -> Option<usize> {
+    let haystack = &text[from..];
+    match (haystack.find("http://"), haystack.find("https://")) {
+        (Some(a), Some(b)) => Some(from + a.min(b)),
+        (Some(a), None) => Some(from + a),
+        (None, Some(b)) => Some(from + b),
+        (None, None) => None,
+    }
+}
+
+/// The characters that bound a URL embedded in prose, markdown, or brackets — the closing side of a
+/// wrapping pair, or a shell/markdown metacharacter that never appears mid-URL in practice.
+fn is_url_boundary(c: char) -> bool {
+    matches!(
+        c,
+        '<' | '>' | '"' | '\'' | '`' | ')' | ']' | '}' | '|' | '\\'
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ResolvedHit, ambient_recall, extract_queries, render, turn_ref};
+    use super::{ResolvedHit, ambient_recall, extract_queries, extract_urls, render, turn_ref};
     use crate::{
         event::{EventPayload, Teller, Visibility},
         graph::Graph,
@@ -457,6 +540,7 @@ mod tests {
             "What do you think of bonsai?",
             &HashSet::new(),
             true,
+            true,
         )
         .unwrap()
         .expect("a salient hit surfaces");
@@ -474,6 +558,7 @@ mod tests {
             &AmbientSettings::default(),
             "Thanks, talk soon!",
             &HashSet::new(),
+            true,
             true,
         )
         .unwrap();
@@ -495,6 +580,7 @@ mod tests {
             &AmbientSettings::default(),
             "What do you think of bonsai?",
             &exclude,
+            true,
             true,
         )
         .unwrap();
@@ -520,6 +606,7 @@ mod tests {
             &strict,
             "What do you think of bonsai?",
             &HashSet::new(),
+            true,
             true,
         )
         .unwrap();
@@ -550,6 +637,7 @@ mod tests {
             "database migration tool",
             &HashSet::new(),
             true,
+            true,
         )
         .unwrap()
         .expect("several memories match");
@@ -575,6 +663,7 @@ mod tests {
                 "What do you think of bonsai?",
                 &HashSet::new(),
                 true,
+                true,
             )
             .unwrap()
             .is_none()
@@ -593,7 +682,7 @@ mod tests {
                 snippet: String::new(),
             },
         ];
-        let out = render(&[], &hits);
+        let out = render(&[], &[], &hits);
         let lines: Vec<&str> = out.lines().filter(|l| l.starts_with("- ")).collect();
         assert_eq!(lines.len(), 2, "one line per hit");
         assert!(lines[0].contains("topic/bonsai") && lines[0].contains("schema-migration"));
@@ -621,6 +710,7 @@ mod tests {
             &AmbientSettings::default(),
             &message,
             &HashSet::new(),
+            true,
             true,
         )
         .unwrap()
@@ -653,6 +743,7 @@ mod tests {
             &AmbientSettings::default(),
             &message,
             &HashSet::new(),
+            true,
             true,
         )
         .unwrap()
@@ -696,6 +787,7 @@ mod tests {
             &message,
             &HashSet::new(),
             false,
+            true,
         )
         .unwrap();
         assert!(
@@ -720,6 +812,7 @@ mod tests {
             &message,
             &HashSet::new(),
             true,
+            true,
         )
         .unwrap()
         .expect("the tokens fire the hint");
@@ -729,5 +822,214 @@ mod tests {
             .filter(|l| l.contains("convo.turn"))
             .count();
         assert_eq!(token_lines, super::MAX_TURN_TOKENS, "the lead-in is capped");
+    }
+
+    #[test]
+    fn extract_urls_strips_trailing_sentence_punctuation() {
+        // A URL at a sentence end must not keep the full stop.
+        assert_eq!(
+            extract_urls("See https://example.com/path."),
+            vec!["https://example.com/path".to_owned()]
+        );
+    }
+
+    #[test]
+    fn extract_urls_bounds_a_url_in_parens_and_brackets() {
+        // A wrapping pair bounds the URL: neither the closing bracket nor a trailing delimiter rides along.
+        assert_eq!(
+            extract_urls("(https://example.com)"),
+            vec!["https://example.com".to_owned()]
+        );
+        assert_eq!(
+            extract_urls("[https://example.com/a]"),
+            vec!["https://example.com/a".to_owned()]
+        );
+        assert_eq!(
+            extract_urls("<https://example.com>"),
+            vec!["https://example.com".to_owned()]
+        );
+        assert_eq!(
+            extract_urls("read \"https://example.com/x\" now"),
+            vec!["https://example.com/x".to_owned()]
+        );
+    }
+
+    #[test]
+    fn extract_urls_discards_a_bare_scheme_with_no_host() {
+        assert!(extract_urls("http:// is not a link").is_empty());
+        assert!(extract_urls("here: https://").is_empty());
+    }
+
+    #[test]
+    fn extract_urls_keeps_appearance_order() {
+        assert_eq!(
+            extract_urls("first http://a.example then https://b.example done"),
+            vec![
+                "http://a.example".to_owned(),
+                "https://b.example".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_url_fires_the_hint_when_browsing_is_on() {
+        // A message carrying a link but matching nothing lexically and citing no turn still surfaces a
+        // hint: the URL line points at web.markdown, so a shared link is never inert.
+        let graph = corpus(Vec::new());
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            "Have a look at https://example.com/article for context.",
+            &HashSet::new(),
+            true,
+            true,
+        )
+        .unwrap()
+        .expect("the URL fires the hint even with no lexical hit");
+        assert!(hint.hits.is_empty(), "no lexical hit rode along");
+        assert!(
+            hint.message
+                .contains("web.markdown(\"https://example.com/article\")"),
+            "the hint points at reading the link: {}",
+            hint.message
+        );
+    }
+
+    #[test]
+    fn a_url_is_silent_when_browsing_is_off() {
+        // The web.markdown tool is browsing-gated, so with the feature off a URL yields no line — and,
+        // with no lexical hit or token either, no hint at all.
+        let graph = corpus(Vec::new());
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            "Have a look at https://example.com/article for context.",
+            &HashSet::new(),
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(
+            hint.is_none(),
+            "no URL line and no lexical hit means no hint"
+        );
+    }
+
+    #[test]
+    fn a_repeated_url_gets_one_line() {
+        let urls = vec!["https://example.com/a".to_owned()];
+        let out = render(&[], &urls, &[]);
+        let url_lines = out.lines().filter(|l| l.contains("web.markdown")).count();
+        assert_eq!(url_lines, 1, "one line per distinct URL");
+
+        // And the dedup happens in the pass: a message repeating one URL surfaces one line.
+        let graph = corpus(Vec::new());
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            "See https://example.com/a and again https://example.com/a please.",
+            &HashSet::new(),
+            true,
+            true,
+        )
+        .unwrap()
+        .expect("the URL fires the hint");
+        assert_eq!(
+            hint.message
+                .lines()
+                .filter(|l| l.contains("web.markdown"))
+                .count(),
+            1,
+            "the repeated URL yields one line: {}",
+            hint.message
+        );
+    }
+
+    #[test]
+    fn the_url_lead_caps_at_the_first_few() {
+        // A message carrying many links names only the first MAX_URLS, so the lead-in stays terse.
+        let graph = corpus(Vec::new());
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            "Three links: https://a.example https://b.example https://c.example.",
+            &HashSet::new(),
+            true,
+            true,
+        )
+        .unwrap()
+        .expect("the URLs fire the hint");
+        let url_lines = hint
+            .message
+            .lines()
+            .filter(|l| l.contains("web.markdown"))
+            .count();
+        assert_eq!(url_lines, super::MAX_URLS, "the URL lead-in is capped");
+    }
+
+    #[test]
+    fn a_url_line_follows_the_token_and_precedes_the_lexical_block() {
+        // With a token, a URL, and a salient lexical hit, the order is: token line, then URL line, then
+        // the "possibly relevant" block.
+        let bonsai = MemoryId::generate();
+        let graph = corpus(topic(
+            bonsai,
+            "bonsai",
+            "A schema-migration tool Erin built; it versions and applies database migrations.",
+        ));
+        let turn = TurnId::generate();
+        let message = format!(
+            "What do you think of bonsai, given {} and https://example.com/notes?",
+            turn_ref::construct(turn)
+        );
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            &message,
+            &HashSet::new(),
+            true,
+            true,
+        )
+        .unwrap()
+        .expect("a token, a URL, and a lexical hit surface");
+        let token_line = hint
+            .message
+            .lines()
+            .position(|l| l.contains("convo.turn"))
+            .expect("a token line");
+        let url_line = hint
+            .message
+            .lines()
+            .position(|l| l.contains("web.markdown"))
+            .expect("a URL line");
+        let lexical_line = hint
+            .message
+            .lines()
+            .position(|l| l.contains("Possibly relevant"))
+            .expect("the lexical block");
+        assert!(
+            token_line < url_line && url_line < lexical_line,
+            "token, then URL, then lexical: {}",
+            hint.message
+        );
+    }
+
+    #[test]
+    fn render_writes_a_url_line_pointing_at_web_markdown() {
+        let urls = vec![
+            "https://example.com/a".to_owned(),
+            "https://example.com/b".to_owned(),
+        ];
+        let out = render(&[], &urls, &[]);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2, "one line per URL, no header");
+        assert_eq!(
+            lines[0],
+            "The message includes a link — read it with web.markdown(\"https://example.com/a\")."
+        );
+        assert_eq!(
+            lines[1],
+            "The message includes a link — read it with web.markdown(\"https://example.com/b\")."
+        );
     }
 }

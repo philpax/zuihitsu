@@ -291,6 +291,39 @@ async fn a_turn_token_leads_the_hint_with_a_convo_turn_pointer() {
 }
 
 #[tokio::test]
+async fn a_url_points_the_hint_at_web_markdown() {
+    let server = born_server();
+    // No seeded topic, so the message matches nothing lexically: the URL alone drives the hint. The
+    // default instance has browsing on.
+    let model = ScriptedModel::new([Completion::Reply("reading it now".to_owned())]);
+    let room = ConversationLocator::new("discord", "general");
+    let url = "https://example.com/article";
+    let message = format!("take a look at {url} when you can");
+    server
+        .platform()
+        .route_message(&model, &room, "dave", &message, &["dave"])
+        .await
+        .unwrap();
+
+    // The hint reached the model, pointing at reading the link with web.markdown.
+    let pointer = format!("web.markdown(\"{url}\")");
+    let hints = hints_containing(&model, &pointer);
+    assert!(
+        !hints.is_empty(),
+        "the model's prompt carries a web.markdown pointer for the shared link: {hints:?}"
+    );
+
+    // And it is recorded verbatim, with no lexical hits riding along.
+    let events = ambient_events(&server);
+    assert!(
+        events
+            .iter()
+            .any(|(text, hits)| text.contains(&pointer) && hits.is_empty()),
+        "a URL-only AmbientRecallSurfaced event is recorded: {events:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_turn_token_is_inert_when_transcripts_are_off() {
     // The convo.turn resolver is transcripts-gated, so with the feature off a token yields no pointer —
     // and, matching nothing lexically either, no hint at all (nudging at a nil call would be cruel).
