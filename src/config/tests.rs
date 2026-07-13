@@ -146,16 +146,16 @@ fn parses_mcp_server_blocks() {
     let path = dir.join("config.toml");
     std::fs::write(
         &path,
-        "[mcp.lightpanda]\n\
-         command = \"mcp/lightpanda\"\n\
+        "[mcp.browser]\n\
+         command = \"mcp/browser\"\n\
          args = [\"mcp\"]\n\
          deny = [\"evaluate\"]\n",
     )
     .unwrap();
 
     let config = EnvConfig::load(&path).unwrap();
-    let server = config.mcp.get("lightpanda").expect("the lightpanda block");
-    assert_eq!(server.command, "mcp/lightpanda");
+    let server = config.mcp.get("browser").expect("the browser block");
+    assert_eq!(server.command, "mcp/browser");
     assert_eq!(server.args, ["mcp"]);
     assert_eq!(
         server.deny.as_deref(),

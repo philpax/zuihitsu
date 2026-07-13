@@ -61,7 +61,6 @@ pub async fn warm_up(deps: &RunDeps) {
 pub fn active_scenarios(
     scenarios: Vec<Arc<dyn Scenario>>,
     has_retrieval: bool,
-    has_mcp: bool,
 ) -> Vec<Arc<dyn Scenario>> {
     scenarios
         .into_iter()
@@ -70,11 +69,7 @@ pub fn active_scenarios(
             if !keep_retrieval {
                 tracing::warn!(scenario = %scenario.meta().name, "skipping: needs retrieval, but no embedding endpoint is configured");
             }
-            let keep_mcp = !scenario.needs_mcp() || has_mcp;
-            if !keep_mcp {
-                tracing::warn!(scenario = %scenario.meta().name, "skipping: needs MCP, but no test MCP host is configured");
-            }
-            keep_retrieval && keep_mcp
+            keep_retrieval
         })
         .collect()
 }

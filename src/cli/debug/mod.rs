@@ -10,6 +10,7 @@ use crate::cli::{client::Client, error::CliError, print_json};
 
 mod brief;
 mod events;
+mod markdown_fetch;
 mod mcp;
 mod revert;
 
@@ -74,6 +75,17 @@ pub(crate) enum DebugCommand {
     /// List the tools each configured MCP server exposes — spawns the servers directly (no running
     /// agent needed), so you can see a catalogue before narrowing it with `allow`/`deny`.
     Mcp,
+    /// Fetch a URL through the real `web.markdown` pipeline — transport, readability extraction, and
+    /// Markdown rendering, under the stored web settings — and print the Markdown the agent would
+    /// receive. The one debug command that reaches the network.
+    MarkdownFetch {
+        /// The page URL to fetch (http or https).
+        url: String,
+        /// Open the SSRF guard for this invocation, so a loopback or private address (a local dev
+        /// page) can be fetched without changing the stored settings.
+        #[arg(long)]
+        allow_private: bool,
+    },
 }
 
 pub(crate) fn dispatch(
@@ -118,5 +130,8 @@ pub(crate) fn dispatch(
         DebugCommand::Interactions => print_json(&client.interactions()?),
         DebugCommand::Arbitrations => print_json(&client.arbitrations()?),
         DebugCommand::Mcp => mcp::mcp(config),
+        DebugCommand::MarkdownFetch { url, allow_private } => {
+            markdown_fetch::markdown_fetch(config, url, *allow_private)
+        }
     }
 }

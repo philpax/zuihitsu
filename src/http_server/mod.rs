@@ -27,8 +27,9 @@ use axum::{
 };
 use tokio::net::TcpListener;
 use zuihitsu::{
-    EnvConfig, Graph, ModelArbiter, ModelClient, OpenAiClient, OpenAiEmbedder, RetryingModel,
-    Server, SnapshotSchedule, SqliteStore, SqliteVectorIndex, StdioHost, SystemClock, VectorIndex,
+    EnvConfig, Graph, HttpFetcher, HttpFetcherConfig, ModelArbiter, ModelClient, OpenAiClient,
+    OpenAiEmbedder, RetryingModel, Server, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
+    StdioHost, SystemClock, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
     snapshot,
@@ -224,8 +225,22 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         server.connect_mcp(Arc::new(StdioHost), config.mcp).await?;
     }
 
-    let tick =
-        Duration::from_secs(server.control().settings()?.scheduler.tick_seconds.max(1) as u64);
+    let settings = server.control().settings()?;
+
+    // Attach the in-house web fetcher backing `web.markdown`, built from the web settings. The
+    // transport-shaping values are read here at construction, so a change to them takes effect on
+    // restart; the SSRF guard refuses private and loopback addresses unless the operator opts in.
+    let web = &settings.web;
+    let fetcher = HttpFetcher::new(HttpFetcherConfig {
+        timeout: Duration::from_secs(web.fetch_timeout_seconds.max(1) as u64),
+        max_response_bytes: web.max_response_bytes.max(0) as u64,
+        user_agent: web.user_agent.clone(),
+        allow_private_addresses: web.allow_private_addresses,
+    })
+    .map_err(ServeError::Web)?;
+    server.connect_web(Arc::new(fetcher), web.max_markdown_chars.max(0) as usize);
+
+    let tick = Duration::from_secs(settings.scheduler.tick_seconds.max(1) as u64);
 
     // The model client the conversing endpoints use, built from config. Absent endpoint → no model →
     // those endpoints answer 503 rather than failing at call time. The real client is wrapped in

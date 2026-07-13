@@ -38,6 +38,10 @@ pub struct Session {
     /// The session's MCP state — the host, configured servers, and lazily-spawned instances backing the
     /// `mcp.<server>.*` projection — or `None` when no host is configured.
     pub(super) mcp: Option<std::sync::Arc<super::mcp_api::McpSession>>,
+    /// The web fetcher and its Markdown cap backing `web.markdown`, or `None` when no fetcher is
+    /// connected. Installed per block, gated on the `browsing` feature, like the memory API — not
+    /// once like the MCP projection, since it holds no per-session state (a fetch is stateless).
+    pub(super) web: Option<crate::web::WebClient>,
     /// Which API features this session enables — gates the Lua functions installed per block, the API
     /// reference rendered into the system prompt, and (at genesis) the scaffold dotpoints. Read fresh
     /// each block so it always reflects the instance's current features.

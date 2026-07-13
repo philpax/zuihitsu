@@ -244,7 +244,7 @@ mod tests {
             model,
             embedder: None,
             dimensions: 0,
-            mcp: None,
+            web: crate::fetch_fixture::web_fetcher(),
         };
         let ctx = RunContext::new(&deps, InstanceFeatures::default())
             .await

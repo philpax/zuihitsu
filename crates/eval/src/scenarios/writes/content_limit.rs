@@ -1,15 +1,19 @@
 //! Content limit enforcement: a memory entry exceeding the character limit is rejected before it is
 //! buffered, surfacing a teachable error that guides the agent to summarize rather than paste raw
-//! source content. The real-world path this guards against is an agent fetching a web page via MCP
-//! and trying to paste the whole thing into memory — so this scenario connects a test fetch server
-//! returning a large canned article, gives the agent a natural reason to record it, and verifies the
-//! gating property structurally: no committed entry exceeds the limit.
+//! source content. The real-world path this guards against is an agent fetching a web page and trying
+//! to paste the whole thing into memory — so this scenario serves a large canned article through the
+//! fixture web fetcher, gives the agent a natural reason to record it, and verifies the gating
+//! property structurally: no committed entry exceeds the limit.
+//!
+//! The fetch mechanism moved from the MCP fixture (`mcp.fetch.markdown`) to the first-class
+//! `web.markdown(url)` when browsing came in-house; the tested property (paste-whole versus summarize
+//! under the entry limit) is unchanged.
 //!
 //! - [`OversizedContentRejected`] — a participant shares a URL and asks the agent to save the key
-//!   details. The agent fetches the page via `mcp.fetch.markdown{ url = "..." }`, receives a large
-//!   body of text, and must either summarize it into a sub-limit entry or have the oversized write
-//!   rejected with the teachable error. The gating property is that no `MemoryContentAppended` event
-//!   with text exceeding the limit is ever committed — the limit prevents it.
+//!   details. The agent fetches the page via `web.markdown("...")`, receives a large body of text,
+//!   and must either summarize it into a sub-limit entry or have the oversized write rejected with
+//!   the teachable error. The gating property is that no `MemoryContentAppended` event with text
+//!   exceeding the limit is ever committed — the limit prevents it.
 
 use std::sync::Arc;
 
@@ -43,7 +47,7 @@ impl Scenario for OversizedContentRejected {
             name: "oversized_content_rejected".to_owned(),
             category: Category::Writes,
             description: "A participant shares a URL and asks the agent to save the key details. \
-                          The agent fetches the page via mcp.fetch.markdown, receives a large body \
+                          The agent fetches the page via web.markdown, receives a large body \
                           of text, and must either summarize it into a sub-limit entry or have the \
                           oversized write rejected. The gating property is that no committed \
                           memory entry exceeds the character limit — the limit prevents it."
@@ -58,18 +62,12 @@ impl Scenario for OversizedContentRejected {
         true
     }
 
-    fn needs_mcp(&self) -> bool {
-        // The scenario needs the test fetch server so the agent has a natural reason to hold a
-        // large block of text — the real-world path the limit guards against.
-        true
-    }
-
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             // Turn 1: Marcus shares a URL and asks the agent to save the key details. The agent should
-            // fetch the page via `mcp.fetch.markdown{ url = "..." }`, receive the large canned article,
-            // and attempt to record what it learned — either summarizing into a sub-limit entry, or
-            // having the oversized paste rejected with the teachable error.
+            // fetch the page via `web.markdown("...")`, receive the large canned article, and attempt
+            // to record what it learned — either summarizing into a sub-limit entry, or having the
+            // oversized paste rejected with the teachable error.
             Turn::new(
                 "discord",
                 "research",

@@ -56,6 +56,11 @@ pub(super) struct BlockApi {
     /// block's agent-visible result. Without this, `print` output is lost, so an agent that inspects a
     /// query by printing it (rather than returning it) sees nothing come back — the recall failure mode.
     pub(super) printed: Arc<Mutex<String>>,
+    /// The web fetcher backing `web.markdown`, or `None` when no fetcher is connected. Cloned from the
+    /// session so the `'static` async web closure holds its own handle. Unlike the memory operations,
+    /// a fetch touches no memory and takes no lock; unlike an MCP call, it does not latch the block's
+    /// "made an external call" flag (a GET is idempotent, so the block stays retryable on a timeout).
+    pub(super) web: Option<crate::web::WebClient>,
 }
 
 impl BlockApi {

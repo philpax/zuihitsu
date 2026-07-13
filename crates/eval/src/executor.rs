@@ -215,7 +215,7 @@ mod tests {
             model: Arc::new(model),
             embedder: None,
             dimensions: 0,
-            mcp: None,
+            web: crate::fetch_fixture::web_fetcher(),
         };
         RunContext::new(&deps, InstanceFeatures::default())
             .await

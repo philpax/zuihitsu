@@ -69,7 +69,8 @@ async fn a_non_text_block_returns_a_table_of_blocks() {
 
 #[tokio::test]
 async fn a_keyword_tool_is_callable_escaped() {
-    // lightpanda advertises `goto`; it is callable as the keyword-escaped `goto_` and routes to raw `goto`.
+    // A server advertising a tool named `goto` (a Lua keyword): it is callable as the keyword-escaped
+    // `goto_` and routes to the raw `goto`.
     let host = FakeMcpHost::new().with(
         "browser",
         FakeServer::new(vec![tool("goto")]).returns("goto", text("navigated")),

@@ -30,9 +30,10 @@ impl Instance {
         self.features
     }
 
-    /// A fresh session VM for a conversation, carrying the MCP projection when servers are connected.
+    /// A fresh session VM for a conversation, carrying the MCP projection when servers are connected
+    /// and the `web.markdown` projection when a fetcher is connected.
     pub(crate) fn mint_vm(&self, conversation: ConversationId) -> Session {
-        match &self.mcp {
+        let base = match &self.mcp {
             Some(runtime) => Session::with_mcp(
                 conversation,
                 runtime.host.clone(),
@@ -40,7 +41,8 @@ impl Instance {
                 self.features,
             ),
             None => Session::new(conversation, self.features),
-        }
+        };
+        base.with_web(self.web.clone())
     }
 
     /// Flush a closing session's working state to memory, then record `SessionEnded`. The budget-gated

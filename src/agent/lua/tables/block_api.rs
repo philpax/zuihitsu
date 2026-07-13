@@ -132,5 +132,12 @@ pub(crate) fn install_block_api(
     if features.transcripts {
         globals.set("convo", convo_table(lua, api)?)?;
     }
+    // The web module is installed only when browsing is on and a fetcher is connected. Browsing gates
+    // the three prompt surfaces (registration, reference, scaffold); the fetcher is the runtime
+    // dependency, absent on a fetcher-less in-memory instance — where the module stays absent (nil), a
+    // teachable nil-call error, rather than a call that could not fetch anyway.
+    if features.browsing && api.web.is_some() {
+        globals.set("web", web_table(lua, api)?)?;
+    }
     Ok(())
 }

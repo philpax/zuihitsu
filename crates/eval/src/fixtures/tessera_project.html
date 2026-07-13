@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+  <head>
+    <title>quill-labs/tessera: content-addressed file storage for Rust</title>
+  </head>
+  <body>
+    <header class="site-nav">
+      <nav>
+        <a href="/">Forge</a>
+        <a href="/pulls">Pull requests</a>
+        <a href="/issues">Issues</a>
+        <a href="/marketplace">Marketplace</a>
+        <a href="/login">Sign in</a>
+        <a href="/join">Sign up</a>
+      </nav>
+    </header>
+    <div class="repo-header">
+      <h1>quill-labs / tessera</h1>
+      <div class="repo-actions">
+        <button>Watch 42</button>
+        <button>Star 1,318</button>
+        <button>Fork 87</button>
+      </div>
+    </div>
+    <div class="file-listing">
+      <ul>
+        <li><a href="/tree/src">src</a></li>
+        <li><a href="/tree/tests">tests</a></li>
+        <li><a href="/blob/Cargo.toml">Cargo.toml</a></li>
+        <li><a href="/blob/LICENSE">LICENSE</a></li>
+        <li><a href="/blob/README.md">README.md</a></li>
+      </ul>
+    </div>
+    <main>
+      <article>
+        <h1>Tessera</h1>
+        <p>
+          Tessera is a content-addressed file storage library for Rust. It stores every file as a
+          set of variable-sized chunks, addressing each chunk by the hash of its contents, so two
+          files that share data store that data only once. It is built for backup tools and build
+          caches, where the same bytes recur across many versions of the same tree.
+        </p>
+        <p>
+          Chunking is done with a rolling hash that splits a byte stream at content-defined
+          boundaries, targeting an average chunk size of 64 KiB. Because the boundaries follow the
+          content rather than a fixed offset, inserting a few bytes near the start of a file
+          re-chunks only the region around the edit, leaving every later chunk — and its stored
+          copy — untouched.
+        </p>
+        <p>
+          Each chunk is named by its BLAKE3 hash, and a file is recorded as an ordered list of
+          those chunk hashes. Retrieving a file means looking up each chunk by hash and
+          concatenating them. Identical chunks collapse to one stored object, so a repository of
+          near-identical trees stays close to the size of a single tree.
+        </p>
+        <p>
+          Tessera is written in pure Rust with no unsafe code, is released under the MIT license,
+          and is maintained by the quill-labs collective. The store is a single append-only file
+          plus an index, so a backup can be copied with an ordinary file copy.
+        </p>
+      </article>
+    </main>
+    <aside class="repo-sidebar">
+      <h2>About</h2>
+      <p>content-addressed file storage for Rust</p>
+      <h3>Languages</h3>
+      <ul>
+        <li>Rust 99.1%</li>
+        <li>Shell 0.9%</li>
+      </ul>
+      <h3>Releases</h3>
+      <p>v0.4.2 — latest</p>
+    </aside>
+    <footer>© 2026 Forge, Inc. Terms · Privacy · Status · Docs</footer>
+  </body>
+</html>

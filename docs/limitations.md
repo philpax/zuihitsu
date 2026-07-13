@@ -62,6 +62,10 @@ This document is the register of the system's accepted residual risks and its re
 
 - *MCP resource projection is not built.* MCP integration surfaces tools only, not resources, and MCP servers support only the stdio transport. Revisit if a server worth integrating exposes state through resources or needs a non-stdio transport.
 
+- *`web.markdown` fetches static HTML only, missing JavaScript-rendered content.* The in-house web fetcher (see [External I/O](agent-loop.md#reading-the-web-webmarkdown)) pulls a page over HTTP and extracts the returned HTML; it runs no JavaScript, so a page whose content is rendered client-side comes back thin or empty. Driving a real browser is what a headless-browser MCP server exists for — the earlier approach before browsing came in-house — so a deployment that needs to read JS-heavy pages configures such a server alongside `web.markdown`. Accepted for now: most pages worth reading on request serve their substance in the initial HTML.
+
+- *`web.markdown` does not consult robots.txt.* The fetcher does not read or honour a site's `robots.txt`. This is a deliberate scope call: the agent is a personal operator's assistant fetching a page on explicit request, not a crawler harvesting a site at scale, so the crawler-etiquette contract does not apply. Revisit if the fetch surface ever becomes autonomous or bulk.
+
 - *The operator Lua console cannot query raw or historical state.* There is no `events.*` raw-event namespace, and the console cannot query historical (pre-head) state — it reads the current materialised graph. The Events view also cannot filter by `source` (#40). Revisit if operator debugging needs time-travel or raw-event access.
 
 - *No whole-log regenerative replay is built.* The recorded `produced_by` provenance is not consumed by any operation that re-runs past inference across the whole log. The provenance is there for correlation and audit; a regenerative-replay pass over it is a deliberate non-goal at this scale.

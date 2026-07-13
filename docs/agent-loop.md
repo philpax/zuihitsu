@@ -206,23 +206,32 @@ Registers one relation accessible under either label; the inverse view's cardina
 
 ### External I/O via MCP
 
-The agent's only outward reach is through MCP (Model Context Protocol) servers the operator configures. A server hosts the capability — driving a browser, calling a tool, querying a source — and the integration projects each server's tools into the Lua API as `mcp.<server>.<tool>{ ... }`: one function per tool, taking a single named-argument table and returning the result.
+The agent has two outward reaches: reading a web page, which is first-class and in-house through `web.markdown`, and everything else, which is through MCP (Model Context Protocol) servers the operator configures.
+
+#### Reading the web: `web.markdown`
+
+Fetching a web page is common and general enough to be a built-in rather than an operator-configured server, so it is a first-class Lua call: `web.markdown(url)` fetches an http/https page and returns its main content as Markdown. The fetch is a pipeline — pull the page over HTTP, extract the article with a readability pass (dropping nav, sidebars, cookie banners, and footers), render that to Markdown under the page's title, and truncate to a character cap — so the agent receives readable prose, not raw HTML or a page of chrome. Everything is in-house (`src/web/`): a reqwest transport behind a `WebFetcher` seam (so tests and the eval inject a fake), the pure extraction pipeline above it, and the tunables (`WebSettings`) for the timeout, byte cap, Markdown cap, user agent, and the private-address gate.
+
+The transport carries a server-side request forgery guard: before connecting, and again on every redirect hop, it refuses loopback, private (RFC 1918), link-local, and unique-local addresses, unless `allow_private_addresses` is set. This is not theatre — the instance's own control API listens on localhost, so an agent-driven fetch to a private address would be a confused-deputy hazard against its own host. A non-HTML response, a bad status, a timeout, a refused address, or an oversized body each comes back as a catchable, teachable error the agent can adapt to. A GET is idempotent, so — unlike an MCP call — `web.markdown` does not latch the block's "made an external call" flag, and a fetch-only block that times out on a lock-wait stays retryable.
+
+`web.markdown` is gated on the `browsing` [instance feature](../CONTRIBUTING.md#instance-features): with it off, the call is absent (the standard nil-call error), the API reference omits it, and the scaffold does not teach it.
+
+#### Operator-configured capabilities: MCP
+
+Everything beyond reading a page — driving a stateful browser, calling a tool, querying a source — is an MCP server the operator configures. The integration projects each server's tools into the Lua API as `mcp.<server>.<tool>{ ... }`: one function per tool, taking a single named-argument table and returning the result.
 
 ```lua
--- stateful session: navigate loads the page, later calls reuse it
-mcp.lightpanda.navigate{ url = "https://example.com" }   -- or the keyword-escaped goto_{ ... }
-local md   = mcp.lightpanda.markdown{}            -- reads the page already loaded
-local urls = mcp.lightpanda.links{}
-
--- or the stateless one-call form (navigate + extract in one request)
-local md2  = mcp.lightpanda.markdown{ url = "https://example.com" }
+-- a stateful browser server: navigate loads the page, later calls reuse it
+mcp.browser.navigate{ url = "https://example.com" }   -- or the keyword-escaped goto_{ ... }
+local md   = mcp.browser.markdown{}            -- reads the page already loaded
+local urls = mcp.browser.links{}
 ```
 
 #### Tool names are escaped into valid Lua
 
 A tool name that collides with a Lua keyword takes a trailing `_` (the `goto` tool → `mcp.<server>.goto_`); characters illegal in a Lua identifier are mapped to `_` likewise. The escaped name is what the system prompt advertises, so the agent always sees the callable form.
 
-Each advertised tool yields exactly one function, so an alias is a second function: lightpanda exposes both `goto` and its alias `navigate`, so both `goto_` and `navigate` are callable, with no dedup. If two tools on one server escape to the same Lua identifier, that is a hard startup error — the operator must rename or `deny` one — rather than a silent shadowing.
+Each advertised tool yields exactly one function, so an alias is a second function: a server exposing both `goto` and its alias `navigate` makes both `goto_` and `navigate` callable, with no dedup. If two tools on one server escape to the same Lua identifier, that is a hard startup error — the operator must rename or `deny` one — rather than a silent shadowing.
 
 #### Per-session server instances
 
@@ -252,7 +261,7 @@ The tool catalogue is probed once up front (a startup spawn, `tools/list`, `allo
 
 "Bare minimum" still owes the protocol a few obligations. A server-initiated request (a server reaching back for sampling or similar) is answered with `-32601 Method not found` and execution continues, never blocked waiting on it, which would deadlock. Server notifications are ignored, including `tools/list_changed`, since the catalogue is snapshotted at spawn and the prompt is frozen per session anyway. The instance is considered dead on subprocess exit, stdout EOF, a failed write, or non-JSON output on its stream, which drops its tools (see [Projected into the system prompt, and dropped when unavailable](#projected-into-the-system-prompt-and-dropped-when-unavailable)).
 
-Configured servers are environmental config (the `[mcp.<name>]` block — see [Configuration](lifecycle.md#configuration)), so they are operator-chosen and therefore operator-trusted, the same posture as the rest of the system. The projection is general — adding a server is a config entry, not code — and the concrete target is [lightpanda](https://lightpanda.io/docs/open-source/guides/mcp-server), a headless-browser MCP server (navigation, extraction, and page interaction over ~20 tools). A network-capable server's egress floor (blocking private-network and loopback ranges) is set in its own launch config, where such flags live (see [Known limitations](limitations.md)).
+Configured servers are environmental config (the `[mcp.<name>]` block — see [Configuration](lifecycle.md#configuration)), so they are operator-chosen and therefore operator-trusted, the same posture as the rest of the system. The projection is general — adding a server is a config entry, not code — so a headless-browser server for stateful page interaction, or any other capability, is a config entry rather than a build change. A network-capable MCP server's egress floor (blocking private-network and loopback ranges) is set in its own launch config, where such flags live; the in-house `web.markdown` fetcher carries its own such guard (see [Reading the web](#reading-the-web-webmarkdown)).
 
 #### Projected into the system prompt, and dropped when unavailable
 

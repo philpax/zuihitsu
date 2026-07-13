@@ -61,6 +61,7 @@ impl Session {
                 lock_set: Arc::new(Mutex::new(LockSet::default())),
                 manager: manager.clone(),
                 printed: Arc::new(Mutex::new(String::new())),
+                web: self.web.clone(),
             };
 
             // The handle metatable and its methods table back every memory handle the API mints; the

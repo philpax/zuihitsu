@@ -55,6 +55,7 @@ use crate::{
     snapshot,
     store::{MemoryStore, Store},
     vector::VectorIndex,
+    web::{WebClient, WebFetcher},
 };
 
 pub struct Instance {
@@ -77,6 +78,10 @@ pub struct Instance {
     /// The MCP host and the catalogue probed from it at [`Instance::connect_mcp`] — `None` until then.
     /// Each session opened while it is set gets the `mcp.<server>.*` projection over the same catalogue.
     mcp: Option<McpRuntime>,
+    /// The web fetcher and its Markdown cap, set by [`Instance::connect_web`] — `None` until then.
+    /// Each session opened while it is set gets the `web.markdown` projection over it (gated on the
+    /// `browsing` feature).
+    web: Option<WebClient>,
     /// Which API features this instance enables — gates the Lua functions installed per block, the
     /// API reference rendered into the system prompt, and (at genesis) the scaffold dotpoints. Set
     /// at construction, before genesis, so the baked scaffold reflects it; defaults to all-on.
@@ -195,6 +200,7 @@ impl Instance {
             passes: BackgroundPasses::new(Seq::ZERO),
             streams,
             mcp: None,
+            web: None,
             features,
             model_context_length: None,
         }
@@ -219,6 +225,14 @@ impl Instance {
         let catalogue = McpCatalogue::probe(host.as_ref(), &configs).await?;
         self.mcp = Some(McpRuntime { host, catalogue });
         Ok(())
+    }
+
+    /// Attach the web fetcher backing `web.markdown`, projected into every session opened from now on
+    /// (gated on the `browsing` feature). Called once after construction by whoever drives serving —
+    /// the serving host wires the real [`HttpFetcher`], tests and the eval inject a fake. Idempotent
+    /// re-wiring is fine; the last fetcher set wins.
+    pub fn connect_web(&mut self, fetcher: Arc<dyn WebFetcher>, max_markdown_chars: usize) {
+        self.web = Some(WebClient::new(fetcher, max_markdown_chars));
     }
 
     /// Subscribe to committed events — the store's live feed, which the control surface's push

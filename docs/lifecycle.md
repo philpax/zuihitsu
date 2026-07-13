@@ -56,8 +56,8 @@ The defaults the code applies for an absent or partial file are fail-closed by c
 Each configured MCP server (see [Lua API → External I/O via MCP](agent-loop.md#external-io-via-mcp)) is one table (`McpServerConfig` in `src/mcp/mod.rs`):
 
 ```toml
-[mcp.lightpanda]
-command = "lightpanda"                 # executable; argv, never shell-split
+[mcp.browser]
+command = "browser-mcp"                 # executable; argv, never shell-split
 args    = ["mcp"]
 env     = { FOO = "bar" }               # optional extra environment (serialised redacted)
 cwd     = "/path"                       # optional working directory
@@ -65,7 +65,7 @@ allow   = ["navigate", "markdown", "links"]   # optional; raw tool names
 deny    = ["evaluate"]                         # optional; raw tool names
 ```
 
-The table key (`lightpanda`) is the projection prefix `mcp.<key>.*`, so it MUST be a valid Lua identifier (`[A-Za-z_][A-Za-z0-9_]*`), rejected at config load otherwise (`ConfigError::InvalidMcpServerName`). `command` + `args` are an argv pair with no shell-splitting; zuihitsu rejects shell-splitting to avoid the shell-quoting footgun. Stdio is the only transport, so it is not a field. `allow` / `deny` are matched raw against the server's advertised catalogue during the one-time startup probe (`McpCatalogue::probe`): `allow` narrows to the named tools, `deny` drops from what remains, and a filter entry matching no advertised tool — or two tools that escape to the same Lua name — is a hard startup error the operator must fix. A server that simply fails to spawn is dropped with a warning rather than failing the boot.
+The table key (`browser`) is the projection prefix `mcp.<key>.*`, so it MUST be a valid Lua identifier (`[A-Za-z_][A-Za-z0-9_]*`), rejected at config load otherwise (`ConfigError::InvalidMcpServerName`). `command` + `args` are an argv pair with no shell-splitting; zuihitsu rejects shell-splitting to avoid the shell-quoting footgun. Stdio is the only transport, so it is not a field. `allow` / `deny` are matched raw against the server's advertised catalogue during the one-time startup probe (`McpCatalogue::probe`): `allow` narrows to the named tools, `deny` drops from what remains, and a filter entry matching no advertised tool — or two tools that escape to the same Lua name — is a hard startup error the operator must fix. A server that simply fails to spawn is dropped with a warning rather than failing the boot.
 
 ## Model identity is not double-recorded
 

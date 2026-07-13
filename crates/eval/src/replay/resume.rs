@@ -222,7 +222,7 @@ fn build_deps(config_path: &Path, scenario: &dyn Scenario) -> Result<RunDeps, Ev
         model,
         embedder,
         dimensions: config.embedding.dimensions,
-        mcp: Some(fetch_fixture::fetch_host()),
+        web: fetch_fixture::web_fetcher(),
     })
 }
 

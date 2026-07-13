@@ -17,6 +17,7 @@ pub mod model;
 pub mod snapshot;
 pub mod store;
 pub mod vector;
+pub mod web;
 
 // The wasm-compatible core lives in `zuihitsu-core` and is re-exported here, so the rest of the
 // codebase reaches these modules at their existing `crate::*` paths. `db` (rusqlite query helpers)
@@ -65,7 +66,7 @@ pub use model::{
 pub use settings::{
     BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings, ConcurrencySettings,
     ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays,
-    TurnSettings,
+    TurnSettings, WebSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{
@@ -76,6 +77,9 @@ pub use vector::{
     InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,
 };
 pub use vocabulary::{RelationName, TagName};
+pub use web::{
+    FakeWebFetcher, FetchedPage, HttpFetcher, HttpFetcherConfig, WebClient, WebError, WebFetcher,
+};
 
 pub use agent::{
     BlockContext, InferredLink, LinkInferenceArgs, McpCatalogue, NewRelationSpec, ToolStep, Turn,

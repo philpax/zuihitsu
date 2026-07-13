@@ -16,10 +16,9 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
 
     let scaffold = template(PromptTemplateName::Scaffold);
     assert_eq!(
-        scaffold.version, 17,
-        "the scaffold is registered at v17 (v17 sharpens the neutral-handle clause: the handle names \
-         the occasion, never the plan, because the handle is the one part of the record no guard \
-         covers)"
+        scaffold.version, 18,
+        "the scaffold is registered at v18 (v18 adds the browsing dotpoint: read a page with \
+         web.markdown, then record a summary rather than pasting the whole page)"
     );
     assert!(
         scaffold
@@ -56,6 +55,16 @@ fn the_transcripts_dotpoint_is_gated_on_the_feature() {
         ..Default::default()
     };
     assert!(!scaffold_body(&disabled).contains("convo.turn"));
+}
+
+#[test]
+fn the_browsing_dotpoint_is_gated_on_the_feature() {
+    assert!(scaffold_body(&InstanceFeatures::default()).contains("web.markdown(url)"));
+    let disabled = InstanceFeatures {
+        browsing: false,
+        ..Default::default()
+    };
+    assert!(!scaffold_body(&disabled).contains("web.markdown"));
 }
 
 #[test]

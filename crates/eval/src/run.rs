@@ -161,15 +161,15 @@ async fn run(
             &config.embedding,
         )))) as Arc<dyn Embedder>
     });
-    // A test-only MCP host with a "fetch" server whose `markdown` tool returns a large canned
-    // article — the real-world path the content limit guards against (an agent fetches a page and
-    // tries to paste the whole thing into memory). Pure in-memory: no subprocess, no network.
-    let fetch_host = fetch_fixture::fetch_host();
+    // The fixture web fetcher backing `web.markdown`, serving canned pages a fetching scenario reads
+    // (a large article the content limit guards against, and an invented project page). Pure
+    // in-memory: no subprocess, no network.
+    let web = fetch_fixture::web_fetcher();
     let deps = RunDeps {
         model,
         embedder,
         dimensions: config.embedding.dimensions,
-        mcp: Some(fetch_host),
+        web,
     };
 
     let mut scenarios = crate::scenarios::all();
@@ -195,8 +195,7 @@ async fn run(
 
     // The scenarios that will actually run; the manifest and the live log's scenario indices are over
     // this list.
-    let active =
-        crate::harness::active_scenarios(scenarios, deps.embedder.is_some(), deps.mcp.is_some());
+    let active = crate::harness::active_scenarios(scenarios, deps.embedder.is_some());
     let scenario_metas: Vec<ScenarioMeta> = active.iter().map(|scenario| scenario.meta()).collect();
 
     let started_at_ms = live::now_ms();

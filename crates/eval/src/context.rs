@@ -3,16 +3,15 @@
 //! is independent (its own in-memory store, graph, and — when retrieval is configured — vector index),
 //! which is what lets runs parallelize.
 
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
-    CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeMcpHost, Graph,
-    InstanceFeatures, LinkSource, ManualClock, McpServerConfig, MemoryId, MemoryStore, ModelClient,
-    RelationName, SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome,
-    Visibility,
+    CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeWebFetcher, Graph,
+    InstanceFeatures, LinkSource, ManualClock, MemoryId, MemoryStore, ModelClient, RelationName,
+    SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome, Visibility,
 };
 
-use crate::error::EvalError;
+use crate::{error::EvalError, fetch_fixture::FIXTURE_MAX_MARKDOWN_CHARS};
 
 /// The fixed clock anchor every run starts at (2026-06-08T00:00:00Z), so scenario timing is
 /// reproducible; scenarios advance from here.
@@ -33,15 +32,15 @@ const HUMAN_PAUSE_MS: i64 = 10_000;
 pub(crate) const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
 
 /// The shared, build-once inputs every run needs: the model, — when an embedding endpoint is
-/// configured — the embedder and its dimensionality (a fresh vector index is built per run), and —
-/// when a test MCP host is configured — the fake server catalogue a scenario's `needs_mcp()` run
-/// depends on (a fresh host is connected per run, returning canned results deterministically).
+/// configured — the embedder and its dimensionality (a fresh vector index is built per run), and the
+/// fixture web fetcher backing `web.markdown` (pure in-memory, so it is connected to every run
+/// unconditionally, standing in for what the serving host builds from config).
 #[derive(Clone)]
 pub struct RunDeps {
     pub model: Arc<dyn ModelClient>,
     pub embedder: Option<Arc<dyn Embedder>>,
     pub dimensions: usize,
-    pub mcp: Option<Arc<FakeMcpHost>>,
+    pub web: Arc<FakeWebFetcher>,
 }
 
 /// One run's booted agent and the clock it runs against.
@@ -308,11 +307,11 @@ impl RunContext {
     }
 }
 
-/// Build a server around `store` and `clock` with the scenario's feature set, connect the test MCP host
-/// (if any) before boot so sessions opened during the run get the projected tool catalogue, and boot.
-/// Shared by [`RunContext::new`] (which then births a fresh agent) and [`RunContext::restored`] (which
-/// boots into a restored log): boot materializes the graph from whatever the store already holds, so it
-/// serves both the empty-log birth and the existing-log restart.
+/// Build a server around `store` and `clock` with the scenario's feature set, connect the fixture web
+/// fetcher before boot so sessions opened during the run can fetch, and boot. Shared by
+/// [`RunContext::new`] (which then births a fresh agent) and [`RunContext::restored`] (which boots into
+/// a restored log): boot materializes the graph from whatever the store already holds, so it serves
+/// both the empty-log birth and the existing-log restart.
 async fn assemble(
     deps: &RunDeps,
     features: InstanceFeatures,
@@ -335,13 +334,9 @@ async fn assemble(
             features,
         ),
     };
-    // The `FakeMcpHost` is pure in-memory — no subprocess, no network — so it is safe to always connect.
-    // Real MCP servers (`config.mcp`) never reach the eval.
-    if let Some(host) = &deps.mcp {
-        let configs: BTreeMap<String, McpServerConfig> =
-            BTreeMap::from([("fetch".to_owned(), McpServerConfig::default())]);
-        server.connect_mcp(host.clone(), configs).await?;
-    }
+    // The `FakeWebFetcher` is pure in-memory — no subprocess, no network — so it is connected to every
+    // run. The real `HttpFetcher` never reaches the eval.
+    server.connect_web(deps.web.clone(), FIXTURE_MAX_MARKDOWN_CHARS);
     server.boot()?;
     Ok(server)
 }

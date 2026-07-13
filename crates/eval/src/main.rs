@@ -397,7 +397,10 @@ fn write_console_constants(dir: &Path) -> std::io::Result<()> {
 
 fn init_tracing() {
     use tracing_subscriber::{EnvFilter, fmt};
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // html5ever (under the readability extraction) warns about foreign-namespace nodes on every
+    // serialisation of a page that carries them — capped at error, as in the agent binary.
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,html5ever=error"));
     let _ = fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)

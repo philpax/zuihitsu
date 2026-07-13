@@ -38,6 +38,20 @@ fn disabling_linking_omits_every_link_entry() {
 }
 
 #[test]
+fn browsing_gates_the_web_entry() {
+    // On by default: web.markdown is described.
+    assert!(names(&InstanceFeatures::default()).contains(&"web.markdown".to_owned()));
+    // Off: the reference omits it, so the prompt never describes a call the runtime will not install.
+    let features = InstanceFeatures {
+        browsing: false,
+        ..Default::default()
+    };
+    assert!(!names(&features).contains(&"web.markdown".to_owned()));
+    // The rest of the surface is unaffected.
+    assert!(names(&features).contains(&"memory.create".to_owned()));
+}
+
+#[test]
 fn disabling_merging_omits_propose_merge() {
     let features = InstanceFeatures {
         merging: false,

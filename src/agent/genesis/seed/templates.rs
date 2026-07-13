@@ -160,6 +160,19 @@ pub(in crate::agent::genesis) fn default_templates(
         );
     }
     scaffold_points.push(record_point);
+    // The web-fetch dotpoint teaches `web.markdown` — include it only when browsing is on.
+    if features.browsing {
+        scaffold_points.push(
+            "When someone points you at a web page, read it with web.markdown(url) — it returns the \
+             page's main content as prose, its navigation, sidebars, and footers stripped, not raw \
+             HTML. Read what comes back, then record a summary of what matters in your own words; \
+             never paste a whole page into memory — it is truncated at the source, bloats the log, \
+             and buries the fact you actually learned under chrome. A fetch can fail — a bad \
+             address, a page that is not HTML, a timeout — and says so plainly; treat that as the \
+             answer, not a cue to invent what the page might have said."
+                .to_owned(),
+        );
+    }
     // The transcript-link dotpoint teaches `convo.turn` — include it only when transcripts are on.
     if features.transcripts {
         // The reconstruction clause leans on link-following, which is the `linking` feature; drop
@@ -337,6 +350,10 @@ pub(in crate::agent::genesis) fn default_templates(
             // fresh read; and the absence-is-the-answer clause now applies only to a question about
             // what is held, never to a turn that tells the agent something to keep or asks it to set
             // something up, which it records rather than reporting absent.
+            // Version 18 adds the browsing dotpoint (gated on the `browsing` feature): read a page
+            // with web.markdown, then record a summary rather than pasting the whole page, and treat
+            // a fetch failure as the answer. The mechanics (the return shape, the error cases) live
+            // in the reference; the scaffold states only the practice.
             // Version 17 sharpens the neutral-handle clause into "names the occasion, never the
             // plan", with its why (the handle is the one part of the record no guard covers): at
             // v16 the guarded-record recipe landed but a telling handle could still be minted.
@@ -369,7 +386,7 @@ pub(in crate::agent::genesis) fn default_templates(
             // a candidate, not a match; version 8 threaded the whole-record read; version 7 added the
             // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the version
             // keeps an older `produced_by` naming the body it was generated under.
-            version: 17,
+            version: 18,
             body: scaffold_body,
         },
         TemplateDef {

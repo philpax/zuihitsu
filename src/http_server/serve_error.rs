@@ -3,7 +3,8 @@
 use std::{io, net::SocketAddr, path::PathBuf};
 
 use zuihitsu::{
-    ConfigError, GraphError, ServerError, StoreError, VectorError, snapshot::SnapshotError,
+    ConfigError, GraphError, ServerError, StoreError, VectorError, WebError,
+    snapshot::SnapshotError,
 };
 
 /// A failure starting or running the server.
@@ -29,6 +30,8 @@ pub enum ServeError {
     },
     /// Restoring the graph from a snapshot at boot failed (spec §Snapshots).
     Snapshot(SnapshotError),
+    /// Building the web fetcher backing `web.markdown` failed (its HTTP client could not be built).
+    Web(WebError),
     /// A server operation (boot, reading settings, connecting MCP) failed at startup. Boxed because
     /// `ServerError` (= `InstanceError`) transitively owns `TurnError`/`LuaError` and is large enough
     /// to push `CliError` past the `result_large_err` lint threshold.
@@ -86,6 +89,9 @@ impl std::fmt::Display for ServeError {
                     "serve: could not restore the graph from a snapshot: {source}"
                 )
             }
+            ServeError::Web(source) => {
+                write!(f, "serve: could not build the web fetcher: {source}")
+            }
             ServeError::Server(source) => write!(f, "serve: {source}"),
             ServeError::MissingContextLength => write!(
                 f,
@@ -110,6 +116,7 @@ impl std::error::Error for ServeError {
             ServeError::OpenGraph { source, .. } => Some(source),
             ServeError::OpenVectors { source, .. } => Some(source),
             ServeError::Snapshot(source) => Some(source),
+            ServeError::Web(source) => Some(source),
             ServeError::Server(source) => Some(source.as_ref()),
             ServeError::MissingContextLength => None,
             ServeError::Bind { source, .. } => Some(source),

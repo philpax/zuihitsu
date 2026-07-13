@@ -41,6 +41,7 @@ pub struct Settings {
     pub concurrency: ConcurrencySettings,
     pub observability: ObservabilitySettings,
     pub memory: MemorySettings,
+    pub web: WebSettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -242,6 +243,38 @@ pub struct MemorySettings {
     pub max_entry_chars: i64,
 }
 
+/// Web fetching (`web.markdown`): the transport limits and identity the in-house fetcher uses to pull
+/// a page and extract its main content as Markdown. The transport-shaping values — the timeout, the
+/// byte cap, the user agent, and the private-address gate — are read when the serving host constructs
+/// the fetcher, so a change to them takes effect on restart; `max_markdown_chars` is applied to the
+/// extracted Markdown per fetch.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct WebSettings {
+    /// How long a single fetch may take before it is abandoned with a teachable timeout error. Set
+    /// comfortably under the block timeout (`TurnSettings::block_timeout_seconds`), so a slow page
+    /// fails the fetch cleanly rather than tripping the whole block's budget.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub fetch_timeout_seconds: i64,
+    /// The most bytes a response body may carry before the fetch is aborted. The cap is enforced as
+    /// the body streams, so an oversized page is dropped mid-download rather than buffered whole.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_response_bytes: i64,
+    /// The most characters the extracted Markdown may carry. Content beyond this is truncated with an
+    /// explicit marker, so a long page cannot flood the agent's context; the agent summarizes what it
+    /// read into memory rather than holding the whole page.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_markdown_chars: i64,
+    /// The `User-Agent` header the fetcher sends, so a fetched host can identify the agent.
+    pub user_agent: String,
+    /// Whether to allow fetches that resolve to loopback, private (RFC 1918), link-local, or
+    /// unique-local addresses. Off by default: the instance's own control API listens on localhost, so
+    /// an agent-driven fetch to a private address is a server-side request forgery hazard. Enable it
+    /// only for a deployment that deliberately fetches from a trusted private network.
+    pub allow_private_addresses: bool,
+}
+
 /// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
 /// decay.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -363,6 +396,18 @@ impl Default for MemorySettings {
     }
 }
 
+impl Default for WebSettings {
+    fn default() -> Self {
+        WebSettings {
+            fetch_timeout_seconds: 30,
+            max_response_bytes: 5 * 1_024 * 1_024,
+            max_markdown_chars: 20_000,
+            user_agent: "zuihitsu/0.1 (+https://github.com/philpax/zuihitsu)".to_owned(),
+            allow_private_addresses: false,
+        }
+    }
+}
+
 impl Default for SearchSettings {
     fn default() -> Self {
         SearchSettings {
@@ -414,7 +459,7 @@ impl Settings {
 mod tests {
     use super::{
         BriefSettings, CaptureLevel, CheckpointSettings, ConcurrencySettings, MemorySettings,
-        ObservabilitySettings, SchedulerSettings, Settings, TurnSettings,
+        ObservabilitySettings, SchedulerSettings, Settings, TurnSettings, WebSettings,
     };
 
     #[test]
@@ -481,6 +526,18 @@ mod tests {
         // The memory group postdates many logged snapshots; its absence must default to the limit.
         assert_eq!(settings.memory, MemorySettings::default());
         assert_eq!(settings.memory.max_entry_chars, 1_000);
+        // The web group postdates many logged snapshots; its absence must default the fetcher's limits
+        // and leave private-address fetches refused.
+        assert_eq!(settings.web, WebSettings::default());
+        assert!(!settings.web.allow_private_addresses);
+    }
+
+    #[test]
+    fn web_defaults_match_the_spec_starting_values() {
+        let web = WebSettings::default();
+        assert_eq!(web.fetch_timeout_seconds, 30);
+        assert_eq!(web.max_markdown_chars, 20_000);
+        assert!(!web.allow_private_addresses);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::{InstanceFeatures, agent::api_doc::ApiEntry, ids::ConversationId};
+use crate::{InstanceFeatures, agent::api_doc::ApiEntry, ids::ConversationId, web::WebClient};
 
 use super::Session;
 
@@ -14,8 +14,17 @@ impl Session {
             lua,
             conversation,
             mcp: None,
+            web: None,
             features,
         }
+    }
+
+    /// Attach the web fetcher to this session, chainably — the `web.markdown` projection is installed
+    /// per block when it is set and the `browsing` feature is on. Called by the instance's `mint_vm`
+    /// after choosing the base constructor, so a session with or without MCP both gain web the same way.
+    pub fn with_web(mut self, web: Option<WebClient>) -> Session {
+        self.web = web;
+        self
     }
 
     /// A VM with the `mcp.<server>.*` projection installed from `catalogue` (the probed, filtered tool
@@ -36,6 +45,7 @@ impl Session {
             lua,
             conversation,
             mcp: Some(mcp),
+            web: None,
             features,
         }
     }

@@ -7,6 +7,7 @@ mod context;
 mod links;
 mod memory;
 mod tags;
+mod web;
 
 #[cfg(test)]
 mod tests;
@@ -44,6 +45,9 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
     }
     if features.calendar {
         entries.extend(calendar::entries());
+    }
+    if features.browsing {
+        entries.extend(web::entries());
     }
     entries.extend(memory::block_entries());
     entries

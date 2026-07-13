@@ -27,6 +27,8 @@ pub struct InstanceFeatures {
     pub merging: bool,
     /// Calendar queries and date arithmetic — `calendar.*`, `:add_days`, etc.
     pub calendar: bool,
+    /// Web fetching — `web.markdown`, which fetches a page and returns its main content as Markdown.
+    pub browsing: bool,
     /// Transcript turn-link resolution — `convo.turn`, which resolves a conversation turn id (the
     /// `?turn=<ulid>` a console deep-link carries) to that moment and a window of surrounding turns.
     pub transcripts: bool,
@@ -43,6 +45,7 @@ impl Default for InstanceFeatures {
             tagging: true,
             merging: true,
             calendar: true,
+            browsing: true,
             transcripts: true,
             context: true,
         }

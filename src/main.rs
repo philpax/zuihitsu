@@ -96,7 +96,11 @@ fn run() -> ExitCode {
 /// after the turn resolves) prints a summary line an operator can read off without re-reading the raw
 /// event log (spec §Observability → per-turn spans).
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // html5ever (under the readability extraction) warns about foreign-namespace nodes (SVG, MathML)
+    // on every serialisation of a page that carries them — noise with no operator action, so it is
+    // capped at error. An explicit RUST_LOG still overrides the whole filter, cap included.
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,html5ever=error"));
     fmt()
         .with_env_filter(filter)
         .with_span_events(fmt::format::FmtSpan::CLOSE)
