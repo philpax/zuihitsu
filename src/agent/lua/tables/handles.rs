@@ -142,20 +142,21 @@ pub(super) fn install_handle_methods(
         })?,
     )?;
 
-    // mem:supersede(old, new) — correct or retract a fact: mark `old` superseded by `new` (both
-    // entry handles read from this memory). Locks the whole class, since it validates against and
-    // mutates the merged identity's entries.
+    // mem:supersede(old, new) — correct or retract a fact: mark `old` superseded by `new`. Each is an
+    // entry handle read from this memory, or its id (or a unique id prefix) as a string — the id the
+    // rendered entry line leads with. Locks the whole class, since it validates against and mutates the
+    // merged identity's entries.
     methods.set(
         "supersede",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, old, new): (HandleSelf, Table, Table)| {
+            move |_, (this, old, new): (HandleSelf, Value, Value)| {
                 let api = api.clone();
                 async move {
                     guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
                     guard_search_taint(&api, id)?;
-                    let (old, new) = (entry_handle_id(&old)?, entry_handle_id(&new)?);
+                    let (old, new) = (entry_selector(&old)?, entry_selector(&new)?);
                     api.lock_class(id).await?;
                     api.block
                         .lock()
@@ -167,7 +168,8 @@ pub(super) fn install_handle_methods(
     )?;
 
     // mem:retract(entry, reason) — withdraw a fact outright to a tombstone, recording why (an entry
-    // handle or a bare entry-id string, like supersede's argument). Unlike supersede there is no
+    // handle, or its id or a unique id prefix as a string, like supersede's argument). Unlike
+    // supersede there is no
     // replacement: this is the honest fix when a fact was filed on the wrong memory — retract it here
     // and re-assert it on the right memory with a fresh append. Runs the same fuzzy-write guard and
     // block taint as the other content writers, and locks the whole class (the block validates the
@@ -183,7 +185,7 @@ pub(super) fn install_handle_methods(
                     guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
                     guard_search_taint(&api, id)?;
-                    let entry = entry_arg_id(&entry)?;
+                    let entry = entry_selector(&entry)?;
                     api.lock_class(id).await?;
                     api.block
                         .lock()

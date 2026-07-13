@@ -8,17 +8,27 @@ use super::*;
 /// addressable entry for `mem:supersede`.
 pub(in crate::agent::lua) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
-    // An entry renders self-describingly: its text prefixed by what governs reading it — when the
-    // fact occurs (if dated), a `disputed` marker when it is under an unresolved arbitration, the
-    // visibility, and who it came from, e.g. "[2027-03-15 · disputed · private · from person/erin]
-    // …". So printing a memory's entries shows at a glance when a dated fact happens, which are
-    // contested, which are confidences to hold, and whose they are — rather than bare text whose
-    // date and provenance the agent has to reconstruct (or search for) separately.
+    // An entry renders self-describingly: its text prefixed by its id and by what governs reading it
+    // — when the fact occurs (if dated), a `disputed` marker when it is under an unresolved
+    // arbitration, the visibility, and who it came from, e.g.
+    // "[01JQ… · 2027-03-15 · disputed · private · from person/erin] …". The id leads the bracket so a
+    // read shows the stable handle to correct the entry by (pass it — or a unique prefix of it — to
+    // `mem:supersede`/`mem:retract`); text-scanning to re-find an entry misses on case and paraphrase.
+    // So printing a memory's entries shows at a glance which entry to address, when a dated fact
+    // happens, which are contested, which are confidences to hold, and whose they are — rather than
+    // bare text whose id, date, and provenance the agent has to reconstruct (or search for) separately.
     metatable.set(
         "__tostring",
         lua.create_function(|lua, this: Table| {
             let text = this.get::<String>("text")?;
             let mut segments = Vec::new();
+            // The full id leads the bracket, labelled so a bare ULID reads as the addressing
+            // affordance it is, not opaque metadata — `mem:supersede`/`mem:retract` take it (or a
+            // unique prefix). Rendered in full, never shortened: same-block entries share their
+            // ULID timestamp prefix, so a shortened render would be exactly the ambiguous case.
+            if let Some(id) = this.get::<Option<String>>("id")? {
+                segments.push(format!("id {id}"));
+            }
             // `occurred_at` is the structured tagged table; render it back to a date for display.
             let occurred = this.get::<Value>("occurred_at")?;
             if !occurred.is_nil()

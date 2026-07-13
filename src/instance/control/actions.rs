@@ -286,8 +286,12 @@ impl super::Control<'_> {
         };
         let entry_id = match entry_id {
             Ok(entry_id) => entry_id,
-            Err(MemoryError::UnknownEntry(entry)) => {
-                return Ok(SelfEditOutcome::UnknownEntry(entry));
+            Err(MemoryError::UnknownEntry(_)) => {
+                // Only `revise`'s supersede leg raises this, and it is driven by `supersedes`, so the
+                // unknown entry is exactly that operator-supplied id.
+                return Ok(SelfEditOutcome::UnknownEntry(supersedes.expect(
+                    "UnknownEntry arises only from a revise, which passes an id",
+                )));
             }
             Err(MemoryError::ContentTooLong { length, limit }) => {
                 return Ok(SelfEditOutcome::TooLong { length, limit });

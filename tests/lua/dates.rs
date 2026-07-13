@@ -20,7 +20,7 @@ async fn calendar_computes_dates_for_occurred_at() {
     };
     // "this Friday" from Monday 2026-06-08 is 2026-06-12 — computed by the runtime, rendered on read.
     assert!(
-        result.contains("[2026-06-12"),
+        result.contains("2026-06-12"),
         "the computed Friday should land as the occurrence, got: {result}"
     );
 }

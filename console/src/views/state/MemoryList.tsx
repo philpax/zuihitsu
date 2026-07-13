@@ -100,6 +100,12 @@ export function EntryItem({
         {entry.text}
       </p>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">
+        {/* The entry id leads the line (faint, truncated), the same handle the agent supersedes or
+            retracts by; the title carries the full id. */}
+        <span className="text-ink-faint/60" title={entry.entry_id}>
+          {entry.entry_id.slice(0, 10)}
+        </span>
+        <span className="text-ink-faint/45">·</span>
         {entry.retracted_reason !== null && (
           <>
             <span className="text-clay">retracted: {entry.retracted_reason}</span>

@@ -1003,3 +1003,35 @@ fn a_brief_relationship_without_latest_deserializes() {
         }
     );
 }
+
+#[test]
+fn the_brief_never_renders_an_entry_id() {
+    // The agent-invoked read surfaces lead each entry with its id, but the contextual brief stays lean
+    // — its fact lines carry the text and provenance markers only, never the id. This locks the brief's
+    // separate rendering path against the id leaking in through a future shared-renderer refactor.
+    let priya = MemoryId::generate();
+    let entry_id = EntryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(priya, "person/priya"),
+        EventPayload::MemoryContentAppended {
+            id: priya,
+            entry_id,
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "leads the platform migration".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+    ]);
+
+    let out = compose_at_epoch(&graph, &Settings::default().brief, &[priya], None, &[]);
+    assert!(
+        out.contains("leads the platform migration"),
+        "the fact renders: {out}"
+    );
+    assert!(
+        !out.contains(&entry_id.0.to_string()),
+        "the brief must not render the entry id: {out}"
+    );
+}

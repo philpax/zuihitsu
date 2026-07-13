@@ -13,9 +13,11 @@ use crate::{
     },
 };
 
+use ulid::Ulid;
+
 use super::{
-    Authority, EntryRef, ForcedVisibility, MemoryBlock, MemoryError, VisibilityChoice,
-    WITHHELD_STUB,
+    Authority, EntryRef, EntrySelector, ForcedVisibility, MIN_ENTRY_PREFIX, MemoryBlock,
+    MemoryError, VisibilityChoice, WITHHELD_STUB,
 };
 
 impl MemoryBlock {
@@ -226,6 +228,85 @@ impl MemoryBlock {
                 Ok((entry, withheld, stale))
             })
             .collect()
+    }
+
+    /// Resolve an entry argument to the concrete [`EntryId`] a `supersede`/`retract` acts on. An entry
+    /// handle already carries the full id, so [`EntrySelector::Id`] passes straight through; a string
+    /// the agent typed ([`EntrySelector::Ref`]) is a full id or a unique prefix of one, resolved here
+    /// against the memory's `same_as` class.
+    ///
+    /// Positional addressing ("the second entry") is deliberately *not* a form: an entry's position in
+    /// a read shifts as entries land and supersede, so a stale ordinal would correct the wrong entry.
+    /// Only a stable id — or a prefix of one — names an entry unambiguously, which is why every rendered
+    /// entry line leads with its id.
+    ///
+    /// A full id resolves to itself (the live/historical check is the caller's, so a full id names an
+    /// entry even once superseded, for `history`-driven work). A prefix is matched case-insensitively
+    /// (the id renders uppercase) over the whole class's live-and-historical entries, and must be at
+    /// least [`MIN_ENTRY_PREFIX`] characters: a unique match resolves, more than one is
+    /// [`MemoryError::AmbiguousEntryPrefix`] listing the candidates, and none — or a too-short prefix —
+    /// is [`MemoryError::UnknownEntry`].
+    pub(super) fn resolve_entry_ref(
+        &self,
+        id: MemoryId,
+        selector: EntrySelector,
+    ) -> Result<EntryId, MemoryError> {
+        let raw = match selector {
+            EntrySelector::Id(entry) => return Ok(entry),
+            EntrySelector::Ref(raw) => raw,
+        };
+        let raw = raw.trim();
+        // A full id parses straight through; only a partial reference falls to prefix matching.
+        if let Ok(ulid) = Ulid::from_string(raw) {
+            return Ok(EntryId(ulid));
+        }
+        let needle = raw.to_ascii_uppercase();
+        if needle.len() < MIN_ENTRY_PREFIX {
+            return Err(MemoryError::UnknownEntry(raw.to_owned()));
+        }
+        let matches: Vec<(EntryId, String)> = self
+            .class_entry_texts(id)?
+            .into_iter()
+            .filter(|(entry, _)| entry.0.to_string().starts_with(&needle))
+            .collect();
+        match matches.len() {
+            0 => Err(MemoryError::UnknownEntry(raw.to_owned())),
+            1 => Ok(matches.into_iter().next().expect("one match").0),
+            _ => Err(MemoryError::AmbiguousEntryPrefix {
+                prefix: raw.to_owned(),
+                candidates: matches,
+            }),
+        }
+    }
+
+    /// Every entry of `id`'s `same_as` class as `(id, text)` — the committed live-and-historical
+    /// entries plus this block's pending appends — the universe an entry-id prefix resolves against.
+    /// A plain read: it touches nothing (the write it precedes records the class into the touched set).
+    fn class_entry_texts(&self, id: MemoryId) -> Result<Vec<(EntryId, String)>, MemoryError> {
+        let (members, mut entries) = {
+            let graph = self.engine.graph.lock();
+            let members: BTreeSet<MemoryId> =
+                graph.class_members(id)?.into_iter().chain([id]).collect();
+            let entries: Vec<(EntryId, String)> = graph
+                .class_history(id)?
+                .into_iter()
+                .map(|entry| (entry.entry_id, entry.text))
+                .collect();
+            (members, entries)
+        };
+        for event in &self.buffer {
+            if let EventPayload::MemoryContentAppended {
+                id: entry_memory,
+                entry_id,
+                text,
+                ..
+            } = event
+                && members.contains(entry_memory)
+            {
+                entries.push((*entry_id, text.clone()));
+            }
+        }
+        Ok(entries)
     }
 
     /// Resolve a name to a memory id, consulting this block's pending creates/renames before the

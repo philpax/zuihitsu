@@ -19,7 +19,7 @@ async fn a_dated_entry_reads_with_its_date() {
         panic!("expected commit");
     };
     assert!(
-        result.contains("[2027-03-15") && result.contains("Penciled in by Marcus"),
+        result.contains("2027-03-15") && result.contains("Penciled in by Marcus"),
         "the dated entry should render its date inline, got: {result}"
     );
 }
@@ -49,7 +49,7 @@ async fn an_entry_occurred_at_round_trips_for_supersede() {
         panic!("expected commit");
     };
     assert!(
-        result.contains("[2027-03-22") && !result.contains("[2027-03-15"),
+        result.contains("2027-03-22") && !result.contains("2027-03-15"),
         "matching by occurred_at.day should have superseded the 15th with the 22nd, got: {result}"
     );
 }
@@ -78,7 +78,7 @@ async fn revise_appends_and_supersedes_a_fact_in_one_call() {
         panic!("expected commit");
     };
     assert!(
-        result.contains("[2027-03-22") && !result.contains("[2027-03-15"),
+        result.contains("2027-03-22") && !result.contains("2027-03-15"),
         "revise should have superseded the 15th with the 22nd in one call, got: {result}"
     );
     // The superseded value survives in history (it dropped only from the live read).
@@ -88,7 +88,7 @@ async fn revise_appends_and_supersedes_a_fact_in_one_call() {
         panic!("expected commit");
     };
     assert!(
-        hist.contains("[2027-03-15") && hist.contains("[2027-03-22"),
+        hist.contains("2027-03-15") && hist.contains("2027-03-22"),
         "history should retain both the old and new values, got: {hist}"
     );
 }
@@ -114,7 +114,7 @@ async fn memory_create_accepts_occurred_at_in_its_options_table() {
         panic!("expected commit");
     };
     assert!(
-        result.contains("[2026-06-12"),
+        result.contains("2026-06-12"),
         "the created entry should carry the computed Friday as its occurrence, got: {result}"
     );
 }
@@ -137,7 +137,7 @@ async fn occurred_at_accepts_a_date_object_in_a_day_field() {
         panic!("expected commit, got {outcome:?}");
     };
     assert!(
-        result.contains("[2026-06-12"),
+        result.contains("2026-06-12"),
         "the nested date object should land as the day occurrence, got: {result}"
     );
 }
@@ -345,7 +345,7 @@ async fn an_opts_table_reused_across_appends_keeps_its_fields() {
         panic!("expected commit, got {outcome:?}");
     };
     assert_eq!(
-        result.matches("[2026-06-03").count(),
+        result.matches("2026-06-03").count(),
         2,
         "both appends should carry the shared opts table's occurrence, got: {result}"
     );
@@ -484,7 +484,7 @@ async fn revise_without_a_date_keeps_the_superseded_entrys_date() {
         panic!("expected commit");
     };
     assert!(
-        result.contains("[2027-03-15") && result.contains("Launch confirmed"),
+        result.contains("2027-03-15") && result.contains("Launch confirmed"),
         "revise without occurred_at should keep the 15th on the replacement, got: {result}"
     );
 }

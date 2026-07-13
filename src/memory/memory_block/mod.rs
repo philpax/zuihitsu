@@ -36,6 +36,28 @@ mod writes;
 
 pub use error::MemoryError;
 
+/// How an entry argument to [`MemoryBlock::supersede`] or [`MemoryBlock::retract`] names its target.
+/// An entry handle already carries the full id, so the Lua layer turns it into [`EntrySelector::Id`];
+/// a bare string the agent typed — a full id, or a unique id prefix read off a rendered line — arrives
+/// as [`EntrySelector::Ref`] and is resolved against the memory's class (see
+/// [`MemoryBlock::resolve_entry_ref`]).
+pub enum EntrySelector {
+    Id(EntryId),
+    Ref(String),
+}
+
+impl From<EntryId> for EntrySelector {
+    fn from(id: EntryId) -> EntrySelector {
+        EntrySelector::Id(id)
+    }
+}
+
+/// The fewest characters of an entry id that may address an entry by prefix. Short enough that the
+/// rendered id's opening run is convenient to copy, long enough that a fragment is very unlikely to
+/// collide with a second entry of the same memory — and a too-short fragment is refused outright
+/// (see [`MemoryBlock::resolve_entry_ref`]) rather than resolving to whichever entry it happens to hit.
+pub(super) const MIN_ENTRY_PREFIX: usize = 4;
+
 /// Who is driving a block's writes. Operator authority is the console; it is the only path
 /// permitted to edit `self`, and it authors its links as `Operator` rather than `Agent` (spec
 /// §Imprint interview). Platform authority is an ordinary conversation turn.

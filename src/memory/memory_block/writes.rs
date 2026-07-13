@@ -8,7 +8,8 @@ use crate::{
 };
 
 use super::{
-    AppendOptions, MemoryBlock, MemoryError, reconcile_forced_visibility, suggest::most_similar,
+    AppendOptions, EntrySelector, MemoryBlock, MemoryError, reconcile_forced_visibility,
+    suggest::most_similar,
 };
 
 impl MemoryBlock {
@@ -184,8 +185,8 @@ impl MemoryBlock {
     pub fn supersede(
         &mut self,
         id: MemoryId,
-        old: EntryId,
-        new: EntryId,
+        old: impl Into<EntrySelector>,
+        new: impl Into<EntrySelector>,
     ) -> Result<(), MemoryError> {
         // Recorded against the class primary when told through a platform-agnostic handle, matching where
         // `append` lands a class-level fact — the supersession's effect keys on the entry ids, which
@@ -194,12 +195,16 @@ impl MemoryBlock {
         let id = self.class_write_target(id)?;
         self.guard_self(id)?;
         self.guard_operator(id)?;
+        // Resolve a by-id-or-prefix reference against the class before validating it is live, so an
+        // agent can address the entry by the id its read rendered rather than by holding the handle.
+        let old = self.resolve_entry_ref(id, old.into())?;
+        let new = self.resolve_entry_ref(id, new.into())?;
         let live = self.live_class_entries(id)?;
         let Some(old_entry) = live.iter().find(|entry| entry.entry_id == old) else {
-            return Err(MemoryError::UnknownEntry(old));
+            return Err(MemoryError::UnknownEntry(old.0.to_string()));
         };
         if !live.iter().any(|entry| entry.entry_id == new) {
-            return Err(MemoryError::UnknownEntry(new));
+            return Err(MemoryError::UnknownEntry(new.0.to_string()));
         }
         self.guard_foreign_confidence_supersede(old_entry)?;
         self.touched.insert(id);
@@ -221,7 +226,7 @@ impl MemoryBlock {
     pub fn retract(
         &mut self,
         id: MemoryId,
-        entry: EntryId,
+        entry: impl Into<EntrySelector>,
         reason: &str,
     ) -> Result<(), MemoryError> {
         // Recorded against the class primary when told through a platform-agnostic handle, matching where
@@ -234,9 +239,11 @@ impl MemoryBlock {
         if reason.is_empty() {
             return Err(MemoryError::RetractionReasonRequired);
         }
+        // Resolve a by-id-or-prefix reference against the class, like `supersede`, before the live check.
+        let entry = self.resolve_entry_ref(id, entry.into())?;
         let live = self.live_class_entries(id)?;
         let Some(target) = live.iter().find(|e| e.entry_id == entry) else {
-            return Err(MemoryError::UnknownEntry(entry));
+            return Err(MemoryError::UnknownEntry(entry.0.to_string()));
         };
         self.guard_foreign_confidence_supersede(target)?;
         self.touched.insert(id);

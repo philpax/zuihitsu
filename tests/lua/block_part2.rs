@@ -72,7 +72,7 @@ async fn supersede_with_a_foreign_entry_is_a_teachable_error() {
         .await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
-            assert!(message.contains("no live entry"), "message was: {message}");
+            assert!(message.contains("no entry"), "message was: {message}");
         }
         other => panic!("expected a teachable error, got {other:?}"),
     }
@@ -302,5 +302,200 @@ async fn a_write_block_reports_what_it_committed() {
     assert!(
         !result.contains("Committed:"),
         "a read-only query should carry no commit summary: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn every_read_surface_renders_an_entry_with_its_full_id() {
+    // The rendered entry line leads with the entry's full id — the stable handle the agent addresses a
+    // correction by — on all three agent-invoked read surfaces (entries, history, details), so the id
+    // is discoverable in the output the agent already reads rather than only on the handle field.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        local e = dave:append("Leads the design team", { visibility = "public" })
+        local id = e.id
+        local line = tostring(dave:entries()[1])
+        -- The id leads the bracket, labelled: "[id <id> · public · from person/dave] Leads…".
+        local leads_bracket = line:sub(1, #id + 5) == "[id " .. id .. " "
+        local in_history = tostring(dave:history()[1]):find(id, 1, true) ~= nil
+        local in_details = dave:details():find(id, 1, true) ~= nil
+        if leads_bracket and in_history and in_details and #id == 26 then
+            return "ALL_SURFACES_CARRY_THE_FULL_ID"
+        end
+        return "MISSING: " .. line
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.starts_with("ALL_SURFACES_CARRY_THE_FULL_ID"),
+        "entries, history, and details must each render the full entry id: {result}"
+    );
+}
+
+#[tokio::test]
+async fn supersede_accepts_a_unique_id_prefix() {
+    // A unique prefix of the entry's rendered id resolves to that entry, so the agent can correct a
+    // fact by the id it just read rather than by holding the handle. The 22-char prefix is past the
+    // id's shared timestamp run, so it names exactly the old entry.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        local old = dave:append("Dave works at Hooli", { visibility = "public" })
+        local new = dave:append("Dave works at Pied Piper", { visibility = "public" })
+        dave:supersede(string.sub(old.id, 1, 22), new)
+        return "live=" .. #dave:entries() .. " text=" .. tostring(dave:entries()[1])
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.starts_with("live=1"),
+        "the prefix superseded old: {result}"
+    );
+    assert!(
+        result.contains("Pied Piper"),
+        "only the correction is live: {result}"
+    );
+}
+
+#[tokio::test]
+async fn retract_accepts_a_unique_id_prefix() {
+    // Retract resolves a unique id prefix exactly as supersede does.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        local fact = dave:append("Dave plays the cello", { visibility = "public" })
+        dave:retract(string.sub(fact.id, 1, 22), "filed on the wrong person")
+        return "live=" .. #dave:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.starts_with("live=0"),
+        "the prefix retracted the fact: {result}"
+    );
+}
+
+#[tokio::test]
+async fn supersede_accepts_the_full_id_string() {
+    // The full id string works as well as the handle it was read from.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        local old = dave:append("Dave works at Hooli", { visibility = "public" })
+        local new = dave:append("Dave works at Pied Piper", { visibility = "public" })
+        dave:supersede(old.id, new)
+        return "live=" .. #dave:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.starts_with("live=1"),
+        "the full id superseded old: {result}"
+    );
+}
+
+#[tokio::test]
+async fn an_ambiguous_id_prefix_lists_the_candidates() {
+    // A prefix that matches more than one entry of the class is a teachable error naming each
+    // candidate by id and a text snippet, so the agent can disambiguate with a longer prefix. The
+    // shared leading run of two same-block ids (their common timestamp) is such a prefix.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        local a = dave:append("first fact", { visibility = "public" })
+        local b = dave:append("second fact", { visibility = "public" })
+        local n = 0
+        while n < #a.id and a.id:sub(n + 1, n + 1) == b.id:sub(n + 1, n + 1) do
+            n = n + 1
+        end
+        dave:supersede(a.id:sub(1, n), a)
+        "#,
+        )
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("matches more than one entry"),
+                "message names the ambiguity: {message}"
+            );
+            assert!(
+                message.contains("first fact") && message.contains("second fact"),
+                "message lists both candidates' snippets: {message}"
+            );
+        }
+        other => panic!("expected an ambiguity error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn an_unknown_entry_id_is_a_teachable_error() {
+    // A syntactically valid id that names no entry of this memory is the UnknownEntry error, nothing
+    // commits, and the block is discarded.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        local fact = dave:append("a real fact", { visibility = "public" })
+        dave:supersede("00000000000000000000000000", fact)
+        "#,
+        )
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(message.contains("no entry"), "message was: {message}");
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn an_entry_id_corrects_where_a_text_scan_misses_on_case() {
+    // The traced failure: the agent text-scanned to re-find an entry to retract
+    // (entry.text:find("leads the design team")) and missed, because the fact was recorded
+    // "Leads the design team" with a capital L, so the retraction was skipped entirely. Addressing the
+    // entry by its rendered id succeeds where the case-sensitive scan returns nil.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("Leads the design team", { visibility = "public" })
+        local entry = dave:entries()[1]
+        local text_scan = entry.text:find("leads the design team")
+        dave:retract(entry.id, "role changed")
+        return "text_scan=" .. tostring(text_scan) .. " live=" .. #dave:entries()
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(
+        result.starts_with("text_scan=nil live=0"),
+        "the case-sensitive text scan misses but the id retracts: {result}"
     );
 }

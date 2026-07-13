@@ -7,6 +7,12 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
+use super::MIN_ENTRY_PREFIX;
+
+/// How many characters of an entry's text an ambiguous-prefix candidate line shows, so the agent can
+/// tell the matches apart without the message running long.
+const ENTRY_SNIPPET_CHARS: usize = 60;
+
 /// A write that violates an invariant, surfaced to the agent as a teachable error, or an underlying
 /// graph read failure. The teachable variants' `Display` is the agent-facing message the Lua layer
 /// renders as the block's terminal cause, so they are deliberately unprefixed — the agent reads
@@ -81,10 +87,18 @@ pub enum MemoryError {
     /// such as "every Monday" rather than an RFC 5545 rule with a supported `FREQ`. Such a rule would
     /// arm a wake-up no one can derive, so the write is rejected for the agent to reissue correctly.
     UnsupportedRecurrence(String),
-    /// A `supersede` named an entry that is not a live entry of the memory's `same_as` class — an
-    /// unknown id, or one already superseded. The agent supersedes entries it read from the same
-    /// memory, so this is a teachable misuse.
-    UnknownEntry(EntryId),
+    /// A `supersede` or `retract` named an entry that does not resolve to a live entry of the memory's
+    /// `same_as` class — an unknown id, an id prefix matching nothing, or an entry already superseded.
+    /// The agent addresses entries it read from the same memory, so this is a teachable misuse. Carries
+    /// the token the agent supplied (a full id or the prefix), for the message to echo.
+    UnknownEntry(String),
+    /// A `supersede` or `retract` was given an entry-id prefix that matches more than one entry of the
+    /// memory's class (live or historical). Carries the prefix and each matching entry's id and a
+    /// snippet of its text, so the agent can pick the intended one by a longer prefix or its full id.
+    AmbiguousEntryPrefix {
+        prefix: String,
+        candidates: Vec<(EntryId, String)>,
+    },
     /// A platform-authority turn tried to remove the `#confidential` tag. The teller-private marker
     /// resolves a room's `#confidential` flag at read time, so removing the tag retroactively weakens
     /// the disclosure-judgment signal on every historical aside told under it — a broadcast, retroactive
@@ -200,11 +214,23 @@ impl std::fmt::Display for MemoryError {
                 "the recurrence {rule:?} is not a supported rule; use an RFC 5545 rule with a \
                  supported FREQ, e.g. {{ recurring = \"FREQ=WEEKLY;BYDAY=MO\" }} for every Monday"
             ),
-            MemoryError::UnknownEntry(entry) => write!(
+            MemoryError::UnknownEntry(token) => write!(
                 f,
-                "no live entry {} on this memory; supersede an entry you read from it",
-                entry.0
+                "no entry {token:?} on this memory to supersede or retract; address an entry you read \
+                 from it — pass its id, or a unique prefix of its id (at least {MIN_ENTRY_PREFIX} \
+                 characters), from the entry line's leading bracket",
             ),
+            MemoryError::AmbiguousEntryPrefix { prefix, candidates } => {
+                write!(
+                    f,
+                    "the id prefix {prefix:?} matches more than one entry on this memory; use a longer \
+                     prefix or the full id to pick one:"
+                )?;
+                for (id, snippet) in candidates {
+                    write!(f, "\n  {} — {}", id.0, snippet_for(snippet))?;
+                }
+                Ok(())
+            }
             MemoryError::ConfidentialUntagForbidden => write!(
                 f,
                 "removing #confidential retroactively changes how every aside told under it is marked, \
@@ -256,6 +282,17 @@ fn write_similar<'a>(
         f,
         " — pick a distinguishing name if you mean a different one"
     )
+}
+
+/// A one-line snippet of an entry's text for an ambiguous-prefix candidate — clipped to
+/// [`ENTRY_SNIPPET_CHARS`] with an ellipsis so the message stays compact.
+fn snippet_for(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().count() <= ENTRY_SNIPPET_CHARS {
+        return text.to_owned();
+    }
+    let clipped: String = text.chars().take(ENTRY_SNIPPET_CHARS).collect();
+    format!("{clipped}…")
 }
 
 impl std::error::Error for MemoryError {

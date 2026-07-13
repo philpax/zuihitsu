@@ -228,9 +228,12 @@ pub(super) fn entries() -> Vec<ApiEntry> {
     let entries = AE::new("<memory>:entries")
         .description(
             "The memory's live content entries, across its whole merged identity. Each is an entry \
-             object — read its text with entry.text (it also prints as its text, prefixed by date, \
-             visibility, teller, and a disputed marker when contested), and pass the object to \
-             <memory>:supersede to replace it. entry.occurred_at, when dated, is the same tagged \
+             object — read its text with entry.text (it also prints as its text, prefixed by its id, \
+             date, visibility, teller, and a disputed marker when contested), and pass the object — or \
+             its id, or a unique prefix of it, shown as `id <ulid>` at the front of the printed \
+             line — to <memory>:supersede or <memory>:retract to correct it, e.g. \
+             mem:retract(\"01KXETGK\", \"filed on the wrong person\") with the prefix read \
+             straight off the line. entry.occurred_at, when dated, is the same tagged \
              table append takes (e.g. entry.occurred_at.day), so you can match an entry by its date. \
              Capture the list — `local es = <memory>:entries()`; a bare call whose result you discard \
              returns nothing, not an empty memory. Each element renders as its own text: interpolate \
@@ -243,14 +246,15 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .description(
             "The memory's entries including superseded ones, oldest first — the full record, where \
              <memory>:entries shows only the live ones. Each is an entry object (entry.text for its \
-             text).",
+             text, and its id at the front of the printed line to address it by).",
         )
         .returns(AT::Entry.list());
 
     let details = AE::new("<memory>:details")
         .description(
             "The memory's whole record as one text: its header (name, description, any former names), \
-             every live entry, its links in both directions, its tags, and its volatility — each \
+             every live entry (each led by its id, to correct it by), its links in both directions, \
+             its tags, and its volatility — each \
              section rendered as the dedicated readers show it. This is the way to answer \"what do I \
              hold on X\": read the canonical handle's details and the complete record is in front of \
              you in one look, so when the answer is not there — and a search or two also comes up short \
@@ -274,12 +278,14 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .required(
             "old",
             AT::Entry,
-            "the entry object being replaced (from <memory>:entries)",
+            "the entry being replaced — its object (from <memory>:entries), or its id or a unique id \
+             prefix as a string, as shown at the front of the entry's printed line",
         )
         .required(
             "new",
             AT::Entry,
-            "the entry object that replaces it (from <memory>:append)",
+            "the entry that replaces it — its object (from <memory>:append), or its id or a unique id \
+             prefix as a string",
         );
 
     let retract = AE::new("<memory>:retract")
@@ -297,7 +303,8 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .required(
             "entry",
             AT::Entry,
-            "the entry being withdrawn (from <memory>:entries or <memory>:history)",
+            "the entry being withdrawn — its object (from <memory>:entries or <memory>:history), or \
+             its id or a unique id prefix as a string, as shown at the front of the entry's printed line",
         )
         .required(
             "reason",
