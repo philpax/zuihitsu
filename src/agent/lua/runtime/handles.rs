@@ -7,7 +7,7 @@ use crate::{
     graph::RelationView,
     ids::{EntryId, MemoryId},
     memory::{
-        memory_block::{EntryRef, LinkDirection, LinkRef, MemoryDetails},
+        memory_block::{EntryRef, EntrySelector, LinkDirection, LinkRef, MemoryDetails},
         search::SalientRelation,
     },
     time::format_occurrence,
@@ -329,7 +329,7 @@ pub(crate) fn guard_search_write(handle: &Table) -> mlua::Result<()> {
     let segment = name_segment(&name);
     let namespace = &name[..name.len() - segment.len()];
     let query_token = query_tokens(&query).next().unwrap_or_default();
-    let stem = common_prefix(&query_token, &segment.to_lowercase());
+    let stem = common_prefix(&query_token, &fold_lower(segment));
     let list_arg = if stem.is_empty() {
         namespace.to_owned()
     } else {
@@ -390,13 +390,12 @@ pub(crate) fn guard_search_taint(api: &BlockApi, id: MemoryId) -> mlua::Result<(
 }
 
 /// Whether some normalized token of `query` names `handle_name` — the exact-token match the
-/// fuzzy-write guard turns on. Tokens compare after lowercasing only, with no diacritic folding: a
-/// search for "Malmö" that surfaces `topic/malmo` (the FTS index folds diacritics) is refused on a
-/// write and the taught `memory.get` path is one call — an accepted, narrow over-refusal rather than
-/// a second normalisation to keep in lockstep with the index's. The handle's name segment (the part after `namespace/`) yields the
-/// name tokens: its alphanumeric runs (so `dave_chen` gives `dave` and `chen`) plus the whole segment
-/// with separators stripped (`davechen`). A query token equals one of those or it does not; a prefix
-/// never counts.
+/// fuzzy-write guard turns on. Tokens compare after lowercasing and folding diacritics, the way the
+/// FTS index folds them: a search for "Malmö" that surfaces `topic/malmo` (the index folded the ö)
+/// matches, so the write is not falsely refused. The handle's name segment (the part after
+/// `namespace/`) yields the name tokens: its alphanumeric runs (so `dave_chen` gives `dave` and
+/// `chen`) plus the whole segment with separators stripped (`davechen`). A query token equals one of
+/// those or it does not; a prefix never counts.
 pub(crate) fn query_names_handle(query: &str, handle_name: &str) -> bool {
     let names = name_tokens(name_segment(handle_name));
     query_tokens(query).any(|token| names.contains(&token))
@@ -408,15 +407,16 @@ fn name_segment(handle_name: &str) -> &str {
     handle_name.split_once('/').map_or(handle_name, |(_, s)| s)
 }
 
-/// The tokens a name segment matches against: each alphanumeric run lowercased, plus the whole segment
-/// with separators removed so a query that runs the parts together (`davechen`) still matches
-/// `dave_chen`.
+/// The tokens a name segment matches against: each alphanumeric run lowercased and diacritic-folded,
+/// plus the whole segment with separators removed so a query that runs the parts together (`davechen`)
+/// still matches `dave_chen`.
 fn name_tokens(segment: &str) -> HashSet<String> {
     let mut tokens: HashSet<String> = query_tokens(segment).collect();
     let joined: String = segment
         .chars()
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
+        .map(fold_diacritic)
         .collect();
     if !joined.is_empty() {
         tokens.insert(joined);
@@ -424,12 +424,54 @@ fn name_tokens(segment: &str) -> HashSet<String> {
     tokens
 }
 
-/// Split a string into lowercase alphanumeric tokens, dropping every non-alphanumeric separator —
-/// whitespace and punctuation alike. `"Marcus Chen"` yields `marcus`, `chen`.
+/// Split a string into folded alphanumeric tokens, dropping every non-alphanumeric separator —
+/// whitespace and punctuation alike — and folding each to the lowercase, diacritic-stripped form the
+/// FTS index compares on. `"Marcus Chen"` yields `marcus`, `chen`; `"Malmö"` yields `malmo`.
 fn query_tokens(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|part| !part.is_empty())
-        .map(str::to_lowercase)
+        .map(fold_lower)
+}
+
+/// Fold a string to the diacritic-insensitive lowercase form the token match compares on: lowercase,
+/// then map each character to its unaccented Latin base. Both sides of the guard fold the same way, so
+/// a "Malmö" query and a `topic/malmo` handle meet on `malmo`.
+fn fold_lower(text: &str) -> String {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        .map(fold_diacritic)
+        .collect()
+}
+
+/// Map a lowercase character to its unaccented Latin base — `ö`→`o`, `é`→`e`, `č`→`c` — over the
+/// precomposed Latin-1 Supplement and Latin Extended-A letters that canonically decompose to a base
+/// plus a combining mark (an NFD-style fold). This is the folding the FTS index applies, so the guard
+/// matches a query against a folded handle exactly as the index indexed it. A character with no such
+/// decomposition — a distinct letter like `ø` or `ł`, or any non-Latin script — passes through
+/// unchanged.
+fn fold_diacritic(c: char) -> char {
+    match c {
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' | 'ǎ' | 'ả' | 'ạ' => 'a',
+        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
+        'ď' => 'd',
+        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' | 'ẻ' | 'ẹ' => 'e',
+        'ĝ' | 'ğ' | 'ġ' | 'ģ' => 'g',
+        'ĥ' => 'h',
+        'ì' | 'í' | 'î' | 'ï' | 'ī' | 'ĭ' | 'į' | 'ǐ' | 'ỉ' | 'ị' => 'i',
+        'ĵ' => 'j',
+        'ķ' => 'k',
+        'ĺ' | 'ļ' | 'ľ' => 'l',
+        'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ō' | 'ŏ' | 'ő' | 'ǒ' | 'ỏ' | 'ọ' => 'o',
+        'ŕ' | 'ŗ' | 'ř' => 'r',
+        'ś' | 'ŝ' | 'ş' | 'š' | 'ș' => 's',
+        'ţ' | 'ť' | 'ț' => 't',
+        'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' | 'ǔ' | 'ủ' | 'ụ' => 'u',
+        'ŵ' => 'w',
+        'ý' | 'ÿ' | 'ŷ' | 'ỳ' | 'ỷ' | 'ỵ' => 'y',
+        'ź' | 'ż' | 'ž' => 'z',
+        other => other,
+    }
 }
 
 /// The shared leading run of two strings, by character — the stem `memory.list` is suggested with, so
@@ -680,21 +722,38 @@ pub(crate) fn entry_handle_id(handle: &Table) -> mlua::Result<EntryId> {
         .map_err(|source| HandleError::InvalidEntryHandle { id, source }.into())
 }
 
-/// Resolve an entry argument that is either an entry handle (a `{ id = … }` table read from
-/// `mem:entries`/`mem:history`/`mem:append`) or a bare entry-id string — the two forms `mem:retract`
-/// accepts, so a script can retract an entry it holds a handle to or one it names by id.
-pub(crate) fn entry_arg_id(value: &Value) -> mlua::Result<EntryId> {
+/// Resolve an entry argument to an [`EntrySelector`] the block resolves against the memory's class.
+/// The argument is either an entry handle (a `{ id = … }` table read from
+/// `mem:entries`/`mem:history`/`mem:append`), whose full id addresses the entry directly, or a bare
+/// string — a full entry id, or a unique prefix of one read off a rendered entry line. These are the
+/// forms `mem:supersede` and `mem:retract` accept, so a script can address an entry it holds a handle
+/// to or one it names by (part of) its id, without re-scanning the text.
+pub(crate) fn entry_selector(value: &Value) -> mlua::Result<EntrySelector> {
     match value {
-        Value::Table(handle) => entry_handle_id(handle),
-        Value::String(id) => {
-            let id = id.to_str()?.to_owned();
-            Ulid::from_string(&id)
-                .map(EntryId)
-                .map_err(|source| HandleError::InvalidEntryHandle { id, source }.into())
-        }
+        Value::Table(handle) => Ok(EntrySelector::Id(entry_handle_id(handle)?)),
+        Value::String(reference) => Ok(EntrySelector::Ref(reference.to_str()?.to_owned())),
         other => Err(HandleError::WrongEntryType {
             type_name: other.type_name(),
         }
         .into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::query_names_handle;
+
+    #[test]
+    fn the_fuzzy_write_guard_folds_diacritics_as_the_index_does() {
+        // The FTS index folds diacritics, so a "Malmö" search surfaces `topic/malmo`; the guard folds
+        // the same way, so a write through that hit is not falsely refused. Folding runs on both sides.
+        assert!(query_names_handle("Malmö", "topic/malmo"));
+        assert!(query_names_handle("Malmo", "topic/malmö"));
+        assert!(query_names_handle("café society", "topic/cafe"));
+
+        // Folding is diacritic-only — it never collapses two distinct names. The traced Davina/David
+        // slip is still refused, and a genuinely different accented name is too.
+        assert!(!query_names_handle("Davina", "person/david"));
+        assert!(!query_names_handle("Zoë", "person/zara"));
     }
 }
