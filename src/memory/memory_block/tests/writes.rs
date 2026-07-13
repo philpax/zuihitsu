@@ -349,9 +349,79 @@ fn exclude_is_accepted_on_a_previously_committed_memory() {
 }
 
 #[test]
-fn exclude_and_visibility_together_is_a_conflict() {
-    // An exclude is already a private posture, so pairing it with an explicit visibility is
-    // contradictory — a teachable error, never a silent precedence.
+fn a_redundant_private_beside_exclude_folds_into_the_exclude() {
+    // An exclude is already a private posture, so a visibility = "private" set beside it is redundant
+    // but consistent: the write records as the exclude it means, costing no recovery round-trip. The
+    // pairing is the model's reflex for anything sensitive, so it is accepted, not corrected.
+    let mut block = block(
+        Graph::open_in_memory().unwrap(),
+        ManualClock::new(Timestamp::from_millis(1_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    let plan = block
+        .create(Namespace::Event.with_name("plan"), None)
+        .unwrap();
+    let dave = MemoryId::generate();
+    block
+        .append(
+            plan,
+            "logistics",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Private),
+                exclude: Some(vec![dave]),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+    let visibility = block
+        .into_effects()
+        .events
+        .into_iter()
+        .find_map(|event| match event {
+            EventPayload::MemoryContentAppended { visibility, .. } => Some(visibility),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(visibility, Visibility::Exclude(vec![dave]));
+}
+
+#[test]
+fn a_public_or_attributed_beside_exclude_is_a_conflict() {
+    // Unlike a redundant private, a public or attributed beside an exclude contradicts the private
+    // posture the exclude fixes — a teachable error, never a silent precedence.
+    for contradictory in [VisibilityChoice::Public, VisibilityChoice::Attributed] {
+        let mut block = block(
+            Graph::open_in_memory().unwrap(),
+            ManualClock::new(Timestamp::from_millis(1_000)),
+            Teller::Agent,
+            Authority::Platform,
+        );
+        let plan = block
+            .create(Namespace::Event.with_name("plan"), None)
+            .unwrap();
+        let error = block
+            .append(
+                plan,
+                "logistics",
+                AppendOptions {
+                    visibility: Some(contradictory),
+                    exclude: Some(vec![MemoryId::generate()]),
+                    ..AppendOptions::default()
+                },
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, MemoryError::VisibilityConflict),
+            "{contradictory:?}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn an_empty_exclude_beside_private_is_still_a_teachable_error() {
+    // The empty-exclude teaching survives the redundant-private tolerance: an exclude naming no one
+    // signals a malformed list whatever visibility rides beside it.
     let mut block = block(
         Graph::open_in_memory().unwrap(),
         ManualClock::new(Timestamp::from_millis(1_000)),
@@ -367,15 +437,12 @@ fn exclude_and_visibility_together_is_a_conflict() {
             "logistics",
             AppendOptions {
                 visibility: Some(VisibilityChoice::Private),
-                exclude: Some(vec![MemoryId::generate()]),
+                exclude: Some(Vec::new()),
                 ..AppendOptions::default()
             },
         )
         .unwrap_err();
-    assert!(
-        matches!(error, MemoryError::VisibilityConflict),
-        "{error:?}"
-    );
+    assert!(matches!(error, MemoryError::ExcludeEmpty), "{error:?}");
 }
 
 #[test]

@@ -169,9 +169,9 @@ impl std::fmt::Display for MemoryError {
             ),
             MemoryError::VisibilityConflict => write!(
                 f,
-                "set either visibility or exclude, not both — an exclude is already a private posture \
+                "an exclude cannot be public or attributed — it is already a private posture \
                  (withheld from its teller's audience, and additionally whenever a named party is \
-                 present), so it takes no separate visibility"
+                 present); to withhold from a named party, pass exclude alone"
             ),
             MemoryError::ExcludeEmpty => write!(
                 f,

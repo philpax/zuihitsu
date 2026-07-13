@@ -203,9 +203,10 @@ pub enum VisibilityChoice {
 
 /// The forced visibility an append or link opts selects once its `visibility` posture and `exclude`
 /// list have been reconciled: one of the three named postures, or an `exclude` list naming the
-/// parties a confidence is additionally withheld from (a [`Visibility::Exclude`]). The two opts are
-/// mutually exclusive — an exclude *is* a private posture, so it carries no separate `visibility` —
-/// and [`reconcile_forced_visibility`] rejects their combination, keeping the resolution paths
+/// parties a confidence is additionally withheld from (a [`Visibility::Exclude`]). An exclude *is* a
+/// private posture, so it carries no separate `visibility`: [`reconcile_forced_visibility`] folds a
+/// redundant `visibility = "private"` beside it into the exclude and rejects a genuinely
+/// contradictory `public` or `attributed`, keeping the resolution paths
 /// ([`MemoryBlock::resolve_visibility`], [`MemoryBlock::resolve_link_visibility`]) fed a single
 /// already-reconciled choice.
 pub(super) enum ForcedVisibility {
@@ -214,20 +215,26 @@ pub(super) enum ForcedVisibility {
 }
 
 /// Reconcile an append's (or link's) `visibility` posture and `exclude` list into the single forced
-/// visibility the write is recorded at, or a teachable failure. The two opts are mutually exclusive:
-/// combining them is a [`MemoryError::VisibilityConflict`] (an exclude already fixes the posture), and
-/// an `exclude` naming no one is a [`MemoryError::ExcludeEmpty`] (a confidence for its teller alone is
-/// `visibility = "private"`, not an empty exclude). With neither set the write takes its write-time
-/// default, so this returns `None`.
+/// visibility the write is recorded at, or a teachable failure. An exclude already fixes the posture
+/// (private, additionally withheld from the named parties), so a `visibility = "private"` set beside
+/// it is redundant but consistent and folds into the exclude — rejecting a write that means exactly
+/// what it says would only cost a recovery round-trip. Pairing an exclude with `public` or
+/// `attributed` contradicts the posture the exclude fixes, so that is a
+/// [`MemoryError::VisibilityConflict`]; an `exclude` naming no one is a [`MemoryError::ExcludeEmpty`]
+/// (a confidence for its teller alone is `visibility = "private"`, not an empty exclude), whatever
+/// visibility rides beside it. With neither opt set the write takes its write-time default, so this
+/// returns `None`.
 pub(super) fn reconcile_forced_visibility(
     visibility: Option<VisibilityChoice>,
     exclude: Option<Vec<MemoryId>>,
 ) -> Result<Option<ForcedVisibility>, MemoryError> {
     match (visibility, exclude) {
+        (_, Some(ids)) if ids.is_empty() => Err(MemoryError::ExcludeEmpty),
+        (Some(VisibilityChoice::Private) | None, Some(ids)) => {
+            Ok(Some(ForcedVisibility::Exclude(ids)))
+        }
         (Some(_), Some(_)) => Err(MemoryError::VisibilityConflict),
         (Some(choice), None) => Ok(Some(ForcedVisibility::Choice(choice))),
-        (None, Some(ids)) if ids.is_empty() => Err(MemoryError::ExcludeEmpty),
-        (None, Some(ids)) => Ok(Some(ForcedVisibility::Exclude(ids))),
         (None, None) => Ok(None),
     }
 }

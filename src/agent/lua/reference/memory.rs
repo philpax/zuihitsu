@@ -191,7 +191,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                      private posture (it still surfaces only to its teller's audience). Reach for it \
                      when a fact is one everyone but a specific person may know: a surprise planned \
                      for them, or something to be kept from one named individual while the others \
-                     may hear it. Mutually exclusive with visibility — an exclude is already private. \
+                     may hear it. Pass exclude instead of visibility, not alongside it — an exclude \
+                     already implies private (a redundant visibility = \"private\" beside it is \
+                     accepted; \"public\" or \"attributed\" is a contradiction and rejected). \
                      The recipe: create the memory bare, under a handle that reveals nothing on its \
                      own — name the occasion at most, never the plan, so \
                      \"topic/upcoming_celebration\", never a handle containing \"surprise\" or \

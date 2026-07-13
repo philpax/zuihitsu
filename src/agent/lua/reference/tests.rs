@@ -163,7 +163,7 @@ fn search_documents_the_relations_field() {
 #[test]
 fn append_documents_the_exclude_option() {
     // The append entry documents the exclude opt — a confidence additionally withheld whenever a
-    // named party is present — and that it is mutually exclusive with visibility.
+    // named party is present — and teaches passing it instead of visibility, not alongside it.
     let append = api_reference(&InstanceFeatures::default())
         .into_iter()
         .find(|entry| entry.call == "<memory>:append")
@@ -180,8 +180,8 @@ fn append_documents_the_exclude_option() {
         })
         .expect("opts carries an exclude field");
     assert!(
-        exclude.doc.contains("withheld") && exclude.doc.contains("Mutually exclusive"),
-        "the exclude param should describe the posture and the conflict: {}",
+        exclude.doc.contains("withheld") && exclude.doc.contains("instead of visibility"),
+        "the exclude param should describe the posture and the pass-it-alone teaching: {}",
         exclude.doc
     );
 }
