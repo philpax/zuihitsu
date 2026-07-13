@@ -5,7 +5,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
 import type { Event } from "../../types/Event.ts";
-import type { EvalPackage } from "../../types/EvalPackage.ts";
+import type { PackageSummary } from "../../types/PackageSummary.ts";
+import type { RunRecord } from "../../types/RunRecord.ts";
+import type { RunSummary } from "../../types/RunSummary.ts";
 import type { EvalContext } from "../../lib/api/liveEval.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { RunFrame } from "./RunFrame.tsx";
@@ -152,14 +154,51 @@ const pkg = {
       },
     },
   ],
-} as unknown as EvalPackage;
+} as unknown as PackageSummary;
 
-function context(events: Event[], progress: ReadonlyMap<string, InFlightGeneration>): EvalContext {
+// The lean summary the fold lands when the run completes — verdicts and metrics, no event log.
+const summary: RunSummary = {
+  index: 0,
+  started_at_ms: 0,
+  finished_at_ms: 0,
+  verdicts: [],
+  metrics: {
+    model_calls: 1,
+    steps: 1,
+    wall_clock_ms: 0,
+    total_latency_ms: 100,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    gating_passed: true,
+  },
+  usages: [],
+} as unknown as RunSummary;
+
+// A package whose only run has completed — its summary is folded in, and the deep-dive fetches the
+// full record on demand.
+const completedPkg = {
+  ...pkg,
+  scenarios: [{ ...pkg.scenarios[0], runs: [summary] }],
+} as unknown as PackageSummary;
+
+/// A never-called `getRun` for the tests where the run stays live and no record is ever fetched.
+function neverFetch(): Promise<RunRecord> {
+  return Promise.reject(new Error("getRun should not be called while the run is live"));
+}
+
+function context(
+  events: Event[] | null,
+  progress: ReadonlyMap<string, InFlightGeneration>,
+  overrides: Partial<EvalContext> = {},
+): EvalContext {
   return {
     pkg,
-    liveRuns: new Map([["0:0", events]]),
+    liveRuns: events ? new Map([["0:0", events]]) : new Map(),
     live: { status: "streaming" },
     progress: new Map([["0:0", progress]]),
+    getRun: neverFetch,
+    ...overrides,
   };
 }
 
@@ -206,6 +245,52 @@ describe("the run frame across the first step's commit", () => {
       root,
       context(afterCommit, new Map([["conv-1", { ...generating, superseded: true }]])),
     );
+    expect(container.textContent).toContain("pondered the reply");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});
+
+describe("the run frame when a live run completes", () => {
+  it("keeps the last live events rendered until the fetched record arrives", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    // Streaming: the run is live, the reader opens the deliberation.
+    await render(
+      root,
+      context(afterCommit, new Map([["conv-1", { ...generating, superseded: true }]])),
+    );
+    act(() => disclosureButton(container).click());
+    expect(container.textContent).toContain("pondered the reply");
+
+    // The run completes: the fold retires the live buffer and lands the summary, but the record fetch
+    // is still in flight. The open view must keep the last live events rendered — not redirect, not
+    // flash to loading — so the deliberation stays put through the handover.
+    let resolveRecord: (record: RunRecord) => void = () => {};
+    const pending = new Promise<RunRecord>((resolve) => {
+      resolveRecord = resolve;
+    });
+    await render(root, context(null, new Map(), { pkg: completedPkg, getRun: () => pending }));
+    expect(container.textContent).toContain("pondered the reply");
+
+    // The record lands: its full log takes over (the shared first event keeps the same run on screen),
+    // and the deliberation is still there.
+    const record = {
+      index: 0,
+      started_at_ms: 0,
+      finished_at_ms: 0,
+      events: [...afterCommit],
+      journal: [],
+      verdicts: [],
+      metrics: summary.metrics,
+    } as unknown as RunRecord;
+    await act(async () => {
+      resolveRecord(record);
+      await pending;
+    });
     expect(container.textContent).toContain("pondered the reply");
 
     act(() => root.unmount());

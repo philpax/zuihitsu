@@ -1,5 +1,5 @@
 import type { Category } from "../../types/Category.ts";
-import type { ScenarioReport } from "../../types/ScenarioReport.ts";
+import type { ScenarioMeta } from "../../types/ScenarioMeta.ts";
 
 /// The category display order — the Rust enum's own order (`crates/eval/src/package.rs`), which
 /// groups the behavioural families semantically rather than alphabetically. The `satisfies` clause
@@ -36,18 +36,22 @@ const LEGACY_CATEGORIES: Record<string, Category> = {
 };
 
 /// A category's scenarios, each carrying its index in `pkg.scenarios` — the coordinate the live-run
-/// maps (`activeScenarios`, `liveRunOf`) are keyed by, which grouping must not disturb.
-export type ScenarioGroup = {
+/// maps (`activeScenarios`, `liveRunOf`) are keyed by, which grouping must not disturb. Generic over
+/// the scenario shape so it groups both a full [`ScenarioReport`] and a lean [`ScenarioSummary`] —
+/// grouping reads only `meta`, which both carry.
+export type ScenarioGroup<S extends { meta: ScenarioMeta }> = {
   category: Category;
-  entries: { scenario: ScenarioReport; index: number }[];
+  entries: { scenario: S; index: number }[];
 };
 
 /// Group a package's scenarios by category, in the enum's semantic order, keeping each group's
 /// scenarios in their package order. Legacy category names map to their absorbing category; a
 /// genuinely unknown one (a future category rendered by an older console) groups at the end in
 /// first-seen order rather than vanishing. Categories with no scenarios produce no group.
-export function groupScenariosByCategory(scenarios: ScenarioReport[]): ScenarioGroup[] {
-  const groups = new Map<Category, ScenarioGroup>();
+export function groupScenariosByCategory<S extends { meta: ScenarioMeta }>(
+  scenarios: S[],
+): ScenarioGroup<S>[] {
+  const groups = new Map<Category, ScenarioGroup<S>>();
   for (const category of CATEGORY_ORDER) {
     groups.set(category, { category, entries: [] });
   }

@@ -1,6 +1,6 @@
 import { Link, useOutletContext } from "react-router-dom";
 
-import type { ScenarioReport } from "../types/ScenarioReport.ts";
+import type { ScenarioSummary } from "../types/ScenarioSummary.ts";
 import { type EvalContext, activeScenarios, liveRunOf } from "../lib/api/liveEval.ts";
 import { groupScenariosByCategory } from "../lib/model/scenarioGroups.ts";
 import { formatMs, formatRate, formatTokenSplit } from "../lib/format/format.ts";
@@ -85,7 +85,7 @@ function ScenarioRow({
   liveRun,
   isLive,
 }: {
-  scenario: ScenarioReport;
+  scenario: ScenarioSummary;
   runsPlanned: number;
   active: boolean;
   liveRun: number | null;

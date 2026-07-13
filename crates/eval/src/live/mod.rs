@@ -1,10 +1,14 @@
 //! The live eval log: the event stream a run emits, with two faces over one [`LiveEvent`] type. The
 //! durable face is a `.jsonl` sidecar of whole runs — `Manifest`, then per run a `RunStarted` and a
 //! `RunCompleted` (which carries the run's full record), ended by a `Finished`; it resumes an
-//! interrupted run and folds into the final package. The live face (with `--serve`) is the same stream
-//! plus `RunEvent`s broadcast as a run deliberates — these animate the console's deep-dive but are
-//! *not* persisted, because `RunCompleted` carries the authoritative copy, so a viewer who joins
-//! mid-run still folds the exact same package the sidecar would.
+//! interrupted run and folds into the final package. The live face (with `--serve`) never ships those
+//! full records: its snapshot is a lean [`PackageSummary`] (verdicts, metrics, and per-call usage,
+//! without the event logs), and a completed run broadcasts a lean `RunSummarized` in place of the
+//! sidecar's `RunCompleted`. The full event log — needed only by the one open run's deep-dive — is
+//! fetched per run over `GET /eval/run/{scenario}/{run}` (see [`EvalSink::run_record`]). The live face
+//! also broadcasts `RunEvent`s as a run deliberates; like the summaries, these animate the console but
+//! are *not* persisted, because the sidecar's `RunCompleted` carries the authoritative copy, so a
+//! viewer who joins mid-run still converges on the exact same package the sidecar would.
 
 mod helpers;
 mod resume;
@@ -27,7 +31,10 @@ use zuihitsu::{Event, progress::TurnProgress};
 use crate::{
     error::EvalError,
     harness,
-    package::{Aggregate, EvalPackage, RunMeta, RunRecord, ScenarioMeta, ScenarioReport},
+    package::{
+        Aggregate, EvalPackage, PackageSummary, RunMeta, RunRecord, RunSummary, ScenarioMeta,
+        ScenarioReport,
+    },
 };
 
 pub use helpers::now_ms;
@@ -88,6 +95,23 @@ pub enum LiveEvent {
         /// The harness's wall-clock (epoch milliseconds) at completion — mirrors `record.finished_at_ms`
         /// so a viewer folding only the live stream has the finish clock without unpacking the record.
         /// `#[serde(default)]` fills `0` for a pre-timing sidecar line.
+        #[serde(default)]
+        #[ts(type = "number")]
+        at_ms: i64,
+    },
+    /// A run finished, in the live wire's lean face: the run's [`RunSummary`] (verdicts, metrics, and
+    /// each model call's usage — everything the scoreboard and rail read) and the scenario's
+    /// recomputed aggregate, without the event log. Broadcast-only, like `RunEvent`/`RunProgress`: it
+    /// is never written to the sidecar, because the sidecar's `RunCompleted` carries the authoritative
+    /// full record, which the console fetches per run over `GET /eval/run/{scenario}/{run}` when a
+    /// deep-dive opens the run.
+    RunSummarized {
+        scenario: u32,
+        run: u32,
+        summary: RunSummary,
+        aggregate: Aggregate,
+        /// The harness's wall-clock (epoch milliseconds) at completion — mirrors `RunCompleted`'s
+        /// `at_ms`, defaulted defensively even though the frame is broadcast-only and never persisted.
         #[serde(default)]
         #[ts(type = "number")]
         at_ms: i64,
@@ -226,9 +250,12 @@ impl EvalSink {
         );
     }
 
-    /// Fold a finished run in: append its record to the scenario, recompute the scenario aggregate, and
-    /// emit `RunCompleted` carrying the whole record. This is the authoritative copy a client folds —
-    /// the live `RunEvent`s only animated the deliberation up to here.
+    /// Fold a finished run in: append its record to the scenario, recompute the scenario aggregate,
+    /// write the authoritative full `RunCompleted` to the sidecar, and broadcast the lean
+    /// `RunSummarized` in its place. The sidecar keeps the whole record (resume and the final fold
+    /// depend on it), while live viewers receive only the summary — the deep-dive fetches the full
+    /// record per run over the run endpoint. The live `RunEvent`s only animated the deliberation up to
+    /// here.
     pub fn run_finished(&self, scenario: u32, record: RunRecord) -> Result<(), EvalError> {
         let mut inner = self.inner.lock();
         let run = record.index;
@@ -240,7 +267,9 @@ impl EvalSink {
         report.runs.sort_by_key(|run| run.index);
         report.aggregate = harness::aggregate(&report.runs);
         let aggregate = report.aggregate;
-        self.emit_locked(
+        let summary = RunSummary::from(&record);
+        // The full record is the sidecar's durable line; it is written, not broadcast.
+        self.write_locked(
             &mut inner,
             LiveEvent::RunCompleted {
                 scenario,
@@ -250,6 +279,17 @@ impl EvalSink {
                 at_ms,
             },
         )?;
+        // Live viewers fold the lean summary; the full log is fetched per run on demand.
+        self.broadcast_locked(
+            &mut inner,
+            LiveEvent::RunSummarized {
+                scenario,
+                run,
+                summary,
+                aggregate,
+                at_ms,
+            },
+        );
         // Flush at the run boundary so a kill never loses a completed run: the sidecar always holds
         // whole runs, and resume re-drives only what genuinely did not finish.
         flush(&mut inner.writer)
@@ -263,15 +303,17 @@ impl EvalSink {
         flush(&mut inner.writer)
     }
 
-    /// Snapshot the current package, the in-flight runs' events so far, and subscribe to the deltas to
-    /// come — all under the lock, so the cut is consistent: the snapshot and catch-up reflect exactly
-    /// the events before the subscription, and the receiver gets exactly those after, with no gap or
-    /// overlap. The catch-up is replayed as `RunStarted` + `RunEvent`s so a client joining mid-run sees
-    /// the deliberation from its start. The basis for `serve`'s stream.
+    /// Snapshot the current package as a lean [`PackageSummary`], the in-flight runs' events so far,
+    /// and subscribe to the deltas to come — all under the lock, so the cut is consistent: the snapshot
+    /// and catch-up reflect exactly the events before the subscription, and the receiver gets exactly
+    /// those after, with no gap or overlap. The summary carries no event logs (the whole package's logs
+    /// are the bulk of a soak run, and a viewer only ever deep-dives one run); the catch-up is replayed
+    /// as `RunStarted` + `RunEvent`s so a client joining mid-run sees the deliberation from its start.
+    /// The basis for `serve`'s stream.
     pub fn subscribe(
         &self,
     ) -> (
-        EvalPackage,
+        PackageSummary,
         Vec<LiveEvent>,
         broadcast::Receiver<(u64, LiveEvent)>,
     ) {
@@ -292,7 +334,20 @@ impl EvalSink {
             }
         }
         let receiver = self.events.subscribe();
-        (inner.package.clone(), catch_up, receiver)
+        (PackageSummary::from(&inner.package), catch_up, receiver)
+    }
+
+    /// One run's full [`RunRecord`], cloned under the lock, or `None` when the scenario index or run
+    /// index is absent. The per-run fetch endpoint's source: a deep-dive opens a run's event log by
+    /// fetching exactly this, since the live snapshot and `RunSummarized` carry only the lean summary.
+    pub fn run_record(&self, scenario: u32, run: u32) -> Option<RunRecord> {
+        let inner = self.inner.lock();
+        inner
+            .package
+            .scenarios
+            .get(scenario as usize)
+            .and_then(|report| report.runs.iter().find(|record| record.index == run))
+            .cloned()
     }
 
     /// Re-open an interrupted run's sidecar to continue it: seed the package with the runs that
@@ -368,11 +423,18 @@ impl EvalSink {
     }
 
     /// Write one event to the sidecar, then broadcast it — under the held lock, so the sidecar's line
-    /// order and the broadcast order agree. For the durable events (manifest, run boundaries).
+    /// order and the broadcast order agree. For the durable events broadcast verbatim (manifest, run
+    /// start, finish).
     fn emit_locked(&self, inner: &mut Inner, event: LiveEvent) -> Result<(), EvalError> {
         write(&mut inner.writer, &event)?;
         self.broadcast_locked(inner, event);
         Ok(())
+    }
+
+    /// Write one event to the sidecar without broadcasting it — for the full `RunCompleted`, whose lean
+    /// `RunSummarized` twin is broadcast in its place, so live viewers never receive the whole record.
+    fn write_locked(&self, inner: &mut Inner, event: LiveEvent) -> Result<(), EvalError> {
+        write(&mut inner.writer, &event)
     }
 
     /// Tag an event with the next id and broadcast it to live subscribers, without writing it to the

@@ -123,11 +123,3 @@ export function warmthAggregate(usages: Iterable<Usage>): WarmthAggregate {
       : (fractions[mid - 1] + fractions[mid]) / 2;
   return { calls: fractions.length, median, rePrefilled };
 }
-
-/// The warmth rollup over a raw event log — every `ModelCalled`'s usage, for the eval frames where
-/// the reconstruction is not otherwise needed.
-export function eventsWarmth(events: Event[]): WarmthAggregate {
-  return warmthAggregate(
-    events.flatMap((event) => (event.payload.type === "ModelCalled" ? [event.payload.usage] : [])),
-  );
-}

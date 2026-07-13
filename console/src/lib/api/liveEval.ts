@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-import type { EvalPackage } from "../../types/EvalPackage.ts";
+import type { PackageSummary } from "../../types/PackageSummary.ts";
+import type { RunRecord } from "../../types/RunRecord.ts";
 import type { Event } from "../../types/Event.ts";
 import {
   type InFlightGeneration,
@@ -25,12 +26,14 @@ export type LiveEvalStatus =
   | { status: "finished" }
   | { status: "error"; message: string };
 
-/// A live eval, folded from the harness's SSE stream into the same [`EvalPackage`] the static viewer
-/// renders. `pkg` is the growing package — seeded from the snapshot, then patched by each authoritative
-/// `RunCompleted` — so the scoreboard fills in as runs land. `liveRuns` maps a `scenario:run` key to the
-/// events of a run currently driving, streamed as they happen, so a deep-dive can watch it deliberate.
+/// A live eval, folded from the harness's SSE stream into a lean [`PackageSummary`] — everything the
+/// scoreboard and rail render, without the event logs (the deep-dive fetches one run's full record on
+/// demand). `pkg` is the growing summary — seeded from the snapshot, then patched by each authoritative
+/// `RunSummarized` — so the scoreboard fills in as runs land. `liveRuns` maps a `scenario:run` key to
+/// the events of a run currently driving, streamed as they happen, so a deep-dive can watch it
+/// deliberate.
 export interface LiveEval {
-  pkg: EvalPackage | null;
+  pkg: PackageSummary | null;
   status: LiveEvalStatus;
   liveRuns: ReadonlyMap<string, Event[]>;
   /// Each driving run's in-flight generations by conversation — the same token accumulation the
@@ -45,15 +48,36 @@ const IDLE: LiveEval = {
   progress: new Map(),
 };
 
-/// What the eval frame hands its nested routes: the package, the runs currently driving (keyed
-/// `scenario:run`, with their events-so-far), and the live status (when watching a running eval).
-/// Empty for a static, file-loaded package.
+/// What the eval frame hands its nested routes: the lean package summary, the runs currently driving
+/// (keyed `scenario:run`, with their events-so-far), the live status (when watching a running eval),
+/// and `getRun` — the seam a deep-dive fetches one run's full record through. A live context fetches
+/// over the harness's run endpoint; a file-loaded context resolves synchronously from the retained
+/// full package. Empty maps for a static, file-loaded package.
 export interface EvalContext {
-  pkg: EvalPackage;
+  pkg: PackageSummary;
   liveRuns: ReadonlyMap<string, Event[]>;
   live: LiveEvalStatus | null;
   /// In-flight token accumulations per driving run (empty for a static package).
   progress: ReadonlyMap<string, ReadonlyMap<string, InFlightGeneration>>;
+  /// Fetch one run's full [`RunRecord`] — its event log and journal — resolving the deep-dive's views.
+  getRun: (scenario: number, run: number) => Promise<RunRecord>;
+}
+
+/// Fetch one run's full record from a running harness's per-run endpoint. `baseUrl` may be `""` for the
+/// embedded same-origin build. A non-OK response (a 404 for a stale link, or a run not yet complete)
+/// rejects with a clear message the deep-dive surfaces.
+export async function fetchRunRecord(
+  baseUrl: string,
+  scenario: number,
+  run: number,
+): Promise<RunRecord> {
+  const response = await fetch(`${baseUrl}/eval/run/${scenario}/${run}`);
+  if (!response.ok) {
+    throw new Error(
+      `could not fetch run ${scenario}:${run} — ${response.status} ${response.statusText}`,
+    );
+  }
+  return (await response.json()) as RunRecord;
 }
 
 /// No run is driving — the live maps a static package carries.
@@ -77,7 +101,7 @@ export function useNow(intervalMs: number, active = true): number {
 /// per-run cost to extrapolate from). Each scenario's remaining runs are costed at that scenario's mean
 /// drive wall-clock over its completed runs, falling back to the global mean where a scenario has none
 /// done; the summed remaining cost is divided by the harness's concurrency and added to `nowMs`.
-export function projectFinishMs(pkg: EvalPackage, nowMs: number): number | null {
+export function projectFinishMs(pkg: PackageSummary, nowMs: number): number | null {
   const completed = pkg.scenarios.flatMap((scenario) => scenario.runs);
   if (completed.length === 0) return null;
   const globalMean = mean(completed.map((run) => run.metrics.wall_clock_ms));
@@ -118,10 +142,11 @@ export function liveRunOf(liveRuns: ReadonlyMap<string, Event[]>, scenario: numb
   return null;
 }
 
-/// Watch a live eval over SSE, folding it into a growing package. Inert when `connection` is null (so a
-/// caller can hold the hook unconditionally and toggle watching). The fold is authoritative on
-/// `RunCompleted` — it carries the run's whole record — so the result converges on the canonical package
-/// no matter when the viewer connected or which live `RunEvent`s it happened to see.
+/// Watch a live eval over SSE, folding it into a growing package summary. Inert when `connection` is
+/// null (so a caller can hold the hook unconditionally and toggle watching). The fold is authoritative
+/// on `RunSummarized` — it carries the run's summary and the recomputed aggregate — so the scoreboard
+/// converges no matter when the viewer connected or which live `RunEvent`s it happened to see; the one
+/// open run's full event log is fetched separately over the run endpoint.
 export function useLiveEval(connection: LiveEvalConnection | null): LiveEval {
   const [state, setState] = useState<LiveEval>(IDLE);
 
@@ -138,9 +163,10 @@ export function useLiveEval(connection: LiveEvalConnection | null): LiveEval {
     if (baseUrl === undefined) return;
     const source = new EventSource(`${baseUrl}/eval/stream`);
 
-    // The snapshot is the current package whole; it both seeds and (on a reconnect) resets the fold.
+    // The snapshot is the current package summary whole; it both seeds and (on a reconnect) resets
+    // the fold.
     source.addEventListener("snapshot", (message) => {
-      const pkg = JSON.parse(message.data) as EvalPackage;
+      const pkg = JSON.parse(message.data) as PackageSummary;
       setState((prev) => ({ ...prev, pkg, status: { status: "streaming" }, liveRuns: new Map() }));
     });
     source.addEventListener("live", (message) => {
@@ -166,7 +192,7 @@ export function useLiveEval(connection: LiveEvalConnection | null): LiveEval {
 }
 
 /// Apply one live delta. `RunStarted` opens a live run; `RunEvent` appends to it as the run deliberates;
-/// `RunCompleted` is authoritative — it folds the run's record into the package and retires the live
+/// `RunSummarized` is authoritative — it folds the run's summary into the package and retires the live
 /// buffer. `Manifest` only seeds via the snapshot, never as a delta. Exported for its tests: the
 /// mark-not-delete supersede wiring lives here, and it is what keeps the pending turn mounted
 /// through the replica's refold lag.
@@ -210,13 +236,13 @@ export function fold(state: LiveEval, event: LiveEvent): LiveEval {
       progress.set(key, runProgress);
       return { ...state, progress };
     }
-    case "run_completed": {
+    case "run_summarized": {
       const key = runningKey(event.scenario, event.run);
       const liveRuns = new Map(state.liveRuns);
       liveRuns.delete(key);
       const progress = new Map(state.progress);
       progress.delete(key);
-      return { ...state, pkg: applyRunCompleted(state.pkg, event), liveRuns, progress };
+      return { ...state, pkg: applyRunSummarized(state.pkg, event), liveRuns, progress };
     }
     case "finished": {
       const pkg = state.pkg
@@ -233,24 +259,28 @@ export function fold(state: LiveEval, event: LiveEvent): LiveEval {
     case "manifest":
       return state;
     default:
-      // A frame kind this bundle predates (an embedded viewer older than the server): ignore it
-      // rather than crash — the authoritative RunCompleted still converges the package.
+      // A frame kind this bundle does not know — a version skew between the console and the serving
+      // binary in either direction (an old server's run_completed, or a newer server's future
+      // frames). Dropped rather than crashing, at a real cost: a dropped completion frame means the
+      // scoreboard does not converge for that run until the viewer reloads against a matching
+      // server. The two are built together by regen.sh, so the skew only arises against a stale
+      // --serve binary.
       return state;
   }
 }
 
-/// Fold a finished run into the package: replace any prior copy of the run, keep the scenario's runs in
-/// index order, and adopt the freshly recomputed aggregate.
-function applyRunCompleted(
-  pkg: EvalPackage | null,
-  event: Extract<LiveEvent, { kind: "run_completed" }>,
-): EvalPackage | null {
+/// Fold a finished run's summary into the package: replace any prior copy of the run, keep the
+/// scenario's runs in index order, and adopt the freshly recomputed aggregate.
+function applyRunSummarized(
+  pkg: PackageSummary | null,
+  event: Extract<LiveEvent, { kind: "run_summarized" }>,
+): PackageSummary | null {
   if (!pkg) return pkg;
   const scenarios = pkg.scenarios.map((scenario, index) => {
     if (index !== event.scenario) return scenario;
     const runs = [
-      ...scenario.runs.filter((run) => run.index !== event.record.index),
-      event.record,
+      ...scenario.runs.filter((run) => run.index !== event.summary.index),
+      event.summary,
     ].sort((a, b) => a.index - b.index);
     return { ...scenario, runs, aggregate: event.aggregate };
   });

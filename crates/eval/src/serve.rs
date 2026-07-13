@@ -1,14 +1,17 @@
 //! The `--serve` live endpoint: an SSE stream of the eval as it runs, for the console to fold into the
-//! live view. One `GET /eval/stream` per viewer — a `snapshot` of the current package, then the `live`
-//! deltas. The console sets its state from the snapshot and patches it with each delta: `RunCompleted`
-//! is authoritative (it carries the run's record), while the live `RunEvent`s animate the in-flight
-//! run's deep-dive — so a viewer who joins mid-run still converges on the canonical package.
+//! live view. One `GET /eval/stream` per viewer — a `snapshot` of the current package as a lean
+//! [`PackageSummary`] (verdicts, metrics, and per-call usage, without the event logs), then the `live`
+//! deltas. The console sets its state from the snapshot and patches it with each delta: `RunSummarized`
+//! is authoritative for the scoreboard (it carries the run's summary and the recomputed aggregate),
+//! while the live `RunEvent`s animate the in-flight run's deep-dive. The one open run's full event log
+//! — the bulk a snapshot deliberately omits — is fetched on demand over `GET /eval/run/{scenario}/{run}`,
+//! which returns that run's whole [`RunRecord`].
 
 use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderValue, StatusCode, Uri, header},
     response::{
         IntoResponse, Response,
@@ -26,8 +29,10 @@ use crate::{error::EvalError, live::EvalSink};
 pub async fn serve(addr: SocketAddr, sink: Arc<EvalSink>) -> Result<(), EvalError> {
     let app = Router::new()
         .route("/eval/stream", get(stream))
+        // The deep-dive fetches one run's full event log here — the bulk the lean snapshot omits.
+        .route("/eval/run/{scenario}/{run}", get(run_record))
         // Everything else is the embedded console, served in eval mode, so opening the address shows
-        // the live viewer; `/eval/stream` is matched first, before the console fallback.
+        // the live viewer; the eval routes are matched first, before the console fallback.
         .fallback(console)
         .with_state(sink);
     let listener = tokio::net::TcpListener::bind(addr).await.map_err(|source| {
@@ -104,11 +109,48 @@ async fn stream(State(sink): State<Arc<EvalSink>>) -> impl IntoResponse {
             }
         }
     };
-    // The console is served from its own origin (the Vite dev server, or a static host), so the live
-    // endpoint is cross-origin; allow it. A read-only event stream of a local eval has nothing to guard.
-    let cors = [(
+    (
+        allow_cross_origin(),
+        Sse::new(body).keep_alive(KeepAlive::default()),
+    )
+}
+
+/// One run's full [`RunRecord`] as JSON — the event log the lean snapshot omits, fetched when a
+/// deep-dive opens the run. A `404` with a short plain message when the scenario index or run index is
+/// absent (a stale link, or a run not yet complete). Cross-origin like the stream: a read-only read of
+/// a local eval has nothing to guard.
+async fn run_record(
+    State(sink): State<Arc<EvalSink>>,
+    Path((scenario, run)): Path<(u32, u32)>,
+) -> Response {
+    let Some(record) = sink.run_record(scenario, run) else {
+        return (StatusCode::NOT_FOUND, allow_cross_origin(), "no such run\n").into_response();
+    };
+    match serde_json::to_string(&record) {
+        Ok(json) => (
+            allow_cross_origin(),
+            [(header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response(),
+        Err(source) => {
+            tracing::warn!(%source, scenario, run, "could not serialize a run record");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                allow_cross_origin(),
+                "could not serialize the run record\n",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// The permissive CORS header the live endpoints share: the console is served from its own origin (the
+/// Vite dev server, or a static host), so the live reads are cross-origin; allow them. A read-only read
+/// of a local eval has nothing to guard.
+fn allow_cross_origin() -> [(header::HeaderName, HeaderValue); 1] {
+    [(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
         HeaderValue::from_static("*"),
-    )];
-    (cors, Sse::new(body).keep_alive(KeepAlive::default()))
+    )]
 }

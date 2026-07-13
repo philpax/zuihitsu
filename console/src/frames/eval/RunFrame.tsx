@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Link, Navigate, useOutletContext, useParams } from "react-router-dom";
 
-import type { EvalPackage } from "../../types/EvalPackage.ts";
-import type { ScenarioReport } from "../../types/ScenarioReport.ts";
+import type { PackageSummary } from "../../types/PackageSummary.ts";
+import type { ScenarioSummary } from "../../types/ScenarioSummary.ts";
 import type { Event } from "../../types/Event.ts";
 import { type EvalContext, liveRunOf, runningKey } from "../../lib/api/liveEval.ts";
 import { type ReplicaState, useReplica } from "../../lib/replica/useReplica.ts";
@@ -11,9 +12,10 @@ import { useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
 import { STREAM_VIEWS } from "../../lib/nav/streamViews.ts";
 import { formatMs, formatRate, formatTokens, formatTokenSplit } from "../../lib/format/format.ts";
 import { Dot, Eyebrow } from "../../components/primitives.tsx";
-import { eventsWarmth } from "../../lib/model/contextDebug.ts";
+import { warmthAggregate } from "../../lib/model/contextDebug.ts";
 import { StreamWorkspace } from "../../components/StreamWorkspace.tsx";
 import { VerdictPanel } from "./VerdictPanel.tsx";
+import { useRunRecord, type RunRecordState } from "./useRunRecord.ts";
 
 /// A single run's deep views, resolved from the URL: `:scenario` (name) and `:run` (index) pick the
 /// run out of the package, `:view` selects the view, and `?seq` pins the timeline cursor. Folding the
@@ -25,30 +27,52 @@ import { VerdictPanel } from "./VerdictPanel.tsx";
 /// The layout reads as a drill-down: the scenario list on the left, then the scenario's summary, the
 /// run picker, this run's verdicts, and finally the run's views — outer scope to inner, top to bottom.
 export function RunFrame() {
-  const { pkg, liveRuns, progress } = useOutletContext<EvalContext>();
+  const { pkg, liveRuns, progress, getRun } = useOutletContext<EvalContext>();
   const params = useParams();
   const scenarioIndex = pkg.scenarios.findIndex((entry) => entry.meta.name === params.scenario);
   const scenario = scenarioIndex >= 0 ? pkg.scenarios[scenarioIndex] : null;
-  const completed = scenario?.runs.find((entry) => String(entry.index) === params.run) ?? null;
-  // A run still driving has no record yet; its events stream into the live map until it completes, so
-  // a deep-dive opened on it watches the deliberation arrive. Once its `RunCompleted` lands, the record
-  // takes over (verdicts appear, the conversation stays).
-  const live =
-    scenario && params.run !== undefined && !completed
+  // The completed run's lean summary — verdicts and metrics render from it immediately; its full event
+  // log is fetched separately below. A run still driving has no summary yet.
+  const summary = scenario?.runs.find((entry) => String(entry.index) === params.run) ?? null;
+  const runIndex =
+    summary !== null ? summary.index : params.run !== undefined ? Number(params.run) : null;
+  // A run still driving streams its events into the live map until it completes, so a deep-dive opened
+  // on it watches the deliberation arrive.
+  const liveEvents =
+    scenario && params.run !== undefined && !summary
       ? (liveRuns.get(runningKey(scenarioIndex, Number(params.run))) ?? null)
       : null;
-  const events = completed?.events ?? live;
+
+  // A completed run's full record (its event log and journal) is fetched on demand — the lean package
+  // carries only the summary.
+  const recordState = useRunRecord(getRun, scenarioIndex, runIndex, summary !== null);
+  const fetched = recordState.status === "ready" ? recordState.record : null;
+
+  // Bridge the handover: when a live run completes, the fold retires its live buffer and the summary
+  // lands, but the record fetch is still in flight. Hold the last live events (a render-phase snapshot,
+  // React's store-from-previous-render pattern) so the open view keeps rendering the deliberation
+  // rather than flashing back to a loading state until the record arrives. Keyed by the run so a
+  // sibling run never reads a stale bridge.
+  const heldKey = runIndex !== null ? runningKey(scenarioIndex, runIndex) : null;
+  const [held, setHeld] = useState<{ key: string; events: Event[] } | null>(null);
+  if (liveEvents && heldKey && (held?.key !== heldKey || held.events !== liveEvents)) {
+    setHeld({ key: heldKey, events: liveEvents });
+  }
+  const bridged = held && held.key === heldKey ? held.events : null;
+
+  // The events the workspace folds: the fetched record's log, else the live buffer, else the bridged
+  // last-live events during a handover. Null only when the run is unresolved or a completed run's fetch
+  // has not landed yet (and no bridge exists) — the latter shows the Pending treatment, not a redirect.
+  const events = fetched?.events ?? liveEvents ?? bridged;
   const replica = useReplica(events);
-  const runIndex = completed
-    ? completed.index
-    : params.run !== undefined
-      ? Number(params.run)
-      : null;
   const { view, seq, selectView, setSeq } = useStreamLocation(
     scenario && runIndex !== null ? runBase(scenario.meta.name, runIndex) : "",
   );
 
-  if (!scenario || runIndex === null || !events) return <Navigate to="/eval" replace />;
+  // The run is unresolved (a bad URL) when there is neither a completed summary nor a driving live run.
+  if (!scenario || runIndex === null || (!summary && !liveEvents)) {
+    return <Navigate to="/eval" replace />;
+  }
   if (!STREAM_VIEWS.some((entry) => entry.id === view)) {
     return <Navigate to={runPath(scenario.meta.name, runIndex)} replace />;
   }
@@ -64,10 +88,7 @@ export function RunFrame() {
   // sibling run of a multi-run package.
   const resumed = pkg.meta.resumed_from;
   const resumedFromStep =
-    resumed &&
-    completed &&
-    resumed.scenario === scenario.meta.name &&
-    resumed.run === completed.index
+    resumed && summary && resumed.scenario === scenario.meta.name && resumed.run === summary.index
       ? resumed.step
       : null;
 
@@ -75,36 +96,34 @@ export function RunFrame() {
     <div className="flex flex-1 gap-6 pt-7">
       <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} view={view!} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <ScenarioSummary scenario={scenario} />
+        <ScenarioHeader scenario={scenario} />
         <RunPicker
           scenario={scenario}
           active={runIndex}
           liveRun={liveRunOf(liveRuns, scenarioIndex)}
           view={view!}
         />
-        {completed && (
+        {summary && (
           <VerdictPanel
             key={`verdict:${runKey}`}
-            run={completed}
+            run={summary}
             gating={scenario.meta.bar.kind !== "metric"}
           />
         )}
-        {!ready ? (
-          <Pending state={replica} />
+        {!ready || !events ? (
+          <Pending state={replica} record={recordState} />
         ) : (
           <StreamWorkspace
             key={`stream:${runKey}`}
             replica={ready}
-            progress={
-              runIndex !== null ? progress.get(runningKey(scenarioIndex, runIndex)) : undefined
-            }
+            progress={progress.get(runningKey(scenarioIndex, runIndex))}
             events={events}
             head={ready.headSeq}
             view={view!}
             onSelectView={selectView}
             seq={seq}
             onSeq={setSeq}
-            journal={completed?.journal}
+            journal={fetched?.journal}
             resumedFromStep={resumedFromStep}
           />
         )}
@@ -126,7 +145,7 @@ function ScenarioRail({
   liveRuns,
   view,
 }: {
-  pkg: EvalPackage;
+  pkg: PackageSummary;
   active: string;
   liveRuns: ReadonlyMap<string, Event[]>;
   view: string;
@@ -178,7 +197,7 @@ function ScenarioRail({
                 ) : completed > 0 ? (
                   <span className="flex shrink-0 items-baseline gap-1">
                     {(() => {
-                      const warmth = eventsWarmth(entry.runs.flatMap((run) => run.events));
+                      const warmth = warmthAggregate(entry.runs.flatMap((run) => run.usages));
                       return warmth.median !== null && warmth.median < 0.9 ? (
                         <span
                           className="text-clay"
@@ -238,10 +257,10 @@ function rateColor(rate: number): string {
 
 /// The open scenario's headline — the eval summary you have drilled into: its name and category, the
 /// aggregate pass rate and whether the bar held, the typical latency and cost, and the description.
-function ScenarioSummary({ scenario }: { scenario: ScenarioReport }) {
+function ScenarioHeader({ scenario }: { scenario: ScenarioSummary }) {
   const { meta, aggregate } = scenario;
   const threshold = meta.bar.kind === "metric" ? meta.bar.threshold : null;
-  const warmth = eventsWarmth(scenario.runs.flatMap((run) => run.events));
+  const warmth = warmthAggregate(scenario.runs.flatMap((run) => run.usages));
 
   return (
     <header className="border-b border-line pb-4">
@@ -300,7 +319,7 @@ function RunPicker({
   liveRun,
   view,
 }: {
-  scenario: ScenarioReport;
+  scenario: ScenarioSummary;
   active: number;
   liveRun: number | null;
   view: string;
@@ -363,16 +382,25 @@ function RunPicker({
 
 /// Whether a scenario's bar held — the gate for a gating scenario, the rate against the threshold for
 /// a metric one. Mirrors the overview's judgement, so the rail's marks and the overview's agree.
-function held(scenario: ScenarioReport): boolean {
+function held(scenario: ScenarioSummary): boolean {
   const { meta, aggregate } = scenario;
   return meta.bar.kind === "gating"
     ? aggregate.gating_passed
     : aggregate.rate >= meta.bar.threshold;
 }
 
-function Pending({ state }: { state: ReplicaState }) {
-  const error = state.status === "error";
-  const message = error ? `Could not fold the log — ${state.message}` : "Folding the event log…";
+/// The interstitial while the run's views are not yet ready: fetching the run's full record, a fetch
+/// error, or the replica folding the log once it arrives. The fetch is the first hop (the lean package
+/// carries no event log), so its state leads; the fold state shows once the record is in hand.
+function Pending({ state, record }: { state: ReplicaState; record: RunRecordState }) {
+  const { error, message } =
+    record.status === "error"
+      ? { error: true, message: `Could not fetch the run — ${record.message}` }
+      : record.status === "connecting"
+        ? { error: false, message: "Fetching the run's event log…" }
+        : state.status === "error"
+          ? { error: true, message: `Could not fold the log — ${state.message}` }
+          : { error: false, message: "Folding the event log…" };
   return (
     <div className={"flex-1 py-16 text-center text-sm " + (error ? "text-clay" : "text-ink-faint")}>
       {message}

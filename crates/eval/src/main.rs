@@ -35,7 +35,7 @@ use ts_rs::TS;
 
 use crate::{
     live::LiveEvent,
-    package::EvalPackage,
+    package::{EvalPackage, PackageSummary},
     replay::{ReplayMode, ReplayRequest},
 };
 
@@ -356,6 +356,9 @@ fn export_types(dir: &Path) -> ExitCode {
         progress::TurnProgress,
     };
     let export = EvalPackage::export_all_to(dir)
+        // The live wire's lean face — the `--serve` snapshot and the per-run fetch's response. Its
+        // `ScenarioSummary`/`RunSummary` children ride along; `LiveEvent` carries `RunSummary` too.
+        .and_then(|()| PackageSummary::export_all_to(dir))
         .and_then(|()| LiveEvent::export_all_to(dir))
         .and_then(|()| Namespace::export_all_to(dir))
         .and_then(|()| NamespacedMemoryName::export_all_to(dir))

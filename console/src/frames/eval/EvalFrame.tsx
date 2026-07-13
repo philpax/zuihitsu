@@ -1,6 +1,7 @@
 import { Outlet, useMatch } from "react-router-dom";
 
-import type { EvalPackage } from "../../types/EvalPackage.ts";
+import type { PackageSummary } from "../../types/PackageSummary.ts";
+import type { RunRecord } from "../../types/RunRecord.ts";
 import type { Event } from "../../types/Event.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import {
@@ -28,13 +29,17 @@ export function EvalFrame({
   live,
   liveRuns,
   progress,
+  getRun,
   onClose,
 }: {
-  pkg: EvalPackage;
+  pkg: PackageSummary;
   fileName?: string | null;
   live?: LiveEvalStatus;
   liveRuns?: ReadonlyMap<string, Event[]>;
   progress?: ReadonlyMap<string, ReadonlyMap<string, InFlightGeneration>>;
+  /// Fetch one run's full record for the deep-dive — over the harness's run endpoint for a live eval,
+  /// or synchronously from the retained full package for a file-loaded one.
+  getRun: (scenario: number, run: number) => Promise<RunRecord>;
   onClose: () => void;
 }) {
   const context: EvalContext = {
@@ -42,6 +47,7 @@ export function EvalFrame({
     liveRuns: liveRuns ?? NO_LIVE_RUNS,
     live: live ?? null,
     progress: progress ?? NO_PROGRESS,
+    getRun,
   };
   // The route still names the view for the document title; the scenario and run themselves are
   // legible in the frame's own rail, summary, and run picker, so the header carries no breadcrumb.
@@ -119,7 +125,7 @@ export function EvalFrame({
 /// a `replay --mode rejudge` re-assessed another package, and `resumed from <package> · run <run> ·
 /// step <step>` when a `replay --mode resume` rewound and redrove a recorded run. Both absent — the
 /// common case for a fresh run — renders nothing, so the header does not shift.
-function Provenance({ pkg }: { pkg: EvalPackage }) {
+function Provenance({ pkg }: { pkg: PackageSummary }) {
   const { rejudged_from, resumed_from } = pkg.meta;
   if (!rejudged_from && !resumed_from) return null;
   return (
@@ -170,7 +176,7 @@ function LiveBadge({ status }: { status: LiveEvalStatus }) {
 }
 
 /// How far a live run has got: completed runs across every scenario, over the planned total.
-function LiveProgress({ pkg }: { pkg: EvalPackage }) {
+function LiveProgress({ pkg }: { pkg: PackageSummary }) {
   const done = pkg.scenarios.reduce((sum, scenario) => sum + scenario.runs.length, 0);
   const total = pkg.scenarios.length * pkg.meta.runs_per_scenario;
   return (
@@ -184,7 +190,7 @@ function LiveProgress({ pkg }: { pkg: EvalPackage }) {
 /// completed a run to extrapolate from — a projected local finish time (`~HH:MM`). Once the harness
 /// reports `finished`, the projection gives way to the run's total duration. Ticks every 30s while
 /// streaming; frozen once finished.
-function LiveTiming({ pkg, status }: { pkg: EvalPackage; status: LiveEvalStatus }) {
+function LiveTiming({ pkg, status }: { pkg: PackageSummary; status: LiveEvalStatus }) {
   const finished = status.status === "finished";
   const now = useNow(30_000, !finished);
   const started = pkg.meta.started_at_ms;

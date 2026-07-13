@@ -2,9 +2,16 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import type { EvalPackage } from "./types/EvalPackage.ts";
+import type { RunRecord } from "./types/RunRecord.ts";
 import type { LiveConnection } from "./lib/api/live.ts";
-import { type LiveEvalConnection, type LiveEvalStatus, useLiveEval } from "./lib/api/liveEval.ts";
+import {
+  type LiveEvalConnection,
+  type LiveEvalStatus,
+  fetchRunRecord,
+  useLiveEval,
+} from "./lib/api/liveEval.ts";
 import { type HistoryEntry, parseHistory } from "./lib/model/history.ts";
+import { summarizePackage } from "./lib/model/packageSummary.ts";
 import { loadPackageFromFile } from "./lib/replica/package.ts";
 import { ConsoleNavContext } from "./lib/nav/consoleNav.ts";
 import { Landing } from "./frames/landing/Landing.tsx";
@@ -148,6 +155,21 @@ function Console({ autoWatchEval = false }: { autoWatchEval?: boolean }) {
     openHistory,
   };
 
+  // A file-loaded package is retained whole for the deep-dive's per-run resolution, but the frame
+  // renders from the lean summary — the same shape a live eval folds — so the scoreboard and rail
+  // never touch the event logs.
+  const fileSummary = pkg ? summarizePackage(pkg) : null;
+  // The deep-dive's fetch seam: a live eval reads a run's full record over the harness's run endpoint;
+  // a file-loaded one resolves it synchronously from the retained full package.
+  const getLiveRun = (scenario: number, run: number): Promise<RunRecord> =>
+    fetchRunRecord(liveEvalConn?.baseUrl ?? "", scenario, run);
+  const getFileRun = (scenario: number, run: number): Promise<RunRecord> => {
+    const record = pkg?.scenarios[scenario]?.runs.find((entry) => entry.index === run);
+    return record
+      ? Promise.resolve(record)
+      : Promise.reject(new Error(`no run ${scenario}:${run} in the loaded package`));
+  };
+
   if (reading) return <LoadingScreen label={`Reading ${reading}…`} />;
 
   return (
@@ -177,6 +199,7 @@ function Console({ autoWatchEval = false }: { autoWatchEval?: boolean }) {
                     live={liveEval.status}
                     liveRuns={liveEval.liveRuns}
                     progress={liveEval.progress}
+                    getRun={getLiveRun}
                     onClose={() => setLiveEvalConn(null)}
                   />
                 ) : (
@@ -185,10 +208,11 @@ function Console({ autoWatchEval = false }: { autoWatchEval?: boolean }) {
                     onClose={() => setLiveEvalConn(null)}
                   />
                 )
-              ) : pkg ? (
+              ) : fileSummary ? (
                 <EvalFrame
-                  pkg={pkg}
+                  pkg={fileSummary}
                   fileName={pkgName}
+                  getRun={getFileRun}
                   onClose={() => {
                     setPkg(null);
                     setPkgName(null);

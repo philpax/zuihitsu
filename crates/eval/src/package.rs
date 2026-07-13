@@ -6,7 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-use zuihitsu::event::Event;
+use zuihitsu::{
+    Usage,
+    event::{Event, EventPayload},
+};
 
 use crate::{error::EvalError, executor::StepRecord, judge::JudgeOutcome};
 
@@ -383,6 +386,90 @@ pub struct TokenStat {
     pub prompt_mean: f64,
     pub completion_mean: f64,
     pub total_mean: f64,
+}
+
+/// The live wire's lean face of one run: everything the scoreboard, the rail, and the deep-dive's
+/// verdict panel render, without the run's event log. The log is the bulk of a package (a soak run's
+/// is hundreds of megabytes over the whole suite), and only the one open run's deep-dive ever needs
+/// it, so the console fetches a single run's full [`RunRecord`] on demand rather than holding every
+/// run's log. `usages` is each `ModelCalled` event's [`Usage`] in event order — exactly what the
+/// console's cache-warmth rollup reads, kept here so the rail's warmth marks need no event log.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct RunSummary {
+    pub index: u32,
+    /// The run's wall-clock stamps, mirroring [`RunRecord::started_at_ms`] and its finish; see there.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub started_at_ms: i64,
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub finished_at_ms: i64,
+    pub verdicts: Vec<Verdict>,
+    pub metrics: RunMetrics,
+    /// Each `ModelCalled` event's usage, in event order.
+    pub usages: Vec<Usage>,
+}
+
+impl From<&RunRecord> for RunSummary {
+    fn from(record: &RunRecord) -> Self {
+        let usages = record
+            .events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                EventPayload::ModelCalled { usage, .. } => Some(*usage),
+                _ => None,
+            })
+            .collect();
+        RunSummary {
+            index: record.index,
+            started_at_ms: record.started_at_ms,
+            finished_at_ms: record.finished_at_ms,
+            verdicts: record.verdicts.clone(),
+            metrics: record.metrics,
+            usages,
+        }
+    }
+}
+
+/// The lean face of one scenario's report: its identity and bar, its runs as [`RunSummary`]s, and the
+/// aggregate — the whole scenario overview, without any run's event log.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ScenarioSummary {
+    pub meta: ScenarioMeta,
+    pub runs: Vec<RunSummary>,
+    pub aggregate: Aggregate,
+}
+
+impl From<&ScenarioReport> for ScenarioSummary {
+    fn from(report: &ScenarioReport) -> Self {
+        ScenarioSummary {
+            meta: report.meta.clone(),
+            runs: report.runs.iter().map(RunSummary::from).collect(),
+            aggregate: report.aggregate,
+        }
+    }
+}
+
+/// The lean face of a whole package: the run's metadata and every scenario as a [`ScenarioSummary`].
+/// This is what the live `--serve` snapshot ships and the console folds — everything the scoreboard
+/// and rail need to render, without the event logs, which the console fetches per run on demand.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct PackageSummary {
+    pub meta: RunMeta,
+    pub scenarios: Vec<ScenarioSummary>,
+}
+
+impl From<&EvalPackage> for PackageSummary {
+    fn from(package: &EvalPackage) -> Self {
+        PackageSummary {
+            meta: package.meta.clone(),
+            scenarios: package
+                .scenarios
+                .iter()
+                .map(ScenarioSummary::from)
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]

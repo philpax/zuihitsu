@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { RunRecord } from "../../types/RunRecord.ts";
+import type { RunSummary } from "../../types/RunSummary.ts";
 import type { Verdict } from "../../types/Verdict.ts";
 import { formatMs, formatTime, formatTokenSplit } from "../../lib/format/format.ts";
 import { Disclosure, Excerpt, Eyebrow } from "../../components/primitives.tsx";
@@ -10,7 +10,7 @@ import { Disclosure, Excerpt, Eyebrow } from "../../components/primitives.tsx";
 /// expanding it lists every oracle and metric the judge scored — its rationale, and the verbatim
 /// judge response behind a judged (rather than deterministically checked) criterion. Open by default
 /// when something failed, since that is the moment this panel exists for.
-export function VerdictPanel({ run, gating }: { run: RunRecord; gating: boolean }) {
+export function VerdictPanel({ run, gating }: { run: RunSummary; gating: boolean }) {
   const failed = run.verdicts.filter((verdict) => !verdict.passed);
   const [open, setOpen] = useState(failed.length > 0);
   const { metrics } = run;
