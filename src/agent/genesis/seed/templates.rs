@@ -344,48 +344,6 @@ pub(in crate::agent::genesis) fn default_templates(
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            // Version 11 scopes the recall point's two over-broad clauses to the turn: the
-            // no-re-search advice now holds only within one turn, since a background merge or another
-            // room can shift the graph between turns, so an identity-sensitive question answers from a
-            // fresh read; and the absence-is-the-answer clause now applies only to a question about
-            // what is held, never to a turn that tells the agent something to keep or asks it to set
-            // something up, which it records rather than reporting absent.
-            // Version 18 adds the browsing dotpoint (gated on the `browsing` feature): read a page
-            // with web.markdown, then record a summary rather than pasting the whole page, and treat
-            // a fetch failure as the answer. The mechanics (the return shape, the error cases) live
-            // in the reference; the scaffold states only the practice.
-            // Version 17 sharpens the neutral-handle clause into "names the occasion, never the
-            // plan", with its why (the handle is the one part of the record no guard covers): at
-            // v16 the guarded-record recipe landed but a telling handle could still be minted.
-            // Version 16 turns the guarded-everywhere clause affirmative — the safe way round is a
-            // neutral handle, the guard on before any detail, and every detail only under it —
-            // since the prohibition alone left the telling one-liner idiom (a guarded summary as
-            // create's content argument) in play.
-            // Version 15 adds the guarded-everywhere clause to the visibility point: a guarded fact
-            // stays out of the memory's handle name, its seed content, and any unclassified sibling
-            // beside it, because a name is never visibility-gated and one plain copy undoes the
-            // guard.
-            // Version 14 adds the exclude posture to the visibility point: a fact everyone but a
-            // particular named person may know — a surprise for them, something kept from one
-            // individual — is recorded excluding that person, holding like a confidence and
-            // additionally withheld whenever they are present. The mechanics (the exclude opt shape)
-            // live in the reference; the scaffold states only the principle and when to reach for it.
-            // Version 13 recasts the linking point for the triadic call shape: a link is now
-            // links.create(a, rel, b), a `links` module function whose arguments read as a sentence
-            // ("a rel b", stored a → b) with neither endpoint a privileged receiver, so a backwards
-            // edge is corrected by swapping the subject and object (or using the inverse label) rather
-            // than "linking from the other end". (Version 12 taught link visibility defaults: a
-            // relationship recorded
-            // about someone defaults private to the teller when a participant asserts it, and
-            // opts.visibility forces the posture. Version 11 taught the write side of link direction:
-            // a:link(rel, b) asserts "a <rel> b", read back as a sentence before committing, linking
-            // from the other end (or under the inverse label) when it comes out backwards — and
-            // corrects the linking point to say a target may be a handle or an exact name. Version 10
-            // split identity lookups from recall — a name is checked exactly, search never decides
-            // name existence — and added the look-before-acting point; version 9 taught a fuzzy hit as
-            // a candidate, not a match; version 8 threaded the whole-record read; version 7 added the
-            // record-or-plain-words branch; version 6 was the concision rewrite.) Bumping the version
-            // keeps an older `produced_by` naming the body it was generated under.
             version: 18,
             body: scaffold_body,
         },
@@ -451,19 +409,11 @@ pub(in crate::agent::genesis) fn default_templates(
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            // Version 3: the preamble now names the sandbox language as Luau, matching the scaffold.
-            // (Version 2 revised the flush teaching for issue #21 — it no longer manages any
-            // session-lifetime graph flag.) Distinct bodies must not share a version across
-            // instances' logs — a flush turn's `produced_by` records the template version, so an
-            // earlier reference keeps naming the old body.
             version: 3,
             body: flush_template_body(),
         },
         TemplateDef {
             name: PromptTemplateName::Imprint,
-            // Version 2 recasts the two example link calls for the triadic call shape: a link is now
-            // links.create(subject, relation, object), a `links` module function, rather than a
-            // `<memory>:link` method.
             version: 2,
             body: "You are meeting your creator for the first time, through the console. This \
                    is how you learn who you are for and who is responsible for you, so be curious: \
@@ -515,12 +465,9 @@ pub(in crate::agent::genesis) fn default_templates(
         },
         TemplateDef {
             name: PromptTemplateName::LinkInference,
-            // Version 3 ties the direction discipline to the rendered relations: each registered
-            // relation is now shown with its sentence reading ("A mentored_by B" restates as "B
-            // mentors A"), so the body tells the model to match the grounding statement to that
-            // reading and take the direction from it. (Version 2 introduced the direction discipline:
-            // a coined directional relation is easy to link the wrong way round, so the pass restates
-            // the edge as a sentence before choosing `direction`.)
+            // A coined directional relation is easy to link the wrong way round, so the body has the
+            // model restate the edge against each relation's rendered sentence reading before choosing
+            // `direction`.
             version: 3,
             body: "You identify relationships implicit in a memory's content and assert them as links \
                    to other memories. You are given the memory's numbered statements, its existing \

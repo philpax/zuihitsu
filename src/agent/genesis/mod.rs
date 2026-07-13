@@ -207,7 +207,10 @@ fn is_genesis_completed(event: &crate::event::Event) -> bool {
 }
 
 /// A build-default prompt template. Bodies are first-pass placeholders; final wording is authored
-/// by the build over time (spec §Initialization: prompt content is deferred to the build).
+/// by the build over time (spec §Initialization: prompt content is deferred to the build). A body
+/// change bumps `version` — distinct bodies never share a `(name, version)` pair — so an older
+/// event's `produced_by` keeps naming the body it was generated under; a body's history lives in
+/// version control, not in comments.
 struct TemplateDef {
     name: PromptTemplateName,
     version: u32,
