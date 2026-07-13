@@ -105,7 +105,7 @@ async fn a_disputed_entry_reads_as_disputed() {
         panic!("expected commit");
     };
     assert_eq!(
-        result.matches("[disputed").count(),
+        result.matches("· disputed").count(),
         2,
         "both competing entries should read as disputed, got: {result}"
     );
