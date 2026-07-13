@@ -137,6 +137,15 @@ export type DeliberationStep =
       result: string | null;
       terminalCause: TerminalCause | null;
       durationMs: number;
+    }
+  | {
+      /// The pre-turn ambient recall hint: memories the frozen brief did not carry, surfaced by the
+      /// lexical pass and injected as a system message before the model generated. The `text` is the
+      /// exact hint the model read; `memories` are the surfaced memory ids.
+      kind: "ambient";
+      seq: number;
+      text: string;
+      memories: string[];
     };
 
 /// The shape a turn materialises through. A turn is built up incrementally — the fold creates it at
@@ -293,6 +302,18 @@ export function buildConversations(
           completion: payload.completion,
           finishReason: payload.finish_reason,
           durationMs: Number(payload.duration_ms),
+        });
+        currentTurnId = payload.turn_id;
+        break;
+      }
+      case "AmbientRecallSurfaced": {
+        // The hint sets up the answering turn — appended before the model's own steps and keyed to
+        // the same turn id — so it leads the turn's deliberation.
+        turn(payload.conversation, payload.turn_id, event.seq).deliberation.push({
+          kind: "ambient",
+          seq: event.seq,
+          text: payload.text,
+          memories: payload.hits.map((hit) => hit.memory),
         });
         currentTurnId = payload.turn_id;
         break;

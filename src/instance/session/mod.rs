@@ -38,6 +38,10 @@ pub(crate) struct OpenSession {
     pub id: SessionId,
     pub vm: Session,
     pub brief: String,
+    /// The memory ids the frozen brief reads over — the present set, the working set, the current
+    /// room's context, and self. Threaded into each turn so the ambient recall pass can exclude what
+    /// the brief already surfaces (see [`super::super::agent::Turn::brief_memories`]).
+    pub brief_memories: Vec<MemoryId>,
     /// When the session opened — the time frozen into the system prompt's "the session begins on …",
     /// so every turn in the session sends an identical system prefix (the live wall clock rides in the
     /// per-message stamps instead). Holding it stable is what lets the serving layer reuse the prefix

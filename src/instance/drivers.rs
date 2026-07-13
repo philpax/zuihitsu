@@ -213,6 +213,9 @@ impl Instance {
                     id: recovered.id,
                     vm: self.mint_vm(conversation),
                     brief: recovered.brief,
+                    // A stale session reconstructed only to flush-and-close runs no turn, so its brief
+                    // read set is never consulted.
+                    brief_memories: Vec::new(),
                     started_at: recovered.started_at,
                     last_activity: AtomicI64::new(last_activity_ms),
                     start_seq: recovered.start_seq,

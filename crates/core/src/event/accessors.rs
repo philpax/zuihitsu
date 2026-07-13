@@ -36,6 +36,7 @@ impl EventPayload {
             EventPayload::LuaExecuted { .. } => "LuaExecuted",
             EventPayload::ModelCalled { .. } => "ModelCalled",
             EventPayload::ModelCallAborted { .. } => "ModelCallAborted",
+            EventPayload::AmbientRecallSurfaced { .. } => "AmbientRecallSurfaced",
             EventPayload::ConversationTurn { .. } => "ConversationTurn",
             EventPayload::ConversationStarted { .. } => "ConversationStarted",
             EventPayload::ConversationEnded { .. } => "ConversationEnded",
@@ -106,6 +107,7 @@ impl EventPayload {
             EventPayload::LuaExecuted { conversation, .. }
             | EventPayload::ModelCalled { conversation, .. }
             | EventPayload::ModelCallAborted { conversation, .. }
+            | EventPayload::AmbientRecallSurfaced { conversation, .. }
             | EventPayload::ConversationTurn { conversation, .. }
             | EventPayload::SessionStarted { conversation, .. }
             | EventPayload::SessionEnded { conversation, .. }

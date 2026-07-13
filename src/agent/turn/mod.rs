@@ -19,6 +19,7 @@ pub use link_inference::{
     InferredLink, LinkInferenceArgs, NewRelationSpec, run_link_inference_catch_up,
 };
 
+mod ambient;
 mod buffer;
 mod record;
 mod recording;
@@ -63,7 +64,7 @@ pub(super) use crate::{
     memory::memory_block::Authority,
     model::{Message, ModelClient},
     prompt::PromptSectionSpan,
-    settings::CaptureLevel,
+    settings::{AmbientSettings, CaptureLevel},
     store::{Store, StoreError},
     time::Timestamp,
     turn_ref,
@@ -170,6 +171,13 @@ pub struct Turn<'a> {
     /// Who is present in the conversation — the visibility set `memory.search` filters against (see
     /// [`BlockContext::present_set`]).
     pub present_set: &'a [MemoryId],
+    /// The memory ids the frozen brief already surfaces — the present set, the working set, the current
+    /// room, and self. The ambient recall pass excludes them, so its hint never restates what the prompt
+    /// already carries.
+    pub brief_memories: &'a [MemoryId],
+    /// The ambient recall tunables (spec §Conversations and briefs → ambient recall): whether the
+    /// pre-turn lexical pass runs, and its salience ceiling and hit cap.
+    pub ambient: AmbientSettings,
     pub max_steps: usize,
     /// Per-block duration budget (spec §Concurrency); each block this turn runs is aborted if it
     /// exceeds it.

@@ -1,11 +1,13 @@
 //! `run_turn` and `run_flush`: the two entry points that assemble the system prompt and drive the
 //! step loop.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{
     engine::Engine,
-    event::{Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole},
+    event::{
+        EventPayload, EventSource, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole,
+    },
     ids::{MemoryId, TurnId},
     memory::memory_block::Authority,
     metrics::observe_turn_deferred,
@@ -36,6 +38,8 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         template,
         authority,
         present_set,
+        brief_memories,
+        ambient,
         max_steps,
         block_timeout,
         max_block_attempts,
@@ -111,6 +115,35 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         engine.clock.now(),
         names.get(&inbound_participant).map(String::as_str),
     )));
+
+    // Ambient recall: a fast lexical pass over the inbound message surfaces memories the frozen brief
+    // did not, injected as a system message so the agent recalls what it would not have thought to
+    // search for (spec §Conversations and briefs → ambient recall). It rides after the inbound, so it
+    // reads as a note about that message. The `AmbientRecallSurfaced` event is recorded right after the
+    // inbound turn and carries the rendered hint verbatim, so the buffer read path replays it in the
+    // same position next turn — the prompt stays byte-identical and the serving layer's prefix cache
+    // survives. The `now` is captured once and shared by the event and the live message stamp, so the
+    // replay (which stamps with the event's recorded time) reproduces this message exactly.
+    let hint = {
+        let graph = engine.graph.lock();
+        let exclude: HashSet<MemoryId> =
+            present_set.iter().chain(brief_memories).copied().collect();
+        super::ambient::ambient_recall(&graph, &ambient, inbound, &exclude)?
+    };
+    if let Some(hint) = hint {
+        let now = engine.clock.now();
+        engine.store.lock().append(
+            now,
+            EventSource::Orchestration,
+            vec![EventPayload::ambient_recall_surfaced(
+                conversation,
+                turn_id,
+                hint.message.clone(),
+                hint.hits,
+            )],
+        )?;
+        messages.push(Message::system(stamp(&hint.message, now, None)));
+    }
 
     let steps_result = run_steps(Steps {
         session,

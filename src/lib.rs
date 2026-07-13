@@ -43,7 +43,7 @@ pub use config::{
     ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, ResilienceConfig, SnapshotConfig,
 };
 pub use event::{
-    Cardinality, ConversationRef, Event, EventPayload, EventSource, InferredLinkSpec,
+    AmbientHit, Cardinality, ConversationRef, Event, EventPayload, EventSource, InferredLinkSpec,
     InferredRelationSpec, Initiation, LinkInferenceResult, LinkSource, MergeProposalSource,
     ModelPhase, ProducedBy, PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole,
     Visibility, Volatility,
@@ -64,9 +64,9 @@ pub use model::{
     schema_of, stream_response,
 };
 pub use settings::{
-    BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings, ConcurrencySettings,
-    ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays,
-    TurnSettings, WebSettings,
+    AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings,
+    ConcurrencySettings, ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings,
+    Settings, TauDays, TurnSettings, WebSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{

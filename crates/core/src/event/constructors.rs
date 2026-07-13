@@ -10,9 +10,9 @@ use crate::{
 };
 
 use super::{
-    ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation, LinkSource,
-    MergeProposalSource, ProducedBy, PromptTemplateName, Teller, TerminalCause, TurnRole,
-    Visibility, Volatility,
+    AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
+    LinkSource, MergeProposalSource, ProducedBy, PromptTemplateName, Teller, TerminalCause,
+    TurnRole, Visibility, Volatility,
 };
 
 impl EventPayload {
@@ -326,6 +326,20 @@ impl EventPayload {
             touched,
             terminal_cause,
             duration_ms,
+        }
+    }
+
+    pub fn ambient_recall_surfaced(
+        conversation: ConversationId,
+        turn_id: TurnId,
+        text: impl Into<String>,
+        hits: Vec<AmbientHit>,
+    ) -> EventPayload {
+        EventPayload::AmbientRecallSurfaced {
+            conversation,
+            turn_id,
+            text: text.into(),
+            hits,
         }
     }
 

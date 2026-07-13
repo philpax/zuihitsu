@@ -97,6 +97,25 @@ pub fn buffer_turns(
                     produced_by,
                 });
             }
+            // The ambient recall hint replays as a system turn at its log position — the byte-identity
+            // reasoning lives on the payload's doc.
+            EventPayload::AmbientRecallSurfaced {
+                conversation: turn_conversation,
+                turn_id,
+                text,
+                ..
+            } if turn_conversation == conversation => {
+                turns.push(TurnView {
+                    seq: event.seq,
+                    turn_id,
+                    role: TurnRole::System,
+                    text,
+                    participant: None,
+                    recorded_at: event.recorded_at,
+                    steps: Vec::new(),
+                    produced_by: None,
+                });
+            }
             _ => {}
         }
     }

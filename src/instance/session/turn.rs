@@ -168,6 +168,8 @@ impl Instance {
             template,
             authority: routed.authority,
             present_set: routed.present_set,
+            brief_memories: &open.brief_memories,
+            ambient: settings.ambient.clone(),
             max_steps,
             block_timeout,
             max_block_attempts,

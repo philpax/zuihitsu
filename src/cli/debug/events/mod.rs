@@ -295,6 +295,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         EventPayload::ModelCallAborted { attempt, cause, .. } => {
             format!("attempt {attempt} discarded: {cause}")
         }
+        EventPayload::AmbientRecallSurfaced { hits, .. } => {
+            format!("ambient recall: {} memories", hits.len())
+        }
         EventPayload::EmbeddingModelChanged { from, to } => {
             format!("embedding model {from} → {to}")
         }
@@ -401,6 +404,7 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         // Telemetry and structural or config events — the quiet background.
         EventPayload::ModelCalled { .. }
         | EventPayload::ModelCallAborted { .. }
+        | EventPayload::AmbientRecallSurfaced { .. }
         | EventPayload::LuaExecuted { .. }
         | EventPayload::GenesisCompleted { .. }
         | EventPayload::ConfigSet { .. }

@@ -2,7 +2,7 @@
 
 ## Agent loop and tool protocol
 
-A turn begins when a platform message is routed to the server (see [Server API and turn lifecycle](#server-api-and-turn-lifecycle) below); the loop described here is what runs inside it.
+A turn begins when a platform message is routed to the server (see [Server API and turn lifecycle](#server-api-and-turn-lifecycle) below); the loop described here is what runs inside it. Before the first step, the [ambient recall](conversations-and-briefs.md#ambient-recall) pass may append one recorded system hint after the inbound message — memories the frozen brief did not carry, surfaced lexically from the message's own words — so the loop starts aware of what it would not have thought to search for.
 
 A turn is a loop of model *steps*. At each step the model is given the conversation so far and emits either tool calls or a final reply — never both in one step, because a reply composed before seeing a tool result would be reasoning on stale information. The contract:
 

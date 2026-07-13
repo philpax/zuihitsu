@@ -72,6 +72,7 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
       return "conversation";
     case "ModelCalled":
     case "ModelCallAborted":
+    case "AmbientRecallSurfaced":
     case "LuaExecuted":
       return "deliberation";
     case "ConversationStarted":
@@ -148,6 +149,8 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
       return payload.participant === memoryId;
     case "LuaExecuted":
       return payload.touched.includes(memoryId);
+    case "AmbientRecallSurfaced":
+      return payload.hits.some((hit) => hit.memory === memoryId);
     default:
       return false;
   }
@@ -212,6 +215,8 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${payload.phase.toLowerCase()} call`;
     case "ModelCallAborted":
       return `attempt ${payload.attempt} discarded — ${payload.cause}`;
+    case "AmbientRecallSurfaced":
+      return `ambient recall — ${payload.hits.map((hit) => ref(hit.memory)).join(", ") || "nothing"}`;
     case "LuaExecuted":
       return payload.terminal_cause
         ? terminalCauseLabel(payload.terminal_cause)

@@ -382,6 +382,23 @@ pub enum EventPayload {
         /// The reply text streamed before the failure, discarded on restart.
         partial_reply: String,
     },
+    /// Records the pre-turn ambient recall pass: a fast lexical fan-out over the inbound message that
+    /// surfaced memories the frozen brief did not, injected into the turn as a system message so the
+    /// agent can follow one up with `memory.get`/`memory.search`. Keyed to the answering turn's
+    /// `turn_id`, and ordered right after the inbound `ConversationTurn`, so the log's order matches the
+    /// live prompt (inbound, then hint). Part of the prompt record, not graph state: the materializer
+    /// projects nothing from it, but the buffer read path replays `text` as a system message so a later
+    /// turn's prompt is byte-identical to the live one (the serving layer's prefix cache then survives).
+    /// `text` is the exact rendered hint, stored verbatim rather than re-derived from `hits` at read
+    /// time — the memories' names and snippets may change afterward, and the prompt must reproduce what
+    /// the model actually read. `hits` carries the structured substance (each memory and its best, most
+    /// negative bm25 score) the console shows alongside the text.
+    AmbientRecallSurfaced {
+        conversation: ConversationId,
+        turn_id: TurnId,
+        text: String,
+        hits: Vec<AmbientHit>,
+    },
     /// A turn in the conversation: an inbound participant message, the agent's response (a reply, a
     /// silent terminal with empty `text`, or a surfaced `max_steps` error), or a system message.
     /// `participant` is the speaker of an inbound message (`None` for the agent's own and system
@@ -459,6 +476,15 @@ pub enum EventPayload {
         #[cfg_attr(feature = "ts", ts(type = "string"))]
         platform_user_id: SmolStr,
     },
+}
+
+/// One memory the ambient recall pass surfaced, with its best (most negative) bm25 score across the
+/// queries that matched it — the substance an [`EventPayload::AmbientRecallSurfaced`] record carries.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AmbientHit {
+    pub memory: MemoryId,
+    pub score: f32,
 }
 
 /// A `ClassPrimaryDesignated` with no `designated` field is a pin: the only shape early on was the

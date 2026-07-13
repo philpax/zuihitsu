@@ -505,7 +505,7 @@ mod accessors;
 mod constructors;
 mod payload;
 
-pub use payload::EventPayload;
+pub use payload::{AmbientHit, EventPayload};
 
 #[cfg(test)]
 mod tests;

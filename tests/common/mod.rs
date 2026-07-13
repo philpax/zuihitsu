@@ -83,10 +83,10 @@ mod harness {
     use std::{cell::Cell, sync::Arc, time::Duration};
 
     use zuihitsu::{
-        Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId, Embedder, Engine,
-        Event, EventPayload, EventSource, FakeEmbedder, Graph, InMemoryVectorIndex,
-        InstanceFeatures, ManualClock, MemoryId, MemoryStore, ModelClient, PromptTemplateName, Seq,
-        Session, Teller, Turn, TurnId, TurnView, VectorIndex,
+        AmbientSettings, Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId,
+        Embedder, Engine, Event, EventPayload, EventSource, FakeEmbedder, Graph,
+        InMemoryVectorIndex, InstanceFeatures, ManualClock, MemoryId, MemoryStore, ModelClient,
+        PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
         model::index::{apply_batch, embed_batch},
         run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -303,6 +303,13 @@ mod harness {
                 template: PromptTemplateName::Scaffold,
                 authority: Authority::Platform,
                 present_set: &[],
+                brief_memories: &[],
+                // The low-level agent-loop harness keeps ambient recall off so a seeded memory never
+                // perturbs a test's recorded messages; the pass is exercised through `route_message`.
+                ambient: AmbientSettings {
+                    enabled: false,
+                    ..AmbientSettings::default()
+                },
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
@@ -333,6 +340,11 @@ mod harness {
                 template: PromptTemplateName::Scaffold,
                 authority: Authority::Platform,
                 present_set: &[],
+                brief_memories: &[],
+                ambient: AmbientSettings {
+                    enabled: false,
+                    ..AmbientSettings::default()
+                },
                 max_steps,
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,

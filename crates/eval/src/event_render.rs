@@ -65,6 +65,11 @@ pub(crate) fn diagnostic_summary(payload: &EventPayload) -> Option<String> {
         EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
             Some(format!("described {id:?}: {:?}", new_text.trim()))
         }
+        EventPayload::AmbientRecallSurfaced { turn_id, hits, .. } => Some(format!(
+            "ambient recall in {turn_id:?}: {} memories {:?}",
+            hits.len(),
+            hits.iter().map(|hit| hit.memory).collect::<Vec<_>>(),
+        )),
         _ => None,
     }
 }

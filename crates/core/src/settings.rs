@@ -42,6 +42,7 @@ pub struct Settings {
     pub observability: ObservabilitySettings,
     pub memory: MemorySettings,
     pub web: WebSettings,
+    pub ambient: AmbientSettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -275,6 +276,26 @@ pub struct WebSettings {
     pub allow_private_addresses: bool,
 }
 
+/// Ambient recall: the fast pre-turn lexical pass that surfaces memories the frozen brief did not, so
+/// the agent recalls what it would not have thought to search for. A hit weaker than `min_score`, or a
+/// memory the brief already carries, is dropped; at most `max_hits` survive.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AmbientSettings {
+    /// Whether the ambient recall pass runs at all. Off leaves the turn assembled exactly as before —
+    /// no hint, no `AmbientRecallSurfaced` record.
+    pub enabled: bool,
+    /// The most memories the ambient hint surfaces, after salience filtering and ranking best-first.
+    /// Kept small: the hint is a spark for recall, not a second brief.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_hits: i64,
+    /// The weakest bm25 score a hit may carry and still surface. FTS5 bm25 is more negative for a
+    /// stronger match, so a hit survives only when its best score is at or below this ceiling; a value
+    /// nearer zero admits weaker matches, a more negative value demands stronger ones.
+    pub min_score: f64,
+}
+
 /// Multi-signal search scoring (spec §Time → search scoring): the blend weights and the recency
 /// decay.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -408,6 +429,16 @@ impl Default for WebSettings {
     }
 }
 
+impl Default for AmbientSettings {
+    fn default() -> Self {
+        AmbientSettings {
+            enabled: true,
+            max_hits: 3,
+            min_score: -0.3,
+        }
+    }
+}
+
 impl Default for SearchSettings {
     fn default() -> Self {
         SearchSettings {
@@ -458,8 +489,9 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{
-        BriefSettings, CaptureLevel, CheckpointSettings, ConcurrencySettings, MemorySettings,
-        ObservabilitySettings, SchedulerSettings, Settings, TurnSettings, WebSettings,
+        AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, ConcurrencySettings,
+        MemorySettings, ObservabilitySettings, SchedulerSettings, Settings, TurnSettings,
+        WebSettings,
     };
 
     #[test]
@@ -530,6 +562,17 @@ mod tests {
         // and leave private-address fetches refused.
         assert_eq!(settings.web, WebSettings::default());
         assert!(!settings.web.allow_private_addresses);
+        // The ambient group postdates many logged snapshots; its absence must default the pass on.
+        assert_eq!(settings.ambient, AmbientSettings::default());
+        assert!(settings.ambient.enabled);
+    }
+
+    #[test]
+    fn ambient_defaults_match_the_spec_starting_values() {
+        let ambient = AmbientSettings::default();
+        assert!(ambient.enabled);
+        assert_eq!(ambient.max_hits, 3);
+        assert_eq!(ambient.min_score, -0.3);
     }
 
     #[test]

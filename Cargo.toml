@@ -94,12 +94,14 @@ tokio = { workspace = true, features = [
     "net",
     "signal",
 ] }
+stop-words = "0.10"
 toml = "1.1.2"
 tracing = { workspace = true }
-url = "2.5"
 tracing-subscriber = { workspace = true }
 ts-rs = { workspace = true, optional = true }
 ulid = { workspace = true }
+url = "2.5"
+whatlang = "0.18"
 zuihitsu-core = { workspace = true }
 
 [dev-dependencies]

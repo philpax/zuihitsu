@@ -214,6 +214,21 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "AmbientRecallSurfaced":
+      return (
+        <Fields>
+          <Field label="surfaced">
+            {refs(
+              payload.hits.map((hit) => hit.memory),
+              "nothing",
+            )}
+          </Field>
+          <Field label="hint">
+            <span className="whitespace-pre-wrap text-ink-faint">{payload.text}</span>
+          </Field>
+        </Fields>
+      );
+
     case "ConversationTurn":
       return (
         <Fields>

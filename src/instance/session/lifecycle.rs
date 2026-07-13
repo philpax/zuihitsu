@@ -241,6 +241,10 @@ impl Instance {
                 id: recovered.id,
                 vm: self.mint_vm(conversation),
                 brief: recovered.brief,
+                // A recovered session's brief read set is not reconstructed here; the ambient pass then
+                // simply does not dedup against the brief for the brief span of a resumed cold-start
+                // session, at worst repeating a memory the brief already names.
+                brief_memories: Vec::new(),
                 started_at: recovered.started_at,
                 last_activity: AtomicI64::new(last_activity.as_millis()),
                 start_seq: recovered.start_seq,
@@ -366,6 +370,7 @@ impl Instance {
             id,
             vm,
             brief,
+            brief_memories,
             started_at: now,
             last_activity: AtomicI64::new(now.as_millis()),
             start_seq: carryover

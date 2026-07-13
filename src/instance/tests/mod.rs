@@ -6,6 +6,8 @@ use {
 };
 
 #[cfg(test)]
+mod ambient_recall;
+#[cfg(test)]
 mod designation;
 #[cfg(test)]
 mod embedding_swap;
