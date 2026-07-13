@@ -167,9 +167,11 @@ pub(in crate::agent::genesis) fn default_templates(
         scaffold_points.push(
             "When someone points you at a web page, read it with web.markdown(url) — it returns the \
              page's main content as prose, its navigation, sidebars, and footers stripped, not raw \
-             HTML. Read what comes back, then record a summary of what matters in your own words; \
-             never paste a whole page into memory — it is truncated at the source, bloats the log, \
-             and buries the fact you actually learned under chrome. A fetch can fail — a bad \
+             HTML. Read what comes back, then record a summary of what matters in your own words, \
+             keeping the page's URL in the record so a later question about a detail your summary \
+             dropped can re-read the source; never paste a whole page into memory — it is truncated \
+             at the source, bloats the log, and buries the fact you actually learned under chrome. A \
+             fetch can fail — a bad \
              address, a page that is not HTML, a timeout — and says so plainly; treat that as the \
              answer, not a cue to invent what the page might have said."
                 .to_owned(),
@@ -346,7 +348,7 @@ pub(in crate::agent::genesis) fn default_templates(
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 19,
+            version: 20,
             body: scaffold_body,
         },
         TemplateDef {
