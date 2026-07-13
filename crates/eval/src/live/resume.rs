@@ -25,7 +25,7 @@ use std::{
 use crate::{
     error::EvalError,
     live::LiveEvent,
-    package::{RunMeta, RunRecord, ScenarioMeta},
+    package::{EvalPackage, RunMeta, RunRecord, ScenarioMeta},
 };
 
 /// An interrupted run folded from its sidecar: the manifest it began with, and the runs that finished.
@@ -99,6 +99,34 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
     })
 }
 
+/// Reconstruct a [`ResumeState`] from a completed package, for the heal path when the sidecar has
+/// already been folded away. A successfully finished run folds its `.jsonl` sidecar into
+/// `eval/<name>.json` and deletes the sidecar, so a later `--retry-infra-failed` has no sidecar to
+/// read — but the package carries everything the resume state needs: its `meta` is the run's manifest,
+/// each scenario's `meta` is a [`ScenarioMeta`], and each `RunRecord` is a completed run keyed by its
+/// scenario's index. The runs come out in `(scenario, run)` order, matching what [`read_sidecar`]
+/// yields, because the package holds scenarios in order and each scenario's runs sorted by index.
+pub fn resume_state_from_package(package: EvalPackage) -> ResumeState {
+    let EvalPackage { meta, scenarios } = package;
+    let scenario_metas = scenarios.iter().map(|report| report.meta.clone()).collect();
+    let completed = scenarios
+        .into_iter()
+        .enumerate()
+        .flat_map(|(scenario, report)| {
+            let scenario = scenario as u32;
+            report
+                .runs
+                .into_iter()
+                .map(move |record| (scenario, record))
+        })
+        .collect();
+    ResumeState {
+        meta,
+        scenarios: scenario_metas,
+        completed,
+    }
+}
+
 /// Whether a completed run's record bears the infrastructure-failure signature: the model backend was
 /// unreachable for the run's whole life, so every turn it drove deferred — no deliberation step ran
 /// and no reply was produced. The eval turn path returns such a turn as a completed run (the deferral
@@ -149,13 +177,16 @@ mod tests {
 
     use zuihitsu::{Completion, FlakyModel, InstanceFeatures, ModelClient, ScriptedModel, Seq};
 
-    use super::{infra_failed, read_sidecar, take_infra_failed};
+    use super::{infra_failed, read_sidecar, resume_state_from_package, take_infra_failed};
     use crate::{
         context::{RunContext, RunDeps},
         executor::{StepRecord, execute},
         harness,
         live::EvalSink,
-        package::{Bar, Category, RunMeta, RunMetrics, RunRecord, ScenarioMeta, Verdict},
+        package::{
+            Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
+            ScenarioReport, Verdict,
+        },
         step::{EvalStep, Turn},
     };
 
@@ -461,5 +492,113 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Fold the given per-scenario runs into an [`EvalPackage`] exactly as a finished run would — one
+    /// [`ScenarioReport`] per scenario, its runs sorted and aggregated — so the package fallback is
+    /// tested against the real folded shape a completed package holds.
+    fn package(scenarios: Vec<(ScenarioMeta, Vec<RunRecord>)>) -> EvalPackage {
+        EvalPackage {
+            meta: meta(),
+            scenarios: scenarios
+                .into_iter()
+                .map(|(meta, mut runs)| {
+                    runs.sort_by_key(|run| run.index);
+                    let aggregate = harness::aggregate(&runs);
+                    ScenarioReport {
+                        meta,
+                        runs,
+                        aggregate,
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    /// Reconstructing the resume state from a completed package recovers the manifest, every scenario's
+    /// meta, and every run keyed by its scenario index in `(scenario, run)` order — the same shape
+    /// [`read_sidecar`] yields, so the heal proceeds identically whether it seeds from a sidecar or a
+    /// folded-away package.
+    #[test]
+    fn resume_state_reconstructs_from_a_package() {
+        let pkg = package(vec![
+            (
+                scenario_meta("first"),
+                vec![
+                    record(0, vec![a_turn()], 4, Vec::new()),
+                    record(1, vec![a_turn()], 5, Vec::new()),
+                ],
+            ),
+            (
+                scenario_meta("second"),
+                vec![record(0, vec![a_turn()], 6, Vec::new())],
+            ),
+        ]);
+        let state = resume_state_from_package(pkg);
+        assert_eq!(
+            state.meta.model_id, "test-model",
+            "the manifest is recovered"
+        );
+        let names: Vec<&str> = state.scenarios.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["first", "second"], "every scenario meta rides");
+        let coords: Vec<(u32, u32)> = state
+            .completed
+            .iter()
+            .map(|(scenario, run)| (*scenario, run.index))
+            .collect();
+        assert_eq!(
+            coords,
+            vec![(0, 0), (0, 1), (1, 0)],
+            "runs come out keyed by scenario index in (scenario, run) order"
+        );
+    }
+
+    /// The package fallback with one poisoned run and one healthy sibling: the reconstructed state
+    /// seeds the healthy run as completed and takes the poisoned one for re-drive — the same partition
+    /// the sidecar path applies, just sourced from the package.
+    #[test]
+    fn a_package_with_a_poisoned_run_seeds_the_healthy_and_takes_the_poisoned() {
+        let pkg = package(vec![(
+            scenario_meta("heal"),
+            vec![
+                record(0, vec![a_turn()], 0, Vec::new()), // poisoned: a turn drove but no model call
+                record(1, vec![a_turn()], 5, Vec::new()), // healthy
+            ],
+        )]);
+        let mut state = resume_state_from_package(pkg);
+        let retried = take_infra_failed(&mut state.completed);
+        assert_eq!(
+            retried,
+            vec![(0, 0)],
+            "the poisoned run is taken for re-drive"
+        );
+        let kept: Vec<(u32, u32)> = state
+            .completed
+            .iter()
+            .map(|(scenario, run)| (*scenario, run.index))
+            .collect();
+        assert_eq!(kept, vec![(0, 1)], "only the healthy run seeds the package");
+    }
+
+    /// A completed package with no poisoned runs heals to a no-op: the partition takes nothing, so every
+    /// run seeds the package and none re-drives — the finished-but-healthy package folds straight back.
+    #[test]
+    fn a_healthy_package_heals_to_a_no_op() {
+        let pkg = package(vec![(
+            scenario_meta("healthy"),
+            vec![
+                record(0, vec![a_turn()], 4, Vec::new()),
+                record(1, vec![a_turn()], 5, Vec::new()),
+            ],
+        )]);
+        let mut state = resume_state_from_package(pkg);
+        let before = state.completed.len();
+        let retried = take_infra_failed(&mut state.completed);
+        assert!(retried.is_empty(), "nothing to heal");
+        assert_eq!(
+            state.completed.len(),
+            before,
+            "every run seeds the package unchanged"
+        );
     }
 }

@@ -121,6 +121,38 @@ pub(crate) struct Resume {
     pub(crate) retry_infra_failed: bool,
 }
 
+/// Which source a resume seeds its state from, decided by the flags and what artifacts sit on disk.
+/// The heal flag adds a package fallback to the plain sidecar resume, so the decision is a small
+/// three-way rather than a boolean — kept pure and separate so its precedence is directly testable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResumeSource {
+    /// Continue the interrupted run's `.jsonl` sidecar (`--resume` with a sidecar present).
+    Sidecar,
+    /// Reconstruct the resume state from the completed package — the heal path when the sidecar has
+    /// already been folded away (`--retry-infra-failed`, no sidecar, but the package exists).
+    Package,
+    /// Start a fresh run. `warn_no_heal_target` is set when `--retry-infra-failed` found neither a
+    /// sidecar nor a package to heal, so the caller logs why the heal fell back to a fresh run.
+    Fresh { warn_no_heal_target: bool },
+}
+
+/// Decide where a resume seeds from. Precedence is sidecar-then-package: an interrupted run's sidecar
+/// is the fresher truth, so it wins even when a completed package sits beside it. The package fallback
+/// is reserved for the heal flag; plain `--resume` with no sidecar starts a fresh run exactly as
+/// before. When `--retry-infra-failed` finds neither artifact, the fresh run is flagged so the caller
+/// explains the fallback.
+fn resume_source(resume: Resume, sidecar_exists: bool, package_exists: bool) -> ResumeSource {
+    if resume.enabled && sidecar_exists {
+        ResumeSource::Sidecar
+    } else if resume.enabled && resume.retry_infra_failed && package_exists {
+        ResumeSource::Package
+    } else {
+        ResumeSource::Fresh {
+            warn_no_heal_target: resume.retry_infra_failed,
+        }
+    }
+}
+
 /// Where a run's artifacts are filed: the run `name` (the trend record correlates a line back to its
 /// package by it) and its resolved `eval/<name>.json` path. The two travel together — the name names
 /// the run and the path is derived from it — so they ride as one parameter rather than two.
@@ -227,29 +259,59 @@ async fn run(
     }
 
     // Resume continues the existing sidecar (its manifest, its completed runs) and skips them; a fresh
-    // run seeds a new one from the manifest just built.
-    let sink = if resume.enabled && sidecar.exists() {
-        let mut state = live::read_sidecar(&sidecar)?;
-        // With `--retry-infra-failed`, drop the infrastructure-poisoned runs from the seeded set so the
-        // harness re-drives them; their fresh records supersede the poisoned ones in the sidecar. The
-        // kept runs — including every oracle-failed one, which is legitimate data — seed the package
-        // verbatim.
-        let retried = if resume.retry_infra_failed {
-            live::take_infra_failed(&mut state.completed)
-        } else {
-            Vec::new()
-        };
-        report_infra_retries(resume.retry_infra_failed, &retried, &state.scenarios);
-        tracing::info!(completed = state.completed.len(), path = %sidecar.display(), "resuming from sidecar");
-        Arc::new(live::EvalSink::resume(state, &sidecar)?)
-    } else {
-        if resume.retry_infra_failed {
-            tracing::warn!(
-                path = %sidecar.display(),
-                "--retry-infra-failed has no sidecar to heal; starting a fresh run"
-            );
+    // run seeds a new one from the manifest just built. The heal flag adds a package fallback: a
+    // finished run folds its sidecar into the package and deletes it, so `--retry-infra-failed` on a
+    // completed package reconstructs the resume state from the package itself.
+    let sink = match resume_source(resume, sidecar.exists(), out.exists()) {
+        ResumeSource::Sidecar => {
+            let mut state = live::read_sidecar(&sidecar)?;
+            // With `--retry-infra-failed`, drop the infrastructure-poisoned runs from the seeded set so
+            // the harness re-drives them; their fresh records supersede the poisoned ones in the
+            // sidecar. The kept runs — including every oracle-failed one, which is legitimate data —
+            // seed the package verbatim.
+            let retried = if resume.retry_infra_failed {
+                live::take_infra_failed(&mut state.completed)
+            } else {
+                Vec::new()
+            };
+            report_infra_retries(resume.retry_infra_failed, &retried, &state.scenarios);
+            tracing::info!(completed = state.completed.len(), path = %sidecar.display(), "resuming from sidecar");
+            Arc::new(live::EvalSink::resume(state, &sidecar)?)
         }
-        Arc::new(live::EvalSink::new(meta, scenario_metas, &sidecar)?)
+        ResumeSource::Package => {
+            // The heal flag with no sidecar: the run already completed, folding its sidecar into the
+            // package and removing it. Reconstruct the resume state from the package, drop the poisoned
+            // runs so the harness re-drives them, and materialize a fresh sidecar carrying the manifest
+            // and the healthy runs verbatim — so a crash mid-heal leaves a resumable sidecar rather than
+            // losing the runs that are not being re-driven.
+            let mut state = live::resume_state_from_package(crate::analyze::load(out)?);
+            let retried = live::take_infra_failed(&mut state.completed);
+            report_infra_retries(true, &retried, &state.scenarios);
+            tracing::info!(
+                completed = state.completed.len(),
+                path = %out.display(),
+                "seeding resume state from the completed package (its sidecar was already folded away)"
+            );
+            let sink = live::EvalSink::new(state.meta.clone(), state.scenarios.clone(), &sidecar)?;
+            // Fold each healthy run into the fresh sidecar exactly as the original run recorded it, so
+            // the kept runs ride through unchanged — never re-driven, never re-judged.
+            for (scenario, record) in state.completed {
+                sink.run_finished(scenario, record)?;
+            }
+            Arc::new(sink)
+        }
+        ResumeSource::Fresh {
+            warn_no_heal_target,
+        } => {
+            if warn_no_heal_target {
+                tracing::warn!(
+                    sidecar = %sidecar.display(),
+                    package = %out.display(),
+                    "--retry-infra-failed found neither a sidecar nor a completed package to heal; starting a fresh run"
+                );
+            }
+            Arc::new(live::EvalSink::new(meta, scenario_metas, &sidecar)?)
+        }
     };
     let done = sink.done_runs();
 
@@ -358,4 +420,63 @@ pub(crate) fn git_dirty() -> bool {
         return false;
     };
     output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Resume, ResumeSource, resume_source};
+
+    fn resume(enabled: bool, retry_infra_failed: bool) -> Resume {
+        Resume {
+            enabled,
+            retry_infra_failed,
+        }
+    }
+
+    /// A present sidecar always wins under `--resume`, even when a completed package sits beside it:
+    /// an interrupted run's sidecar is the fresher truth.
+    #[test]
+    fn a_sidecar_wins_over_a_package() {
+        assert_eq!(
+            resume_source(resume(true, false), true, true),
+            ResumeSource::Sidecar
+        );
+        assert_eq!(
+            resume_source(resume(true, true), true, true),
+            ResumeSource::Sidecar
+        );
+    }
+
+    /// The heal flag with no sidecar but a completed package falls back to seeding from the package.
+    #[test]
+    fn the_heal_flag_falls_back_to_the_package() {
+        assert_eq!(
+            resume_source(resume(true, true), false, true),
+            ResumeSource::Package
+        );
+    }
+
+    /// Plain `--resume` without the heal flag never touches the package fallback: no sidecar means a
+    /// fresh run, exactly as before, and with no heal warning.
+    #[test]
+    fn plain_resume_without_a_sidecar_is_a_fresh_run() {
+        assert_eq!(
+            resume_source(resume(true, false), false, true),
+            ResumeSource::Fresh {
+                warn_no_heal_target: false
+            }
+        );
+    }
+
+    /// The heal flag with neither a sidecar nor a package starts a fresh run and flags the warning so
+    /// the caller explains why the heal had no target.
+    #[test]
+    fn the_heal_flag_with_neither_artifact_warns_and_runs_fresh() {
+        assert_eq!(
+            resume_source(resume(true, true), false, false),
+            ResumeSource::Fresh {
+                warn_no_heal_target: true
+            }
+        );
+    }
 }

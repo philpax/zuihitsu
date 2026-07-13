@@ -32,7 +32,7 @@ use crate::{
 
 pub use helpers::now_ms;
 use helpers::{flush, write};
-pub use resume::{ResumeState, read_sidecar, take_infra_failed};
+pub use resume::{ResumeState, read_sidecar, resume_state_from_package, take_infra_failed};
 
 const BROADCAST_CAPACITY: usize = 8192;
 
