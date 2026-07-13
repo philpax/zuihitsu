@@ -312,7 +312,8 @@ impl std::fmt::Display for HandleError {
                 f,
                 "no memory named \"{name}\" to exclude — exclude names the parties to withhold this \
                  from (each a person handle from memory.get/create, or their memory name). Create \
-                 their memory first, or check the casing"
+                 their memory first — a bare memory.create(\"person/<name>\") stub suffices — or \
+                 check the casing"
             ),
             HandleError::WrongExcludeeType { type_name } => write!(
                 f,
@@ -376,10 +377,11 @@ impl std::fmt::Display for ConcatError {
             ConcatError::NonJoinable => write!(
                 f,
                 "table.concat joins only strings and numbers, but this list holds values it cannot — \
-                 a handle list like mem:entries() or hub:links(), most likely. Composing text from \
-                 handles is interpolation's job: interpolate one into a backtick string — \
-                 `latest: {{es[1]}}` renders it as its text — or, since a handle concatenates \
-                 directly (\"- \" .. e renders one), build the string with .. in a loop."
+                 a handle list like mem:entries() or hub:links(), most likely. To see the list, \
+                 print(list) already renders each handle on its own line — no join needed. To compose \
+                 text from handles, interpolate one into a backtick string — `latest: {{es[1]}}` \
+                 renders it as its text — or, since a handle concatenates directly (\"- \" .. e \
+                 renders one), build the string with .. in a loop."
             ),
         }
     }
