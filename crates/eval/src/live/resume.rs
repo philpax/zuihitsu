@@ -2,12 +2,11 @@
 //! outage poisoned.
 //!
 //! A `--resume` continues an interrupted suite from its sidecar, driving only the runs it does not
-//! already hold. `--retry-infra-failed` extends that: a completed run bearing the
-//! infrastructure-failure signature ([`infra_failed`]) is treated as not-done — re-driven live, its
-//! poisoned record superseded rather than kept. The signature is structural: the model backend was
-//! unreachable for the run's whole life, so every turn it drove deferred and no reply was produced.
-//! An oracle-failed run — one whose turns all ran but whose verdicts missed — is legitimate data and
-//! is **never** retried; redoing it would silently bias the suite's rates toward passing.
+//! already hold. `--retry-infra-failed` extends that: a completed run bearing an
+//! infrastructure-failure signature ([`infra_failed`]) — deferred throughout, or errored out
+//! mid-drive — is treated as not-done: re-driven live, its poisoned record superseded rather than
+//! kept. An oracle-failed run — one whose turns all ran but whose verdicts missed — is legitimate
+//! data and is **never** retried; redoing it would silently bias the suite's rates toward passing.
 //!
 //! Supersession needs no new sidecar record kind. The sidecar is an append-only log of whole-run
 //! records keyed by `(scenario, run)`; a re-driven run appends a fresh `RunCompleted` under the same
@@ -128,28 +127,30 @@ pub fn resume_state_from_package(package: EvalPackage) -> ResumeState {
     }
 }
 
-/// Whether a completed run's record bears the infrastructure-failure signature: the model backend was
-/// unreachable for the run's whole life, so every turn it drove deferred — no deliberation step ran
-/// and no reply was produced. The eval turn path returns such a turn as a completed run (the deferral
-/// is `Ok`, the inbound is durably recorded), so the poison hides among genuine results and must be
-/// told apart structurally.
+/// Whether a completed run's record bears an infrastructure-failure signature. Two shapes qualify,
+/// both read structurally from the record — never from prose or an error string:
 ///
-/// The rule reads the recorded journal and metrics, never prose or an error string:
+/// - **Deferred throughout**: the journal drove at least one model-invoking step
+///   ([`EvalStep::drives_model`](crate::step::EvalStep::drives_model) — a `Turn` or an `Imprint`)
+///   yet the run recorded zero `ModelCalled` events (`metrics.model_calls == 0`). The backend was
+///   unreachable for the run's whole life, every driven turn deferred, and the eval turn path
+///   returns such a run as completed — the poison hides among genuine results.
+/// - **Errored out**: the run recorded no event log and no journal at all — the harness's error arm,
+///   reached when the drive itself failed (a stream dying mid-run, say). No genuinely completed run
+///   lacks an event log, since genesis alone populates it, so the empty record is decisive; a
+///   pre-journal record from an older package keeps its events and is not confused with this shape.
 ///
-/// - the journal drove at least one model-invoking step ([`EvalStep::drives_model`](crate::step::EvalStep::drives_model)
-///   — a `Turn` or an `Imprint`), **and**
-/// - the run recorded zero `ModelCalled` events (`metrics.model_calls == 0`).
-///
-/// A single successful `ModelCalled` proves the endpoint was reachable for part of the run, so the
-/// run's outcome reflects the model rather than the infrastructure — it is legitimate data and is
-/// never flagged. The detector is therefore conservative: it flags only a run it can prove reached no
-/// model at all, and so never retries a `MaxStepsExceeded`, a `Silent`, or an oracle miss (each of
-/// those records model calls). A scenario that legitimately never calls the model (it only seeds
-/// events and runs catch-up passes) drives no model-invoking step, so the journal clause spares it,
-/// and a pre-journal record (an older package with an empty journal) carries no evidence a turn was
-/// driven and is likewise never flagged.
+/// A single successful `ModelCalled` in a journaled run proves the endpoint was reachable for part
+/// of the run, so the run's outcome reflects the model rather than the infrastructure — it is
+/// legitimate data and is never flagged. The detector is therefore conservative: it never retries a
+/// `MaxStepsExceeded`, a `Silent`, or an oracle miss (each of those records model calls), and a
+/// scenario that legitimately never calls the model drives no model-invoking step, so the journal
+/// clause spares it.
 pub fn infra_failed(record: &RunRecord) -> bool {
-    record.metrics.model_calls == 0 && record.journal.iter().any(|step| step.step.drives_model())
+    let errored_out = record.events.is_empty() && record.journal.is_empty();
+    let deferred_throughout = record.metrics.model_calls == 0
+        && record.journal.iter().any(|step| step.step.drives_model());
+    errored_out || deferred_throughout
 }
 
 /// Remove the [`infra_failed`] runs from a resumed sidecar's completed set, returning their
@@ -239,11 +240,22 @@ mod tests {
         model_calls: u32,
         verdicts: Vec<Verdict>,
     ) -> RunRecord {
+        // Every genuinely completed run carries an event log (genesis alone populates it), so the
+        // fixture carries one token event — an empty log is the errored-out signature
+        // [`infra_failed`] flags, built by [`errored_record`] instead.
         RunRecord {
             index,
             started_at_ms: 0,
             finished_at_ms: 0,
-            events: Vec::new(),
+            events: vec![zuihitsu::Event {
+                seq: Seq(1),
+                recorded_at: zuihitsu::Timestamp::from_millis(0),
+                source: zuihitsu::EventSource::Bootstrap,
+                payload: zuihitsu::EventPayload::genesis_completed(
+                    String::new(),
+                    std::collections::BTreeMap::new(),
+                ),
+            }],
             journal: journal
                 .into_iter()
                 .enumerate()
@@ -346,11 +358,39 @@ mod tests {
     }
 
     /// A pre-journal record (an older package with an empty journal) carries no evidence a turn was
-    /// driven, so it is conservatively never flagged.
+    /// driven, so it is conservatively never flagged — its recorded events distinguish it from an
+    /// errored-out run's empty record.
     #[test]
     fn a_pre_journal_record_is_not_infra_failed() {
         let old = record(0, Vec::new(), 0, Vec::new());
         assert!(!infra_failed(&old));
+    }
+
+    /// A run whose drive itself failed (a stream dying mid-run) lands in the harness's error arm and
+    /// records no event log and no journal at all — the second infrastructure signature, flagged for
+    /// re-drive even though its metrics carry no model-invoking journal step to key on.
+    #[test]
+    fn an_errored_out_run_is_infra_failed() {
+        let errored = errored_record(3);
+        assert!(infra_failed(&errored));
+    }
+
+    /// The record the harness's error arm produces: no events, no journal, only the incomplete-run
+    /// sentinel verdict.
+    fn errored_record(index: u32) -> RunRecord {
+        RunRecord {
+            index,
+            started_at_ms: 0,
+            finished_at_ms: 0,
+            events: Vec::new(),
+            journal: Vec::new(),
+            verdicts: vec![Verdict::metric(
+                "the run completed",
+                false,
+                "the run did not complete: eval: turn (model): stream failed",
+            )],
+            metrics: RunMetrics::default(),
+        }
     }
 
     /// The partition removes only the poisoned runs and returns their coordinates; every legitimate
@@ -479,14 +519,32 @@ mod tests {
             scenarios: vec![scenario_meta("legacy")],
         })
         .unwrap();
-        // A RunCompleted as an older harness wrote it: no `journal`, no `at_ms`, minimal metrics.
-        let old_completed = r#"{"kind":"run_completed","scenario":0,"run":0,"record":{"index":0,"events":[],"verdicts":[],"metrics":{"model_calls":0,"steps":0,"wall_clock_ms":0,"total_latency_ms":0,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"gating_passed":true}},"aggregate":{"runs":1,"rate":0.0,"gating_passed":true,"wall_clock_ms":{"p50":0.0,"p95":0.0,"mean":0.0},"latency_ms":{"p50":0.0,"p95":0.0,"mean":0.0},"tokens":{"prompt_mean":0.0,"completion_mean":0.0,"total_mean":0.0},"steps_mean":0.0}}"#;
+        // A RunCompleted as an older harness wrote it: no `journal`, no `at_ms`, minimal metrics. It
+        // still carries its event log (every real run's does — genesis alone populates it), spliced in
+        // serialised form so the rest of the line pins the old wire shape verbatim.
+        let event = serde_json::to_string(&zuihitsu::Event {
+            seq: Seq(1),
+            recorded_at: zuihitsu::Timestamp::from_millis(0),
+            source: zuihitsu::EventSource::Bootstrap,
+            payload: zuihitsu::EventPayload::genesis_completed(
+                String::new(),
+                std::collections::BTreeMap::new(),
+            ),
+        })
+        .unwrap();
+        let old_completed = format!(
+            r#"{{"kind":"run_completed","scenario":0,"run":0,"record":{{"index":0,"events":[{event}],"verdicts":[],"metrics":{{"model_calls":0,"steps":0,"wall_clock_ms":0,"total_latency_ms":0,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"gating_passed":true}}}},"aggregate":{{"runs":1,"rate":0.0,"gating_passed":true,"wall_clock_ms":{{"p50":0.0,"p95":0.0,"mean":0.0}},"latency_ms":{{"p50":0.0,"p95":0.0,"mean":0.0}},"tokens":{{"prompt_mean":0.0,"completion_mean":0.0,"total_mean":0.0}},"steps_mean":0.0}}}}"#
+        );
         std::fs::write(&sidecar, format!("{manifest}\n{old_completed}\n")).unwrap();
 
         let state = read_sidecar(&sidecar).expect("an old-format sidecar loads");
         assert_eq!(state.completed.len(), 1);
         let (_, old_record) = &state.completed[0];
         assert!(old_record.journal.is_empty(), "the journal defaults empty");
+        assert!(
+            !old_record.events.is_empty(),
+            "a real old record keeps its event log"
+        );
         assert!(
             !infra_failed(old_record),
             "a journal-less record is never flagged"

@@ -34,8 +34,8 @@ fn report_infra_retries(enabled: bool, retried: &[(u32, u32)], scenarios: &[Scen
         tracing::warn!(
             scenario = name,
             run,
-            "re-driving an infra-failed run: the model backend was unreachable for its whole life, so \
-             its record will be superseded"
+            "re-driving a run that bore an infrastructure-failure signature (the backend unreachable \
+             throughout, or the drive erroring out mid-run); its record will be superseded"
         );
     }
     tracing::info!(count = retried.len(), "re-driving infra-failed runs");
