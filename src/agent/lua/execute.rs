@@ -62,6 +62,9 @@ impl Session {
                 manager: manager.clone(),
                 printed: Arc::new(Mutex::new(String::new())),
                 web: self.web.clone(),
+                // Rebuilt empty each attempt, so a block's search taint (a mismatched hit's memory) never
+                // outlives the block: a retry after a taint refusal is a fresh block that writes through.
+                search_taint: Arc::new(Mutex::new(std::collections::HashMap::new())),
             };
 
             // The handle metatable and its methods table back every memory handle the API mints; the

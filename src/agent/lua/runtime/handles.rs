@@ -13,8 +13,12 @@ use crate::{
     time::format_occurrence,
 };
 
+use std::collections::HashSet;
+
 use super::{
-    super::error::{HandleAssignmentError, HandleError, HandleKind},
+    super::error::{
+        HandleAssignmentError, HandleError, HandleKind, SearchWriteError, TaintedWriteError,
+    },
     BlockApi, check_interpolated, route_error,
 };
 use ulid::Ulid;
@@ -293,6 +297,149 @@ pub(crate) fn handle_id(handle: &Table) -> mlua::Result<MemoryId> {
     Ulid::from_string(&id)
         .map(MemoryId)
         .map_err(|source| HandleError::InvalidMemoryHandle { id, source }.into())
+}
+
+/// The hidden field a `memory.search` result carries: the query it was minted from. Written with
+/// `raw_set` so it neither renders (the metatable's `__tostring` never reads it) nor trips the
+/// read-only `__newindex` guard, and read back by [`guard_search_write`] to verify a write's target.
+pub(crate) const SEARCH_QUERY_FIELD: &str = "search_query";
+
+/// The fuzzy-write guard: refuse a content write (or a `links.create` endpoint) that goes through a
+/// `memory.search` hit whose query does not name the handle it landed on. A hit carries its query in
+/// [`SEARCH_QUERY_FIELD`]; a handle from `memory.get`/`create`/`get_or_create`/`list` carries none and
+/// is never gated (its target is a literal name the agent read, not a fuzzy match). When the
+/// provenance is present, some whitespace- or punctuation-delimited token of the query must equal the
+/// handle's name segment — the part after `namespace/`, or, for a multi-part segment like
+/// `dave_chen`, one of its underscore parts or the parts joined. Exact token equality only: a stem
+/// ("dav") never proves identity ("david"), so it does not pass. The traced failure — searching
+/// "Davina", taking the person/david hit as her through the `if #hits == 0 then create else hits[1]`
+/// idiom, and landing her role on him — is refused with a teachable error before it commits.
+pub(crate) fn guard_search_write(handle: &Table) -> mlua::Result<()> {
+    let Some(query) = handle.raw_get::<Option<String>>(SEARCH_QUERY_FIELD)? else {
+        return Ok(());
+    };
+    // A hit always carries its `name` beside the query; without it there is nothing to verify against,
+    // so treat the (unreachable) absence as ungated rather than raising a spurious refusal.
+    let Some(name) = handle.raw_get::<Option<String>>("name")? else {
+        return Ok(());
+    };
+    if query_names_handle(&query, &name) {
+        return Ok(());
+    }
+    let segment = name_segment(&name);
+    let namespace = &name[..name.len() - segment.len()];
+    let query_token = query_tokens(&query).next().unwrap_or_default();
+    let stem = common_prefix(&query_token, &segment.to_lowercase());
+    let list_arg = if stem.is_empty() {
+        namespace.to_owned()
+    } else {
+        format!("{namespace}{stem}")
+    };
+    let create_handle = format!("{namespace}{query_token}");
+    Err(SearchWriteError {
+        query,
+        name,
+        list_arg,
+        create_handle,
+    }
+    .into())
+}
+
+/// The block-scoped taint guard: refuse a content write (or a `links.create` endpoint) whose target
+/// memory a `memory.search` this block surfaced without the query naming it. Where [`guard_search_write`]
+/// gates the *handle* a write came through — the search hit still carrying its query — this gates the
+/// *target name*, however the write reached it: the launder is composing one block that searches, then
+/// writes to the mismatched hit through a provenance-free `memory.get(hits[1].name)` handle. Because the
+/// whole if/else is written before the search runs, an in-block branch on the result is a guess the
+/// model never got to weigh; the block boundary is the only place a judgement can happen. So the write
+/// is refused, the retry — a fresh block composed after seeing the error — carries an empty taint map
+/// and writes through. That cross-block asymmetry is the point: taint dies with the block.
+///
+/// The accepted cost: a legitimate same-block write to a memory a mismatched search also surfaced is
+/// refused once here and succeeds on the retry block. Cheap — the map is empty on the overwhelmingly
+/// common no-mismatch block, so the name resolution only runs when a search already misfired this block.
+pub(crate) fn guard_search_taint(api: &BlockApi, id: MemoryId) -> mlua::Result<()> {
+    if api.search_taint.lock().is_empty() {
+        return Ok(());
+    }
+    // Resolve the target's current name the way the write sites do (honoring this block's pending
+    // creates); an id that resolves to no memory cannot be tainted.
+    let Some(name) = api
+        .block
+        .lock()
+        .handle_field(id, "name")
+        .map_err(|error| route_error(error, &mut api.infra.lock()))?
+    else {
+        return Ok(());
+    };
+    // Take the query out from under the lock before touching the block again, so the two mutexes are
+    // never held at once.
+    let Some(query) = api.search_taint.lock().get(&name).cloned() else {
+        return Ok(());
+    };
+    let segment = name_segment(&name);
+    let namespace = &name[..name.len() - segment.len()];
+    let query_token = query_tokens(&query).next().unwrap_or_default();
+    let create_handle = format!("{namespace}{query_token}");
+    Err(TaintedWriteError {
+        query,
+        name,
+        create_handle,
+    }
+    .into())
+}
+
+/// Whether some normalized token of `query` names `handle_name` — the exact-token match the
+/// fuzzy-write guard turns on. Tokens compare after lowercasing only, with no diacritic folding: a
+/// search for "Malmö" that surfaces `topic/malmo` (the FTS index folds diacritics) is refused on a
+/// write and the taught `memory.get` path is one call — an accepted, narrow over-refusal rather than
+/// a second normalisation to keep in lockstep with the index's. The handle's name segment (the part after `namespace/`) yields the
+/// name tokens: its alphanumeric runs (so `dave_chen` gives `dave` and `chen`) plus the whole segment
+/// with separators stripped (`davechen`). A query token equals one of those or it does not; a prefix
+/// never counts.
+pub(crate) fn query_names_handle(query: &str, handle_name: &str) -> bool {
+    let names = name_tokens(name_segment(handle_name));
+    query_tokens(query).any(|token| names.contains(&token))
+}
+
+/// The name segment of a handle — everything after the first `/` (the namespace prefix), or the whole
+/// string when it carries no prefix.
+fn name_segment(handle_name: &str) -> &str {
+    handle_name.split_once('/').map_or(handle_name, |(_, s)| s)
+}
+
+/// The tokens a name segment matches against: each alphanumeric run lowercased, plus the whole segment
+/// with separators removed so a query that runs the parts together (`davechen`) still matches
+/// `dave_chen`.
+fn name_tokens(segment: &str) -> HashSet<String> {
+    let mut tokens: HashSet<String> = query_tokens(segment).collect();
+    let joined: String = segment
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect();
+    if !joined.is_empty() {
+        tokens.insert(joined);
+    }
+    tokens
+}
+
+/// Split a string into lowercase alphanumeric tokens, dropping every non-alphanumeric separator —
+/// whitespace and punctuation alike. `"Marcus Chen"` yields `marcus`, `chen`.
+fn query_tokens(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(str::to_lowercase)
+}
+
+/// The shared leading run of two strings, by character — the stem `memory.list` is suggested with, so
+/// a refused "davina"/"david" points the agent at `person/dav` where both spellings show.
+fn common_prefix(a: &str, b: &str) -> String {
+    a.chars()
+        .zip(b.chars())
+        .take_while(|(x, y)| x == y)
+        .map(|(x, _)| x)
+        .collect()
 }
 
 /// The `self` a `mem:*` handle method is invoked on. Extracting it through this newtype — rather than

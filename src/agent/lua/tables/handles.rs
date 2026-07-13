@@ -8,7 +8,10 @@ use super::*;
 ///
 /// `features` gates the link readers (`:outgoing`, `:incoming`, `:links`), merging
 /// (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods (`:append`,
-/// `:supersede`, `:revise`, `:set_volatility`, `:rename`) are always installed. Link *writes*
+/// `:supersede`, `:revise`, `:set_volatility`, `:rename`) are always installed. The content writers
+/// (`:append`, `:supersede`, `:revise`) each run [`guard_search_write`] on their receiver first, so a
+/// write through a `memory.search` hit the query did not name is refused before it commits — the
+/// fuzzy-write guard. Link *writes*
 /// (`links.create`/`links.remove`) live on the `links` module table rather than on a handle (see
 /// [`super::modules::links_table`]), so both endpoints read as explicit arguments and neither is a
 /// privileged receiver.
@@ -33,7 +36,9 @@ pub(super) fn install_handle_methods(
                 let entry_metatable = entry_metatable.clone();
                 async move {
                     check_interpolated("entry text", &text)?;
+                    guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
+                    guard_search_taint(&api, id)?;
                     api.lock(id).await;
                     let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
                     let entry = {
@@ -147,7 +152,9 @@ pub(super) fn install_handle_methods(
             move |_, (this, old, new): (HandleSelf, Table, Table)| {
                 let api = api.clone();
                 async move {
+                    guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
+                    guard_search_taint(&api, id)?;
                     let (old, new) = (entry_handle_id(&old)?, entry_handle_id(&new)?);
                     api.lock_class(id).await?;
                     api.block
@@ -173,7 +180,9 @@ pub(super) fn install_handle_methods(
                 let entry_metatable = entry_metatable.clone();
                 async move {
                     check_interpolated("entry text", &text)?;
+                    guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
+                    guard_search_taint(&api, id)?;
                     let old = entry_handle_id(&old)?;
                     api.lock_class(id).await?;
                     let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
@@ -331,7 +340,9 @@ pub(super) fn install_handle_methods(
         )?;
     }
     // `mem:set_volatility("high"|"medium"|"low")` — how fast this memory's facts age (spec §Time →
-    // decay). The level is parsed in the block so an unknown level is a teachable error.
+    // decay). The level is parsed in the block so an unknown level is a teachable error. Deliberately
+    // outside the fuzzy-write guards: volatility carries no content and no identity, so a mis-aimed
+    // set is low-harm and freely correctable, unlike the guarded writers.
     methods.set(
         "set_volatility",
         lua.create_async_function({
@@ -360,7 +371,13 @@ pub(super) fn install_handle_methods(
                 let api = api.clone();
                 async move {
                     check_interpolated("memory name", &new_name)?;
+                    // Renaming rewrites identity, so it is guarded like the content writers: a rename
+                    // through a mismatched search hit — or of a name this block's searches tainted —
+                    // would also launder the taint (the map is keyed by name, and the write after a
+                    // rename would look up the new one), so both guards run before the rename mutates.
+                    guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
+                    guard_search_taint(&api, id)?;
                     api.lock(id).await;
                     api.block
                         .lock()

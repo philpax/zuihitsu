@@ -59,7 +59,9 @@ pub(in crate::agent::genesis) fn default_templates(
          re-running it unchanged. Across turns, though, the graph can shift underfoot — a background \
          merge may have joined two stubs, another room may have written — so answer an \
          identity-sensitive question from a fresh read, not from an earlier turn's results. A hit is a \
-         pointer, not the record: to relay a specific like a date, read the memory in full — \
+         pointer, not the record, and never proof of identity: before writing through a search result, \
+         confirm it names who you mean — memory.get its handle first, then write to what comes back. To \
+         relay a specific like a date, read the memory in full — \
          <memory>:details() is its whole record in one look (entries, links, tags, and all), where \
          <memory>:entries() is only the entries. Once you have read the canonical handle's details and \
          a search or two still surface nothing, that absence is the answer to a question about what \
@@ -344,7 +346,7 @@ pub(in crate::agent::genesis) fn default_templates(
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 18,
+            version: 19,
             body: scaffold_body,
         },
         TemplateDef {

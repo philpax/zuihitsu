@@ -229,7 +229,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
             vec![
                 EventPayload::prompt_template_registered(
                     PromptTemplateName::Scaffold,
-                    18,
+                    19,
                     "<draft system-prompt scaffold — see docs/conversations-and-briefs.md §System prompt>".to_owned(),
                 ),
                 EventPayload::prompt_template_registered(

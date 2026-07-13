@@ -25,10 +25,11 @@ use crate::{
 use super::error::MissingReturnError;
 
 pub(crate) use handles::{
-    HandleSelf, entry_handle_id, get_argument_name, handle_id, link_target_id,
-    make_capped_handle_list, make_entry_handle, make_entry_handle_list, make_handle,
-    make_handle_list, make_link_handle_list, make_relation_result, readonly_newindex,
-    render_details, render_neighborhood, render_salient_relations, resolve_exclude,
+    HandleSelf, SEARCH_QUERY_FIELD, entry_handle_id, get_argument_name, guard_search_taint,
+    guard_search_write, handle_id, link_target_id, make_capped_handle_list, make_entry_handle,
+    make_entry_handle_list, make_handle, make_handle_list, make_link_handle_list,
+    make_relation_result, query_names_handle, readonly_newindex, render_details,
+    render_neighborhood, render_salient_relations, resolve_exclude,
 };
 pub(crate) use inspect::{
     combine_output, concat_via_tostring, date_text, install_inspect, install_table_concat, render,
@@ -61,6 +62,14 @@ pub(super) struct BlockApi {
     /// a fetch touches no memory and takes no lock; unlike an MCP call, it does not latch the block's
     /// "made an external call" flag (a GET is idempotent, so the block stays retryable on a timeout).
     pub(super) web: Option<crate::web::WebClient>,
+    /// The block's search taint: the memories a `memory.search` this block surfaced without the query
+    /// naming them, each mapped to the query that surfaced it (first query wins). A write to a tainted
+    /// memory — through *any* handle, not just the search hit — is refused by [`guard_search_taint`],
+    /// because the whole block was composed before its searches ran, so an in-block branch on a hit is a
+    /// guess with no judgement behind it. The map is rebuilt empty with the [`BlockApi`] each attempt
+    /// (see `execute.rs`), so the taint dies with the block: a retry composed after seeing the refusal is
+    /// a fresh block and writes through unimpeded.
+    pub(super) search_taint: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl BlockApi {

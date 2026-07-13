@@ -161,6 +161,28 @@ fn search_documents_the_relations_field() {
 }
 
 #[test]
+fn search_documents_the_fuzzy_write_guard() {
+    // The search entry warns that a write through a hit whose name does not match the searched words
+    // is refused, and points at memory.get as the confirmation — the fuzzy-write guard's teaching.
+    let search = api_reference(&InstanceFeatures::default())
+        .into_iter()
+        .find(|entry| entry.call == "memory.search")
+        .expect("memory.search is present");
+    assert!(
+        search.doc.contains(
+            "a write through a hit whose name does not match the words you searched is refused"
+        ),
+        "search should warn a mismatched write is refused: {}",
+        search.doc
+    );
+    assert!(
+        search.doc.contains("confirm it with memory.get first"),
+        "search should point at memory.get to confirm: {}",
+        search.doc
+    );
+}
+
+#[test]
 fn append_documents_the_exclude_option() {
     // The append entry documents the exclude opt — a confidence additionally withheld whenever a
     // named party is present — and teaches passing it instead of visibility, not alongside it.

@@ -291,7 +291,8 @@ async fn a_search_hit_still_renders_with_its_score_and_snippet() {
 async fn a_search_hit_appends_directly() {
     // A hit is also a usable memory handle: `hits[1]:append(…)` writes to the found memory without a
     // `memory.get(hits[1].name)` round-trip. The method locks the memory itself, so a read-only search
-    // followed by a write on its hit commits cleanly.
+    // followed by a write on its hit commits cleanly. The query names Dave, so the fuzzy-write guard
+    // passes it — a direct write through a hit is allowed precisely when the search named the referent.
     let h = Harness::with_retrieval();
     h.run(
         r#"
@@ -306,7 +307,7 @@ async fn a_search_hit_appends_directly() {
     let appended = h
         .run(
             r#"
-        local results = memory.search("An avid rock climber")
+        local results = memory.search("Dave")
         if #results == 0 then return "none" end
         results[1]:append("Also boulders on weekends", { by_agent = true, visibility = "public" })
         return "wrote"
@@ -438,6 +439,674 @@ async fn assigning_to_a_search_hit_field_is_a_teachable_error() {
     assert!(
         message.contains("occurred_at is not assignable"),
         "{message}"
+    );
+}
+
+#[tokio::test]
+async fn a_fuzzy_write_through_a_mismatched_hit_is_refused() {
+    // The run-8 repro: David's memory mentions Davina, so a naive search for "Davina" surfaces the
+    // person/david hit. Taking it as her and appending her role through it — the
+    // `if #hits == 0 then create else hits[1]` idiom — must be refused, naming both the query and the
+    // handle it landed on, and committing nothing.
+    let h = Harness::with_retrieval();
+    let seeded = h
+        .run(
+            r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+        )
+        .await;
+    assert!(matches!(seeded, BlockOutcome::Committed { .. }));
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        if #hits == 0 then return "none" end
+        hits[1]:append("Leads the design team", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the fuzzy-write guard to refuse, got {outcome:?}");
+    };
+    assert!(
+        message.contains("search for \"Davina\"") && message.contains("names person/david"),
+        "the error names the query and the handle: {message}"
+    );
+    assert!(
+        message.contains("candidate, not a match"),
+        "the error teaches a hit is a candidate: {message}"
+    );
+    assert!(
+        message.contains("memory.get(\"person/david\")")
+            && message.contains("memory.list(\"person/dav")
+            && message.contains("memory.create(\"person/davina\")"),
+        "the error offers the three-way get/list/create confirmation: {message}"
+    );
+
+    // Nothing landed on David: his record still holds only the seeded entry.
+    let read_back = h
+        .run(r#"return memory.get("person/david"):details()"#)
+        .await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        !result.contains("Leads the design team"),
+        "the refused write must not have committed: {result}"
+    );
+}
+
+#[tokio::test]
+async fn an_exact_token_hit_writes_through_directly() {
+    // A search whose word names the hit passes the guard: "David" names person/david, so appending
+    // through the hit commits without a memory.get round-trip.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Leads the platform team", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("David")
+        if #hits == 0 then return "none" end
+        hits[1]:append("Enjoys sailing", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.contains("wrote"), "{result}");
+
+    let read_back = h
+        .run(r#"return memory.get("person/david"):details()"#)
+        .await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        result.contains("Enjoys sailing"),
+        "the write landed: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_multi_word_query_naming_the_hit_writes_through() {
+    // A multi-word query passes when one of its tokens names the hit: "Marcus Chen" carries the token
+    // "marcus", which equals the person/marcus segment, so the write through the hit commits.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local marcus = memory.create(PERSON_MARCUS)
+        marcus:append("Marcus Chen leads QA", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Marcus Chen")
+        if #hits == 0 then return "none" end
+        hits[1]:append("Based in Sydney", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected commit, got {outcome:?}");
+    };
+    assert!(result.contains("wrote"), "{result}");
+}
+
+#[tokio::test]
+async fn a_stem_query_does_not_pass_the_guard() {
+    // A stem is not proof of identity: searching "dav" and landing person/david does not license a
+    // write, since "dav" is only a prefix of "david", never an exact token match.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Also goes by Dav", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("dav")
+        if #hits == 0 then return "none" end
+        hits[1]:append("Runs the standup", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the guard to refuse a stem write, got {outcome:?}");
+    };
+    assert!(
+        message.contains("search for \"dav\"") && message.contains("names person/david"),
+        "a stem does not name the handle: {message}"
+    );
+}
+
+#[tokio::test]
+async fn links_create_gates_a_fuzzy_endpoint_but_allows_a_confirmed_one() {
+    // A relationship recorded against the wrong referent is the same error :append guards, so a fuzzy
+    // hit as either endpoint of links.create is refused — while a confirmed handle (from memory.get)
+    // links cleanly.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        links.register({ name = "knows", inverse = "known_by", from_card = "many", to_card = "many" })
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        memory.create(TOPIC_PLAN, "The launch plan")
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    // A fuzzy endpoint is refused.
+    let refused = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        if #hits == 0 then return "none" end
+        links.create(hits[1], "knows", memory.get(TOPIC_PLAN))
+        return "linked"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = refused else {
+        panic!("expected a refused fuzzy link, got {refused:?}");
+    };
+    assert!(
+        message.contains("names person/david"),
+        "the link guard names the mismatched endpoint: {message}"
+    );
+
+    // A confirmed endpoint links cleanly.
+    let linked = h
+        .run(
+            r#"
+        links.create(memory.get("person/david"), "knows", memory.get(TOPIC_PLAN))
+        return "linked"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = linked else {
+        panic!("expected the confirmed link to commit, got {linked:?}");
+    };
+    assert!(result.contains("linked"), "{result}");
+}
+
+#[tokio::test]
+async fn reads_through_a_fuzzy_hit_stay_free() {
+    // The guard scopes to writes only: reading a fuzzy hit — its entries, its details, interpolating
+    // it into a reply — is never gated, so recall off a hit works however far its name is from the query.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        if #hits == 0 then return "none" end
+        local hit = hits[1]
+        local es = hit:entries()
+        local detail = hit:details()
+        return `entries:{#es > 0} detail:{detail:find("design sync") ~= nil} interp:{hit.name}`
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected reads to commit, got {outcome:?}");
+    };
+    assert!(result.contains("entries:true"), "entries read: {result}");
+    assert!(result.contains("detail:true"), "details read: {result}");
+    assert!(
+        result.contains("interp:person/david"),
+        "interpolation reads the name: {result}"
+    );
+}
+
+#[tokio::test]
+async fn memory_list_results_are_never_gated() {
+    // memory.list is exact-stem discovery — its handles are literal name matches, carrying no search
+    // provenance — so a write through a list result is never gated.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Leads the platform team", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+
+    let outcome = h
+        .run(
+            r#"
+        local ms = memory.list("person/dav")
+        if #ms == 0 then return "none" end
+        ms[1]:append("Enjoys sailing", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected a list write to commit, got {outcome:?}");
+    };
+    assert!(result.contains("wrote"), "{result}");
+}
+
+#[tokio::test]
+async fn the_taught_confirmation_path_works_on_the_next_block() {
+    // The block-boundary practice the taint guard teaches: the block that searched was composed before
+    // its results were visible, so its taint refuses even a fetched-handle write to the surfaced memory
+    // (the accepted cost — see `guard_search_taint`). The confirmation lands in the *next* block, which
+    // was written after seeing the error and carries no taint, so memory.get the exact handle and write
+    // through it — which commits.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    // Same block: even a memory.get to the exact handle is refused, because this block's search for
+    // "Davina" tainted person/david.
+    let refused = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        memory.get("person/david"):append("Confirmed as the design lead", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = refused else {
+        panic!("expected the same-block confirmation to be taint-refused, got {refused:?}");
+    };
+    assert!(
+        message.contains("search in this block for \"Davina\"")
+            && message.contains("surfaced person/david")
+            && message.contains("in your next block"),
+        "the refusal teaches the block boundary: {message}"
+    );
+
+    // Next block: fresh taint, so the confirmed write commits.
+    let outcome = h
+        .run(
+            r#"
+        memory.get("person/david"):append("Confirmed as the design lead", { by_agent = true, visibility = "public" })
+        return "confirmed"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected the next-block confirmed write to commit, got {outcome:?}");
+    };
+    assert!(result.contains("confirmed"), "{result}");
+
+    let read_back = h
+        .run(r#"return memory.get("person/david"):details()"#)
+        .await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        result.contains("Confirmed as the design lead"),
+        "the confirmed write landed: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_launder_through_a_fetched_hit_name_is_refused() {
+    // The observed launder the block-scoped taint closes: the whole if/else is composed before the
+    // search runs, so an in-block branch on the result carries no judgement. The else-branch fetches the
+    // mismatched hit by name (`memory.get(hits[1].name)`) — a provenance-free handle the fuzzy-write
+    // guard never sees — and writes through it. The taint guard refuses it by target name regardless.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        if #hits == 0 then
+            memory.create("person/davina"):append("Leads the design team", { by_agent = true, visibility = "public" })
+        else
+            local davina = memory.get(hits[1].name)
+            davina:append("Leads the design team", { by_agent = true, visibility = "public" })
+        end
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the taint guard to refuse the laundered write, got {outcome:?}");
+    };
+    assert!(
+        message.contains("search in this block for \"Davina\"")
+            && message.contains("surfaced person/david"),
+        "the error names the query and the tainted memory: {message}"
+    );
+    assert!(
+        message.contains("candidate, not a match") && message.contains("in your next block"),
+        "the error teaches the block boundary: {message}"
+    );
+    assert!(
+        message.contains("memory.get(\"person/david\")")
+            && message.contains("memory.create(\"person/davina\")"),
+        "the error offers the next-block get/create decision: {message}"
+    );
+
+    // Nothing landed on David.
+    let read_back = h
+        .run(r#"return memory.get("person/david"):details()"#)
+        .await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        !result.contains("Leads the design team"),
+        "the laundered write must not have committed: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_rename_through_a_mismatched_hit_is_refused() {
+    // Renaming rewrites identity, so it is guarded like the content writers — and an ungated rename
+    // would launder the taint outright: rename the mismatched hit to the name you meant, and a write
+    // through the new name would no longer look tainted.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        hits[1]:rename("person/davina")
+        return "renamed"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the guard to refuse the rename, got {outcome:?}");
+    };
+    assert!(
+        message.contains("candidate, not a match"),
+        "the refusal is the fuzzy-write guard's: {message}"
+    );
+
+    // The taint variant: fetching the mismatched hit's name and renaming through the clean handle in
+    // the same block is refused by target name.
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        local h2 = memory.get(hits[1].name)
+        h2:rename("person/davina")
+        return "renamed"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the taint guard to refuse the laundered rename, got {outcome:?}");
+    };
+    assert!(
+        message.contains("in your next block"),
+        "the refusal teaches the block boundary: {message}"
+    );
+
+    // A next-block rename through a confirmed handle stays free.
+    let renamed = h
+        .run(r#"memory.get("person/david"):rename("person/dave_2"); return "ok""#)
+        .await;
+    assert!(
+        matches!(renamed, BlockOutcome::Committed { .. }),
+        "a cross-block confirmed rename passes: {renamed:?}"
+    );
+}
+
+#[tokio::test]
+async fn links_create_to_a_tainted_name_is_refused_in_block() {
+    // The taint gates a `links.create` endpoint too: a relationship recorded against a memory a
+    // mismatched search surfaced is the same wrong-referent error a content write is. The endpoint is
+    // fetched by the hit's name, so only the taint guard — not the hit-handle guard — catches it.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        memory.create("person/team")
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        local davina = memory.get(hits[1].name)
+        links.create(davina, "knows", memory.get("person/team"))
+        return "linked"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Terminated(TerminalCause::Error(message)) = outcome else {
+        panic!("expected the taint guard to refuse the link, got {outcome:?}");
+    };
+    assert!(
+        message.contains("search in this block for \"Davina\"")
+            && message.contains("surfaced person/david"),
+        "the link refusal names the query and the tainted memory: {message}"
+    );
+}
+
+#[tokio::test]
+async fn a_same_block_write_to_a_named_memory_is_unaffected() {
+    // The taint records only *mismatched* hits: a search whose token names its hit taints nothing, so a
+    // same-block write to that memory — through any handle — is free. "David" names person/david, so the
+    // fetched-handle append in the same block as the search commits.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Leads the platform team", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    let outcome = h
+        .run(
+            r#"
+        local hits = memory.search("David")
+        if #hits == 0 then return "none" end
+        memory.get("person/david"):append("Enjoys sailing", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected the named-memory write to commit, got {outcome:?}");
+    };
+    assert!(result.contains("wrote"), "{result}");
+
+    let read_back = h
+        .run(r#"return memory.get("person/david"):details()"#)
+        .await;
+    let BlockOutcome::Committed { result } = read_back else {
+        panic!("expected commit, got {read_back:?}");
+    };
+    assert!(
+        result.contains("Enjoys sailing"),
+        "the write landed: {result}"
+    );
+}
+
+#[tokio::test]
+async fn taint_does_not_leak_across_blocks() {
+    // The taint dies with the block that minted it: a mismatched search in one block, with no write,
+    // leaves the next block free to write to the surfaced memory. The cross-block asymmetry is the whole
+    // point — the retry block was composed after the results were visible.
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    // Block one: a mismatched search taints person/david, but the block writes nothing.
+    let searched = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        return #hits
+        "#,
+        )
+        .await;
+    assert!(matches!(searched, BlockOutcome::Committed { .. }));
+
+    // Block two: no search ran here, so no taint — the write to person/david commits.
+    let outcome = h
+        .run(
+            r#"
+        memory.get("person/david"):append("Leads the design team", { by_agent = true, visibility = "public" })
+        return "wrote"
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected the next-block write to commit, got {outcome:?}");
+    };
+    assert!(result.contains("wrote"), "{result}");
+}
+
+#[tokio::test]
+async fn the_guard_error_is_catchable_and_the_block_rolls_back() {
+    // The guard error is an ordinary Lua runtime error — pcall catches it — and an uncaught one
+    // terminates the block, rolling back every other effect it buffered (block transactionality).
+    let h = Harness::with_retrieval();
+    h.run(
+        r#"
+        local david = memory.create("person/david")
+        david:append("Introduced to Davina at the design sync", { by_agent = true, visibility = "public" })
+        return "ok"
+        "#,
+    )
+    .await;
+    h.index().await;
+
+    // Catchable: pcall returns false with the teachable message.
+    let caught = h
+        .run(
+            r#"
+        local hits = memory.search("Davina")
+        local ok, err = pcall(function()
+            hits[1]:append("Leads the design team", { by_agent = true, visibility = "public" })
+        end)
+        return `ok:{ok} caught:{tostring(err):find("candidate, not a match") ~= nil}`
+        "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = caught else {
+        panic!("expected the pcall block to commit, got {caught:?}");
+    };
+    assert!(
+        result.contains("ok:false"),
+        "pcall caught the error: {result}"
+    );
+    assert!(
+        result.contains("caught:true"),
+        "the message is the guard's: {result}"
+    );
+
+    // Uncaught: an earlier write in the same block rolls back when the guard terminates it.
+    let terminated = h
+        .run(
+            r#"
+        memory.create("topic/scratch", "should roll back")
+        local hits = memory.search("Davina")
+        hits[1]:append("Leads the design team", { by_agent = true, visibility = "public" })
+        return "unreached"
+        "#,
+        )
+        .await;
+    assert!(
+        matches!(
+            terminated,
+            BlockOutcome::Terminated(TerminalCause::Error(_))
+        ),
+        "the uncaught guard error terminates the block: {terminated:?}"
+    );
+    let scratch = h
+        .run(r#"return tostring(memory.get("topic/scratch"))"#)
+        .await;
+    let BlockOutcome::Committed { result } = scratch else {
+        panic!("expected commit, got {scratch:?}");
+    };
+    assert_eq!(
+        result, "nil",
+        "the terminated block's create rolled back: {result}"
     );
 }
 

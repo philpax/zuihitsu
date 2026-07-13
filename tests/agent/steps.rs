@@ -48,7 +48,7 @@ async fn agent_turns_record_their_provenance() {
         .expect("the agent turn records its provenance");
     assert_eq!(provenance.model_id, "scripted-model");
     assert_eq!(provenance.template_name, PromptTemplateName::Scaffold);
-    assert_eq!(provenance.template_version, 18);
+    assert_eq!(provenance.template_version, 19);
 }
 
 #[tokio::test]

@@ -109,7 +109,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              hit shows the cast already on it — letting you recognize the memory you already hold and \
              reuse it rather than making a near-duplicate. Ranked best-first means nearest in \
              meaning, not confirmed to be the referent: a top hit can be a similar but different \
-             thing entirely, so check a hit's name against what you mean before writing to it. A \
+             thing entirely, so check a hit's name against what you mean before writing to it: a \
+             write through a hit whose name does not match the words you searched is refused, so \
+             confirm it with memory.get first. A \
              hit doubles as the memory's handle — hit:details() reads every entry and occurrence \
              in full, and the other handle methods work on it directly, no memory.get round-trip.",
         )

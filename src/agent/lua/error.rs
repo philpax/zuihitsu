@@ -526,6 +526,98 @@ impl From<PlaceholderError> for LuaError {
     }
 }
 
+/// A write attempted through a `memory.search` hit the query did not name — the fuzzy-write guard.
+/// A hit carries the query it came from; when a content write (`:append`, `:revise`, `:supersede`) or
+/// a `links.create` endpoint goes through a hit whose query does not name the handle it landed on
+/// (searching "Davina", landing person/david, then writing her role onto him), the write is refused
+/// rather than committed to the wrong referent. The message names the query and the handle it names
+/// instead, and points at the three-way confirmation: fetch the handle if it really is them, list the
+/// shared stem to see who else it could be, or create a new memory if they are new. `list_arg` and
+/// `create_handle` are precomputed by the guard so the message can suggest concrete calls.
+#[derive(Debug)]
+pub(super) struct SearchWriteError {
+    /// The query the hit came from.
+    pub query: String,
+    /// The handle the hit landed on (the memory the query did not name).
+    pub name: String,
+    /// The stem to `memory.list` — the query and the handle's shared prefix, or the namespace when
+    /// they share none — so the agent sees who else shares it.
+    pub list_arg: String,
+    /// The handle `memory.create` would mint for the searched name, offered for when they are new.
+    pub create_handle: String,
+}
+
+impl std::fmt::Display for SearchWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let SearchWriteError {
+            query,
+            name,
+            list_arg,
+            create_handle,
+        } = self;
+        write!(
+            f,
+            "this handle came from a search for {query:?} but names {name} — a search hit is a \
+             candidate, not a match, so writing to it here would record against the wrong memory. \
+             Confirm who you mean first: memory.get(\"{name}\") if this really is them, \
+             memory.list(\"{list_arg}\") to see who else shares the stem, or \
+             memory.create(\"{create_handle}\") if they are new"
+        )
+    }
+}
+
+impl std::error::Error for SearchWriteError {}
+
+impl From<SearchWriteError> for LuaError {
+    fn from(error: SearchWriteError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
+/// A write to a memory this block's search surfaced without the query naming it — the block-scoped
+/// taint guard (distinct from [`SearchWriteError`], which gates the search hit's own handle). The
+/// launder it closes: composing one block that searches "Davina", then in an else-branch writes to the
+/// mismatched person/david hit through a provenance-free `memory.get(hits[1].name)` handle, which the
+/// hit-handle guard never sees. Because the whole block is written before its searches run, the branch
+/// on the hit is a guess with no judgement behind it, so the write is refused and the practice — decide
+/// at the block boundary, where the results are finally visible — is taught. `create_handle` is the
+/// handle `memory.create` would mint for the searched name, precomputed so the message can suggest it.
+#[derive(Debug)]
+pub(super) struct TaintedWriteError {
+    /// The query the mismatched search came from.
+    pub query: String,
+    /// The memory the query surfaced but did not name — the write's refused target.
+    pub name: String,
+    /// The handle `memory.create` would mint for the searched name, offered for when they are new.
+    pub create_handle: String,
+}
+
+impl std::fmt::Display for TaintedWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let TaintedWriteError {
+            query,
+            name,
+            create_handle,
+        } = self;
+        write!(
+            f,
+            "a search in this block for {query:?} surfaced {name} without naming it — a hit is a \
+             candidate, not a match, and this block was written before the results were visible. \
+             Finish this block by returning what you found, then decide in your next block: \
+             memory.get(\"{name}\") if it is really them, or memory.create(\"{create_handle}\") if \
+             they are new"
+        )
+    }
+}
+
+impl std::error::Error for TaintedWriteError {}
+
+impl From<TaintedWriteError> for LuaError {
+    fn from(error: TaintedWriteError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// A block-consistency invariant: an entry the block just buffered could not be read back. A bug,
 /// not the agent's doing — surfaced as a catchable error rather than a panic so a misbehaving build
 /// does not tear the whole session down.

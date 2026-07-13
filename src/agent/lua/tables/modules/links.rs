@@ -23,8 +23,22 @@ pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Res
             move |lua, (subject, relation, object, opts): (Value, String, Value, Value)| {
                 let api = api.clone();
                 async move {
+                    // Neither endpoint may be a fuzzy search hit the query did not name — a
+                    // relationship recorded against the wrong referent is the same error `:append`
+                    // guards, so gate both before resolving them.
+                    if let Value::Table(handle) = &subject {
+                        guard_search_write(handle)?;
+                    }
+                    if let Value::Table(handle) = &object {
+                        guard_search_write(handle)?;
+                    }
                     let from = link_target_id(&api, subject)?;
                     let to = link_target_id(&api, object)?;
+                    // Neither endpoint may be a memory this block's search surfaced without naming it,
+                    // however the endpoint was resolved (a name string is its own name) — the same
+                    // block-boundary guard the content writers run.
+                    guard_search_taint(&api, from)?;
+                    guard_search_taint(&api, to)?;
                     api.lock_all([from, to]).await;
                     let opts = link_options_from_lua(&api, &lua, opts)?;
                     api.block

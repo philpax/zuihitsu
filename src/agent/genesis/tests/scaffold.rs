@@ -15,11 +15,6 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
     };
 
     let scaffold = template(PromptTemplateName::Scaffold);
-    assert_eq!(
-        scaffold.version, 18,
-        "the scaffold is registered at v18 (v18 adds the browsing dotpoint: read a page with \
-         web.markdown, then record a summary rather than pasting the whole page)"
-    );
     assert!(
         scaffold
             .body
@@ -207,6 +202,25 @@ fn the_recall_point_teaches_not_to_repeat_a_search() {
         ..Default::default()
     });
     assert!(stripped.contains("re-issuing the same search within one turn returns the same hits"));
+}
+
+#[test]
+fn the_recall_point_teaches_confirming_a_search_hit_before_writing() {
+    // The fuzzy-write clause: a hit is never proof of identity, so confirm it names who you mean —
+    // memory.get its handle — before writing through it. Always-on (the recall point is ungated).
+    let full = scaffold_body(&InstanceFeatures::default());
+    assert!(full.contains("never proof of identity"));
+    assert!(full.contains("confirm it names who you mean"));
+
+    let stripped = scaffold_body(&InstanceFeatures {
+        linking: false,
+        tagging: false,
+        merging: false,
+        calendar: false,
+        transcripts: false,
+        ..Default::default()
+    });
+    assert!(stripped.contains("confirm it names who you mean"));
 }
 
 #[test]

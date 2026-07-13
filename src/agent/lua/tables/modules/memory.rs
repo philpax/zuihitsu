@@ -146,6 +146,20 @@ pub(in crate::agent::lua) fn memory_table(
                         // resolve their memory from this field (see `handle_id`). It is a raw field
                         // so the readonly `__newindex` never intercepts writing it here.
                         table.raw_set("id", row.id.0.to_string())?;
+                        // The query this hit came from, hidden on the result so the fuzzy-write guard
+                        // can verify a later write's target names it (see `guard_search_write`). A raw
+                        // field, like `id`: it neither renders nor trips the read-only `__newindex`.
+                        table.raw_set(SEARCH_QUERY_FIELD, query.as_str())?;
+                        // A hit the query did not name taints its memory for the rest of the block, so a
+                        // write to it through *any* handle — not just this hit — is refused
+                        // (`guard_search_taint`). First query to surface a given name wins, so its
+                        // message names the search the agent actually ran.
+                        if !query_names_handle(&query, &row.name) {
+                            api.search_taint
+                                .lock()
+                                .entry(row.name.clone())
+                                .or_insert_with(|| query.clone());
+                        }
                         table.set("name", row.name)?;
                         table.set("description", row.description)?;
                         table.set("score", row.score)?;
