@@ -5,7 +5,9 @@
 
 #[cfg(feature = "ts")]
 fn main() -> std::process::ExitCode {
-    let dir: std::path::PathBuf = std::env::args()
+    use std::path::PathBuf;
+
+    let dir: PathBuf = std::env::args()
         .nth(1)
         .expect("usage: export-types <dir>")
         .into();
@@ -13,10 +15,10 @@ fn main() -> std::process::ExitCode {
         eprintln!("export-types: {} is not a directory", dir.display());
         return std::process::ExitCode::FAILURE;
     }
-    match zuihitsu_frontend_types::export_types(&dir) {
+    match zuihitsu_frontend_types::export::export_types(&dir) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("export-types: {error}");
+            eprintln!("export-types: {error:#}");
             std::process::ExitCode::FAILURE
         }
     }

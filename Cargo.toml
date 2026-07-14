@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/console-wasm", "crates/eval", "crates/frontend-types"]
+members = ["crates/core", "crates/console-wasm", "crates/eval", "crates/frontend-types", "crates/settings-metadata-derive"]
 
 # Dependencies shared across the workspace crates live here, so their versions cannot drift.
 # Per-crate feature sets are added at the use site (features union across the workspace).
@@ -9,6 +9,7 @@ anstyle = "1.0"
 async-stream = "0.3"
 async-trait = "0.1.89"
 axum = "0.8"
+anyhow = "1.0"
 clap = { version = "4.6.1", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 jiff = "0.2.28"
@@ -16,8 +17,6 @@ parking_lot = "0.12.5"
 proptest = "1.11"
 rusqlite = { version = "0.40.0", features = ["bundled"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
-rustdoc-json = "0.9"
-rustdoc-types = "0.60"
 schemars = "1.2.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

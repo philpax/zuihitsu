@@ -20,6 +20,8 @@ pub mod model;
 pub mod progress;
 pub mod prompt;
 pub mod settings;
+#[cfg(feature = "ts")]
+pub mod settings_metadata;
 pub mod store;
 pub mod time;
 pub mod turn_ref;

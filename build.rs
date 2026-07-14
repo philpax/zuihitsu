@@ -92,12 +92,8 @@ fn build_console(dist: &Path) {
         "ts-rs type export",
     );
 
-    // 2. Settings metadata — the existing dependency-free Node script that parses the ts-rs-generated
-    //    .ts files. Runs after ts-rs export, before the vite build.
-    run(
-        Command::new("node").arg("console/scripts/extract-settings-metadata.mjs"),
-        "settings metadata generation",
-    );
+    // 2. Settings metadata — generated inside the export-types binary via the `SettingsMetadata`
+    //    proc-macro derive, which extracts `///` doc comments at compile time. No separate step.
 
     // 3. Wasm materialiser build — shell out to cargo build for the wasm32 target in a separate
     //    target dir to avoid lock contention.

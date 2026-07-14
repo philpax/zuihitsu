@@ -48,7 +48,11 @@ pub struct Settings {
 /// Session segmentation and the carryover across a compaction seam.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "compaction")
+)]
 pub struct CompactionSettings {
     /// Buffer token budget that triggers a re-segment.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -114,7 +118,11 @@ pub fn compaction_budget_for(context_length: u32) -> i64 {
 /// Brief composition: what enters each brief, and how many participants get one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "brief")
+)]
 pub struct BriefSettings {
     /// Character budget for a composed session brief. The composer packs blocks by priority until this
     /// is spent: the self and current-room blocks always render, then present-participant blocks in
@@ -155,7 +163,11 @@ pub struct BriefSettings {
 /// Scheduled-work delivery: the drained wake-up surface (spec §Agent-initiated speech).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "scheduler")
+)]
 pub struct SchedulerSettings {
     /// The most fired wake-ups a single session-open drain raises.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -169,7 +181,11 @@ pub struct SchedulerSettings {
 /// The agent step loop.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "turn")
+)]
 pub struct TurnSettings {
     /// Per-turn step bound; hitting it ends the turn with a surfaced error.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -191,7 +207,11 @@ pub struct TurnSettings {
 /// streams crowd the model. Read when the server is constructed, so a change takes effect on restart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "concurrency")
+)]
 pub struct ConcurrencySettings {
     /// The most conversation turns that may be in flight at once; further streams queue for a slot.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -210,7 +230,11 @@ pub struct ConcurrencySettings {
 /// material at the `Base` of each turn), so the verbosity is operator-tunable at runtime.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "observability")
+)]
 pub struct ObservabilitySettings {
     /// How much of each model call to record (the deliberation is always captured; this governs the
     /// request side).
@@ -300,7 +324,11 @@ pub struct AmbientSettings {
 /// decay.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "search")
+)]
 pub struct SearchSettings {
     /// Weight of cosine (semantic vector) similarity in the search blend.
     pub cosine: f32,
@@ -314,7 +342,11 @@ pub struct SearchSettings {
 /// The recency bonus and its volatility-dependent decay constant.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "search.recency")
+)]
 pub struct RecencySettings {
     /// Maximum recency contribution (at zero age).
     pub bonus: f32,
@@ -325,7 +357,11 @@ pub struct RecencySettings {
 /// The recency decay constant (in days) for each [`Volatility`](crate::event::Volatility) level.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "search.recency.tau_days")
+)]
 pub struct TauDays {
     /// Recency decay constant for high-volatility memories, in days.
     pub high: f32,

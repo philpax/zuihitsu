@@ -17,12 +17,11 @@ name = "export-types"
 path = "src/bin/export_types.rs"
 
 [features]
-ts = ["dep:ts-rs", "dep:rustdoc-json", "dep:rustdoc-types", "zuihitsu-core/ts"]
+ts = ["dep:ts-rs", "dep:anyhow", "zuihitsu-core/ts"]
 
 [dependencies]
 zuihitsu-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ts-rs = { workspace = true, optional = true }
-rustdoc-json = { workspace = true, optional = true }
-rustdoc-types = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
