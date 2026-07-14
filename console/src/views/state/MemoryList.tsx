@@ -2,10 +2,18 @@ import { useState } from "react";
 import type { EntryView, MemoryView } from "../../lib/model/graph.ts";
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { RecurringItem } from "../../lib/model/audit.ts";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { turnComponents } from "../../components/markdownComponents.tsx";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { groupByNamespace, leafName } from "./memoryUtilities.ts";
+
+// Module-level plugin array so the React Compiler sees a stable object. Memory entries are
+// agent-authored Markdown — GFM tables, lists, emphasis — but carry no turn references, so the
+// turn-ref plugin is absent (unlike `TurnMarkdown`).
+const entryMarkdownPlugins = [remarkGfm];
 
 function MemoryRef({ name, onSelect }: { name: string; onSelect: (name: string) => void }) {
   return (
@@ -100,13 +108,15 @@ export function EntryItem({
   const priv = isPrivate(entry.visibility);
   return (
     <li className={faded ? "opacity-55" : undefined}>
-      <p
+      <div
         className={
           "text-base leading-relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")
         }
       >
-        {entry.text}
-      </p>
+        <ReactMarkdown remarkPlugins={entryMarkdownPlugins} components={turnComponents}>
+          {entry.text}
+        </ReactMarkdown>
+      </div>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">
         {/* The entry id leads the line (faint, truncated), the same handle the agent supersedes or
             retracts by; the title carries the full id. */}
