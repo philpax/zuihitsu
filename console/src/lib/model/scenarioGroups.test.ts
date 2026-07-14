@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ScenarioReport } from "../../types/ScenarioReport.ts";
+import type { ScenarioReport } from "@zuihitsu/wire/types/ScenarioReport.ts";
 import { groupScenariosByCategory } from "./scenarioGroups.ts";
 
 /// A minimal report carrying only what grouping reads; the cast keeps the fixture honest about

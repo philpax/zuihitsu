@@ -1,5 +1,5 @@
-import type { ConversationLocator } from "../../types/ConversationLocator.ts";
-import type { TurnOutcome } from "../../types/TurnOutcome.ts";
+import type { ConversationLocator } from "@zuihitsu/wire/types/ConversationLocator.ts";
+import type { TurnOutcome } from "@zuihitsu/wire/types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 
@@ -8,7 +8,7 @@ import { authHeaders, errorMessage } from "./http.ts";
 // drop into a room that arrived from another platform by reusing that room's locator. Sourced from
 // Rust (`ids::DIRECT_PLATFORM`) so the value stays identical to the one identity resolution keys its
 // operator-authority merge on; re-exported here for consumers already reaching for the api module.
-export { DIRECT_PLATFORM } from "../../types/constants.ts";
+export { DIRECT_PLATFORM } from "@zuihitsu/wire/types/constants.ts";
 
 /// One participant turn the console delivers as a platform client: the room, who is speaking (a
 /// platform handle the server resolves to a `person/*` stub), what they said, and who is present.

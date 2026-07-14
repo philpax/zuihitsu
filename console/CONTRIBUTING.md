@@ -56,11 +56,12 @@ raw boundary. The wrapper's Rust half lives in `crates/console-wasm` over `zuihi
 materialiser.
 
 **Generated artefacts, never hand-edited.** Three trees are generated from Rust and gitignored: the
-TypeScript bindings in `src/types/`, the settings metadata in `src/types/settings-metadata.ts`, and
-the wasm bundle in `src/wasm/`. `./console/regen.sh` regenerates all three — run it whenever a wire
-type, the materialiser's logic, the graph queries, or a settings doc comment changes, or the console
-runs against a stale materialiser. CI's `console` job regenerates before it checks, so a PR is
-validated against current Rust.
+TypeScript bindings in `packages/wire/types/`, the settings metadata in
+`packages/wire/types/settings-metadata.ts`, and the wasm bundle in `packages/wire/wasm/`.
+`cargo build -p zuihitsu` regenerates all three automatically via the `console` Cargo feature (on by
+default) — run it whenever a wire type, the materialiser's logic, the graph queries, or a settings
+doc comment changes, or the console runs against a stale materialiser. CI's `console` job runs
+`cargo build -p zuihitsu` before it checks, so a PR is validated against current Rust.
 
 ## The motifs and disciplines
 

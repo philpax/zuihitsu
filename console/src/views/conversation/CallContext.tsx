@@ -3,7 +3,7 @@ import { useContext, useState } from "react";
 import { Disclosure } from "../../components/primitives.tsx";
 import { warmth } from "./turnUtilities.ts";
 import { ContextHeading, ContextSectionList } from "./ContextSectionList.tsx";
-import { ModelCalls } from "./ConversationView.tsx";
+import { ModelCalls } from "./conversationContexts.ts";
 
 /// The one context display, shared by every surface that shows a call's context — each deliberation
 /// step, and the turn's footer (its final call). A single disclosure whose heading carries the

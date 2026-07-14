@@ -1,9 +1,9 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import type { Event } from "../types/Event.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../lib/replica/replica.ts";
-import type { StepRecord } from "../types/StepRecord.ts";
+import type { StepRecord } from "@zuihitsu/wire/types/StepRecord.ts";
 import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
 import type { InFlightGeneration } from "../lib/model/inflight.ts";
@@ -22,8 +22,8 @@ import { BackgroundView } from "../views/BackgroundView.tsx";
 import { DiffView } from "../views/DiffView.tsx";
 import { nameById } from "../lib/model/labels.ts";
 import { buildConversations } from "../lib/model/conversation.ts";
-import { conversationNameById } from "./EventDetail.tsx";
-import { channelKey } from "../views/conversation/channelUtilities.tsx";
+import { conversationNameById } from "../lib/model/conversationNameById.ts";
+import { channelKey } from "../views/conversation/channelUtilities.ts";
 import { type TurnRefTarget, TurnRefs } from "../lib/view/turnRefs.ts";
 
 // The relations view pulls a force-graph/canvas library, so it loads only when the Relations tab is opened.

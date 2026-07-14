@@ -14,7 +14,7 @@ use zuihitsu::{Event, EventPayload, Initiation, PromptTemplateName, TurnRole};
 use crate::{
     analysis,
     judge::{JUDGE_REPEATS, Judge},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -249,12 +249,12 @@ impl Scenario for CheckpointSyncsParallelRooms {
                 },
                 Some(probe.raw),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "surfaced the room-A decisions in room B",
                 VerdictKind::Metric,
                 recall,
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "stayed composed in room A after the checkpoint",
                 VerdictKind::Metric,
                 composure,

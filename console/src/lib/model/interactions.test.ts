@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Event } from "../../types/Event.ts";
-import type { EventPayload } from "../../types/EventPayload.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import { buildInteractions, contextDenominatorsAt } from "./interactions.ts";
 
 function event(seq: number, payload: EventPayload): Event {

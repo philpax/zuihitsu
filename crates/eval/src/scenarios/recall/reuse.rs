@@ -13,7 +13,7 @@ use zuihitsu::{Event, Namespace};
 use crate::{
     analysis,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -103,7 +103,7 @@ impl Scenario for UpdatesAnExistingEvent {
                 format!("one event memory holds the launch: {event_memories:?}"),
                 format!("the launch is split across event memories: {event_memories:?}"),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "answered with the current launch date",
                 VerdictKind::Metric,
                 judged,
@@ -192,7 +192,7 @@ impl Scenario for AddsToAnExistingPerson {
                 format!("one memory holds Dave: {dave_memories:?}"),
                 format!("Dave is split across memories: {dave_memories:?}"),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "answered with Dave's current role",
                 VerdictKind::Metric,
                 judged,
@@ -377,7 +377,7 @@ impl Scenario for DiscoversHandlesByStem {
                     "a phantom or duplicate variant was created under the stem: {dav_memories:?}"
                 ),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "named both real people under the stem, inventing none",
                 VerdictKind::Metric,
                 judged,

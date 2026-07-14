@@ -1,5 +1,5 @@
-import type { Event } from "../../types/Event.ts";
-import type { TurnProgress } from "../../types/TurnProgress.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { TurnProgress } from "@zuihitsu/wire/types/TurnProgress.ts";
 
 /// An in-flight generation's accumulated text — the ephemeral deliberation a viewer watches arrive
 /// token by token before the committed `ModelCalled` supersedes it. One shared model for every

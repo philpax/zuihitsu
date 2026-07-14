@@ -11,9 +11,9 @@ import { Docked } from "./Docked.tsx";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { Transcript } from "./Transcript.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
-import { type Participation, ModelCalls } from "./ConversationView.tsx";
+import { type Participation, ModelCalls } from "./conversationContexts.ts";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
-import { type Channel, hasScopeChar } from "./channelUtilities.tsx";
+import { type Channel, hasScopeChar } from "./channelUtilities.ts";
 import { turnTokens } from "./turnUtilities.ts";
 import { useFollowBottom } from "./useFollowBottom.ts";
 

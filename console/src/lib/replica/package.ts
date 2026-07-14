@@ -1,4 +1,4 @@
-import type { EvalPackage } from "../../types/EvalPackage.ts";
+import type { EvalPackage } from "@zuihitsu/wire/types/EvalPackage.ts";
 
 /// Parse an eval package from a dropped or chosen file. The package is a plain JSON document whose
 /// shape is the ts-rs `EvalPackage` contract, so no validation beyond the parse is needed here.

@@ -17,7 +17,7 @@ use crate::{
     analysis,
     context::RUN_START_MS,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -133,7 +133,7 @@ impl Scenario for DistinguishesCollidingPeople {
                 format!("three separate person memories under the shared stem: {dave_memories:?}"),
                 format!("the three Daves are not three distinct memories: {dave_memories:?}"),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "told the three Daves apart in its reply",
                 VerdictKind::Metric,
                 judged,
@@ -271,7 +271,7 @@ impl Scenario for RecoversFromASeededCollision {
                 format!("{collisions} collision(s) — at most one create reached a taken name"),
                 format!("collided {collisions} times — kept reaching for taken names"),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "counted and distinguished all three Daves in its reply",
                 VerdictKind::Metric,
                 judged,

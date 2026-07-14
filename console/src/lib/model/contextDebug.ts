@@ -1,5 +1,5 @@
-import type { Event } from "../../types/Event.ts";
-import type { Usage } from "../../types/Usage.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { Usage } from "@zuihitsu/wire/types/Usage.ts";
 import { type CacheVerdict, deriveCachePaths } from "./cachePath.ts";
 import {
   type ContextDenominators,

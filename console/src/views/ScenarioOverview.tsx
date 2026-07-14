@@ -1,6 +1,6 @@
 import { Link, useOutletContext } from "react-router-dom";
 
-import type { ScenarioSummary } from "../types/ScenarioSummary.ts";
+import type { ScenarioSummary } from "@zuihitsu/wire/types/ScenarioSummary.ts";
 import { type EvalContext, activeScenarios, liveRunOf } from "../lib/api/liveEval.ts";
 import { groupScenariosByCategory } from "../lib/model/scenarioGroups.ts";
 import { formatMs, formatRate, formatTokenSplit } from "../lib/format/format.ts";

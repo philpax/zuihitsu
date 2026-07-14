@@ -1,7 +1,7 @@
 import { type ComponentProps, type RefObject, useState } from "react";
 import { motion } from "motion/react";
 
-import type { Brief } from "../../types/Brief.ts";
+import type { Brief } from "@zuihitsu/wire/types/Brief.ts";
 import type { TurnModel } from "../../lib/model/conversation.ts";
 import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
 import { linkedClass } from "./turnUtilities.ts";

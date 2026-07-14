@@ -1,4 +1,4 @@
-import type { Message } from "../../types/Message.ts";
+import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import type { ModelInteraction } from "./interactions.ts";
 
 /// A minimal `ModelInteraction` for the derivation tests, defaulting to a lone base call with a

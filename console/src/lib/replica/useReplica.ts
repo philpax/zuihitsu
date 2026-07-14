@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { Event } from "../../types/Event.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { Replica } from "./replica.ts";
 
 /// The lifecycle of folding a run's log into a replica: nothing selected, the wasm building it, the

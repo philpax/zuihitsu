@@ -19,7 +19,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::{Judge, WriteTurn},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -235,7 +235,7 @@ impl Scenario for AClaimedWriteActuallyLanded {
                 "an entry was superseded — the stale 15th was corrected in state",
                 "no entry was superseded — the stale date was left standing",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "reported the corrected date (the 22nd) on recall",
                 VerdictKind::Metric,
                 reports_corrected,

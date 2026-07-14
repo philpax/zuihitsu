@@ -85,7 +85,7 @@ impl Scenario for GettingToKnowSomeone {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "gave a rundown reflecting the corrected facts, not the stale location",
                 VerdictKind::Metric,
                 judged,

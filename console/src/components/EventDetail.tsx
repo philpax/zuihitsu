@@ -1,23 +1,8 @@
-import type { EventPayload } from "../types/EventPayload.ts";
-import type { EventSource } from "../types/EventSource.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
+import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { sourceLabel } from "../lib/model/events.ts";
 import { type RenderContext, renderPayload } from "./renderPayload.tsx";
-
-/// Build a `conversationId → contextMemoryName` map from conversations, so `ConversationRef`
-/// links can resolve the room name. The context memory name is what `nameById` holds for it
-/// (e.g. `context/discord:book-club`), so the caller can then resolve it to a display name.
-export function conversationNameById(
-  conversations: { id: string; context_name: string | null }[],
-): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const conv of conversations) {
-    if (conv.context_name) {
-      map.set(conv.id, conv.context_name);
-    }
-  }
-  return map;
-}
 
 /// The expanded view of a single event, rendered for its kind. Every payload gets a bespoke,
 /// label-and-value layout — a Lua block highlighted, a model call's reasoning and token usage, an

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { EventPayload } from "../types/EventPayload.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../lib/model/labels.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { Fields, Field, Tree } from "./Tree.tsx";

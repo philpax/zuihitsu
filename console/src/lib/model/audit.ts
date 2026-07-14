@@ -1,5 +1,5 @@
-import type { Event } from "../../types/Event.ts";
-import type { TemporalRef } from "../../types/TemporalRef.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { TemporalRef } from "@zuihitsu/wire/types/TemporalRef.ts";
 
 /// One belief the agent reconciled: the competing entries it weighed and the one-line statement it
 /// wrote to settle them (spec §Write path → arbitration). The audit answer to "why does it believe

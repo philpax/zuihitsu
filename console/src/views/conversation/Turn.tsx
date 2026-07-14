@@ -8,7 +8,7 @@ import { LabeledDivider } from "../../components/primitives.tsx";
 import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
-import { ConversationNames, ModelCalls, Names } from "./ConversationView.tsx";
+import { ConversationNames, ModelCalls, Names } from "./conversationContexts.ts";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
 import { Deliberation } from "./Deliberation.tsx";

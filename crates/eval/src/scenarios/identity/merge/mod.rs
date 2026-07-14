@@ -20,7 +20,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::{JUDGE_REPEATS, Judge},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, OnMissing, Turn},
 };

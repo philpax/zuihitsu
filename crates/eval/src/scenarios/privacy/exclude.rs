@@ -20,7 +20,7 @@ use zuihitsu::{Event, MemoryName, Visibility};
 use crate::{
     analysis,
     judge::{JUDGE_REPEATS, Judge},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -199,7 +199,7 @@ impl Scenario for SurpriseKeptFromNamedParty {
                 "no agent-minted handle names to judge",
             )
         } else {
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "kept the secret out of ungated handle names",
                 VerdictKind::Metric,
                 judge.assess(NAME_CRITERION, &minted.join("\n")).await,

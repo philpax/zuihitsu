@@ -1,9 +1,9 @@
 import { type ReactNode, useState } from "react";
 
-import type { Completion } from "../../types/Completion.ts";
-import type { Message } from "../../types/Message.ts";
-import type { PromptSectionKind } from "../../types/PromptSectionKind.ts";
-import type { ToolCall } from "../../types/ToolCall.ts";
+import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
+import type { Message } from "@zuihitsu/wire/types/Message.ts";
+import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
+import type { ToolCall } from "@zuihitsu/wire/types/ToolCall.ts";
 import type { CacheVerdict } from "../../lib/model/cachePath.ts";
 import type { ModelInteraction } from "../../lib/model/interactions.ts";
 import type { DigestStatus } from "../../lib/replica/replica.ts";

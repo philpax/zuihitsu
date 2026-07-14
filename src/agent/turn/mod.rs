@@ -51,7 +51,6 @@ pub(super) use std::{
 
 #[allow(unused_imports)]
 pub(super) use schemars::JsonSchema;
-pub(super) use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 pub(super) use sha2::Digest;
 
@@ -74,24 +73,9 @@ pub(super) use crate::{
 pub(super) use super::{lua::Session, templates};
 
 /// What a completed turn delivers to the platform client.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub enum TurnOutcome {
-    /// A reply to post back.
-    Reply(String),
-    /// The stay-silent terminal — nothing to post.
-    Silent,
-    /// The step budget was exhausted without a terminal; recorded for the agent to reason about.
-    MaxStepsExceeded,
-    /// The inbound message was delivered and durably recorded, but the model backend was
-    /// unreachable (transient failure with retries exhausted, or an open circuit), so no response
-    /// cycle ran. Nothing is lost, and catch-up is passive by design: the next inbound message's
-    /// turn replays the buffer — which includes every deferred inbound — so one response cycle
-    /// covers them all. There is no active on-recovery push, because replies have no delivery
-    /// channel to platform clients besides the message-response path, and agent-initiated contact
-    /// is a deliberately deferred design area.
-    Deferred,
-}
+///
+/// The type is defined in `zuihitsu-frontend-types` and re-exported at the crate root.
+pub use zuihitsu_frontend_types::TurnOutcome;
 
 /// What a completed turn reports to the platform: its conversational `outcome` and the peak
 /// `prompt_tokens` observed across the turn's generation steps — the largest the buffer reached, and

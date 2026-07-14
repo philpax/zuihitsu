@@ -1,4 +1,4 @@
-import type { Usage } from "../../types/Usage.ts";
+import type { Usage } from "@zuihitsu/wire/types/Usage.ts";
 import type { CacheVerdict } from "../../lib/model/cachePath.ts";
 import type { ModelInteraction } from "../../lib/model/interactions.ts";
 import type { TurnModel } from "../../lib/model/conversation.ts";

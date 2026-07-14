@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import type { Event } from "../../types/Event.ts";
-import type { PromptTemplateName } from "../../types/PromptTemplateName.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { PromptTemplateName } from "@zuihitsu/wire/types/PromptTemplateName.ts";
 import type { LiveConnection } from "../../lib/api/live.ts";
 import { type PromptTemplate, deriveTemplates, registerPrompt } from "../../lib/api/prompts.ts";
 import { Button, Hint, Segmented } from "../../components/primitives.tsx";

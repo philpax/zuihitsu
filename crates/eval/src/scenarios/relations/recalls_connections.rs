@@ -72,7 +72,7 @@ impl Scenario for RecallsConnections {
             .await;
 
         vec![
-            Verdict::from_judge_outcome("recalls Dave's connections", VerdictKind::Metric, judged),
+            verdict_from_judge_outcome("recalls Dave's connections", VerdictKind::Metric, judged),
             Verdict::metric_outcome(
                 "reached for a link reader",
                 read_links,

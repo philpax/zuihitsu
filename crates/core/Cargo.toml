@@ -15,7 +15,7 @@ path = "src/lib.rs"
 # The `ts` feature exports the wire types to TypeScript via ts-rs; the main crate's `ts` feature
 # enables it, and the eval crate turns that on to regenerate the console's type contract.
 [features]
-ts = ["dep:ts-rs"]
+ts = ["dep:ts-rs", "dep:settings-metadata-derive"]
 # Exposes the `Store` seam contract helpers so the main crate's SqliteStore tests run the same
 # checks the in-memory backend does, rather than re-deriving them.
 test-support = []
@@ -30,6 +30,7 @@ smol_str = { workspace = true }
 tracing = { workspace = true }
 ts-rs = { workspace = true, optional = true }
 ulid = { workspace = true }
+settings-metadata-derive = { path = "../settings-metadata-derive", optional = true }
 
 # Property tests for the pure value logic (the turn-reference parser), run on the host only.
 [dev-dependencies]

@@ -1,6 +1,6 @@
-import type { ConversationRef } from "../../types/ConversationRef.ts";
-import type { Teller } from "../../types/Teller.ts";
-import type { Visibility } from "../../types/Visibility.ts";
+import type { ConversationRef } from "@zuihitsu/wire/types/ConversationRef.ts";
+import type { Teller } from "@zuihitsu/wire/types/Teller.ts";
+import type { Visibility } from "@zuihitsu/wire/types/Visibility.ts";
 import type { Replica } from "../replica/replica.ts";
 
 /// The memory graph at the current fold, shaped for a force-directed layout: a node per memory and an

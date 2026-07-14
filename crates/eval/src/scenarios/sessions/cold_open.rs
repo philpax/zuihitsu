@@ -20,7 +20,7 @@ use crate::{
     analysis,
     context::PAST_IDLE_GAP_MS,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -143,7 +143,7 @@ impl Scenario for ColdOpenResurfacesRecentThreads {
                 "the cold session opened with a non-empty active-threads set",
                 "the cold session's active-threads section was empty",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "the vague re-entry recovered the thread from the cold open",
                 VerdictKind::Metric,
                 recovered,

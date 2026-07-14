@@ -13,7 +13,7 @@ use crate::{
     analysis,
     context::PAST_IDLE_GAP_MS,
     judge::{JUDGE_REPEATS, Judge},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -186,7 +186,7 @@ impl Scenario for JoinBriefHoldsTheAside {
                 },
                 Some(probe.raw),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "showed awareness of the joiner appropriate to what it knows",
                 VerdictKind::Metric,
                 awareness,

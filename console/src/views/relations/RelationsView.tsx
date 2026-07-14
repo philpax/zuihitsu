@@ -7,7 +7,7 @@ import ForceGraph2D, {
 } from "react-force-graph-2d";
 
 import type { Replica } from "../../lib/replica/replica.ts";
-import type { MemoryId } from "../../types/MemoryId.ts";
+import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
 import type { MemoryGraph } from "../../lib/model/memoryGraph.ts";
 import {
   buildMemoryGraph,
@@ -18,7 +18,7 @@ import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
 import { statePath } from "../../lib/nav/routes.ts";
 import { MergeProposals } from "./MergeProposals.tsx";
 import { LinkedPairs, RelationLegend } from "./Legend.tsx";
-import { conversationNameById } from "../../components/EventDetail.tsx";
+import { conversationNameById } from "../../lib/model/conversationNameById.ts";
 import {
   SIZES,
   expandVirtualNodes,

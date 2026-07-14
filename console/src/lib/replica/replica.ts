@@ -4,11 +4,11 @@ import initWasm, {
   turnRefExtract,
   turnRefNormalize,
   turnRefScan,
-} from "../../wasm/console_wasm.js";
-import wasmUrl from "../../wasm/console_wasm_bg.wasm?url";
+} from "@zuihitsu/wire/wasm/console_wasm.js";
+import wasmUrl from "@zuihitsu/wire/wasm/console_wasm_bg.wasm?url";
 
-import type { Event } from "../../types/Event.ts";
-import type { NamespacedMemoryName } from "../../types/NamespacedMemoryName.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { NamespacedMemoryName } from "@zuihitsu/wire/types/NamespacedMemoryName.ts";
 import type { BriefTrace } from "../model/brief.ts";
 import type {
   AgendaItem,

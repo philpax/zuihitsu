@@ -1,8 +1,8 @@
 import { Outlet, useMatch } from "react-router-dom";
 
-import type { PackageSummary } from "../../types/PackageSummary.ts";
-import type { RunRecord } from "../../types/RunRecord.ts";
-import type { Event } from "../../types/Event.ts";
+import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
+import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import {
   type EvalContext,

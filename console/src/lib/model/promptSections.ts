@@ -1,5 +1,5 @@
-import type { PromptSectionKind } from "../../types/PromptSectionKind.ts";
-import type { PromptSectionSpan } from "../../types/PromptSectionSpan.ts";
+import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
+import type { PromptSectionSpan } from "@zuihitsu/wire/types/PromptSectionSpan.ts";
 
 /// Where a section boundary came from: recorded spans on the `ModelCalled` event (exact), or the
 /// header-parsing fallback for records written before capture (inferred).

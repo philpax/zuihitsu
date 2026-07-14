@@ -22,7 +22,7 @@ use crate::{
     context::MILLIS_PER_DAY,
     fetch_fixture::PROJECT_URL,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -191,12 +191,12 @@ impl Scenario for ReadsAndRecallsAPage {
                     "the agent recorded no entries about the fetched project"
                 },
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "the report reply reflects the page's actual content",
                 VerdictKind::Metric,
                 report_reflects,
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "the recall reply retrieves the concrete detail (BLAKE3) from memory",
                 VerdictKind::Metric,
                 recall_detail,

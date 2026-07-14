@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { Event } from "../../types/Event.ts";
-import type { LiveEvent } from "../../types/LiveEvent.ts";
-import type { TurnProgress } from "../../types/TurnProgress.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { LiveEvent } from "@zuihitsu/wire/types/LiveEvent.ts";
+import type { TurnProgress } from "@zuihitsu/wire/types/TurnProgress.ts";
 import { fold, runningKey, type LiveEval } from "./liveEval.ts";
 
 const KEY = runningKey(0, 0);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { RunRecord } from "../../types/RunRecord.ts";
+import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
 
 /// The lifecycle of fetching one run's full record for the deep-dive: not fetching (a live run, whose
 /// events stream in instead), the fetch in flight, the record ready, or a failure to surface.

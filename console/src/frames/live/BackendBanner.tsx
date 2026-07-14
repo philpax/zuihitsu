@@ -1,4 +1,4 @@
-import type { BackendHealth } from "../../types/BackendHealth.ts";
+import type { BackendHealth } from "@zuihitsu/wire/types/BackendHealth.ts";
 
 /// The degraded-backend banner: a hairline strip under the header, shown while the agent's model
 /// transport is down or struggling (`/control/health` reports an open or half-open circuit, or

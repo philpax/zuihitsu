@@ -1,0 +1,15 @@
+# A proc-macro derive that extracts field names and `///` doc comments from settings structs at
+# compile time, so `settings-metadata.ts` can be generated without rustdoc JSON or a Node script.
+[package]
+name = "settings-metadata-derive"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"

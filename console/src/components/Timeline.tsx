@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import type { Event } from "../types/Event.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { eventSummary } from "../lib/model/events.ts";
 import { formatDate, formatDateTime, formatTime } from "../lib/format/format.ts";
 

@@ -8,7 +8,7 @@ import {
 } from "../../lib/model/brief.ts";
 import { visibilityLabel } from "../../lib/model/labels.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
-import { Names } from "./ConversationView.tsx";
+import { Names } from "./conversationContexts.ts";
 
 /// Renders a brief composition trace's sections: each memory the composer considered and, per entry,
 /// whether it reached the brief and why — surfaced (sage), passed the predicate but trimmed by recency

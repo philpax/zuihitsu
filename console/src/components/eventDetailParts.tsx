@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode, useContext } from "react";
 import { Link } from "react-router-dom";
 
-import type { ConversationRef } from "../types/ConversationRef.ts";
+import type { ConversationRef } from "@zuihitsu/wire/types/ConversationRef.ts";
 import { refName } from "../lib/model/events.ts";
 import { statePath } from "../lib/nav/routes.ts";
 import { Excerpt } from "../components/primitives.tsx";

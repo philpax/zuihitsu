@@ -14,7 +14,7 @@ use zuihitsu::{Event, EventPayload, PromptTemplateName};
 use crate::{
     analysis,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -176,7 +176,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "recapped the planning-room decisions in the new support room",
                 VerdictKind::Metric,
                 recall,

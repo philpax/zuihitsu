@@ -71,7 +71,7 @@ impl Scenario for AppliesARememberedPreference {
             )
             .await;
 
-        vec![Verdict::from_judge_outcome(
+        vec![verdict_from_judge_outcome(
             "applied the remembered dietary preference to the recommendation",
             VerdictKind::Metric,
             judged,

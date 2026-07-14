@@ -1,0 +1,27 @@
+# The TypeScript wire-contract types shared between the main crate, the eval crate, and the
+# console. Depends only on `zuihitsu-core` so the main crate's `build.rs` can shell out to the
+# `export-types` binary without creating a build cycle. The `ts` feature enables `ts-rs` so the
+# binary can emit the TypeScript bindings; it is off by default and enabled explicitly by the
+# export binary and by the eval crate.
+[package]
+name = "zuihitsu-frontend-types"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "zuihitsu_frontend_types"
+path = "src/lib.rs"
+
+[[bin]]
+name = "export-types"
+path = "src/bin/export_types.rs"
+
+[features]
+ts = ["dep:ts-rs", "dep:anyhow", "zuihitsu-core/ts"]
+
+[dependencies]
+zuihitsu-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }

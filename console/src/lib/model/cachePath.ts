@@ -1,5 +1,5 @@
-import type { Message } from "../../types/Message.ts";
-import type { PromptSectionKind } from "../../types/PromptSectionKind.ts";
+import type { Message } from "@zuihitsu/wire/types/Message.ts";
+import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
 import type { ModelInteraction } from "./interactions.ts";
 import { resolveSections } from "./promptSections.ts";
 

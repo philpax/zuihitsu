@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Message } from "../../types/Message.ts";
+import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import { call, message } from "./callFixtures.ts";
 import { deriveCachePaths } from "./cachePath.ts";
 import type { ModelInteraction } from "./interactions.ts";

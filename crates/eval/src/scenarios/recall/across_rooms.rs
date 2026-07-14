@@ -10,7 +10,7 @@ use zuihitsu::Event;
 use crate::{
     analysis,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -85,7 +85,7 @@ impl Scenario for Recall {
         // several legitimate avenues to the fact — a semantic search, a remembered handle read, or
         // the brief itself when its recent facts already carry the answer — and pinning any
         // mechanism punishes a correct recall for its route.
-        vec![Verdict::from_judge_outcome(
+        vec![verdict_from_judge_outcome(
             "recalls the standup details",
             VerdictKind::Metric,
             judged,
@@ -182,7 +182,7 @@ impl Scenario for AdmitsAbsence {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "admitted it holds nothing on the question",
                 VerdictKind::Metric,
                 judged,

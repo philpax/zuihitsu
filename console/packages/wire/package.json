@@ -1,0 +1,10 @@
+{
+  "name": "@zuihitsu/wire",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./types/*": "./types/*",
+    "./wasm/*": "./wasm/*"
+  }
+}

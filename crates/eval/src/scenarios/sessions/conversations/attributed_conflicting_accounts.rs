@@ -170,7 +170,7 @@ impl Scenario for AttributedConflictingAccounts {
                 "the contradiction was held as two entries and arbitrated over the widened pool",
                 "no both-stand arbitration recorded — the disagreement was overwritten or dropped",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "surfaced the discrepancy rather than confidently picking one",
                 VerdictKind::Metric,
                 judged,

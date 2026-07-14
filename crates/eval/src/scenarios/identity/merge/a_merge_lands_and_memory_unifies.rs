@@ -159,7 +159,7 @@ impl Scenario for AMergeLandsAndMemoryUnifies {
                 "proposed the cross-platform merge and stated the grounds it reasoned from",
                 "did not propose the merge with a stated rationale",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "recalled the other stub's history through the merged identity",
                 VerdictKind::Metric,
                 judge

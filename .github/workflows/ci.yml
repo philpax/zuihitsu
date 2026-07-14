@@ -27,17 +27,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo +nightly fmt --all -- --check
+      # The eval crate enables the `console` feature on the main crate (for serve.rs embedding),
+      # and Cargo feature unification would turn it on for the whole workspace. Exclude it so the
+      # rust job does not need Node, a C++ compiler, or the wasm toolchain.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --no-default-features --workspace --exclude zuihitsu-eval --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --no-default-features --workspace --exclude zuihitsu-eval
 
   console:
     name: Console
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: console
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -45,29 +45,41 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli@0.2.117
-      - name: Install wasm-opt (binaryen)
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - name: Install C++ compiler (for wasm-opt-sys)
+        run: sudo apt-get update && sudo apt-get install -y g++
       - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: console/package-lock.json
-      - name: Generate artifacts (ts-rs types, settings metadata, wasm bundle)
+      # Install dependencies first so `build.rs`'s conditional `npm install` is a no-op and the
+      # subsequent checks run against the same `node_modules` as the embedded build.
+      - name: Install
+        working-directory: console
+        run: npm ci
+      # The full build.rs pipeline: ts-rs types, settings metadata, wasm build, wasm-bindgen,
+      # wasm-opt, and the npm build — all driven by `cargo build` with the console feature on.
+      - name: Build server binary (exercises the full console pipeline)
         env:
           CC_wasm32_unknown_unknown: clang
-        run: ./regen.sh
-      - name: Install
-        run: npm ci
+        run: cargo build -p zuihitsu
+      - name: Build eval binary (exercises the eval crate's console embedding)
+        env:
+          CC_wasm32_unknown_unknown: clang
+        run: cargo build -p zuihitsu-eval
       - name: Typecheck
+        working-directory: console
         run: npm run typecheck
       - name: Lint
+        working-directory: console
         run: npm run lint
       - name: Test
+        working-directory: console
         run: npm run test
       - name: Format
+        working-directory: console
         run: npm run format:check
       - name: Build
+        working-directory: console
         run: npm run build

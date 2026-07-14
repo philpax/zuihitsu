@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
-import type { EventPayload } from "../types/EventPayload.ts";
-import type { EventSource } from "../types/EventSource.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
+import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { EventCategory } from "../lib/model/events.ts";
 import { CATEGORY_COLOR } from "../lib/model/events.ts";
 import { useStreamBase } from "../lib/nav/useStreamLocation.ts";

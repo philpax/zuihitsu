@@ -6,18 +6,18 @@
 // TODO: when the core view types and the wrapper DTOs grow ts-rs derives, these become generated
 // too and this file goes away.
 
-import type { Cardinality } from "../../types/Cardinality.ts";
-import type { ConversationId } from "../../types/ConversationId.ts";
-import type { ConversationRef } from "../../types/ConversationRef.ts";
-import type { EntryId } from "../../types/EntryId.ts";
-import type { MemoryId } from "../../types/MemoryId.ts";
-import type { MemoryName } from "../../types/MemoryName.ts";
-import type { MergeProposalSource } from "../../types/MergeProposalSource.ts";
-import type { SessionId } from "../../types/SessionId.ts";
-import type { Teller } from "../../types/Teller.ts";
-import type { Timestamp } from "../../types/Timestamp.ts";
-import type { Visibility } from "../../types/Visibility.ts";
-import type { Volatility } from "../../types/Volatility.ts";
+import type { Cardinality } from "@zuihitsu/wire/types/Cardinality.ts";
+import type { ConversationId } from "@zuihitsu/wire/types/ConversationId.ts";
+import type { ConversationRef } from "@zuihitsu/wire/types/ConversationRef.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
+import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
+import type { MemoryName } from "@zuihitsu/wire/types/MemoryName.ts";
+import type { MergeProposalSource } from "@zuihitsu/wire/types/MergeProposalSource.ts";
+import type { SessionId } from "@zuihitsu/wire/types/SessionId.ts";
+import type { Teller } from "@zuihitsu/wire/types/Teller.ts";
+import type { Timestamp } from "@zuihitsu/wire/types/Timestamp.ts";
+import type { Visibility } from "@zuihitsu/wire/types/Visibility.ts";
+import type { Volatility } from "@zuihitsu/wire/types/Volatility.ts";
 
 export interface MemoryView {
   id: MemoryId;
