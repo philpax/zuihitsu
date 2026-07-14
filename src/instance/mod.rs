@@ -23,7 +23,7 @@ use session::{Carryover, OpenSession, RoutedTurn};
 
 pub use control::{
     Arbitration, Control, DesignateOutcome, LuaConsoleOutcome, MergeProposal, ModelCall,
-    SelfEditOutcome, UnmergeOutcome,
+    RetractOutcome, SelfEditOutcome, UnmergeOutcome,
 };
 pub use platform::{Platform, RosterResync};
 

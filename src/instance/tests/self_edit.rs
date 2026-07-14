@@ -120,12 +120,40 @@ fn an_empty_edit_is_rejected() {
 fn superseding_an_unknown_entry_is_refused() {
     let server = born_server();
     let ghost = EntryId::generate();
+    let before = server.control().events().unwrap().len();
     assert!(matches!(
         server.control().edit_self("replacement", Some(ghost)).unwrap(),
         SelfEditOutcome::UnknownEntry(entry) if entry == ghost
     ));
     // `self` still holds only its seeded entry — the refused revision added nothing.
     assert_eq!(server.control().entries("self").unwrap().len(), 1);
+    // A failed edit must not orphan the `console:self` conversation context memory — the
+    // conversation events are deferred until the entry write succeeds.
+    assert_eq!(
+        server.control().events().unwrap().len(),
+        before,
+        "a failed edit leaves the log untouched"
+    );
+}
+
+#[test]
+fn an_over_length_self_edit_succeeds_under_operator_authority() {
+    let server = born_server();
+    // Operator self-edits are not bound by `max_entry_chars` — the limit guards the agent's writes,
+    // not the operator's persona authoring. A 2001-character entry (well over the default 1000-char
+    // limit) applies cleanly.
+    let over_long = "x".repeat(2001);
+    let outcome = server.control().edit_self(&over_long, None).unwrap();
+    let entry_id = match outcome {
+        SelfEditOutcome::Applied(entry_id) => entry_id,
+        other => panic!("expected the append to apply, got {other:?}"),
+    };
+    let entries = server.control().entries("self").unwrap();
+    let appended = entries
+        .iter()
+        .find(|entry| entry.entry_id == entry_id)
+        .expect("the over-length entry is live on self");
+    assert_eq!(appended.text.len(), 2001);
 }
 
 #[test]

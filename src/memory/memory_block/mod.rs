@@ -374,25 +374,34 @@ impl MemoryBlock {
         engine: Arc<Engine>,
         teller: Teller,
         authority: Authority,
-        conversation: ConversationId,
+        conversation: Option<ConversationId>,
         turn_id: Option<TurnId>,
         present_set: Vec<MemoryId>,
         max_entry_chars: usize,
     ) -> Result<MemoryBlock, GraphError> {
         let (told_in, context_memory, confidential_context, self_id, operator_id) = {
             let graph = engine.graph.lock();
-            let context_memory = graph.context_for_conversation(conversation)?;
-            let confidential_context = match context_memory {
-                Some(context_id) => graph
-                    .memory_by_id(context_id)?
-                    .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
-                None => false,
+            // The conversation is `None` for operator console paths (self-edit, retraction) that have
+            // no meaningful conversation to attribute the write to — provenance is carried by
+            // `EventSource::Operator` and `Authority::Operator` instead. Genesis likewise writes
+            // `told_in: None` directly, bypassing the block entirely.
+            let (context_memory, confidential_context, told_in) = match conversation {
+                Some(conversation) => {
+                    let context_memory = graph.context_for_conversation(conversation)?;
+                    let confidential_context = match context_memory {
+                        Some(context_id) => graph
+                            .memory_by_id(context_id)?
+                            .is_some_and(|context| context.tags.contains(&TagName::Confidential)),
+                        None => false,
+                    };
+                    let told_in = Some(ConversationRef {
+                        conversation,
+                        turn: turn_id,
+                    });
+                    (context_memory, confidential_context, told_in)
+                }
+                None => (None, false, None),
             };
-            // The conversation reference carries the conversation id and the turn (when available).
-            let told_in = Some(ConversationRef {
-                conversation,
-                turn: turn_id,
-            });
             let self_id = graph.self_memory()?.map(|memory| memory.id);
             let operator_id = graph
                 .memory_by_name(NamespacedMemoryName::operator())?

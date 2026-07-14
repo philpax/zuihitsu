@@ -24,6 +24,7 @@ export function MemoryBrowser({
   onSelect,
   onShowEvents,
   onEditSelf,
+  onRetract,
 }: {
   replica: Replica;
   events: Event[];
@@ -32,6 +33,7 @@ export function MemoryBrowser({
   onSelect: (name: string) => void;
   onShowEvents?: (id: string, name: string) => void;
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
+  onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const memories = replica.memories("");
   const names = nameById(memories);
@@ -102,6 +104,7 @@ export function MemoryBrowser({
           onShowEvents={onShowEvents}
           onSelect={onSelect}
           onEditSelf={onEditSelf}
+          onRetract={onRetract}
         />
       ) : (
         <div className="py-16 text-center text-sm text-ink-faint">Select a memory.</div>

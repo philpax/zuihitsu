@@ -15,6 +15,7 @@ export function MemoryDetailPane({
   onShowEvents,
   onSelect,
   onEditSelf,
+  onRetract,
 }: {
   detail: MemoryDetail;
   nameById: Map<string, string>;
@@ -25,6 +26,8 @@ export function MemoryDetailPane({
   /// Present only in the live agent frame at the head, and exercised only on `self`: append a charter
   /// entry, or revise one under operator authority (the operator side of self-editing).
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
+  /// Retract a live entry under operator authority. Present only in the live agent frame at the head.
+  onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const { memory, entries, history, links } = detail;
   // A retraction tombstones an entry with its own id in superseded_by and a reason; a plain
@@ -99,6 +102,8 @@ export function MemoryDetailPane({
                 entry={entry}
                 nameById={nameById}
                 disputed={disputed.has(entry.entry_id)}
+                memoryName={memory.name}
+                onRetract={onRetract}
               />
             ))}
           </ul>

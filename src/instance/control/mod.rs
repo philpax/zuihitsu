@@ -121,6 +121,23 @@ pub enum SelfEditOutcome {
     TooLong { length: usize, limit: usize },
 }
 
+/// The outcome of an operator entry retraction ([`Control::retract_entry`]): the entry was
+/// tombstoned, or the reason the request named nothing retractable. The console's lever for
+/// withdrawing a fact outright — the entry drops from every live surface while remaining in
+/// history with its reason.
+#[derive(Debug)]
+pub enum RetractOutcome {
+    /// The retraction applied: the entry is tombstoned, dropping from live surfaces while remaining
+    /// in history with its reason. The graph was re-materialized, so the next read reflects it.
+    Retracted,
+    /// The memory name does not resolve to a live memory, so there is nothing to retract from.
+    UnknownMemory,
+    /// The entry id is not a live entry of the named memory (or its `same_as` class).
+    UnknownEntry(EntryId),
+    /// The reason was empty or whitespace only; a retraction must be auditable.
+    EmptyReason,
+}
+
 /// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
 /// adjudication key on the same canonical pair regardless of which stub each named first.
 pub(super) fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {

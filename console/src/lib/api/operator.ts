@@ -75,6 +75,26 @@ export async function editSelf(
   return body.entry_id;
 }
 
+/// Retract a live entry from any memory under operator authority — the console's lever for
+/// withdrawing a fact outright (spec §Visibility → the operator withdraws a fact). The entry is
+/// tombstoned: it drops from every live surface while remaining in history with its reason. The
+/// resulting event arrives through the live tail, so the memory browser re-folds on the next poll.
+/// Throws with the server's reason on failure (a `400` on an empty reason, a `404` when the memory
+/// or entry is unknown).
+export async function retractEntry(
+  connection: LiveConnection,
+  memory: string,
+  entry: EntryId,
+  reason: string,
+): Promise<void> {
+  const response = await fetch(`${connection.baseUrl}/control/retract`, {
+    method: "POST",
+    headers: authHeaders(connection),
+    body: JSON.stringify({ memory, entry, reason }),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+}
+
 /// Resolve a pending cross-platform merge proposal as the operator (spec §Cross-platform identity →
 /// operator-asserted merge). `accept` authors the merging `same_as` between the two stubs — the
 /// console-only merge path — while a decline records the operator's refusal so the proposal settles.

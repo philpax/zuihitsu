@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryId,
     EntryView, EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
-    PromptTemplateName, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView, Settings,
-    TurnOutcome, UnmergeOutcome, genesis::GenesisStatus,
+    PromptTemplateName, RetractOutcome, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView,
+    Settings, TurnOutcome, UnmergeOutcome, genesis::GenesisStatus,
 };
 
 use super::{AppState, error::ApiError};
@@ -383,6 +383,43 @@ pub(super) async fn edit_self(
         SelfEditOutcome::TooLong { length, limit } => Err(ApiError::BadRequest(format!(
             "the entry is {length} characters; the per-entry limit is {limit}"
         ))),
+    }
+}
+
+/// The body of a `POST /control/retract` — retract a live entry from a named memory under operator
+/// authority. The entry is tombstoned: it drops from every live surface while remaining in history
+/// with its reason.
+#[derive(Deserialize)]
+pub(super) struct RetractRequest {
+    memory: String,
+    entry: EntryId,
+    reason: String,
+}
+
+/// `POST /control/retract` — retract a live entry from any memory under operator authority (the
+/// console's lever for withdrawing a fact outright). `404` when the memory or entry is unknown;
+/// `400` on an empty reason. Operator authority (the whole `/control` surface is key-gated).
+pub(super) async fn retract_entry(
+    State(state): State<AppState>,
+    Json(request): Json<RetractRequest>,
+) -> Result<Json<()>, ApiError> {
+    match state
+        .server
+        .control()
+        .retract_entry(&request.memory, request.entry, &request.reason)?
+    {
+        RetractOutcome::Retracted => Ok(Json(())),
+        RetractOutcome::UnknownMemory => Err(ApiError::NotFound(format!(
+            "no live memory named {}",
+            request.memory
+        ))),
+        RetractOutcome::UnknownEntry(entry) => Err(ApiError::NotFound(format!(
+            "no live entry with id {} on {}",
+            entry.0, request.memory
+        ))),
+        RetractOutcome::EmptyReason => Err(ApiError::BadRequest(
+            "a retraction must have a reason".to_owned(),
+        )),
     }
 }
 

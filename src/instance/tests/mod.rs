@@ -18,6 +18,8 @@ mod observability;
 #[cfg(test)]
 mod priority;
 #[cfg(test)]
+mod retract;
+#[cfg(test)]
 mod self_edit;
 #[cfg(test)]
 mod unmerge;

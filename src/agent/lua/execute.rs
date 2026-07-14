@@ -52,7 +52,7 @@ impl Session {
                     engine.clone(),
                     context.teller.clone(),
                     context.authority,
-                    self.conversation,
+                    Some(self.conversation),
                     Some(context.turn_id),
                     context.present_set.clone(),
                     context.max_entry_chars,

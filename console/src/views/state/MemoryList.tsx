@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { EntryView, MemoryView } from "../../lib/model/graph.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { RecurringItem } from "../../lib/model/audit.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
@@ -83,11 +85,17 @@ export function EntryItem({
   nameById,
   faded,
   disputed,
+  memoryName,
+  onRetract,
 }: {
   entry: EntryView;
   nameById: Map<string, string>;
   faded?: boolean;
   disputed?: boolean;
+  /// The memory's name, passed so the retract button can address the entry by memory + entry id.
+  memoryName?: string;
+  /// Retract this entry under operator authority. Present only in the live agent frame at the head.
+  onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const priv = isPrivate(entry.visibility);
   return (
@@ -127,8 +135,94 @@ export function EntryItem({
         <time dateTime={new Date(entry.asserted_at).toISOString()}>
           {formatDateTime(entry.asserted_at)}
         </time>
+        {!faded && memoryName && onRetract && (
+          <RetractButton memoryName={memoryName} entryId={entry.entry_id} onRetract={onRetract} />
+        )}
       </p>
     </li>
+  );
+}
+
+/// A small inline retract control: click to reveal a reason input, then confirm to retract the
+/// entry. The entry drops from live surfaces while remaining in history with the reason.
+function RetractButton({
+  memoryName,
+  entryId,
+  onRetract,
+}: {
+  memoryName: string;
+  entryId: EntryId;
+  onRetract: (memory: string, entry: EntryId, reason: string) => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function commit() {
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onRetract(memoryName, entryId, trimmed);
+      setConfirming(false);
+      setReason("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!confirming) {
+    return (
+      <>
+        <span className="text-ink-faint/45">·</span>
+        <button
+          onClick={() => setConfirming(true)}
+          className="text-clay transition-colors hover:text-ink"
+          title="Retract this entry under operator authority"
+        >
+          retract
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <span className="mt-1 flex w-full flex-wrap items-center gap-2">
+      <input
+        value={reason}
+        onChange={(e) => {
+          setReason(e.target.value);
+          setError(null);
+        }}
+        placeholder="reason for retraction…"
+        autoFocus
+        className="flex-1 border border-line bg-transparent px-2 py-1 font-mono text-2xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+      />
+      <button
+        onClick={commit}
+        disabled={busy || !reason.trim()}
+        className="text-clay transition-colors hover:text-ink disabled:text-ink-faint/40"
+      >
+        confirm
+      </button>
+      <button
+        onClick={() => {
+          setConfirming(false);
+          setReason("");
+          setError(null);
+        }}
+        disabled={busy}
+        className="text-ink-faint transition-colors hover:text-ink disabled:text-ink-faint/40"
+      >
+        cancel
+      </button>
+      {busy && <span className="text-ink-faint">working…</span>}
+      {error && <span className="text-clay">{error}</span>}
+    </span>
   );
 }
 

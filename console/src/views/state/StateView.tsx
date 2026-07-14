@@ -18,6 +18,7 @@ export function StateView({
   events,
   cursor,
   onEditSelf,
+  onRetract,
 }: {
   replica: Replica;
   events: Event[];
@@ -25,6 +26,8 @@ export function StateView({
   /// Present only in the live agent frame at the head: the operator's `self`-editing callback, threaded
   /// to the `self` memory's detail pane.
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
+  /// Retract a live entry under operator authority. Present only in the live agent frame at the head.
+  onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const navigate = useNavigate();
   const base = useStreamBase();
@@ -62,6 +65,7 @@ export function StateView({
       onSelect={onSelect}
       onShowEvents={showEvents}
       onEditSelf={onEditSelf}
+      onRetract={onRetract}
     />
   );
 }

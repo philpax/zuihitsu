@@ -40,7 +40,7 @@ use console::{ShutdownFlag, console, ensure_parent_dir};
 use control::{
     arbitrations, create_agent, designate_primary, edit_self, entries, env_config, events, genesis,
     health, imprint, interactions, lua_api, memories, memory, merge_proposals, metrics, recurring,
-    register_prompt, resolve_merge, run_lua, sessions, set_settings, settings,
+    register_prompt, resolve_merge, retract_entry, run_lua, sessions, set_settings, settings,
     snapshot as snapshot_handler, unmerge,
 };
 use platform::{join, message, message_stream, roster};
@@ -522,6 +522,7 @@ fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         .route("/imprint", post(imprint))
         .route("/self", post(edit_self))
+        .route("/retract", post(retract_entry))
         .route("/lua", post(run_lua))
         .route("/lua-api", get(lua_api))
         .route("/prompt", post(register_prompt))

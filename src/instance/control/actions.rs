@@ -14,9 +14,9 @@ use crate::{
         EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, TerminalCause,
         Visibility,
     },
-    ids::{ConversationLocator, EntryId, MemoryId, TurnId},
+    ids::{ConversationLocator, EntryId, MemoryId, MemoryName, TurnId},
     memory::{
-        identity::resolve_or_mint_conversation,
+        identity,
         memory_block::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice},
     },
     model::ModelClient,
@@ -25,7 +25,8 @@ use crate::{
 };
 
 use super::{
-    super::InstanceError, DesignateOutcome, LuaConsoleOutcome, SelfEditOutcome, UnmergeOutcome,
+    super::InstanceError, DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome,
+    UnmergeOutcome,
 };
 use crate::instance::session::RoutedTurn;
 
@@ -55,7 +56,7 @@ impl super::Control<'_> {
         let conversation = {
             // Graph before store, per the lock-ordering rule (this resolve holds both at once).
             let graph = self.server.engine.graph.lock();
-            resolve_or_mint_conversation(
+            identity::resolve_or_mint_conversation(
                 self.server.engine.store.lock().as_mut(),
                 self.server.engine.clock.as_ref(),
                 &graph,
@@ -108,7 +109,7 @@ impl super::Control<'_> {
         // A dedicated console conversation, minted once (graph before store, per the lock-ordering rule).
         let conversation = {
             let graph = self.server.engine.graph.lock();
-            resolve_or_mint_conversation(
+            identity::resolve_or_mint_conversation(
                 self.server.engine.store.lock().as_mut(),
                 self.server.engine.clock.as_ref(),
                 &graph,
@@ -225,6 +226,12 @@ impl super::Control<'_> {
     /// The operator-input cases (an empty edit, an unknown `supersedes` id, over-long text, or an agent
     /// not yet born) return as [`SelfEditOutcome`] variants the console renders; only a genuinely
     /// unexpected block failure escalates to [`InstanceError`].
+    /// Edit the agent's `self` profile under operator authority (the console counterpart to the
+    /// imprint interview, and the operator side of self-editing). Appends a charter entry, or revises
+    /// one when `supersedes` names a live entry. The edit's provenance is carried by a dedicated
+    /// `console/self` conversation — minted atomically with the entry write, so a failed edit (an
+    /// empty text, an unknown `supersedes` id, over-long text, or an unborn agent) leaves no orphaned
+    /// context memory behind.
     pub fn edit_self(
         &self,
         text: &str,
@@ -233,49 +240,30 @@ impl super::Control<'_> {
         if text.trim().is_empty() {
             return Ok(SelfEditOutcome::EmptyText);
         }
-        let Some(self_id) = self
-            .server
-            .engine
-            .graph
-            .lock()
-            .self_memory()?
-            .map(|memory| memory.id)
-        else {
-            return Ok(SelfEditOutcome::NotBorn);
-        };
-
-        // A dedicated console conversation carries the edit's provenance (graph before store, per the
-        // lock-ordering rule), minted once and reused across edits.
-        let conversation = {
+        let self_id = {
             let graph = self.server.engine.graph.lock();
-            resolve_or_mint_conversation(
-                self.server.engine.store.lock().as_mut(),
-                self.server.engine.clock.as_ref(),
-                &graph,
-                &ConversationLocator::new("console", "self"),
-            )?
+            match graph.self_memory()?.map(|memory| memory.id) {
+                Some(id) => id,
+                None => return Ok(SelfEditOutcome::NotBorn),
+            }
         };
-        self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
 
-        let max_entry_chars = Settings::from_store(self.server.engine.store.lock().as_ref())?
-            .memory
-            .max_entry_chars
-            .max(1) as usize;
+        // Operator self-edits are not bound by `max_entry_chars` — the limit guards against the agent
+        // pasting source content into memory, not against the operator authoring a persona. Genesis
+        // writes directly to the store and is likewise unbounded, so a self-edit revising a genesis
+        // persona entry can replace it with text of comparable length. No conversation is attributed
+        // — provenance is carried by `EventSource::Operator` and `Authority::Operator`.
         let mut block = MemoryBlock::new(
             self.server.engine.clone(),
             Teller::Agent,
             Authority::Operator,
-            conversation,
+            None,
             None,
             Vec::new(),
-            max_entry_chars,
+            usize::MAX,
         )?;
-        // Charter content is `Public` — the identity surface the system prompt reads verbatim and the
-        // describer regenerates its description from.
+        // Charter content is `Public` — the identity surface the system prompt reads verbatim and
+        // the describer regenerates its description from.
         let opts = AppendOptions {
             visibility: Some(VisibilityChoice::Public),
             ..AppendOptions::default()
@@ -309,6 +297,64 @@ impl super::Control<'_> {
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(SelfEditOutcome::Applied(entry_id))
+    }
+
+    /// Retract a live entry from any memory under operator authority (spec §Visibility → the operator
+    /// withdraws a fact outright). The entry is tombstoned — it drops from every live surface while
+    /// remaining in history with its reason. The operator supplies the reason; an empty reason is
+    /// rejected, because an unexplained retraction is unauditable. Like `edit_self`, the conversation
+    /// that carries the retraction's provenance is minted atomically with the write.
+    pub fn retract_entry(
+        &self,
+        memory: &str,
+        entry: EntryId,
+        reason: &str,
+    ) -> Result<RetractOutcome, InstanceError> {
+        if reason.trim().is_empty() {
+            return Ok(RetractOutcome::EmptyReason);
+        }
+        let memory_id = {
+            let graph = self.server.engine.graph.lock();
+            match graph
+                .memory_by_name(MemoryName::new(memory))?
+                .map(|memory| memory.id)
+            {
+                Some(id) => id,
+                None => return Ok(RetractOutcome::UnknownMemory),
+            }
+        };
+
+        // Retraction carries no conversation — provenance is `EventSource::Operator`. The entry
+        // limit is irrelevant (retraction buffers no content), but the block requires a value.
+        let max_entry_chars = Settings::from_store(self.server.engine.store.lock().as_ref())?
+            .memory
+            .max_entry_chars
+            .max(1) as usize;
+        let mut block = MemoryBlock::new(
+            self.server.engine.clone(),
+            Teller::Agent,
+            Authority::Operator,
+            None,
+            None,
+            Vec::new(),
+            max_entry_chars,
+        )?;
+        match block.retract(memory_id, entry, reason) {
+            Ok(()) => {}
+            Err(MemoryError::UnknownEntry(_)) => return Ok(RetractOutcome::UnknownEntry(entry)),
+            Err(MemoryError::RetractionReasonRequired) => return Ok(RetractOutcome::EmptyReason),
+            Err(error) => return Err(InstanceError::Memory(error)),
+        }
+
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
+            now,
+            EventSource::Operator,
+            block.into_effects().events,
+        )?;
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(RetractOutcome::Retracted)
     }
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads

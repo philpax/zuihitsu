@@ -8,7 +8,13 @@ import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
 import type { InFlightGeneration } from "../lib/model/inflight.ts";
 import { DockContext } from "../lib/nav/dock.ts";
-import { designatePrimary, editSelf, resolveMerge, unmerge } from "../lib/api/operator.ts";
+import {
+  designatePrimary,
+  editSelf,
+  resolveMerge,
+  retractEntry,
+  unmerge,
+} from "../lib/api/operator.ts";
 import { Timeline } from "./Timeline.tsx";
 import { StateView } from "../views/state/StateView.tsx";
 import {
@@ -199,6 +205,12 @@ export function StreamWorkspace({
                           participant && cursor >= head
                             ? (text, supersedes) =>
                                 editSelf(participant.connection, text, supersedes).then(() => {})
+                            : undefined
+                        }
+                        onRetract={
+                          participant && cursor >= head
+                            ? (memory, entry, reason) =>
+                                retractEntry(participant.connection, memory, entry, reason)
                             : undefined
                         }
                       />
