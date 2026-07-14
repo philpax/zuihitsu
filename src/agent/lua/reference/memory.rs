@@ -1,5 +1,6 @@
-//! Memory API reference entries: create, get, get_or_create, search, list, append, entries, history,
-//! details, supersede, retract, revise, rename, set_volatility, and the always-on block.abort.
+//! Memory API reference entries: create, get, get_or_create, search, list, append, entries,
+//! find_entry, history, details, supersede, retract, revise, rename, set_volatility, and the
+//! always-on block.abort.
 
 use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
 use crate::ids::Namespace;
@@ -231,9 +232,12 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              object — read its text with entry.text (it also prints as its text, prefixed by its id, \
              date, visibility, teller, and a disputed marker when contested), and pass the object — or \
              its id, or a unique prefix of it, shown as `id <ulid>` at the front of the printed \
-             line — to <memory>:supersede or <memory>:retract to correct it, e.g. \
-             mem:retract(\"01KXETGK\", \"filed on the wrong person\") with the prefix read \
-             straight off the line. entry.occurred_at, when dated, is the same tagged \
+             line — to <memory>:supersede or <memory>:retract to correct it. When you know the \
+             wording, <memory>:find_entry(\"…\") returns the entry to correct in one step — \
+             mem:retract(mem:find_entry(\"leads the volcano project\"), \"filed on the wrong \
+             person\") — with no scan; or read the id off the line, e.g. \
+             mem:retract(\"01KXETGK\", \"filed on the wrong person\"). entry.occurred_at, when \
+             dated, is the same tagged \
              table append takes (e.g. entry.occurred_at.day), so you can match an entry by its date. \
              Capture the list — `local es = <memory>:entries()`; a bare call whose result you discard \
              returns nothing, not an empty memory. Each element renders as its own text: interpolate \
@@ -241,6 +245,27 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              in several. table.concat joins only strings and numbers.",
         )
         .returns(AT::Entry.list());
+
+    let find_entry = AE::new("<memory>:find_entry")
+        .description(
+            "Find the one live entry whose text contains a phrase — matched case-insensitively and \
+             ignoring accents — so you can locate the entry to correct without scanning the list \
+             yourself (a text scan misses on casing and paraphrase). Returns the entry object, to \
+             pass straight to <memory>:retract, <memory>:supersede, or <memory>:revise — e.g. \
+             mem:retract(mem:find_entry(\"leads the volcano project\"), \"filed on the wrong \
+             person\") — or nil when nothing matches. If the phrase matches more than one entry it \
+             is a teachable error listing the candidates: pass a longer, more distinctive phrase, or \
+             address one by its id. It reads the live entries only — the same set <memory>:entries \
+             shows, including ones you appended earlier in this block; a superseded entry is reached \
+             through <memory>:history instead.",
+        )
+        .required(
+            "text",
+            AT::String,
+            "a distinctive phrase from the entry's text — matched as a substring, ignoring case and \
+             accents",
+        )
+        .returns(AT::Entry.optional());
 
     let history = AE::new("<memory>:history")
         .description(
@@ -278,8 +303,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .required(
             "old",
             AT::Entry,
-            "the entry being replaced — its object (from <memory>:entries), or its id or a unique id \
-             prefix as a string, as shown at the front of the entry's printed line",
+            "the entry being replaced — its object (from <memory>:entries, or from \
+             <memory>:find_entry(\"…\") for a phrase you know), or its id or a unique id prefix as a \
+             string, as shown at the front of the entry's printed line",
         )
         .required(
             "new",
@@ -303,8 +329,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .required(
             "entry",
             AT::Entry,
-            "the entry being withdrawn — its object (from <memory>:entries or <memory>:history), or \
-             its id or a unique id prefix as a string, as shown at the front of the entry's printed line",
+            "the entry being withdrawn — its object (from <memory>:entries or <memory>:history, or \
+             from <memory>:find_entry(\"…\") for a phrase you know), or its id or a unique id prefix \
+             as a string, as shown at the front of the entry's printed line",
         )
         .required(
             "reason",
@@ -371,6 +398,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         list,
         append,
         entries,
+        find_entry,
         details,
         history,
         supersede,

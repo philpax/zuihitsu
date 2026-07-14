@@ -435,8 +435,9 @@ fn query_tokens(text: &str) -> impl Iterator<Item = String> + '_ {
 
 /// Fold a string to the diacritic-insensitive lowercase form the token match compares on: lowercase,
 /// then map each character to its unaccented Latin base. Both sides of the guard fold the same way, so
-/// a "Malmö" query and a `topic/malmo` handle meet on `malmo`.
-fn fold_lower(text: &str) -> String {
+/// a "Malmö" query and a `topic/malmo` handle meet on `malmo`. Shared with `mem:find_entry`, which
+/// folds a needle and each entry's text the same way so a case- or accent-varying phrase still matches.
+pub(crate) fn fold_lower(text: &str) -> String {
     text.chars()
         .flat_map(char::to_lowercase)
         .map(fold_diacritic)

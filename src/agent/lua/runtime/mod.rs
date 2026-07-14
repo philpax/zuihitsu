@@ -25,7 +25,7 @@ use crate::{
 use super::error::MissingReturnError;
 
 pub(crate) use handles::{
-    HandleSelf, SEARCH_QUERY_FIELD, entry_handle_id, entry_selector, get_argument_name,
+    HandleSelf, SEARCH_QUERY_FIELD, entry_handle_id, entry_selector, fold_lower, get_argument_name,
     guard_search_taint, guard_search_write, handle_id, link_target_id, make_capped_handle_list,
     make_entry_handle, make_entry_handle_list, make_handle, make_handle_list,
     make_link_handle_list, make_relation_result, query_names_handle, readonly_newindex,

@@ -8,7 +8,7 @@
 use mlua::Error as LuaError;
 use ulid::DecodeError as UlidError;
 
-use crate::{memory::search::SearchError, model::ModelError, store::StoreError};
+use crate::{ids::EntryId, memory::search::SearchError, model::ModelError, store::StoreError};
 
 /// A bad argument to a `calendar.*` constructor or a date-arithmetic method.
 #[derive(Debug)]
@@ -353,6 +353,71 @@ impl From<HandleError> for LuaError {
     fn from(error: HandleError) -> Self {
         LuaError::RuntimeError(error.to_string())
     }
+}
+
+/// How many characters of an entry's text a `find_entry` ambiguity candidate line shows, so the agent
+/// can tell the matches apart without the message running long.
+const FIND_ENTRY_SNIPPET_CHARS: usize = 60;
+
+/// A `mem:find_entry` call that cannot resolve to a single entry. The needle folds case and diacritics
+/// and matches as a substring against the memory's live entries; a lone match returns that entry and no
+/// match returns `nil`, so the only failures are a needle that names nothing distinctly enough. Both
+/// are teachable — the agent reads them and reissues — so they are unprefixed prose.
+#[derive(Debug)]
+pub(super) enum FindEntryError {
+    /// The needle was empty or whitespace. A match-anything needle is a scan, not a find, so it is
+    /// refused pointing at a distinctive phrase.
+    EmptyNeedle,
+    /// The needle matched more than one live entry. Silently taking the first is the correct-the-wrong-
+    /// entry hazard, so the ambiguity surfaces with each candidate's id and a snippet, so the agent
+    /// narrows the phrase or addresses one by its id.
+    Ambiguous {
+        needle: String,
+        candidates: Vec<(EntryId, String)>,
+    },
+}
+
+impl std::fmt::Display for FindEntryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FindEntryError::EmptyNeedle => write!(
+                f,
+                "find_entry needs some text to match on — an empty needle would match every entry. \
+                 Pass a distinctive phrase from the entry you mean, e.g. \
+                 mem:find_entry(\"leads the volcano project\")"
+            ),
+            FindEntryError::Ambiguous { needle, candidates } => {
+                write!(
+                    f,
+                    "the text {needle:?} matches more than one entry on this memory; use a longer \
+                     phrase, or address one by its id:"
+                )?;
+                for (id, snippet) in candidates {
+                    write!(f, "\n  {} — {}", id.0, find_entry_snippet(snippet))?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl std::error::Error for FindEntryError {}
+
+impl From<FindEntryError> for LuaError {
+    fn from(error: FindEntryError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
+/// A one-line snippet of an entry's text for a `find_entry` ambiguity candidate — clipped to
+/// [`FIND_ENTRY_SNIPPET_CHARS`] with an ellipsis so the message stays compact.
+fn find_entry_snippet(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().count() <= FIND_ENTRY_SNIPPET_CHARS {
+        return text.to_owned();
+    }
+    let clipped: String = text.chars().take(FIND_ENTRY_SNIPPET_CHARS).collect();
+    format!("{clipped}…")
 }
 
 /// A bad argument to `table.concat`, reworded from Luau's opaque native error. Stock Luau `table.concat`

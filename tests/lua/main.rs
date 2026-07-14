@@ -38,6 +38,7 @@ mod convo;
 mod convo_part2;
 mod dates;
 mod details;
+mod find_entry;
 mod handles;
 mod honesty;
 mod honesty_part2;

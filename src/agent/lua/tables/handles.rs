@@ -2,7 +2,8 @@
 
 use super::*;
 
-/// The `mem:*` handle methods (`append`, `entries`, `history`, `supersede`, `retract`, `revise`) on the
+/// The `mem:*` handle methods (`append`, `entries`, `find_entry`, `history`, `supersede`, `retract`,
+/// `revise`) on the
 /// metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
 /// backs the entry handles the content reads and `append` return.
 ///
@@ -75,6 +76,62 @@ pub(super) fn install_handle_methods(
                         .entries(id)
                         .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                     make_entry_handle_list(&lua, entries, &entry_metatable)
+                }
+            }
+        })?,
+    )?;
+
+    // mem:find_entry(text) — the one live entry whose text contains `text`, matched case-insensitively
+    // and diacritic-folded (the same fold the fuzzy-write guard uses). Reads exactly the set
+    // `entries()` returns (the merged identity's live entries plus this block's pending appends), so
+    // the model can locate an entry by a phrase it composed rather than text-scanning the list itself —
+    // the idiom that silently misses on case and paraphrase. A lone match returns that entry handle; no
+    // match returns nil; several is a teachable error listing each candidate, since silently taking the
+    // first is the correct-the-wrong-entry hazard. A class-traversing read, so it locks the whole
+    // `same_as` class like `entries`.
+    methods.set(
+        "find_entry",
+        lua.create_async_function({
+            let api = api.clone();
+            let entry_metatable = entry_metatable.clone();
+            move |lua, (this, text): (HandleSelf, String)| {
+                let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
+                async move {
+                    let needle = fold_lower(text.trim());
+                    if needle.is_empty() {
+                        return Err(FindEntryError::EmptyNeedle.into());
+                    }
+                    let id = handle_id(&this.0)?;
+                    api.lock_class(id).await?;
+                    let entries = api
+                        .block
+                        .lock()
+                        .entries(id)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                    let mut matches = entries
+                        .into_iter()
+                        .filter(|entry| fold_lower(&entry.text).contains(&needle));
+                    let Some(first) = matches.next() else {
+                        return Ok(Value::Nil);
+                    };
+                    let rest: Vec<_> = matches.collect();
+                    if rest.is_empty() {
+                        return Ok(Value::Table(make_entry_handle(
+                            &lua,
+                            &first,
+                            &entry_metatable,
+                        )?));
+                    }
+                    let candidates = std::iter::once(first)
+                        .chain(rest)
+                        .map(|entry| (entry.entry_id, entry.text))
+                        .collect();
+                    Err(FindEntryError::Ambiguous {
+                        needle: text.trim().to_owned(),
+                        candidates,
+                    }
+                    .into())
                 }
             }
         })?,
