@@ -16,7 +16,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -122,7 +122,7 @@ impl Scenario for RecallsAConceptByAmbientHint {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "showed awareness of the project sense of the word",
                 VerdictKind::Metric,
                 judged,

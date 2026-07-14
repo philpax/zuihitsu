@@ -1,7 +1,7 @@
-import type { EvalPackage } from "../../types/EvalPackage.ts";
-import type { PackageSummary } from "../../types/PackageSummary.ts";
-import type { RunRecord } from "../../types/RunRecord.ts";
-import type { RunSummary } from "../../types/RunSummary.ts";
+import type { EvalPackage } from "@zuihitsu/wire/types/EvalPackage.ts";
+import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
+import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
+import type { RunSummary } from "@zuihitsu/wire/types/RunSummary.ts";
 
 /// Reduce a full run record to its lean summary — mirroring the Rust `From<&RunRecord> for RunSummary`
 /// (`crates/eval/src/package.rs`). `usages` is each `ModelCalled` event's usage in event order, the

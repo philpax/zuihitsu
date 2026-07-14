@@ -111,7 +111,7 @@ impl Scenario for DistinguishesMentorDirection {
                 "linked Dave over Erin and Grace, and Frank over Dave, each the right way round",
                 "did not link all three mentorship edges in the correct directions",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "names Dave's mentees and not his mentor",
                 VerdictKind::Metric,
                 judged,

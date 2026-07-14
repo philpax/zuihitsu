@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { Event } from "../types/Event.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { Replica } from "../lib/replica/replica.ts";
 import { type MemoryChange, diffSnapshots, snapshotAt } from "../lib/model/diff.ts";
 import { eventSummary } from "../lib/model/events.ts";

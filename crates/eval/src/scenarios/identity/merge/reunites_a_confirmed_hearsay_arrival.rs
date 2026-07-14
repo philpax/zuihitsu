@@ -118,7 +118,7 @@ impl Scenario for ReunitesAConfirmedHearsayArrival {
                 "identity resolution proposed reuniting the arrival with the hearsay stub",
                 "no merge was proposed for the matching handle",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "addressed the confirmed arrival with the hearsay knowledge",
                 VerdictKind::Metric,
                 judge

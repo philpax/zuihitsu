@@ -1,20 +1,27 @@
 [workspace]
-members = ["crates/core", "crates/console-wasm", "crates/eval"]
+members = ["crates/core", "crates/console-wasm", "crates/eval", "crates/frontend-types"]
 
 # Dependencies shared across the workspace crates live here, so their versions cannot drift.
 # Per-crate feature sets are added at the use site (features union across the workspace).
 [workspace.dependencies]
 anstream = "1.0"
 anstyle = "1.0"
+async-stream = "0.3"
 async-trait = "0.1.89"
+axum = "0.8"
 clap = { version = "4.6.1", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 jiff = "0.2.28"
 parking_lot = "0.12.5"
 proptest = "1.11"
 rusqlite = { version = "0.40.0", features = ["bundled"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
+rustdoc-json = "0.9"
+rustdoc-types = "0.60"
 schemars = "1.2.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+serde-wasm-bindgen = "0.6"
 sha2 = "0.11.0"
 smol_str = { version = "0.3.6", features = ["serde"] }
 tokio = "1.52.3"
@@ -22,6 +29,11 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 ts-rs = "11.0"
 ulid = { version = "1.2.1", features = ["serde"] }
+# The wasm-bindgen crate and the CLI support library must match exactly — the glue generator and the
+# wasm crate produce compatible output only when their versions are pinned together.
+wasm-bindgen = "=0.2.117"
+wasm-bindgen-cli-support = "=0.2.117"
+wasm-opt = "0.116"
 # The wasm-compatible materializer core, shared by the main crate and (later) the console-wasm
 # wrapper. Path dep so a local checkout always builds against the in-tree version.
 zuihitsu-core = { path = "crates/core" }
@@ -39,11 +51,13 @@ path = "src/lib.rs"
 name = "zuihitsu"
 path = "src/main.rs"
 
-# The `ts` feature exports the event-log wire types to TypeScript via ts-rs, so the debugger/eval
-# viewer shares the agent's exact type contract. Off by default — only the eval crate enables it; the
-# main binary never carries ts-rs.
+# The `console` feature (on by default) runs the full build pipeline — ts-rs type export, settings
+# metadata, wasm build, wasm-bindgen, wasm-opt, and the npm build — so `cargo build` embeds the web
+# console into the binary. Disabling it (`--no-default-features`) skips all console steps for a fast,
+# dependency-light build that links against a placeholder console.
 [features]
-ts = ["dep:ts-rs", "zuihitsu-core/ts"]
+default = ["console"]
+console = ["dep:wasm-bindgen-cli-support", "dep:wasm-opt"]
 
 [dependencies]
 anstream = { workspace = true }
@@ -54,11 +68,11 @@ async-openai = { version = "0.40.2", default-features = false, features = [
     "chat-completion",
     "embedding",
 ] }
-async-stream = "0.3"
+async-stream = { workspace = true }
 async-trait = { workspace = true }
-axum = { version = "0.8" }
+axum = { workspace = true }
 clap = { workspace = true }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { workspace = true }
 dom_smoothie = "0.18"
 fs2 = "0.4.3"
 htmd = "0.5"
@@ -98,15 +112,19 @@ stop-words = "0.10"
 toml = "1.1.2"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-ts-rs = { workspace = true, optional = true }
 ulid = { workspace = true }
 url = "2.5"
 whatlang = "0.18"
 zuihitsu-core = { workspace = true }
+zuihitsu-frontend-types = { path = "crates/frontend-types" }
+
+[build-dependencies]
+wasm-bindgen-cli-support = { workspace = true, optional = true }
+wasm-opt = { workspace = true, optional = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
 # The Store-seam contract helpers, so SqliteStore's tests reuse the same checks as the in-memory

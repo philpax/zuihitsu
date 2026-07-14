@@ -1,15 +1,14 @@
-import { createContext, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import type { Event } from "../../types/Event.ts";
-import { type DigestStatus, type Replica } from "../../lib/replica/replica.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import { type Replica } from "../../lib/replica/replica.ts";
 import { nameById } from "../../lib/model/labels.ts";
-import type { LiveConnection } from "../../lib/api/live.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
-import type { ConversationLocator } from "../../types/ConversationLocator.ts";
+import type { ConversationLocator } from "@zuihitsu/wire/types/ConversationLocator.ts";
 import { buildConversations } from "../../lib/model/conversation.ts";
-import { conversationNameById } from "../../components/EventDetail.tsx";
-import { type ContextDebug, deriveContextDebug } from "../../lib/model/contextDebug.ts";
+import { conversationNameById } from "../../lib/model/conversationNameById.ts";
+import { deriveContextDebug } from "../../lib/model/contextDebug.ts";
 import { DIRECT_PLATFORM } from "../../lib/api/participant.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { type TurnRefTarget, TurnRefs } from "../../lib/view/turnRefs.ts";
@@ -22,41 +21,22 @@ import {
   localKey,
   newRoomChannel,
   toChannel,
-} from "./channelUtilities.tsx";
+} from "./channelUtilities.ts";
 import { ChannelLink, ChannelSelect, MobileRoomControls, RoomControls } from "./Channels.tsx";
 import { Room } from "./Room.tsx";
 
-/// The participate capability the agent frame hands the Conversation view (absent in the eval frame,
-/// which is a finished log and so read-only). `sender` is the handle you converse under as a
-/// participant, lifted to the frame so it survives view switches. Whether the cursor is at the head
-/// — the gate on speaking into the present, and on following the live tail — rides the view's own
-/// `atHead` prop, since a read-only eval run at its head follows the tail too.
-export interface Participation {
-  connection: LiveConnection;
-  sender: string;
-  setSender: (value: string) => void;
-}
-
-/// The reconstructed model calls with their derived context debugging — per-call cache verdicts,
-/// token attributions, digest verifications, and the denominators in effect — so a turn's
-/// deliberation can show what each call fed the model, how it was assembled, and whether the prefix
-/// cache survived, without drilling the lookups through every layer of the transcript.
-export const ModelCalls = createContext<ContextDebug & { digestBySeq: Map<number, DigestStatus> }>({
-  bySeq: new Map(),
-  verdictBySeq: new Map(),
-  attributionBySeq: new Map(),
-  denominatorsBySeq: new Map(),
-  denominators: { budget: null, contextLength: null },
-  digestBySeq: new Map(),
-});
-
-/// The id → handle map at the cursor, so a turn's outcome rows can expand into the event viewer (which
-/// resolves memory and participant ids) without drilling the map through the transcript.
-export const Names = createContext<Map<string, string>>(new Map());
-
-/// The conversation id → context memory name map at the cursor, so `ConversationRef` links in
-/// event detail panels can resolve the room name without a separate prop chain.
-export const ConversationNames = createContext<Map<string, string>>(new Map());
+export {
+  ConversationNames,
+  ModelCalls,
+  Names,
+  type Participation,
+} from "./conversationContexts.ts";
+import {
+  ModelCalls,
+  Names,
+  ConversationNames,
+  type Participation,
+} from "./conversationContexts.ts";
 
 /// The Conversation view: every room the agent speaks in, browsed from a sidebar, with each
 /// session's frozen brief and the full transcript — every agent turn openable to the reasoning and

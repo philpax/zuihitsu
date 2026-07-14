@@ -1,12 +1,12 @@
-import type { Event } from "../../types/Event.ts";
-import type { Brief } from "../../types/Brief.ts";
-import type { Completion } from "../../types/Completion.ts";
-import type { EventPayload } from "../../types/EventPayload.ts";
-import type { EventSource } from "../../types/EventSource.ts";
-import type { Initiation } from "../../types/Initiation.ts";
-import type { ModelPhase } from "../../types/ModelPhase.ts";
-import type { TerminalCause } from "../../types/TerminalCause.ts";
-import type { TurnRole } from "../../types/TurnRole.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { Brief } from "@zuihitsu/wire/types/Brief.ts";
+import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
+import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
+import type { Initiation } from "@zuihitsu/wire/types/Initiation.ts";
+import type { ModelPhase } from "@zuihitsu/wire/types/ModelPhase.ts";
+import type { TerminalCause } from "@zuihitsu/wire/types/TerminalCause.ts";
+import type { TurnRole } from "@zuihitsu/wire/types/TurnRole.ts";
 import { type EventCategory, eventCategory, eventSummary } from "./events.ts";
 
 // Re-export the background-pass model so existing importers (`BackgroundView` and others) keep a

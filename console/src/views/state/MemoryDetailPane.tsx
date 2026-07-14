@@ -1,4 +1,4 @@
-import type { EntryId } from "../../types/EntryId.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { MemoryDetail } from "../../lib/model/graph.ts";
 import type { Arbitration, RecurringItem } from "../../lib/model/audit.ts";
 import { formatDateTime } from "../../lib/format/format.ts";

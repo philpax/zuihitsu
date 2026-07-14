@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { BackendHealth } from "../../types/BackendHealth.ts";
+import type { BackendHealth } from "@zuihitsu/wire/types/BackendHealth.ts";
 import type { GenesisStatus } from "./operator.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";

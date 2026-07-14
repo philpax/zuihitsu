@@ -1,7 +1,7 @@
 dist
 dist-embedded
-src/types
-src/wasm
+packages/wire
+node_modules
 package-lock.json
 
 # Prose docs keep their own hand-tuned markdown style.

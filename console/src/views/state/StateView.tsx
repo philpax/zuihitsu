@@ -1,7 +1,7 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import type { EntryId } from "../../types/EntryId.ts";
-import type { Event } from "../../types/Event.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
 import { MemoryBrowser } from "./MemoryBrowser.tsx";

@@ -4,10 +4,10 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
-import type { Event } from "../../types/Event.ts";
-import type { PackageSummary } from "../../types/PackageSummary.ts";
-import type { RunRecord } from "../../types/RunRecord.ts";
-import type { RunSummary } from "../../types/RunSummary.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
+import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
+import type { RunSummary } from "@zuihitsu/wire/types/RunSummary.ts";
 import type { EvalContext } from "../../lib/api/liveEval.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { RunFrame } from "./RunFrame.tsx";

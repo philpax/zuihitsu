@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
-import type { EvalPackage } from "./types/EvalPackage.ts";
-import type { RunRecord } from "./types/RunRecord.ts";
+import type { EvalPackage } from "@zuihitsu/wire/types/EvalPackage.ts";
+import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
 import type { LiveConnection } from "./lib/api/live.ts";
 import {
   type LiveEvalConnection,

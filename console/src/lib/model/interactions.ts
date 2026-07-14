@@ -1,10 +1,10 @@
-import type { Event } from "../../types/Event.ts";
-import type { Completion } from "../../types/Completion.ts";
-import type { Message } from "../../types/Message.ts";
-import type { ModelPhase } from "../../types/ModelPhase.ts";
-import type { PromptSectionSpan } from "../../types/PromptSectionSpan.ts";
-import type { ToolSpec } from "../../types/ToolSpec.ts";
-import type { Usage } from "../../types/Usage.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
+import type { Message } from "@zuihitsu/wire/types/Message.ts";
+import type { ModelPhase } from "@zuihitsu/wire/types/ModelPhase.ts";
+import type { PromptSectionSpan } from "@zuihitsu/wire/types/PromptSectionSpan.ts";
+import type { ToolSpec } from "@zuihitsu/wire/types/ToolSpec.ts";
+import type { Usage } from "@zuihitsu/wire/types/Usage.ts";
 
 /// How a call's request was recorded: a `Base` (the full prompt), a `Continuation` (an append-only
 /// delta), or `missing` (captured under a level that dropped the request, or an orphaned

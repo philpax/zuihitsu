@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-import type { Event } from "../types/Event.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { AgendaItem } from "../lib/model/graph.ts";
 import type { Replica } from "../lib/replica/replica.ts";
 import { formatDate } from "../lib/format/format.ts";

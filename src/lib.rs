@@ -29,6 +29,10 @@ pub use zuihitsu_core::{
     settings, time, turn_ref, vocabulary,
 };
 
+// The TypeScript wire-contract types live in `zuihitsu-frontend-types` (a separate crate that
+// depends only on `zuihitsu-core`, avoiding a build cycle with the main crate's `build.rs`).
+pub use zuihitsu_frontend_types::{BackendHealth, CircuitState, TurnOutcome};
+
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
 // as `zuihitsu::genesis::{rollout, status}` without reaching through the `agent` subsystem.
 pub use agent::genesis;
@@ -60,7 +64,7 @@ pub use model::{
     extract_json_object,
     index::{IndexError, Indexer},
     parse_structured,
-    retry::{BackendHealth, CircuitState, RetryingModel},
+    retry::RetryingModel,
     schema_of, stream_response,
 };
 pub use settings::{
@@ -83,8 +87,7 @@ pub use web::{
 
 pub use agent::{
     BlockContext, InferredLink, LinkInferenceArgs, McpCatalogue, NewRelationSpec, ToolStep, Turn,
-    TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns, buffer_turns,
-    carryover_start,
+    TurnError, TurnReport, TurnView, bounded_buffer_turns, buffer_turns, carryover_start,
     lua::{BlockOutcome, LuaError, Session, api_reference, render_api_reference},
     run_adjudicate_catch_up, run_describe_catch_up, run_describe_catch_up_for,
     run_link_inference_catch_up, run_turn, session_touched,

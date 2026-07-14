@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from "react";
 
-import type { Event } from "../../types/Event.ts";
-import type { TurnProgress } from "../../types/TurnProgress.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { TurnProgress } from "@zuihitsu/wire/types/TurnProgress.ts";
 import {
   type InFlightGeneration,
   foldFrame,

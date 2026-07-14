@@ -1,5 +1,5 @@
-import type { Event } from "../../types/Event.ts";
-import type { TurnProgress } from "../../types/TurnProgress.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { TurnProgress } from "@zuihitsu/wire/types/TurnProgress.ts";
 
 /// A minimal server-sent-events reader over `fetch`, used instead of the native `EventSource`
 /// because the control surface authenticates with a bearer header, which `EventSource` cannot

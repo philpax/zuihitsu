@@ -68,7 +68,7 @@ impl Scenario for AReminderComesDue {
                 "a fired occurrence was raised into a session",
                 "no wake-up surfaced after the clock crossed Friday",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "surfaced the due reminder to the user in its reply",
                 VerdictKind::Metric,
                 delivered,

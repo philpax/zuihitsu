@@ -15,7 +15,7 @@ use crate::{
     analysis,
     context::RUN_START_MS,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -157,7 +157,7 @@ impl Scenario for RetractsAMisfiledFact {
                 "the mis-filed entry was retracted with a stated reason",
                 "no retraction with a reason was recorded",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "owned the correction in the reply",
                 VerdictKind::Metric,
                 owned,

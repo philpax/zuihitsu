@@ -24,7 +24,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -230,7 +230,7 @@ impl Scenario for OversizedContentRejected {
                     "the agent recorded no substantive entries (only placeholders or empty entries)"
                 },
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "the recall reply retrieves substantive information about the article",
                 VerdictKind::Metric,
                 recall_substantive,

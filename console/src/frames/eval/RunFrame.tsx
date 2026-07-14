@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, Navigate, useOutletContext, useParams } from "react-router-dom";
 
-import type { PackageSummary } from "../../types/PackageSummary.ts";
-import type { ScenarioSummary } from "../../types/ScenarioSummary.ts";
-import type { Event } from "../../types/Event.ts";
+import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
+import type { ScenarioSummary } from "@zuihitsu/wire/types/ScenarioSummary.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { type EvalContext, liveRunOf, runningKey } from "../../lib/api/liveEval.ts";
 import { type ReplicaState, useReplica } from "../../lib/replica/useReplica.ts";
 import { runBase, runPath } from "../../lib/nav/routes.ts";

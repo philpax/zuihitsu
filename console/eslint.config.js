@@ -5,9 +5,10 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettier from "eslint-config-prettier";
 
-// Generated outputs (the ts-rs bindings and the wasm bundle) and the build dirs are not ours to lint.
+// Generated outputs (the ts-rs bindings and the wasm bundle live in the @zuihitsu/wire package,
+// symlinked into node_modules) are not ours to lint, nor are our build dirs.
 export default tseslint.config(
-  { ignores: ["dist", "dist-embedded", "src/types/**", "src/wasm/**"] },
+  { ignores: ["dist", "dist-embedded", "packages/wire/**", "node_modules/@zuihitsu/wire/**"] },
   js.configs.recommended,
   tseslint.configs.recommended,
   {
@@ -29,7 +30,7 @@ export default tseslint.config(
     },
   },
   {
-    // The regen.sh-adjacent Node scripts (e.g. the settings-metadata extractor) run on Node, not the
+    // The build.rs-adjacent Node scripts (e.g. the settings-metadata extractor) run on Node, not the
     // browser, so they get the Node globals rather than the browser set.
     files: ["scripts/**/*.{js,mjs}"],
     languageOptions: {

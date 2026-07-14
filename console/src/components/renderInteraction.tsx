@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { ConversationRef } from "../types/ConversationRef.ts";
+import type { ConversationRef } from "@zuihitsu/wire/types/ConversationRef.ts";
 import {
   completionSummary,
   isPrivate,

@@ -26,7 +26,7 @@ use crate::{
     analysis,
     context::{MILLIS_PER_DAY, MILLIS_PER_HOUR},
     judge::{JUDGE_REPEATS, Judge},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, StepText, Turn},
 };
@@ -124,7 +124,7 @@ impl Scenario for TranscriptLink {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "answers from the linked moment's content",
                 VerdictKind::Metric,
                 judged,
@@ -270,12 +270,12 @@ impl Scenario for TranscriptAudienceGate {
                 },
                 Some(probe.raw),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "relayed the shareable decision to the newcomer",
                 VerdictKind::Metric,
                 relayed,
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "handled the blocked reference gracefully",
                 VerdictKind::Metric,
                 graceful,
@@ -490,7 +490,7 @@ impl Scenario for TranscriptDmLookup {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "engaged the referenced moment's content across both DM beats",
                 VerdictKind::Metric,
                 engaged,

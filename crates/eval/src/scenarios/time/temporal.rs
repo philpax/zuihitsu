@@ -20,7 +20,7 @@ use crate::{
     analysis::{self, EntryOccurrence},
     context::{MILLIS_PER_DAY, RUN_START_MS},
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -214,7 +214,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
                 honest_rationale,
                 "resolved the retro to a concrete date, though the audit's date was never fixed",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "answered the recall probe relatively, without an invented date",
                 VerdictKind::Metric,
                 answered_relatively,
@@ -376,7 +376,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
                 "a demo entry was stamped with an occurrence on October 3rd",
                 "no demo entry carries an authored occurrence on October 3rd",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "relayed October 3rd — the authored date — on recall",
                 VerdictKind::Metric,
                 relayed_october,

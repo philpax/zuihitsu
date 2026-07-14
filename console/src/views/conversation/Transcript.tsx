@@ -3,9 +3,9 @@ import { useReducedMotion } from "motion/react";
 
 import type { Replica } from "../../lib/replica/replica.ts";
 import { emptyTurn, type ConversationModel } from "../../lib/model/conversation.ts";
-import { channelKey } from "./channelUtilities.tsx";
+import { channelKey } from "./channelUtilities.ts";
 import { BriefBlock } from "./Brief.tsx";
-import { SessionDivider } from "./channelUtilities.tsx";
+import { SessionDivider } from "./SessionDivider.tsx";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { TurnItem } from "./Turn.tsx";
 

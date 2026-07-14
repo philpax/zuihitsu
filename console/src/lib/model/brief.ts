@@ -1,5 +1,5 @@
-import type { MemoryName } from "../../types/MemoryName.ts";
-import type { Visibility } from "../../types/Visibility.ts";
+import type { MemoryName } from "@zuihitsu/wire/types/MemoryName.ts";
+import type { Visibility } from "@zuihitsu/wire/types/Visibility.ts";
 
 // The shapes the console-wasm `brief()` returns — the composed brief plus the trace of how it was
 // built. Field types are generated ts-rs bindings; only the groupings are hand-written (mirroring

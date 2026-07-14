@@ -12,7 +12,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -109,7 +109,7 @@ impl Scenario for RecurringReminder {
                 "a fired occurrence was raised into a session",
                 "no wake-up surfaced after the clock advanced",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "surfaced the reminder to the user in its reply",
                 VerdictKind::Metric,
                 delivered,

@@ -15,7 +15,7 @@ use zuihitsu::{Event, Visibility};
 use crate::{
     analysis,
     judge::{JUDGE_REPEATS, Judge},
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -191,7 +191,7 @@ impl Scenario for WorkingState {
                 ),
             )
             .await;
-        vec![Verdict::from_judge_outcome(
+        vec![verdict_from_judge_outcome(
             "recovered the pre-cut working state after the compaction",
             VerdictKind::Metric,
             recovered,
@@ -315,7 +315,7 @@ impl Scenario for RepeatedCompaction {
                      (was the session open when force_compaction ran?)"
                 ),
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "recovered the pre-cut priority after repeated compactions",
                 VerdictKind::Metric,
                 recovered,

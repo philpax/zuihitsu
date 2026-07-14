@@ -2,10 +2,10 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
-import type { Event } from "../types/Event.ts";
-import type { EventSource } from "../types/EventSource.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { Replica } from "../lib/replica/replica.ts";
-import type { StepRecord } from "../types/StepRecord.ts";
+import type { StepRecord } from "@zuihitsu/wire/types/StepRecord.ts";
 import {
   type EventCategory,
   CATEGORY_COLOR,
@@ -20,7 +20,8 @@ import { nameById } from "../lib/model/labels.ts";
 import { formatDateTime, formatTime } from "../lib/format/format.ts";
 import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
-import { EventDetail, conversationNameById } from "../components/EventDetail.tsx";
+import { EventDetail } from "../components/EventDetail.tsx";
+import { conversationNameById } from "../lib/model/conversationNameById.ts";
 
 const CATEGORIES: EventCategory[] = [
   "memory",

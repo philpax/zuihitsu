@@ -1,6 +1,6 @@
-import type { Event } from "../../types/Event.ts";
-import type { EventPayload } from "../../types/EventPayload.ts";
-import type { EventSource } from "../../types/EventSource.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
+import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import { type EventCategory, eventCategory, eventSummary, isBackgroundEvent } from "./events.ts";
 
 /// One background-pass event (a description regeneration, a belief arbitration, an inferred link

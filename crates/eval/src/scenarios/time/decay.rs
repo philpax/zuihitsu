@@ -12,7 +12,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -84,7 +84,7 @@ impl Scenario for AVolatileStatusGoesStale {
                 "set a memory to high volatility so its facts can age into stale",
                 "left every memory at the default volatility — the status can never read as stale",
             ),
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "treated the aged role as possibly out of date, not current",
                 VerdictKind::Metric,
                 judge

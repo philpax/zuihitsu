@@ -1,5 +1,5 @@
-import type { Event } from "../../types/Event.ts";
-import type { PromptTemplateName } from "../../types/PromptTemplateName.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { PromptTemplateName } from "@zuihitsu/wire/types/PromptTemplateName.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 

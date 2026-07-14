@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 
-import type { PackageSummary } from "../../types/PackageSummary.ts";
-import type { RunRecord } from "../../types/RunRecord.ts";
-import type { Event } from "../../types/Event.ts";
+import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
+import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import {
   type InFlightGeneration,
   foldFrame,
   supersede,
   supersededConversation,
 } from "../model/inflight.ts";
-import type { LiveEvent } from "../../types/LiveEvent.ts";
+import type { LiveEvent } from "@zuihitsu/wire/types/LiveEvent.ts";
 
 /// Where a running `eval --serve` is reachable. The base URL is the harness's address (e.g.
 /// `http://localhost:7878`); the stream is `${baseUrl}/eval/stream`.
@@ -263,7 +263,7 @@ export function fold(state: LiveEval, event: LiveEvent): LiveEval {
       // binary in either direction (an old server's run_completed, or a newer server's future
       // frames). Dropped rather than crashing, at a real cost: a dropped completion frame means the
       // scoreboard does not converge for that run until the viewer reloads against a matching
-      // server. The two are built together by regen.sh, so the skew only arises against a stale
+      // server. The two are built together by cargo build, so the skew only arises against a stale
       // --serve binary.
       return state;
   }

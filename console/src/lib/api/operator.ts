@@ -1,6 +1,6 @@
-import type { EntryId } from "../../types/EntryId.ts";
-import type { MemoryId } from "../../types/MemoryId.ts";
-import type { TurnOutcome } from "../../types/TurnOutcome.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
+import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
+import type { TurnOutcome } from "@zuihitsu/wire/types/TurnOutcome.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 

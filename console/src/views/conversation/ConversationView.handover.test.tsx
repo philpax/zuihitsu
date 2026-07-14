@@ -4,7 +4,7 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 
-import type { Event } from "../../types/Event.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import { ConversationView } from "./ConversationView.tsx";

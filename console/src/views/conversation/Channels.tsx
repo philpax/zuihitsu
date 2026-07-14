@@ -8,7 +8,7 @@ import {
   TextInput,
   WorkingPulse,
 } from "../../components/primitives.tsx";
-import { type Channel, type ChannelGroup, hasScopeChar } from "./channelUtilities.tsx";
+import { type Channel, type ChannelGroup, hasScopeChar } from "./channelUtilities.ts";
 
 /// The mobile face of the conversation list: a native dropdown grouped by context (one optgroup per
 /// context, its channels most-recently-used first) so the transcript owns the screen. Hidden once the

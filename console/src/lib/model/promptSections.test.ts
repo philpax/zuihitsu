@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PromptSectionSpan } from "../../types/PromptSectionSpan.ts";
+import type { PromptSectionSpan } from "@zuihitsu/wire/types/PromptSectionSpan.ts";
 import { resolveSections } from "./promptSections.ts";
 
 /// A realistic assembled prompt with all six sections, matching `assemble()`'s emission shape.

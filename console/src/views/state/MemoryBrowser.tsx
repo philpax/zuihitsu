@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import type { EntryId } from "../../types/EntryId.ts";
-import type { Event } from "../../types/Event.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import type { MemoryView } from "../../lib/model/graph.ts";
 import { nameById } from "../../lib/model/labels.ts";

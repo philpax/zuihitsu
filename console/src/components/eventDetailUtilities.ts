@@ -1,5 +1,5 @@
-import type { TemporalRef } from "../types/TemporalRef.ts";
-import type { ProducedBy } from "../types/ProducedBy.ts";
+import type { TemporalRef } from "@zuihitsu/wire/types/TemporalRef.ts";
+import type { ProducedBy } from "@zuihitsu/wire/types/ProducedBy.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { rruleLabel } from "../lib/model/audit.ts";
 

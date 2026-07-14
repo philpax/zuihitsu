@@ -78,7 +78,7 @@ impl Scenario for Knows {
                     &evidence,
                 )
                 .await;
-            verdicts.push(Verdict::from_judge_outcome(
+            verdicts.push(verdict_from_judge_outcome(
                 "the link's label expresses the told relationship",
                 VerdictKind::Metric,
                 judged,

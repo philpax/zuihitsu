@@ -1,4 +1,4 @@
-import type { Settings } from "../../types/Settings.ts";
+import type { Settings } from "@zuihitsu/wire/types/Settings.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 

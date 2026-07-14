@@ -4,9 +4,9 @@
 /// run's flat log by the step that produced each span. Only populated for eval runs; a live tail has no
 /// journal, so the marker map is empty and the log renders unbroken.
 
-import type { EvalStep } from "../../types/EvalStep.ts";
-import type { StepRecord } from "../../types/StepRecord.ts";
-import type { StepText } from "../../types/StepText.ts";
+import type { EvalStep } from "@zuihitsu/wire/types/EvalStep.ts";
+import type { StepRecord } from "@zuihitsu/wire/types/StepRecord.ts";
+import type { StepText } from "@zuihitsu/wire/types/StepText.ts";
 
 /// How many characters of a step's text a summary keeps before clipping, matching the Rust summarizer.
 const SUMMARY_CLIP = 60;

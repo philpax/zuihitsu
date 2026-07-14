@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import type { RunSummary } from "../../types/RunSummary.ts";
-import type { Verdict } from "../../types/Verdict.ts";
+import type { RunSummary } from "@zuihitsu/wire/types/RunSummary.ts";
+import type { Verdict } from "@zuihitsu/wire/types/Verdict.ts";
 import { formatMs, formatTime, formatTokenSplit } from "../../lib/format/format.ts";
 import { Disclosure, Excerpt, Eyebrow } from "../../components/primitives.tsx";
 

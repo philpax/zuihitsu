@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { type ConfigValue } from "../../../lib/api/config.ts";
-import { settingsMetadata } from "../../../types/settings-metadata.ts";
+import { settingsMetadata } from "@zuihitsu/wire/types/settings-metadata.ts";
 import { Checkbox, Eyebrow } from "../../../components/primitives.tsx";
 import { type FieldRecord, type FieldValue, isNestedObject, label } from "./settingsUtilities.ts";
 

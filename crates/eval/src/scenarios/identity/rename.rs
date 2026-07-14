@@ -14,7 +14,7 @@ use crate::{
     analysis,
     context::MILLIS_PER_DAY,
     judge::Judge,
-    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind},
+    package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
     step::{EvalStep, Turn},
 };
@@ -126,7 +126,7 @@ impl Scenario for ARenameHoldsUp {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "Sarah is the same person Erin knows",
                 VerdictKind::Metric,
                 judged,
@@ -221,7 +221,7 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
             )
             .await;
 
-        vec![Verdict::from_judge_outcome(
+        vec![verdict_from_judge_outcome(
             "bridges the old name to the renamed person",
             VerdictKind::Metric,
             judged,

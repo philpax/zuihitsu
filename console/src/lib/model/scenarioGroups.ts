@@ -1,5 +1,5 @@
-import type { Category } from "../../types/Category.ts";
-import type { ScenarioMeta } from "../../types/ScenarioMeta.ts";
+import type { Category } from "@zuihitsu/wire/types/Category.ts";
+import type { ScenarioMeta } from "@zuihitsu/wire/types/ScenarioMeta.ts";
 
 /// The category display order — the Rust enum's own order (`crates/eval/src/package.rs`), which
 /// groups the behavioural families semantically rather than alphabetically. The `satisfies` clause

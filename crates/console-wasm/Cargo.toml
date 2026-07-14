@@ -1,6 +1,8 @@
 # The console's WASM bridge: a wasm-bindgen API over zuihitsu-core's materializer, so the frontend
 # folds an event log into queryable graph state with the agent's own projection code (see
-# console/CONTRIBUTING.md). Built with wasm-pack; the generated package is checked in beside the ts-rs types.
+# console/CONTRIBUTING.md). Built by the main crate's `build.rs` via `wasm-bindgen-cli-support`
+# (in-process, no shell-out) and `wasm-opt` (the Rust crate); the generated package lives in
+# `console/packages/wire/wasm/` (gitignored, built fresh by CI).
 [package]
 name = "console-wasm"
 version = "0.1.0"
@@ -17,6 +19,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 ulid = { workspace = true }
-# Pinned to the wasm-bindgen CLI on PATH — the glue generator and the crate must match exactly.
-wasm-bindgen = "=0.2.117"
-serde-wasm-bindgen = "0.6"
+# Pinned alongside `wasm-bindgen-cli-support` in the workspace — the glue generator and the crate
+# must produce compatible output.
+wasm-bindgen = { workspace = true }
+serde-wasm-bindgen = { workspace = true }

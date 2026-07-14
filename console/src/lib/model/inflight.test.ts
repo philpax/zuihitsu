@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TurnProgress } from "../../types/TurnProgress.ts";
+import type { TurnProgress } from "@zuihitsu/wire/types/TurnProgress.ts";
 import { foldFrame, supersede, supersededConversation } from "./inflight.ts";
 import type { InFlightGeneration } from "./inflight.ts";
 

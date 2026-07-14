@@ -1,5 +1,5 @@
-import type { EventPayload } from "../../types/EventPayload.ts";
-import type { EventSource } from "../../types/EventSource.ts";
+import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
+import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import { terminalCauseLabel } from "./labels.ts";
 
 /// The authoring authorities, in the order the Events view offers them as an author filter — genesis

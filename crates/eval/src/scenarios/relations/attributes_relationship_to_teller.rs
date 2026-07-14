@@ -69,7 +69,7 @@ impl Scenario for AttributesRelationshipToTeller {
             )
             .await;
 
-        vec![Verdict::from_judge_outcome(
+        vec![verdict_from_judge_outcome(
             "attributes the relationship to its teller, not the asker",
             VerdictKind::Metric,
             judged,

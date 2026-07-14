@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { EntryId } from "../../types/EntryId.ts";
+import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { EntryView } from "../../lib/model/graph.ts";
 import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 

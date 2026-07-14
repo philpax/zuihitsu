@@ -81,7 +81,7 @@ impl Scenario for ShiftingPlans {
             .await;
 
         vec![
-            Verdict::from_judge_outcome(
+            verdict_from_judge_outcome(
                 "answered with the corrected launch date, not the stale one",
                 VerdictKind::Metric,
                 judged,

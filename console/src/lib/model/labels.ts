@@ -1,8 +1,8 @@
-import type { Completion } from "../../types/Completion.ts";
+import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
 import type { MemoryView } from "./graph.ts";
-import type { Teller } from "../../types/Teller.ts";
-import type { TerminalCause } from "../../types/TerminalCause.ts";
-import type { Visibility } from "../../types/Visibility.ts";
+import type { Teller } from "@zuihitsu/wire/types/Teller.ts";
+import type { TerminalCause } from "@zuihitsu/wire/types/TerminalCause.ts";
+import type { Visibility } from "@zuihitsu/wire/types/Visibility.ts";
 
 /// Presentation helpers shared by the State, Conversation, and Events views, so a teller, a
 /// visibility, or a completion reads the same wherever it surfaces.
