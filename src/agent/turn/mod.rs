@@ -93,8 +93,12 @@ pub struct TurnReport {
     /// How many `run_lua` blocks the turn executed.
     pub blocks: usize,
     /// The agent's response-cycle turn id — the durable key an operator uses to find this turn's
-    /// events in the log. (The participant's inbound message carries its own earlier turn id.)
+    /// events in the log.
     pub turn_id: TurnId,
+    /// The participant's inbound turn id — the durable key for the `role = participant`
+    /// `ConversationTurn` recorded at the start of `run_turn`. Exposed so a platform client can
+    /// map its own message id to the participant's turn id for `[turn:<id>]` injection on replies.
+    pub participant_turn_id: TurnId,
 }
 
 /// The write context one block — or a whole step loop — runs under: who its content is attributed

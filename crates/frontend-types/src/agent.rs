@@ -22,6 +22,19 @@ pub enum TurnOutcome {
     Deferred,
 }
 
+/// The response from `POST /platform/message` and `POST /platform/message/stream`: the turn's
+/// `outcome` plus the `participant_turn_id` of the inbound participant turn. A connector uses the
+/// participant turn id to map its own message id to the zuihitsu turn, so it can inject a
+/// `[turn:<id>]` token when a user replies to that message later.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PlatformResponse {
+    /// The turn's conversational outcome — what the connector should do with the reply.
+    pub outcome: TurnOutcome,
+    /// The participant's inbound turn id (a Crockford ULID string), for `[turn:<id>]` mapping.
+    pub participant_turn_id: String,
+}
+
 /// The circuit's observable state, for the operator health surface and the state gauge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

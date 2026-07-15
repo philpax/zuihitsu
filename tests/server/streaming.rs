@@ -165,7 +165,7 @@ async fn a_stream_that_fails_midway_defers_the_turn_like_an_unary_failure() {
         .await
         .unwrap();
     assert!(
-        matches!(outcome, TurnOutcome::Deferred),
+        matches!(outcome.outcome, TurnOutcome::Deferred),
         "a mid-stream transport failure defers like an unary one, got {outcome:?}"
     );
     let mut kinds = Vec::new();
@@ -264,7 +264,9 @@ async fn a_mid_stream_failure_restarts_and_records_the_abort() {
         )
         .await
         .unwrap();
-    assert!(matches!(outcome, TurnOutcome::Reply(reply) if reply == "Hello there, and welcome."));
+    assert!(
+        matches!(outcome.outcome, TurnOutcome::Reply(reply) if reply == "Hello there, and welcome.")
+    );
 
     // Durable visibility: exactly one abort, carrying the discarded partial and its cause.
     let events = server.control().events_from(zuihitsu::Seq(0)).unwrap();

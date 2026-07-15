@@ -11,7 +11,7 @@ use axum::{
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use serde::Deserialize;
-use zuihitsu::{ConversationLocator, RosterResync, TurnOutcome};
+use zuihitsu::{ContextEntry, ConversationLocator, PlatformResponse, RosterResync};
 
 use super::{AppState, error::ApiError};
 
@@ -29,10 +29,10 @@ pub(super) struct MessageRequest {
 pub(super) async fn message(
     State(state): State<AppState>,
     Json(request): Json<MessageRequest>,
-) -> Result<Json<TurnOutcome>, ApiError> {
+) -> Result<Json<PlatformResponse>, ApiError> {
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let present: Vec<&str> = request.present.iter().map(String::as_str).collect();
-    let outcome = state
+    let response = state
         .server
         .platform()
         .route_message(
@@ -43,7 +43,7 @@ pub(super) async fn message(
             &present,
         )
         .await?;
-    Ok(Json(outcome))
+    Ok(Json(response))
 }
 
 /// `POST /platform/join` — note a participant arriving mid-session. The model, when configured,
@@ -96,13 +96,33 @@ pub(super) async fn roster(
     Ok(Json(resync))
 }
 
+/// `POST /platform/context` — write context entries to a conversation's context memory directly.
+/// A connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
+/// first contact, posting structured data rather than interpolating untrusted strings into code.
+#[derive(Deserialize)]
+pub(super) struct ContextRequest {
+    locator: ConversationLocator,
+    entries: Vec<ContextEntry>,
+}
+
+pub(super) async fn write_context(
+    State(state): State<AppState>,
+    Json(request): Json<ContextRequest>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .server
+        .platform()
+        .write_context(&request.locator, &request.entries)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// `POST /platform/message/stream` — deliver a turn and watch its generation arrive: the reply (and
 /// reasoning) tokens as `progress` frames while the agent deliberates, then the whole
-/// `TurnOutcome` as the terminal `outcome` frame — the same outcome the unary endpoint returns, so
-/// a connector that ignores every `progress` frame behaves identically to one that never upgraded.
-/// A connector uses this to drive a typing indicator or a partial-message edit; the frames are
-/// ephemeral (never stored), and a turn's failure arrives as a terminal `error` frame with the
-/// failure's message.
+/// `PlatformResponse` as the terminal `outcome` frame — the same response the unary endpoint
+/// returns, so a connector that ignores every `progress` frame behaves identically to one that
+/// never upgraded. A connector uses this to drive a typing indicator or a partial-message edit; the
+/// frames are ephemeral (never stored), and a turn's failure arrives as a terminal `error` frame
+/// with the failure's message.
 pub(super) async fn message_stream(
     State(state): State<AppState>,
     Json(request): Json<MessageRequest>,
@@ -164,8 +184,8 @@ pub(super) async fn message_stream(
                         }
                     }
                     match result {
-                        Ok(Ok(outcome)) => {
-                            if let Ok(json) = serde_json::to_string(&outcome) {
+                        Ok(Ok(response)) => {
+                            if let Ok(json) = serde_json::to_string(&response) {
                                 yield Ok(SseEvent::default().event("outcome").data(json));
                             }
                         }

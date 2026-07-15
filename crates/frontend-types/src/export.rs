@@ -16,7 +16,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     use ts_rs::TS;
 
     use crate::{
-        agent::{BackendHealth, TurnOutcome},
+        agent::{BackendHealth, PlatformResponse, TurnOutcome},
         live::LiveEvent,
         package::{EvalPackage, PackageSummary},
     };
@@ -35,6 +35,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     Namespace::export_all_to(dir).context("exporting Namespace")?;
     NamespacedMemoryName::export_all_to(dir).context("exporting NamespacedMemoryName")?;
     TurnOutcome::export_all_to(dir).context("exporting TurnOutcome")?;
+    PlatformResponse::export_all_to(dir).context("exporting PlatformResponse")?;
     BackendHealth::export_all_to(dir).context("exporting BackendHealth")?;
     TurnProgress::export_all_to(dir).context("exporting TurnProgress")?;
     write_console_constants(dir).context("writing console constants")?;

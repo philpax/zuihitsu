@@ -121,14 +121,14 @@ impl RunContext {
         self.clock.advance_millis(HUMAN_PAUSE_MS);
         let locator = ConversationLocator::new(platform, scope);
         let started = Instant::now();
-        let outcome = self
+        let response = self
             .server
             .platform()
             .route_message(self.model.as_ref(), &locator, sender, text, present)
             .await?;
         self.clock
             .advance_millis(started.elapsed().as_millis() as i64);
-        Ok(outcome)
+        Ok(response.outcome)
     }
 
     /// Drive one operator imprint-interview turn — the `operator/imprint` channel, under operator

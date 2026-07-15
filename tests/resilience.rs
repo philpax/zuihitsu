@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use zuihitsu::{
     Completion, ConversationLocator, FlakyModel, InstanceError, ManualClock, ModelClient,
-    ModelError, ResilienceConfig, RetryingModel, ScriptedModel, SeedSelf, Seq, Server, TurnError,
-    TurnOutcome, TurnRole, event::EventPayload,
+    ModelError, PlatformResponse, ResilienceConfig, RetryingModel, ScriptedModel, SeedSelf, Seq,
+    Server, TurnError, TurnOutcome, TurnRole, event::EventPayload,
 };
 
 use common::time::TEST_NOW;
@@ -52,7 +52,7 @@ async fn route(
     server: &Server,
     model: &dyn ModelClient,
     text: &str,
-) -> Result<TurnOutcome, InstanceError> {
+) -> Result<PlatformResponse, InstanceError> {
     server
         .platform()
         .route_message(model, &locator(), "dave", text, &["dave"])
@@ -82,7 +82,7 @@ async fn an_unreachable_model_defers_the_turn_and_keeps_the_inbound() {
     let outcome = route(&server, &model, "remember the launch moved to friday")
         .await
         .unwrap();
-    assert_eq!(outcome, TurnOutcome::Deferred);
+    assert_eq!(outcome.outcome, TurnOutcome::Deferred);
     assert_eq!(
         flaky.calls(),
         3,
@@ -110,7 +110,7 @@ async fn the_next_successful_turn_covers_the_deferred_inbound() {
     let outcome = route(&server, &dead, "the launch moved to friday")
         .await
         .unwrap();
-    assert_eq!(outcome, TurnOutcome::Deferred);
+    assert_eq!(outcome.outcome, TurnOutcome::Deferred);
 
     // The backend recovers: the next message's turn replays the buffer, which carries the
     // deferred inbound — passive catch-up, one response cycle covering both messages.
@@ -119,7 +119,7 @@ async fn the_next_successful_turn_covers_the_deferred_inbound() {
         .await
         .unwrap();
     assert_eq!(
-        outcome,
+        outcome.outcome,
         TurnOutcome::Reply("Noted — Friday it is.".to_owned())
     );
     assert!(
@@ -170,7 +170,7 @@ async fn an_open_circuit_defers_without_touching_the_backend() {
 
     // The first message's single attempt fails and opens the circuit.
     assert_eq!(
-        route(&server, &model, "first").await.unwrap(),
+        route(&server, &model, "first").await.unwrap().outcome,
         TurnOutcome::Deferred
     );
     assert_eq!(flaky.calls(), 1);
@@ -178,7 +178,7 @@ async fn an_open_circuit_defers_without_touching_the_backend() {
     // While open, the next message still lands (durable inbound, Deferred outcome) but fails fast
     // — the backend sees no call.
     assert_eq!(
-        route(&server, &model, "second").await.unwrap(),
+        route(&server, &model, "second").await.unwrap().outcome,
         TurnOutcome::Deferred
     );
     assert_eq!(

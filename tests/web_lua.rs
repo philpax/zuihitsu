@@ -265,7 +265,10 @@ async fn the_agent_reaches_web_markdown_through_the_whole_server_path() {
         )
         .await
         .unwrap();
-    assert!(matches!(outcome, TurnOutcome::Reply(_)), "{outcome:?}");
+    assert!(
+        matches!(outcome.outcome, TurnOutcome::Reply(_)),
+        "{outcome:?}"
+    );
 
     // The extracted content reached the block and was written to memory.
     let entries = server.control().entries("topic/page").unwrap();

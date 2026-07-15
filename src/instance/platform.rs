@@ -7,20 +7,22 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Carryover, Instance, InstanceError, RoutedTurn};
+use super::{Carryover, ContextEntry, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{
         TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched,
     },
-    event::PromptTemplateName,
+    event::{EventSource, PromptTemplateName, Teller},
+    graph::GraphError,
     ids::{ConversationId, ConversationLocator, MemoryId, Seq},
     memory::{
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
-        memory_block::Authority,
+        memory_block::{AppendOptions, Authority, MemoryBlock, VisibilityChoice},
     },
     model::ModelClient,
     settings::Settings,
 };
+use zuihitsu_frontend_types::PlatformResponse;
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
 /// participants it represents, and cannot reach Control's operator surface.
@@ -56,7 +58,7 @@ impl Platform<'_> {
         sender: &str,
         text: &str,
         present: &[&str],
-    ) -> Result<TurnOutcome, InstanceError> {
+    ) -> Result<PlatformResponse, InstanceError> {
         // Hold a stream permit for this message's whole handling — the turn and any compaction flush
         // it triggers — so no more than `max_concurrent_streams` messages crowd the shared model at
         // once (spec §Concurrency). Released when this scope returns.
@@ -127,7 +129,10 @@ impl Platform<'_> {
         // A deferred turn skips the compaction check entirely: the model just proved unreachable,
         // so the pre-compaction flush could not run anyway, and the buffer gained no agent turn.
         if report.outcome == TurnOutcome::Deferred {
-            return Ok(report.outcome);
+            return Ok(PlatformResponse {
+                outcome: report.outcome,
+                participant_turn_id: report.participant_turn_id.0.to_string(),
+            });
         }
 
         // Token-triggered compaction: if the turn's peak prompt crossed the budget, end the session
@@ -172,7 +177,10 @@ impl Platform<'_> {
                 _ => return Err(error),
             }
         }
-        Ok(report.outcome)
+        Ok(PlatformResponse {
+            outcome: report.outcome,
+            participant_turn_id: report.participant_turn_id.0.to_string(),
+        })
     }
 
     /// Note a participant arriving mid-session — the explicit join path, for clients that deliver
@@ -336,6 +344,76 @@ impl Platform<'_> {
             .count();
 
         Ok(RosterResync { joined, departed })
+    }
+
+    /// Write context entries to a conversation's context memory under platform authority. A
+    /// connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
+    /// first contact, posting structured data rather than interpolating untrusted strings into code.
+    /// The context memory is resolved (or minted) from the locator; each entry is appended as
+    /// `Public` under the agent's teller.
+    pub fn write_context(
+        &self,
+        locator: &ConversationLocator,
+        entries: &[ContextEntry],
+    ) -> Result<(), InstanceError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // Resolve (or mint) the conversation and its context memory — the same path
+        // `route_message` takes. The context memory is minted alongside the conversation; we
+        // materialize the graph so `context_for_conversation` can read it back.
+        let engine = &self.server.engine;
+        let conversation = {
+            let graph = engine.graph.lock();
+            resolve_or_mint_conversation(
+                engine.store.lock().as_mut(),
+                engine.clock.as_ref(),
+                &graph,
+                locator,
+            )?
+        };
+        engine
+            .graph
+            .lock()
+            .materialize_from(engine.store.lock().as_ref())?;
+        let context_memory = engine
+            .graph
+            .lock()
+            .context_for_conversation(conversation)?
+            .ok_or_else(|| {
+                InstanceError::Graph(GraphError::Malformed(
+                    "the context memory was not found after resolving the conversation".to_owned(),
+                ))
+            })?;
+
+        let mut block = MemoryBlock::new(
+            engine.clone(),
+            Teller::Agent,
+            Authority::Platform,
+            Some(conversation),
+            None,
+            Vec::new(),
+            usize::MAX,
+        )?;
+        for entry in entries {
+            let opts = AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            };
+            block
+                .append(context_memory, &entry.text, opts)
+                .map_err(InstanceError::Memory)?;
+        }
+        let now = engine.clock.now();
+        engine
+            .store
+            .lock()
+            .append(now, EventSource::Agent, block.into_effects().events)?;
+        engine
+            .graph
+            .lock()
+            .materialize_from(engine.store.lock().as_ref())?;
+        Ok(())
     }
 
     /// Force the live session in `locator`'s room to end and compact right now, through the exact path

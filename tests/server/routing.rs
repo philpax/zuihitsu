@@ -38,7 +38,7 @@ async fn route_message_opens_a_session_and_runs_a_turn() {
         .route_message(&model, &leads, "dave", "hello there", &["dave"])
         .await
         .unwrap();
-    assert_eq!(outcome, TurnOutcome::Reply("Hi, Dave.".to_owned()));
+    assert_eq!(outcome.outcome, TurnOutcome::Reply("Hi, Dave.".to_owned()));
 
     // First contact minted the room's context and the sender's stub.
     assert!(
@@ -124,7 +124,7 @@ async fn the_stream_limit_caps_concurrent_turns() {
     }
     for task in tasks {
         let outcome = task.await.expect("the turn task joins").expect("turn runs");
-        assert!(matches!(outcome, TurnOutcome::Reply(_)));
+        assert!(matches!(outcome.outcome, TurnOutcome::Reply(_)));
     }
 
     // The semaphore admitted the limit's worth at once, and never more.

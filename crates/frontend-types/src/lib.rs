@@ -18,7 +18,7 @@ pub mod export;
 
 // Re-export the types at the crate root so consumers can import them without reaching into
 // submodules (the types lived at the crate root before the module split).
-pub use agent::{BackendHealth, CircuitState, TurnOutcome};
+pub use agent::{BackendHealth, CircuitState, PlatformResponse, TurnOutcome};
 pub use executor::StepRecord;
 pub use live::LiveEvent;
 pub use package::{

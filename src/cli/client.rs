@@ -10,8 +10,8 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
-    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, ModelCall, Rollout,
-    SeedSelf, SessionView, Settings, TurnOutcome,
+    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, ModelCall,
+    PlatformResponse, Rollout, SeedSelf, SessionView, Settings, TurnOutcome,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -109,7 +109,7 @@ impl Client {
         sender: &str,
         text: &str,
         present: &[String],
-    ) -> Result<TurnOutcome, ClientError> {
+    ) -> Result<PlatformResponse, ClientError> {
         let body = MessageBody {
             locator: ConversationLocator::new(platform, scope),
             sender,

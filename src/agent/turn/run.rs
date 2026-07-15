@@ -50,13 +50,16 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     // Content the agent writes this turn is attributed to the speaker by default (an append opts out
     // with `by_agent` for the agent's own observations — see `mem:append`).
     let teller = Teller::Participant(inbound_participant);
+    // The participant's inbound turn id — generated once, recorded on the `ConversationTurn`, and
+    // returned in the `TurnReport` so a platform client can map its message id to the turn id.
+    let participant_turn_id = TurnId::generate();
     // An inbound participant message is not inference, so it carries no provenance.
     append_turn(
         engine.store.lock().as_mut(),
         engine.clock.as_ref(),
         TurnRecord {
             conversation,
-            turn_id: TurnId::generate(),
+            turn_id: participant_turn_id,
             role: TurnRole::Participant,
             text: inbound.to_owned(),
             participant: Some(inbound_participant),
@@ -205,6 +208,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         steps,
         blocks,
         turn_id,
+        participant_turn_id,
     })
 }
 

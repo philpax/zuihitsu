@@ -114,7 +114,12 @@ async fn a_platform_message_runs_a_turn() {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert_eq!(&bytes[..], br#"{"Reply":"Hi there."}"#);
+    let response: zuihitsu::PlatformResponse = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        response.outcome,
+        zuihitsu::TurnOutcome::Reply("Hi there.".to_owned())
+    );
+    assert!(!response.participant_turn_id.is_empty());
 }
 
 #[tokio::test]

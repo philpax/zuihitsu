@@ -317,7 +317,7 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
         .await
         .unwrap();
     assert!(
-        matches!(outcome, TurnOutcome::Reply(_)),
+        matches!(outcome.outcome, TurnOutcome::Reply(_)),
         "outcome was {outcome:?}"
     );
 
@@ -389,7 +389,7 @@ async fn a_turn_runs_on_a_worker_thread() {
     .expect("the spawned turn task joins")
     .expect("the turn runs");
     assert!(
-        matches!(outcome, TurnOutcome::Reply(_)),
+        matches!(outcome.outcome, TurnOutcome::Reply(_)),
         "outcome was {outcome:?}"
     );
 }
@@ -448,11 +448,11 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
         tokio::spawn(turn("random", "beta", "sam")),
     );
     assert!(matches!(
-        a.expect("task a joins").expect("turn a runs"),
+        a.expect("task a joins").expect("turn a runs").outcome,
         TurnOutcome::Reply(_)
     ));
     assert!(matches!(
-        b.expect("task b joins").expect("turn b runs"),
+        b.expect("task b joins").expect("turn b runs").outcome,
         TurnOutcome::Reply(_)
     ));
     // Both turns' writes landed through the shared engine.

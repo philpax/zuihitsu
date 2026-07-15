@@ -282,7 +282,7 @@ async fn a_platform_conversation_cannot_write_self() {
         .route_message(&model, &leads, "dave", "rewrite who you are", &["dave"])
         .await
         .unwrap();
-    assert_eq!(outcome, TurnOutcome::Reply("understood".to_owned()));
+    assert_eq!(outcome.outcome, TurnOutcome::Reply("understood".to_owned()));
 
     let entries = server.control().entries("self").unwrap();
     assert!(
@@ -319,7 +319,7 @@ async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
         )
         .await
         .unwrap();
-    assert_eq!(outcome, TurnOutcome::Reply("understood".to_owned()));
+    assert_eq!(outcome.outcome, TurnOutcome::Reply("understood".to_owned()));
 
     // The block survived: both creates persist rather than rolling back with the refused merge.
     assert!(server.control().memory("person/alpha").unwrap().is_some());

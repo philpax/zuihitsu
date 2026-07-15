@@ -95,9 +95,9 @@ pub use agent::{
 pub use engine::{Engine, Retrieval};
 pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView, SessionView};
 pub use instance::{
-    Arbitration, CheckpointTrigger, Control, DesignateOutcome, Instance, InstanceError,
-    LuaConsoleOutcome, MergeProposal, ModelCall, RetractOutcome, RosterResync, SelfEditOutcome,
-    SnapshotSchedule, UnmergeOutcome,
+    Arbitration, CheckpointTrigger, ContextEntry, Control, DesignateOutcome, Instance,
+    InstanceError, LuaConsoleOutcome, MergeProposal, ModelCall, RetractOutcome, RosterResync,
+    SelfEditOutcome, SnapshotSchedule, UnmergeOutcome,
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
