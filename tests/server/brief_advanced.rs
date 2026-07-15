@@ -24,7 +24,7 @@ async fn a_describe_backlog_survives_a_restart() {
         MemoryId::generate().0
     ));
     let clock = ManualClock::new(TEST_NOW);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // First process: a turn writes a topic that the pre-brief pass does not describe (it is not in the
     // brief's read set), so it is left stale when the process ends.
@@ -45,7 +45,13 @@ async fn a_describe_backlog_survives_a_restart() {
         ]);
         server
             .platform()
-            .route_message(&model, &leads, "dave", "note this", &["dave"])
+            .route_message(
+                &model,
+                &leads,
+                &PersonId::new(TEST_PLATFORM, "dave"),
+                "note this",
+                &[PersonId::new(TEST_PLATFORM, "dave")],
+            )
             .await
             .unwrap();
         assert!(
@@ -103,7 +109,7 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
     settings.compaction.carryover_char_budget = 4_000;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let seams = 8;
     // Every step reports usage over the budget, so every message forces a re-segment.
     let model = ScriptedModel::with_usage(
@@ -113,7 +119,13 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
     for i in 0..seams {
         server
             .platform()
-            .route_message(&model, &leads, "dave", &format!("message {i}"), &["dave"])
+            .route_message(
+                &model,
+                &leads,
+                &PersonId::new(TEST_PLATFORM, "dave"),
+                &format!("message {i}"),
+                &[PersonId::new(TEST_PLATFORM, "dave")],
+            )
             .await
             .unwrap();
     }
@@ -183,62 +195,52 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
 }
 
 #[tokio::test]
-async fn an_arrival_matching_an_unbound_stub_proposes_a_merge_for_the_operator() {
-    // An agent-authored hearsay stub: `person/nadia` exists (written from conversation) but is bound
-    // to no platform — the operator/agent has never confirmed which platform account it belongs to.
+async fn an_arrival_matching_an_unbound_stub_binds_to_it() {
+    // An agent-authored stub: `person/nadia@chat` exists (written from conversation) but is bound
+    // to no platform key — the agent named the qualified handle before nadia ever spoke.
     let (server, _clock) = born_agent();
     let hearsay = MemoryId::generate();
     server
         .control()
         .seed_events(vec![EventPayload::memory_created(
             hearsay,
-            Namespace::Person.with_name("nadia"),
+            Namespace::Person.with_name("nadia@chat"),
         )])
         .unwrap();
 
-    // Nadia then arrives on Discord. The handle matches the unbound stub, so the arrival mints its own
-    // platform-qualified stub (it is *not* merged onto the hearsay one from a bare handle match), and an
-    // orchestration-sourced merge is proposed to reunite them.
+    // Nadia then arrives on chat. The qualified name matches the unbound stub, so the arrival binds
+    // the platform identity to it — no fresh memory, no merge proposed.
     let model = ScriptedModel::new([Completion::Reply("Hello.".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     server
         .platform()
-        .route_message(&model, &leads, "nadia", "hi there", &["nadia"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "nadia"),
+            "hi there",
+            &[PersonId::new(TEST_PLATFORM, "nadia")],
+        )
         .await
         .unwrap();
 
-    // Both stubs exist and stay distinct: the fresh qualified one and the untouched hearsay one.
-    let arrival = server
+    // Exactly one `person/nadia@chat` memory exists, and it is the pre-existing stub.
+    let bound = server
         .control()
-        .memory("person/nadia@discord")
+        .memory("person/nadia@chat")
         .unwrap()
-        .expect("the arrival minted a platform-qualified stub");
-    assert!(server.control().memory("person/nadia").unwrap().is_some());
+        .expect("the stub still exists");
+    assert_eq!(bound.id, hearsay, "the arrival bound to the existing stub");
 
-    // The log carries the orchestration-sourced proposal reuniting the two.
-    let proposal = server
-        .control()
-        .events()
-        .unwrap()
-        .into_iter()
-        .find_map(|event| match event.payload {
-            EventPayload::MergeProposed {
-                from, to, source, ..
-            } => Some((from, to, source)),
-            _ => None,
-        })
-        .expect("a merge was proposed for the handle match");
-    assert_eq!(
-        proposal,
-        (arrival.id, hearsay, MergeProposalSource::Orchestration)
+    // No merge was proposed — the stub and the arrival are one memory, and nothing awaits the operator.
+    assert!(
+        !server
+            .control()
+            .events()
+            .unwrap()
+            .into_iter()
+            .any(|event| matches!(event.payload, EventPayload::MergeProposed { .. })),
+        "no merge proposal should be created"
     );
-
-    // And it is visible on the operator's merge-proposal surface — unweighed, awaiting the operator —
-    // rather than silently dropped or auto-merged.
-    let surfaced = server.control().merge_proposals().unwrap();
-    assert_eq!(surfaced.len(), 1);
-    assert_eq!(surfaced[0].from.as_str(), "person/nadia@discord");
-    assert_eq!(surfaced[0].to.as_str(), "person/nadia");
-    assert_eq!(surfaced[0].source, MergeProposalSource::Orchestration);
-    assert!(!surfaced[0].refused);
+    assert!(server.control().merge_proposals().unwrap().is_empty());
 }

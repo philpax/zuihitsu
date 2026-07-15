@@ -291,7 +291,7 @@ async fn a_traversing_read_locks_the_whole_class() {
     // Create the two stubs (no content — an agent-authored note about a person would need explicit
     // visibility, and the class lock does not depend on content).
     h.run(r#"memory.create(PERSON_A)"#).await;
-    h.run(r#"memory.create(PERSON_B_AT_DISCORD)"#).await;
+    h.run(r#"memory.create(PERSON_B_AT_CHAT)"#).await;
     // A same_as merge needs operator authority (a platform turn may not merge).
     let operator = BlockContext {
         teller: Teller::Agent,
@@ -308,7 +308,7 @@ async fn a_traversing_read_locks_the_whole_class() {
             &h.engine,
             &operator,
             &common::prepare_script(
-                r#"links.create(memory.get(PERSON_A), "same_as", memory.get(PERSON_B_AT_DISCORD))"#,
+                r#"links.create(memory.get(PERSON_A), "same_as", memory.get(PERSON_B_AT_CHAT))"#,
             ),
         )
         .await
@@ -317,7 +317,7 @@ async fn a_traversing_read_locks_the_whole_class() {
         .engine
         .graph
         .lock()
-        .memory_by_name(Namespace::Person.with_name("b@discord"))
+        .memory_by_name(Namespace::Person.with_name("b@chat"))
         .unwrap()
         .unwrap()
         .id;

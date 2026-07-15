@@ -65,66 +65,19 @@ impl Graph {
     }
 
     /// The plan for minting a fresh [`Namespace::Person`] stub for `(platform, platform_user_id)`:
-    /// the name it receives, and whether the mint should also propose a `same_as` merge (spec
-    /// §Identity →
-    /// cross-platform-explicit). Keying the collision on *identity*, not name, distinguishes three cases
-    /// when the clean `person/<handle>` is already taken:
-    ///
-    /// - **Free** — no memory owns the clean name: the clean name, no proposal.
-    /// - **Bound elsewhere** — the clean name belongs to a memory bound to a *different* platform
-    ///   identity: the platform-qualified `person/<handle>@<platform>` name, no proposal (a genuine
-    ///   cross-platform handle collision, two distinct people kept distinct).
-    /// - **Unbound** — the clean name belongs to a memory no platform identity binds (an agent-authored
-    ///   hearsay stub): the qualified name *and* a proposal to merge the new stub with that memory, so a
-    ///   handle match surfaces a candidate reunion for adjudication without ever asserting identity itself.
+    /// the qualified name `person/<platform_user_id>@<platform>`. The caller
+    /// (`resolve_or_mint_participant`) checks whether the qualified name already exists as a
+    /// memory (an agent-authored hearsay stub) and binds the platform identity to it, or creates a
+    /// fresh memory.
     pub fn participant_mint(
         &self,
         platform: &str,
         platform_user_id: &str,
     ) -> Result<ParticipantMint, GraphError> {
-        let clean = Namespace::Person.with_name(platform_user_id);
-        let Some(existing) = self.memory_by_name(&clean)? else {
-            return Ok(ParticipantMint {
-                name: clean.into(),
-                propose_same_as_with: None,
-            });
-        };
-        let qualified = Namespace::Person
+        let name: MemoryName = Namespace::Person
             .with_name(format!("{platform_user_id}@{platform}"))
             .into();
-        // The unbound hearsay stub is the merge candidate; a stub already bound to a platform identity is
-        // a distinct person who merely shares the handle, and stays distinct.
-        let propose_same_as_with = if self.name_platform_bindings(&clean)?.is_empty() {
-            Some(existing.id)
-        } else {
-            None
-        };
-        Ok(ParticipantMint {
-            name: qualified,
-            propose_same_as_with,
-        })
-    }
-
-    /// The platform identities bound to the live memory that owns `name`, as `(platform,
-    /// platform_user_id)` pairs read from `participant_identities`. Empty when no live memory owns the
-    /// name, or the one that does carries no platform binding (an agent-authored hearsay stub). The mint
-    /// path reads this to tell a genuine cross-platform handle collision — the clean name already bound
-    /// to a *different* platform identity — from an unbound stub that merely shares the handle.
-    pub fn name_platform_bindings(
-        &self,
-        name: impl Into<MemoryName>,
-    ) -> Result<Vec<(String, String)>, GraphError> {
-        let name = name.into();
-        let stmt = self.conn.prepare(
-            "SELECT pi.platform, pi.platform_user_id
-             FROM participant_identities pi
-             JOIN memories m ON m.id = pi.memory
-             WHERE m.name = ?1 AND m.deleted = 0
-             ORDER BY pi.platform, pi.platform_user_id",
-        )?;
-        query_map_into(stmt, params![name.as_str()], |row| {
-            Ok::<_, GraphError>((row.get(0)?, row.get(1)?))
-        })
+        Ok(ParticipantMint { name })
     }
 
     /// The platform user ids seen on a given platform — the bare handles a user can type in the

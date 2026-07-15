@@ -177,7 +177,9 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use zuihitsu::{Completion, FlakyModel, InstanceFeatures, ModelClient, ScriptedModel, Seq};
+    use zuihitsu::{
+        Completion, FlakyModel, InstanceFeatures, ModelClient, ScriptedModel, Seq, TEST_PLATFORM,
+    };
 
     use super::{infra_failed, read_sidecar, resume_state_from_package, take_infra_failed};
     use crate::{
@@ -277,7 +279,7 @@ mod tests {
     }
 
     fn a_turn() -> EvalStep {
-        Turn::new("discord", "team", "dave", "A fact to keep.").into()
+        Turn::new(TEST_PLATFORM, "team", "dave", "A fact to keep.").into()
     }
 
     /// Drive one participant turn against `model` and fold it into a record exactly as the harness

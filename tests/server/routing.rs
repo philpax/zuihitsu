@@ -31,11 +31,17 @@ async fn the_indexer_catches_the_vector_index_up_to_the_log() {
 async fn route_message_opens_a_session_and_runs_a_turn() {
     let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("Hi, Dave.".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     let outcome = server
         .platform()
-        .route_message(&model, &leads, "dave", "hello there", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hello there",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(outcome.outcome, TurnOutcome::Reply("Hi, Dave.".to_owned()));
@@ -44,11 +50,17 @@ async fn route_message_opens_a_session_and_runs_a_turn() {
     assert!(
         server
             .control()
-            .memory("context/discord:leads")
+            .memory("context/chat:leads")
             .unwrap()
             .is_some()
     );
-    assert!(server.control().memory("person/dave").unwrap().is_some());
+    assert!(
+        server
+            .control()
+            .memory("person/dave@chat")
+            .unwrap()
+            .is_some()
+    );
 
     // One session opened, carrying a frozen, non-empty brief.
     let sessions = server.control().sessions(&leads).unwrap();
@@ -114,11 +126,17 @@ async fn the_stream_limit_caps_concurrent_turns() {
         tasks.push(tokio::spawn(async move {
             // A distinct room and sender per turn, so the turns mint disjoint stubs — this test
             // isolates the stream limit, not the same-memory contention the locks (2b) handle.
-            let room = ConversationLocator::new("discord", format!("room-{i}"));
-            let sender = format!("user-{i}");
+            let room = ConversationLocator::new(TEST_PLATFORM, format!("room-{i}"));
+            let sender = PersonId::new(TEST_PLATFORM, format!("user-{i}"));
             server
                 .platform()
-                .route_message(probe.as_ref(), &room, &sender, "ping", &[sender.as_str()])
+                .route_message(
+                    probe.as_ref(),
+                    &room,
+                    &sender,
+                    "ping",
+                    std::slice::from_ref(&sender),
+                )
                 .await
         }));
     }
@@ -155,7 +173,7 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     // yet due when written.
     let plant = ScriptedModel::new([
         run_lua_call(
-            r#"memory.get("person/dave"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/dave@chat"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         Completion::Reply(
@@ -170,10 +188,10 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
         .platform()
         .route_message(
             &plant,
-            &ConversationLocator::new("discord", "leads"),
-            "dave",
+            &ConversationLocator::new(TEST_PLATFORM, "leads"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "remind me about the dentist",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -228,17 +246,29 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
         Completion::Reply("flushed".to_owned()),
         Completion::Reply("three".to_owned()),
     ]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // A second message moments later reuses the same session.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "still here",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
@@ -247,7 +277,13 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back again", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back again",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 2);
@@ -263,17 +299,29 @@ async fn the_idle_sweep_closes_and_flushes_a_stale_session() {
         Completion::Reply("flushed".to_owned()),
         Completion::Reply("back".to_owned()),
     ]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // Open a session with enough turns to flush.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "still here",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
@@ -289,7 +337,13 @@ async fn the_idle_sweep_closes_and_flushes_a_stale_session() {
     // The session is now ended, so the next message opens a fresh one — confirming the close.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 2);
@@ -300,7 +354,7 @@ async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
     let path =
         std::env::temp_dir().join(format!("zuihitsu-resume-{}.sqlite", MemoryId::generate().0));
     let clock = ManualClock::new(TEST_NOW);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("one".to_owned()),
         Completion::Reply("two".to_owned()),
@@ -317,7 +371,13 @@ async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
         server.control().create_agent(&seed()).unwrap();
         server
             .platform()
-            .route_message(&model, &leads, "dave", "hi", &["dave"])
+            .route_message(
+                &model,
+                &leads,
+                &PersonId::new(TEST_PLATFORM, "dave"),
+                "hi",
+                &[PersonId::new(TEST_PLATFORM, "dave")],
+            )
             .await
             .unwrap();
         let sessions = server.control().sessions(&leads).unwrap();
@@ -335,7 +395,13 @@ async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
     server.boot().unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "still here",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     let sessions = server.control().sessions(&leads).unwrap();

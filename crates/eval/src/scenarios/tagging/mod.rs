@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -39,7 +39,7 @@ impl Scenario for Confidential {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dm-marcus",
                 "marcus",
                 "Hey — before we get into it, can we keep this channel just between the two of us? I'd \

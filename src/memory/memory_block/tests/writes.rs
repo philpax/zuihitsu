@@ -537,7 +537,7 @@ fn class_handle_write_lands_on_the_primary_stub() {
     // regardless of the random low bits `MemoryId::generate` mints within one millisecond.
     let mut ids = [MemoryId::generate(), MemoryId::generate()];
     ids.sort();
-    let [primary, discord_stub] = ids;
+    let [primary, chat_stub] = ids;
     let mut store = MemoryStore::new();
     store
         .append(
@@ -554,13 +554,10 @@ fn class_handle_write_lands_on_the_primary_stub() {
                     description: String::new(),
                 },
                 EventPayload::memory_created(primary, Namespace::Person.with_name("quinn")),
-                EventPayload::memory_created(
-                    discord_stub,
-                    Namespace::Person.with_name("quinn@discord"),
-                ),
+                EventPayload::memory_created(chat_stub, Namespace::Person.with_name("quinn@chat")),
                 EventPayload::link_created(
                     primary,
-                    discord_stub,
+                    chat_stub,
                     RelationName::SameAs,
                     LinkSource::Operator,
                     None,
@@ -595,9 +592,9 @@ fn class_handle_write_lands_on_the_primary_stub() {
         .unwrap();
 
     // And it composes across the class: a live read from the other stub surfaces the same fact.
-    let from_discord = block.entries(discord_stub).unwrap();
+    let from_chat = block.entries(chat_stub).unwrap();
     assert!(
-        from_discord
+        from_chat
             .iter()
             .any(|entry| entry.text == "prefers async standups"),
         "the fact should surface for the whole class"
@@ -707,16 +704,16 @@ fn class_handle_write_redirects_to_the_designated_primary() {
 
 #[test]
 fn a_platform_qualified_handle_write_stays_on_its_exact_stub() {
-    // `person/quinn@discord` names one specific platform binding; a fact deliberately scoped to it stays
+    // `person/quinn@chat` names one specific platform binding; a fact deliberately scoped to it stays
     // on that stub even though its class primary (`person/quinn`) is another member — the redirect is for
     // the clean, class-spanning handle only.
-    let (graph, quinn, quinn_discord) = super::graph_with_merged_pair();
+    let (graph, quinn, quinn_chat) = super::graph_with_merged_pair();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
 
     block
         .append(
-            quinn_discord,
+            quinn_chat,
             "logs in from the Berlin office",
             AppendOptions {
                 visibility: Some(VisibilityChoice::Public),
@@ -736,7 +733,7 @@ fn a_platform_qualified_handle_write_stays_on_its_exact_stub() {
         .collect();
     assert_eq!(
         landed_on,
-        vec![quinn_discord],
+        vec![quinn_chat],
         "a platform-qualified handle keeps its write, never widening to the class primary {quinn:?}"
     );
 }

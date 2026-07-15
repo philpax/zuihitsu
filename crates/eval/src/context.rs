@@ -7,8 +7,9 @@ use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
     CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeWebFetcher, Graph,
-    InstanceFeatures, LinkSource, ManualClock, MemoryId, MemoryStore, ModelClient, RelationName,
-    SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome, Visibility,
+    InstanceFeatures, LinkSource, ManualClock, MemoryId, MemoryStore, ModelClient, PersonId,
+    RelationName, SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome,
+    Visibility,
 };
 
 use crate::{error::EvalError, fetch_fixture::FIXTURE_MAX_MARKDOWN_CHARS};
@@ -114,9 +115,9 @@ impl RunContext {
         &self,
         platform: &str,
         scope: &str,
-        sender: &str,
+        sender: &PersonId,
         text: &str,
-        present: &[&str],
+        present: &[PersonId],
     ) -> Result<TurnOutcome, EvalError> {
         self.clock.advance_millis(HUMAN_PAUSE_MS);
         let locator = ConversationLocator::new(platform, scope);

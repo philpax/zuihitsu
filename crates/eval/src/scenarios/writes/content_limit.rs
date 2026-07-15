@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -69,7 +69,7 @@ impl Scenario for OversizedContentRejected {
             // to record what it learned — either summarizing into a sub-limit entry, or having the
             // oversized paste rejected with the teachable error.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "research",
                 "marcus",
                 "I found this article about the Helix Cascade Protocol — a fjord nutrient \
@@ -81,7 +81,7 @@ impl Scenario for OversizedContentRejected {
             .into(),
             // Unrelated chatter so the fetch-and-save turn is not the last thing in the buffer.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "research",
                 "nadia",
                 "Interesting. I've been meaning to read up on fjord ecosystems. Let me know \
@@ -98,7 +98,7 @@ impl Scenario for OversizedContentRejected {
             // Turn 2: Nadia asks what the agent knows about the Helix Cascade Protocol — a recall probe
             // that lands in a fresh session, so the agent must recall from memory rather than the buffer.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "research",
                 "nadia",
                 "What did we learn about the Helix Cascade Protocol from that article?",

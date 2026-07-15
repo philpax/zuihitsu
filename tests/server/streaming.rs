@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 use zuihitsu::{
-    Seq,
+    PersonId, Seq,
     progress::{ProgressKind, TurnProgress},
 };
 
@@ -56,10 +56,10 @@ async fn run_one_turn(server: &Server, model: &dyn ModelClient) {
         .platform()
         .route_message(
             model,
-            &ConversationLocator::new("discord", "general"),
-            "dave",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "hello again",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -157,10 +157,10 @@ async fn a_stream_that_fails_midway_defers_the_turn_like_an_unary_failure() {
         .platform()
         .route_message(
             &DiesMidStream,
-            &ConversationLocator::new("discord", "general"),
-            "dave",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "hello",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -257,10 +257,10 @@ async fn a_mid_stream_failure_restarts_and_records_the_abort() {
         .platform()
         .route_message(
             &model,
-            &ConversationLocator::new("discord", "general"),
-            "dave",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "hello",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();

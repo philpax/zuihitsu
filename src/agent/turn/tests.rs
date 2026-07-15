@@ -10,15 +10,15 @@ use crate::{
     vocabulary::RelationName,
 };
 
-/// A single-participant discord session in which `maya@discord` records one turn — the group-room
+/// A single-participant chat session in which `maya@chat` records one turn — the group-room
 /// moment a later reference points back to. Optionally operator-merges `maya@direct` into the same
 /// `same_as` class, mirroring how the console confirms a cross-platform identity. Returns the
 /// booted engine, the direct stub's id (the requester in a solo DM), and the recorded turn's id.
-fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, TurnId) {
+fn chat_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, TurnId) {
     let conversation = ConversationId::generate();
     let session = SessionId::generate();
     let turn_id = TurnId::generate();
-    let discord = MemoryId::generate();
+    let chat = MemoryId::generate();
     let direct = MemoryId::generate();
 
     let mut events = vec![
@@ -31,12 +31,12 @@ fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, Turn
             reflexive: false,
             description: String::new(),
         },
-        EventPayload::memory_created(discord, Namespace::Person.with_name("maya@discord")),
+        EventPayload::memory_created(chat, Namespace::Person.with_name("maya@chat")),
         EventPayload::memory_created(direct, Namespace::Person.with_name("maya@direct")),
         EventPayload::session_started(
             conversation,
             session,
-            vec![discord],
+            vec![chat],
             Timestamp::from_millis(1_000),
             None,
             "",
@@ -46,7 +46,7 @@ fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, Turn
             turn_id,
             TurnRole::Participant,
             "we're standardizing on Postgres",
-            Some(discord),
+            Some(chat),
             Initiation::Responding,
             None,
         ),
@@ -54,7 +54,7 @@ fn discord_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, Turn
     if merge_direct {
         events.push(EventPayload::link_created(
             direct,
-            discord,
+            chat,
             RelationName::SameAs,
             LinkSource::Operator,
             None,
@@ -103,10 +103,10 @@ fn special_token_markup_is_flagged_and_ordinary_text_is_not() {
 
 #[test]
 fn a_merged_identity_resolves_a_turn_recorded_under_the_other_stub() {
-    // maya's direct stub, operator-merged with her discord stub, is present in a solo DM. She
-    // attended the discord room only under the discord stub, but the merge makes the two one
+    // maya's direct stub, operator-merged with her chat stub, is present in a solo DM. She
+    // attended the chat room only under the chat stub, but the merge makes the two one
     // person, so the audience rule admits her and the moment resolves.
-    let (engine, direct, turn_id) = discord_moment(true);
+    let (engine, direct, turn_id) = chat_moment(true);
     let resolution = resolve_turn(&engine, &[direct], turn_id, 2, 2).unwrap();
     assert!(matches!(resolution, TurnResolution::Resolved(_)));
 }
@@ -115,7 +115,7 @@ fn a_merged_identity_resolves_a_turn_recorded_under_the_other_stub() {
 fn an_unmerged_direct_stub_is_refused_as_a_different_person() {
     // Without the merge, the direct stub is a distinct identity that was never in the room's
     // audience, so the same lookup refuses — the raw-id behavior the class rule falls back to.
-    let (engine, direct, turn_id) = discord_moment(false);
+    let (engine, direct, turn_id) = chat_moment(false);
     let resolution = resolve_turn(&engine, &[direct], turn_id, 2, 2).unwrap();
     assert!(matches!(resolution, TurnResolution::AudienceMismatch));
 }

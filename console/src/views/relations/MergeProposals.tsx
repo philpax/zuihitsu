@@ -101,9 +101,7 @@ export function MergeProposals({
                 <MemoryNameLink name={proposal.to} base={base} seq={cursor} />
                 {proposal.to_primary && <PrimaryBadge pinned={proposal.to_designated} />}
                 <StatusBadge status={proposal.status} />
-                <span className="font-mono text-2xs text-ink-faint">
-                  {proposal.source === "Orchestration" ? "handle match" : "proposed by the agent"}
-                </span>
+                <span className="font-mono text-2xs text-ink-faint">proposed by the agent</span>
               </div>
 
               {proposal.rationale && (

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -43,7 +43,7 @@ impl Scenario for Recall {
         vec![
             // Turn 1: a public, non-person fact recorded in the team room.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "dave",
                 "Team note to keep for everyone: the Friday standup just moved to 10am, and it's now \
@@ -56,7 +56,7 @@ impl Scenario for Recall {
             // Turn 2: a different room, a different participant, an empty buffer — recall is the only
             // path.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "erin",
                 "Hey — do you happen to know when and where the Friday standup is these days?",
@@ -124,7 +124,7 @@ impl Scenario for AdmitsAbsence {
         vec![
             // Session 1: Priya recorded — a real handle, but nothing about her diet.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "New teammate to note: Priya — she's our incoming design lead, starts next week.",
@@ -133,7 +133,7 @@ impl Scenario for AdmitsAbsence {
             EvalStep::Settle,
             // Unrelated chatter — noise before the question, a different room.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "random",
                 "erin",
                 "The office plants are thriving lately, whoever's been watering them — bless you.",
@@ -142,7 +142,7 @@ impl Scenario for AdmitsAbsence {
             EvalStep::Settle,
             // Session 2: an empty buffer, a question whose specific answer was never recorded.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "marcus",
                 "Sorting the offsite dinner — do we have anything on file about Priya's dietary \

@@ -4,7 +4,7 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
     let path =
         std::env::temp_dir().join(format!("zuihitsu-reopen-{}.sqlite", MemoryId::generate().0));
     let clock = ManualClock::new(TEST_NOW);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("one".to_owned()),
         Completion::Reply("two".to_owned()),
@@ -24,12 +24,24 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
         server.control().create_agent(&seed()).unwrap();
         server
             .platform()
-            .route_message(&model, &leads, "dave", "hi", &["dave"])
+            .route_message(
+                &model,
+                &leads,
+                &PersonId::new(TEST_PLATFORM, "dave"),
+                "hi",
+                &[PersonId::new(TEST_PLATFORM, "dave")],
+            )
             .await
             .unwrap();
         server
             .platform()
-            .route_message(&model, &leads, "dave", "still here", &["dave"])
+            .route_message(
+                &model,
+                &leads,
+                &PersonId::new(TEST_PLATFORM, "dave"),
+                "still here",
+                &[PersonId::new(TEST_PLATFORM, "dave")],
+            )
             .await
             .unwrap();
         assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
@@ -46,7 +58,13 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back again", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back again",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -64,24 +82,40 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
 async fn note_join_records_the_arriving_participant_on_the_session() {
     let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // Open a session with Dave present.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
-    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
+    let dave = server
+        .control()
+        .memory("person/dave@chat")
+        .unwrap()
+        .unwrap()
+        .id;
 
     // Erin joins mid-session via the explicit endpoint path — with no model configured, so the
     // join-brief composes off the current prose rather than failing.
     server
         .platform()
-        .note_join(None, &leads, "erin")
+        .note_join(None, &leads, &PersonId::new(TEST_PLATFORM, "erin"))
         .await
         .unwrap();
-    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let erin = server
+        .control()
+        .memory("person/erin@chat")
+        .unwrap()
+        .unwrap()
+        .id;
 
     let sessions = server.control().sessions(&leads).unwrap();
     assert_eq!(sessions.len(), 1);
@@ -108,26 +142,49 @@ async fn note_join_records_the_arriving_participant_on_the_session() {
 async fn a_roster_resync_briefs_in_arrivals_and_leaves_departures_eventless() {
     let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // Open a session with Dave present.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
-    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
+    let dave = server
+        .control()
+        .memory("person/dave@chat")
+        .unwrap()
+        .unwrap()
+        .id;
 
     // A roster resync reports Dave (already a member) and Erin (new): Erin arrives, Dave is
     // unchanged, and nobody has departed.
     let resync = server
         .platform()
-        .note_presence(None, &leads, &["dave", "erin"])
+        .note_presence(
+            None,
+            &leads,
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
+        )
         .await
         .unwrap();
-    assert_eq!(resync.joined, vec!["erin".to_owned()]);
+    assert_eq!(resync.joined, vec![PersonId::new(TEST_PLATFORM, "erin")]);
     assert_eq!(resync.departed, 0);
-    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let erin = server
+        .control()
+        .memory("person/erin@chat")
+        .unwrap()
+        .unwrap()
+        .id;
 
     // Erin was briefed in through the same path as an explicit join: a system join-brief turn about
     // her, and she is now a session member.
@@ -149,7 +206,7 @@ async fn a_roster_resync_briefs_in_arrivals_and_leaves_departures_eventless() {
     let before = server.control().events().unwrap().len();
     let resync = server
         .platform()
-        .note_presence(None, &leads, &["dave"])
+        .note_presence(None, &leads, &[PersonId::new(TEST_PLATFORM, "dave")])
         .await
         .unwrap();
     assert!(resync.joined.is_empty());
@@ -171,30 +228,55 @@ async fn a_roster_resync_briefs_in_arrivals_and_leaves_departures_eventless() {
 async fn a_roster_resync_both_adds_and_removes_in_one_call() {
     let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // Dave opens the session, then Erin joins via a resync.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .note_presence(None, &leads, &["dave", "erin"])
+        .note_presence(
+            None,
+            &leads,
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
+        )
         .await
         .unwrap();
 
     // A single resync in which Erin has left and Frank has arrived: one join, one departure.
     let resync = server
         .platform()
-        .note_presence(None, &leads, &["dave", "frank"])
+        .note_presence(
+            None,
+            &leads,
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "frank"),
+            ],
+        )
         .await
         .unwrap();
-    assert_eq!(resync.joined, vec!["frank".to_owned()]);
+    assert_eq!(resync.joined, vec![PersonId::new(TEST_PLATFORM, "frank")]);
     assert_eq!(resync.departed, 1);
 
-    let frank = server.control().memory("person/frank").unwrap().unwrap().id;
+    let frank = server
+        .control()
+        .memory("person/frank@chat")
+        .unwrap()
+        .unwrap()
+        .id;
     assert!(
         server.control().sessions(&leads).unwrap()[0]
             .participants
@@ -206,11 +288,17 @@ async fn a_roster_resync_both_adds_and_removes_in_one_call() {
 async fn a_roster_resync_does_not_re_brief_existing_members() {
     let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -219,7 +307,7 @@ async fn a_roster_resync_does_not_re_brief_existing_members() {
     let before = server.control().events().unwrap().len();
     let resync = server
         .platform()
-        .note_presence(None, &leads, &["dave"])
+        .note_presence(None, &leads, &[PersonId::new(TEST_PLATFORM, "dave")])
         .await
         .unwrap();
     assert!(resync.joined.is_empty());
@@ -231,11 +319,17 @@ async fn a_roster_resync_does_not_re_brief_existing_members() {
 async fn an_empty_roster_departs_every_member_eventlessly() {
     let (server, _clock) = born_agent();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -256,14 +350,21 @@ async fn an_empty_roster_departs_every_member_eventlessly() {
 #[tokio::test]
 async fn a_roster_resync_on_a_room_with_no_live_session_is_a_no_op() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // No message has opened a session in this room, so there is nothing to resync: an empty result,
     // and no participant is minted or joined.
     let before = server.control().events().unwrap().len();
     let resync = server
         .platform()
-        .note_presence(None, &leads, &["dave", "erin"])
+        .note_presence(
+            None,
+            &leads,
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
+        )
         .await
         .unwrap();
     assert!(resync.joined.is_empty());
@@ -274,7 +375,7 @@ async fn a_roster_resync_on_a_room_with_no_live_session_is_a_no_op() {
 #[tokio::test]
 async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their_turn() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("hi dave".to_owned()),
         Completion::Reply("hi erin".to_owned()),
@@ -284,16 +385,36 @@ async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their
     // /platform/join posted — the message itself is the join signal.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "morning",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "erin", "hey, joining in", &["dave", "erin"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hey, joining in",
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
+        )
         .await
         .unwrap();
 
-    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let erin = server
+        .control()
+        .memory("person/erin@chat")
+        .unwrap()
+        .unwrap()
+        .id;
     let events = server.control().events().unwrap();
 
     // Exactly one join was recorded for the newcomer.
@@ -338,12 +459,17 @@ async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their
         "the join-brief precedes the joiner's inbound turn"
     );
     assert!(
-        brief_text.contains("person/erin"),
+        brief_text.contains("person/erin@chat"),
         "the join-brief reflects the joiner's memory: {brief_text}"
     );
 
     // The join reused the live session, whose participants now include both.
-    let dave = server.control().memory("person/dave").unwrap().unwrap().id;
+    let dave = server
+        .control()
+        .memory("person/dave@chat")
+        .unwrap()
+        .unwrap()
+        .id;
     let sessions = server.control().sessions(&leads).unwrap();
     assert_eq!(sessions.len(), 1, "the join reused the live session");
     assert!(sessions[0].participants.contains(&dave));
@@ -353,7 +479,7 @@ async fn a_newcomers_first_mid_session_message_injects_a_join_brief_before_their
 #[tokio::test]
 async fn a_participant_merely_present_on_a_message_is_joined_too() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("hi dave".to_owned()),
         Completion::Reply("noted".to_owned()),
@@ -361,7 +487,13 @@ async fn a_participant_merely_present_on_a_message_is_joined_too() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "morning",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // Erin never speaks — she only appears in Dave's present list — yet the presence sync joins her.
@@ -370,14 +502,22 @@ async fn a_participant_merely_present_on_a_message_is_joined_too() {
         .route_message(
             &model,
             &leads,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "erin just walked in",
-            &["dave", "erin"],
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
         )
         .await
         .unwrap();
 
-    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let erin = server
+        .control()
+        .memory("person/erin@chat")
+        .unwrap()
+        .unwrap()
+        .id;
     let events = server.control().events().unwrap();
     assert!(
         events.iter().any(|event| matches!(
@@ -393,7 +533,7 @@ async fn a_participant_merely_present_on_a_message_is_joined_too() {
 #[tokio::test]
 async fn repeat_messages_from_the_same_joiner_do_not_re_join() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("hi dave".to_owned()),
         Completion::Reply("hi erin".to_owned()),
@@ -402,21 +542,50 @@ async fn repeat_messages_from_the_same_joiner_do_not_re_join() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "morning",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "erin", "hi", &["dave", "erin"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi",
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "erin", "one more thing", &["dave", "erin"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "one more thing",
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
+        )
         .await
         .unwrap();
 
-    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let erin = server
+        .control()
+        .memory("person/erin@chat")
+        .unwrap()
+        .unwrap()
+        .id;
     let events = server.control().events().unwrap();
     let joins = events
         .iter()
@@ -433,13 +602,13 @@ async fn repeat_messages_from_the_same_joiner_do_not_re_join() {
 #[tokio::test]
 async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     let (server, clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // Turn 1: the agent records a note on Dave's memory and the turn-end synthesis dates it to
     // 2026-07-01 — a calendared item scheduled weeks after the present TEST_NOW.
     let plant = ScriptedModel::new([
         run_lua_call(
-            r#"memory.get("person/dave"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/dave@chat"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         Completion::Reply(
@@ -455,9 +624,9 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
         .route_message(
             &plant,
             &leads,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "remind me about the dentist",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -474,7 +643,13 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     let drained = ScriptedModel::new([Completion::Reply("sure".to_owned())]);
     server
         .platform()
-        .route_message(&drained, &leads, "dave", "what's up", &["dave"])
+        .route_message(
+            &drained,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "what's up",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert!(
@@ -492,7 +667,13 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     let quiet = ScriptedModel::new([Completion::Reply("ok".to_owned())]);
     server
         .platform()
-        .route_message(&quiet, &leads, "dave", "still here", &["dave"])
+        .route_message(
+            &quiet,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "still here",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert!(
@@ -513,7 +694,7 @@ async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
     settings.compaction.token_budget = 100;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // Turn 1 reports usage over the budget; turn 2 is well under. Both arrive within the idle gap, so
     // only the token trigger — not idle — can force a second session.
     let model = ScriptedModel::with_usage([
@@ -523,14 +704,26 @@ async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "still here", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "still here",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     let sessions = server.control().sessions(&leads).unwrap();
@@ -544,7 +737,7 @@ async fn a_token_budget_crossing_forces_a_re_segment_within_the_idle_gap() {
 #[tokio::test]
 async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("first reply".to_owned()),
         Completion::Reply("second reply".to_owned()),
@@ -552,12 +745,24 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hello there", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hello there",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "and again", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "and again",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 

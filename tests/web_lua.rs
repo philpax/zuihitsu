@@ -10,9 +10,9 @@ use std::{sync::Arc, time::Duration};
 
 use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ConversationId, ConversationLocator, Engine,
-    FakeWebFetcher, FetchedPage, Graph, InstanceFeatures, ManualClock, MemoryStore, ScriptedModel,
-    SeedSelf, Server, Session, Teller, TerminalCause, ToolCall, TurnId, TurnOutcome, WebClient,
-    WebError,
+    FakeWebFetcher, FetchedPage, Graph, InstanceFeatures, ManualClock, MemoryStore, PersonId,
+    ScriptedModel, SeedSelf, Server, Session, TEST_PLATFORM, Teller, TerminalCause, ToolCall,
+    TurnId, TurnOutcome, WebClient, WebError,
 };
 
 /// The Markdown character cap for these tests — generous enough that the fixture is never truncated.
@@ -258,10 +258,10 @@ async fn the_agent_reaches_web_markdown_through_the_whole_server_path() {
         .platform()
         .route_message(
             &model,
-            &ConversationLocator::new("discord", "general"),
-            "marcus",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "marcus"),
             "save the page",
-            &["marcus"],
+            &[PersonId::new(TEST_PLATFORM, "marcus")],
         )
         .await
         .unwrap();

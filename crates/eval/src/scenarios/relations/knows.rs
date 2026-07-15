@@ -21,7 +21,7 @@ impl Scenario for Knows {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Two people I'd like you to keep track of: Dave and Erin. They've been close friends \

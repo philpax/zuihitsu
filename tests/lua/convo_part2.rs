@@ -10,7 +10,7 @@ async fn convo_turn_two_person_dm_resolves_only_when_both_attended() {
         &mut store,
         &clock,
         &graph,
-        &ConversationLocator::new("discord", "leads"),
+        &ConversationLocator::new(TEST_PLATFORM, "leads"),
     )
     .unwrap();
     let alice = person(&mut store, &clock, "alice");
@@ -79,7 +79,7 @@ async fn convo_turn_unknown_and_malformed_ids_are_distinct_errors() {
         &mut store,
         &clock,
         &Graph::open_in_memory().unwrap(),
-        &ConversationLocator::new("discord", "planning"),
+        &ConversationLocator::new(TEST_PLATFORM, "planning"),
     )
     .unwrap();
 
@@ -128,7 +128,7 @@ async fn convo_turn_window_filters_a_mid_session_join() {
         &mut store,
         &clock,
         &Graph::open_in_memory().unwrap(),
-        &ConversationLocator::new("discord", "leads"),
+        &ConversationLocator::new(TEST_PLATFORM, "leads"),
     )
     .unwrap();
     let maya = person(&mut store, &clock, "maya");

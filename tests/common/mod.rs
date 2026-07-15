@@ -17,7 +17,7 @@ use zuihitsu::{MemoryName, Namespace};
 /// prefix and a renamed prefix is a single edit. A literal handle left in a script has no token to
 /// match, so it passes through untouched and conversion can proceed file by file.
 pub fn prepare_script(script: &str) -> String {
-    // Longest token first, so `PERSON_DAVE_DISCORD` is consumed before `PERSON_DAVE` can corrupt it.
+    // Longest token first, so `PERSON_DAVE_CHAT` is consumed before `PERSON_DAVE` can corrupt it.
     let mut entries: Vec<(&str, MemoryName)> = STANDARD_HANDLES
         .iter()
         .map(|(token, namespace, subject)| {
@@ -39,20 +39,20 @@ pub fn prepare_script(script: &str) -> String {
 const STANDARD_HANDLES: &[(&str, Namespace, &str)] = &[
     ("PERSON_A", Namespace::Person, "a"),
     ("PERSON_ALPHA", Namespace::Person, "alpha"),
-    ("PERSON_B_AT_DISCORD", Namespace::Person, "b@discord"),
+    ("PERSON_B_AT_CHAT", Namespace::Person, "b@chat"),
     ("PERSON_BETA", Namespace::Person, "beta"),
     ("PERSON_DAVE", Namespace::Person, "dave"),
-    ("PERSON_DAVE_DISCORD", Namespace::Person, "dave-discord"),
-    ("PERSON_DAVE_AT_DISCORD", Namespace::Person, "dave@discord"),
-    ("PERSON_DAVE_SLACK", Namespace::Person, "dave-slack"),
-    ("PERSON_DAVE_AT_SLACK", Namespace::Person, "dave@slack"),
+    ("PERSON_DAVE_AT_CHAT", Namespace::Person, "dave@chat"),
+    ("PERSON_DAVE_AT_FORUM", Namespace::Person, "dave@forum"),
+    ("PERSON_DAVE_CHAT", Namespace::Person, "dave-chat"),
+    ("PERSON_DAVE_FORUM", Namespace::Person, "dave-forum"),
     ("PERSON_ERIN", Namespace::Person, "erin"),
     ("PERSON_FRANK", Namespace::Person, "frank"),
     ("PERSON_MARCUS", Namespace::Person, "marcus"),
     ("PERSON_NOBODY", Namespace::Person, "nobody"),
     ("PERSON_OPERATOR", Namespace::Person, "operator"),
-    ("PERSON_SAM_DISCORD", Namespace::Person, "sam-discord"),
-    ("PERSON_SAM_SLACK", Namespace::Person, "sam-slack"),
+    ("PERSON_SAM_CHAT", Namespace::Person, "sam-chat"),
+    ("PERSON_SAM_FORUM", Namespace::Person, "sam-forum"),
     ("PERSON_SARAH", Namespace::Person, "sarah"),
     ("PLACE_SYDNEY", Namespace::Place, "sydney"),
     ("EVENT_ALL_HANDS", Namespace::Event, "all-hands"),
@@ -76,7 +76,7 @@ const STANDARD_HANDLES: &[(&str, Namespace, &str)] = &[
     ("TOPIC_SENSITIVE", Namespace::Topic, "sensitive"),
     ("TOPIC_SHARED", Namespace::Topic, "shared"),
     ("TOPIC_SOURDOUGH", Namespace::Topic, "sourdough"),
-    ("CONTEXT_DISCORD_LEADS", Namespace::Context, "discord:leads"),
+    ("CONTEXT_CHAT_LEADS", Namespace::Context, "chat:leads"),
 ];
 
 mod harness {

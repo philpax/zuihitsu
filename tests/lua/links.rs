@@ -259,7 +259,7 @@ async fn link_readers_traverse_the_merged_identity() {
     // A two-stub Dave identity, plus the people and the company it links to.
     for name in [
         MemoryName::from(Namespace::Person.with_name("dave")).as_str(),
-        MemoryName::from(Namespace::Person.with_name("dave@discord")).as_str(),
+        MemoryName::from(Namespace::Person.with_name("dave@chat")).as_str(),
         MemoryName::from(Namespace::Person.with_name("erin")).as_str(),
         MemoryName::from(Namespace::Person.with_name("frank")).as_str(),
         "company/hooli",
@@ -283,7 +283,7 @@ async fn link_readers_traverse_the_merged_identity() {
             &h.engine,
             &operator,
             &common::prepare_script(
-                r#"links.create(memory.get(PERSON_DAVE), "same_as", memory.get(PERSON_DAVE_AT_DISCORD))"#,
+                r#"links.create(memory.get(PERSON_DAVE), "same_as", memory.get(PERSON_DAVE_AT_CHAT))"#,
             ),
         )
         .await
@@ -293,10 +293,12 @@ async fn link_readers_traverse_the_merged_identity() {
     // works at Hooli — so a class-blind read of the primary stub would miss two of the three.
     h.run(r#"links.create(memory.get(PERSON_DAVE), "mentor_of", memory.get(PERSON_ERIN), { visibility = "public" })"#)
         .await;
-    h.run(r#"links.create(memory.get(PERSON_FRANK), "mentor_of", memory.get(PERSON_DAVE_AT_DISCORD), { visibility = "public" })"#)
+    h.run(r#"links.create(memory.get(PERSON_FRANK), "mentor_of", memory.get(PERSON_DAVE_AT_CHAT), { visibility = "public" })"#)
         .await;
-    h.run(r#"links.create(memory.get(PERSON_DAVE_AT_DISCORD), "works_at", memory.get("company/hooli"))"#)
-        .await;
+    h.run(
+        r#"links.create(memory.get(PERSON_DAVE_AT_CHAT), "works_at", memory.get("company/hooli"))"#,
+    )
+    .await;
 
     // outgoing: who Dave mentors — Erin, reached through the merged identity though queried via the
     // primary stub. A single edge, so the list renders as the one readable line.

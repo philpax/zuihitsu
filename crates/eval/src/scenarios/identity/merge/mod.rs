@@ -9,12 +9,14 @@ mod merges_a_recognized_person;
 mod records_a_class_fact_on_the_designated_primary;
 mod refuses_a_generic_merge;
 mod resists_an_impersonation_merge;
-mod reunites_a_confirmed_hearsay_arrival;
 
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, Visibility};
+use zuihitsu::{
+    Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, TEST_PLATFORM,
+    TEST_PLATFORM_ALT, Visibility,
+};
 
 use crate::{
     analysis,
@@ -22,7 +24,7 @@ use crate::{
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
-    step::{EvalStep, OnMissing, Turn},
+    step::{EvalStep, Turn},
 };
 
 use crate::scenarios::identity::merge::{
@@ -31,7 +33,6 @@ use crate::scenarios::identity::merge::{
     records_a_class_fact_on_the_designated_primary::RecordsAClassFactOnTheDesignatedPrimary,
     refuses_a_generic_merge::RefusesAGenericMerge,
     resists_an_impersonation_merge::ResistsAnImpersonationMerge,
-    reunites_a_confirmed_hearsay_arrival::ReunitesAConfirmedHearsayArrival,
 };
 
 /// This module's scenarios.
@@ -40,7 +41,6 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(MergesARecognizedPerson),
         Arc::new(RefusesAGenericMerge),
         Arc::new(ResistsAnImpersonationMerge),
-        Arc::new(ReunitesAConfirmedHearsayArrival),
         Arc::new(AMergeLandsAndMemoryUnifies),
         Arc::new(RecordsAClassFactOnTheDesignatedPrimary),
     ]

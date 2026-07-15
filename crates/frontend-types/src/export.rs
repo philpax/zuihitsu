@@ -22,7 +22,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     };
     use zuihitsu_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
     use zuihitsu_core::{
-        ids::{Namespace, NamespacedMemoryName},
+        ids::{Namespace, NamespacedMemoryName, PersonId},
         progress::TurnProgress,
         settings::{
             BriefSettings, CompactionSettings, ConcurrencySettings, ObservabilitySettings,
@@ -35,6 +35,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     LiveEvent::export_all_to(dir).context("exporting LiveEvent")?;
     Namespace::export_all_to(dir).context("exporting Namespace")?;
     NamespacedMemoryName::export_all_to(dir).context("exporting NamespacedMemoryName")?;
+    PersonId::export_all_to(dir).context("exporting PersonId")?;
     TurnOutcome::export_all_to(dir).context("exporting TurnOutcome")?;
     PlatformResponse::export_all_to(dir).context("exporting PlatformResponse")?;
     StreamFrame::export_all_to(dir).context("exporting StreamFrame")?;

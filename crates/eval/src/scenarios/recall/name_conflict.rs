@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use zuihitsu::{
-    EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, Teller, TerminalCause,
-    Timestamp, Visibility,
+    EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, TEST_PLATFORM, Teller,
+    TerminalCause, Timestamp, Visibility,
 };
 
 use crate::{
@@ -61,7 +61,7 @@ impl Scenario for DistinguishesCollidingPeople {
         vec![
             // Session 1: the first Dave — the backend lead.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Someone to keep track of: Dave — he's our backend lead, been here for years.",
@@ -71,7 +71,7 @@ impl Scenario for DistinguishesCollidingPeople {
             // Session 2, a different room and an empty buffer: a second, unrelated Dave. Recording him
             // reaches for the same obvious handle as the first, so the create collides.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "design-crit",
                 "erin",
                 "Adding someone — a different Dave, Dave on the design team who just started this week. \
@@ -81,7 +81,7 @@ impl Scenario for DistinguishesCollidingPeople {
             EvalStep::Settle,
             // Session 3, another empty buffer: a third Dave again distinct from the first two.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "sales-sync",
                 "marcus",
                 "And yet another one to remember: Dave in sales — closed the big account this quarter. \
@@ -92,7 +92,7 @@ impl Scenario for DistinguishesCollidingPeople {
             // A later room with an empty buffer asks the agent to tell the three apart — answering well
             // rests on their being three distinct memories, not one Dave overwritten by the next.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "erin",
                 "We've got three Daves now and I keep mixing them up — who's who again?",
@@ -209,7 +209,7 @@ impl Scenario for RecoversFromASeededCollision {
             // careful agent would check before creating.
             EvalStep::Settle,
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "sales-sync",
                 "marcus",
                 "New face on the sales team starting today — also called Dave, no relation to any \
@@ -221,7 +221,7 @@ impl Scenario for RecoversFromASeededCollision {
             // A later room with an empty buffer reads the roster back — correct only if the new Dave
             // landed as his own memory beside the two seeded ones.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "erin",
                 "How many Daves are we up to now, and who's who?",

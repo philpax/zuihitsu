@@ -27,9 +27,9 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
     register_adjudication_template(&h);
     h.run(
         r#"
-        local a = memory.create(PERSON_DAVE_SLACK)
+        local a = memory.create(PERSON_DAVE_FORUM)
         a:append("Off sick the first week of March", { visibility = "private" })
-        local b = memory.create(PERSON_DAVE_DISCORD)
+        local b = memory.create(PERSON_DAVE_CHAT)
         b:append("Out sick the week of March 3rd", { visibility = "private" })
         a:propose_merge(b)
         return "ok"
@@ -45,11 +45,11 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
 
     let graph = h.engine.graph.lock();
     let a = graph
-        .memory_by_name(Namespace::Person.with_name("dave-slack"))
+        .memory_by_name(Namespace::Person.with_name("dave-forum"))
         .unwrap()
         .unwrap();
     let b = graph
-        .memory_by_name(Namespace::Person.with_name("dave-discord"))
+        .memory_by_name(Namespace::Person.with_name("dave-chat"))
         .unwrap()
         .unwrap();
     let members = graph.class_members(a.id).unwrap();
@@ -67,9 +67,9 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
     register_adjudication_template(&h);
     h.run(
         r#"
-        local a = memory.create(PERSON_SAM_SLACK)
+        local a = memory.create(PERSON_SAM_FORUM)
         a:append("Is an engineer", { visibility = "public" })
-        local b = memory.create(PERSON_SAM_DISCORD)
+        local b = memory.create(PERSON_SAM_CHAT)
         b:append("Works in engineering", { visibility = "public" })
         a:propose_merge(b)
         return "ok"
@@ -85,11 +85,11 @@ async fn a_refused_merge_leaves_the_stubs_distinct() {
 
     let graph = h.engine.graph.lock();
     let a = graph
-        .memory_by_name(Namespace::Person.with_name("sam-slack"))
+        .memory_by_name(Namespace::Person.with_name("sam-forum"))
         .unwrap()
         .unwrap();
     let b = graph
-        .memory_by_name(Namespace::Person.with_name("sam-discord"))
+        .memory_by_name(Namespace::Person.with_name("sam-chat"))
         .unwrap()
         .unwrap();
     assert!(
@@ -120,9 +120,9 @@ async fn an_empty_stub_leaves_the_proposal_pending_for_the_operator() {
     register_adjudication_template(&h);
     h.run(
         r#"
-        local a = memory.create(PERSON_SAM_SLACK)
+        local a = memory.create(PERSON_SAM_FORUM)
         a:append("Is an engineer", { visibility = "public" })
-        local b = memory.create(PERSON_SAM_DISCORD)
+        local b = memory.create(PERSON_SAM_CHAT)
         a:propose_merge(b)
         return "ok"
         "#,
@@ -137,11 +137,11 @@ async fn an_empty_stub_leaves_the_proposal_pending_for_the_operator() {
 
     let graph = h.engine.graph.lock();
     let a = graph
-        .memory_by_name(Namespace::Person.with_name("sam-slack"))
+        .memory_by_name(Namespace::Person.with_name("sam-forum"))
         .unwrap()
         .unwrap();
     let b = graph
-        .memory_by_name(Namespace::Person.with_name("sam-discord"))
+        .memory_by_name(Namespace::Person.with_name("sam-chat"))
         .unwrap()
         .unwrap();
     assert!(
@@ -170,9 +170,9 @@ async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
     register_adjudication_template(&h);
     h.run(
         r#"
-        local a = memory.create(PERSON_DAVE_SLACK)
+        local a = memory.create(PERSON_DAVE_FORUM)
         a:append("At the Reykjavik conference in June", { visibility = "public" })
-        local b = memory.create(PERSON_DAVE_DISCORD)
+        local b = memory.create(PERSON_DAVE_CHAT)
         b:append("Was on a research trip to Iceland", { visibility = "public" })
         a:propose_merge(b, { rationale = "Both mention the same volcanology trip and the same wedding." })
         return "ok"

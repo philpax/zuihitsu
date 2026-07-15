@@ -31,7 +31,7 @@ fn merged_server() -> (Instance, MemoryId, MemoryId) {
         .control()
         .seed_events(vec![
             EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
-            EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
+            EventPayload::memory_created(b, Namespace::Person.with_name("marcus@chat")),
             EventPayload::link_created(
                 a,
                 b,

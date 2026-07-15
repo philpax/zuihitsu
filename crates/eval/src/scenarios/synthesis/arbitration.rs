@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -45,7 +45,7 @@ impl Scenario for Contradiction {
         vec![
             // Turn 1: establish one public account of where the Q3 offsite is.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "marcus",
                 "For the Q3 planning notes: the team offsite this year is happening in Denver.",
@@ -60,7 +60,7 @@ impl Scenario for Contradiction {
             // public entry the synthesis reconciles. (A recency cue here invites a defensible supersession
             // instead, which would test the wrong thing.)
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "erin",
                 "For the Q3 offsite, I've got it down as Austin on my end — please put Austin in the \

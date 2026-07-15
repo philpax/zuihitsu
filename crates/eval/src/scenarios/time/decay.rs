@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -51,7 +51,7 @@ impl Scenario for AVolatileStatusGoesStale {
             // wording dates it, so a later hedge must come from the staleness marker, not date-reasoning —
             // the agent has to recognize a current role as fast-changing and mark it as it records.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team",
                 "marcus",
                 "One to keep track of: Dave's the lead on the Atlas project — that's the main thing he's \
@@ -65,7 +65,7 @@ impl Scenario for AVolatileStatusGoesStale {
             },
             // A different person asks what Dave is working on, in a fresh room: recall surfaces the aged fact.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "erin",
                 "What's Dave leading these days? I want to loop him in on something.",

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, Namespace};
+use zuihitsu::{Event, Namespace, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -55,7 +55,7 @@ impl Scenario for UpdatesAnExistingEvent {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "marcus",
                 "Let's get the product launch on the calendar — it's set for the 15th of March.",
@@ -65,7 +65,7 @@ impl Scenario for UpdatesAnExistingEvent {
             // A later session, a different room, an empty buffer: the event handle is not in front of the
             // agent, so updating it in place requires finding it first.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "standup",
                 "marcus",
                 "Update on the product launch — it's moved to the 22nd of March now.",
@@ -73,7 +73,7 @@ impl Scenario for UpdatesAnExistingEvent {
             .into(),
             EvalStep::Settle,
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "erin",
                 "Remind me — when's the product launch?",
@@ -138,7 +138,7 @@ impl Scenario for AddsToAnExistingPerson {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Someone to keep track of: Dave — he's a product designer at Hooli.",
@@ -147,7 +147,7 @@ impl Scenario for AddsToAnExistingPerson {
             EvalStep::Settle,
             // A later session, an empty buffer: appending the new fact to Dave requires finding him first.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "standup",
                 "marcus",
                 "Heads up — Dave just got promoted to engineering lead.",
@@ -155,7 +155,7 @@ impl Scenario for AddsToAnExistingPerson {
             .into(),
             EvalStep::Settle,
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "erin",
                 "What's Dave's role these days?",
@@ -227,7 +227,7 @@ impl Scenario for LinksExistingMemories {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Someone to remember: Dave, a product designer at Hooli.",
@@ -236,7 +236,7 @@ impl Scenario for LinksExistingMemories {
             EvalStep::Settle,
             // A separate session for Erin — her handle is recorded with Dave's not in the buffer.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "intros",
                 "marcus",
                 "Another to remember: Erin, a product manager on the platform team.",
@@ -245,7 +245,7 @@ impl Scenario for LinksExistingMemories {
             EvalStep::Settle,
             // A third session asserts the relationship: linking requires retrieving both existing people.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "By the way, Dave and Erin know each other well — they've worked together for years.",
@@ -309,7 +309,7 @@ impl Scenario for DiscoversHandlesByStem {
         vec![
             // Session 1: David recorded.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Someone to keep track of: David — he's our new backend lead, came over from Hooli.",
@@ -318,7 +318,7 @@ impl Scenario for DiscoversHandlesByStem {
             EvalStep::Settle,
             // Unrelated chatter, a different room — noise between the two introductions.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "random",
                 "erin",
                 "Whoever's been restocking the good coffee in the kitchen — you're doing the lord's work.",
@@ -327,7 +327,7 @@ impl Scenario for DiscoversHandlesByStem {
             EvalStep::Settle,
             // Session 2: Davina recorded — a different person, the same stem.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "intros",
                 "marcus",
                 "Another one for the roster: Davina — she's leading the new design-system work.",
@@ -337,7 +337,7 @@ impl Scenario for DiscoversHandlesByStem {
             // Session 3: an empty buffer, neither handle in front of the agent. Answering "the Davs"
             // without naming them rewards enumerating the stem over guessing a single handle.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "marcus",
                 "Quick one — who are all the Davs on the team again? I always get them mixed up.",

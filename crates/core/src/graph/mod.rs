@@ -245,22 +245,13 @@ pub struct OpenSessionView {
     pub seeded: bool,
 }
 
-/// The plan for minting a fresh [`Namespace::Person`] participant stub: the name it receives, and
-/// — when the clean handle is already taken by an existing but platform-unbound memory (an
-/// agent-authored hearsay
-/// stub) — the id of that memory, so the mint path can propose a `same_as` merge between the new
-/// qualified stub and it for the adjudicator or operator to weigh (spec §Identity → cross-platform-explicit).
-/// The name is the clean `person/<handle>` when the handle is free, and the platform-qualified
-/// `person/<handle>@<platform>` when the handle is already taken — whether by a different platform-bound
-/// identity (a true cross-platform collision, kept distinct with no proposal) or by an unbound hearsay
-/// stub (the qualified stub, plus a proposal to reunite them).
+/// The plan for minting a fresh [`Namespace::Person`] participant stub: the qualified name it
+/// receives (`person/<id>@<platform>`). The caller (`resolve_or_mint_participant`) is responsible
+/// for checking whether the name already exists as a memory (an agent-authored hearsay stub) and
+/// binding the platform identity to it, or creating a fresh memory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParticipantMint {
     pub name: MemoryName,
-    /// `Some(existing)` only when the clean handle is taken by a platform-unbound memory — the mint
-    /// proposes a `same_as` merge with `existing`. `None` when the handle was free, or taken by a
-    /// different platform-bound identity (which stays distinct).
-    pub propose_same_as_with: Option<MemoryId>,
 }
 
 /// A failure projecting or querying the graph.

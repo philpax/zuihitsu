@@ -136,8 +136,8 @@ fn platform_authority_same_as_link_routes_to_a_merge_proposal() {
     let dave = block
         .create(Namespace::Person.with_name("dave"), None)
         .unwrap();
-    let dave_discord = block
-        .create(Namespace::Person.with_name("dave@discord"), None)
+    let dave_chat = block
+        .create(Namespace::Person.with_name("dave@chat"), None)
         .unwrap();
 
     // A sibling append rides in the same block; it must survive the same_as handling.
@@ -155,13 +155,13 @@ fn platform_authority_same_as_link_routes_to_a_merge_proposal() {
     // The agent reading `link("same_as", …)` as an identity binding does not crash the block: the
     // create routes to the proposal path, buffering an inert `MergeProposed` (no `same_as`, no rollback).
     block
-        .link(dave, dave_discord, RelationName::SameAs, None)
+        .link(dave, dave_chat, RelationName::SameAs, None)
         .unwrap();
 
     // A retraction, by contrast, stays operator-only — the agent can neither assert nor undo a merge.
     assert!(matches!(
         block
-            .unlink(dave, dave_discord, RelationName::SameAs)
+            .unlink(dave, dave_chat, RelationName::SameAs)
             .unwrap_err(),
         MemoryError::MergeForbidden
     ));
@@ -177,7 +177,7 @@ fn platform_authority_same_as_link_routes_to_a_merge_proposal() {
                 to,
                 source: MergeProposalSource::Agent,
                 rationale: None,
-            } if *from == dave && *to == dave_discord
+            } if *from == dave && *to == dave_chat
         )
     });
     assert!(proposed, "the same_as link routes to a MergeProposed");
@@ -202,11 +202,11 @@ fn operator_authority_may_assert_a_same_as_merge() {
     let dave = block
         .create(Namespace::Person.with_name("dave"), None)
         .unwrap();
-    let dave_discord = block
-        .create(Namespace::Person.with_name("dave@discord"), None)
+    let dave_chat = block
+        .create(Namespace::Person.with_name("dave@chat"), None)
         .unwrap();
 
     block
-        .link(dave, dave_discord, RelationName::SameAs, None)
+        .link(dave, dave_chat, RelationName::SameAs, None)
         .unwrap();
 }

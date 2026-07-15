@@ -10,11 +10,10 @@
 
 use crate::{
     clock::Clock,
-    event::{EventPayload, EventSource, LinkSource, MergeProposalSource, Visibility},
+    event::{EventPayload, EventSource},
     graph::{Graph, GraphError},
-    ids::{ConversationId, ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace},
+    ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace},
     store::{Store, StoreError},
-    vocabulary::RelationName,
 };
 
 /// The provisional name of the [`Namespace::Context`] memory minted for a freshly opened room,
@@ -95,21 +94,10 @@ impl From<GraphError> for IdentityError {
 
 /// Resolve a platform participant to their [`Namespace::Person`] memory, minting one on first
 /// contact. Returns the memory's id (the caller materializes the graph to see a freshly minted
-/// one). A mint appends a
-/// `MemoryCreated` and a `ParticipantIdentified` binding the `(platform, platform_user_id)` key to it.
-///
-/// The name is the clean `person/<platform_user_id>`, so a person is one coherent memory the agent
-/// reads and writes under a single handle — not split between a system stub and a canonical the agent
-/// mints alongside it. The platform-qualified `person/<platform_user_id>@<platform>` form is used only
-/// when that clean name is already taken (spec §Identity → cross-platform-explicit): if it belongs to a
-/// *different* platform-bound identity (the same handle on two platforms), the qualified stub keeps two
-/// distinct people distinct rather than silently merging; if it belongs to a platform-*unbound* memory
-/// (an agent-authored hearsay stub the agent wrote from conversation, never bound to a platform), the
-/// qualified stub is still minted, but a `MergeProposed` (`Orchestration`-sourced) is emitted alongside
-/// it so the adjudicator or operator can reunite the two — a handle match never itself asserts identity
-/// (the impersonation surface). The `(platform, key)` binding lives in `ParticipantIdentified`
-/// regardless of the name, so the name stays free to be the clean one and to be renamed later
-/// (humanizing a raw id) without breaking resolution.
+/// one). A mint appends a `MemoryCreated` and a `ParticipantIdentified` binding the
+/// `(platform, platform_user_id)` key to it, unless the qualified name already exists as a memory
+/// (an agent-authored hearsay stub), in which case only a `ParticipantIdentified` is emitted to
+/// bind the platform identity to the existing stub.
 pub fn resolve_or_mint_participant(
     store: &mut dyn Store,
     clock: &dyn Clock,
@@ -122,53 +110,25 @@ pub fn resolve_or_mint_participant(
         if let Some(id) = graph.participant_for(platform, platform_user_id)? {
             return Ok(id);
         }
-        let id = MemoryId::generate();
         let mint = graph.participant_mint(platform, platform_user_id)?;
-        let name = mint.name;
-        let mut events = vec![
-            EventPayload::memory_created(id, name.clone()),
-            EventPayload::participant_identified(id, platform, platform_user_id),
-        ];
-        if let Some(existing) = mint.propose_same_as_with {
-            if platform == DIRECT_PLATFORM {
-                // The direct interface is the operator's own console, which chooses its sender: a
-                // handle match against an unbound stub is the operator asserting the two are one, not
-                // an unverified external claim. So author the merging `same_as` outright — the
-                // operator-assertion path (spec §Cross-platform identity), reversible by an ordinary
-                // `unlink` — rather than proposing it, giving the agent one coherent memory from the
-                // first turn instead of a blank platform stub shadowing its hearsay.
-                events.push(EventPayload::link_created(
-                    id,
-                    existing,
-                    RelationName::SameAs,
-                    LinkSource::Operator,
-                    // No teller behind it: this is an identity assertion, like the adjudicated merge.
-                    None,
-                    None,
-                    Visibility::Public,
-                ));
+        // If the qualified name already exists as a memory (an agent-authored stub), bind the
+        // platform identity to it. Otherwise, mint a fresh memory.
+        let (id, mut events) = match graph.memory_by_name(&mint.name)? {
+            Some(existing) => {
                 tracing::info!(
-                    %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
-                    "merged a direct-interface arrival with its matching unbound stub",
+                    %platform, %platform_user_id, memory = %existing.id.0,
+                    "bound platform identity to an existing unbound stub",
                 );
-            } else {
-                // On an external platform the handle is the arriving party's unverified claim: propose
-                // reuniting the fresh platform-bound stub with the hearsay one, for the adjudicator or
-                // operator to weigh. Never an auto-merge — the handle match alone is not identity.
-                events.push(EventPayload::merge_proposed(
-                    id,
-                    existing,
-                    MergeProposalSource::Orchestration,
-                    None,
-                ));
-                tracing::info!(
-                    %platform, %platform_user_id, memory = %id.0, existing = %existing.0,
-                    "proposed merging a platform arrival with a matching unbound stub",
-                );
+                (existing.id, Vec::new())
             }
-        }
+            None => {
+                let id = MemoryId::generate();
+                (id, vec![EventPayload::memory_created(id, mint.name.clone())])
+            }
+        };
+        events.push(EventPayload::participant_identified(id, platform, platform_user_id));
         store.append(clock.now(), EventSource::Orchestration, events)?;
-        tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %name.as_str(), "minted participant");
+        tracing::info!(%platform, %platform_user_id, memory = %id.0, name = %mint.name.as_str(), "minted participant");
         Ok(id)
     })()
     .map_err(|e| e.with_context(context))
@@ -219,13 +179,13 @@ mod tests {
     //! first contact and resolving to the same id thereafter (spec §Identity).
     use super::{resolve_or_mint_conversation, resolve_or_mint_participant};
     use crate::{
+        TEST_PLATFORM, TEST_PLATFORM_ALT,
         clock::ManualClock,
-        event::{EventPayload, EventSource, LinkSource, MergeProposalSource},
+        event::{EventPayload, EventSource},
         graph::Graph,
-        ids::{ConversationLocator, DIRECT_PLATFORM, MemoryId, MemoryName, Namespace, Seq},
+        ids::{ConversationLocator, MemoryId, MemoryName, Namespace, Seq},
         store::{MemoryStore, Store},
         time::Timestamp,
-        vocabulary::RelationName,
     };
 
     #[test]
@@ -234,30 +194,33 @@ mod tests {
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let mut graph = Graph::open_in_memory().unwrap();
 
-        // First contact mints a clean handle (no platform suffix) bound to the platform key.
-        let id =
-            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "12345").unwrap();
+        // First contact mints a qualified handle bound to the platform key.
+        let id = resolve_or_mint_participant(&mut store, &clock, &graph, TEST_PLATFORM, "12345")
+            .unwrap();
         graph.materialize_from(&store).unwrap();
         assert_eq!(store.head().unwrap(), Seq(2)); // MemoryCreated + ParticipantIdentified
-        assert_eq!(graph.participant_for("discord", "12345").unwrap(), Some(id));
+        assert_eq!(
+            graph.participant_for(TEST_PLATFORM, "12345").unwrap(),
+            Some(id)
+        );
         assert_eq!(
             graph.memory_by_id(id).unwrap().unwrap().name,
-            Namespace::Person.with_name("12345").into()
+            Namespace::Person.with_name("12345@chat").into()
         );
 
         // Second contact resolves to the same memory and mints nothing.
-        let again =
-            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "12345").unwrap();
+        let again = resolve_or_mint_participant(&mut store, &clock, &graph, TEST_PLATFORM, "12345")
+            .unwrap();
         assert_eq!(again, id);
         assert_eq!(store.head().unwrap(), Seq(2));
 
-        // A different platform user gets its own clean handle.
-        let other =
-            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "67890").unwrap();
-        // The same user_id on another platform collides with the clean name, so it disambiguates by
-        // platform rather than silently merging two distinct people onto one handle.
+        // A different platform user gets its own qualified handle.
+        let other = resolve_or_mint_participant(&mut store, &clock, &graph, TEST_PLATFORM, "67890")
+            .unwrap();
+        // The same user_id on another platform gets a different qualified name, so no collision.
         let elsewhere =
-            resolve_or_mint_participant(&mut store, &clock, &graph, "slack", "12345").unwrap();
+            resolve_or_mint_participant(&mut store, &clock, &graph, TEST_PLATFORM_ALT, "12345")
+                .unwrap();
         graph.materialize_from(&store).unwrap();
         assert_ne!(other, id);
         assert_ne!(elsewhere, id);
@@ -265,21 +228,21 @@ mod tests {
         assert_eq!(store.head().unwrap(), Seq(6)); // two more mints, two events each
         assert_eq!(
             graph.memory_by_id(other).unwrap().unwrap().name,
-            Namespace::Person.with_name("67890").into()
+            Namespace::Person.with_name("67890@chat").into()
         );
         assert_eq!(
             graph.memory_by_id(elsewhere).unwrap().unwrap().name,
-            Namespace::Person.with_name("12345@slack").into()
+            Namespace::Person.with_name("12345@forum").into()
         );
     }
 
     #[test]
-    fn arrival_matching_an_unbound_stub_mints_qualified_and_proposes_a_merge() {
+    fn arrival_matching_an_unbound_stub_binds_to_it() {
         let mut store = MemoryStore::new();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let mut graph = Graph::open_in_memory().unwrap();
 
-        // An agent-authored hearsay stub: `person/nadia` exists but is bound to no platform.
+        // An agent-authored stub: `person/nadia@chat` exists but is bound to no platform.
         let hearsay = MemoryId::generate();
         store
             .append(
@@ -287,101 +250,76 @@ mod tests {
                 EventSource::Agent,
                 vec![EventPayload::memory_created(
                     hearsay,
-                    Namespace::Person.with_name("nadia"),
+                    Namespace::Person.with_name("nadia@chat"),
                 )],
             )
             .unwrap();
         graph.materialize_from(&store).unwrap();
 
-        // Nadia then arrives on a platform: the qualified stub is minted (not merged onto the hearsay
-        // one), and an orchestration-sourced merge is proposed to reunite them for adjudication.
+        // Nadia then arrives on chat: the qualified name matches the unbound stub, so the
+        // platform identity is bound to it — no new memory is created, no merge proposed.
         let arrival =
-            resolve_or_mint_participant(&mut store, &clock, &graph, "discord", "nadia").unwrap();
-        graph.materialize_from(&store).unwrap();
-        assert_ne!(arrival, hearsay);
-        assert_eq!(
-            graph.memory_by_id(arrival).unwrap().unwrap().name,
-            Namespace::Person.with_name("nadia@discord").into()
-        );
-
-        let proposals: Vec<_> = store
-            .read_from(Seq::ZERO)
-            .unwrap()
-            .into_iter()
-            .filter_map(|event| match event.payload {
-                EventPayload::MergeProposed {
-                    from, to, source, ..
-                } => Some((from, to, source)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            proposals,
-            vec![(arrival, hearsay, MergeProposalSource::Orchestration)]
-        );
-    }
-
-    #[test]
-    fn a_direct_arrival_matching_an_unbound_stub_merges_it_outright() {
-        let mut store = MemoryStore::new();
-        let clock = ManualClock::new(Timestamp::from_millis(1_000));
-        let mut graph = Graph::open_in_memory().unwrap();
-
-        // An agent-authored hearsay stub: `person/nadia` exists, bound to no platform.
-        let hearsay = MemoryId::generate();
-        store
-            .append(
-                Timestamp::from_millis(1_000),
-                EventSource::Agent,
-                vec![EventPayload::memory_created(
-                    hearsay,
-                    Namespace::Person.with_name("nadia"),
-                )],
-            )
-            .unwrap();
-        graph.materialize_from(&store).unwrap();
-
-        // Nadia arrives through the operator's own direct interface. Unlike an external platform,
-        // the handle match there is an operator assertion, so the qualified stub is merged into the
-        // hearsay one outright — one class from the first turn, with no proposal left pending.
-        let arrival =
-            resolve_or_mint_participant(&mut store, &clock, &graph, DIRECT_PLATFORM, "nadia")
+            resolve_or_mint_participant(&mut store, &clock, &graph, TEST_PLATFORM, "nadia")
                 .unwrap();
         graph.materialize_from(&store).unwrap();
-        assert_ne!(arrival, hearsay);
-        assert!(
-            graph.class_members(arrival).unwrap().contains(&hearsay),
-            "the direct arrival and the hearsay stub should share one same_as class"
+        assert_eq!(arrival, hearsay, "the arrival binds to the existing stub");
+        assert_eq!(
+            graph.memory_by_id(arrival).unwrap().unwrap().name,
+            Namespace::Person.with_name("nadia@chat").into()
         );
 
-        // The reconciliation is a committed operator-sourced same_as, not a proposal.
-        let mut proposals = 0;
-        let mut same_as = 0;
+        // No merge proposals or same_as links — the stub and the arrival are the same memory.
         for event in store.read_from(Seq::ZERO).unwrap() {
-            match event.payload {
-                EventPayload::MergeProposed { .. } => proposals += 1,
-                EventPayload::LinkCreated {
-                    relation: RelationName::SameAs,
-                    source,
-                    from,
-                    to,
-                    ..
-                } => {
-                    same_as += 1;
-                    assert_eq!(source, LinkSource::Operator);
-                    assert!(
-                        (from == arrival && to == hearsay) || (from == hearsay && to == arrival),
-                        "the same_as must connect the arrival and the hearsay stub"
-                    );
-                }
-                _ => {}
-            }
+            assert!(
+                !matches!(event.payload, EventPayload::MergeProposed { .. }),
+                "no merge proposal should be created"
+            );
+            assert!(
+                !matches!(event.payload, EventPayload::LinkCreated { .. }),
+                "no link should be created"
+            );
         }
-        assert_eq!(
-            proposals, 0,
-            "a direct arrival must not leave a merge proposal"
-        );
-        assert_eq!(same_as, 1, "exactly one same_as should reconcile the pair");
+    }
+
+    #[test]
+    fn a_direct_arrival_matching_an_unbound_stub_binds_to_it() {
+        let mut store = MemoryStore::new();
+        let clock = ManualClock::new(Timestamp::from_millis(1_000));
+        let mut graph = Graph::open_in_memory().unwrap();
+
+        // An agent-authored stub: `person/nadia@direct` exists, bound to no platform.
+        let hearsay = MemoryId::generate();
+        store
+            .append(
+                Timestamp::from_millis(1_000),
+                EventSource::Agent,
+                vec![EventPayload::memory_created(
+                    hearsay,
+                    Namespace::Person.with_name("nadia@direct"),
+                )],
+            )
+            .unwrap();
+        graph.materialize_from(&store).unwrap();
+
+        // Nadia arrives through the operator's own direct interface: the qualified name matches
+        // the unbound stub, so the platform identity binds to it. No merge or link needed —
+        // the stub and the arrival are the same memory.
+        let arrival =
+            resolve_or_mint_participant(&mut store, &clock, &graph, "direct", "nadia").unwrap();
+        graph.materialize_from(&store).unwrap();
+        assert_eq!(arrival, hearsay, "the arrival binds to the existing stub");
+
+        // No merge proposals or same_as links.
+        for event in store.read_from(Seq::ZERO).unwrap() {
+            assert!(
+                !matches!(event.payload, EventPayload::MergeProposed { .. }),
+                "no merge proposal should be created"
+            );
+            assert!(
+                !matches!(event.payload, EventPayload::LinkCreated { .. }),
+                "no link should be created"
+            );
+        }
     }
 
     #[test]
@@ -389,7 +327,7 @@ mod tests {
         let mut store = MemoryStore::new();
         let clock = ManualClock::new(Timestamp::from_millis(1_000));
         let mut graph = Graph::open_in_memory().unwrap();
-        let leads = ConversationLocator::new("discord", "guild/42/chan/leads");
+        let leads = ConversationLocator::new(TEST_PLATFORM, "guild/42/chan/leads");
 
         // First contact opens the room and eagerly mints its context memory.
         let id = resolve_or_mint_conversation(&mut store, &clock, &graph, &leads).unwrap();
@@ -399,7 +337,7 @@ mod tests {
         // The locator resolves to a real, non-person context memory (defaults Public, no subject-guard).
         let context = graph.context_for_conversation(id).unwrap().unwrap();
         let context_name =
-            MemoryName::from(Namespace::Context.with_name("discord:guild/42/chan/leads"));
+            MemoryName::from(Namespace::Context.with_name("chat:guild/42/chan/leads"));
         assert_eq!(
             graph.memory_by_id(context).unwrap().unwrap().name.as_str(),
             context_name.as_str()
@@ -411,7 +349,7 @@ mod tests {
         assert_eq!(store.head().unwrap(), Seq(2));
 
         // A different room is a distinct conversation with its own context.
-        let dms = ConversationLocator::new("discord", "dm/dave");
+        let dms = ConversationLocator::new(TEST_PLATFORM, "dm/dave");
         let other = resolve_or_mint_conversation(&mut store, &clock, &graph, &dms).unwrap();
         assert_ne!(other, id);
         assert_eq!(store.head().unwrap(), Seq(4));

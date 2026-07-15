@@ -26,9 +26,9 @@ impl Scenario for MergesARecognizedPerson {
 
     fn steps(&self) -> Vec<EvalStep> {
         vec![
-            // Discord: Dave mentions a specific, improbable pair of facts.
+            // chat: Dave mentions a specific, improbable pair of facts.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team",
                 "dave",
                 "Morning! I'll be offline next week — flying to Reykjavik for my younger brother's wedding, \
@@ -39,14 +39,14 @@ impl Scenario for MergesARecognizedPerson {
             EvalStep::Advance {
                 millis: 9 * MILLIS_PER_DAY,
             },
-            // Slack: a Dave (a separate stub, person/dave@slack) introduces himself, independently stating
-            // the same specifics — so they are recorded on the slack stub, the only thing the adjudicator
+            // forum: a Dave (a separate stub, person/dave@forum) introduces himself, independently stating
+            // the same specifics — so they are recorded on the forum stub, the only thing the adjudicator
             // weighs (it never sees the conversation, only recorded facts).
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 "general",
                 "dave",
-                "Hi — I'm Dave, we haven't spoken here on Slack before. A bit about me so you know who I \
+                "Hi — I'm Dave, we haven't spoken here on forum before. A bit about me so you know who I \
                  am: I just got back from Reykjavik, where my younger brother got married, and I caught a \
                  volcanology conference while I was there. Good to meet you.",
             )
@@ -55,11 +55,11 @@ impl Scenario for MergesARecognizedPerson {
             // Marcus asks the agent to consider whether the two Daves are the same — the cue to compare what it
             // already holds, not the evidence itself.
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 "general",
                 "marcus",
-                "The Dave you've been talking with here on Slack — is that the same Dave from our \
-                 Discord team? Worth keeping their history together if so.",
+                "The Dave you've been talking with here on forum — is that the same Dave from our \
+                 chat team? Worth keeping their history together if so.",
             )
             .with_present(&["marcus"])
             .into(),

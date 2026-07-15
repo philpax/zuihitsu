@@ -1,55 +1,51 @@
-//! The participant-mint plan keys the clean-vs-qualified name and the merge proposal on *identity*,
-//! not on the name alone (spec §Identity → cross-platform-explicit): a free handle mints the clean
-//! name; a handle already bound to a different platform identity mints the qualified name and stays
-//! distinct; a handle owned by a platform-unbound hearsay stub mints the qualified name and proposes a
-//! merge to reunite the two.
+//! The participant-mint plan always produces a qualified name `person/<id>@<platform>`, so two
+//! participants who share an id across platforms stay distinct from first contact. The mint is
+//! name-only — the caller (`resolve_or_mint_participant`) checks whether the qualified name
+//! already exists as a memory (an agent-authored hearsay stub) and binds the platform identity
+//! to it, or creates a fresh memory.
 
 use super::materialized;
 use crate::{
     event::EventPayload,
-    ids::{MemoryId, Namespace},
+    ids::{MemoryId, Namespace, TEST_PLATFORM, TEST_PLATFORM_ALT},
 };
 
 #[test]
-fn free_handle_mints_the_clean_name_with_no_proposal() {
+fn fresh_handle_mints_the_qualified_name() {
     let (_store, graph) = materialized(vec![]);
-    let mint = graph.participant_mint("discord", "dave").unwrap();
-    assert_eq!(mint.name, Namespace::Person.with_name("dave").into());
-    assert_eq!(mint.propose_same_as_with, None);
+    let mint = graph.participant_mint(TEST_PLATFORM, "dave").unwrap();
+    assert_eq!(mint.name, Namespace::Person.with_name("dave@chat").into());
 }
 
 #[test]
-fn handle_bound_to_another_platform_qualifies_and_stays_distinct() {
-    // `person/dave` is bound to discord's dave — a real platform identity.
+fn handle_bound_to_another_platform_uses_its_own_qualified_name() {
+    // `person/dave@chat` is bound to chat's dave — a real platform identity.
     let dave = MemoryId::generate();
     let (_store, graph) = materialized(vec![
-        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
-        EventPayload::participant_identified(dave, "discord", "dave"),
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave@chat")),
+        EventPayload::participant_identified(dave, TEST_PLATFORM, "dave"),
     ]);
-    // A dave arriving on slack collides on the handle, but the clean name is a *different* bound
-    // identity, so the two stay distinct: qualified name, no proposal.
-    let mint = graph.participant_mint("slack", "dave").unwrap();
-    assert_eq!(mint.name, Namespace::Person.with_name("dave@slack").into());
-    assert_eq!(mint.propose_same_as_with, None);
-    // The name-only view agrees on the qualified name.
+    // A dave arriving on the other platform gets a different qualified name, so no collision at all.
+    let mint = graph.participant_mint(TEST_PLATFORM_ALT, "dave").unwrap();
+    assert_eq!(mint.name, Namespace::Person.with_name("dave@forum").into());
     assert_eq!(
-        graph.participant_name("slack", "dave").unwrap(),
-        Namespace::Person.with_name("dave@slack").into()
+        graph.participant_name(TEST_PLATFORM_ALT, "dave").unwrap(),
+        Namespace::Person.with_name("dave@forum").into()
     );
 }
 
 #[test]
-fn handle_owned_by_an_unbound_stub_qualifies_and_proposes_a_merge() {
-    // `person/eve` exists as an agent-authored hearsay stub — created from conversation, never bound
-    // to any platform.
+fn existing_qualified_stub_returns_the_qualified_name() {
+    // `person/eve@chat` exists as an agent-authored stub — created from conversation, never
+    // bound to any platform identity.
     let eve = MemoryId::generate();
     let (_store, graph) = materialized(vec![EventPayload::memory_created(
         eve,
-        Namespace::Person.with_name("eve"),
+        Namespace::Person.with_name("eve@chat"),
     )]);
-    // Eve then arrives on discord: the qualified stub is minted, and a merge with the hearsay stub is
-    // proposed for adjudication — a handle match surfaces a candidate reunion without asserting identity.
-    let mint = graph.participant_mint("discord", "eve").unwrap();
-    assert_eq!(mint.name, Namespace::Person.with_name("eve@discord").into());
-    assert_eq!(mint.propose_same_as_with, Some(eve));
+    // Eve then arrives on chat: the mint just returns the qualified name. The caller
+    // (`resolve_or_mint_participant`) checks whether it already exists as a memory and
+    // binds the platform identity to the existing stub.
+    let mint = graph.participant_mint(TEST_PLATFORM, "eve").unwrap();
+    assert_eq!(mint.name, Namespace::Person.with_name("eve@chat").into());
 }

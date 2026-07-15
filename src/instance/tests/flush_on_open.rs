@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::{
-    CheckpointTrigger, ConversationLocator, SeedSelf,
+    CheckpointTrigger, ConversationLocator, PersonId, SeedSelf, TEST_PLATFORM,
     clock::ManualClock,
     event::{EventPayload, PromptTemplateName, TurnRole},
     ids::{ConversationId, Seq},
@@ -105,8 +105,8 @@ async fn a_new_conversation_flushes_the_prior_one_before_its_first_turn() {
     let server = born_server(ManualClock::new(Timestamp::from_millis(1_000)));
     tune_checkpoint(&server, 50, 0, true);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     // Call 0: room A's turn. Call 1: room A's flush, driven by room B opening. Call 2: room B's turn.
     let model = ScriptedModel::new([
         Completion::Reply("noted, all three".to_owned()),
@@ -116,7 +116,13 @@ async fn a_new_conversation_flushes_the_prior_one_before_its_first_turn() {
 
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     let a_conversation = conversation_of(&server, &room_a);
@@ -130,7 +136,13 @@ async fn a_new_conversation_flushes_the_prior_one_before_its_first_turn() {
     // is durable before room B's first turn runs.
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "good morning team", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "good morning team",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -173,8 +185,8 @@ async fn reuse_within_the_idle_gap_skips_the_open_sweep() {
     let server = born_server(ManualClock::new(Timestamp::from_millis(1_000)));
     tune_checkpoint(&server, 50, 0, true);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     // Call 0: room A's greeting (below substance). Call 1: room B's substantive turn. Call 2: room A's
     // reused turn. No flush is scripted: if the reuse path swept, room B (now substantive) would flush
     // and the model would be asked for a fourth, unscripted, completion.
@@ -188,12 +200,24 @@ async fn reuse_within_the_idle_gap_skips_the_open_sweep() {
     // nothing).
     server
         .platform()
-        .route_message(&model, &room_a, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", SUBSTANTIVE, &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -201,7 +225,13 @@ async fn reuse_within_the_idle_gap_skips_the_open_sweep() {
     // no open sweep runs — room B is not flushed even though its delta would clear the substance gate.
     server
         .platform()
-        .route_message(&model, &room_a, "dave", "anything new?", &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "anything new?",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -221,8 +251,8 @@ async fn a_thin_delta_is_not_flushed_on_open() {
     let server = born_server(ManualClock::new(Timestamp::from_millis(1_000)));
     tune_checkpoint(&server, 5_000, 0, true);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("noted".to_owned()),
         Completion::Reply("morning".to_owned()),
@@ -232,12 +262,24 @@ async fn a_thin_delta_is_not_flushed_on_open() {
     // finds nothing worth a flush.
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "good morning", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "good morning",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -253,8 +295,8 @@ async fn flush_on_open_disabled_flushes_nothing() {
     // Substance would pass and cooldown is zero, but the open trigger is switched off.
     tune_checkpoint(&server, 50, 0, false);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("noted, all three".to_owned()),
         Completion::Reply("morning".to_owned()),
@@ -262,12 +304,24 @@ async fn flush_on_open_disabled_flushes_nothing() {
 
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "good morning", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "good morning",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -287,7 +341,7 @@ async fn a_post_idle_reopen_flushes_the_conversation_itself_via_the_close_not_th
     settings.compaction.flush_min_turns = 2;
     server.control().set_settings(settings).unwrap();
 
-    let room_a = ConversationLocator::new("discord", "room-a");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
     // Calls 0 and 1: room A's two turns. Call 2: the lapsed session's end-flush (`flush_and_end`).
     // Call 3: the reopened session's turn.
     let model = ScriptedModel::new([
@@ -299,12 +353,24 @@ async fn a_post_idle_reopen_flushes_the_conversation_itself_via_the_close_not_th
 
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_a, "dave", "and one more thing", &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "and one more thing",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -323,7 +389,13 @@ async fn a_post_idle_reopen_flushes_the_conversation_itself_via_the_close_not_th
     );
     server
         .platform()
-        .route_message(&model, &room_a, "dave", "back now", &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back now",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -349,8 +421,8 @@ async fn a_session_open_waives_the_cooldown_a_timer_sweep_would_enforce() {
     // room B's own open does not disturb room A — the two triggers are compared directly below.
     tune_checkpoint(&server, 50, 3_600, false);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     // Call 0: room A's substantive turn. Call 1: room B's greeting (the audience). Call 2: room A's
     // flush, driven only by the session-open trigger below.
     let model = ScriptedModel::new([
@@ -361,12 +433,24 @@ async fn a_session_open_waives_the_cooldown_a_timer_sweep_would_enforce() {
 
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hi there", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi there",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 

@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -63,7 +63,7 @@ impl Scenario for ColdOpenResurfacesRecentThreads {
         vec![
             // A first session: sam works a concrete infrastructure decision the agent should record.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "platform-team",
                 "sam",
                 "Morning — before standup I want to lock the plan for the checkout-service rewrite. \
@@ -73,7 +73,7 @@ impl Scenario for ColdOpenResurfacesRecentThreads {
             .with_present(&["sam"])
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "platform-team",
                 "sam",
                 "Two constraints worth keeping: the cutover has to land before the November freeze, \
@@ -83,7 +83,7 @@ impl Scenario for ColdOpenResurfacesRecentThreads {
             .with_present(&["sam"])
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "platform-team",
                 "sam",
                 "That's the shape of it — just wanted it on the record. I'll send ticket links \
@@ -101,7 +101,7 @@ impl Scenario for ColdOpenResurfacesRecentThreads {
             // sam returns and asks vaguely where the thread landed. With an empty buffer, the re-entry
             // leans on what the cold-open brief re-surfaced.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "platform-team",
                 "sam",
                 "Back — remind me where we landed on the checkout-service work?",

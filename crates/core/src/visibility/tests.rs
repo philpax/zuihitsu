@@ -189,50 +189,50 @@ fn exclude_honours_the_named_party() {
 
 #[test]
 fn exclude_is_class_aware_across_platforms() {
-    // Scenario 5: Exclude({dave@slack}) with dave@slack and dave@discord merged; dave@discord present.
+    // Scenario 5: Exclude({dave@forum}) with dave@forum and dave@chat merged; dave@chat present.
     let project = memory("project/hooli");
     let erin = MemoryId::generate();
-    let dave_slack = MemoryId::generate();
-    let dave_discord = MemoryId::generate();
+    let dave_forum = MemoryId::generate();
+    let dave_chat = MemoryId::generate();
     let merged: HashMap<MemoryId, MemoryId> =
-        [(dave_slack, dave_slack), (dave_discord, dave_slack)].into();
+        [(dave_forum, dave_forum), (dave_chat, dave_forum)].into();
     let class_of = |id| Ok(*merged.get(&id).unwrap_or(&id));
 
     let aside = entry(
         Teller::Participant(erin),
-        Visibility::Exclude(vec![dave_slack]),
+        Visibility::Exclude(vec![dave_forum]),
     );
-    // dave@discord shares dave's class, so the exclude fires.
-    assert!(!visible(&aside, &project, &[erin, dave_discord], &class_of).unwrap());
+    // dave@chat shares dave's class, so the exclude fires.
+    assert!(!visible(&aside, &project, &[erin, dave_chat], &class_of).unwrap());
 }
 
 #[test]
 fn subject_guard_is_class_aware() {
-    // Scenario 6: aside on marcus@slack; marcus@slack and marcus@discord merged; marcus@discord present.
-    let marcus_slack = memory("person/marcus@slack");
-    let marcus_discord = MemoryId::generate();
+    // Scenario 6: aside on marcus@forum; marcus@forum and marcus@chat merged; marcus@chat present.
+    let marcus_forum = memory("person/marcus@forum");
+    let marcus_chat = MemoryId::generate();
     let erin = MemoryId::generate();
     let merged: HashMap<MemoryId, MemoryId> = [
-        (marcus_slack.id, marcus_slack.id),
-        (marcus_discord, marcus_slack.id),
+        (marcus_forum.id, marcus_forum.id),
+        (marcus_chat, marcus_forum.id),
     ]
     .into();
     let class_of = |id| Ok(*merged.get(&id).unwrap_or(&id));
 
     let aside = entry(Teller::Participant(erin), Visibility::PrivateToTeller);
-    // The present discord stub shares Marcus's class, so the subject-guard suppresses the aside.
-    assert!(!visible(&aside, &marcus_slack, &[erin, marcus_discord], &class_of).unwrap());
+    // The present chat stub shares Marcus's class, so the subject-guard suppresses the aside.
+    assert!(!visible(&aside, &marcus_forum, &[erin, marcus_chat], &class_of).unwrap());
 }
 
 #[test]
 fn unmerged_stubs_do_not_suppress() {
     // Scenario 7: two distinct Marcus stubs, unmerged — a different present stub is a different
     // entity, so the subject-guard does not fire (the named cost of operator-only merging).
-    let marcus_slack = memory("person/marcus@slack");
-    let marcus_discord = MemoryId::generate();
+    let marcus_forum = memory("person/marcus@forum");
+    let marcus_chat = MemoryId::generate();
     let erin = MemoryId::generate();
     let aside = entry(Teller::Participant(erin), Visibility::PrivateToTeller);
-    assert!(visible(&aside, &marcus_slack, &[erin, marcus_discord], &identity).unwrap());
+    assert!(visible(&aside, &marcus_forum, &[erin, marcus_chat], &identity).unwrap());
 }
 
 #[test]
@@ -475,23 +475,23 @@ fn link_exclude_hidden_when_target_present() {
 
 #[test]
 fn link_subject_guard_is_class_aware() {
-    // A private link erin → marcus@slack; marcus@slack and marcus@discord merged; marcus@discord present.
-    let (erin, marcus_slack, marcus_discord) = (
+    // A private link erin → marcus@forum; marcus@forum and marcus@chat merged; marcus@chat present.
+    let (erin, marcus_forum, marcus_chat) = (
         MemoryId::generate(),
         MemoryId::generate(),
         MemoryId::generate(),
     );
     let merged: HashMap<MemoryId, MemoryId> =
-        [(marcus_slack, marcus_slack), (marcus_discord, marcus_slack)].into();
+        [(marcus_forum, marcus_forum), (marcus_chat, marcus_forum)].into();
     let class_of = |id| Ok(*merged.get(&id).unwrap_or(&id));
     let link = link_vis(
         erin,
-        marcus_slack,
+        marcus_forum,
         Some(Teller::Participant(erin)),
         Visibility::PrivateToTeller,
     );
-    // The present discord stub shares Marcus's class, so the subject-guard suppresses the link.
-    assert!(!link_visible(&link, false, &[erin, marcus_discord], &class_of).unwrap());
+    // The present chat stub shares Marcus's class, so the subject-guard suppresses the link.
+    assert!(!link_visible(&link, false, &[erin, marcus_chat], &class_of).unwrap());
 }
 
 #[test]

@@ -4,8 +4,8 @@ async fn a_checkpointed_memory_is_retrievable_in_another_room() {
     let (server, _clock) = born_agent();
     tune_checkpoint(&server, 30, 0);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("noted".to_owned()),
         Completion::Reply("hi erin".to_owned()),
@@ -20,12 +20,24 @@ async fn a_checkpointed_memory_is_retrievable_in_another_room() {
     ]);
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hello", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hello",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -50,9 +62,9 @@ async fn a_checkpointed_memory_is_retrievable_in_another_room() {
         .route_message(
             &model,
             &room_b,
-            "erin",
+            &PersonId::new(TEST_PLATFORM, "erin"),
             "what did dave's room decide?",
-            &["erin"],
+            &[PersonId::new(TEST_PLATFORM, "erin")],
         )
         .await
         .unwrap();
@@ -142,8 +154,8 @@ async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
     tune_checkpoint(&server, 30, 0);
     let server = Arc::new(server);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     // Call 2 — the checkpoint flush — parks until released; the message that arrives while it is
     // parked must wait on the conversation's lifecycle lock rather than interleave.
     let model = Arc::new(GatedModel::new(
@@ -157,12 +169,24 @@ async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
     ));
     server
         .platform()
-        .route_message(model.as_ref(), &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            model.as_ref(),
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(model.as_ref(), &room_b, "erin", "hello", &["erin"])
+        .route_message(
+            model.as_ref(),
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hello",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -190,10 +214,10 @@ async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
                 .platform()
                 .route_message(
                     model.as_ref(),
-                    &ConversationLocator::new("discord", "room-a"),
-                    "dave",
+                    &ConversationLocator::new(TEST_PLATFORM, "room-a"),
+                    &PersonId::new(TEST_PLATFORM, "dave"),
                     "one more thing",
-                    &["dave"],
+                    &[PersonId::new(TEST_PLATFORM, "dave")],
                 )
                 .await
         }
@@ -244,7 +268,7 @@ async fn an_arriving_message_waits_for_an_in_flight_checkpoint_flush() {
 #[tokio::test]
 async fn context_current_resolves_during_a_routed_turn() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // The agent appends to the current context. If context.current() returned nil in the routed path
     // (as a real-model run's stray `Context: nil` print suggested), this would error on nil:append
     // and commit nothing.
@@ -254,11 +278,17 @@ async fn context_current_resolves_during_a_routed_turn() {
     ]);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // The context memory received the entry — context.current() resolved through route_message.
-    let entries = server.control().entries("context/discord:leads").unwrap();
+    let entries = server.control().entries("context/chat:leads").unwrap();
     assert!(
         entries
             .iter()
@@ -274,7 +304,7 @@ async fn the_working_set_carries_into_the_next_session_brief() {
     settings.compaction.token_budget = 100;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::with_usage([
         // Turn 1 touches a memory, then crosses the budget (two turns — below the flush gate).
         (
@@ -290,12 +320,24 @@ async fn the_working_set_carries_into_the_next_session_brief() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "let's plan", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "let's plan",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 

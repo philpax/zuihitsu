@@ -309,10 +309,10 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
         .platform()
         .route_message(
             &model,
-            &ConversationLocator::new("discord", "general"),
-            "marcus",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "marcus"),
             "save the page",
-            &["marcus"],
+            &[PersonId::new(TEST_PLATFORM, "marcus")],
         )
         .await
         .unwrap();
@@ -377,10 +377,10 @@ async fn a_turn_runs_on_a_worker_thread() {
                 .platform()
                 .route_message(
                     &model,
-                    &ConversationLocator::new("discord", "general"),
-                    "marcus",
+                    &ConversationLocator::new(TEST_PLATFORM, "general"),
+                    &PersonId::new(TEST_PLATFORM, "marcus"),
                     "save the page",
-                    &["marcus"],
+                    &[PersonId::new(TEST_PLATFORM, "marcus")],
                 )
                 .await
         }
@@ -434,10 +434,10 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
                 .platform()
                 .route_message(
                     &model,
-                    &ConversationLocator::new("discord", room),
-                    sender,
+                    &ConversationLocator::new(TEST_PLATFORM, room),
+                    &PersonId::new(TEST_PLATFORM, sender),
                     "note it",
-                    &[sender],
+                    &[PersonId::new(TEST_PLATFORM, sender)],
                 )
                 .await
         }

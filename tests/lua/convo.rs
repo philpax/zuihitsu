@@ -101,7 +101,7 @@ async fn convo_turn_resolves_within_audience_and_carries_a_ref() {
         &mut store,
         &clock,
         &Graph::open_in_memory().unwrap(),
-        &ConversationLocator::new("discord", "planning"),
+        &ConversationLocator::new(TEST_PLATFORM, "planning"),
     )
     .unwrap();
     let sarah = person(&mut store, &clock, "sarah");
@@ -190,7 +190,7 @@ async fn convo_turn_warns_when_a_newcomer_was_not_in_the_audience() {
         &mut store,
         &clock,
         &Graph::open_in_memory().unwrap(),
-        &ConversationLocator::new("discord", "leads"),
+        &ConversationLocator::new(TEST_PLATFORM, "leads"),
     )
     .unwrap();
     let maya = person(&mut store, &clock, "maya");
@@ -267,7 +267,7 @@ async fn convo_turn_resolves_cross_room_for_a_solo_dm() {
         &mut store,
         &clock,
         &graph,
-        &ConversationLocator::new("discord", "leads"),
+        &ConversationLocator::new(TEST_PLATFORM, "leads"),
     )
     .unwrap();
     let dm = resolve_or_mint_conversation(

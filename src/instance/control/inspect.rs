@@ -19,14 +19,9 @@ impl super::Control<'_> {
         Ok(genesis::status(self.server.engine.store.lock().as_ref())?)
     }
 
-    /// Inspect a live memory by name (e.g. `"self"`).
-    pub fn memory(&self, name: &str) -> Result<Option<MemoryView>, InstanceError> {
-        Ok(self
-            .server
-            .engine
-            .graph
-            .lock()
-            .memory_by_name(MemoryName::new(name))?)
+    /// Inspect a live memory by name (e.g. `"self"`, `"person/dave"`, `"person/dave@discord"`).
+    pub fn memory(&self, name: impl Into<MemoryName>) -> Result<Option<MemoryView>, InstanceError> {
+        Ok(self.server.engine.graph.lock().memory_by_name(name)?)
     }
 
     /// Inspect the live memories in a namespace (e.g. `"person/"`), ordered by name.

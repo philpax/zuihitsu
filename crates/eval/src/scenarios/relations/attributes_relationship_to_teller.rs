@@ -29,7 +29,7 @@ impl Scenario for AttributesRelationshipToTeller {
         vec![
             // Erin relays a relationship — the agent records it, the edge carrying Erin as its teller.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "erin",
                 "Heads up for your notes: Dave's taken Grace under his wing — he's been mentoring her \
@@ -41,7 +41,7 @@ impl Scenario for AttributesRelationshipToTeller {
             // (Erin) is not the asker (Marcus), so attributing it correctly means reading the provenance, not
             // defaulting to whoever is speaking now.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "marcus",
                 "I think someone mentioned Dave's mentoring a junior — who's he mentoring, and who told \

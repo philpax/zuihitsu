@@ -4,7 +4,7 @@
 //! scenario↔log correspondence — it lets a later phase restore the store up to a chosen step's
 //! watermark and re-execute the rest, or render a run's events grouped by the step that produced them.
 
-use zuihitsu::{Event, EventPayload, MemoryId, Seq, TurnRole};
+use zuihitsu::{Event, EventPayload, MemoryId, PersonId, Seq, TurnRole};
 
 use crate::{
     context::RunContext,
@@ -66,8 +66,13 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
     match step {
         EvalStep::Turn(turn) => {
             let text = resolve_text(&turn.text, ctx)?;
-            let present: Vec<&str> = turn.present.iter().map(String::as_str).collect();
-            ctx.turn(&turn.platform, &turn.scope, &turn.sender, &text, &present)
+            let sender = PersonId::new(&turn.platform, &turn.sender);
+            let present: Vec<PersonId> = turn
+                .present
+                .iter()
+                .map(|uid| PersonId::new(&turn.platform, uid))
+                .collect();
+            ctx.turn(&turn.platform, &turn.scope, &sender, &text, &present)
                 .await?;
         }
         EvalStep::Imprint { text } => {
@@ -176,7 +181,8 @@ mod tests {
     use std::sync::Arc;
 
     use zuihitsu::{
-        Completion, EventPayload, InstanceFeatures, MemoryId, MemoryName, ScriptedModel, TurnRole,
+        Completion, EventPayload, InstanceFeatures, MemoryId, MemoryName, ScriptedModel,
+        TEST_PLATFORM, TurnRole,
     };
 
     use super::{execute, head_seq};
@@ -218,8 +224,8 @@ mod tests {
         // The genesis events predate the first step, so they sit below the journal.
         let genesis_head = head_seq(&ctx).expect("a genesis head");
         let steps = vec![
-            Turn::new("discord", "team", "dave", "A first fact to keep.").into(),
-            Turn::new("discord", "team", "erin", "A second, unrelated fact.").into(),
+            Turn::new(TEST_PLATFORM, "team", "dave", "A first fact to keep.").into(),
+            Turn::new(TEST_PLATFORM, "team", "erin", "A second, unrelated fact.").into(),
             EvalStep::Advance { millis: 1_000 },
             EvalStep::SeedEvents(one_memory("person/extra")),
         ];
@@ -302,9 +308,9 @@ mod tests {
         ]))
         .await;
         let steps = vec![
-            Turn::new("discord", "room", "sarah", ANCHOR).into(),
+            Turn::new(TEST_PLATFORM, "room", "sarah", ANCHOR).into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "room",
                 "sarah",
                 StepText::with_turn_ref("Reminder: {turn}", ANCHOR),
@@ -345,7 +351,7 @@ mod tests {
         let ctx = booted(ScriptedModel::new([])).await;
         let steps = vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "room",
                 "sarah",
                 StepText::with_turn_ref("Reminder: {turn}", "a moment never recorded"),

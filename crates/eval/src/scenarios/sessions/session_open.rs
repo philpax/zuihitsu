@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, PromptTemplateName};
+use zuihitsu::{Event, EventPayload, PromptTemplateName, TEST_PLATFORM_ALT};
 
 use crate::{
     analysis,
@@ -81,7 +81,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             // (a ship date on a later Thursday made half the recaps resolve "Thursday" to the wrong
             // week).
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 PLANNING,
                 "nadia",
                 "Kicking off release planning for the 2.4 rollout. Proposal: we branch on Tuesday, \
@@ -91,7 +91,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             .with_present(&["nadia", "priya"])
             .into(),
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 PLANNING,
                 "priya",
                 "Holds if we freeze the config today — doing that now. Two things to pin: I own the \
@@ -100,7 +100,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             .with_present(&["nadia", "priya"])
             .into(),
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 PLANNING,
                 "nadia",
                 "Locked: branch Tuesday, canary Wednesday, ship Thursday the 11th, Priya owns \
@@ -114,7 +114,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             // two rooms; Theo is new and was never in planning. No CheckpointSweep step precedes this:
             // only the session open can have synced the plan.
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 SUPPORT,
                 "theo",
                 "Morning — I'm covering support escalations for the 2.4 launch and I've been out. \
@@ -127,7 +127,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             // flushed facts are described and searchable when room B's recap reads them back.
             EvalStep::Settle,
             Turn::new(
-                "slack",
+                TEST_PLATFORM_ALT,
                 SUPPORT,
                 "nadia",
                 "Theo just joined the support side and needs the rollout plan for 2.4 — can you give \
@@ -155,7 +155,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
         let synced_on_open = flushed && every_session_open;
 
         // Room B's replies are where the cross-room recall shows — the sync the open trigger buys.
-        let room_b = analysis::agent_replies_in(events, "slack", SUPPORT).join("\n");
+        let room_b = analysis::agent_replies_in(events, TEST_PLATFORM_ALT, SUPPORT).join("\n");
         let recall = judge
             .assess(
                 "The reply recaps the release plan from the planning channel — it states that the \

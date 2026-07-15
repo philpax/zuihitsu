@@ -58,14 +58,14 @@ impl Scenario for InfersLinkFromContent {
         let agent_turn = TurnId::generate();
         let now = Timestamp::from_millis(RUN_START_MS);
         let seed = vec![
-            EventPayload::memory_created(context, MemoryName::new("context/discord:team-room")),
+            EventPayload::memory_created(context, MemoryName::new("context/chat:team-room")),
             EventPayload::conversation_started(
                 conversation,
-                ConversationLocator::new("discord", "team-room"),
+                ConversationLocator::new(TEST_PLATFORM, "team-room"),
                 context,
             ),
             EventPayload::memory_created(marcus, MemoryName::new("person/marcus")),
-            EventPayload::participant_identified(marcus, "discord", "marcus"),
+            EventPayload::participant_identified(marcus, TEST_PLATFORM, "marcus"),
             EventPayload::session_started(conversation, session, vec![marcus], now, None, ""),
             EventPayload::conversation_turn(
                 conversation,

@@ -17,7 +17,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use zuihitsu::{
-    EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, Teller, Timestamp, Visibility,
+    EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, TEST_PLATFORM, Teller,
+    Timestamp, Visibility,
 };
 
 use crate::{

@@ -5,7 +5,8 @@
 use std::sync::Arc;
 
 use zuihitsu::{
-    Completion, Event, EventSource, InstanceFeatures, ScriptedModel, Seq, Timestamp, TurnRole,
+    Completion, Event, EventSource, InstanceFeatures, ScriptedModel, Seq, TEST_PLATFORM, Timestamp,
+    TurnRole,
 };
 
 use crate::{
@@ -158,10 +159,10 @@ fn an_in_range_run_resolves() {
 #[test]
 fn the_step_summarizer_clips_a_long_turn() {
     let long = "Quick heads-up so you're in the loop about the release and the owner and the date";
-    let step: EvalStep = Turn::new("discord", "team", "marcus", long).into();
+    let step: EvalStep = Turn::new(TEST_PLATFORM, "team", "marcus", long).into();
     let summary = summarize_step(&step);
     assert!(
-        summary.starts_with("Turn discord/team marcus: \""),
+        summary.starts_with("Turn chat/team marcus: \""),
         "{summary}"
     );
     assert!(summary.contains('…'), "a long turn is clipped: {summary}");
@@ -170,7 +171,7 @@ fn the_step_summarizer_clips_a_long_turn() {
 #[test]
 fn the_step_summarizer_renders_a_turn_ref() {
     let step: EvalStep = Turn::new(
-        "discord",
+        TEST_PLATFORM,
         "team",
         "sarah",
         StepText::with_turn_ref("Reminder: {turn}", "the anchor"),
@@ -334,9 +335,9 @@ async fn recorded_run() -> (Vec<Event>, Vec<StepRecord>) {
 
 fn three_turns() -> Vec<EvalStep> {
     vec![
-        Turn::new("discord", "team", "ana", "A first fact.").into(),
-        Turn::new("discord", "team", "ben", "A second fact.").into(),
-        Turn::new("discord", "team", "cy", "A third fact.").into(),
+        Turn::new(TEST_PLATFORM, "team", "ana", "A first fact.").into(),
+        Turn::new(TEST_PLATFORM, "team", "ben", "A second fact.").into(),
+        Turn::new(TEST_PLATFORM, "team", "cy", "A third fact.").into(),
     ]
 }
 
@@ -453,7 +454,7 @@ async fn a_drift_from_the_current_script_errors_naming_the_first_mismatch() {
 
     // The current script changed step 1's sender — a drift the detector must catch at index 1.
     let mut current = three_turns();
-    current[1] = Turn::new("discord", "team", "OTHER", "A second fact.").into();
+    current[1] = Turn::new(TEST_PLATFORM, "team", "OTHER", "A second fact.").into();
     let error = validate(&record, &current, 2).expect_err("the drift is detected");
     let message = error.to_string();
     assert!(

@@ -35,14 +35,14 @@ impl Scenario for DistinguishesMentorDirection {
             // Dave as a mentor (outgoing), then Dave as a mentee (incoming) — the same relation, opposite
             // directions, for the agent to record as directed links.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Dave's been mentoring Erin and Grace this year — really showing them the ropes.",
             )
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Funny thing is, Dave's got a mentor of his own — Frank's been bringing him along.",
@@ -51,7 +51,7 @@ impl Scenario for DistinguishesMentorDirection {
             EvalStep::Settle,
             // A different room asks the directional question: who Dave mentors — his mentees, not his mentor.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "sam",
                 "Quick one — who's Dave actually mentoring these days? Thinking of pairing someone with \

@@ -2,7 +2,7 @@ use super::*;
 #[tokio::test]
 async fn each_turn_carries_its_own_recorded_time() {
     let (server, clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("morning".to_owned()),
         Completion::Reply("still morning".to_owned()),
@@ -10,14 +10,26 @@ async fn each_turn_carries_its_own_recorded_time() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "first message", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "first message",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // Ten minutes later, within the idle gap, so the same session continues and the buffer replays.
     clock.advance_millis(600 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "second message", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "second message",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -48,7 +60,7 @@ async fn a_substantive_session_flushes_to_memory_before_the_cut() {
     // The default flush gate is four turns; the two exchanges below reach it.
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::with_usage([
         // Two ordinary exchanges build the session to four turns; the second crosses the budget.
         (Completion::Reply("ok one".to_owned()), 10),
@@ -65,12 +77,24 @@ async fn a_substantive_session_flushes_to_memory_before_the_cut() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "morning", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "morning",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "any updates", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "any updates",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // The flush's writes are described off the hot path; drive the catch-up to regenerate them.
@@ -93,7 +117,7 @@ async fn a_low_activity_session_skips_the_flush() {
     settings.compaction.token_budget = 100;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // A single exchange (two turns) crosses the budget — below the four-turn gate. Only the turn's
     // own response is scripted: were the flush to run, it would call the model again and exhaust the
     // queue, erroring. The route succeeding is what proves the flush was skipped.
@@ -102,7 +126,13 @@ async fn a_low_activity_session_skips_the_flush() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "<a huge paste>", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "<a huge paste>",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -132,8 +162,8 @@ async fn a_checkpoint_fires_only_past_the_substance_threshold() {
     let (server, _clock) = born_agent();
     tune_checkpoint(&server, 200, 0);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("ok".to_owned()),
         Completion::Reply("ok".to_owned()),
@@ -143,12 +173,24 @@ async fn a_checkpoint_fires_only_past_the_substance_threshold() {
     ]);
     server
         .platform()
-        .route_message(&model, &room_a, "dave", "hi", &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hello", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hello",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -166,7 +208,13 @@ async fn a_checkpoint_fires_only_past_the_substance_threshold() {
     let long = SUBSTANTIVE.repeat(3);
     server
         .platform()
-        .route_message(&model, &room_a, "dave", &long, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            &long,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -183,8 +231,8 @@ async fn a_checkpoint_waits_out_the_cooldown() {
     let (server, clock) = born_agent();
     tune_checkpoint(&server, 30, 600);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("noted".to_owned()),
         Completion::Reply("ok".to_owned()),
@@ -192,12 +240,24 @@ async fn a_checkpoint_waits_out_the_cooldown() {
     ]);
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
 
@@ -228,8 +288,8 @@ async fn a_checkpoint_requires_a_live_audience() {
     let (server, _clock) = born_agent();
     tune_checkpoint(&server, 30, 0);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("noted".to_owned()),
         Completion::Reply("ok".to_owned()),
@@ -237,7 +297,13 @@ async fn a_checkpoint_requires_a_live_audience() {
     ]);
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -255,7 +321,13 @@ async fn a_checkpoint_requires_a_live_audience() {
     // (room B's own delta stays under the substance threshold).
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -272,8 +344,8 @@ async fn a_checkpoint_flush_leaves_the_session_open_and_rides_the_buffer() {
     let (server, _clock) = born_agent();
     tune_checkpoint(&server, 30, 0);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         Completion::Reply("noted".to_owned()),
         Completion::Reply("ok".to_owned()),
@@ -284,12 +356,24 @@ async fn a_checkpoint_flush_leaves_the_session_open_and_rides_the_buffer() {
     ]);
     server
         .platform()
-        .route_message(&model, &room_a, "dave", SUBSTANTIVE, &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -323,7 +407,13 @@ async fn a_checkpoint_flush_leaves_the_session_open_and_rides_the_buffer() {
 
     server
         .platform()
-        .route_message(&model, &room_a, "dave", "sounds right?", &["dave"])
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "sounds right?",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(server.control().sessions(&room_a).unwrap().len(), 1);
@@ -344,8 +434,8 @@ async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
     let (server, _clock) = born_agent();
     tune_checkpoint(&server, 30, 0);
 
-    let room_a = ConversationLocator::new("discord", "room-a");
-    let room_b = ConversationLocator::new("discord", "room-b");
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
     let model = ScriptedModel::new([
         // Call 0: room A's first exchange, carrying the ALPHA marker.
         Completion::Reply("ok one".to_owned()),
@@ -363,15 +453,21 @@ async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
         .route_message(
             &model,
             &room_a,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "ALPHA: the migration plan is locked, we ship the database cutover on Friday.",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room_b, "erin", "hi", &["erin"])
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -387,9 +483,9 @@ async fn a_second_checkpoint_covers_only_the_delta_past_the_first() {
         .route_message(
             &model,
             &room_a,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "BETA: after the cutover, Erin owns the comms and the fallback window is Monday.",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();

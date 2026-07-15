@@ -106,7 +106,7 @@ pub(super) async fn memory(
     State(state): State<AppState>,
     Query(query): Query<NameQuery>,
 ) -> Result<Json<MemoryView>, ApiError> {
-    match state.server.control().memory(&query.name)? {
+    match state.server.control().memory(query.name.as_str())? {
         Some(view) => Ok(Json(view)),
         None => Err(ApiError::NotFound(format!(
             "no memory named {:?}",

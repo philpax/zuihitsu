@@ -161,7 +161,7 @@ fn symmetric_link_is_order_independent() {
             description: String::new(),
         },
         EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
-        EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
+        EventPayload::memory_created(b, Namespace::Person.with_name("marcus@chat")),
         EventPayload::link_created(
             a,
             b,

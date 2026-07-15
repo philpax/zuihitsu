@@ -11,7 +11,7 @@ async fn append_carries_teller_context_and_default_visibility() {
         &mut store,
         &clock,
         &graph,
-        &ConversationLocator::new("discord", "leads"),
+        &ConversationLocator::new(TEST_PLATFORM, "leads"),
     )
     .unwrap();
     let marcus = MemoryId::generate();
@@ -182,7 +182,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
         &mut store,
         &clock,
         &graph,
-        &ConversationLocator::new("discord", "leads"),
+        &ConversationLocator::new(TEST_PLATFORM, "leads"),
     )
     .unwrap();
     graph.materialize_from(&store).unwrap();

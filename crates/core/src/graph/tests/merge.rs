@@ -23,7 +23,7 @@ fn same_as_merges_stubs_into_one_class() {
             description: String::new(),
         },
         EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
-        EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
+        EventPayload::memory_created(b, Namespace::Person.with_name("marcus@chat")),
         EventPayload::memory_created(c, Namespace::Person.with_name("dave@direct")),
         EventPayload::link_created(
             a,
@@ -78,7 +78,7 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
             description: String::new(),
         },
         EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
-        EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
+        EventPayload::memory_created(b, Namespace::Person.with_name("marcus@chat")),
         EventPayload::memory_created(c, Namespace::Person.with_name("dave@direct")),
         // Appended interleaved across the two Marcus stubs to prove the union is ordered by global
         // commit order (seq), not grouped by stub.

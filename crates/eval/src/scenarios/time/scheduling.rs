@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, Namespace};
+use zuihitsu::{Event, Namespace, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -44,7 +44,7 @@ impl Scenario for RecurringReminder {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Can you remind me about our team standup? It's every Monday.",
@@ -58,7 +58,7 @@ impl Scenario for RecurringReminder {
                 millis: EIGHT_DAYS_MS,
             },
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Morning! Anything on my plate I should know about?",
@@ -139,7 +139,7 @@ impl Scenario for RecurringEmission {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "dave",
                 "Please remember that I have a team standup every Tuesday at 9am.",

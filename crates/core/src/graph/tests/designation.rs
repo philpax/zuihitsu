@@ -150,7 +150,7 @@ fn a_designation_of_a_non_member_leaves_the_class_unchanged() {
     let (_store, graph) = materialized(vec![
         same_as_relation(),
         EventPayload::memory_created(lo, Namespace::Person.with_name("marcus@direct")),
-        EventPayload::memory_created(mid, Namespace::Person.with_name("marcus@discord")),
+        EventPayload::memory_created(mid, Namespace::Person.with_name("marcus@chat")),
         // `hi` is a separate person, never merged into the Marcus class.
         EventPayload::memory_created(hi, Namespace::Person.with_name("dave")),
         merge(lo, mid),

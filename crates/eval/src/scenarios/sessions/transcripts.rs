@@ -19,7 +19,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use zuihitsu::{
     ConversationId, ConversationLocator, Event, EventPayload, Initiation, MemoryId, MemoryName,
-    Namespace, TurnId, TurnRole,
+    Namespace, TEST_PLATFORM, TurnId, TurnRole,
 };
 
 use crate::{
@@ -65,18 +65,18 @@ impl Scenario for TranscriptLink {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             // Turn 1: Sarah records the specific launch decision the later link will point back to.
-            Turn::new("discord", "q3-planning", "sarah", DECISION).into(),
+            Turn::new(TEST_PLATFORM, "q3-planning", "sarah", DECISION).into(),
             // The moment is then buried under later planning chatter, so the link — not the buffer —
             // is the precise pointer back to it.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "q3-planning",
                 "sarah",
                 "Separately, can we get the design review on the calendar for sometime next week?",
             )
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "q3-planning",
                 "sarah",
                 "And I'll chase legal on the contractor paperwork myself.",
@@ -91,7 +91,7 @@ impl Scenario for TranscriptLink {
             // console link normalized to `[turn:<id>]` before a message reaches the agent — the
             // executor resolves it to turn 1's id at execution time.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "q3-planning",
                 "sarah",
                 StepText::with_turn_ref(
@@ -185,10 +185,10 @@ impl Scenario for TranscriptAudienceGate {
             // Session 1: Maya and Tom, alone. Maya states the shareable decision; Tom, as its teller,
             // adds a private confidence of his own — so the later "catch Sam up on what we decided"
             // cannot read as the confidence's teller consenting to share it.
-            Turn::new("discord", "leads", "maya", GATE_DECISION)
+            Turn::new(TEST_PLATFORM, "leads", "maya", GATE_DECISION)
                 .with_present(&["maya", "tom"])
                 .into(),
-            Turn::new("discord", "leads", "tom", GATE_CONFIDENCE)
+            Turn::new(TEST_PLATFORM, "leads", "tom", GATE_CONFIDENCE)
                 .with_present(&["maya", "tom"])
                 .into(),
             // Catch the background describer and vector index up to session 1's writes — the same
@@ -208,7 +208,7 @@ impl Scenario for TranscriptAudienceGate {
             // was absent, so the reference blocks and the agent must reconstruct from memory —
             // surfacing the shareable decision while holding Tom's confidence.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "maya",
                 StepText::with_turn_ref(
@@ -327,7 +327,7 @@ impl Scenario for TranscriptDmLookup {
         // is self-consistent and the DM beats can point at the seeded turn. The room is seeded *open*
         // (a `ConversationStarted` under a fixed locator) so the processed decision beats below reuse
         // that same conversation — which is what lets the referenced turn be seeded, later, into the
-        // very session the agent was part of. The people are seeded with their `discord` bindings, so a
+        // very session the agent was part of. The people are seeded with their `chat` bindings, so a
         // later `route_message` resolves `maya`/`tom`/`jordan` to these exact stubs rather than minting
         // fresh ones, keeping identity continuous across the room and the DMs.
         let maya = MemoryId::generate();
@@ -336,18 +336,18 @@ impl Scenario for TranscriptDmLookup {
         let context_memory = MemoryId::generate();
         let conversation = ConversationId::generate();
         let detail_turn = TurnId::generate();
-        let locator = ConversationLocator::new("discord", "eng-leads");
+        let locator = ConversationLocator::new(TEST_PLATFORM, "eng-leads");
         let context_name: MemoryName = Namespace::Context
             .with_name(format!("{}:{}", locator.platform, locator.scope_path))
             .into();
 
         let room_seed = vec![
             EventPayload::memory_created(maya, MemoryName::new("person/maya")),
-            EventPayload::participant_identified(maya, "discord", "maya"),
+            EventPayload::participant_identified(maya, TEST_PLATFORM, "maya"),
             EventPayload::memory_created(tom, MemoryName::new("person/tom")),
-            EventPayload::participant_identified(tom, "discord", "tom"),
+            EventPayload::participant_identified(tom, TEST_PLATFORM, "tom"),
             EventPayload::memory_created(jordan, MemoryName::new("person/jordan")),
-            EventPayload::participant_identified(jordan, "discord", "jordan"),
+            EventPayload::participant_identified(jordan, TEST_PLATFORM, "jordan"),
             EventPayload::memory_created(context_memory, context_name),
             EventPayload::conversation_started(conversation, locator, context_memory),
         ];
@@ -377,14 +377,14 @@ impl Scenario for TranscriptDmLookup {
             // fodder the pre-turn ambient recall pass will surface at the DM. This is the realistic
             // half of the test: the agent *does* have relevant awareness, and it is still not enough.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng-leads",
                 "tom",
                 "Are we settling the database question before the weekend, or does it slip again?",
             )
             .with_present(&["maya", "tom", "jordan"])
             .into(),
-            Turn::new("discord", "eng-leads", "maya", DECISION_MOMENT)
+            Turn::new(TEST_PLATFORM, "eng-leads", "maya", DECISION_MOMENT)
                 .with_present(&["maya", "tom", "jordan"])
                 .into(),
             // Catch the describer and vector index up to the decision memory (mirroring checkpoint.rs),
@@ -418,11 +418,11 @@ impl Scenario for TranscriptDmLookup {
                 cooldown_seconds: 0,
                 flush_on_open: false,
             },
-            // The DM beats stay on the SAME platform as the source room (`discord`), so `person/maya`
+            // The DM beats stay on the SAME platform as the source room (`chat`), so `person/maya`
             // and `person/tom` are the same stubs that attended the room — identity is continuous, and
             // the audience rule sees the requesters as the very people who were there. Routing the
             // beats through a `direct` platform instead would mint distinct `person/maya@direct` stubs
-            // (a handle collision against the discord-bound identity), turning this into an
+            // (a handle collision against the chat-bound identity), turning this into an
             // identity-merging test rather than the cross-room loosening it means to exercise. The DM
             // scopes are just one- and two-person rooms on that platform.
             //
@@ -433,7 +433,7 @@ impl Scenario for TranscriptDmLookup {
                 millis: MILLIS_PER_HOUR,
             },
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dm/maya",
                 "maya",
                 StepText::with_turn_ref(
@@ -450,7 +450,7 @@ impl Scenario for TranscriptDmLookup {
             // canonical token form and asks for the same mechanics — the freeze window and the tear-down
             // timing — that live only in the referenced turn.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dm/maya+tom",
                 "tom",
                 StepText::with_turn_ref(

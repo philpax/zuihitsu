@@ -175,26 +175,23 @@ impl std::str::FromStr for LinkSource {
 }
 
 /// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec
-/// §Cross-platform identity). `Agent` is the agent's own judgment from a turn (`mem:propose_merge`);
-/// `Orchestration` is the identity-resolution layer flagging that a platform arrival's handle matches
-/// an existing but platform-unbound [`Namespace::Person`] stub (an agent-authored hearsay memory). An
-/// orchestration proposal is never an assertion of identity — only a flag that the two may be one, for
-/// the adjudicator or operator to weigh, so a handle match never itself merges two stubs.
+/// §Cross-platform identity). Every proposal is the agent's own judgment from a turn
+/// (`mem:propose_merge`): a recorded belief that two stubs may be one human, for the adjudicator or
+/// operator to weigh as a claim, never itself an assertion of identity.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum MergeProposalSource {
-    /// The default stands in for the field's absence in version-1 `MergeProposed` payloads, which
-    /// predate orchestration proposals — every proposal then was the agent's own.
+    /// The agent's own judgment from a turn. The default stands in for the field's absence in
+    /// version-1 `MergeProposed` payloads, which predate the field — every proposal then was the
+    /// agent's own too.
     #[default]
     Agent,
-    Orchestration,
 }
 
 impl MergeProposalSource {
     pub fn as_str(self) -> &'static str {
         match self {
             MergeProposalSource::Agent => "Agent",
-            MergeProposalSource::Orchestration => "Orchestration",
         }
     }
 }

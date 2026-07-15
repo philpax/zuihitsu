@@ -5,7 +5,7 @@
 //! test in `tests/agent.rs`; the span itself is surfaced by `init_tracing`'s `FmtSpan::CLOSE`.
 use super::*;
 use crate::{
-    ConversationLocator,
+    ConversationLocator, PersonId, TEST_PLATFORM,
     clock::ManualClock,
     metrics::{LATENCY_BUCKETS, describe},
     model::{Completion, ScriptedModel},
@@ -41,10 +41,10 @@ async fn a_turn_observes_its_metrics() {
         .platform()
         .route_message(
             &model,
-            &ConversationLocator::new("discord", "general"),
-            "dave",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "hello",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -128,10 +128,10 @@ async fn model_call_tokens_accumulate_from_usage() {
         .platform()
         .route_message(
             &model,
-            &ConversationLocator::new("discord", "general"),
-            "dave",
+            &ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "hello",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();

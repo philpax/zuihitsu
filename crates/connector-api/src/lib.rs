@@ -15,7 +15,10 @@ use std::fmt;
 use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::Serialize;
-use zuihitsu_core::{ids::ConversationLocator, progress::TurnProgress};
+use zuihitsu_core::{
+    ids::{ConversationLocator, PersonId},
+    progress::TurnProgress,
+};
 
 /// A failure in the platform API client.
 #[derive(Debug)]
@@ -101,7 +104,7 @@ pub struct ContextEntry {
 /// One inbound message to submit to the platform API.
 #[derive(Serialize)]
 pub struct PlatformMessage {
-    pub sender: String,
+    pub sender: PersonId,
     pub text: String,
 }
 
@@ -131,7 +134,7 @@ impl PlatformClient {
         &self,
         locator: &ConversationLocator,
         messages: &[PlatformMessage],
-        present: &[&str],
+        present: &[PersonId],
         on_progress: impl FnMut(&TurnProgress),
     ) -> Result<StreamOutcome> {
         let body = MessageBody {
@@ -213,7 +216,7 @@ impl PlatformClient {
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session.
-    pub async fn join(&self, locator: &ConversationLocator, participant: &str) -> Result<()> {
+    pub async fn join(&self, locator: &ConversationLocator, participant: &PersonId) -> Result<()> {
         let body = JoinBody {
             locator,
             participant,
@@ -288,14 +291,14 @@ impl PlatformClient {
 struct MessageBody<'a> {
     locator: &'a ConversationLocator,
     messages: &'a [PlatformMessage],
-    present: &'a [&'a str],
+    present: &'a [PersonId],
 }
 
 /// The request body for `POST /platform/join`.
 #[derive(Serialize)]
 struct JoinBody<'a> {
     locator: &'a ConversationLocator,
-    participant: &'a str,
+    participant: &'a PersonId,
 }
 
 /// The request body for `POST /platform/context`.

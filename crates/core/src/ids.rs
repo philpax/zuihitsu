@@ -2,6 +2,8 @@
 //! graph. Two-tier identity (see spec §Data model): internal references use the immutable ULID,
 //! agent-facing references use the mutable name, so a memory can be renamed without breaking links.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 use ulid::Ulid;
@@ -82,6 +84,65 @@ impl ConversationLocator {
 /// operator, so an identity match asserted through it carries operator authority.
 pub const DIRECT_PLATFORM: &str = "direct";
 
+/// The canonical platform key the test suite arrives participants under — a generic stand-in, kept
+/// distinct from any real connector's key (the Discord connector's own `DISCORD_PLATFORM` lives in
+/// that crate) so a test never couples to a shipping connector's identifier. Defined here once so the
+/// whole suite — integration tests, in-crate tests, the core-crate tests, and the eval scenarios —
+/// draws its platform key from a single source.
+pub const TEST_PLATFORM: &str = "chat";
+
+/// A second generic platform key for the tests that genuinely exercise cross-platform identity — the
+/// same handle arriving on two platforms, a merge across them — where one key is not enough. Paired
+/// with [`TEST_PLATFORM`], never equal to it.
+pub const TEST_PLATFORM_ALT: &str = "forum";
+
+/// A platform participant's typed identity: the `(platform, id)` pair the server resolves to
+/// `person/<id>@<platform>`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PersonId {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub platform: SmolStr,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub id: SmolStr,
+}
+
+impl PersonId {
+    pub fn new(platform: impl Into<SmolStr>, id: impl Into<SmolStr>) -> PersonId {
+        PersonId {
+            platform: platform.into(),
+            id: id.into(),
+        }
+    }
+}
+
+impl From<PersonId> for MemoryName {
+    fn from(person: PersonId) -> MemoryName {
+        Namespace::Person
+            .with_name(format!("{}@{}", person.id, person.platform))
+            .into()
+    }
+}
+
+impl fmt::Display for PersonId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}@{}", self.id, self.platform)
+    }
+}
+
+impl std::str::FromStr for PersonId {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<PersonId, Self::Err> {
+        match s.rsplit_once('@') {
+            Some((id, platform)) if !id.is_empty() && !platform.is_empty() => {
+                Ok(PersonId::new(platform, id))
+            }
+            _ => Err("expected `id@platform` (e.g. `dave@discord`)"),
+        }
+    }
+}
+
 /// One bounded activity window within a conversation — the unit that freezes a brief and anchors the
 /// prefix cache. Opens on first activity (or resumption after a quiet gap, or a compaction
 /// re-segment) and closes on idle (spec §Conversations).
@@ -156,12 +217,10 @@ impl MemoryName {
     }
 
     /// Whether this handle is platform-qualified — its subject carries an `@<platform>` suffix
-    /// (`person/dave@discord`), the disambiguated name a stub is minted under when the clean handle is
-    /// already taken (the `resolve_or_mint_participant` mint path). Such a handle names one specific
-    /// platform binding, distinct from the clean, platform-agnostic handle (`person/dave`) that
-    /// spans a merged identity's whole class. The `@` sigil is reserved for this suffix — no namespace
-    /// prefix nor the reserved `self` handle carries one — so its presence anywhere in the name marks a
-    /// platform-qualified handle.
+    /// (`person/dave@discord`), the standard form a stub is minted under on every platform arrival (the
+    /// `resolve_or_mint_participant` mint path always qualifies the name). A `PersonId` serialises to
+    /// this form, and the `@` sigil is reserved for the suffix — no namespace prefix nor the reserved
+    /// `self` handle carries one — so its presence anywhere in the name marks a platform-qualified handle.
     pub fn is_platform_qualified(&self) -> bool {
         self.0.contains('@')
     }
@@ -221,6 +280,18 @@ impl From<&NamespacedMemoryName> for MemoryName {
 impl From<&MemoryName> for MemoryName {
     fn from(name: &MemoryName) -> MemoryName {
         name.clone()
+    }
+}
+
+impl From<&str> for MemoryName {
+    fn from(name: &str) -> MemoryName {
+        MemoryName::new(name)
+    }
+}
+
+impl From<String> for MemoryName {
+    fn from(name: String) -> MemoryName {
+        MemoryName::new(name)
     }
 }
 
@@ -288,7 +359,9 @@ impl Namespace {
 
 #[cfg(test)]
 mod tests {
-    use super::{MemoryName, Namespace, NamespacedMemoryName, UnknownNamespace};
+    use super::{
+        MemoryName, Namespace, NamespacedMemoryName, PersonId, TEST_PLATFORM, UnknownNamespace,
+    };
 
     #[test]
     fn round_trips_through_the_handle() {
@@ -308,5 +381,30 @@ mod tests {
             MemoryName::SELF.parse::<NamespacedMemoryName>(),
             Err(UnknownNamespace)
         );
+    }
+
+    #[test]
+    fn person_id_into_memory_name_produces_the_qualified_form() {
+        let person = PersonId::new(TEST_PLATFORM, "dave");
+        let name: MemoryName = person.into();
+        assert_eq!(name.as_str(), "person/dave@chat");
+    }
+
+    #[test]
+    fn person_id_display_produces_the_bare_suffix() {
+        let person = PersonId::new(TEST_PLATFORM, "dave");
+        assert_eq!(person.to_string(), "dave@chat");
+    }
+
+    #[test]
+    fn from_str_for_memory_name() {
+        let name: MemoryName = "person/dave".into();
+        assert_eq!(name.as_str(), "person/dave");
+    }
+
+    #[test]
+    fn from_string_for_memory_name() {
+        let name: MemoryName = "person/dave".to_string().into();
+        assert_eq!(name.as_str(), "person/dave");
     }
 }

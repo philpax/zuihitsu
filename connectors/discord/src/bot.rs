@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 
 use zuihitsu_connector_api::{PlatformClient, PlatformMessage, StreamOutcome, TurnOutcome};
 use zuihitsu_core::{
-    ids::{ConversationLocator, TurnId},
+    ids::{ConversationLocator, PersonId, TurnId},
     progress::{ProgressKind, TurnProgress},
 };
 
@@ -29,7 +29,7 @@ use crate::{
     config::DiscordConfig,
     context_sync::{ContextParams, ContextSync},
     error::{Error, Result},
-    locator::ChannelContext,
+    locator::{ChannelContext, DISCORD_PLATFORM},
     pacing::{DebounceState, PendingMessage},
     turn_map::TurnMap,
 };
@@ -188,13 +188,20 @@ impl EventHandler for Handler {
         }
 
         // Gather the present set (for DMs, it's [sender, bot]).
-        let present: Vec<String> = if is_dm {
-            vec![msg.author.id.to_string(), bot_id.to_string()]
+        let present: Vec<PersonId> = if is_dm {
+            vec![
+                PersonId::new(DISCORD_PLATFORM, msg.author.id.to_string()),
+                PersonId::new(DISCORD_PLATFORM, bot_id.to_string()),
+            ]
         } else {
             let present = state.present_members.lock().await;
             present
                 .get(&msg.channel_id)
-                .map(|set| set.iter().map(|id| id.to_string()).collect())
+                .map(|set| {
+                    set.iter()
+                        .map(|id| PersonId::new(DISCORD_PLATFORM, id.to_string()))
+                        .collect()
+                })
                 .unwrap_or_default()
         };
 
@@ -301,14 +308,13 @@ async fn process_message(
     state: &Arc<BotState>,
     locator: &ConversationLocator,
     batch: Vec<PendingMessage>,
-    present: &[String],
+    present: &[PersonId],
     channel_id: serenity::all::ChannelId,
 ) {
-    let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
     let messages: Vec<PlatformMessage> = batch
         .into_iter()
         .map(|m| PlatformMessage {
-            sender: m.sender,
+            sender: PersonId::new(DISCORD_PLATFORM, &m.sender),
             text: m.text,
         })
         .collect();
@@ -358,7 +364,7 @@ async fn process_message(
     // Send via the streaming endpoint, processing progress as it arrives.
     let outcome = match state
         .platform
-        .send_message_stream(locator, &messages, &present_refs, on_progress)
+        .send_message_stream(locator, &messages, present, on_progress)
         .await
     {
         Ok(outcome) => outcome,

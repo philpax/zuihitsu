@@ -272,7 +272,7 @@ fn a_teller_may_retract_their_own_confidence() {
 
 #[test]
 fn a_merged_identity_counts_as_the_same_teller() {
-    let (graph, quinn, quinn_discord) = graph_with_merged_pair();
+    let (graph, quinn, quinn_chat) = graph_with_merged_pair();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
     // The speaker is one stub of a merged identity; a confidence told by the other stub is their own.
     let mut block = block(
@@ -288,10 +288,7 @@ fn a_merged_identity_counts_as_the_same_teller() {
         .append(
             topic,
             "confided",
-            told(
-                Teller::Participant(quinn_discord),
-                VisibilityChoice::Private,
-            ),
+            told(Teller::Participant(quinn_chat), VisibilityChoice::Private),
         )
         .unwrap();
     let new = block

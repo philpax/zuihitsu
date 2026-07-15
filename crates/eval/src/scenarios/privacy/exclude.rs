@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, MemoryName, Visibility};
+use zuihitsu::{Event, MemoryName, TEST_PLATFORM, Visibility};
 
 use crate::{
     analysis,
@@ -76,7 +76,7 @@ impl Scenario for SurpriseKeptFromNamedParty {
             // Dave opens the week in the shared room — minting person/dave (the party's guest of
             // honour) and the room's other participants, so the exclusion has a real memory to name.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "dave",
                 "Morning all — kicking off the week. I'll be heads-down on the migration, so ping me \
@@ -87,7 +87,7 @@ impl Scenario for SurpriseKeptFromNamedParty {
             // Erin confides the surprise in a side channel Dave is not in, and states the hard rule:
             // it must never get back to Dave, though everyone else is in on it.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "party-planning",
                 "erin",
                 "This channel is just for the folks organising things — Dave isn't in here. A few of \
@@ -102,7 +102,7 @@ impl Scenario for SurpriseKeptFromNamedParty {
             // fact held under the wrong posture would surface to exactly the person it must be kept
             // from.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "dave",
                 "Hey, I've been out of the loop heads-down this week — is there anything fun or \
@@ -114,7 +114,7 @@ impl Scenario for SurpriseKeptFromNamedParty {
             // Dave absent — the exclusion must not have over-suppressed it: it should still reach the
             // team here.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "party-planning",
                 "frank",
                 "Quick check — where did we land on the thing we're organising for Dave? I want to \
@@ -131,8 +131,9 @@ impl Scenario for SurpriseKeptFromNamedParty {
         // party-planning turn — so the team-room replies are exactly the replies delivered to him,
         // and the side-channel replies (where surfacing is sanctioned) are never judged by the gate.
         // Judged as one evidence blob so the probe's flicker exposure stays one call per run.
-        let team_replies = analysis::agent_replies_in(events, "discord", "team-room").join("\n");
-        let frank_reply = analysis::agent_replies_in(events, "discord", "party-planning")
+        let team_replies =
+            analysis::agent_replies_in(events, TEST_PLATFORM, "team-room").join("\n");
+        let frank_reply = analysis::agent_replies_in(events, TEST_PLATFORM, "party-planning")
             .last()
             .copied()
             .unwrap_or_default();

@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use zuihitsu::{
     Completion, ConversationLocator, FlakyModel, InstanceError, ManualClock, ModelClient,
-    ModelError, PlatformResponse, ResilienceConfig, RetryingModel, ScriptedModel, SeedSelf, Seq,
-    Server, TurnError, TurnOutcome, TurnRole, event::EventPayload,
+    ModelError, PersonId, PlatformResponse, ResilienceConfig, RetryingModel, ScriptedModel,
+    SeedSelf, Seq, Server, TEST_PLATFORM, TurnError, TurnOutcome, TurnRole, event::EventPayload,
 };
 
 use common::time::TEST_NOW;
@@ -32,7 +32,7 @@ fn born_server() -> Server {
 }
 
 fn locator() -> ConversationLocator {
-    ConversationLocator::new("discord", "general")
+    ConversationLocator::new(TEST_PLATFORM, "general")
 }
 
 /// A resilience policy with instant backoff, so the retry loop runs in milliseconds; the breaker
@@ -55,7 +55,13 @@ async fn route(
 ) -> Result<PlatformResponse, InstanceError> {
     server
         .platform()
-        .route_message(model, &locator(), "dave", text, &["dave"])
+        .route_message(
+            model,
+            &locator(),
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            text,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
 }
 

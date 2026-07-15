@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis::{self, EntryOccurrence},
@@ -68,7 +68,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
             // Session 1: Priya flags the audit as a real but undated event — the vendor keeps slipping the
             // end date, so there is nothing concrete to anchor against yet.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng-team",
                 "priya",
                 "Keep this on file for the team: the external security audit is happening at some point \
@@ -79,7 +79,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
             .into(),
             // Unrelated chatter — the room is a real room, not a probe harness.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng-team",
                 "dave",
                 "Separately: whoever borrowed the good HDMI adapter, please return it to the drawer. \
@@ -90,7 +90,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
             // The plan itself: the retro is ordered only relative to the audit, and Priya says so
             // explicitly — pin it to the audit, not to a real date, because there isn't one.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng-team",
                 "priya",
                 "Once the audit finally wraps — whenever that ends up landing — let's run the team \
@@ -100,7 +100,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
             .with_present(&["priya", "dave"])
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng-team",
                 "dave",
                 "Works for me. I'll grab a room once we actually know when the audit closes out.",
@@ -118,7 +118,7 @@ impl Scenario for AnchorsARelativePlanHonestly {
             // Session 2: Dave asks when the retro is. The only honest answer is relative — after the audit
             // wraps — because no date was ever fixed.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng-team",
                 "dave",
                 "Remind me — when's the team retro happening again?",
@@ -262,7 +262,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
             // Session 1: Maria records the demo's absolute date — the agent should author it as an
             // occurrence at append time.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "sales",
                 "maria",
                 "Logging this for the Contoso account: the vendor demo with them is locked for October \
@@ -274,7 +274,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
             // tempting mistake is anchoring "the week before then" to the speaking moment. Deliberately no
             // "demo" in the text, so it is not mistaken for the demo fact itself.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "sales",
                 "maria",
                 "They also want the signed contract in hand the week before then, so let's have the \
@@ -283,7 +283,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
             .into(),
             // Unrelated chatter from a colleague.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "sales",
                 "jon",
                 "Nice — Contoso's been a long haul. Grabbing coffee, back in five.",
@@ -300,7 +300,7 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
             // Session 2, a different room: Jon asks when the demo is. Relaying it means searching memory and
             // reporting the authored October date — not a near-now date the extraction might have guessed.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "ops",
                 "jon",
                 "Quick one — when's the Contoso demo again? Trying to line up the room.",

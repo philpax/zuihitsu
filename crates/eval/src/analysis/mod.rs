@@ -8,8 +8,8 @@ mod state;
 use std::collections::BTreeSet;
 
 use zuihitsu::{
-    Event, EventPayload, Initiation, LinkSource, MemoryId, MergeProposalSource, Teller, TurnId,
-    TurnRole, Visibility, Volatility,
+    Event, EventPayload, Initiation, LinkSource, MemoryId, Teller, TurnId, TurnRole, Visibility,
+    Volatility,
 };
 
 pub use events::*;
@@ -322,21 +322,6 @@ pub fn replies_between_proposal_and_adjudication(events: &[Event]) -> Vec<&str> 
             _ => None,
         })
         .collect()
-}
-
-/// Whether the identity-resolution orchestration proposed a merge (a `MergeProposed` sourced
-/// `Orchestration`) — the signal that a platform arrival's handle matched an existing but
-/// platform-unbound stub, raising a candidate reunion for the operator rather than asserting identity.
-pub fn orchestration_merge_proposed(events: &[Event]) -> bool {
-    events.iter().any(|event| {
-        matches!(
-            &event.payload,
-            EventPayload::MergeProposed {
-                source: MergeProposalSource::Orchestration,
-                ..
-            }
-        )
-    })
 }
 
 /// Whether the run actually merged two stubs: an adjudication accepted *and* authored the `same_as`

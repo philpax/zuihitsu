@@ -93,9 +93,9 @@ async fn a_platform_message_runs_a_turn() {
     });
 
     let body = serde_json::json!({
-        "locator": { "platform": "discord", "scope_path": "general" },
-        "messages": [{ "sender": "dave", "text": "hello" }],
-        "present": ["dave"],
+        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
+        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
+        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
     });
     let response = app
         .oneshot(
@@ -145,9 +145,9 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
     });
 
     let message = serde_json::json!({
-        "locator": { "platform": "discord", "scope_path": "general" },
-        "messages": [{ "sender": "dave", "text": "hello" }],
-        "present": ["dave"],
+        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
+        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
+        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
     });
     app.clone()
         .oneshot(
@@ -163,8 +163,8 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
         .unwrap();
 
     let resync = serde_json::json!({
-        "locator": { "platform": "discord", "scope_path": "general" },
-        "roster": ["erin"],
+        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
+        "roster": [{ "platform": TEST_PLATFORM, "id": "erin" }],
     });
     let response = app
         .oneshot(
@@ -184,7 +184,10 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
         .unwrap();
     // Erin arrived (briefed in); Dave, absent from the roster, is the one prior member reported as
     // departed.
-    assert_eq!(&bytes[..], br#"{"joined":["erin"],"departed":1}"#);
+    assert_eq!(
+        std::str::from_utf8(&bytes).unwrap(),
+        format!(r#"{{"joined":[{{"platform":"{TEST_PLATFORM}","id":"erin"}}],"departed":1}}"#)
+    );
 }
 
 #[tokio::test]
@@ -208,9 +211,9 @@ async fn interactions_surface_the_recorded_model_calls() {
     });
 
     let body = serde_json::json!({
-        "locator": { "platform": "discord", "scope_path": "general" },
-        "messages": [{ "sender": "dave", "text": "hello" }],
-        "present": ["dave"],
+        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
+        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
+        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
     });
     app.clone()
         .oneshot(
@@ -268,7 +271,7 @@ async fn unmerge_endpoint_retracts_a_merge_then_404s_when_nothing_to_retract() {
         .control()
         .seed_events(vec![
             EventPayload::memory_created(a, Namespace::Person.with_name("marcus@direct")),
-            EventPayload::memory_created(b, Namespace::Person.with_name("marcus@discord")),
+            EventPayload::memory_created(b, Namespace::Person.with_name("marcus@chat")),
             EventPayload::link_created(
                 a,
                 b,
@@ -555,9 +558,9 @@ async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
     });
 
     let message = serde_json::json!({
-        "locator": { "platform": "discord", "scope_path": "general" },
-        "messages": [{ "sender": "dave", "text": "hello" }],
-        "present": ["dave"],
+        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
+        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
+        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
     });
     let response = app
         .oneshot(
@@ -648,9 +651,9 @@ async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
     let mut frames = response.into_body().into_data_stream();
 
     let message = serde_json::json!({
-        "locator": { "platform": "discord", "scope_path": "general" },
-        "messages": [{ "sender": "dave", "text": "hello" }],
-        "present": ["dave"],
+        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
+        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
+        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
     });
     app.oneshot(
         Request::builder()

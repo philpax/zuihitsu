@@ -5,7 +5,7 @@
 //! these tests also guard that the edit honours `guard_self` for the operator rather than weakening it.
 use super::*;
 use crate::{
-    SelfEditOutcome,
+    PersonId, SelfEditOutcome, TEST_PLATFORM,
     clock::ManualClock,
     event::{EventPayload, Teller, Visibility},
     ids::EntryId,
@@ -190,10 +190,10 @@ async fn a_platform_turn_still_cannot_write_self() {
         .platform()
         .route_message(
             &model,
-            &crate::ConversationLocator::new("discord", "general"),
-            "dave",
+            &crate::ConversationLocator::new(TEST_PLATFORM, "general"),
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "who are you really?",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();

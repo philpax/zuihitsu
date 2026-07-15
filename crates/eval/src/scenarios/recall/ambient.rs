@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, MemoryId, TurnId};
+use zuihitsu::{Event, EventPayload, MemoryId, TEST_PLATFORM, TurnId};
 
 use crate::{
     analysis,
@@ -55,7 +55,7 @@ impl Scenario for RecallsAConceptByAmbientHint {
             // tool, with a couple of concrete details. Taught in the open as a shared team tool, so it
             // is recorded as public and the lexical index (public-only) can later surface it.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng",
                 "erin",
                 "Something for you to know about our stack: we run all our database schema changes \
@@ -65,7 +65,7 @@ impl Scenario for RecallsAConceptByAmbientHint {
             .with_present(&["erin"])
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "eng",
                 "erin",
                 "The name's a bit of a joke — you prune and shape the schema over time, like a bonsai \
@@ -84,7 +84,7 @@ impl Scenario for RecallsAConceptByAmbientHint {
             // A fresh room, a different participant, an empty buffer: a casual question naming the common
             // word, with no instruction to search. Only ambient recall can connect it to the project.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "watercooler",
                 "marcus",
                 "Random question — what do you think of bonsai?",

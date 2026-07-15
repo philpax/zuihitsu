@@ -18,16 +18,19 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
 {
   "locator": { "platform": "chat", "scope_path": "room/42" },
   "messages": [
-    { "sender": "dave", "text": "hello" },
-    { "sender": "dave", "text": "anyone there?" }
+    { "sender": { "platform": "chat", "id": "dave" }, "text": "hello" },
+    { "sender": { "platform": "chat", "id": "dave" }, "text": "anyone there?" }
   ],
-  "present": ["dave", "erin"]
+  "present": [
+    { "platform": "chat", "id": "dave" },
+    { "platform": "chat", "id": "erin" }
+  ]
 }
 ```
 
 - `locator` — the conversation's `(platform, scope_path)` pair. The server resolves (or mints) a conversation and its context memory on first contact.
-- `messages` — the inbound batch. Each carries a `sender` (platform user id) and `text`. A single message is a one-element batch.
-- `present` — the platform user ids currently in the room. The server resolves each to a participant stub (minting on first contact) and uses the set for the subject-guard and join-brief logic.
+- `messages` — the inbound batch. Each carries a `sender` — a `PersonId`, the `{ platform, id }` pair the server resolves to `person/<id>@<platform>` — and `text`. A single message is a one-element batch.
+- `present` — the `PersonId`s currently in the room. The server resolves each to a participant stub (minting on first contact) and uses the set for the subject-guard and join-brief logic.
 
 **Response body (`200 OK`):**
 
@@ -60,9 +63,11 @@ Note a participant arriving mid-session. If the room has a live session, this re
 ```json
 {
   "locator": { "platform": "chat", "scope_path": "room/42" },
-  "participant": "erin"
+  "participant": { "platform": "chat", "id": "erin" }
 }
 ```
+
+`participant` is a `PersonId` — the `{ platform, id }` pair the server resolves to `person/<id>@<platform>`.
 
 ### `POST /platform/roster`
 
@@ -73,15 +78,23 @@ Resync the room's roster against a fresh member list. Each newly-arrived member 
 ```json
 {
   "locator": { "platform": "chat", "scope_path": "room/42" },
-  "present": ["dave", "erin", "frank"]
+  "present": [
+    { "platform": "chat", "id": "dave" },
+    { "platform": "chat", "id": "erin" },
+    { "platform": "chat", "id": "frank" }
+  ]
 }
 ```
+
+`present` is the full set of `PersonId`s currently in the room.
 
 **Response body (`200 OK`):**
 
 ```json
-{ "joined": ["frank"], "departed": 0 }
+{ "joined": [{ "platform": "chat", "id": "frank" }], "departed": 0 }
 ```
+
+`joined` is the `PersonId`s newly briefed in.
 
 ## Writing context
 

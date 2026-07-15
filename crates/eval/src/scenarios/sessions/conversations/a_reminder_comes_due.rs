@@ -23,7 +23,7 @@ impl Scenario for AReminderComesDue {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Don't let me forget — I need to send the board update this Friday. Nudge me about it?",
@@ -37,7 +37,7 @@ impl Scenario for AReminderComesDue {
                 millis: FIVE_DAYS_MS,
             },
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Morning! Anything I should be on top of today?",

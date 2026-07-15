@@ -241,7 +241,7 @@ struct CoinedAcc {
 
 /// The namespace of a memory endpoint: the reserved `self` handle stands alone, an unresolvable id (no
 /// `MemoryCreated` in the run) renders as a short id stub, and any other handle's namespace is whatever
-/// precedes its first `/` (`person/marcus` → `person`, `context/discord:room` → `context`).
+/// precedes its first `/` (`person/marcus` → `person`, `context/chat:room` → `context`).
 fn namespace_of(names: &BTreeMap<MemoryId, String>, id: &MemoryId) -> String {
     let Some(name) = names.get(id) else {
         return id.0.to_string().chars().take(8).collect();

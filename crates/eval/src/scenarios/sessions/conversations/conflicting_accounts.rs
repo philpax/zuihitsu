@@ -31,7 +31,7 @@ impl Scenario for ConflictingAccounts {
         vec![
             // Marcus states a location.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Heads up for everyone: the all-hands next week is in the main auditorium.",
@@ -43,7 +43,7 @@ impl Scenario for ConflictingAccounts {
             // right operation is to arbitrate (keeping both), not to supersede one with a newer value, and
             // not to soften it into "unconfirmed" prose the synthesis narrates but never records.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "erin",
                 "Wait, that's not what I heard — it's in the rooftop terrace, not the auditorium. \
@@ -55,7 +55,7 @@ impl Scenario for ConflictingAccounts {
             EvalStep::Settle,
             // From another room, someone asks where it is — the agent should not silently pick a side.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "frank",
                 "Quick q — do you know where the all-hands is being held?",

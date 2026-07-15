@@ -98,7 +98,7 @@ impl Scenario for AttributedConflictingAccounts {
             EvalStep::Settle,
             // From another room, someone asks where it is — the agent should not silently pick a side.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "frank",
                 "Quick one — any idea where the all-hands is actually being held?",

@@ -55,7 +55,8 @@ pub use event::{
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
-    NamespacedMemoryName, Seq, SessionId, TurnId, UnknownNamespace,
+    NamespacedMemoryName, PersonId, Seq, SessionId, TEST_PLATFORM, TEST_PLATFORM_ALT, TurnId,
+    UnknownNamespace,
 };
 pub use model::{
     Completion, FlakyModel, GenerateDelta, GenerateRequest, GenerateResponse, GenerateStream,

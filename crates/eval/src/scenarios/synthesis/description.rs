@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -43,7 +43,7 @@ impl Scenario for DescriptionLeak {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "marcus",
                 "Remember a couple of things about Dave. Publicly, he's a dedicated rock climber. But \

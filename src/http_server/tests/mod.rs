@@ -7,7 +7,7 @@ use axum::{
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceExt;
 use zuihitsu::{
-    Completion, ManualClock, ModelCall, ScriptedModel, Server,
+    Completion, ManualClock, ModelCall, ScriptedModel, Server, TEST_PLATFORM,
     metrics::{LATENCY_BUCKETS, describe},
     time::Timestamp,
 };

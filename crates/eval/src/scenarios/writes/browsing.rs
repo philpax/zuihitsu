@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -78,7 +78,7 @@ impl Scenario for ReadsAndRecallsAPage {
             // page via `web.markdown("...")`, read the extracted README, report what Tessera is, and
             // record the substance.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dev",
                 "priya",
                 format!(
@@ -90,7 +90,7 @@ impl Scenario for ReadsAndRecallsAPage {
             .into(),
             // Unrelated chatter so the fetch-and-report turn is not the last thing in the buffer.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dev",
                 "devon",
                 "Nice, I've been looking for something like that. I'll read it properly later.",
@@ -106,7 +106,7 @@ impl Scenario for ReadsAndRecallsAPage {
             // Turn 2: Devon asks a concrete detail from the README — a recall probe that lands in a
             // fresh session, so the agent must recall from memory rather than the buffer.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dev",
                 "devon",
                 "Quick question about that storage library you looked at — what does it use to hash \

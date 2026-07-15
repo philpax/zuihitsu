@@ -28,7 +28,7 @@ impl Scenario for AppliesARememberedPreference {
         vec![
             // Marcus mentions a standing preference in passing — not a question, just context to bank.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Oh, while I think of it — I'm vegetarian, have been for years. Worth remembering for \
@@ -39,7 +39,7 @@ impl Scenario for AppliesARememberedPreference {
             // Later, a different room, Marcus asks for a lunch spot — without restating the preference. A good
             // answer applies what it banked rather than suggesting a steakhouse.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "lunch-plans",
                 "marcus",
                 "I'm starving — got any suggestions for where I should grab lunch today?",

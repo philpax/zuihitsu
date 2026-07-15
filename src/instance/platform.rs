@@ -15,7 +15,7 @@ use crate::{
     },
     event::{EventSource, PromptTemplateName, Teller},
     graph::GraphError,
-    ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
+    ids::{ConversationId, ConversationLocator, MemoryId, PersonId, Seq, TurnId},
     memory::{
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
         memory_block::{AppendOptions, Authority, MemoryBlock, VisibilityChoice},
@@ -28,8 +28,8 @@ use zuihitsu_connector_types::PlatformResponse;
 /// One inbound participant message in a batch delivered to `route_messages`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MessageInput {
-    /// The sender's platform user id.
-    pub sender: String,
+    /// The sender's platform identity.
+    pub sender: PersonId,
     /// The message text.
     pub text: String,
 }
@@ -46,7 +46,7 @@ pub struct Platform<'a> {
 pub struct RosterResync {
     /// The platform user ids that were newly present. Each received a `ParticipantJoined` and an
     /// injected join-brief, exactly as an explicit [`Platform::note_join`] would.
-    pub joined: Vec<String>,
+    pub joined: Vec<PersonId>,
     /// The count of the session's prior members absent from the new roster. Departures are
     /// deliberately eventless (spec §Conversations and briefs → n is per-session): the per-message
     /// present set drives visibility, so a departed participant stops affecting retrieval on the
@@ -64,15 +64,15 @@ impl Platform<'_> {
         &self,
         model: &dyn ModelClient,
         locator: &ConversationLocator,
-        sender: &str,
+        sender: &PersonId,
         text: &str,
-        present: &[&str],
+        present: &[PersonId],
     ) -> Result<PlatformResponse, InstanceError> {
         self.route_messages(
             model,
             locator,
             &[MessageInput {
-                sender: sender.to_owned(),
+                sender: sender.clone(),
                 text: text.to_owned(),
             }],
             present,
@@ -90,7 +90,7 @@ impl Platform<'_> {
         model: &dyn ModelClient,
         locator: &ConversationLocator,
         messages: &[MessageInput],
-        present: &[&str],
+        present: &[PersonId],
     ) -> Result<PlatformResponse, InstanceError> {
         // Hold a stream permit for this batch's whole handling — the turn and any compaction flush
         // it triggers — so no more than `max_concurrent_streams` messages crowd the shared model at
@@ -110,20 +110,15 @@ impl Platform<'_> {
         // The unique platform ids to resolve: everyone present, plus every sender. Deduplicating
         // matters because resolution reads the graph, which is not re-materialized between mints
         // within this call — the same id seen twice would otherwise be minted twice.
-        let platform = locator.platform.as_str();
-        let mut uids: Vec<&str> = Vec::new();
-        for uid in present
-            .iter()
-            .copied()
-            .chain(messages.iter().map(|m| m.sender.as_str()))
-        {
-            if !uids.contains(&uid) {
-                uids.push(uid);
+        let mut uids: Vec<&PersonId> = Vec::new();
+        for person in present.iter().chain(messages.iter().map(|m| &m.sender)) {
+            if !uids.contains(&person) {
+                uids.push(person);
             }
         }
         let mut present_set = Vec::new();
-        let mut participant_ids: HashMap<&str, MemoryId> = HashMap::new();
-        for uid in &uids {
+        let mut participant_ids: HashMap<&PersonId, MemoryId> = HashMap::new();
+        for person in &uids {
             let id = {
                 // Graph before store, per the lock-ordering rule.
                 let graph = self.server.engine.graph.lock();
@@ -131,11 +126,11 @@ impl Platform<'_> {
                     self.server.engine.store.lock().as_mut(),
                     self.server.engine.clock.as_ref(),
                     &graph,
-                    platform,
-                    uid,
+                    person.platform.as_str(),
+                    person.id.as_str(),
                 )?
             };
-            participant_ids.insert(uid, id);
+            participant_ids.insert(*person, id);
             present_set.push(id);
         }
         self.server
@@ -151,7 +146,7 @@ impl Platform<'_> {
         let mut inbound: Vec<InboundMessage> = Vec::with_capacity(messages.len());
         let mut participant_turn_ids: Vec<TurnId> = Vec::with_capacity(messages.len());
         for msg in messages {
-            let participant = *participant_ids.get(msg.sender.as_str()).unwrap();
+            let participant = *participant_ids.get(&msg.sender).unwrap();
             let turn_id = TurnId::generate();
             inbound.push(InboundMessage {
                 participant,
@@ -254,7 +249,7 @@ impl Platform<'_> {
         &self,
         model: Option<&dyn ModelClient>,
         locator: &ConversationLocator,
-        participant: &str,
+        participant: &PersonId,
     ) -> Result<(), InstanceError> {
         let Some(conversation) = self
             .server
@@ -276,8 +271,8 @@ impl Platform<'_> {
                 self.server.engine.store.lock().as_mut(),
                 self.server.engine.clock.as_ref(),
                 &graph,
-                locator.platform.as_str(),
-                participant,
+                participant.platform.as_str(),
+                participant.id.as_str(),
             )?
         };
         self.server
@@ -329,7 +324,7 @@ impl Platform<'_> {
         &self,
         model: Option<&dyn ModelClient>,
         locator: &ConversationLocator,
-        roster: &[&str],
+        roster: &[PersonId],
     ) -> Result<RosterResync, InstanceError> {
         let Some(conversation) = self
             .server
@@ -347,15 +342,14 @@ impl Platform<'_> {
         // Resolve the roster to memory ids, deduplicating first: resolution reads the graph, which is
         // not re-materialized between mints within this pass, so the same id seen twice would
         // otherwise be minted twice.
-        let platform = locator.platform.as_str();
-        let mut uids: Vec<&str> = Vec::new();
-        for uid in roster {
-            if !uids.contains(uid) {
-                uids.push(uid);
+        let mut uids: Vec<&PersonId> = Vec::new();
+        for person in roster {
+            if !uids.contains(&person) {
+                uids.push(person);
             }
         }
         let mut present_ids = Vec::with_capacity(uids.len());
-        for uid in &uids {
+        for person in &uids {
             let id = {
                 // Graph before store, per the lock-ordering rule.
                 let graph = self.server.engine.graph.lock();
@@ -363,8 +357,8 @@ impl Platform<'_> {
                     self.server.engine.store.lock().as_mut(),
                     self.server.engine.clock.as_ref(),
                     &graph,
-                    platform,
-                    uid,
+                    person.platform.as_str(),
+                    person.id.as_str(),
                 )?
             };
             present_ids.push(id);
@@ -387,12 +381,12 @@ impl Platform<'_> {
             .session_participants(session)?;
         let mut joined = Vec::new();
         let mut joined_ids: Vec<MemoryId> = Vec::new();
-        for (uid, &id) in uids.iter().zip(present_ids.iter()) {
+        for (person, &id) in uids.iter().zip(present_ids.iter()) {
             if !members.contains(&id) && !joined_ids.contains(&id) {
                 self.server
                     .join_participant(model, conversation, session, id)
                     .await?;
-                joined.push((*uid).to_owned());
+                joined.push((*person).clone());
                 joined_ids.push(id);
             }
         }
@@ -618,7 +612,7 @@ fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{event::TurnRole, ids::TurnId, time::Timestamp};
+    use crate::{TEST_PLATFORM, event::TurnRole, ids::TurnId, time::Timestamp};
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {
@@ -678,7 +672,7 @@ mod tests {
         let buffer = vec![turn(1, "12345678")]; // 8 chars
         // (8 + 4) / 4 = 3.
         let messages = vec![MessageInput {
-            sender: "dave".to_owned(),
+            sender: PersonId::new(TEST_PLATFORM, "dave"),
             text: "1234".to_owned(),
         }];
         assert_eq!(estimate_tokens(&buffer, &messages), 3);

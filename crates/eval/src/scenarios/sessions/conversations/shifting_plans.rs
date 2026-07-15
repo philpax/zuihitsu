@@ -31,7 +31,7 @@ impl Scenario for ShiftingPlans {
         vec![
             // The launch is penciled in.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "marcus",
                 "Let's pencil in the product launch for the 15th of March.",
@@ -43,7 +43,7 @@ impl Scenario for ShiftingPlans {
                 millis: MILLIS_PER_DAY,
             },
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "planning",
                 "marcus",
                 "Actually, scratch that — the launch has slipped to the 22nd of March. The 15th is off.",
@@ -54,7 +54,7 @@ impl Scenario for ShiftingPlans {
             // From another room, with an empty buffer, someone asks the current date — recall plus the
             // reconciled belief.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "standup",
                 "erin",
                 "Quick one — what's the current launch date now?",

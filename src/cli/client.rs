@@ -11,7 +11,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
     Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, MessageInput,
-    ModelCall, PlatformResponse, Rollout, SeedSelf, SessionView, Settings,
+    ModelCall, PersonId, PlatformResponse, Rollout, SeedSelf, SessionView, Settings,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -107,7 +107,7 @@ impl Client {
         platform: &str,
         scope: &str,
         messages: &[MessageInput],
-        present: &[String],
+        present: &[PersonId],
     ) -> Result<PlatformResponse, ClientError> {
         let body = MessageBody {
             locator: ConversationLocator::new(platform, scope),
@@ -118,7 +118,12 @@ impl Client {
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session.
-    pub fn join(&self, platform: &str, scope: &str, participant: &str) -> Result<(), ClientError> {
+    pub fn join(
+        &self,
+        platform: &str,
+        scope: &str,
+        participant: &PersonId,
+    ) -> Result<(), ClientError> {
         let body = JoinBody {
             locator: ConversationLocator::new(platform, scope),
             participant,
@@ -198,13 +203,13 @@ struct ImprintBody<'a> {
 struct MessageBody<'a> {
     locator: ConversationLocator,
     messages: &'a [MessageInput],
-    present: &'a [String],
+    present: &'a [PersonId],
 }
 
 #[derive(Serialize)]
 struct JoinBody<'a> {
     locator: ConversationLocator,
-    participant: &'a str,
+    participant: &'a PersonId,
 }
 
 /// A failure talking to the server.

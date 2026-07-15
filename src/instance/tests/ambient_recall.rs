@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::{
-    ConversationLocator, InstanceFeatures, SeedSelf,
+    ConversationLocator, InstanceFeatures, PersonId, SeedSelf, TEST_PLATFORM,
     clock::ManualClock,
     event::{EventPayload, EventSource, Teller, Visibility},
     graph::Graph,
@@ -126,15 +126,15 @@ async fn a_matching_message_surfaces_a_recorded_hint() {
     let model = ScriptedModel::new([Completion::Reply(
         "bonsai the migration tool, I think".to_owned(),
     )]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     server
         .platform()
         .route_message(
             &model,
             &room,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "What do you think of bonsai?",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -165,10 +165,16 @@ async fn a_message_with_no_salient_term_surfaces_nothing() {
         "A schema-migration tool Erin built; it versions and applies database migrations.",
     );
     let model = ScriptedModel::new([Completion::Reply("anytime".to_owned())]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     server
         .platform()
-        .route_message(&model, &room, "dave", "Thanks, talk soon!", &["dave"])
+        .route_message(
+            &model,
+            &room,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "Thanks, talk soon!",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -196,15 +202,15 @@ async fn the_recorded_hint_replays_byte_identical_next_turn() {
         Completion::Reply("the migration tool".to_owned()),
         Completion::Reply("still the migration tool".to_owned()),
     ]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     server
         .platform()
         .route_message(
             &model,
             &room,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "What do you think of bonsai?",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -213,9 +219,9 @@ async fn the_recorded_hint_replays_byte_identical_next_turn() {
         .route_message(
             &model,
             &room,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "Anything else about bonsai?",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -261,11 +267,17 @@ async fn a_turn_token_leads_the_hint_with_a_convo_turn_pointer() {
     let turn = TurnId::generate();
     let token = turn_ref::construct(turn);
     let model = ScriptedModel::new([Completion::Reply("let me look".to_owned())]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     let message = format!("what did we decide in {token}?");
     server
         .platform()
-        .route_message(&model, &room, "dave", &message, &["dave"])
+        .route_message(
+            &model,
+            &room,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            &message,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -296,12 +308,18 @@ async fn a_url_points_the_hint_at_web_markdown() {
     // No seeded topic, so the message matches nothing lexically: the URL alone drives the hint. The
     // default instance has browsing on.
     let model = ScriptedModel::new([Completion::Reply("reading it now".to_owned())]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     let url = "https://example.com/article";
     let message = format!("take a look at {url} when you can");
     server
         .platform()
-        .route_message(&model, &room, "dave", &message, &["dave"])
+        .route_message(
+            &model,
+            &room,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            &message,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -349,11 +367,17 @@ async fn a_turn_token_is_inert_when_transcripts_are_off() {
     let turn = TurnId::generate();
     let token = turn_ref::construct(turn);
     let model = ScriptedModel::new([Completion::Reply("hmm".to_owned())]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     let message = format!("what did we decide in {token}?");
     server
         .platform()
-        .route_message(&model, &room, "dave", &message, &["dave"])
+        .route_message(
+            &model,
+            &room,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            &message,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -377,16 +401,28 @@ async fn a_token_hint_replays_byte_identical_next_turn() {
         Completion::Reply("looking".to_owned()),
         Completion::Reply("still looking".to_owned()),
     ]);
-    let room = ConversationLocator::new("discord", "general");
+    let room = ConversationLocator::new(TEST_PLATFORM, "general");
     let first = format!("what did we decide in {token}?");
     server
         .platform()
-        .route_message(&model, &room, "dave", &first, &["dave"])
+        .route_message(
+            &model,
+            &room,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            &first,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &room, "dave", "anything else?", &["dave"])
+        .route_message(
+            &model,
+            &room,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "anything else?",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 

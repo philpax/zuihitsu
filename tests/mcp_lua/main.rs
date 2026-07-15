@@ -18,8 +18,9 @@ use zuihitsu::{
     Authority, BlockContext, BlockOutcome, Completion, ContentBlock, ConversationId,
     ConversationLocator, Engine, FakeMcpHost, FakeServer, GenerateRequest, GenerateResponse,
     GenerateStream, Graph, InstanceFeatures, ManualClock, McpCatalogue, McpError, McpOutput,
-    McpServerConfig, McpTool, MemoryStore, ModelClient, ModelError, ScriptedModel, SeedSelf,
-    Server, Session, Teller, TerminalCause, ToolCall, TurnId, TurnOutcome, Usage, stream_response,
+    McpServerConfig, McpTool, MemoryStore, ModelClient, ModelError, PersonId, ScriptedModel,
+    SeedSelf, Server, Session, TEST_PLATFORM, Teller, TerminalCause, ToolCall, TurnId, TurnOutcome,
+    Usage, stream_response,
 };
 
 /// A tool advertised under `name` (the catalogue entry the escape map is built from).

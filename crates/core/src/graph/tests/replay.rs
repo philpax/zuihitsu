@@ -4,7 +4,7 @@ use crate::{
     graph::Graph,
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
-        SessionId, TurnId,
+        SessionId, TEST_PLATFORM, TurnId,
     },
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -204,11 +204,11 @@ fn conversations_and_sessions_project() {
     let (_store, graph) = materialized(vec![
         EventPayload::memory_created(
             context,
-            Namespace::Context.with_name("discord:guild/42/chan/leads"),
+            Namespace::Context.with_name("chat:guild/42/chan/leads"),
         ),
         EventPayload::conversation_started(
             conv,
-            ConversationLocator::new("discord", "guild/42/chan/leads"),
+            ConversationLocator::new(TEST_PLATFORM, "guild/42/chan/leads"),
             context,
         ),
         EventPayload::SessionStarted {
@@ -248,13 +248,16 @@ fn conversations_and_sessions_project() {
     // The locator resolves to the room; an unseen locator does not.
     assert_eq!(
         graph
-            .conversation_for_locator(&ConversationLocator::new("discord", "guild/42/chan/leads"))
+            .conversation_for_locator(&ConversationLocator::new(
+                TEST_PLATFORM,
+                "guild/42/chan/leads"
+            ))
             .unwrap(),
         Some(conv)
     );
     assert!(
         graph
-            .conversation_for_locator(&ConversationLocator::new("discord", "elsewhere"))
+            .conversation_for_locator(&ConversationLocator::new(TEST_PLATFORM, "elsewhere"))
             .unwrap()
             .is_none()
     );

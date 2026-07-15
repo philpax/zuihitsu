@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, Visibility};
+use zuihitsu::{Event, TEST_PLATFORM, Visibility};
 
 use crate::{
     analysis,
@@ -164,7 +164,7 @@ impl Scenario for WorkingState {
         // before the cut.
         steps.push(
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "dave",
                 "Remind me — what's the plan for the Q3 database migration?",
@@ -207,7 +207,7 @@ fn drive_session() -> Vec<EvalStep> {
         flush_min_turns: FLUSH_MIN_TURNS,
     }];
     for message in SCRIPT {
-        steps.push(Turn::new("discord", "leads", "dave", message).into());
+        steps.push(Turn::new(TEST_PLATFORM, "leads", "dave", message).into());
     }
     steps
 }
@@ -267,12 +267,12 @@ impl Scenario for RepeatedCompaction {
             flush_min_turns: FLUSH_MIN_TURNS,
         }];
         for (index, message) in REPEATED_SCRIPT.into_iter().enumerate() {
-            steps.push(Turn::new("discord", "leads", "dave", message).into());
+            steps.push(Turn::new(TEST_PLATFORM, "leads", "dave", message).into());
             // Force the cut at the chosen points, through the same flush-and-carryover path the organic
             // trigger drives — the segment just closed has at least `FLUSH_MIN_TURNS` turns, so it flushes.
             if FORCED_CUT_AFTER.contains(&index) {
                 steps.push(EvalStep::ForceCompaction {
-                    platform: "discord".to_owned(),
+                    platform: TEST_PLATFORM.to_owned(),
                     scope: "leads".to_owned(),
                 });
             }
@@ -281,7 +281,7 @@ impl Scenario for RepeatedCompaction {
         // Probe the earliest fact, after all the cuts.
         steps.push(
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "leads",
                 "dave",
                 "Remind me — what did we say was the single most important thing, the big rock, for Q3?",

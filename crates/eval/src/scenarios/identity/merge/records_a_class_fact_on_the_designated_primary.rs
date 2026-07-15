@@ -2,7 +2,7 @@ use super::*;
 
 /// A merged cross-platform identity whose **primary is the stub the operator designated**, not the one
 /// the day-to-day handle resolves to. A supplier is known in conversation as `person/nordic` (the stub
-/// bound to Discord, and the earliest ULID, so the default primary), but the operator has pinned the
+/// bound to chat, and the earliest ULID, so the default primary), but the operator has pinned the
 /// formal record `person/nordic_foods` as the class primary. When the supplier tells the agent a durable,
 /// platform-agnostic fact about themselves, the agent records it through the handle it knows them by —
 /// and the class-spanning write must land on the **designated primary**, never on the non-primary stub
@@ -22,7 +22,7 @@ use super::*;
 /// (the gate) or on a memory disconnected from the identity (a metric miss) is a wrong placement.
 pub struct RecordsAClassFactOnTheDesignatedPrimary;
 
-/// The day-to-day handle the supplier is known by in conversation — the stub bound to Discord and the
+/// The day-to-day handle the supplier is known by in conversation — the stub bound to chat and the
 /// earliest ULID, so it is the class's *default* primary until the operator's designation overrides it.
 const BOUND_STUB: &str = "person/nordic";
 
@@ -62,9 +62,9 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
         let [bound, formal] = ids;
         let seed = vec![
             EventPayload::memory_created(bound, MemoryName::new(BOUND_STUB)),
-            // The Discord binding, so the supplier's turn resolves to this stub and the agent knows them
+            // The chat binding, so the supplier's turn resolves to this stub and the agent knows them
             // by the bound handle.
-            EventPayload::participant_identified(bound, "discord", "nordic"),
+            EventPayload::participant_identified(bound, TEST_PLATFORM, "nordic"),
             EventPayload::memory_created(formal, MemoryName::new(DESIGNATED_PRIMARY)),
             EventPayload::link_created(
                 bound,
@@ -84,7 +84,7 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
             // The supplier, known in the room as person/nordic, discloses a durable, platform-agnostic
             // fact about themselves — the class-level human-fact the agent should put on file.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "suppliers",
                 "nordic",
                 "Admin note for your records: we've relocated our main warehouse to Malmö, effective this \

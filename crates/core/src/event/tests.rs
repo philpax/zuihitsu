@@ -342,7 +342,7 @@ fn a_version_two_merge_proposed_reads_with_no_rationale() {
     let from = MemoryId::generate();
     let to = MemoryId::generate();
     let legacy = format!(
-        r#"{{"type":"MergeProposed","from":"{}","to":"{}","source":"Orchestration"}}"#,
+        r#"{{"type":"MergeProposed","from":"{}","to":"{}","source":"Agent"}}"#,
         from.0, to.0
     );
     assert_eq!(
@@ -350,7 +350,7 @@ fn a_version_two_merge_proposed_reads_with_no_rationale() {
         EventPayload::MergeProposed {
             from,
             to,
-            source: MergeProposalSource::Orchestration,
+            source: MergeProposalSource::Agent,
             rationale: None,
         }
     );

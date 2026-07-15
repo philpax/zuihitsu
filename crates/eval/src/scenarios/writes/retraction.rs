@@ -9,7 +9,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{EntryId, Event, EventPayload, MemoryId, MemoryName, Teller, Timestamp, Visibility};
+use zuihitsu::{
+    EntryId, Event, EventPayload, MemoryId, MemoryName, TEST_PLATFORM, Teller, Timestamp,
+    Visibility,
+};
 
 use crate::{
     analysis,
@@ -94,7 +97,7 @@ impl Scenario for RetractsAMisfiledFact {
             // A participant surfaces the mistake plainly, naming the right referent, without dictating
             // the mechanism (retract versus supersede) — that judgement is the agent's.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "design-sync",
                 "erin",
                 "Small mix-up in your notes — you've got \"leads the design team\" filed under David, \

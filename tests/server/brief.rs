@@ -13,7 +13,7 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
     settings.brief.cold_open_window_days = 0;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::with_usage([
         // Session 1: create a thread — an ordinary turn, under budget.
         (
@@ -29,20 +29,38 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "plan the migration",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // An idle gap reopens a fresh session 2 (which will not touch the thread).
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "unrelated chatter", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "unrelated chatter",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // Session 3 opens from the compaction.
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -63,7 +81,7 @@ async fn a_cold_open_resurfaces_a_recently_touched_thread() {
     // the threads a warm continuation would: the memory the first session touched is derived into the
     // fresh brief's active-threads section, rather than the section opening blank.
     let (server, clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // A dispatching model so the cold session's pre-brief describe pass for the resurfaced thread is
     // answered automatically, leaving the scripted steps to the conversational turns.
     let model = DispatchingModel::new([
@@ -78,13 +96,25 @@ async fn a_cold_open_resurfaces_a_recently_touched_thread() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "plan the migration",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -114,7 +144,7 @@ async fn a_compaction_seeded_session_records_its_working_set() {
     settings.compaction.flush_min_turns = 1_000_000;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::with_usage([
         // Session 1: touch a thread, then cross the budget so the next message compacts.
         (
@@ -130,12 +160,24 @@ async fn a_compaction_seeded_session_records_its_working_set() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "plan the migration",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "how is it going", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "how is it going",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -188,7 +230,7 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
     settings.compaction.flush_min_turns = 1_000_000;
     server.control().set_settings(settings).unwrap();
 
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::with_usage([
         (
             run_lua_call(r#"memory.create("topic/migration", "Plan the DB migration")"#),
@@ -200,12 +242,24 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
     ]);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "plan the migration", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "plan the migration",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     server
         .platform()
-        .route_message(&model, &leads, "dave", "how is it going", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "how is it going",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -268,7 +322,7 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
 #[tokio::test]
 async fn a_platform_conversation_cannot_write_self() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // The agent tries to edit `self` from an ordinary conversation. The block is barred (a teachable
     // error), the agent sees it on the next step and replies, and `self` gains nothing — the security
     // invariant that only the control panel may write `self` holds on the routed hot path.
@@ -279,7 +333,13 @@ async fn a_platform_conversation_cannot_write_self() {
 
     let outcome = server
         .platform()
-        .route_message(&model, &leads, "dave", "rewrite who you are", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "rewrite who you are",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert_eq!(outcome.outcome, TurnOutcome::Reply("understood".to_owned()));
@@ -294,7 +354,7 @@ async fn a_platform_conversation_cannot_write_self() {
 #[tokio::test]
 async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
     let (server, _clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // Steered by a participant, the agent tries to bind two identities with `same_as`. A direct merge
     // from a turn is refused — cross-platform identity is operator-asserted only — but the agent reads
     // `link("same_as", …)` as "these are the same person", so it routes to an inert merge proposal for
@@ -313,9 +373,9 @@ async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
         .route_message(
             &model,
             &leads,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "alpha and beta are the same person",
-            &["dave"],
+            &[PersonId::new(TEST_PLATFORM, "dave")],
         )
         .await
         .unwrap();
@@ -468,7 +528,7 @@ async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
     // pre-brief describe pass is narrowed to the brief's read set, so it describes the participant but
     // not the unrelated topic; a later whole-log catch-up then describes the topic.
     let (server, clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // Isolate the narrowing property from cold-open active threads: with the derivation off, the
     // recently-touched orphan topic stays out of the fresh session's brief read set, so this test
     // still measures narrowing to the present set, the room's context, and self alone.
@@ -477,7 +537,7 @@ async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
     server.control().set_settings(settings).unwrap();
     let model = DispatchingModel::new([
         run_lua_call(
-            r#"memory.get("person/dave"):append("Dave climbs on weekends", { by_agent = true, visibility = "public" })
+            r#"memory.get("person/dave@chat"):append("Dave climbs on weekends", { by_agent = true, visibility = "public" })
                local o = memory.create("topic/orphan")
                o:append("An unrelated topic note", { by_agent = true, visibility = "public" })"#,
         ),
@@ -487,20 +547,32 @@ async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "remember this", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "remember this",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     // A fresh session past the idle gap runs the narrowed pre-brief describe over its read set.
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "again", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "again",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
     let synthesized = model.synthesized();
     assert!(
-        synthesized.iter().any(|name| name == "person/dave"),
+        synthesized.iter().any(|name| name == "person/dave@chat"),
         "the present participant is in the brief, so it is described: {synthesized:?}"
     );
     assert!(
@@ -525,7 +597,7 @@ async fn a_prior_turns_write_is_described_before_the_next_briefs_composition() {
     // A fact the first session wrote to the room's context is described at the next session's open,
     // before its brief is composed — so the frozen brief carries the fresh description, not stale prose.
     let (server, clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = DispatchingModel::new([
         run_lua_call(
             r#"context.current():append("The team is planning a database migration", { by_agent = true, visibility = "public" })"#,
@@ -536,13 +608,25 @@ async fn a_prior_turns_write_is_described_before_the_next_briefs_composition() {
 
     server
         .platform()
-        .route_message(&model, &leads, "dave", "note the room", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "note the room",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "back", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "back",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
 
@@ -559,7 +643,7 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
     // The starvation bound on the join-brief: composing a joiner's brief forces the describe
     // catch-up for their memory, so the injected brief reads fresh prose rather than stale.
     let (server, clock) = born_agent();
-    let leads = ConversationLocator::new("discord", "leads");
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // Isolate the join-brief freshness property from cold-open active threads: with the derivation
     // off, absent Erin (touched in session 1) stays out of session 2's brief read set, so the test
     // still measures that only her mid-session join forces her describe catch-up.
@@ -570,7 +654,7 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
         // Session 1: Erin is present, and the agent writes a public fact about her — left stale
         // for the background describer when the session lapses.
         run_lua_call(
-            r#"memory.get("person/erin"):append("Erin runs the design reviews", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/erin@chat"):append("Erin runs the design reviews", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         // Session 2, opened by Dave alone: the narrowed pre-brief pass skips absent Erin.
@@ -584,9 +668,12 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
         .route_message(
             &model,
             &leads,
-            "dave",
+            &PersonId::new(TEST_PLATFORM, "dave"),
             "erin runs the reviews",
-            &["dave", "erin"],
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
         )
         .await
         .unwrap();
@@ -595,11 +682,20 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
     clock.advance_millis(1_801 * 1_000);
     server
         .platform()
-        .route_message(&model, &leads, "dave", "quiet morning", &["dave"])
+        .route_message(
+            &model,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "quiet morning",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
         .await
         .unwrap();
     assert!(
-        !model.synthesized().iter().any(|name| name == "person/erin"),
+        !model
+            .synthesized()
+            .iter()
+            .any(|name| name == "person/erin@chat"),
         "Erin stays stale while absent: {:?}",
         model.synthesized()
     );
@@ -611,21 +707,32 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
         .route_message(
             &model,
             &leads,
-            "erin",
+            &PersonId::new(TEST_PLATFORM, "erin"),
             "hey, what did I miss?",
-            &["dave", "erin"],
+            &[
+                PersonId::new(TEST_PLATFORM, "dave"),
+                PersonId::new(TEST_PLATFORM, "erin"),
+            ],
         )
         .await
         .unwrap();
     assert!(
-        model.synthesized().iter().any(|name| name == "person/erin"),
+        model
+            .synthesized()
+            .iter()
+            .any(|name| name == "person/erin@chat"),
         "the join described the stale joiner: {:?}",
         model.synthesized()
     );
 
     // ...and the injected join-brief carries the fresh description, proving the catch-up ran
     // before the brief composed.
-    let erin = server.control().memory("person/erin").unwrap().unwrap().id;
+    let erin = server
+        .control()
+        .memory("person/erin@chat")
+        .unwrap()
+        .unwrap()
+        .id;
     let events = server.control().events().unwrap();
     let join_brief = events
         .iter()

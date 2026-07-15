@@ -234,7 +234,7 @@ fn a_same_as_class_collapses_to_a_single_block() {
     // the class to one block, headed by the present stub, and drops the intra-class `same_as` plumbing.
     let direct = MemoryId::generate();
     let canonical = MemoryId::generate();
-    let discord = MemoryId::generate();
+    let chat = MemoryId::generate();
     let erin = MemoryId::generate();
     let (_store, graph) = materialized(vec![
         EventPayload::LinkTypeRegistered {
@@ -249,9 +249,9 @@ fn a_same_as_class_collapses_to_a_single_block() {
         register_relation("knows", "known_by"),
         created(direct, "person/rowan@direct"),
         created(canonical, "person/rowan"),
-        created(discord, "person/rowan@discord"),
+        created(chat, "person/rowan@chat"),
         created(erin, "person/erin"),
-        // Merge all three stubs into one class: direct ↔ canonical ↔ discord.
+        // Merge all three stubs into one class: direct ↔ canonical ↔ chat.
         EventPayload::link_created(
             direct,
             canonical,
@@ -262,7 +262,7 @@ fn a_same_as_class_collapses_to_a_single_block() {
             Visibility::Public,
         ),
         EventPayload::link_created(
-            discord,
+            chat,
             canonical,
             RelationName::SameAs,
             LinkSource::Operator,
@@ -292,12 +292,12 @@ fn a_same_as_class_collapses_to_a_single_block() {
     let settings = Settings::default().brief;
 
     // The present stub is present; the other two ride in the working set as would-be active threads.
-    let out = compose_at_epoch(&graph, &settings, &[direct], None, &[canonical, discord]);
+    let out = compose_at_epoch(&graph, &settings, &[direct], None, &[canonical, chat]);
 
     // One block for the identity, headed by the present stub — the bare stubs never get their own.
     assert!(out.contains("## person/rowan@direct"));
     assert!(!out.contains("## person/rowan\n"));
-    assert!(!out.contains("## person/rowan@discord"));
+    assert!(!out.contains("## person/rowan@chat"));
     // The two working-set stubs are the same identity as the present one, so nothing is left to render
     // as an active thread and the whole section drops.
     assert!(!out.contains("# Active threads"));

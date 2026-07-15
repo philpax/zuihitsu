@@ -28,7 +28,7 @@ impl Scenario for RecallsConnections {
         vec![
             // Turn 1: two of Dave's relationships come up in passing, for the agent to record as links.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "team-room",
                 "marcus",
                 "Dave's bringing a couple of friends along on Friday — Erin, who he's known since \
@@ -42,7 +42,7 @@ impl Scenario for RecallsConnections {
             // reasonable reply may only name Frank (the other connection) and omit Erin, assuming she
             // already knows she is one of Dave's connections.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "erin",
                 "Hey, who does Dave actually know around here? Trying to get a sense of his crowd.",

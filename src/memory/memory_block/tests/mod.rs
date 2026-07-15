@@ -101,14 +101,14 @@ pub(super) fn block_with_limit(
     .unwrap()
 }
 
-/// A graph seeded with two merged person memories (`person/quinn` and `person/quinn@discord`, bound
+/// A graph seeded with two merged person memories (`person/quinn` and `person/quinn@chat`, bound
 /// by a committed `same_as`) and the `same_as` relation — enough to exercise the foreign-confidence
 /// supersede guard's class resolution, where a confidence told by one identity is the other's own.
 /// Returns the graph and the two ids.
 pub(super) fn graph_with_merged_pair() -> (Graph, MemoryId, MemoryId) {
     let mut store = MemoryStore::new();
     let quinn = MemoryId::generate();
-    let quinn_discord = MemoryId::generate();
+    let quinn_chat = MemoryId::generate();
     store
         .append(
             Timestamp::from_millis(1_000),
@@ -124,13 +124,10 @@ pub(super) fn graph_with_merged_pair() -> (Graph, MemoryId, MemoryId) {
                     description: String::new(),
                 },
                 EventPayload::memory_created(quinn, Namespace::Person.with_name("quinn")),
-                EventPayload::memory_created(
-                    quinn_discord,
-                    Namespace::Person.with_name("quinn@discord"),
-                ),
+                EventPayload::memory_created(quinn_chat, Namespace::Person.with_name("quinn@chat")),
                 EventPayload::link_created(
                     quinn,
-                    quinn_discord,
+                    quinn_chat,
                     RelationName::SameAs,
                     LinkSource::Operator,
                     None,
@@ -142,7 +139,7 @@ pub(super) fn graph_with_merged_pair() -> (Graph, MemoryId, MemoryId) {
         .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();
     graph.materialize_from(&store).unwrap();
-    (graph, quinn, quinn_discord)
+    (graph, quinn, quinn_chat)
 }
 
 /// An append recording a confidence with the given posture, told by a specific participant — the

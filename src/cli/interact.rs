@@ -1,9 +1,9 @@
-//! The `interact` namespace: drive the agent — send an imprint interview message, deliver a
-//! participant turn, or note a participant arriving mid-session.
+//! The textual CLI for driving a participant turn — deliver a message with its senders and present
+//! set, imprint the self-model, or note a participant arriving mid-conversation.
 
 use clap::Subcommand;
 
-use zuihitsu::MessageInput;
+use zuihitsu::{MessageInput, PersonId};
 
 use crate::cli::{client::Client, error::CliError, print_json};
 
@@ -48,21 +48,27 @@ pub(crate) fn dispatch(client: &Client, command: &InteractCommand) -> Result<(),
             sender,
             text,
             present,
-        } => print_json(&client.send(
-            platform,
-            scope,
-            &[MessageInput {
-                sender: sender.clone(),
-                text: text.clone(),
-            }],
-            present,
-        )?),
+        } => {
+            let sender_id = PersonId::new(platform, sender);
+            let present_ids: Vec<PersonId> =
+                present.iter().map(|u| PersonId::new(platform, u)).collect();
+            print_json(&client.send(
+                platform,
+                scope,
+                &[MessageInput {
+                    sender: sender_id.clone(),
+                    text: text.clone(),
+                }],
+                &present_ids,
+            )?)
+        }
         InteractCommand::Join {
             platform,
             scope,
             participant,
         } => {
-            client.join(platform, scope, participant)?;
+            let participant_id = PersonId::new(platform, participant);
+            client.join(platform, scope, &participant_id)?;
             tracing::info!(%platform, %scope, %participant, "noted join");
             Ok(())
         }

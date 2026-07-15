@@ -11,7 +11,7 @@ use axum::{
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use serde::Deserialize;
-use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, RosterResync};
+use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, PersonId, RosterResync};
 use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
 
 use super::{AppState, error::ApiError};
@@ -24,7 +24,7 @@ use super::{AppState, error::ApiError};
 pub(super) struct MessageRequest {
     locator: ConversationLocator,
     messages: Vec<MessageInput>,
-    present: Vec<String>,
+    present: Vec<PersonId>,
 }
 
 pub(super) async fn message(
@@ -32,7 +32,6 @@ pub(super) async fn message(
     Json(request): Json<MessageRequest>,
 ) -> Result<Json<PlatformResponse>, ApiError> {
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
-    let present: Vec<&str> = request.present.iter().map(String::as_str).collect();
     let response = state
         .server
         .platform()
@@ -40,7 +39,7 @@ pub(super) async fn message(
             model.as_ref(),
             &request.locator,
             &request.messages,
-            &present,
+            &request.present,
         )
         .await?;
     Ok(Json(response))
@@ -52,7 +51,7 @@ pub(super) async fn message(
 #[derive(Deserialize)]
 pub(super) struct JoinRequest {
     locator: ConversationLocator,
-    participant: String,
+    participant: PersonId,
 }
 
 pub(super) async fn join(
@@ -80,18 +79,17 @@ pub(super) async fn join(
 #[derive(Deserialize)]
 pub(super) struct RosterRequest {
     locator: ConversationLocator,
-    roster: Vec<String>,
+    roster: Vec<PersonId>,
 }
 
 pub(super) async fn roster(
     State(state): State<AppState>,
     Json(request): Json<RosterRequest>,
 ) -> Result<Json<RosterResync>, ApiError> {
-    let roster: Vec<&str> = request.roster.iter().map(String::as_str).collect();
     let resync = state
         .server
         .platform()
-        .note_presence(state.model.as_deref(), &request.locator, &roster)
+        .note_presence(state.model.as_deref(), &request.locator, &request.roster)
         .await?;
     Ok(Json(resync))
 }
@@ -147,14 +145,13 @@ pub(super) async fn message_stream(
 
     let server = state.server.clone();
     let mut turn = tokio::spawn(async move {
-        let present: Vec<&str> = request.present.iter().map(String::as_str).collect();
         server
             .platform()
             .route_messages(
                 model.as_ref(),
                 &request.locator,
                 &request.messages,
-                &present,
+                &request.present,
             )
             .await
     });

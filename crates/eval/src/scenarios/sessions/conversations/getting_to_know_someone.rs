@@ -25,7 +25,7 @@ impl Scenario for GettingToKnowSomeone {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Someone I'd like you to keep track of: Sam. She's a product designer at Hooli, started \
@@ -33,7 +33,7 @@ impl Scenario for GettingToKnowSomeone {
             )
             .into(),
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "A couple more things about Sam — she's really into rock climbing, and she's based in \
@@ -42,7 +42,7 @@ impl Scenario for GettingToKnowSomeone {
             .into(),
             // A correction: the location was wrong. A direct contradiction the agent should reconcile.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Oh — I had it wrong, Sam's actually in Portland, not Seattle. Mixed her up with someone.",
@@ -52,7 +52,7 @@ impl Scenario for GettingToKnowSomeone {
             EvalStep::DescribeCatchUp,
             // A closing rundown should reflect the corrected facts.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "general",
                 "marcus",
                 "Can you give me a quick rundown on Sam?",

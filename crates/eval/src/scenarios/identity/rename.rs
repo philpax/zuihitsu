@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::Event;
+use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
@@ -60,7 +60,7 @@ impl Scenario for ARenameHoldsUp {
             // agent cannot read a shared buffer — connecting them across the rename forces retrieval.
             // Dave introduces himself.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "onboarding",
                 "dave",
                 "Hi, I'm Dave — just started on the team this week.",
@@ -72,7 +72,7 @@ impl Scenario for ARenameHoldsUp {
             },
             // A separate conversation: Erin says she knows him — the agent must retrieve Dave to attach it.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "lunch",
                 "erin",
                 "Speaking of the new folks — Dave and I go way back, we went to college together.",
@@ -84,7 +84,7 @@ impl Scenario for ARenameHoldsUp {
             },
             // A separate conversation: Dave transitions and asks to be called Sarah.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dave-dm",
                 "dave",
                 "Hey — I've transitioned, and I go by Sarah now (she/her). Please use that from here on.",
@@ -96,7 +96,7 @@ impl Scenario for ARenameHoldsUp {
             },
             // A separate conversation: a newcomer asks who Sarah is and whether anyone knows her.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "marcus",
                 "I keep hearing the name Sarah around here — who is she, and does anyone know her well?",
@@ -170,7 +170,7 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
             // Independent conversations across rooms and time, so the final answer must come from memory.
             // Dave introduces himself and what he does.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "ops",
                 "dave",
                 "Hey, I'm Dave — I handle the deploys around here.",
@@ -182,7 +182,7 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
             },
             // A separate conversation: Dave transitions and goes by Sarah.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "dave-dm",
                 "dave",
                 "Heads up: I've transitioned and go by Sarah now (she/her) — please use Sarah.",
@@ -194,7 +194,7 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
             },
             // A separate conversation: someone who only knew the old name asks after Dave.
             Turn::new(
-                "discord",
+                TEST_PLATFORM,
                 "hallway",
                 "frank",
                 "Is Dave still the one who handles deploys? Haven't seen him around lately.",
