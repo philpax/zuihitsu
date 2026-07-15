@@ -19,6 +19,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
         agent::{BackendHealth, PlatformResponse, TurnOutcome},
         live::LiveEvent,
         package::{EvalPackage, PackageSummary},
+        stream::StreamFrame,
     };
     use zuihitsu_core::{
         ids::{Namespace, NamespacedMemoryName},
@@ -36,6 +37,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     NamespacedMemoryName::export_all_to(dir).context("exporting NamespacedMemoryName")?;
     TurnOutcome::export_all_to(dir).context("exporting TurnOutcome")?;
     PlatformResponse::export_all_to(dir).context("exporting PlatformResponse")?;
+    StreamFrame::export_all_to(dir).context("exporting StreamFrame")?;
     BackendHealth::export_all_to(dir).context("exporting BackendHealth")?;
     TurnProgress::export_all_to(dir).context("exporting TurnProgress")?;
     write_console_constants(dir).context("writing console constants")?;

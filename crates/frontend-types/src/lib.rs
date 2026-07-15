@@ -12,6 +12,7 @@ pub mod executor;
 pub mod live;
 pub mod package;
 pub mod step;
+pub mod stream;
 
 #[cfg(feature = "ts")]
 pub mod export;
@@ -27,6 +28,7 @@ pub use package::{
     VerdictKind,
 };
 pub use step::{EvalStep, OnMissing, StepText, Turn};
+pub use stream::StreamFrame;
 
 // Re-export the wire types the crate depends on, so the eval crate can reach them through a
 // single dependency rather than threading `zuihitsu-core` separately for just these few items.

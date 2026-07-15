@@ -11,7 +11,8 @@ use axum::{
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use serde::Deserialize;
-use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, PlatformResponse, RosterResync};
+use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, RosterResync};
+use zuihitsu_frontend_types::{PlatformResponse, StreamFrame};
 
 use super::{AppState, error::ApiError};
 
@@ -126,6 +127,11 @@ pub(super) async fn write_context(
 /// never upgraded. A connector uses this to drive a typing indicator or a partial-message edit; the
 /// frames are ephemeral (never stored), and a turn's failure arrives as a terminal `error` frame
 /// with the failure's message.
+///
+/// The response is an SSE stream. Every event has a `data:` payload that is a JSON `StreamFrame`
+/// (see `zuihitsu_frontend_types::StreamFrame`). No `event:` field is emitted — the frame's type
+/// is inside the JSON. A consumer reads SSE events, takes each `data:` field, and deserialises
+/// it as a `StreamFrame`.
 pub(super) async fn message_stream(
     State(state): State<AppState>,
     Json(request): Json<MessageRequest>,
@@ -157,13 +163,9 @@ pub(super) async fn message_stream(
         let mut progress_open = true;
         loop {
             tokio::select! {
-                frame = progress.recv(), if progress_open => match frame {
-                    Ok(frame) if frame.conversation == conversation => {
-                        if let Ok(json) = serde_json::to_string(&frame) {
-                            yield Ok::<_, std::convert::Infallible>(
-                                SseEvent::default().event("progress").data(json),
-                            );
-                        }
+                progress_frame = progress.recv(), if progress_open => match progress_frame {
+                    Ok(progress_frame) if progress_frame.conversation == conversation => {
+                        yield frame(StreamFrame::Progress(progress_frame));
                     }
                     Ok(_) => continue,
                     // Progress is cosmetic: a lag skips ahead. A closed feed would otherwise
@@ -178,24 +180,24 @@ pub(super) async fn message_stream(
                 result = &mut turn => {
                     // The turn is done; drain the frames it published before we observed
                     // completion, so the tail of the reply is not dropped.
-                    while let Ok(frame) = progress.try_recv() {
-                        if frame.conversation == conversation
-                            && let Ok(json) = serde_json::to_string(&frame)
-                        {
-                            yield Ok(SseEvent::default().event("progress").data(json));
+                    while let Ok(progress_frame) = progress.try_recv() {
+                        if progress_frame.conversation == conversation {
+                            yield frame(StreamFrame::Progress(progress_frame));
                         }
                     }
                     match result {
                         Ok(Ok(response)) => {
-                            if let Ok(json) = serde_json::to_string(&response) {
-                                yield Ok(SseEvent::default().event("outcome").data(json));
-                            }
+                            yield frame(StreamFrame::Outcome(response));
                         }
                         Ok(Err(error)) => {
-                            yield Ok(SseEvent::default().event("error").data(error.to_string()));
+                            yield frame(StreamFrame::Error {
+                                message: error.to_string(),
+                            });
                         }
                         Err(join_error) => {
-                            yield Ok(SseEvent::default().event("error").data(join_error.to_string()));
+                            yield frame(StreamFrame::Error {
+                                message: join_error.to_string(),
+                            });
                         }
                     }
                     return;
@@ -204,4 +206,11 @@ pub(super) async fn message_stream(
         }
     };
     Ok(Sse::new(body).keep_alive(KeepAlive::default()))
+}
+
+/// Wrap a `StreamFrame` as an SSE event with a JSON `data:` payload. No `event:` field is
+/// emitted — the frame's type is inside the JSON (`{"type":"progress",…}`), so the SSE event
+/// name carries no information.
+fn frame(frame: StreamFrame) -> Result<SseEvent, axum::Error> {
+    SseEvent::default().json_data(frame)
 }

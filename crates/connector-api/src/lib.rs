@@ -15,7 +15,7 @@ use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::Serialize;
 use zuihitsu_core::{ids::ConversationLocator, progress::TurnProgress};
-use zuihitsu_frontend_types::PlatformResponse;
+use zuihitsu_frontend_types::{PlatformResponse, StreamFrame};
 
 /// A failure in the platform API client.
 #[derive(Debug)]
@@ -124,6 +124,9 @@ impl PlatformClient {
     /// `POST /platform/messages/stream` — deliver a batch of turns and watch its generation arrive.
     /// Calls `on_progress` for each progress fragment as it arrives (so the caller can start a
     /// typing indicator on the first `Reply` fragment), and returns the terminal outcome or error.
+    ///
+    /// The response body is a newline-delimited JSON stream of `StreamFrame` values. Each line is
+    /// one complete JSON object; the client reads lines and deserialises each as a `StreamFrame`.
     pub async fn send_message_stream(
         &self,
         locator: &ConversationLocator,
@@ -159,9 +162,10 @@ impl PlatformClient {
             });
         }
 
-        // Parse the SSE stream as it arrives. Each line is either "event: <type>" or "data: <json>".
+        // Parse the SSE stream. Every event has a `data:` payload that is a JSON `StreamFrame`.
+        // No `event:` field is emitted — the frame's type is inside the JSON. The SSE grammar
+        // handles framing; the client deserialises each `data:` payload and matches on the tag.
         let mut on_progress = on_progress;
-        let mut event_type = String::new();
         let mut data = String::new();
         let mut outcome = None;
 
@@ -175,42 +179,29 @@ impl PlatformClient {
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
             while let Some(line_end) = buffer.find('\n') {
-                let line = buffer[..line_end].trim_end_matches('\r').to_owned();
+                let line: String = buffer[..line_end].trim_end_matches('\r').to_owned();
                 buffer = buffer[line_end + 1..].to_owned();
 
-                if let Some(event) = line.strip_prefix("event: ") {
-                    event_type = event.to_owned();
-                } else if let Some(payload) = line.strip_prefix("data: ") {
+                if let Some(payload) = line.strip_prefix("data: ") {
                     data = payload.to_owned();
-                } else if line.is_empty() && !event_type.is_empty() {
-                    // End of one SSE event — process it.
-                    match event_type.as_str() {
-                        "progress" => match serde_json::from_str::<TurnProgress>(&data) {
-                            Ok(progress) => on_progress(&progress),
-                            Err(error) => {
-                                tracing::warn!(
-                                    %error,
-                                    "platform client: could not parse progress frame"
-                                );
-                            }
-                        },
-                        "outcome" => match serde_json::from_str::<PlatformResponse>(&data) {
-                            Ok(response) => {
-                                outcome = Some(StreamOutcome::Outcome(response));
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    %error,
-                                    "platform client: could not parse outcome frame"
-                                );
-                            }
-                        },
-                        "error" => {
-                            outcome = Some(StreamOutcome::Error(data.clone()));
+                } else if line.is_empty() && !data.is_empty() {
+                    // End of one SSE event — deserialise the data payload as a StreamFrame.
+                    match serde_json::from_str::<StreamFrame>(&data) {
+                        Ok(StreamFrame::Progress(progress)) => on_progress(&progress),
+                        Ok(StreamFrame::Outcome(response)) => {
+                            outcome = Some(StreamOutcome::Outcome(response));
                         }
-                        _ => {}
+                        Ok(StreamFrame::Error { message }) => {
+                            outcome = Some(StreamOutcome::Error(message));
+                        }
+                        Ok(StreamFrame::Event(_) | StreamFrame::End) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                %error,
+                                "platform client: could not parse stream frame"
+                            );
+                        }
                     }
-                    event_type.clear();
                     data.clear();
                 }
             }

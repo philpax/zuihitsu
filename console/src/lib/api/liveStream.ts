@@ -1,16 +1,19 @@
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { StreamFrame } from "@zuihitsu/wire/types/StreamFrame.ts";
 import type { TurnProgress } from "@zuihitsu/wire/types/TurnProgress.ts";
 
 /// A minimal server-sent-events reader over `fetch`, used instead of the native `EventSource`
 /// because the control surface authenticates with a bearer header, which `EventSource` cannot
-/// carry. Parses the frame types the agent's SSE endpoints emit: committed `event`s, ephemeral
-/// `progress` frames, and the platform stream's terminals.
+/// carry. Every SSE event has a `data:` payload that is a JSON `StreamFrame`; no `event:` field
+/// is emitted, so the consumer deserialises each `data:` payload and dispatches on the
+/// `StreamFrame`'s `type` tag.
 export interface StreamHandlers {
   /// The stream opened (a 200 with a body) — the caller's cue to reset failure counters.
   onOpen?: () => void;
-  /// A batch of committed events — consecutive `event` frames from one network chunk, delivered
-  /// together so the caller folds once per chunk. Batches never reorder against `progress` frames:
-  /// a progress frame flushes the pending batch first, so frames apply in wire order.
+  /// A batch of committed events — consecutive `StreamFrame::Event` frames from one network
+  /// chunk, delivered together so the caller folds once per chunk. Batches never reorder
+  /// against `progress` frames: a progress frame flushes the pending batch first, so frames
+  /// apply in wire order.
   onEvents: (events: Event[]) => void;
   onProgress: (frame: TurnProgress) => void;
   /// The stream ended — an error, or the server closing (which the server does deliberately on
@@ -54,10 +57,10 @@ export function openEventStream(
           batch = [];
         };
         for (const frame of decoder.push(value)) {
-          if (frame.kind === "event") batch.push(JSON.parse(frame.data) as Event);
+          if (frame.kind === "event") batch.push(frame.data as Event);
           else if (frame.kind === "progress") {
             flush();
-            handlers.onProgress(JSON.parse(frame.data) as TurnProgress);
+            handlers.onProgress(frame.data as TurnProgress);
           }
         }
         flush();
@@ -75,7 +78,7 @@ export function openEventStream(
 /// One parsed SSE frame: its `event:` name and concatenated `data:` payload.
 export interface SseFrame {
   kind: string;
-  data: string;
+  data: unknown;
 }
 
 /// An incremental SSE decoder: feed it network chunks, get complete frames back, with partial
@@ -101,18 +104,19 @@ export class SseDecoder {
   }
 }
 
-/// One SSE frame's `event:` name and concatenated `data:` payload; `null` for keep-alives and
-/// comment frames.
+/// One SSE frame's `event:` name and parsed `data:` payload; `null` for keep-alives and
+/// comment frames. The `data:` payload is deserialised as a `StreamFrame` and the `kind` is
+/// the `StreamFrame`'s tag (`"event"`, `"progress"`, `"outcome"`, `"end"`, `"error"`).
 function parseFrame(frame: string): SseFrame | null {
-  let kind = "message";
   const data: string[] = [];
   for (const raw of frame.split("\n")) {
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-    if (line.startsWith("event:")) kind = stripLeadingSpace(line.slice("event:".length));
-    else if (line.startsWith("data:")) data.push(stripLeadingSpace(line.slice("data:".length)));
+    if (line.startsWith("data:")) data.push(stripLeadingSpace(line.slice("data:".length)));
   }
   if (data.length === 0) return null;
-  return { kind, data: data.join("\n") };
+  const payload = data.join("\n");
+  const streamFrame = JSON.parse(payload) as StreamFrame;
+  return { kind: streamFrame.type, data: streamFrame };
 }
 
 /// The SSE grammar allows exactly one optional space after the field's colon; stripping more (a

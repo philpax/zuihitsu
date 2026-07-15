@@ -523,7 +523,7 @@ async fn the_event_stream_opens_with_the_committed_snapshot() {
         .expect("the frame reads");
     let text = String::from_utf8_lossy(&first);
     assert!(
-        text.contains("event: event"),
+        text.contains("\"type\":\"event\""),
         "the first frames are committed events, got: {text}"
     );
     assert!(
@@ -582,7 +582,7 @@ async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
     .unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(
-        text.contains("event: progress"),
+        text.contains("\"type\":\"progress\""),
         "progress frames arrive: {text}"
     );
     assert!(
@@ -590,7 +590,7 @@ async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
         "the reply streams as fragments: {text}"
     );
     let outcome_at = text
-        .find("event: outcome")
+        .find("\"type\":\"outcome\"")
         .expect("the terminal outcome frame arrives");
     assert!(
         text[outcome_at..].contains("Hello there, Dave."),
@@ -666,7 +666,7 @@ async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
 
     // The turn's progress frames and its committed events both arrive over the one stream.
     let mut collected = String::new();
-    while !(collected.contains("event: progress") && collected.contains("ConversationTurn")) {
+    while !(collected.contains("\"type\":\"progress\"") && collected.contains("ConversationTurn")) {
         let chunk = tokio::time::timeout(std::time::Duration::from_secs(5), frames.next())
             .await
             .expect("the pushed frames arrive")
@@ -674,7 +674,7 @@ async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
             .expect("the frame reads");
         collected.push_str(&String::from_utf8_lossy(&chunk));
     }
-    assert!(collected.contains("event: event"));
+    assert!(collected.contains("\"type\":\"event\""));
     assert!(collected.contains("\"kind\":\"reply\""));
 }
 

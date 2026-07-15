@@ -8,25 +8,25 @@ describe("SseDecoder", () => {
   it("parses frames and buffers partials across chunk boundaries", () => {
     const decoder = new SseDecoder();
     // The frame boundary lands mid-frame: nothing complete yet.
-    expect(decoder.push(encode('event: event\ndata: {"seq'))).toEqual([]);
+    expect(decoder.push(encode('data: {"type":"event","seq"'))).toEqual([]);
     // The rest of the frame plus the start of another.
-    const frames = decoder.push(encode('":1}\n\nevent: progress\ndata: {"kind"'));
-    expect(frames).toEqual([{ kind: "event", data: '{"seq":1}' }]);
-    expect(decoder.push(encode(':"reply"}\n\n'))).toEqual([
-      { kind: "progress", data: '{"kind":"reply"}' },
+    const frames = decoder.push(encode('":1}\n\ndata: {"type":"progress"'));
+    expect(frames).toEqual([{ kind: "event", data: { type: "event", seq: 1 } }]);
+    expect(decoder.push(encode("}\n\n"))).toEqual([
+      { kind: "progress", data: { type: "progress" } },
     ]);
   });
 
   it("tolerates CRLF line endings", () => {
     const decoder = new SseDecoder();
-    expect(decoder.push(encode("event: event\r\ndata: 1\r\n\r\n"))).toEqual([
-      { kind: "event", data: "1" },
+    expect(decoder.push(encode('data: {"type":"event","seq":1}\r\n\r\n'))).toEqual([
+      { kind: "event", data: { type: "event", seq: 1 } },
     ]);
   });
 
-  it("joins multi-line data and swallows keep-alive comments", () => {
+  it("swallows keep-alive comments", () => {
     const decoder = new SseDecoder();
-    const frames = decoder.push(encode(":keep-alive\n\nevent: event\ndata: a\ndata: b\n\n"));
-    expect(frames).toEqual([{ kind: "event", data: "a\nb" }]);
+    const frames = decoder.push(encode(':keep-alive\n\ndata: {"type":"event","seq":1}\n\n'));
+    expect(frames).toEqual([{ kind: "event", data: { type: "event", seq: 1 } }]);
   });
 });
