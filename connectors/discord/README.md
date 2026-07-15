@@ -37,6 +37,11 @@ token = "<your bot token>"
 # DMs are always open.
 allowed_channels = [123456789012345678]
 
+[storage]
+# Path to the SQLite database for the turn map (message ID → turn ID).
+# The mapping survives connector restarts.
+turn_map_path = "turn_map.db"
+
 [pacing]
 debounce_ms = 500
 typing_refresh_secs = 8
@@ -64,7 +69,8 @@ reply to it (in an allowed guild channel) or arrive as DMs are forwarded to the 
   channel's name or topic changes.
 - **Turn mapping**: when a user replies to a mapped message (bot or participant), the connector
   injects a `[turn:<id>]` token into the message text before forwarding to the platform API, so the
-  agent can reference the prior turn.
+  agent can reference the prior turn. The mapping is persisted to a SQLite database
+  (`storage.turn_map_path`), so it survives connector restarts.
 - **Presence**: the present set is per-channel and grows lazily — a user is added when they send a
   message the bot processes. Departures remove the user from every channel. The connector does not
   call `/platform/join`; presence is communicated per-message through the `present` field.

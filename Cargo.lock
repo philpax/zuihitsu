@@ -4549,9 +4549,11 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "parking_lot",
+ "rusqlite",
  "serde",
  "serenity",
  "smol_str",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",

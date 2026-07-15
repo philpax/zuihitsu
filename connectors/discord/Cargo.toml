@@ -31,5 +31,9 @@ clap = { workspace = true }
 smol_str = { workspace = true }
 ulid = { workspace = true }
 parking_lot = { workspace = true }
+rusqlite = { workspace = true }
 zuihitsu-core = { workspace = true }
 zuihitsu-connector-api = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

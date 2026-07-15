@@ -1,9 +1,7 @@
 /target
 
 # Environmental config — endpoints, credentials, DB paths. Per-instance, never committed.
-/config.toml
-# Alternate per-instance configs (e.g. a second model for eval comparison).
-/config-*.toml
+/config*.toml
 
 # Per-instance databases (the default config puts them here).
 /data/

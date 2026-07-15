@@ -1,6 +1,9 @@
 //! Connector configuration: loaded from `config.discord.toml`.
 
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 use serenity::model::id::ChannelId;
@@ -16,6 +19,7 @@ pub struct DiscordConfig {
     pub behavior: BehaviorConfig,
     #[serde(default)]
     pub pacing: PacingConfig,
+    pub storage: StorageConfig,
 }
 
 /// The zuihitsu server connection.
@@ -46,6 +50,14 @@ pub struct BehaviorConfig {
     /// are ignored. DMs are always open.
     #[serde(default)]
     pub allowed_channels: HashSet<ChannelId>,
+}
+
+/// Persistent storage paths.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StorageConfig {
+    /// Path to the SQLite database for the turn map (Discord message ID → zuihitsu turn ID).
+    /// The mapping survives connector restarts.
+    pub turn_map_path: PathBuf,
 }
 
 /// Pacing tunables.
@@ -116,12 +128,16 @@ platform_key = "key"
 
 [discord]
 token = "tok"
+
+[storage]
+turn_map_path = "turn_map.db"
 "#,
         )
         .unwrap();
         assert_eq!(config.pacing.debounce_ms, 500);
         assert_eq!(config.pacing.typing_refresh_secs, 8);
         assert!(config.behavior.allowed_channels.is_empty());
+        assert_eq!(config.storage.turn_map_path, PathBuf::from("turn_map.db"));
     }
 
     #[test]
@@ -134,6 +150,9 @@ platform_key = "key"
 
 [discord]
 token = "tok"
+
+[storage]
+turn_map_path = "turn_map.db"
 "#,
         );
         let config = result.unwrap();
@@ -150,6 +169,9 @@ platform_key = "key"
 
 [discord]
 token = ""
+
+[storage]
+turn_map_path = "turn_map.db"
 "#,
         );
         let config = result.unwrap();

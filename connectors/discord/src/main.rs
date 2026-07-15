@@ -50,7 +50,13 @@ async fn main() {
     };
 
     let token = config.discord.token.clone();
-    let state = Arc::new(BotState::new(config));
+    let state = match BotState::new(config) {
+        Ok(state) => Arc::new(state),
+        Err(error) => {
+            tracing::error!(%error, "discord connector: fatal state error");
+            std::process::exit(1);
+        }
+    };
 
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::GUILD_MEMBERS

@@ -28,6 +28,7 @@ use crate::{
     addressing::{AddressingDecision, MessageContext, should_respond},
     config::DiscordConfig,
     context_sync::{ContextParams, ContextSync},
+    error::{Error, Result},
     locator::ChannelContext,
     pacing::{DebounceState, PendingMessage},
     turn_map::TurnMap,
@@ -49,22 +50,29 @@ pub struct BotState {
 }
 
 impl BotState {
-    pub fn new(config: DiscordConfig) -> Self {
+    pub fn new(config: DiscordConfig) -> Result<Self> {
         let debounce_ms = config.pacing.debounce_ms;
         let connector_id = config.server.connector_id.clone();
+        let turn_map_path = config.storage.turn_map_path.clone();
         let platform = PlatformClient::new(
             config.server.url.clone(),
             config.server.platform_key.clone(),
         );
-        BotState {
+        let turn_map = TurnMap::open(&turn_map_path).map_err(|e| {
+            Error::config(format!(
+                "could not open turn map at {}: {e}",
+                turn_map_path.display()
+            ))
+        })?;
+        Ok(BotState {
             platform,
             config,
             bot_id: Mutex::new(None),
-            turn_map: Mutex::new(TurnMap::new()),
+            turn_map: Mutex::new(turn_map),
             context_sync: ContextSync::new(connector_id),
             present_members: Mutex::new(HashMap::new()),
             debounce: DebounceState::new(debounce_ms),
-        }
+        })
     }
 }
 
