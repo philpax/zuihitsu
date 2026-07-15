@@ -30,7 +30,7 @@ use crate::{
     context_sync::{ContextParams, ContextSync},
     locator::ChannelContext,
     pacing::{DebounceState, PendingMessage},
-    platform_client::{PlatformClient, StreamOutcome},
+    platform_client::{PlatformClient, PlatformMessage, StreamOutcome},
     turn_map::TurnMap,
 };
 
@@ -128,10 +128,8 @@ impl EventHandler for Handler {
             replies_to_bot,
         };
 
-        let AddressingDecision {
-            should_forward,
-            is_direct,
-        } = should_respond(&msg_ctx, &state.config.behavior);
+        let AddressingDecision { should_forward, .. } =
+            should_respond(&msg_ctx, &state.config.behavior);
         if !should_forward {
             return;
         }
@@ -194,40 +192,27 @@ impl EventHandler for Handler {
         };
 
         let sender = msg.author.id.to_string();
-        let channel_id = msg.channel_id;
 
-        // Submit to the debounce.
-        let pending = PendingMessage {
-            message_id: msg.id.get(),
-            text,
-            sender,
-            is_direct,
-        };
-        state.debounce.submit(msg.channel_id, pending).await;
-
-        // Spawn a task that waits for the debounce, then processes.
+        // Submit to the debounce. The actor collects all messages within the debounce window,
+        // then fires once with the batch — one turn for the whole burst. The latest message's
+        // context (present set, locator) is used, since it's the freshest.
+        let pending = PendingMessage { text, sender };
         let ctx_clone = ctx.clone();
         let state_clone = state.clone();
         let present_clone = present.clone();
-        let debounce_ms = state.config.pacing.debounce_ms;
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(debounce_ms)).await;
-
-            let Some(pending) = state_clone.debounce.take(channel_id).await else {
-                return;
-            };
-
-            process_message(
-                &ctx_clone,
-                &state_clone,
-                &locator,
-                &pending.sender,
-                &pending.text,
-                &present_clone,
-                channel_id,
-            )
-            .await;
-        });
+        let channel_id = msg.channel_id;
+        let locator_clone = locator.clone();
+        state
+            .debounce
+            .submit(msg.channel_id, pending, move |batch| {
+                let ctx = ctx_clone.clone();
+                let state = state_clone.clone();
+                let present = present_clone.clone();
+                let locator = locator_clone.clone();
+                tokio::spawn(async move {
+                    process_message(&ctx, &state, &locator, batch, &present, channel_id).await;
+                });
+            });
     }
 
     async fn guild_member_removal(
@@ -303,17 +288,23 @@ async fn channel_metadata(ctx: &Context, channel_id: serenity::all::ChannelId) -
     }
 }
 
-/// Process a debounced message: send it to the platform, watch progress, post the outcome.
+/// Process a debounced batch: send it to the platform, watch progress, post the outcome.
 async fn process_message(
     ctx: &Context,
     state: &Arc<BotState>,
     locator: &ConversationLocator,
-    sender: &str,
-    text: &str,
+    batch: Vec<PendingMessage>,
     present: &[String],
     channel_id: serenity::all::ChannelId,
 ) {
     let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
+    let messages: Vec<PlatformMessage> = batch
+        .into_iter()
+        .map(|m| PlatformMessage {
+            sender: m.sender,
+            text: m.text,
+        })
+        .collect();
 
     // The typing indicator starts on the first Reply progress fragment and is refreshed until
     // the outcome arrives. The callback fires as each fragment streams in, so typing starts
@@ -360,7 +351,7 @@ async fn process_message(
     // Send via the streaming endpoint, processing progress as it arrives.
     let outcome = match state
         .platform
-        .send_message_stream(locator, sender, text, &present_refs, on_progress)
+        .send_message_stream(locator, &messages, &present_refs, on_progress)
         .await
     {
         Ok(outcome) => outcome,
@@ -379,7 +370,11 @@ async fn process_message(
         StreamOutcome::Outcome(response) => match response.outcome {
             TurnOutcome::Reply(reply_text) => match channel_id.say(&ctx.http, &reply_text).await {
                 Ok(sent_msg) => {
-                    if let Ok(tid) = response.participant_turn_id.parse::<ulid::Ulid>() {
+                    // Record the last participant turn id (the most recent message) for
+                    // [turn:<id>] injection when a user replies to the bot's message.
+                    if let Some(tid_str) = response.participant_turn_ids.last()
+                        && let Ok(tid) = tid_str.parse::<ulid::Ulid>()
+                    {
                         let mut turn_map = state.turn_map.lock().await;
                         turn_map.record(sent_msg.id, TurnId(tid));
                     }

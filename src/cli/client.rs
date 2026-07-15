@@ -10,8 +10,8 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
-    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, ModelCall,
-    PlatformResponse, Rollout, SeedSelf, SessionView, Settings,
+    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, MessageInput,
+    ModelCall, PlatformResponse, Rollout, SeedSelf, SessionView, Settings,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -101,22 +101,20 @@ impl Client {
         )
     }
 
-    /// `POST /platform/message` — deliver a participant turn and run the agent's response.
+    /// `POST /platform/messages` — deliver participant turns and run the agent's response.
     pub fn send(
         &self,
         platform: &str,
         scope: &str,
-        sender: &str,
-        text: &str,
+        messages: &[MessageInput],
         present: &[String],
     ) -> Result<PlatformResponse, ClientError> {
         let body = MessageBody {
             locator: ConversationLocator::new(platform, scope),
-            sender,
-            text,
+            messages,
             present,
         };
-        self.json(self.http.post(self.url("/platform/message")).json(&body))
+        self.json(self.http.post(self.url("/platform/messages")).json(&body))
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session.
@@ -199,8 +197,7 @@ struct ImprintBody<'a> {
 #[derive(Serialize)]
 struct MessageBody<'a> {
     locator: ConversationLocator,
-    sender: &'a str,
-    text: &'a str,
+    messages: &'a [MessageInput],
     present: &'a [String],
 }
 

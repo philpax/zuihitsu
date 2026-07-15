@@ -16,11 +16,8 @@ use crate::{
 };
 
 use super::{
-    BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
-    buffer::TurnView,
-    record::{TurnRecord, append_turn},
-    recording::run_steps,
-    tools::full_api_reference,
+    BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport, buffer::TurnView,
+    recording::run_steps, tools::full_api_reference,
 };
 use crate::agent::{system_prompt, templates};
 
@@ -31,7 +28,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         model,
         engine,
         inbound,
-        inbound_participant,
+        participant_turn_ids,
         brief,
         session_started_at,
         buffer,
@@ -48,25 +45,13 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     } = turn;
     let conversation = session.conversation();
     // Content the agent writes this turn is attributed to the speaker by default (an append opts out
-    // with `by_agent` for the agent's own observations — see `mem:append`).
+    // with `by_agent` for the agent's own observations — see `mem:append`). The teller is the last
+    // message's participant — the most recent speaker in the batch.
+    let inbound_participant = inbound
+        .last()
+        .map(|m| m.participant)
+        .expect("a turn has at least one inbound message");
     let teller = Teller::Participant(inbound_participant);
-    // The participant's inbound turn id — generated once, recorded on the `ConversationTurn`, and
-    // returned in the `TurnReport` so a platform client can map its message id to the turn id.
-    let participant_turn_id = TurnId::generate();
-    // An inbound participant message is not inference, so it carries no provenance.
-    append_turn(
-        engine.store.lock().as_mut(),
-        engine.clock.as_ref(),
-        TurnRecord {
-            conversation,
-            turn_id: participant_turn_id,
-            role: TurnRole::Participant,
-            text: inbound.to_owned(),
-            participant: Some(inbound_participant),
-            initiation: Initiation::Responding,
-            produced_by: None,
-        },
-    )?;
 
     // Assemble the frozen system prompt once for the cycle: the `template` framing (Scaffold for a
     // participant turn, Imprint for the interview), the agent's identity from `self`, and the time.
@@ -109,24 +94,32 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     });
 
     // The agent's whole response cycle shares one turn id; its blocks stamp their events with it. The
-    // live buffer is replayed as the prompt suffix, then the current inbound message.
+    // live buffer is replayed as the prompt suffix, then each inbound message as a separate user turn.
     let turn_id = TurnId::generate();
-    let names = participant_names(engine.as_ref(), buffer, &[inbound_participant]);
+    let inbound_participants: Vec<MemoryId> = inbound.iter().map(|m| m.participant).collect();
+    let names = participant_names(engine.as_ref(), buffer, &inbound_participants);
     let mut messages = buffer_messages(buffer, &names);
-    messages.push(Message::user(stamp(
-        inbound,
-        engine.clock.now(),
-        names.get(&inbound_participant).map(String::as_str),
-    )));
+    for msg in inbound {
+        messages.push(Message::user(stamp(
+            &msg.text,
+            engine.clock.now(),
+            names.get(&msg.participant).map(String::as_str),
+        )));
+    }
 
-    // Ambient recall: a fast lexical pass over the inbound message surfaces memories the frozen brief
+    // Ambient recall: a fast lexical pass over the inbound messages surfaces memories the frozen brief
     // did not, injected as a system message so the agent recalls what it would not have thought to
     // search for (spec §Conversations and briefs → ambient recall). It rides after the inbound, so it
-    // reads as a note about that message. The `AmbientRecallSurfaced` event is recorded right after the
-    // inbound turn and carries the rendered hint verbatim, so the buffer read path replays it in the
+    // reads as a note about the messages. The `AmbientRecallSurfaced` event is recorded right after the
+    // inbound turns and carries the rendered hint verbatim, so the buffer read path replays it in the
     // same position next turn — the prompt stays byte-identical and the serving layer's prefix cache
     // survives. The `now` is captured once and shared by the event and the live message stamp, so the
     // replay (which stamps with the event's recorded time) reproduces this message exactly.
+    let inbound_text: String = inbound
+        .iter()
+        .map(|m| m.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     let hint = {
         let graph = engine.graph.lock();
         let exclude: HashSet<MemoryId> =
@@ -134,7 +127,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         super::ambient::ambient_recall(
             &graph,
             &ambient,
-            inbound,
+            &inbound_text,
             &exclude,
             session.features().transcripts,
             session.features().browsing,
@@ -208,7 +201,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         steps,
         blocks,
         turn_id,
-        participant_turn_id,
+        participant_turn_ids: participant_turn_ids.to_vec(),
     })
 }
 

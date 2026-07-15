@@ -11,18 +11,18 @@ use axum::{
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use serde::Deserialize;
-use zuihitsu::{ContextEntry, ConversationLocator, PlatformResponse, RosterResync};
+use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, PlatformResponse, RosterResync};
 
 use super::{AppState, error::ApiError};
 
-/// `POST /platform/message` — deliver a participant turn and run the agent's response cycle. Carries
-/// the platform identity in the payload (the locator's platform, the sender, the present set); needs
-/// the model, so `503` if none is configured.
+/// `POST /platform/messages` — deliver a batch of participant turns and run one agent response
+/// cycle. Each message is recorded as a separate participant turn; the agent sees them all and
+/// responds once. Carries the platform identity in the payload (the locator's platform, the
+/// senders, the present set); needs the model, so `503` if none is configured.
 #[derive(Deserialize)]
 pub(super) struct MessageRequest {
     locator: ConversationLocator,
-    sender: String,
-    text: String,
+    messages: Vec<MessageInput>,
     present: Vec<String>,
 }
 
@@ -35,11 +35,10 @@ pub(super) async fn message(
     let response = state
         .server
         .platform()
-        .route_message(
+        .route_messages(
             model.as_ref(),
             &request.locator,
-            &request.sender,
-            &request.text,
+            &request.messages,
             &present,
         )
         .await?;
@@ -120,8 +119,8 @@ pub(super) async fn write_context(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `POST /platform/message/stream` — deliver a turn and watch its generation arrive: the reply (and
-/// reasoning) tokens as `progress` frames while the agent deliberates, then the whole
+/// `POST /platform/messages/stream` — deliver a batch of turns and watch its generation arrive: the
+/// reply (and reasoning) tokens as `progress` frames while the agent deliberates, then the whole
 /// `PlatformResponse` as the terminal `outcome` frame — the same response the unary endpoint
 /// returns, so a connector that ignores every `progress` frame behaves identically to one that
 /// never upgraded. A connector uses this to drive a typing indicator or a partial-message edit; the
@@ -133,7 +132,7 @@ pub(super) async fn message_stream(
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let model = state.model.clone().ok_or(ApiError::NoModel)?;
     // Resolve (or mint) the conversation up front so the progress subscription can filter this
-    // room's frames from the shared feed; route_message resolves to the same id.
+    // room's frames from the shared feed; route_messages resolves to the same id.
     let conversation = state
         .server
         .platform()
@@ -145,11 +144,10 @@ pub(super) async fn message_stream(
         let present: Vec<&str> = request.present.iter().map(String::as_str).collect();
         server
             .platform()
-            .route_message(
+            .route_messages(
                 model.as_ref(),
                 &request.locator,
-                &request.sender,
-                &request.text,
+                &request.messages,
                 &present,
             )
             .await

@@ -533,8 +533,8 @@ fn router(state: AppState) -> Router {
     // The participant surface: delivering turns, mid-session joins, and roster resyncs (spec §Clients
     // → platform clients). It carries platform identity in the payload, never operator authority.
     let platform = Router::new()
-        .route("/message", post(message))
-        .route("/message/stream", post(message_stream))
+        .route("/messages", post(message))
+        .route("/messages/stream", post(message_stream))
         .route("/join", post(join))
         .route("/roster", post(roster))
         .route("/context", post(write_context))

@@ -5,8 +5,11 @@ use std::time::Duration;
 use tracing::Instrument;
 
 use crate::{
-    agent::{Turn, TurnError, TurnOutcome, TurnReport, TurnView, bounded_buffer_turns, run_turn},
-    event::PromptTemplateName,
+    agent::{
+        Turn, TurnError, TurnOutcome, TurnRecord, TurnReport, TurnView, append_turn,
+        bounded_buffer_turns, run_turn,
+    },
+    event::{Initiation, PromptTemplateName, TurnRole},
     ids::MemoryId,
     metrics::{observe_turn, observe_turn_error},
     model::ModelClient,
@@ -116,7 +119,7 @@ impl Instance {
         for &joiner in routed
             .present_set
             .iter()
-            .chain(std::iter::once(&routed.participant))
+            .chain(routed.inbound.iter().map(|m| &m.participant))
         {
             if !members.contains(&joiner) && !joined.contains(&joiner) {
                 self.join_participant(Some(model), routed.conversation, open.id, joiner)
@@ -156,12 +159,34 @@ impl Instance {
             open.session_start_seq,
             settings.compaction.carryover_char_budget,
         )?;
+        // Record each inbound participant turn after `ensure_session` opens the session (so the
+        // session's `start_seq` precedes them) but after `bounded_buffer_turns` builds the buffer
+        // (so the buffer excludes the current turn — it is the current turn, not a prior one). The
+        // flush substance gate reads the buffer inside `ensure_session`, before this point, so it
+        // sees prior turns but not the current one — matching the old behaviour where `run_turn`
+        // recorded the turn after the buffer was built. An inbound participant message is not
+        // inference, so it carries no provenance.
+        for (msg, &turn_id) in routed.inbound.iter().zip(routed.participant_turn_ids) {
+            append_turn(
+                self.engine.store.lock().as_mut(),
+                self.engine.clock.as_ref(),
+                TurnRecord {
+                    conversation: routed.conversation,
+                    turn_id,
+                    role: TurnRole::Participant,
+                    text: msg.text.clone(),
+                    participant: Some(msg.participant),
+                    initiation: Initiation::Responding,
+                    produced_by: None,
+                },
+            )?;
+        }
         let report = run_turn(Turn {
             session: &open.vm,
             model,
             engine: self.engine.clone(),
             inbound: routed.inbound,
-            inbound_participant: routed.participant,
+            participant_turn_ids: routed.participant_turn_ids,
             brief: &open.brief,
             session_started_at: open.started_at,
             buffer: &buffer,

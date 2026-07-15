@@ -27,8 +27,7 @@ async fn app_with_metrics_after_a_turn(
     });
     let body = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
-        "sender": "dave",
-        "text": "hello",
+        "messages": [{ "sender": "dave", "text": "hello" }],
         "present": ["dave"],
     });
     app.clone()
@@ -36,7 +35,7 @@ async fn app_with_metrics_after_a_turn(
             Request::builder()
                 .extension(loopback())
                 .method("POST")
-                .uri("/platform/message")
+                .uri("/platform/messages")
                 .header("content-type", "application/json")
                 .body(Body::from(body.to_string()))
                 .unwrap(),

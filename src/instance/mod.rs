@@ -25,7 +25,7 @@ pub use control::{
     Arbitration, ContextEntry, Control, DesignateOutcome, LuaConsoleOutcome, MergeProposal,
     ModelCall, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
 };
-pub use platform::{Platform, RosterResync};
+pub use platform::{MessageInput, Platform, RosterResync};
 
 use std::{
     collections::BTreeMap,

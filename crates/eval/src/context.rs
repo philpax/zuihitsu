@@ -138,14 +138,14 @@ impl RunContext {
     pub(crate) async fn imprint(&self, text: &str) -> Result<TurnOutcome, EvalError> {
         self.clock.advance_millis(HUMAN_PAUSE_MS);
         let started = Instant::now();
-        let outcome = self
+        let response = self
             .server
             .control()
             .imprint(self.model.as_ref(), text)
             .await?;
         self.clock
             .advance_millis(started.elapsed().as_millis() as i64);
-        Ok(outcome)
+        Ok(response.outcome)
     }
 
     /// Append raw events to the store and materialize the graph, for scenarios that set up
@@ -349,7 +349,7 @@ fn restore_verbatim(store: &mut MemoryStore, events: &[Event]) -> Result<(), Eva
     let mut index = 0;
     while index < events.len() {
         let recorded_at = events[index].recorded_at;
-        let source = events[index].source;
+        let source = events[index].source.clone();
         let mut batch = Vec::new();
         while index < events.len()
             && events[index].recorded_at == recorded_at

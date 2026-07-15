@@ -7,7 +7,7 @@ async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
     // numbered statements, so the scripted model pairs statements 2 and 3 while crediting neither,
     // and a `BeliefArbitrated` with an empty `credited` lands. Both the emitted event and the shape
     // of the prompt the pass sent are asserted, since the fix is a prompt change.
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -111,7 +111,7 @@ async fn a_both_stand_arbitration_survives_a_null_credited() {
     // over exactly the both-stand shape the scenario tests; the lenient salvage keeps it, so a
     // `BeliefArbitrated` with an empty `credited` still lands. The reply is hand-built JSON so
     // `credited` is a literal `null`, which the typed harness reply cannot express.
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -190,7 +190,7 @@ async fn two_attributed_accounts_are_arbitrated_and_read_back_disputed() {
     // description pass never runs — there is nothing to summarize into the always-visible prose — but
     // arbitration now scans the `Public` + `Attributed` slice, so the two attributed location accounts
     // are numbered together, flagged, and (crediting neither) read back `disputed`.
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -314,7 +314,7 @@ async fn a_mixed_public_and_attributed_pair_is_arbitrated_without_leaking_into_t
     // of the same fact. The description pass sees only the public entry — the attributed account keeps
     // its "via <teller>" framing out of the always-visible summary — yet arbitration scans the wider
     // `Public` + `Attributed` slice, so the two still collide and read back disputed.
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -450,7 +450,7 @@ async fn a_mixed_public_and_attributed_pair_is_arbitrated_without_leaking_into_t
 
 #[tokio::test]
 async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,

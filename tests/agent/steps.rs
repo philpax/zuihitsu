@@ -1,7 +1,7 @@
 use super::*;
 #[tokio::test]
 async fn agent_turns_record_their_provenance() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // Genesis registers the scaffold the agent turn runs against.
     genesis::rollout(
         h.engine.store.lock().as_mut(),
@@ -53,7 +53,7 @@ async fn agent_turns_record_their_provenance() {
 
 #[tokio::test]
 async fn stay_silent_terminal_posts_nothing() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Silent]);
 
     let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "(chatter)", 8)).await.unwrap();
@@ -71,7 +71,7 @@ async fn stay_silent_terminal_posts_nothing() {
 
 #[tokio::test]
 async fn max_steps_ends_the_turn_with_a_surfaced_error() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // A model that only ever calls tools, never terminating.
     let model = ScriptedModel::new([
         run_lua_call("return 1"),
@@ -100,7 +100,7 @@ async fn max_steps_ends_the_turn_with_a_surfaced_error() {
 /// legibility warning without it being re-appended every remaining step.
 #[tokio::test]
 async fn the_nearing_budget_nudge_lands_once_at_max_minus_two() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // max_steps = 3: the nudge is due before step index 1 (max_steps - 2).
     let model = ScriptedModel::new([
         run_lua_call("return 1"),
@@ -128,7 +128,7 @@ async fn the_nearing_budget_nudge_lands_once_at_max_minus_two() {
 /// what it has, and that text terminates the turn as an ordinary `Reply` — not a `MaxStepsExceeded`.
 #[tokio::test]
 async fn the_final_step_forces_a_textual_answer() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call("return 1"),
         run_lua_call("return 2"),
@@ -153,7 +153,7 @@ async fn the_final_step_forces_a_textual_answer() {
 /// terminal — the fallback the loop keeps, not the norm.
 #[tokio::test]
 async fn a_model_that_produces_no_text_on_the_final_step_still_max_steps() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([run_lua_call("return 1"), run_lua_call("return 2")]);
 
     let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "go", 2)).await.unwrap();
@@ -169,7 +169,7 @@ async fn a_model_that_produces_no_text_on_the_final_step_still_max_steps() {
 
 #[tokio::test]
 async fn tool_result_feeds_back_across_steps() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // First create, then a second block reads it back, then reply — exercising multi-step flow.
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create(TOPIC_CLIMBING, "Bouldering and sport climbing")"#),
@@ -193,7 +193,7 @@ async fn tool_result_feeds_back_across_steps() {
 async fn tool_calls_persist_in_the_buffer_across_turns() {
     // A turn's run_lua blocks (script + result) should survive into the next turn's buffer so the
     // model sees what it already did — not just the reply text, but the tool interaction itself.
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call("return 'hello from lua'"),
         Completion::Reply("done".to_owned()),
@@ -246,7 +246,7 @@ async fn turn_report_counts_steps_and_blocks() {
     // without depending on `tracing`'s global subscriber state (spec §Observability → per-turn spans).
 
     // A single reply: one model step, no blocks.
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Reply("hi".to_owned())]);
     let report = run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
     assert_eq!(report.outcome, TurnOutcome::Reply("hi".to_owned()));
@@ -254,7 +254,7 @@ async fn turn_report_counts_steps_and_blocks() {
     assert_eq!(report.blocks, 0);
 
     // A multi-step turn: two run_lua calls then a reply → three steps, two blocks.
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call("return 1"),
         run_lua_call("return 2"),
@@ -279,7 +279,7 @@ async fn real_model_drives_a_turn() {
         return;
     }
     let client = OpenAiClient::new(&config.model);
-    let h = Harness::new();
+    let mut h = Harness::new();
 
     let outcome = run_turn(h.as_turn(
         &client,
@@ -313,7 +313,7 @@ async fn real_model_extracts_temporal_references() {
         return;
     }
     let client = OpenAiClient::new(&config.model);
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,

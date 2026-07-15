@@ -7,7 +7,7 @@ fn link_inference_call(args: LinkInferenceArgs) -> Completion {
 
 #[tokio::test]
 async fn link_inference_registers_and_links_from_content() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -114,7 +114,7 @@ async fn link_inference_honors_a_seeded_inverse_label() {
     // through the inverse — `created` for the seeded `created_by` — with no new registration to
     // propose. The pass must resolve it onto the canonical relation with the direction flipped,
     // not drop it as unregistered.
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -190,7 +190,7 @@ async fn link_inference_honors_a_seeded_inverse_label() {
 
 #[tokio::test]
 async fn link_inference_is_idempotent() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -279,7 +279,7 @@ async fn link_inference_is_idempotent() {
 
 #[tokio::test]
 async fn link_inference_degrades_gracefully_with_no_usable_reply() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -347,7 +347,7 @@ async fn disabled_linking_rejects_links_create_but_inference_still_links() {
         linking: false,
         ..Default::default()
     };
-    let h = Harness::with_features(disabled);
+    let mut h = Harness::with_features(disabled);
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,

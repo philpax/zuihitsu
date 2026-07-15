@@ -3,18 +3,19 @@
 //! operator surface — the structural absence of those methods is what makes "the operator has no
 //! platform identity" enforceable (spec §Clients and the server boundary).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
 use super::{Carryover, ContextEntry, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{
-        TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start, session_touched,
+        InboundMessage, TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start,
+        session_touched,
     },
     event::{EventSource, PromptTemplateName, Teller},
     graph::GraphError,
-    ids::{ConversationId, ConversationLocator, MemoryId, Seq},
+    ids::{ConversationId, ConversationLocator, MemoryId, Seq, TurnId},
     memory::{
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
         memory_block::{AppendOptions, Authority, MemoryBlock, VisibilityChoice},
@@ -23,6 +24,15 @@ use crate::{
     settings::Settings,
 };
 use zuihitsu_frontend_types::PlatformResponse;
+
+/// One inbound participant message in a batch delivered to `route_messages`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MessageInput {
+    /// The sender's platform user id.
+    pub sender: String,
+    /// The message text.
+    pub text: String,
+}
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
 /// participants it represents, and cannot reach Control's operator surface.
@@ -47,10 +57,9 @@ pub struct RosterResync {
 }
 
 impl Platform<'_> {
-    /// Deliver an inbound message and run the agent's response cycle. The client hands over the room
-    /// it arrived in, who sent it, and who is currently present (as platform user ids); the server
-    /// resolves them to stubs (minting on first contact), opens or continues a session — freezing a
-    /// fresh brief at each open — appends the inbound turn, runs the loop, and returns the outcome.
+    /// Deliver a single inbound message and run the agent's response cycle — a convenience for the
+    /// common single-message case, equivalent to [`route_messages`](Self::route_messages) with a
+    /// one-element batch.
     pub async fn route_message(
         &self,
         model: &dyn ModelClient,
@@ -59,7 +68,31 @@ impl Platform<'_> {
         text: &str,
         present: &[&str],
     ) -> Result<PlatformResponse, InstanceError> {
-        // Hold a stream permit for this message's whole handling — the turn and any compaction flush
+        self.route_messages(
+            model,
+            locator,
+            &[MessageInput {
+                sender: sender.to_owned(),
+                text: text.to_owned(),
+            }],
+            present,
+        )
+        .await
+    }
+
+    /// Deliver a batch of inbound messages and run one agent response cycle. The client hands over
+    /// the room it arrived in, the messages (each with its own sender), and who is currently present
+    /// (as platform user ids); the server resolves them to stubs (minting on first contact), opens or
+    /// continues a session — freezing a fresh brief at each open — appends each inbound turn, runs
+    /// the loop once, and returns the outcome.
+    pub async fn route_messages(
+        &self,
+        model: &dyn ModelClient,
+        locator: &ConversationLocator,
+        messages: &[MessageInput],
+        present: &[&str],
+    ) -> Result<PlatformResponse, InstanceError> {
+        // Hold a stream permit for this batch's whole handling — the turn and any compaction flush
         // it triggers — so no more than `max_concurrent_streams` messages crowd the shared model at
         // once (spec §Concurrency). Released when this scope returns.
         let _stream = self
@@ -74,18 +107,22 @@ impl Platform<'_> {
         // the next, so the interleaved `materialize_from` calls are free to take the graph mutably.
         let conversation = self.ensure_conversation(locator)?;
 
-        // The unique platform ids to resolve: everyone present, plus the sender. Deduplicating
+        // The unique platform ids to resolve: everyone present, plus every sender. Deduplicating
         // matters because resolution reads the graph, which is not re-materialized between mints
         // within this call — the same id seen twice would otherwise be minted twice.
         let platform = locator.platform.as_str();
         let mut uids: Vec<&str> = Vec::new();
-        for uid in present.iter().chain(std::iter::once(&sender)) {
-            if !uids.contains(uid) {
+        for uid in present
+            .iter()
+            .copied()
+            .chain(messages.iter().map(|m| m.sender.as_str()))
+        {
+            if !uids.contains(&uid) {
                 uids.push(uid);
             }
         }
         let mut present_set = Vec::new();
-        let mut sender_id = None;
+        let mut participant_ids: HashMap<&str, MemoryId> = HashMap::new();
         for uid in &uids {
             let id = {
                 // Graph before store, per the lock-ordering rule.
@@ -98,17 +135,30 @@ impl Platform<'_> {
                     uid,
                 )?
             };
-            if *uid == sender {
-                sender_id = Some(id);
-            }
+            participant_ids.insert(uid, id);
             present_set.push(id);
         }
-        let sender_id = sender_id.expect("the sender is among the resolved ids");
         self.server
             .engine
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
+
+        // Build the inbound batch and generate turn ids. The participant turns are recorded inside
+        // `run_session_turn` (after `ensure_session` opens the session) so the session's `start_seq`
+        // precedes them — the flush substance gate reads the buffer from `start_seq`, and must see the
+        // turns to measure their delta.
+        let mut inbound: Vec<InboundMessage> = Vec::with_capacity(messages.len());
+        let mut participant_turn_ids: Vec<TurnId> = Vec::with_capacity(messages.len());
+        for msg in messages {
+            let participant = *participant_ids.get(msg.sender.as_str()).unwrap();
+            let turn_id = TurnId::generate();
+            inbound.push(InboundMessage {
+                participant,
+                text: msg.text.clone(),
+            });
+            participant_turn_ids.push(turn_id);
+        }
 
         // Open or continue the session and run the turn under ordinary platform authority.
         let (report, buffer) = self
@@ -118,8 +168,8 @@ impl Platform<'_> {
                 &RoutedTurn {
                     conversation,
                     present_set: &present_set,
-                    participant: sender_id,
-                    inbound: text,
+                    inbound: &inbound,
+                    participant_turn_ids: &participant_turn_ids,
                     template: PromptTemplateName::Scaffold,
                     authority: Authority::Platform,
                 },
@@ -131,7 +181,11 @@ impl Platform<'_> {
         if report.outcome == TurnOutcome::Deferred {
             return Ok(PlatformResponse {
                 outcome: report.outcome,
-                participant_turn_id: report.participant_turn_id.0.to_string(),
+                participant_turn_ids: report
+                    .participant_turn_ids
+                    .iter()
+                    .map(|id| id.0.to_string())
+                    .collect(),
             });
         }
 
@@ -145,7 +199,7 @@ impl Platform<'_> {
         let observed = report
             .prompt_tokens
             .map(i64::from)
-            .unwrap_or_else(|| estimate_tokens(&buffer, text));
+            .unwrap_or_else(|| estimate_tokens(&buffer, messages));
         // `reported` distinguishes the authoritative real-usage path from the coarse estimate
         // fallback: if the backend never reports `prompt_tokens`, the trigger is running on the
         // (system-prefix-omitting) estimate, which is an operability signal worth seeing.
@@ -179,7 +233,11 @@ impl Platform<'_> {
         }
         Ok(PlatformResponse {
             outcome: report.outcome,
-            participant_turn_id: report.participant_turn_id.0.to_string(),
+            participant_turn_ids: report
+                .participant_turn_ids
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect(),
         })
     }
 
@@ -545,12 +603,15 @@ fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<Carryover> {
 /// A deterministic `chars / 4` estimate of the prompt's token count over the buffer plus the inbound
 /// message — the compaction-trigger fallback when the backend reports no usage. Coarse and an
 /// under-count (it omits the frozen prefix); only the real client's `prompt_tokens` is authoritative.
-fn estimate_tokens(buffer: &[TurnView], inbound: &str) -> i64 {
+fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
     let chars: usize = buffer
         .iter()
         .map(|turn| turn.text.chars().count())
         .sum::<usize>()
-        + inbound.chars().count();
+        + messages
+            .iter()
+            .map(|m| m.text.chars().count())
+            .sum::<usize>();
     (chars / 4) as i64
 }
 
@@ -613,9 +674,13 @@ mod tests {
     }
 
     #[test]
-    fn estimate_tokens_counts_buffer_and_inbound() {
+    fn estimate_tokens_counts_buffer_and_messages() {
         let buffer = vec![turn(1, "12345678")]; // 8 chars
         // (8 + 4) / 4 = 3.
-        assert_eq!(estimate_tokens(&buffer, "1234"), 3);
+        let messages = vec![MessageInput {
+            sender: "dave".to_owned(),
+            text: "1234".to_owned(),
+        }];
+        assert_eq!(estimate_tokens(&buffer, &messages), 3);
     }
 }

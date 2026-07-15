@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     agent::{
-        BlockContext,
+        BlockContext, InboundMessage,
         api_doc::ApiEntry,
         genesis::{self, Rollout, SeedSelf},
         lua::{self, BlockOutcome, Session},
@@ -69,6 +69,14 @@ impl super::Control<'_> {
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
+        // Build the inbound batch and turn ids; the participant turn is recorded inside
+        // `run_session_turn` after the session opens (so the session's `start_seq` precedes it).
+        let participant_turn_id = TurnId::generate();
+        let inbound = vec![InboundMessage {
+            participant: operator,
+            text: text.to_owned(),
+        }];
+        let participant_turn_ids = vec![participant_turn_id];
         let (report, _buffer) = self
             .server
             .run_session_turn(
@@ -76,8 +84,8 @@ impl super::Control<'_> {
                 &RoutedTurn {
                     conversation,
                     present_set: &[operator],
-                    participant: operator,
-                    inbound: text,
+                    inbound: &inbound,
+                    participant_turn_ids: &participant_turn_ids,
                     template: PromptTemplateName::Imprint,
                     authority: Authority::Operator,
                 },
@@ -85,7 +93,11 @@ impl super::Control<'_> {
             .await?;
         Ok(PlatformResponse {
             outcome: report.outcome,
-            participant_turn_id: report.participant_turn_id.0.to_string(),
+            participant_turn_ids: report
+                .participant_turn_ids
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect(),
         })
     }
 

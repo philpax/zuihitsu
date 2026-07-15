@@ -10,7 +10,7 @@ mod turn;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::{
-    agent::lua::Session,
+    agent::{lua::Session, turn::InboundMessage},
     event::PromptTemplateName,
     ids::{ConversationId, MemoryId, Seq, SessionId, TurnId},
     memory::memory_block::Authority,
@@ -76,12 +76,16 @@ impl OpenSession {
 
 /// One routed turn — the inbound message and its routing context, bundled so
 /// [`super::Instance::run_session_turn`] takes the routed turn as a whole. Shared by the platform
-/// `route_message` and the operator `imprint` paths.
+/// `route_messages` and the operator `imprint` paths.
 pub(crate) struct RoutedTurn<'a> {
     pub conversation: ConversationId,
     pub present_set: &'a [MemoryId],
-    pub participant: MemoryId,
-    pub inbound: &'a str,
+    /// The inbound participant messages for this turn. Each carries its own speaker and text;
+    /// the agent response cycle runs once for the whole batch.
+    pub inbound: &'a [InboundMessage],
+    /// The participant turn ids already recorded by the caller (one per inbound message). Passed
+    /// through so `run_turn` can return them in the `TurnReport` without recording the turns itself.
+    pub participant_turn_ids: &'a [TurnId],
     pub template: PromptTemplateName,
     pub authority: Authority,
 }

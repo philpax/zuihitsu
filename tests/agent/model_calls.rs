@@ -25,7 +25,7 @@ fn model_calls(
 
 #[tokio::test]
 async fn a_turn_records_the_model_interaction_with_deliberation() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let usage = Usage {
         prompt_tokens: Some(100),
         completion_tokens: Some(20),
@@ -97,7 +97,7 @@ async fn a_turn_records_the_model_interaction_with_deliberation() {
 async fn a_base_record_carries_the_prompt_section_spans() {
     // context-debugger.AC1.2 (recording half): the first call of a phase records a `Base` whose
     // `system_sections` tile the `system` string exactly and slice back to each section's contribution.
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Reply("Noted.".to_owned())]);
 
     // Supply a brief so the `Brief` section is present and its header is assertable; the API reference
@@ -170,7 +170,7 @@ async fn a_rerendered_buffer_reproduces_the_live_tool_call_ids() {
     // mints, so a later turn's rebuilt buffer reproduces the earlier exchange byte for byte — a
     // value-unstable id busts the prefix cache outright on serving stacks whose chat template
     // tokenizes it.
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create(PERSON_DAVE, "Met at the gym")"#),
         Completion::Reply("Noted.".to_owned()),
@@ -238,7 +238,7 @@ async fn a_rerendered_buffer_reproduces_the_live_tool_call_ids() {
 
 #[tokio::test]
 async fn digest_capture_keeps_the_digest_but_drops_the_request() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);
 
     run_turn(h.as_turn_capturing(&model, "Hello", 8, CaptureLevel::Digest))
@@ -254,7 +254,7 @@ async fn digest_capture_keeps_the_digest_but_drops_the_request() {
 
 #[tokio::test]
 async fn off_capture_records_no_model_interaction() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);
 
     run_turn(h.as_turn_capturing(&model, "Hello", 8, CaptureLevel::Off))
@@ -285,7 +285,7 @@ async fn real_model_supersedes_a_corrected_fact() {
         return;
     }
     let client = OpenAiClient::new(&config.model);
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,

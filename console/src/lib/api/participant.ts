@@ -29,10 +29,14 @@ export async function sendMessage(
   connection: LiveConnection,
   message: OutboundMessage,
 ): Promise<PlatformResponse> {
-  const response = await fetch(`${connection.baseUrl}/platform/message`, {
+  const response = await fetch(`${connection.baseUrl}/platform/messages`, {
     method: "POST",
     headers: authHeaders(connection),
-    body: JSON.stringify(message),
+    body: JSON.stringify({
+      locator: message.locator,
+      messages: [{ sender: message.sender, text: message.text }],
+      present: message.present,
+    }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as PlatformResponse;

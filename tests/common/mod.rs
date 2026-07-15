@@ -85,8 +85,9 @@ mod harness {
     use zuihitsu::{
         AmbientSettings, Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId,
         Embedder, Engine, Event, EventPayload, EventSource, FakeEmbedder, Graph,
-        InMemoryVectorIndex, InstanceFeatures, ManualClock, MemoryId, MemoryStore, ModelClient,
-        PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnView, VectorIndex,
+        InMemoryVectorIndex, InboundMessage, Initiation, InstanceFeatures, ManualClock, MemoryId,
+        MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId,
+        TurnRecord, TurnRole, TurnView, VectorIndex, append_turn,
         model::index::{apply_batch, embed_batch},
         run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -113,6 +114,10 @@ mod harness {
         pub session: Session,
         /// The stand-in inbound participant a turn is attributed to.
         pub participant: MemoryId,
+        /// The inbound batch and its turn ids, stored on the harness so the `Turn` returned by
+        /// `as_turn` can borrow them. Each `as_turn` call replaces these.
+        inbound_batch: Vec<InboundMessage>,
+        participant_turn_ids: Vec<TurnId>,
         /// The describer's per-memory serialization guard, mirroring the server's. The describer keeps
         /// no cursor — its backlog is the graph's log-derived stale set — so [`Harness::describe`]
         /// catches every stale memory up, and [`Harness::baseline_descriptions`] marks the current
@@ -134,6 +139,8 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate(), InstanceFeatures::default()),
                 participant: MemoryId::generate(),
+                inbound_batch: Vec::new(),
+                participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
@@ -167,6 +174,8 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate(), InstanceFeatures::default()),
                 participant: MemoryId::generate(),
+                inbound_batch: Vec::new(),
+                participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
@@ -187,6 +196,8 @@ mod harness {
                 clock,
                 session: Session::new(ConversationId::generate(), features),
                 participant: MemoryId::generate(),
+                inbound_batch: Vec::new(),
+                participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
                 adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
@@ -272,9 +283,10 @@ mod harness {
         }
 
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
-        /// Captures the full model-interaction record, the production default.
+        /// Captures the full model-interaction record, the production default. Records the
+        /// participant turn in the event log before returning, mirroring `route_messages`.
         pub fn as_turn<'a>(
-            &'a self,
+            &'a mut self,
             model: &'a dyn ModelClient,
             inbound: &'a str,
             max_steps: usize,
@@ -285,18 +297,19 @@ mod harness {
         /// As [`Harness::as_turn`], but with an explicit model-interaction capture level — for tests
         /// that exercise the `Digest`/`Off` paths.
         pub fn as_turn_capturing<'a>(
-            &'a self,
+            &'a mut self,
             model: &'a dyn ModelClient,
             inbound: &'a str,
             max_steps: usize,
             capture: CaptureLevel,
         ) -> Turn<'a> {
+            self.prepare_inbound(inbound);
             Turn {
                 session: &self.session,
                 model,
                 engine: self.engine.clone(),
-                inbound,
-                inbound_participant: self.participant,
+                inbound: &self.inbound_batch,
+                participant_turn_ids: &self.participant_turn_ids,
                 brief: "",
                 session_started_at: self.engine.clock.now(),
                 buffer: &[],
@@ -322,18 +335,19 @@ mod harness {
         /// scenarios where a later turn must see what the agent said and did earlier (build it with
         /// `buffer_turns` over the recorded turns).
         pub fn as_turn_buffered<'a>(
-            &'a self,
+            &'a mut self,
             model: &'a dyn ModelClient,
             inbound: &'a str,
             max_steps: usize,
             buffer: &'a [TurnView],
         ) -> Turn<'a> {
+            self.prepare_inbound(inbound);
             Turn {
                 session: &self.session,
                 model,
                 engine: self.engine.clone(),
-                inbound,
-                inbound_participant: self.participant,
+                inbound: &self.inbound_batch,
+                participant_turn_ids: &self.participant_turn_ids,
                 brief: "",
                 session_started_at: self.engine.clock.now(),
                 buffer,
@@ -351,6 +365,31 @@ mod harness {
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 capture: CaptureLevel::Full,
             }
+        }
+
+        /// Record the participant turn in the event log and populate the batch fields, mirroring
+        /// what `route_messages` does before calling `run_session_turn`.
+        fn prepare_inbound(&mut self, inbound: &str) {
+            let turn_id = TurnId::generate();
+            append_turn(
+                self.engine.store.lock().as_mut(),
+                self.engine.clock.as_ref(),
+                TurnRecord {
+                    conversation: self.session.conversation(),
+                    turn_id,
+                    role: TurnRole::Participant,
+                    text: inbound.to_owned(),
+                    participant: Some(self.participant),
+                    initiation: Initiation::Responding,
+                    produced_by: None,
+                },
+            )
+            .unwrap();
+            self.inbound_batch = vec![InboundMessage {
+                participant: self.participant,
+                text: inbound.to_owned(),
+            }];
+            self.participant_turn_ids = vec![turn_id];
         }
 
         /// Execute one Lua block against the harness's engine, as a fresh agent-authored turn (the

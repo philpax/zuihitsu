@@ -26,6 +26,13 @@ pub struct ContextEntry {
     pub text: String,
 }
 
+/// One inbound message to submit to the platform API.
+#[derive(Serialize)]
+pub struct PlatformMessage {
+    pub sender: String,
+    pub text: String,
+}
+
 /// The async platform API client.
 pub struct PlatformClient {
     http: HttpClient,
@@ -48,18 +55,16 @@ impl PlatformClient {
     pub async fn send_message_stream(
         &self,
         locator: &ConversationLocator,
-        sender: &str,
-        text: &str,
+        messages: &[PlatformMessage],
         present: &[&str],
         on_progress: impl FnMut(&TurnProgress),
     ) -> Result<StreamOutcome> {
         let body = MessageBody {
             locator,
-            sender,
-            text,
+            messages,
             present,
         };
-        let url = format!("{}/platform/message/stream", self.base_url);
+        let url = format!("{}/platform/messages/stream", self.base_url);
         let response = self
             .http
             .post(&url)
@@ -138,6 +143,7 @@ impl PlatformClient {
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session.
+    #[allow(dead_code)]
     pub async fn join(&self, locator: &ConversationLocator, participant: &str) -> Result<()> {
         let body = JoinBody {
             locator,
@@ -200,12 +206,11 @@ impl PlatformClient {
     }
 }
 
-/// The request body for `POST /platform/message` and `/platform/message/stream`.
+/// The request body for `POST /platform/messages` and `/platform/messages/stream`.
 #[derive(Serialize)]
 struct MessageBody<'a> {
     locator: &'a ConversationLocator,
-    sender: &'a str,
-    text: &'a str,
+    messages: &'a [PlatformMessage],
     present: &'a [&'a str],
 }
 

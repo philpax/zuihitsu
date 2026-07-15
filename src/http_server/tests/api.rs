@@ -73,7 +73,7 @@ async fn create_then_inspect_over_the_control_api() {
 
 #[tokio::test]
 async fn a_platform_message_runs_a_turn() {
-    // A born agent with a scripted model in app state: a /platform/message delivers a participant
+    // A born agent with a scripted model in app state: a /platform/messages delivers a participant
     // turn and returns the agent's reply.
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
     server
@@ -94,8 +94,7 @@ async fn a_platform_message_runs_a_turn() {
 
     let body = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
-        "sender": "dave",
-        "text": "hello",
+        "messages": [{ "sender": "dave", "text": "hello" }],
         "present": ["dave"],
     });
     let response = app
@@ -103,7 +102,7 @@ async fn a_platform_message_runs_a_turn() {
             Request::builder()
                 .extension(loopback())
                 .method("POST")
-                .uri("/platform/message")
+                .uri("/platform/messages")
                 .header("content-type", "application/json")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
@@ -119,12 +118,14 @@ async fn a_platform_message_runs_a_turn() {
         response.outcome,
         zuihitsu::TurnOutcome::Reply("Hi there.".to_owned())
     );
-    assert!(!response.participant_turn_id.is_empty());
+    assert!(
+        !response.participant_turn_ids.is_empty() && !response.participant_turn_ids[0].is_empty()
+    );
 }
 
 #[tokio::test]
 async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
-    // A born agent with a scripted model: a /platform/message opens a session with Dave present,
+    // A born agent with a scripted model: a /platform/messages opens a session with Dave present,
     // then a /platform/roster resync brings Erin in and drops Dave, returning the diff as JSON.
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
     server
@@ -145,8 +146,7 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
 
     let message = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
-        "sender": "dave",
-        "text": "hello",
+        "messages": [{ "sender": "dave", "text": "hello" }],
         "present": ["dave"],
     });
     app.clone()
@@ -154,7 +154,7 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
             Request::builder()
                 .extension(loopback())
                 .method("POST")
-                .uri("/platform/message")
+                .uri("/platform/messages")
                 .header("content-type", "application/json")
                 .body(Body::from(message.to_string()))
                 .unwrap(),
@@ -209,8 +209,7 @@ async fn interactions_surface_the_recorded_model_calls() {
 
     let body = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
-        "sender": "dave",
-        "text": "hello",
+        "messages": [{ "sender": "dave", "text": "hello" }],
         "present": ["dave"],
     });
     app.clone()
@@ -218,7 +217,7 @@ async fn interactions_surface_the_recorded_model_calls() {
             Request::builder()
                 .extension(loopback())
                 .method("POST")
-                .uri("/platform/message")
+                .uri("/platform/messages")
                 .header("content-type", "application/json")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
@@ -535,7 +534,7 @@ async fn the_event_stream_opens_with_the_committed_snapshot() {
 
 #[tokio::test]
 async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
-    // The streamed sibling of `/platform/message`: reply tokens arrive as `progress` frames while
+    // The streamed sibling of `/platform/messages`: reply tokens arrive as `progress` frames while
     // the turn runs, and the terminal `outcome` frame carries the same TurnOutcome the unary
     // endpoint would return. The scripted model streams word fragments, so the frames are real.
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
@@ -557,8 +556,7 @@ async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
 
     let message = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
-        "sender": "dave",
-        "text": "hello",
+        "messages": [{ "sender": "dave", "text": "hello" }],
         "present": ["dave"],
     });
     let response = app
@@ -566,7 +564,7 @@ async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
             Request::builder()
                 .extension(loopback())
                 .method("POST")
-                .uri("/platform/message/stream")
+                .uri("/platform/messages/stream")
                 .header("content-type", "application/json")
                 .body(Body::from(message.to_string()))
                 .unwrap(),
@@ -651,15 +649,14 @@ async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
 
     let message = serde_json::json!({
         "locator": { "platform": "discord", "scope_path": "general" },
-        "sender": "dave",
-        "text": "hello",
+        "messages": [{ "sender": "dave", "text": "hello" }],
         "present": ["dave"],
     });
     app.oneshot(
         Request::builder()
             .extension(loopback())
             .method("POST")
-            .uri("/platform/message")
+            .uri("/platform/messages")
             .header("content-type", "application/json")
             .body(Body::from(message.to_string()))
             .unwrap(),

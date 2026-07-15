@@ -1,7 +1,7 @@
 use super::*;
 #[tokio::test]
 async fn tool_call_then_reply_commits_and_replies() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create(PERSON_DAVE, "Met at the climbing gym")"#),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
@@ -59,7 +59,7 @@ fn any_turn_contains(events: &[Event], needle: &str) -> bool {
 
 #[tokio::test]
 async fn a_malformed_reply_is_resampled_and_the_clean_retry_lands() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // The first completion leaks special-token markup; the guard resamples the same step, and the
     // clean retry is what the participant receives.
     let model = ScriptedModel::new([
@@ -83,7 +83,7 @@ async fn a_malformed_reply_is_resampled_and_the_clean_retry_lands() {
 
 #[tokio::test]
 async fn two_consecutive_malformed_replies_fall_to_the_silent_terminal() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // Both the initial reply and its resample leak markup; the guard delivers silence rather than
     // markup, and the malformed text is recorded nowhere.
     let model = ScriptedModel::new([
@@ -104,7 +104,7 @@ async fn two_consecutive_malformed_replies_fall_to_the_silent_terminal() {
 
 #[tokio::test]
 async fn descriptions_regenerate_after_a_turn() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // Genesis registers the description-regen template the write path reads.
     genesis::rollout(
         h.engine.store.lock().as_mut(),
@@ -175,7 +175,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
     // A rename changes no content, but the description is synthesized under the memory's name, so it
     // must be re-synthesized — otherwise the description (which reaches participants in briefs) keeps
     // the old name (spec §Identity → Renaming, deadname-safety).
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -238,7 +238,7 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
 
 #[tokio::test]
 async fn turn_skip_ends_silent() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // The agent creates a memory, then calls turn.skip() — no reply should follow.
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("topic/incidental", "A note")"#),
@@ -253,7 +253,7 @@ async fn turn_skip_ends_silent() {
 
 #[tokio::test]
 async fn turn_skip_commits_writes() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     // The agent writes a memory before calling turn.skip() — the write should persist.
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("topic/skip-test", "Committed before skip")"#),
@@ -275,7 +275,7 @@ async fn turn_skip_commits_writes() {
 
 #[tokio::test]
 async fn turn_skip_records_lua_event() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([
         run_lua_call(r#"memory.create("topic/skip-event", "Written")"#),
         run_lua_call(r#"turn.skip("not addressed to me")"#),
@@ -302,7 +302,7 @@ async fn turn_skip_records_lua_event() {
 
 #[tokio::test]
 async fn turn_skip_with_reason() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     let model = ScriptedModel::new([run_lua_call(r#"turn.skip("deliberately silent")"#)]);
 
     run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();

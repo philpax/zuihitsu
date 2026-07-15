@@ -31,6 +31,7 @@ pub use buffer::{
     ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, flushed_up_to,
     recent_touched, session_touched,
 };
+pub use record::{TurnRecord, append_turn};
 pub use resolve::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn};
 pub(crate) use run::run_flush;
 pub use run::run_turn;
@@ -95,10 +96,12 @@ pub struct TurnReport {
     /// The agent's response-cycle turn id — the durable key an operator uses to find this turn's
     /// events in the log.
     pub turn_id: TurnId,
-    /// The participant's inbound turn id — the durable key for the `role = participant`
-    /// `ConversationTurn` recorded at the start of `run_turn`. Exposed so a platform client can
-    /// map its own message id to the participant's turn id for `[turn:<id>]` injection on replies.
-    pub participant_turn_id: TurnId,
+    /// The participant turn ids — the durable keys for the `role = participant`
+    /// `ConversationTurn`s recorded before the agent response cycle. A batch of N messages
+    /// produces N participant turns; a single message produces one. Exposed so a platform client
+    /// can map its own message ids to the participant turn ids for `[turn:<id>]` injection on
+    /// replies.
+    pub participant_turn_ids: Vec<TurnId>,
 }
 
 /// The write context one block — or a whole step loop — runs under: who its content is attributed
@@ -129,16 +132,30 @@ pub struct BlockContext {
     pub dry_run: bool,
 }
 
+/// One inbound participant message in a turn batch. A single-message turn is a one-element batch.
+#[derive(Clone)]
+pub struct InboundMessage {
+    /// The speaker's memory id — the person whose content the turn's writes are attributed to.
+    pub participant: MemoryId,
+    /// The message text.
+    pub text: String,
+}
+
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
-/// `engine` backends), the `inbound` participant message and its `inbound_participant` (the
-/// speaker's [`Namespace::Person`] stub, whose content the turn's writes are attributed to), and
-/// the step budget.
+/// `engine` backends), the `inbound` participant messages (a batch — one for a single message, N
+/// for a debounced burst), and the step budget.
 pub struct Turn<'a> {
     pub session: &'a Session,
     pub model: &'a dyn ModelClient,
     pub engine: Arc<Engine>,
-    pub inbound: &'a str,
-    pub inbound_participant: MemoryId,
+    /// The inbound participant messages for this turn. The agent response cycle runs once for the
+    /// whole batch; each message is pushed as a separate user turn in the model's messages. The
+    /// last message's participant is the teller (content attribution defaults to the most recent
+    /// speaker).
+    pub inbound: &'a [InboundMessage],
+    /// The participant turn ids already recorded by the caller (one per inbound message). Passed
+    /// through to the `TurnReport` unchanged.
+    pub participant_turn_ids: &'a [TurnId],
     /// The session's frozen contextual brief, interpolated into the system prompt (captured on
     /// `SessionStarted`, so every turn in the session sees the same brief).
     pub brief: &'a str,

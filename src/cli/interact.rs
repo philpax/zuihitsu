@@ -3,6 +3,8 @@
 
 use clap::Subcommand;
 
+use zuihitsu::MessageInput;
+
 use crate::cli::{client::Client, error::CliError, print_json};
 
 #[derive(Subcommand)]
@@ -46,7 +48,15 @@ pub(crate) fn dispatch(client: &Client, command: &InteractCommand) -> Result<(),
             sender,
             text,
             present,
-        } => print_json(&client.send(platform, scope, sender, text, present)?),
+        } => print_json(&client.send(
+            platform,
+            scope,
+            &[MessageInput {
+                sender: sender.clone(),
+                text: text.clone(),
+            }],
+            present,
+        )?),
         InteractCommand::Join {
             platform,
             scope,

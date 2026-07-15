@@ -35,7 +35,7 @@ async fn a_remote_peer_without_a_valid_key_is_rejected() {
             Request::builder()
                 .extension(remote())
                 .method("POST")
-                .uri("/platform/message")
+                .uri("/platform/messages")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -66,7 +66,7 @@ async fn a_valid_key_authorizes_only_its_own_surface() {
             Request::builder()
                 .extension(remote())
                 .method("POST")
-                .uri("/platform/message")
+                .uri("/platform/messages")
                 .header("authorization", "Bearer op-key")
                 .body(Body::empty())
                 .unwrap(),

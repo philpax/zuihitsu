@@ -110,7 +110,7 @@ fn no_conflict() -> Completion {
 
 #[tokio::test]
 async fn an_authored_occurrence_survives_a_current_day_extraction() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -168,7 +168,7 @@ async fn an_authored_occurrence_survives_a_current_day_extraction() {
 
 #[tokio::test]
 async fn a_differently_dated_extraction_still_applies() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -218,7 +218,7 @@ async fn a_differently_dated_extraction_still_applies() {
 
 #[tokio::test]
 async fn a_current_day_extraction_applies_without_a_dated_sibling() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -268,7 +268,7 @@ async fn a_current_day_extraction_applies_without_a_dated_sibling() {
 
 #[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -318,7 +318,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
 
 #[tokio::test]
 async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -373,7 +373,7 @@ pub(super) fn belief_arbitrations(events: &[Event]) -> Vec<EventPayload> {
 
 #[tokio::test]
 async fn a_regen_conflict_emits_belief_arbitrated() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
@@ -442,7 +442,7 @@ async fn a_regen_conflict_emits_belief_arbitrated() {
 
 #[tokio::test]
 async fn a_single_sided_arbitration_is_dropped() {
-    let h = Harness::new();
+    let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
         &h.clock,
