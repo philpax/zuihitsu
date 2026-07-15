@@ -15,6 +15,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 jiff = "0.2.28"
 parking_lot = "0.12.5"
 proptest = "1.11"
+reqwest = { version = "0.13", default-features = false }
 rusqlite = { version = "0.40.0", features = ["bundled"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = "1.2.1"
@@ -80,7 +81,7 @@ mlua = { version = "0.11.6", features = ["luau", "serde", "async", "send"] }
 parking_lot = { workspace = true }
 metrics = "0.24.1"
 metrics-exporter-prometheus = { version = "0.17.0", default-features = false }
-reqwest = { version = "0.13", default-features = false, features = [
+reqwest = { workspace = true, features = [
     "blocking",
     "json",
     "rustls",
