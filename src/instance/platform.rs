@@ -349,8 +349,12 @@ impl Platform<'_> {
     /// Write context entries to a conversation's context memory under platform authority. A
     /// connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
     /// first contact, posting structured data rather than interpolating untrusted strings into code.
-    /// The context memory is resolved (or minted) from the locator; each entry is appended as
-    /// `Public` under the agent's teller.
+    ///
+    /// The conversation and its context memory are resolved (or minted) from the locator — this is
+    /// intentional, so a connector can establish context before the first participant message arrives.
+    /// Each entry is appended as `Public` under the agent's teller. The `max_entry_chars` guard is
+    /// bypassed (passed as `usize::MAX`): platform-authority context writes are blessed, like
+    /// self-memories, and not subject to the agent's entry length limit.
     pub fn write_context(
         &self,
         locator: &ConversationLocator,

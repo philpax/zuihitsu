@@ -13,8 +13,9 @@ use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryId,
     EntryView, EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
     PromptTemplateName, RetractOutcome, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView,
-    Settings, TurnOutcome, UnmergeOutcome, genesis::GenesisStatus,
+    Settings, UnmergeOutcome, genesis::GenesisStatus,
 };
+use zuihitsu_frontend_types::PlatformResponse;
 
 use super::{AppState, error::ApiError};
 
@@ -327,7 +328,7 @@ pub(super) struct ImprintRequest {
 pub(super) async fn imprint(
     State(state): State<AppState>,
     Json(request): Json<ImprintRequest>,
-) -> Result<Json<TurnOutcome>, ApiError> {
+) -> Result<Json<PlatformResponse>, ApiError> {
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let outcome = state
         .server

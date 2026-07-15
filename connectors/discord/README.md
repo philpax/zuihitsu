@@ -4,8 +4,7 @@ A Discord bot that bridges Discord messages, presence, and joins into the zuihit
 
 The connector owns pacing, addressing, typing, and silence decisions at the Discord layer — where
 real-time events are available — rather than deferring them to the agent. It is a platform client
-that calls the zuihitsu HTTP API; it holds both a platform key (for `/platform/*`) and a control
-key (for `/control/lua` context setup).
+that calls the zuihitsu HTTP API; it holds a platform key for `/platform/*`.
 
 ## setup
 
@@ -61,7 +60,7 @@ reply to it (in an allowed guild channel) or arrive as DMs are forwarded to the 
 - **Typing indicator**: shown only after the agent begins emitting reply tokens (not during
   deliberation), refreshed every 8 seconds, and stopped when the outcome arrives.
 - **Context sync**: on first contact with a channel, the connector writes channel metadata and
-  laconic guidance to the context memory via `/control/lua`. The context is updated when the
+  laconic guidance to the context memory via `/platform/context`. The context is updated when the
   channel's name or topic changes.
 - **Turn mapping**: when a user replies to a mapped message (bot or participant), the connector
   injects a `[turn:<id>]` token into the message text before forwarding to the platform API, so the

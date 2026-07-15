@@ -14,9 +14,9 @@ use crate::{
     time::Timestamp,
 };
 
-/// One entry to write to a conversation's context memory via [`super::Control::write_context`].
-/// A typed alternative to interpolating untrusted strings into a Lua script — the connector posts
-/// structured data, and the server handles the memory write directly.
+/// One entry to write to a conversation's context memory via [`Platform::write_context`]. A typed
+/// alternative to interpolating untrusted strings into a Lua script — the connector posts structured
+/// data, and the server handles the memory write directly.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ContextEntry {
     /// The entry's text content.

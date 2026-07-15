@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     agent::{
-        BlockContext, TurnOutcome,
+        BlockContext,
         api_doc::ApiEntry,
         genesis::{self, Rollout, SeedSelf},
         lua::{self, BlockOutcome, Session},
@@ -23,6 +23,7 @@ use crate::{
     settings::Settings,
     vocabulary::RelationName,
 };
+use zuihitsu_frontend_types::PlatformResponse;
 
 use super::{
     super::InstanceError, DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome,
@@ -43,7 +44,7 @@ impl super::Control<'_> {
         &self,
         model: &dyn ModelClient,
         text: &str,
-    ) -> Result<TurnOutcome, InstanceError> {
+    ) -> Result<PlatformResponse, InstanceError> {
         // The imprint runs the model too, so it takes a stream permit like any other turn (spec
         // §Concurrency), held across the interview turn below.
         let _stream = self
@@ -82,7 +83,10 @@ impl super::Control<'_> {
                 },
             )
             .await?;
-        Ok(report.outcome)
+        Ok(PlatformResponse {
+            outcome: report.outcome,
+            participant_turn_id: report.participant_turn_id.0.to_string(),
+        })
     }
 
     /// Run an ad-hoc operator Lua block in a no-commit sandbox (spec §Observability → the operator Lua

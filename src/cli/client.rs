@@ -11,7 +11,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
     Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, ModelCall,
-    PlatformResponse, Rollout, SeedSelf, SessionView, Settings, TurnOutcome,
+    PlatformResponse, Rollout, SeedSelf, SessionView, Settings,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -93,7 +93,7 @@ impl Client {
     }
 
     /// `POST /control/imprint` — one operator message of the imprint interview.
-    pub fn imprint(&self, text: &str) -> Result<TurnOutcome, ClientError> {
+    pub fn imprint(&self, text: &str) -> Result<PlatformResponse, ClientError> {
         self.json(
             self.http
                 .post(self.url("/control/imprint"))

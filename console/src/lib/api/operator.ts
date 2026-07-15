@@ -1,6 +1,6 @@
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
-import type { TurnOutcome } from "@zuihitsu/wire/types/TurnOutcome.ts";
+import type { PlatformResponse } from "@zuihitsu/wire/types/PlatformResponse.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 
@@ -42,14 +42,14 @@ export async function createAgent(connection: LiveConnection, seed: Seed): Promi
 /// arrive through the live tail; a `"Deferred"` outcome says the message landed but the model was
 /// unreachable, exactly as on the participant path. Throws with the agent's reason on failure
 /// (e.g. no model configured).
-export async function imprint(connection: LiveConnection, text: string): Promise<TurnOutcome> {
+export async function imprint(connection: LiveConnection, text: string): Promise<PlatformResponse> {
   const response = await fetch(`${connection.baseUrl}/control/imprint`, {
     method: "POST",
     headers: authHeaders(connection),
     body: JSON.stringify({ text }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
-  return (await response.json()) as TurnOutcome;
+  return (await response.json()) as PlatformResponse;
 }
 
 /// Edit the agent's own `self` profile under operator authority — the console-direct counterpart to

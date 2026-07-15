@@ -40,7 +40,7 @@ export function isPrivate(visibility: Visibility): boolean {
 export function terminalCauseLabel(cause: TerminalCause): string {
   if ("Error" in cause) return `error: ${cause.Error}`;
   if ("Aborted" in cause) return `aborted: ${cause.Aborted}`;
-  return `skipped: ${cause.skipped ?? "(no reason)"}`;
+  return `skipped: ${cause.Skipped ?? "(no reason)"}`;
 }
 
 export function completionSummary(completion: Completion): string {

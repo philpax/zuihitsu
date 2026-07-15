@@ -143,7 +143,7 @@ impl Session {
                 events,
                 touched,
                 aborted,
-                skip,
+                skip: _,
             } = api.block.lock().take_effects();
             let outcome = match evaluated {
                 Ok(result) => {
@@ -173,13 +173,26 @@ impl Session {
                     }
                 }
                 Err(error) => {
-                    // A `turn.skip()` raises a RuntimeError to stop execution (like `block.abort`),
-                    // so it lands here. Unlike an abort, the skip *commits* the block's buffered
-                    // writes — the agent may have done useful memory work before deciding not to
-                    // reply. Check `skip` first: if set, take the commit path with a `Skipped`
-                    // terminal cause, then return `BlockOutcome::Skipped`. Only when `skip` is not
-                    // set do we proceed to the discard path (abort or error).
-                    if skip.is_some() {
+                    // A `turn.skip()` raises an `External(TurnSkip)` error to stop execution (like
+                    // `block.abort` raises a `RuntimeError`), so it lands here. Unlike an abort,
+                    // the skip *commits* the block's buffered writes — the agent may have done
+                    // useful memory work before deciding not to reply. Downcast the error first: if
+                    // it is a `TurnSkip`, take the commit path with a `Skipped` terminal cause,
+                    // then return `BlockOutcome::Skipped`. Only when it is not a skip do we
+                    // proceed to the discard path (abort or error).
+                    //
+                    // mlua wraps callback errors in `CallbackError { traceback, cause }`, so the
+                    // `External(TurnSkip)` is nested inside `cause`. `downcast_ref` only unwraps
+                    // `ExternalError` and `WithContext`, so we recurse through `CallbackError`
+                    // ourselves.
+                    let turn_skip = match &error {
+                        mlua::Error::CallbackError { cause, .. } => {
+                            cause.downcast_ref::<super::tables::TurnSkip>()
+                        }
+                        _ => error.downcast_ref::<super::tables::TurnSkip>(),
+                    };
+                    if let Some(turn_skip) = turn_skip {
+                        let skip = turn_skip.0.clone();
                         if context.dry_run {
                             Ok(BlockOutcome::Skipped(skip))
                         } else {

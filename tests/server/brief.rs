@@ -369,7 +369,7 @@ async fn imprint_records_the_creator_and_links_created_by() {
         .await
         .unwrap();
     assert_eq!(
-        outcome,
+        outcome.outcome,
         TurnOutcome::Reply("Hello, Marcus. I'll remember.".to_owned())
     );
     // The creator is now a memory of its own (the operator stub was merged into it).

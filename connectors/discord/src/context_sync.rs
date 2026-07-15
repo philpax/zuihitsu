@@ -42,7 +42,7 @@ impl ContextSync {
         }
     }
 
-    /// On first contact with a channel, write the context via `POST /control/context`.
+    /// On first contact with a channel, write the context via `POST /platform/context`.
     /// Returns `true` if the context was written (first contact), `false` if already seen.
     pub async fn ensure_context(
         &self,

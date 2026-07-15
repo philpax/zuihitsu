@@ -33,6 +33,8 @@ impl TurnMap {
     pub fn record(&mut self, message_id: MessageId, turn_id: TurnId) {
         // Evict the oldest entry if at capacity. HashMap has no insertion order, so this is a
         // random eviction — acceptable for an ephemeral cache.
+        // TODO: use an LRU-ordered map (e.g. IndexMap) for deterministic eviction instead of
+        // random HashMap eviction.
         if self.map.len() >= self.capacity
             && let Some(&key) = self.map.keys().next()
         {

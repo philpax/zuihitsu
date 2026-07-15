@@ -93,7 +93,7 @@ export function Room({
     setOptimistic({ text: message, baseline });
     setDeferred(null);
     try {
-      const outcome = isOperator
+      const response = isOperator
         ? await imprint(participate.connection, message)
         : await sendMessage(participate.connection, {
             locator: channel.locator,
@@ -101,11 +101,7 @@ export function Room({
             text: message,
             present: [handle],
           });
-      // `imprint` returns a bare `TurnOutcome`; `sendMessage` returns a `PlatformResponse` whose
-      // `.outcome` is the `TurnOutcome`. Normalize to the bare outcome for the deferred check.
-      const turnOutcome =
-        typeof outcome === "object" && "participant_turn_id" in outcome ? outcome.outcome : outcome;
-      if (turnOutcome === "Deferred") setDeferred({ baseline });
+      if (response.outcome === "Deferred") setDeferred({ baseline });
     } catch (error) {
       setOptimistic(null); // the send failed — drop the optimistic turn (the composer restores the draft).
       throw error;

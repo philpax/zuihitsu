@@ -293,7 +293,6 @@ pub enum TerminalCause {
     Aborted(String),
     /// An explicit `turn.skip(reason)`. Unlike an abort, the block's buffered writes were committed
     /// before the turn ended silently — the skip only means "don't reply", not "undo everything".
-    #[serde(rename = "skipped")]
     Skipped(Option<String>),
 }
 

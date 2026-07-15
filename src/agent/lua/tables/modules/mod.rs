@@ -18,5 +18,5 @@ pub(in crate::agent::lua) use convo::convo_table;
 pub(in crate::agent::lua) use links::links_table;
 pub(in crate::agent::lua) use memory::memory_table;
 pub(in crate::agent::lua) use tags::tags_table;
-pub(in crate::agent::lua) use turn::turn_table;
+pub(in crate::agent::lua) use turn::{TurnSkip, turn_table};
 pub(in crate::agent::lua) use web::web_table;
