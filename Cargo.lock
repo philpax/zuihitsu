@@ -4503,6 +4503,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zuihitsu-connector-api"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "tracing",
+ "zuihitsu-core",
+ "zuihitsu-frontend-types",
+]
+
+[[package]]
 name = "zuihitsu-core"
 version = "0.1.0"
 dependencies = [
@@ -4524,13 +4537,9 @@ dependencies = [
 name = "zuihitsu-discord"
 version = "0.1.0"
 dependencies = [
- "axum",
  "clap",
- "futures-util",
  "parking_lot",
- "reqwest 0.13.1",
  "serde",
- "serde_json",
  "serenity",
  "smol_str",
  "tokio",
@@ -4538,6 +4547,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ulid",
+ "zuihitsu-connector-api",
  "zuihitsu-core",
  "zuihitsu-frontend-types",
 ]

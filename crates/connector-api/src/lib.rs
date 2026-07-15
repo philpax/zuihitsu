@@ -1,16 +1,88 @@
-//! Platform client: async HTTP client wrapping `reqwest` to talk to the zuihitsu platform API.
+//! The shared platform API client for zuihitsu connectors.
 //!
-//! Handles three SSE event types from `/platform/message/stream`: `progress` (streaming tokens),
-//! `outcome` (terminal `PlatformResponse`), and `error` (turn failure). Auth uses the platform
-//! key for all `/platform/*` endpoints.
+//! Owns the HTTP transport, SSE parsing, and request/response body types for the `/platform/*`
+//! endpoints. A connector (Discord, Slack, IRC, …) wraps this crate with platform-specific logic
+//! — addressing, pacing, presence — and delegates all communication with the zuihitsu server
+//! to [`PlatformClient`].
+//!
+//! Auth uses the platform key for all `/platform/*` endpoints. Every error's `Display` leads
+//! with a `platform client:` context prefix, so a chained error from a connector reads as
+//! nested context.
+
+use std::fmt;
 
 use futures_util::StreamExt;
-use reqwest::Client as HttpClient;
+use reqwest::{Client as HttpClient, StatusCode};
 use serde::Serialize;
 use zuihitsu_core::{ids::ConversationLocator, progress::TurnProgress};
 use zuihitsu_frontend_types::PlatformResponse;
 
-use crate::error::{Error, Result};
+/// A failure in the platform API client.
+#[derive(Debug)]
+pub enum Error {
+    /// An HTTP transport error during an API call — the request failed to send or the response
+    /// body failed to read.
+    Http {
+        operation: Operation,
+        source: reqwest::Error,
+    },
+    /// The server returned a non-success status.
+    Status {
+        operation: Operation,
+        status: StatusCode,
+        body: String,
+    },
+}
+
+/// The platform API operation that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operation {
+    /// `POST /platform/messages/stream` — delivering a batch of turns.
+    SendMessageStream,
+    /// `POST /platform/join` — noting a participant arrival.
+    Join,
+    /// `POST /platform/context` — writing context entries.
+    WriteContext,
+}
+
+impl fmt::Display for Operation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operation::SendMessageStream => write!(f, "send message stream"),
+            Operation::Join => write!(f, "join"),
+            Operation::WriteContext => write!(f, "write context"),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Http { operation, source } => {
+                write!(f, "platform client: {operation}: {source}")
+            }
+            Error::Status {
+                operation,
+                status,
+                body,
+            } => {
+                write!(f, "platform client: {operation} returned {status}: {body}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Http { source, .. } => Some(source),
+            Error::Status { .. } => None,
+        }
+    }
+}
+
+/// A type alias for results that carry the platform client's error.
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// The terminal outcome of a streaming message request.
 pub enum StreamOutcome {
@@ -49,7 +121,7 @@ impl PlatformClient {
         }
     }
 
-    /// `POST /platform/message/stream` — deliver a turn and watch its generation arrive.
+    /// `POST /platform/messages/stream` — deliver a batch of turns and watch its generation arrive.
     /// Calls `on_progress` for each progress fragment as it arrives (so the caller can start a
     /// typing indicator on the first `Reply` fragment), and returns the terminal outcome or error.
     pub async fn send_message_stream(
@@ -72,15 +144,19 @@ impl PlatformClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| Error::platform("could not send streaming message", e))?;
+            .map_err(|e| Error::Http {
+                operation: Operation::SendMessageStream,
+                source: e,
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(Error::platform(
-                format!("streaming message returned {status}: {text}"),
-                std::io::Error::other("platform error"),
-            ));
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::SendMessageStream,
+                status,
+                body,
+            });
         }
 
         // Parse the SSE stream as it arrives. Each line is either "event: <type>" or "data: <json>".
@@ -92,7 +168,10 @@ impl PlatformClient {
         let mut stream = response.bytes_stream();
         let mut buffer = String::new();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| Error::platform("could not read stream chunk", e))?;
+            let chunk = chunk.map_err(|e| Error::Http {
+                operation: Operation::SendMessageStream,
+                source: e,
+            })?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
             while let Some(line_end) = buffer.find('\n') {
@@ -137,13 +216,12 @@ impl PlatformClient {
             }
         }
 
-        Ok(outcome.unwrap_or(StreamOutcome::Error(
-            "the stream ended without an outcome".to_owned(),
-        )))
+        Ok(outcome.unwrap_or_else(|| {
+            StreamOutcome::Error("the stream ended without an outcome".to_owned())
+        }))
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session.
-    #[allow(dead_code)]
     pub async fn join(&self, locator: &ConversationLocator, participant: &str) -> Result<()> {
         let body = JoinBody {
             locator,
@@ -157,15 +235,19 @@ impl PlatformClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| Error::platform("could not send join", e))?;
+            .map_err(|e| Error::Http {
+                operation: Operation::Join,
+                source: e,
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(Error::platform(
-                format!("join returned {status}: {text}"),
-                std::io::Error::other("platform error"),
-            ));
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::Join,
+                status,
+                body,
+            });
         }
         Ok(())
     }
@@ -192,15 +274,19 @@ impl PlatformClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| Error::platform("could not write context", e))?;
+            .map_err(|e| Error::Http {
+                operation: Operation::WriteContext,
+                source: e,
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(Error::platform(
-                format!("write context returned {status}: {text}"),
-                std::io::Error::other("platform error"),
-            ));
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::WriteContext,
+                status,
+                body,
+            });
         }
         Ok(())
     }
@@ -215,7 +301,6 @@ struct MessageBody<'a> {
 }
 
 /// The request body for `POST /platform/join`.
-#[allow(dead_code)]
 #[derive(Serialize)]
 struct JoinBody<'a> {
     locator: &'a ConversationLocator,

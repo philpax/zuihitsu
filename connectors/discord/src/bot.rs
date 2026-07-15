@@ -18,6 +18,7 @@ use serenity::{
 };
 use tokio::sync::Mutex;
 
+use zuihitsu_connector_api::{PlatformClient, PlatformMessage, StreamOutcome};
 use zuihitsu_core::{
     ids::{ConversationLocator, TurnId},
     progress::{ProgressKind, TurnProgress},
@@ -30,7 +31,6 @@ use crate::{
     context_sync::{ContextParams, ContextSync},
     locator::ChannelContext,
     pacing::{DebounceState, PendingMessage},
-    platform_client::{PlatformClient, PlatformMessage, StreamOutcome},
     turn_map::TurnMap,
 };
 

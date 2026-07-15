@@ -49,6 +49,7 @@ impl Error {
         }
     }
 
+    #[allow(dead_code)]
     pub fn platform(
         context: impl Into<String>,
         source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -99,6 +100,16 @@ impl std::error::Error for Error {
         self.source
             .as_ref()
             .map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
+    }
+}
+
+impl From<zuihitsu_connector_api::Error> for Error {
+    fn from(error: zuihitsu_connector_api::Error) -> Self {
+        Error {
+            kind: ErrorKind::Platform,
+            context: error.to_string(),
+            source: Some(Box::new(error)),
+        }
     }
 }
 

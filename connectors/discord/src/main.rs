@@ -16,7 +16,6 @@ mod context_sync;
 mod error;
 mod locator;
 mod pacing;
-mod platform_client;
 mod turn_map;
 
 use bot::{BotState, BotStateKey, Handler};

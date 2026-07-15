@@ -6,10 +6,9 @@ use std::collections::{HashMap, HashSet};
 use serenity::model::id::ChannelId;
 use tokio::sync::Mutex;
 
-use crate::{
-    error::Result,
-    platform_client::{ContextEntry, PlatformClient},
-};
+use zuihitsu_connector_api::{ContextEntry, PlatformClient};
+
+use crate::error::Result;
 
 /// The laconic guidance text for a Discord guild channel.
 const CHANNEL_GUIDANCE: &str = "This is a Discord channel. Be laconic — one paragraph at most. \
