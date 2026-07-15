@@ -235,3 +235,91 @@ async fn a_rename_re_describes_the_memory_under_the_new_name() {
         .unwrap();
     assert_eq!(sarah.description, "Sarah handles the deploys.");
 }
+
+#[tokio::test]
+async fn turn_skip_ends_silent() {
+    let h = Harness::new();
+    // The agent creates a memory, then calls turn.skip() — no reply should follow.
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("topic/incidental", "A note")"#),
+        run_lua_call(r#"turn.skip()"#),
+    ]);
+
+    let TurnReport { outcome, .. } = run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
+
+    // The turn ended silent — no reply, no max-steps.
+    assert_eq!(outcome, TurnOutcome::Silent);
+}
+
+#[tokio::test]
+async fn turn_skip_commits_writes() {
+    let h = Harness::new();
+    // The agent writes a memory before calling turn.skip() — the write should persist.
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("topic/skip-test", "Committed before skip")"#),
+        run_lua_call(r#"turn.skip("not worth a reply")"#),
+    ]);
+
+    run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
+
+    // The memory was created and committed despite the skip.
+    assert!(
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name(Namespace::Topic.with_name("skip-test"))
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn turn_skip_records_lua_event() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([
+        run_lua_call(r#"memory.create("topic/skip-event", "Written")"#),
+        run_lua_call(r#"turn.skip("not addressed to me")"#),
+    ]);
+
+    run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
+
+    let events = h.events();
+    // The second LuaExecuted should carry a Skipped terminal cause.
+    let lua_events: Vec<_> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            EventPayload::LuaExecuted { terminal_cause, .. } => Some(terminal_cause),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        lua_events
+            .iter()
+            .any(|cause| matches!(cause, Some(TerminalCause::Skipped(Some(reason))) if reason == "not addressed to me")),
+        "expected a LuaExecuted with Skipped terminal cause, got: {lua_events:?}"
+    );
+}
+
+#[tokio::test]
+async fn turn_skip_with_reason() {
+    let h = Harness::new();
+    let model = ScriptedModel::new([run_lua_call(r#"turn.skip("deliberately silent")"#)]);
+
+    run_turn(h.as_turn(&model, "hello", 8)).await.unwrap();
+
+    let events = h.events();
+    // The LuaExecuted should carry the reason in the Skipped cause.
+    let has_skip_with_reason = events.iter().any(|e| {
+        matches!(
+            &e.payload,
+            EventPayload::LuaExecuted {
+                terminal_cause: Some(TerminalCause::Skipped(Some(reason))),
+                ..
+            } if reason == "deliberately silent"
+        )
+    });
+    assert!(
+        has_skip_with_reason,
+        "expected a LuaExecuted with Skipped(\"deliberately silent\")"
+    );
+}

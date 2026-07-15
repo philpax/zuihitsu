@@ -54,12 +54,21 @@ impl MemoryBlock {
         self.aborted = Some(reason.unwrap_or_default());
     }
 
-    /// Consume the block for commit: the buffered events, the touched lock set, and any abort reason.
+    /// Signal that the turn should end silently, committing this block's buffered writes. The
+    /// `turn.skip(reason)` function sets this and raises a `RuntimeError` to stop execution, mirroring
+    /// `abort`'s mechanism — but unlike an abort, the buffer is committed, not discarded.
+    pub fn skip(&mut self, reason: Option<String>) {
+        self.skip = Some(reason.unwrap_or_default());
+    }
+
+    /// Consume the block for commit: the buffered events, the touched lock set, and any abort or
+    /// skip reason.
     pub fn into_effects(self) -> BlockEffects {
         BlockEffects {
             events: self.buffer,
             touched: self.touched.into_iter().collect(),
             aborted: self.aborted,
+            skip: self.skip,
         }
     }
 
@@ -72,6 +81,7 @@ impl MemoryBlock {
             events: std::mem::take(&mut self.buffer),
             touched: std::mem::take(&mut self.touched).into_iter().collect(),
             aborted: self.aborted.take(),
+            skip: self.skip.take(),
         }
     }
 

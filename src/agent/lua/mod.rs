@@ -55,6 +55,9 @@ pub enum BlockOutcome {
     Committed { result: String },
     /// The block ended without committing (its buffer was discarded), for this reason.
     Terminated(crate::event::TerminalCause),
+    /// The block committed its buffered writes, but a `turn.skip()` signalled the turn should end
+    /// silently. Unlike `Terminated`, the writes are durable; the skip only suppresses the reply.
+    Skipped(Option<String>),
 }
 
 /// Construct the block VM with a deliberately narrow surface: a memory block is an orchestration

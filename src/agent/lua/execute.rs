@@ -143,6 +143,7 @@ impl Session {
                 events,
                 touched,
                 aborted,
+                skip,
             } = api.block.lock().take_effects();
             let outcome = match evaluated {
                 Ok(result) => {
@@ -172,23 +173,47 @@ impl Session {
                     }
                 }
                 Err(error) => {
-                    // Discard the buffer; record only what the agent saw — the terminal cause.
-                    let cause = match aborted {
-                        Some(reason) => TerminalCause::Aborted(reason),
-                        None => TerminalCause::Error(error.to_string()),
-                    };
-                    if context.dry_run {
-                        Ok(BlockOutcome::Terminated(cause))
+                    // A `turn.skip()` raises a RuntimeError to stop execution (like `block.abort`),
+                    // so it lands here. Unlike an abort, the skip *commits* the block's buffered
+                    // writes — the agent may have done useful memory work before deciding not to
+                    // reply. Check `skip` first: if set, take the commit path with a `Skipped`
+                    // terminal cause, then return `BlockOutcome::Skipped`. Only when `skip` is not
+                    // set do we proceed to the discard path (abort or error).
+                    if skip.is_some() {
+                        if context.dry_run {
+                            Ok(BlockOutcome::Skipped(skip))
+                        } else {
+                            let mut events = events;
+                            let cause = TerminalCause::Skipped(skip.clone());
+                            events.push(self.lua_executed(
+                                context.turn_id,
+                                script,
+                                None,
+                                touched,
+                                Some(cause),
+                                started.elapsed().as_millis() as u64,
+                            ));
+                            self.finish(engine, events, BlockOutcome::Skipped(skip))
+                        }
                     } else {
-                        let event = self.lua_executed(
-                            context.turn_id,
-                            script,
-                            None,
-                            touched,
-                            Some(cause.clone()),
-                            started.elapsed().as_millis() as u64,
-                        );
-                        self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
+                        // Discard the buffer; record only what the agent saw — the terminal cause.
+                        let cause = match aborted {
+                            Some(reason) => TerminalCause::Aborted(reason),
+                            None => TerminalCause::Error(error.to_string()),
+                        };
+                        if context.dry_run {
+                            Ok(BlockOutcome::Terminated(cause))
+                        } else {
+                            let event = self.lua_executed(
+                                context.turn_id,
+                                script,
+                                None,
+                                touched,
+                                Some(cause.clone()),
+                                started.elapsed().as_millis() as u64,
+                            );
+                            self.finish(engine, vec![event], BlockOutcome::Terminated(cause))
+                        }
                     }
                 }
             };

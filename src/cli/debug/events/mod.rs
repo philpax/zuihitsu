@@ -219,6 +219,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
             (Some(TerminalCause::Aborted(reason)), _) => {
                 format!("aborted: {}", oneline(reason, 80))
             }
+            (Some(TerminalCause::Skipped(reason)), _) => {
+                format!("skipped: {}", oneline(reason.as_deref().unwrap_or(""), 80))
+            }
             (None, Some(result)) => oneline(result, 100),
             (None, None) => String::new(),
         },

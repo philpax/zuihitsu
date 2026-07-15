@@ -50,6 +50,7 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
         entries.extend(web::entries());
     }
     entries.extend(memory::block_entries());
+    entries.extend(memory::turn_entries());
     entries
 }
 

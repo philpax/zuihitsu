@@ -116,6 +116,7 @@ pub(crate) fn install_block_api(
     )?;
     globals.set("memory", memory_table(lua, api, metatable)?)?;
     globals.set("block", block_table(lua, api)?)?;
+    globals.set("turn", turn_table(lua, api)?)?;
     globals.set("context", context_table(lua, api, metatable)?)?;
     // The calendar, tags, and links module tables are installed only when their feature is on;
     // a disabled module is simply absent (nil), so calling through it is a teachable nil-call

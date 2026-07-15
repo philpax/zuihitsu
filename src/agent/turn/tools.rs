@@ -24,31 +24,52 @@ pub(crate) fn full_api_reference(session: &Session) -> String {
     super::super::api_doc::render(&entries)
 }
 
+/// The outcome of a single tool call: either continue the step loop with a rendered result, or skip
+/// the rest of the turn silently (a `turn.skip()` inside the block).
+pub(super) enum ToolCallResult {
+    /// The block's rendered result, fed back to the model.
+    Continue(String),
+    /// A `turn.skip()` was called; the turn should end silently. The block's writes are already
+    /// committed.
+    SkipTurn,
+}
+
 /// Execute one tool call and render the text the model sees next: the block's result on success,
 /// or a teachable failure (errors teach). Only infrastructure failures propagate as `TurnError`.
+/// A `turn.skip()` inside the block returns `SkipTurn`, signalling the caller to end the turn
+/// silently.
 pub(super) async fn run_tool_call(
     session: &Session,
     engine: &Arc<Engine>,
     context: &BlockContext,
     call: &ToolCall,
-) -> Result<String, TurnError> {
+) -> Result<ToolCallResult, TurnError> {
     if call.name != "run_lua" {
-        return Ok(ToolError::UnknownTool(call.name.clone()).to_string());
+        return Ok(ToolCallResult::Continue(
+            ToolError::UnknownTool(call.name.clone()).to_string(),
+        ));
     }
     let script = match serde_json::from_str::<RunLuaArgs>(&call.arguments) {
         Ok(args) => args.script,
-        Err(error) => return Ok(ToolError::InvalidArguments(error.to_string()).to_string()),
+        Err(error) => {
+            return Ok(ToolCallResult::Continue(
+                ToolError::InvalidArguments(error.to_string()).to_string(),
+            ));
+        }
     };
     observe_lua_block();
     Ok(match session.execute(engine, context, &script).await? {
-        BlockOutcome::Committed { result } => result,
+        BlockOutcome::Committed { result } => ToolCallResult::Continue(result),
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             observe_lua_block_error();
-            ToolError::BlockError(message).to_string()
+            ToolCallResult::Continue(ToolError::BlockError(message).to_string())
         }
         BlockOutcome::Terminated(TerminalCause::Aborted(reason)) => {
             observe_lua_block_error();
-            ToolError::BlockAborted(reason).to_string()
+            ToolCallResult::Continue(ToolError::BlockAborted(reason).to_string())
+        }
+        BlockOutcome::Terminated(TerminalCause::Skipped(_)) | BlockOutcome::Skipped(_) => {
+            ToolCallResult::SkipTurn
         }
     })
 }
@@ -90,6 +111,9 @@ impl From<TerminalCause> for ToolError {
         match cause {
             TerminalCause::Error(message) => ToolError::BlockError(message),
             TerminalCause::Aborted(reason) => ToolError::BlockAborted(reason),
+            // A skip is intercepted by `ToolCallResult::SkipTurn` before it can reach `ToolError`,
+            // so this arm is unreachable in practice — but the impl must be exhaustive to compile.
+            TerminalCause::Skipped(reason) => ToolError::BlockAborted(reason.unwrap_or_default()),
         }
     }
 }

@@ -160,6 +160,10 @@ impl super::Control<'_> {
                 result: Some(result),
                 error: None,
             },
+            BlockOutcome::Skipped(reason) => LuaConsoleOutcome {
+                result: None,
+                error: Some(format!("turn skipped: {}", reason.unwrap_or_default())),
+            },
             BlockOutcome::Terminated(TerminalCause::Error(message)) => LuaConsoleOutcome {
                 result: None,
                 error: Some(message),
@@ -167,6 +171,10 @@ impl super::Control<'_> {
             BlockOutcome::Terminated(TerminalCause::Aborted(message)) => LuaConsoleOutcome {
                 result: None,
                 error: Some(format!("aborted: {message}")),
+            },
+            BlockOutcome::Terminated(TerminalCause::Skipped(reason)) => LuaConsoleOutcome {
+                result: None,
+                error: Some(format!("turn skipped: {}", reason.unwrap_or_default())),
             },
         })
     }

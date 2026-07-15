@@ -107,6 +107,9 @@ pub struct MemoryBlock {
     buffer: Vec<EventPayload>,
     touched: BTreeSet<MemoryId>,
     aborted: Option<String>,
+    /// A `turn.skip(reason)` signal — set by the `turn` module's `skip` function. Unlike `aborted`,
+    /// a skip commits the block's buffered writes; it only suppresses the turn's reply.
+    skip: Option<String>,
     /// Memories created this block whose seed entry (the `create(name, content)` argument) took the
     /// *unforced* write-time default and landed open (`Public`/`Attributed`). A later `exclude`
     /// append to such a memory in the same block is rejected as a teachable error: the open seed
@@ -215,6 +218,9 @@ pub struct BlockEffects {
     pub events: Vec<EventPayload>,
     pub touched: Vec<MemoryId>,
     pub aborted: Option<String>,
+    /// A `turn.skip(reason)` signal — the block's buffered writes should be committed, but the turn
+    /// should end silently. Mirrors `aborted` in shape but commits instead of discards.
+    pub skip: Option<String>,
 }
 
 /// The forced visibility a `visibility = "public" | "attributed" | "private"` append opt selects,
@@ -428,6 +434,7 @@ impl MemoryBlock {
             buffer: Vec::new(),
             touched: BTreeSet::new(),
             aborted: None,
+            skip: None,
             open_default_seeds: BTreeSet::new(),
         })
     }

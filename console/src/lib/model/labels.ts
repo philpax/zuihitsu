@@ -34,10 +34,13 @@ export function isPrivate(visibility: Visibility): boolean {
   return visibility !== "Public";
 }
 
-/// How a Lua block ended when it did not run to completion — an error or a deliberate abort, read
-/// the same wherever a terminal cause surfaces (the log summary, the event detail, the transcript).
+/// How a Lua block ended when it did not run to completion — an error, a deliberate abort, or a
+/// skip (the agent called `turn.skip()` to end the turn silently with writes committed), read the
+/// same wherever a terminal cause surfaces (the log summary, the event detail, the transcript).
 export function terminalCauseLabel(cause: TerminalCause): string {
-  return "Error" in cause ? `error: ${cause.Error}` : `aborted: ${cause.Aborted}`;
+  if ("Error" in cause) return `error: ${cause.Error}`;
+  if ("Aborted" in cause) return `aborted: ${cause.Aborted}`;
+  return `skipped: ${cause.skipped ?? "(no reason)"}`;
 }
 
 export function completionSummary(completion: Completion): string {

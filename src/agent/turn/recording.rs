@@ -30,7 +30,7 @@ use super::{
     Steps, TurnError, TurnOutcome,
     record::{TurnRecord, append_turn},
     run::tool_call_id,
-    tools::run_tool_call,
+    tools::{ToolCallResult, run_tool_call},
 };
 use crate::ids::ConversationId;
 
@@ -358,9 +358,26 @@ pub(crate) async fn run_steps(
                         .collect();
                     messages.push(Message::assistant_tool_calls(calls.clone()));
                     for call in &calls {
-                        let result = run_tool_call(session, &engine, &context, call).await?;
-                        blocks += 1;
-                        messages.push(Message::tool_result(call.id.clone(), result));
+                        match run_tool_call(session, &engine, &context, call).await? {
+                            ToolCallResult::Continue(result) => {
+                                blocks += 1;
+                                messages.push(Message::tool_result(call.id.clone(), result));
+                            }
+                            ToolCallResult::SkipTurn => {
+                                // A `turn.skip()` inside the block signalled the turn should end
+                                // silently. The block's writes are already committed; record the
+                                // agent turn as empty (silent terminal) and break out of the step
+                                // loop. A skip from any block in a multi-call step ends the turn
+                                // immediately.
+                                blocks += 1;
+                                record_agent_turn(
+                                    engine.store.lock().as_mut(),
+                                    engine.clock.as_ref(),
+                                    String::new(),
+                                )?;
+                                break 'cycle TurnOutcome::Silent;
+                            }
+                        }
                     }
                 }
                 Completion::Reply(text) if reply_leaks_special_tokens(&text) => {

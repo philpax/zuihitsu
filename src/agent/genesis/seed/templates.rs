@@ -335,6 +335,16 @@ pub(in crate::agent::genesis) fn default_templates(
          to confirm — not as settled, even before it reads back `stale`."
             .to_owned(),
     );
+    // turn.skip: end the turn silently with writes committed. Always-on (infrastructure, like
+    // block.abort) — no feature gates it.
+    scaffold_points.push(
+        "If you gather information and decide the message does not need a response, call \
+         turn.skip() to end the turn silently without another model step. Your writes in the block \
+         are committed — the skip only suppresses the reply, it does not undo your work. This is \
+         the efficient alternative to gathering in one block and then deciding to stay silent in the \
+         next: skip ends the turn the moment you know."
+            .to_owned(),
+    );
 
     // The body is assembled over the scaffold points, after the shared preamble and namespace legend.
     let mut scaffold_body = String::from(scaffold_preamble);
@@ -348,7 +358,7 @@ pub(in crate::agent::genesis) fn default_templates(
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 20,
+            version: 21,
             body: scaffold_body,
         },
         TemplateDef {

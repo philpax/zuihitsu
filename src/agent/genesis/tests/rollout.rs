@@ -265,7 +265,7 @@ fn interrupted_genesis_resumes_emitting_only_the_missing() {
                 matches!(&e.payload, EventPayload::PromptTemplateRegistered { name, .. } if *name == PromptTemplateName::Scaffold)
             })
             .count();
-    assert_eq!(scaffold, 1);
+    assert_eq!(scaffold, 2);
 }
 
 #[test]

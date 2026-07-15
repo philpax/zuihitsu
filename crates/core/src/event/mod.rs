@@ -282,8 +282,8 @@ pub enum Initiation {
 }
 
 /// How a Lua block ended when the agent saw the outcome (spec §Event sourcing). A block that
-/// commits normally has no terminal cause; one the agent observed failing or deliberately aborting
-/// records why.
+/// commits normally has no terminal cause; one the agent observed failing, deliberately aborting,
+/// or skipping (ending the turn silently with writes committed) records why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TerminalCause {
@@ -291,6 +291,10 @@ pub enum TerminalCause {
     Error(String),
     /// An explicit `block.abort(reason)`.
     Aborted(String),
+    /// An explicit `turn.skip(reason)`. Unlike an abort, the block's buffered writes were committed
+    /// before the turn ended silently — the skip only means "don't reply", not "undo everything".
+    #[serde(rename = "skipped")]
+    Skipped(Option<String>),
 }
 
 /// The orchestration prompt templates the build ships — a closed, build-defined set (spec

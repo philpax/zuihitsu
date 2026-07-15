@@ -445,3 +445,15 @@ pub(super) fn block_entries() -> Vec<ApiEntry> {
         .optional("reason", AT::String, "why the block was abandoned");
     vec![abort]
 }
+
+/// The `turn.skip` entry — always on, infrastructure.
+pub(super) fn turn_entries() -> Vec<ApiEntry> {
+    let skip = AE::new("turn.skip")
+        .description(
+            "End the turn silently, committing this block's writes. Unlike block.abort (which \
+             discards), turn.skip keeps what you wrote — use it when you gathered information and \
+             decided the message does not need a response. No further model step runs.",
+        )
+        .optional("reason", AT::String, "why the turn was skipped");
+    vec![skip]
+}
