@@ -197,19 +197,20 @@ pub mod test_support {
             EventSource::Operator,
             EventSource::Orchestration,
         ];
-        for (index, source) in sources.into_iter().enumerate() {
+        for (index, source) in sources.iter().enumerate() {
             let committed = store
                 .append(
                     Timestamp::from_millis(1_000 + index as i64),
-                    source,
+                    source.clone(),
                     vec![EventPayload::memory_deleted(MemoryId::generate())],
                 )
                 .unwrap();
-            assert_eq!(committed[0].source, source);
+            assert_eq!(committed[0].source, *source);
         }
 
         let replayed = store.read_from(Seq::ZERO).unwrap();
-        let replayed_sources: Vec<EventSource> = replayed.iter().map(|e| e.source).collect();
+        let replayed_sources: Vec<EventSource> =
+            replayed.iter().map(|e| e.source.clone()).collect();
         assert_eq!(replayed_sources, sources);
     }
 

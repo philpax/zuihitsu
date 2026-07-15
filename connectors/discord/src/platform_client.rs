@@ -165,13 +165,19 @@ impl PlatformClient {
     }
 
     /// `POST /platform/context` — write context entries to a conversation's context memory directly.
-    /// A connector uses this to write channel metadata and laconic guidance on first contact.
+    /// A connector uses this to write channel metadata and laconic guidance on first contact. The
+    /// `connector_id` identifies the caller in the event log.
     pub async fn write_context(
         &self,
         locator: &ConversationLocator,
+        connector_id: &str,
         entries: &[ContextEntry],
     ) -> Result<()> {
-        let body = ContextBody { locator, entries };
+        let body = ContextBody {
+            locator,
+            connector: connector_id,
+            entries,
+        };
         let url = format!("{}/platform/context", self.base_url);
         let response = self
             .http
@@ -214,5 +220,6 @@ struct JoinBody<'a> {
 #[derive(Serialize)]
 struct ContextBody<'a> {
     locator: &'a ConversationLocator,
+    connector: &'a str,
     entries: &'a [ContextEntry],
 }

@@ -146,7 +146,7 @@ impl Store for SqliteStore {
             committed.push(Event {
                 seq: Seq(seq as u64),
                 recorded_at,
-                source,
+                source: source.clone(),
                 payload,
             });
         }

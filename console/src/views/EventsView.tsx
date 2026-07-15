@@ -183,7 +183,7 @@ export function EventsView({
         <div className="flex flex-wrap gap-x-4 gap-y-2">
           {EVENT_SOURCES.map((source) => (
             <button
-              key={source}
+              key={sourceLabel(source)}
               onClick={() => toggleSource(source)}
               className={
                 "font-mono text-2xs uppercase tracking-widest transition-colors " +

@@ -8,6 +8,7 @@ import {
   terminalCauseLabel,
   visibilityLabel,
 } from "../lib/model/labels.ts";
+import { sourceLabel } from "../lib/model/events.ts";
 import { formatMs } from "../lib/format/format.ts";
 import { Lua } from "../components/Lua.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
@@ -118,7 +119,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           <Fields>
             <Field label="template">{payload.name}</Field>
             <Field label="version">v{payload.version}</Field>
-            <Field label="source">{payload.source}</Field>
+            <Field label="source">{payload.source ? sourceLabel(payload.source) : ""}</Field>
           </Fields>
           <Prose>{payload.body}</Prose>
         </div>
@@ -128,7 +129,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
       return (
         <div className="flex flex-col gap-2">
           <Fields>
-            <Field label="source">{payload.source}</Field>
+            <Field label="source">{payload.source ? sourceLabel(payload.source) : ""}</Field>
           </Fields>
           <Tree value={payload.settings} />
         </div>

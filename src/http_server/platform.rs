@@ -99,9 +99,12 @@ pub(super) async fn roster(
 /// `POST /platform/context` — write context entries to a conversation's context memory directly.
 /// A connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
 /// first contact, posting structured data rather than interpolating untrusted strings into code.
+/// The `connector` field identifies the caller in the event log so context writes are attributed to
+/// the connector, not the agent.
 #[derive(Deserialize)]
 pub(super) struct ContextRequest {
     locator: ConversationLocator,
+    connector: String,
     entries: Vec<ContextEntry>,
 }
 
@@ -109,10 +112,11 @@ pub(super) async fn write_context(
     State(state): State<AppState>,
     Json(request): Json<ContextRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state
-        .server
-        .platform()
-        .write_context(&request.locator, &request.entries)?;
+    state.server.platform().write_context(
+        &request.locator,
+        &request.connector,
+        &request.entries,
+    )?;
     Ok(StatusCode::NO_CONTENT)
 }
 

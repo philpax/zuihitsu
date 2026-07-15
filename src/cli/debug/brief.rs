@@ -58,7 +58,11 @@ pub(crate) fn brief(config: &EnvConfig, selector: BriefSelector) -> Result<(), C
     let mut prior = MemoryStore::new();
     for event in events.iter().filter(|event| event.seq < start_seq) {
         prior
-            .append(event.recorded_at, event.source, vec![event.payload.clone()])
+            .append(
+                event.recorded_at,
+                event.source.clone(),
+                vec![event.payload.clone()],
+            )
             .map_err(|source| {
                 CliError::Brief(format!("could not replay the prior log: {source}"))
             })?;

@@ -358,6 +358,7 @@ impl Platform<'_> {
     pub fn write_context(
         &self,
         locator: &ConversationLocator,
+        connector_id: &str,
         entries: &[ContextEntry],
     ) -> Result<(), InstanceError> {
         if entries.is_empty() {
@@ -409,10 +410,11 @@ impl Platform<'_> {
                 .map_err(InstanceError::Memory)?;
         }
         let now = engine.clock.now();
-        engine
-            .store
-            .lock()
-            .append(now, EventSource::Agent, block.into_effects().events)?;
+        engine.store.lock().append(
+            now,
+            EventSource::Connector(connector_id.to_owned()),
+            block.into_effects().events,
+        )?;
         engine
             .graph
             .lock()

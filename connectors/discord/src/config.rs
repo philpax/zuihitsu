@@ -23,6 +23,14 @@ pub struct DiscordConfig {
 pub struct ServerConfig {
     pub url: String,
     pub platform_key: String,
+    /// The identifier this connector presents to the server, used to attribute context writes in
+    /// the event log. Defaults to "discord" if unset.
+    #[serde(default = "default_connector_id")]
+    pub connector_id: String,
+}
+
+fn default_connector_id() -> String {
+    "discord".to_owned()
 }
 
 /// The Discord bot token.

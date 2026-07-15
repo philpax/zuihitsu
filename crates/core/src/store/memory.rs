@@ -38,7 +38,7 @@ impl Store for MemoryStore {
                 Event {
                     seq,
                     recorded_at,
-                    source,
+                    source: source.clone(),
                     payload,
                 }
             })

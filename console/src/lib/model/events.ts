@@ -2,23 +2,20 @@ import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import { terminalCauseLabel } from "./labels.ts";
 
-/// The authoring authorities, in the order the Events view offers them as an author filter — genesis
-/// first, then the agent's turns, the operator's console actions, and the system's background work.
+/// The authoring authorities offered as an author filter in the Events view — genesis first, then
+/// the agent's turns, the operator's console actions, and the system's background work. A connector
+/// is not offered as a standalone filter (it is a tagged variant, not a bare string), but
+/// `sourceLabel` renders it when it appears in an event.
 export const EVENT_SOURCES: EventSource[] = ["Bootstrap", "Agent", "Operator", "Orchestration"];
 
 /// The human-facing label for an event's authoring authority — the envelope `source`. Lowercased
 /// against the mono type the log speaks; the enum's own words otherwise.
 export function sourceLabel(source: EventSource): string {
-  switch (source) {
-    case "Bootstrap":
-      return "genesis";
-    case "Agent":
-      return "agent";
-    case "Operator":
-      return "operator";
-    case "Orchestration":
-      return "system";
-  }
+  if (source === "Bootstrap") return "genesis";
+  if (source === "Agent") return "agent";
+  if (source === "Operator") return "operator";
+  if (source === "Orchestration") return "system";
+  return `connector: ${source.Connector}`;
 }
 
 /// A coarse grouping of event kinds, for a calm colour rhythm in the log: memory writes, the link

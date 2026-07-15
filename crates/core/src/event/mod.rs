@@ -214,7 +214,10 @@ impl MergeProposalSource {
 ///   passes (description synthesis, temporal resolution, link inference, merge adjudication), the
 ///   scheduler, the boot-time embedding migration, and the identity and session plumbing (opening a
 ///   conversation, minting or joining a participant, opening and closing a session).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// - `Connector` — an external connector writing through the platform API surface (e.g. the Discord
+///   bot writing context memory). The string identifies the connector instance, so the event log
+///   attributes the write to the connector rather than the agent.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventSource {
     Bootstrap,
@@ -229,17 +232,21 @@ pub enum EventSource {
     #[serde(alias = "Debugger")]
     Operator,
     Orchestration,
+    /// A connector writing through the platform API surface. The string identifies the connector
+    /// instance — free-form for now, a typed identification protocol may follow.
+    Connector(String),
 }
 
 impl EventSource {
     /// The stored/wire label, matching the serialized enum form so the event-store `source` column
-    /// carries the same string serde emits.
-    pub fn as_str(self) -> &'static str {
+    /// carries the same string serde emits. A `Connector` label includes the connector's identifier.
+    pub fn as_str(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            EventSource::Bootstrap => "Bootstrap",
-            EventSource::Agent => "Agent",
-            EventSource::Operator => "Operator",
-            EventSource::Orchestration => "Orchestration",
+            EventSource::Bootstrap => "Bootstrap".into(),
+            EventSource::Agent => "Agent".into(),
+            EventSource::Operator => "Operator".into(),
+            EventSource::Orchestration => "Orchestration".into(),
+            EventSource::Connector(id) => format!("Connector({id})").into(),
         }
     }
 }
@@ -255,7 +262,14 @@ impl std::str::FromStr for EventSource {
             "Agent" => Ok(EventSource::Agent),
             "Operator" | "Debugger" => Ok(EventSource::Operator),
             "Orchestration" => Ok(EventSource::Orchestration),
-            _ => Err(()),
+            _ => {
+                // The `Connector(id)` form is the `as_str()` output for a connector-sourced event.
+                // The id is free-form, so we extract it from between the parentheses.
+                text.strip_prefix("Connector(")
+                    .and_then(|s| s.strip_suffix(')'))
+                    .map(|id| EventSource::Connector(id.to_owned()))
+                    .ok_or(())
+            }
         }
     }
 }

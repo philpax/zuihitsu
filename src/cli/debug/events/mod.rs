@@ -134,7 +134,7 @@ pub(crate) fn write_event(
     // The envelope authority, dimly, for every non-`Agent` event: the agent authors the bulk of a
     // log, so annotating only the exceptions keeps the listing calm while a genesis, operator, or
     // system write stands out.
-    let source = match event.source {
+    let source = match &event.source {
         EventSource::Agent => String::new(),
         other => format!("  [{}]", other.as_str().to_lowercase()),
     };
