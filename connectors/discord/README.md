@@ -65,8 +65,9 @@ reply to it (in an allowed guild channel) or arrive as DMs are forwarded to the 
 - **Turn mapping**: when a user replies to a mapped message (bot or participant), the connector
   injects a `[turn:<id>]` token into the message text before forwarding to the platform API, so the
   agent can reference the prior turn.
-- **Member joins**: on `guild_member_addition`, the connector calls `POST /platform/join` for each
-  allowed channel in the guild.
+- **Presence**: the present set is per-channel and grows lazily — a user is added when they send a
+  message the bot processes. Departures remove the user from every channel. The connector does not
+  call `/platform/join`; presence is communicated per-message through the `present` field.
 
 ## manual e2e test procedure
 
@@ -80,4 +81,3 @@ reply to it (in an allowed guild channel) or arrive as DMs are forwarded to the 
 7. DM the bot, verify it responds.
 8. Reply to the bot's message, verify the agent can reference the prior turn.
 9. Verify typing indicator appears during reply streaming, not during deliberation.
-10. Have a user join the server, verify `/platform/join` is called (check server logs).

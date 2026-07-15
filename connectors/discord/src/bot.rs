@@ -5,11 +5,14 @@
 //! present set, inject `[turn:<id>]` if replying to a mapped message, call the platform API stream,
 //! watch for reply progress to start the typing indicator, and post the outcome back to Discord.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use parking_lot::Mutex as SyncMutex;
 use serenity::{
-    all::{GuildChannel, GuildId, Member, Message, Ready, ResumedEvent, User, UserId},
+    all::{ChannelId, GuildChannel, GuildId, Member, Message, Ready, ResumedEvent, User, UserId},
     async_trait,
     prelude::*,
 };
@@ -38,11 +41,11 @@ pub struct BotState {
     pub bot_id: Mutex<Option<UserId>>,
     pub turn_map: Mutex<TurnMap>,
     pub context_sync: ContextSync,
-    /// The set of users who have spoken in a channel the bot operates in. Grown lazily — a user
-    /// is added when they send a message the bot processes, not eagerly from the guild member
-    /// list. This avoids fetching thousands of members on large servers; the present set grows
-    /// organically as the conversation does.
-    pub present_members: Mutex<HashSet<UserId>>,
+    /// Per-channel present sets: users who have spoken in a channel the bot operates in. Grown
+    /// lazily — a user is added when they send a message the bot processes, not eagerly from the
+    /// guild member list. Keyed by channel so presence is per-conversation, not global. A user who
+    /// leaves the guild is removed from every channel they were in.
+    pub present_members: Mutex<HashMap<ChannelId, HashSet<UserId>>>,
     pub debounce: DebounceState,
 }
 
@@ -60,7 +63,7 @@ impl BotState {
             bot_id: Mutex::new(None),
             turn_map: Mutex::new(TurnMap::new()),
             context_sync: ContextSync::new(connector_id),
-            present_members: Mutex::new(HashSet::new()),
+            present_members: Mutex::new(HashMap::new()),
             debounce: DebounceState::new(debounce_ms),
         }
     }
@@ -101,8 +104,14 @@ impl EventHandler for Handler {
             return;
         };
 
-        // Track the sender in the present set (lazy presence tracking).
-        state.present_members.lock().await.insert(msg.author.id);
+        // Track the sender in the channel's present set (lazy presence tracking).
+        state
+            .present_members
+            .lock()
+            .await
+            .entry(msg.channel_id)
+            .or_default()
+            .insert(msg.author.id);
 
         // Determine addressing.
         let mentions_bot = msg.mentions.iter().any(|u| u.id == bot_id);
@@ -178,7 +187,10 @@ impl EventHandler for Handler {
             vec![msg.author.id.to_string(), bot_id.to_string()]
         } else {
             let present = state.present_members.lock().await;
-            present.iter().map(|id| id.to_string()).collect()
+            present
+                .get(&msg.channel_id)
+                .map(|set| set.iter().map(|id| id.to_string()).collect())
+                .unwrap_or_default()
         };
 
         let sender = msg.author.id.to_string();
@@ -218,28 +230,6 @@ impl EventHandler for Handler {
         });
     }
 
-    async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
-        let data = ctx.data.read().await;
-        let Some(state) = data.get::<BotStateKey>() else {
-            return;
-        };
-
-        // Track the new member lazily — they'll be added to the present set when they first
-        // speak, but we note the join via /platform/join.
-        let guild_id = new_member.guild_id;
-        let participant = new_member.user.id.to_string();
-        for channel_id in &state.config.behavior.allowed_channels {
-            let channel_ctx = ChannelContext::Guild {
-                guild_id: guild_id.get(),
-                channel_id: channel_id.get(),
-            };
-            let locator = channel_ctx.locator();
-            if let Err(error) = state.platform.join(&locator, &participant).await {
-                tracing::warn!(%error, "discord connector: could not note join");
-            }
-        }
-    }
-
     async fn guild_member_removal(
         &self,
         ctx: Context,
@@ -249,7 +239,11 @@ impl EventHandler for Handler {
     ) {
         let data = ctx.data.read().await;
         if let Some(state) = data.get::<BotStateKey>() {
-            state.present_members.lock().await.remove(&user.id);
+            // Remove the departing user from every channel's present set.
+            let mut present = state.present_members.lock().await;
+            for (_, set) in present.iter_mut() {
+                set.remove(&user.id);
+            }
         }
         // Departures are eventless by design.
         let _ = guild_id;

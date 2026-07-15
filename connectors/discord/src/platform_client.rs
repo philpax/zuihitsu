@@ -210,6 +210,7 @@ struct MessageBody<'a> {
 }
 
 /// The request body for `POST /platform/join`.
+#[allow(dead_code)]
 #[derive(Serialize)]
 struct JoinBody<'a> {
     locator: &'a ConversationLocator,
