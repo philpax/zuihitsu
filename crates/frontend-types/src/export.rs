@@ -16,11 +16,11 @@ pub fn export_types(dir: &Path) -> Result<()> {
     use ts_rs::TS;
 
     use crate::{
-        agent::{BackendHealth, PlatformResponse, TurnOutcome},
+        agent::{BackendHealth, CircuitState},
         live::LiveEvent,
         package::{EvalPackage, PackageSummary},
-        stream::StreamFrame,
     };
+    use zuihitsu_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
     use zuihitsu_core::{
         ids::{Namespace, NamespacedMemoryName},
         progress::TurnProgress,
@@ -39,6 +39,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     PlatformResponse::export_all_to(dir).context("exporting PlatformResponse")?;
     StreamFrame::export_all_to(dir).context("exporting StreamFrame")?;
     BackendHealth::export_all_to(dir).context("exporting BackendHealth")?;
+    CircuitState::export_all_to(dir).context("exporting CircuitState")?;
     TurnProgress::export_all_to(dir).context("exporting TurnProgress")?;
     write_console_constants(dir).context("writing console constants")?;
 

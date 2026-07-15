@@ -23,7 +23,7 @@ use crate::{
     model::ModelClient,
     settings::Settings,
 };
-use zuihitsu_frontend_types::PlatformResponse;
+use zuihitsu_connector_types::PlatformResponse;
 
 /// One inbound participant message in a batch delivered to `route_messages`.
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/connector-api", "crates/console-wasm", "crates/eval", "crates/frontend-types", "crates/settings-metadata-derive", "connectors/discord"]
+members = ["crates/*", "connectors/*"]
 
 # Dependencies shared across the workspace crates live here, so their versions cannot drift.
 # Per-crate feature sets are added at the use site (features union across the workspace).
@@ -116,6 +116,7 @@ ulid = { workspace = true }
 url = "2.5"
 whatlang = "0.18"
 zuihitsu-core = { workspace = true }
+zuihitsu-connector-types = { path = "crates/connector-types" }
 zuihitsu-frontend-types = { path = "crates/frontend-types" }
 
 [build-dependencies]

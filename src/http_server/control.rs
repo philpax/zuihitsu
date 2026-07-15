@@ -15,7 +15,7 @@ use zuihitsu::{
     PromptTemplateName, RetractOutcome, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView,
     Settings, UnmergeOutcome, genesis::GenesisStatus,
 };
-use zuihitsu_frontend_types::PlatformResponse;
+use zuihitsu_connector_types::PlatformResponse;
 
 use super::{AppState, error::ApiError};
 

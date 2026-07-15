@@ -1,13 +1,14 @@
 //! The shared platform API client for zuihitsu connectors.
 //!
 //! Owns the HTTP transport, SSE parsing, and request/response body types for the `/platform/*`
-//! endpoints. A connector (Discord, Slack, IRC, …) wraps this crate with platform-specific logic
-//! — addressing, pacing, presence — and delegates all communication with the zuihitsu server
-//! to [`PlatformClient`].
+//! endpoints. A connector wraps this crate with platform-specific logic — addressing, pacing,
+//! presence — and delegates all communication with the zuihitsu server to [`PlatformClient`].
 //!
 //! Auth uses the platform key for all `/platform/*` endpoints. Every error's `Display` leads
 //! with a `platform client:` context prefix, so a chained error from a connector reads as
 //! nested context.
+
+pub use zuihitsu_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
 
 use std::fmt;
 
@@ -15,7 +16,6 @@ use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::Serialize;
 use zuihitsu_core::{ids::ConversationLocator, progress::TurnProgress};
-use zuihitsu_frontend_types::{PlatformResponse, StreamFrame};
 
 /// A failure in the platform API client.
 #[derive(Debug)]

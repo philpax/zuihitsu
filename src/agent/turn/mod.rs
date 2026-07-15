@@ -76,7 +76,7 @@ pub(super) use super::{lua::Session, templates};
 /// What a completed turn delivers to the platform client.
 ///
 /// The type is defined in `zuihitsu-frontend-types` and re-exported at the crate root.
-pub use zuihitsu_frontend_types::TurnOutcome;
+pub use zuihitsu_connector_types::TurnOutcome;
 
 /// What a completed turn reports to the platform: its conversational `outcome` and the peak
 /// `prompt_tokens` observed across the turn's generation steps — the largest the buffer reached, and

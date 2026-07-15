@@ -4498,6 +4498,7 @@ dependencies = [
  "wasm-bindgen-cli-support",
  "wasm-opt",
  "whatlang",
+ "zuihitsu-connector-types",
  "zuihitsu-core",
  "zuihitsu-frontend-types",
 ]
@@ -4511,8 +4512,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "zuihitsu-connector-types",
  "zuihitsu-core",
- "zuihitsu-frontend-types",
+]
+
+[[package]]
+name = "zuihitsu-connector-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "ts-rs",
+ "zuihitsu-core",
 ]
 
 [[package]]
@@ -4549,7 +4559,6 @@ dependencies = [
  "ulid",
  "zuihitsu-connector-api",
  "zuihitsu-core",
- "zuihitsu-frontend-types",
 ]
 
 [[package]]
@@ -4583,5 +4592,6 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
+ "zuihitsu-connector-types",
  "zuihitsu-core",
 ]

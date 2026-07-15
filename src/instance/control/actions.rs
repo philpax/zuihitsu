@@ -15,6 +15,13 @@ use crate::{
         Visibility,
     },
     ids::{ConversationLocator, EntryId, MemoryId, MemoryName, TurnId},
+    instance::{
+        InstanceError,
+        control::{
+            DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
+        },
+        session::RoutedTurn,
+    },
     memory::{
         identity,
         memory_block::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice},
@@ -23,13 +30,7 @@ use crate::{
     settings::Settings,
     vocabulary::RelationName,
 };
-use zuihitsu_frontend_types::PlatformResponse;
-
-use super::{
-    super::InstanceError, DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome,
-    UnmergeOutcome,
-};
-use crate::instance::session::RoutedTurn;
+use zuihitsu_connector_types::PlatformResponse;
 
 impl super::Control<'_> {
     /// Run one operator message of the imprint interview: the console conversation where the

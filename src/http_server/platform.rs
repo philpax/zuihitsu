@@ -12,7 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, RosterResync};
-use zuihitsu_frontend_types::{PlatformResponse, StreamFrame};
+use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
 
 use super::{AppState, error::ApiError};
 
