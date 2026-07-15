@@ -1,0 +1,46 @@
+[package]
+name = "zuihitsu-discord"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zuihitsu-discord"
+path = "src/main.rs"
+
+[dependencies]
+serenity = { version = "0.12", default-features = false, features = [
+    "gateway",
+    "client",
+    "cache",
+    "http",
+    "rustls_backend",
+    "model",
+] }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "time",
+    "sync",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "stream",
+] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "1.1.2"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+smol_str = { workspace = true }
+ulid = { workspace = true }
+parking_lot = { workspace = true }
+zuihitsu-frontend-types = { path = "../../crates/frontend-types" }
+zuihitsu-core = { path = "../../crates/core" }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
