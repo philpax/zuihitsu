@@ -8,8 +8,8 @@ name = "eval"
 path = "src/main.rs"
 
 [dependencies]
-zuihitsu = { path = "../..", features = ["console"] }
-zuihitsu-frontend-types = { path = "../frontend-types", features = ["ts"] }
+zuihitsu = { workspace = true }
+zuihitsu-frontend-types = { workspace = true, features = ["ts"] }
 anstream = { workspace = true }
 anstyle = { workspace = true }
 async-stream = { workspace = true }

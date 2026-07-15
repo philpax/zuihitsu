@@ -31,5 +31,5 @@ clap = { workspace = true }
 smol_str = { workspace = true }
 ulid = { workspace = true }
 parking_lot = { workspace = true }
-zuihitsu-core = { path = "../../crates/core" }
-zuihitsu-connector-api = { path = "../../crates/connector-api" }
+zuihitsu-core = { workspace = true }
+zuihitsu-connector-api = { workspace = true }

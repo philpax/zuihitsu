@@ -30,7 +30,7 @@ smol_str = { workspace = true }
 tracing = { workspace = true }
 ts-rs = { workspace = true, optional = true }
 ulid = { workspace = true }
-settings-metadata-derive = { path = "../settings-metadata-derive", optional = true }
+settings-metadata-derive = { workspace = true, optional = true }
 
 # Property tests for the pure value logic (the turn-reference parser), run on the host only.
 [dev-dependencies]

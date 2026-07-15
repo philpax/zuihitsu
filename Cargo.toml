@@ -37,6 +37,12 @@ wasm-opt = "0.116"
 # The wasm-compatible materializer core, shared by the main crate and (later) the console-wasm
 # wrapper. Path dep so a local checkout always builds against the in-tree version.
 zuihitsu-core = { path = "crates/core" }
+# Internal wire-type and connector crates.
+zuihitsu-connector-api = { path = "crates/connector-api" }
+zuihitsu-connector-types = { path = "crates/connector-types" }
+zuihitsu-frontend-types = { path = "crates/frontend-types" }
+zuihitsu = { path = ".", features = ["console"] }
+settings-metadata-derive = { path = "crates/settings-metadata-derive" }
 
 [package]
 name = "zuihitsu"
@@ -116,8 +122,8 @@ ulid = { workspace = true }
 url = "2.5"
 whatlang = "0.18"
 zuihitsu-core = { workspace = true }
-zuihitsu-connector-types = { path = "crates/connector-types" }
-zuihitsu-frontend-types = { path = "crates/frontend-types" }
+zuihitsu-connector-types = { workspace = true }
+zuihitsu-frontend-types = { workspace = true }
 
 [build-dependencies]
 wasm-bindgen-cli-support = { workspace = true, optional = true }
