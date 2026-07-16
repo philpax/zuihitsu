@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { Link, Navigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "@tanstack/react-router";
 
 import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
 import type { ScenarioSummary } from "@zuihitsu/wire/types/ScenarioSummary.ts";
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
-import { type EvalContext, liveRunOf, runningKey } from "../../lib/api/liveEval.ts";
+import { liveRunOf, runningKey } from "../../lib/api/liveEval.ts";
+import { useEvalContext } from "./evalContext.ts";
 import { type ReplicaState, useReplica } from "../../lib/replica/useReplica.ts";
 import { runBase, runPath } from "../../lib/nav/routes.ts";
 import { groupScenariosByCategory } from "../../lib/model/scenarioGroups.ts";
 import { useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
-import { STREAM_VIEWS } from "../../lib/nav/streamViews.ts";
+import { type ViewId, isStreamViewId } from "../../lib/nav/streamViews.ts";
 import { formatMs, formatRate, formatTokens, formatTokenSplit } from "../../lib/format/format.ts";
 import { Dot, Eyebrow } from "../../components/primitives.tsx";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
@@ -18,7 +19,7 @@ import { VerdictPanel } from "./VerdictPanel.tsx";
 import { useRunRecord, type RunRecordState } from "./useRunRecord.ts";
 
 /// A single run's deep views, resolved from the URL: `:scenario` (name) and `:run` (index) pick the
-/// run out of the package, `:view` selects the view, and `?seq` pins the timeline cursor. Folding the
+/// run out of the package, `:view` selects the view, and the `seq` search pins the timeline cursor. Folding the
 /// run's embedded log into a [`Replica`] and handing it to the shared [`StreamWorkspace`] — driven
 /// from the URL through [`useStreamLocation`], exactly as the agent frame drives it — is what makes
 /// browser back and forward step through views and timeline positions. A scenario, run, or view the
@@ -27,8 +28,8 @@ import { useRunRecord, type RunRecordState } from "./useRunRecord.ts";
 /// The layout reads as a drill-down: the scenario list on the left, then the scenario's summary, the
 /// run picker, this run's verdicts, and finally the run's views — outer scope to inner, top to bottom.
 export function RunFrame() {
-  const { pkg, liveRuns, progress, getRun } = useOutletContext<EvalContext>();
-  const params = useParams();
+  const { pkg, liveRuns, progress, getRun } = useEvalContext();
+  const params = useParams({ strict: false });
   const scenarioIndex = pkg.scenarios.findIndex((entry) => entry.meta.name === params.scenario);
   const scenario = scenarioIndex >= 0 ? pkg.scenarios[scenarioIndex] : null;
   // The completed run's lean summary — verdicts and metrics render from it immediately; its full event
@@ -73,8 +74,10 @@ export function RunFrame() {
   if (!scenario || runIndex === null || (!summary && !liveEvents)) {
     return <Navigate to="/eval" replace />;
   }
-  if (!STREAM_VIEWS.some((entry) => entry.id === view)) {
-    return <Navigate to={runPath(scenario.meta.name, runIndex)} replace />;
+  // The eval frame carries only the timeline-scoped views (no agent extras), so a `:view` that is not
+  // one of them — or a bare segment — redirects to the run's default view.
+  if (!isStreamViewId(view)) {
+    return <Navigate {...runPath(scenario.meta.name, runIndex)} replace />;
   }
 
   const ready = replica.status === "ready" ? replica.replica : null;
@@ -94,14 +97,14 @@ export function RunFrame() {
 
   return (
     <div className="flex flex-1 gap-6 pt-7">
-      <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} view={view!} />
+      <ScenarioRail pkg={pkg} active={scenario.meta.name} liveRuns={liveRuns} view={view} />
       <div className="flex min-w-0 flex-1 flex-col">
         <ScenarioHeader scenario={scenario} />
         <RunPicker
           scenario={scenario}
           active={runIndex}
           liveRun={liveRunOf(liveRuns, scenarioIndex)}
-          view={view!}
+          view={view}
         />
         {summary && (
           <VerdictPanel
@@ -119,7 +122,7 @@ export function RunFrame() {
             progress={progress.get(runningKey(scenarioIndex, runIndex))}
             events={events}
             head={ready.headSeq}
-            view={view!}
+            view={view}
             onSelectView={selectView}
             seq={seq}
             onSeq={setSeq}
@@ -148,7 +151,7 @@ function ScenarioRail({
   pkg: PackageSummary;
   active: string;
   liveRuns: ReadonlyMap<string, Event[]>;
-  view: string;
+  view: ViewId;
 }) {
   const runsPlanned = pkg.meta.runs_per_scenario;
   return (
@@ -223,7 +226,7 @@ function ScenarioRail({
                 return openRun !== null ? (
                   <Link
                     key={entry.meta.name}
-                    to={runPath(entry.meta.name, openRun, view)}
+                    {...runPath(entry.meta.name, openRun, view)}
                     title={entry.meta.name}
                     className={rowClass}
                   >
@@ -324,7 +327,7 @@ function RunPicker({
   scenario: ScenarioSummary;
   active: number;
   liveRun: number | null;
-  view: string;
+  view: ViewId;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3">
@@ -347,7 +350,7 @@ function RunPicker({
           return (
             <Link
               key={run.index}
-              to={runPath(scenario.meta.name, run.index, view)}
+              {...runPath(scenario.meta.name, run.index, view)}
               title={`Run ${run.index} · ${passed ? "passed" : "failed"}${isActive ? " · open" : ""}`}
               className={
                 "flex h-7 min-w-7 items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
@@ -361,7 +364,7 @@ function RunPicker({
         })}
         {liveRun !== null && (
           <Link
-            to={runPath(scenario.meta.name, liveRun, view)}
+            {...runPath(scenario.meta.name, liveRun, view)}
             title={`Run ${liveRun} · streaming live`}
             className={
               "flex h-7 min-w-7 items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +

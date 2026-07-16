@@ -1,7 +1,9 @@
 import { useContext, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 
 import { formatDateTime, formatTime } from "../../lib/format/format.ts";
+import { useSeq, useStreamBase } from "../../lib/nav/useStreamLocation.ts";
+import { conversationPath } from "../../lib/nav/routes.ts";
 import { type TurnRefTarget, TurnRefs, speakerLabel } from "../../lib/view/turnRefs.ts";
 
 // Turn references in rendered transcript text (spec §Conversations → Transcript references). Turn
@@ -18,8 +20,8 @@ import { type TurnRefTarget, TurnRefs, speakerLabel } from "../../lib/view/turnR
 /// unknown, or past the timeline cursor — renders in the quiet-notice register instead.
 export function TurnRefChip({ id }: { id: string }) {
   const targets = useContext(TurnRefs);
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
+  const base = useStreamBase();
+  const seq = useSeq();
   const anchor = useRef<HTMLSpanElement>(null);
   // The popup's placement is measured at open: it prefers above-left of the chip, but flips to the
   // right edge or below when that would leave the viewport (a chip near the pane's right edge or the
@@ -45,20 +47,11 @@ export function TurnRefChip({ id }: { id: string }) {
       </span>
     );
   }
-  // The deep link keeps the current view's params (the timeline cursor rides along) and pins the
-  // room and turn — the same URL shape the transcript's timestamp anchors mint. When the chip
-  // is rendered outside the conversation view (Events, Background), the link navigates to the
-  // conversation view at the stream base.
-  const onConversation = location.pathname.endsWith("/conversation");
-  const params = new URLSearchParams(searchParams);
-  params.set("room", target.roomKey);
-  params.set("turn", target.turn.turnId);
-  const to = onConversation
-    ? { search: params.toString() }
-    : {
-        pathname: `${location.pathname.replace(/\/[^/]*$/, "")}/conversation`,
-        search: params.toString(),
-      };
+  // The deep link opens the Conversation view on the room that holds the turn
+  // (`…/conversation/<room>`) with the turn pinned in `?turn` — the same URL shape the transcript's
+  // timestamp anchors mint, reached identically whether the chip renders inside the Conversation view
+  // or outside it (Events, Background). The timeline cursor rides along when pinned.
+  const to = conversationPath(base, { room: target.roomKey, turn: target.turn.turnId, seq });
   return (
     <span
       ref={anchor}
@@ -69,7 +62,7 @@ export function TurnRefChip({ id }: { id: string }) {
       onBlur={() => setOpen(null)}
     >
       <Link
-        to={to}
+        {...to}
         className="inline-flex items-baseline gap-1 rounded-sm border border-line bg-oat/40 px-1.5 font-mono text-2xs text-ink-soft no-underline transition-colors hover:border-line-strong hover:text-ink"
       >
         <span aria-hidden className="text-ink-faint">

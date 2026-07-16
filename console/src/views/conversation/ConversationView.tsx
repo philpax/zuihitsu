@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { type Replica } from "../../lib/replica/replica.ts";
+import { useSelection, useSeq, useStreamBase } from "../../lib/nav/useStreamLocation.ts";
+import { conversationPath } from "../../lib/nav/routes.ts";
 import { nameById } from "../../lib/model/labels.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { ConversationLocator } from "@zuihitsu/wire/types/ConversationLocator.ts";
@@ -83,10 +85,14 @@ export function ConversationView({
   };
   // Every event by its seq, so a turn can surface (and expand) the `ConversationTurn` record behind it.
   const eventsBySeq = new Map(events.map((event) => [event.seq, event]));
-  // The open room rides in the URL (`?room`), so it deep-links, survives a view switch, and moves
-  // with browser back and forward like the rest of the stream's state.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const selectedKey = searchParams.get("room");
+  // The open room rides in the URL as the `:selection` segment, so it deep-links, survives a view
+  // switch, and moves with browser back and forward like the rest of the stream's state (each room
+  // switch is a `push`). `?turn` stays a query — it is a highlight, not a room selection.
+  const navigate = useNavigate();
+  const base = useStreamBase();
+  const search = useSearch({ strict: false });
+  const seq = useSeq();
+  const selectedKey = useSelection() ?? null;
   const [draftRoom, setDraftRoom] = useState("");
   // A room the operator named but has not sent to yet — held as its own locator rather than packed
   // into a key, so it survives until its first message creates it on the log.
@@ -132,7 +138,7 @@ export function ConversationView({
   // client-side. An explicit `?room` still wins (the linked room only stands in for a missing one),
   // and an id no folded conversation holds — unknown, or past the timeline cursor — leaves
   // `linkedChannel` null, which the transcript surfaces as a quiet notice rather than a crash.
-  const linkedTurnId = searchParams.get("turn");
+  const linkedTurnId = search.turn ?? null;
   const linkedChannel = linkedTurnId
     ? (known.find((channel) =>
         channel.conversation?.turns.some((turn) => turn.turnId === linkedTurnId),
@@ -166,17 +172,11 @@ export function ConversationView({
   );
 
   function selectRoom(key: string) {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        updated.set("room", key);
-        // Choosing a room is a navigation act of its own — the turn link has done its job, so it
-        // does not follow along to highlight a moment in a room it never pointed at.
-        updated.delete("turn");
-        return updated;
-      },
-      { replace: true },
-    );
+    // Choosing a room is a navigation act of its own, so it pushes a history entry (back returns to
+    // the prior room). The `seq` cursor rides along when pinned; the `turn` highlight does not — the
+    // turn link has done its job, so it does not follow to highlight a moment in a room it never
+    // pointed at.
+    navigate(conversationPath(base, { room: key, seq }));
   }
 
   function startRoom() {

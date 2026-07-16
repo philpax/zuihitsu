@@ -2,7 +2,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
@@ -11,6 +10,25 @@ import type { RunSummary } from "@zuihitsu/wire/types/RunSummary.ts";
 import type { EvalContext } from "../../lib/api/liveEval.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { RunFrame } from "./RunFrame.tsx";
+import { EvalRouteContext } from "./evalContext.ts";
+
+// The frame is exercised for its handover behaviour, not routing: stub the router hooks so it renders
+// as an ordinary React child, reading a fixed run coordinate from `useParams` and its package from the
+// `EvalRouteContext` the test provides. Re-rendering with fresher events updates the same `RunFrame`
+// instance in place (preserving its disclosure state) rather than remounting it. `Link` becomes a
+// plain anchor; `Navigate` (the not-found redirect) renders nothing, since the fixture resolves.
+vi.mock("@tanstack/react-router", async () => {
+  const { createElement } = await import("react");
+  return {
+    useParams: () => ({ scenario: "scenario-a", run: "0", view: "conversation" }),
+    useSearch: () => ({}),
+    useNavigate: () => () => {},
+    useLocation: () => ({ pathname: "/eval/scenario-a/0/conversation" }),
+    Link: ({ children, className, title }: Record<string, unknown>) =>
+      createElement("a", { className, title }, children as never),
+    Navigate: () => null,
+  };
+});
 
 // Only the wasm boundary is mocked: `Replica.fromEvents` yields a fresh query stub per call — a new
 // instance per refold, exactly as production behaves — and the ref scanner scans nothing. The rest
@@ -206,13 +224,9 @@ async function render(root: Root, ctx: EvalContext) {
   await act(async () => {
     root.render(
       <StrictMode>
-        <MemoryRouter initialEntries={["/eval/scenario-a/0/conversation"]}>
-          <Routes>
-            <Route path="/eval" element={<Outlet context={ctx} />}>
-              <Route path=":scenario/:run/:view" element={<RunFrame />} />
-            </Route>
-          </Routes>
-        </MemoryRouter>
+        <EvalRouteContext.Provider value={ctx}>
+          <RunFrame />
+        </EvalRouteContext.Provider>
       </StrictMode>,
     );
   });

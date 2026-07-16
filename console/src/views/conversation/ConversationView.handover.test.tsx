@@ -2,12 +2,26 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import { ConversationView } from "./ConversationView.tsx";
+
+// The view is exercised for its own behaviour, not routing: stub the router hooks so the component
+// renders as an ordinary React child (state preserved across re-renders, props flowing normally) with
+// no route to satisfy. `Link` becomes a plain anchor keeping only the props the assertions read.
+vi.mock("@tanstack/react-router", async () => {
+  const { createElement } = await import("react");
+  return {
+    useSearch: () => ({}),
+    useParams: () => ({}),
+    useNavigate: () => () => {},
+    useLocation: () => ({ pathname: "/" }),
+    Link: ({ children, className, title }: Record<string, unknown>) =>
+      createElement("a", { className, title }, children as never),
+  };
+});
 
 // The wasm bridge needs a browser fetch to initialise; under jsdom the ref scanner is stubbed to
 // "no references", which every fixture text here satisfies.
@@ -117,16 +131,16 @@ const generating: InFlightGeneration = {
   superseded: false,
 };
 
-function render(
+async function render(
   root: Root,
   events: Event[],
   cursor: number,
   progress: ReadonlyMap<string, InFlightGeneration>,
 ) {
-  act(() => {
+  await act(async () => {
     root.render(
       <StrictMode>
-        <MemoryRouter>
+        <>
           <ConversationView
             replica={replica}
             events={events}
@@ -134,7 +148,7 @@ function render(
             atHead
             progress={progress}
           />
-        </MemoryRouter>
+        </>
       </StrictMode>,
     );
   });
@@ -170,18 +184,18 @@ const secondRoom: Event[] = [
 ];
 
 describe("the default room selection", () => {
-  it("stays on the pinned room when a fresher room appears, and marks the working room", () => {
+  it("stays on the pinned room when a fresher room appears, and marks the working room", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
     // One room: the default pins to it.
-    render(root, beforeCommit, 3, new Map());
+    await render(root, beforeCommit, 3, new Map());
     expect(container.textContent).toContain("hello?");
 
     // A second, fresher room appears — the activity sort now puts it first, and the agent starts
     // generating in it. The view must stay on the pinned room and pulse the busy one in the list.
-    render(
+    await render(
       root,
       [...beforeCommit, ...secondRoom],
       11,
@@ -200,20 +214,20 @@ describe("the default room selection", () => {
 });
 
 describe("the conversation view across the first step's commit", () => {
-  it("keeps an opened deliberation open when the ModelCalled lands and the cursor advances", () => {
+  it("keeps an opened deliberation open when the ModelCalled lands and the cursor advances", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
     // Streaming: the pending turn's disclosure is opened by the reader.
-    render(root, beforeCommit, 3, new Map([["conv-1", generating]]));
+    await render(root, beforeCommit, 3, new Map([["conv-1", generating]]));
     act(() => disclosureButton(container).click());
     expect(container.textContent).toContain("pondering the reply");
 
     // The step commits: the event lands, the cursor follows the head, and the supersede marks the
     // in-flight accumulation (the folds keep the object; only the agent's ConversationTurn or an
     // abandoned frame drops it — see lib/api/liveEval.test.ts for the fold-layer pin).
-    render(root, afterCommit, 4, new Map([["conv-1", { ...generating, superseded: true }]]));
+    await render(root, afterCommit, 4, new Map([["conv-1", { ...generating, superseded: true }]]));
     expect(container.textContent).toContain("pondered the reply");
 
     act(() => root.unmount());

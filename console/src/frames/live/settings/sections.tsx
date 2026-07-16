@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 
 import type { LiveConnection } from "../../../lib/api/live.ts";
+import { useSelection, useStreamBase } from "../../../lib/nav/useStreamLocation.ts";
+import { settingsPath } from "../../../lib/nav/routes.ts";
 import { type Settings, getSettings, putSettings } from "../../../lib/api/settings.ts";
 import { type ConfigTree, getConfig } from "../../../lib/api/config.ts";
 import { snapshotNow } from "../../../lib/api/operator.ts";
@@ -17,21 +19,18 @@ import { SECTIONS, type SectionId } from "./sectionConstants.ts";
 /// takes effect on the next read, so the change shows up in the Events view and time-travels like
 /// anything else.
 export function SettingsView({ connection }: { connection: LiveConnection }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requested = searchParams.get("section");
+  const navigate = useNavigate();
+  const base = useStreamBase();
+  // The open tab rides the `:selection` segment; a bare `/…/settings` defaults to the behavioral
+  // settings tab.
+  const requested = useSelection();
   const section: SectionId = SECTIONS.some((entry) => entry.id === requested)
     ? (requested as SectionId)
     : "settings";
 
+  // Switching tabs is navigation, so it pushes a history entry (back returns to the prior tab).
   function selectSection(id: string) {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        updated.set("section", id);
-        return updated;
-      },
-      { replace: true },
-    );
+    navigate(settingsPath(base, id));
   }
 
   return (

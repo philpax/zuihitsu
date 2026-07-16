@@ -5,7 +5,7 @@ import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../lib/replica/replica.ts";
 import type { StepRecord } from "@zuihitsu/wire/types/StepRecord.ts";
 import type { LiveConnection } from "../lib/api/live.ts";
-import { STREAM_VIEWS } from "../lib/nav/streamViews.ts";
+import { STREAM_VIEWS, type AgentViewId, type ViewId } from "../lib/nav/streamViews.ts";
 import type { InFlightGeneration } from "../lib/model/inflight.ts";
 import { DockContext } from "../lib/nav/dock.ts";
 import {
@@ -59,7 +59,7 @@ export interface Participant {
 /// An agent-only view appended to the nav — a live tool that is not timeline-scoped (the operator Lua
 /// console), so the scrubber steps aside while it is open. The eval frame passes none.
 export interface ExtraView {
-  id: string;
+  id: AgentViewId;
   label: string;
   node: ReactNode;
 }
@@ -89,8 +89,8 @@ export function StreamWorkspace({
   replica: Replica;
   events: Event[];
   head: number;
-  view: string;
-  onSelectView: (view: string) => void;
+  view: ViewId;
+  onSelectView: (view: ViewId) => void;
   seq: number | null;
   onSeq: (seq: number | null) => void;
   onFollowingChange?: (following: boolean) => void;
@@ -147,7 +147,7 @@ export function StreamWorkspace({
   const tabs = [...STREAM_VIEWS.map((entry) => entry.id), ...extraViews.map((entry) => entry.id)];
   const extra = extraViews.find((entry) => entry.id === view);
 
-  function selectView(next: string) {
+  function selectView(next: ViewId) {
     setDirection(tabs.indexOf(next) >= tabs.indexOf(view) ? 1 : -1);
     onSelectView(next);
   }

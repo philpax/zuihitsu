@@ -1,4 +1,4 @@
-import { Outlet, useMatch } from "react-router-dom";
+import { Outlet, useParams } from "@tanstack/react-router";
 
 import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
 import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
@@ -14,6 +14,7 @@ import {
 } from "../../lib/api/liveEval.ts";
 import { formatSpan, formatTime } from "../../lib/format/format.ts";
 import { useDocumentTitle } from "../../lib/nav/useDocumentTitle.ts";
+import { EvalRouteContext } from "./evalContext.ts";
 import { Dot } from "../../components/primitives.tsx";
 import { FrameNav } from "../../components/FrameNav.tsx";
 
@@ -49,10 +50,11 @@ export function EvalFrame({
     progress: progress ?? NO_PROGRESS,
     getRun,
   };
-  // The route still names the view for the document title; the scenario and run themselves are
-  // legible in the frame's own rail, summary, and run picker, so the header carries no breadcrumb.
-  const runMatch = useMatch("/eval/:scenario/:run/:view");
-  useDocumentTitle("eval", runMatch?.params.view);
+  // The active run route names the view for the document title (absent on the overview); the scenario
+  // and run themselves are legible in the frame's own rail, summary, and run picker, so the header
+  // carries no breadcrumb.
+  const view = useParams({ strict: false }).view;
+  useDocumentTitle("eval", view);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-304 flex-col px-4 sm:px-8">
@@ -116,7 +118,9 @@ export function EvalFrame({
         </div>
       </header>
 
-      <Outlet context={context} />
+      <EvalRouteContext.Provider value={context}>
+        <Outlet />
+      </EvalRouteContext.Provider>
     </div>
   );
 }

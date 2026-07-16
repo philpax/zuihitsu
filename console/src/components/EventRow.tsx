@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { EventCategory } from "../lib/model/events.ts";
 import { CATEGORY_COLOR } from "../lib/model/events.ts";
 import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
+import { conversationPath } from "../lib/nav/routes.ts";
 import { EventDetail } from "./EventDetail.tsx";
 
 /// The shared shape of an expandable event row — the fields both [`TurnOutcome`] and
@@ -100,11 +101,11 @@ function TriggeredBy({
   const room = `${platform} · ${scopePath}`;
   const snippet = text.replace(/\s+/g, " ").trim();
   const label = speaker ? `after ${speaker}'s turn` : "after the agent's turn";
-  const to = `${base}/conversation?room=${encodeURIComponent(room)}`;
+  const to = conversationPath(base, { room });
   return (
     <div className="mt-0.5 ml-4">
       <Link
-        to={to}
+        {...to}
         className="text-ink-faint transition-colors hover:text-clay"
         title={`Open the conversation in ${room}`}
       >

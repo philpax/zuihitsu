@@ -1,9 +1,9 @@
 import { Fragment, type ReactNode, useContext } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 
 import type { ConversationRef } from "@zuihitsu/wire/types/ConversationRef.ts";
 import { refName } from "../lib/model/events.ts";
-import { statePath } from "../lib/nav/routes.ts";
+import { conversationPath, statePath } from "../lib/nav/routes.ts";
 import { Excerpt } from "../components/primitives.tsx";
 import { TurnRefs } from "../lib/view/turnRefs.ts";
 import { TurnRefChip } from "../views/conversation/TurnRefs.tsx";
@@ -54,10 +54,17 @@ export function ConversationRefLink({
     // Outside the conversation view, or the turn is not in the folded set (a background-pass
     // turn, or past the timeline cursor): link to the conversation view with the turn pinned.
     const roomName = conversationNameById.get(value.conversation) ?? value.conversation;
-    const to = base ? `${base}/conversation?turn=${value.turn}` : `?turn=${value.turn}`;
+    // No room segment: a background-pass turn, or one past the cursor, is deep-linked by turn alone,
+    // and the Conversation view resolves the room that holds it. `base` is absent (`undefined`) in a
+    // context with no stream base, leaving a query-only link the current view still honors — test for
+    // presence, not truthiness, since the embedded build's stream base is the empty string.
+    const to =
+      base != null
+        ? conversationPath(base, { turn: value.turn })
+        : { to: ".", search: { turn: value.turn } };
     return (
       <Link
-        to={to}
+        {...to}
         title={`Open this turn in ${roomName}`}
         className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
       >
@@ -82,11 +89,11 @@ export function MemoryNameLink({ name, base, seq }: { name: string; base?: strin
   if (/\(\d+\)$/.test(name)) {
     return <span className="text-sage">{name}</span>;
   }
-  const to = base != null && seq != null ? statePath(base, seq, name) : null;
+  const to = base != null && seq != null ? statePath(base, name, seq) : null;
   if (!to) return <>{name}</>;
   return (
     <Link
-      to={to}
+      {...to}
       title={`Open ${name} in State`}
       className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
     >

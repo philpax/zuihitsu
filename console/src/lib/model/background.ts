@@ -20,8 +20,8 @@ export interface BackgroundEvent {
   /// temporal link from the async pass back to the conversation that triggered it. A best-effort
   /// bridge, not a precise causal link: the pass processes all memories changed since its cursor,
   /// so the "last touch" is the most likely trigger. `null` when no preceding `LuaExecuted` touched
-  /// the memory (e.g., a genesis-seeded memory). The locator fields build the `?room=` query param
-  /// that navigates to the conversation in the Conversation view.
+  /// the memory (e.g., a genesis-seeded memory). The locator fields build the room segment that
+  /// navigates to the conversation in the Conversation view.
   triggeredBy: {
     speaker: string | null;
     text: string;
@@ -68,7 +68,7 @@ export function buildBackgroundEvents(
     string,
     { speaker: string | null; text: string; conversation: string }
   >();
-  // The locator for each conversation, so a `?room=` param can be built from a conversation id.
+  // The locator for each conversation, so a room segment can be built from a conversation id.
   const conversationLocator = new Map<string, { platform: string; scopePath: string }>();
 
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {

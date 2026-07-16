@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import ForceGraph2D, {
   type ForceGraphMethods,
   type LinkObject,
@@ -66,20 +66,16 @@ export function RelationsView({
   const navigate = useNavigate();
   const base = useStreamBase();
   const palette = readPalette();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const search = useSearch({ strict: false });
 
   // URL state: the selected relations (empty = all), the `same_as` collapse toggle (default on),
   // and the comma-joined set of expanded virtual-node ids. Defaults are applied when the param is
   // absent so the first visit to the tab is the intended de-cluttered overview.
-  const relationParam = searchParams.get("relations");
-  const selected =
-    relationParam && relationParam !== ""
-      ? new Set(relationParam.split(",").filter(Boolean))
-      : new Set<string>();
-  const sameAs = searchParams.get("sameAs") !== "off";
-  const expandParam = searchParams.get("expand");
-  const expanded =
-    expandParam && expandParam !== "" ? new Set(expandParam.split(",")) : new Set<string>();
+  const selected = search.relations
+    ? new Set(search.relations.split(",").filter(Boolean))
+    : new Set<string>();
+  const sameAs = search.sameAs !== "off";
+  const expanded = search.expand ? new Set(search.expand.split(",")) : new Set<string>();
 
   const relations = replica.relations().filter((relation) => relation.name !== "same_as");
   const nameById = new Map(replica.memories("").map((m) => [m.id, m.name]));
@@ -93,63 +89,34 @@ export function RelationsView({
   const collapsed = sameAs ? collapseSameAs(raw) : raw;
   const filtered = filterByRelations(collapsed, selected);
 
+  // The filter and display toggles are continuous interaction, so each replaces (rather than pushes) a
+  // history entry, and stays on the current route (`to: "."`) mutating only its own search key.
   function toggleRelation(name: string) {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        const current =
-          updated.get("relations") && updated.get("relations") !== ""
-            ? new Set(updated.get("relations")!.split(",").filter(Boolean))
-            : new Set<string>();
-        if (current.has(name)) current.delete(name);
-        else current.add(name);
-        if (current.size === 0) updated.delete("relations");
-        else updated.set("relations", [...current].join(","));
-        return updated;
-      },
-      { replace: true },
-    );
+    navigate({
+      to: ".",
+      replace: true,
+      search: (prev) => ({ ...prev, relations: toggleCsv(prev.relations, name) }),
+    });
   }
 
   function clearRelations() {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        updated.delete("relations");
-        return updated;
-      },
-      { replace: true },
-    );
+    navigate({ to: ".", replace: true, search: (prev) => ({ ...prev, relations: undefined }) });
   }
 
   function toggleSameAs(on: boolean) {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        if (on) updated.delete("sameAs");
-        else updated.set("sameAs", "off");
-        return updated;
-      },
-      { replace: true },
-    );
+    navigate({
+      to: ".",
+      replace: true,
+      search: (prev) => ({ ...prev, sameAs: on ? undefined : "off" }),
+    });
   }
 
   function toggleExpand(id: string) {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        const current =
-          updated.get("expand") && updated.get("expand") !== ""
-            ? new Set(updated.get("expand")!.split(","))
-            : new Set<string>();
-        if (current.has(id)) current.delete(id);
-        else current.add(id);
-        if (current.size === 0) updated.delete("expand");
-        else updated.set("expand", [...current].join(","));
-        return updated;
-      },
-      { replace: true },
-    );
+    navigate({
+      to: ".",
+      replace: true,
+      search: (prev) => ({ ...prev, expand: toggleCsv(prev.expand, id) }),
+    });
   }
 
   // The force-graph canvas needs explicit pixel dimensions, so measure the container it fills.
@@ -313,7 +280,7 @@ export function RelationsView({
                   if (isVirtual(node)) {
                     toggleExpand(String(node.id));
                   } else {
-                    navigate(statePath(base, cursor, String(node.id)));
+                    navigate(statePath(base, String(node.id), cursor));
                   }
                 }}
               />
@@ -334,4 +301,13 @@ export function RelationsView({
       )}
     </div>
   );
+}
+
+/// Toggle one item in a comma-joined set carried in a search key, returning the new value — or
+/// `undefined` when the set empties, so the key drops out of the URL rather than lingering blank.
+function toggleCsv(csv: string | undefined, item: string): string | undefined {
+  const set = csv ? new Set(csv.split(",").filter(Boolean)) : new Set<string>();
+  if (set.has(item)) set.delete(item);
+  else set.add(item);
+  return set.size === 0 ? undefined : [...set].join(",");
 }

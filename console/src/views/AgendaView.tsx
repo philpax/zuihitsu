@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { AgendaItem } from "../lib/model/graph.ts";
@@ -83,7 +83,7 @@ function AgendaRow({ item, base, cursor }: { item: AgendaItem; base: string; cur
         <p className="text-sm/relaxed text-ink">{item.text}</p>
         <p className="mt-0.5 flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
           <Link
-            to={statePath(base, cursor, item.memory)}
+            {...statePath(base, item.memory, cursor)}
             title={`Open ${item.memory} in State`}
             className="truncate text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
           >

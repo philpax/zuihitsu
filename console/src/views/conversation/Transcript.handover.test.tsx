@@ -3,12 +3,26 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
 
 import { emptyTurn, type ConversationModel } from "../../lib/model/conversation.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import { Transcript } from "./Transcript.tsx";
+
+// The transcript is exercised for its own behaviour, not routing: stub the router hooks so it renders
+// as an ordinary React child (state preserved across re-renders) with no route to satisfy. `Link`
+// becomes a plain anchor keeping only the props the assertions read.
+vi.mock("@tanstack/react-router", async () => {
+  const { createElement } = await import("react");
+  return {
+    useSearch: () => ({}),
+    useParams: () => ({}),
+    useNavigate: () => () => {},
+    useLocation: () => ({ pathname: "/" }),
+    Link: ({ children, className, title }: Record<string, unknown>) =>
+      createElement("a", { className, title }, children as never),
+  };
+});
 
 // The wasm bridge needs a browser fetch to initialise; under jsdom the ref scanner is stubbed to
 // "no references", which every fixture text here satisfies.
@@ -93,23 +107,23 @@ function materialisedTurn(): ConversationModel["turns"][number] {
   return turn;
 }
 
-function render(
+async function render(
   root: Root,
   inflight: InFlightGeneration | null,
   turns: ConversationModel["turns"],
   sessions: ConversationModel["sessions"] = [],
 ) {
-  act(() => {
+  await act(async () => {
     root.render(
       <StrictMode>
-        <MemoryRouter>
+        <>
           <Transcript
             replica={{} as Replica}
             conversation={conversation(turns, sessions)}
             cursor={0}
             inflight={inflight}
           />
-        </MemoryRouter>
+        </>
       </StrictMode>,
     );
   });
@@ -124,13 +138,13 @@ function disclosureButton(container: HTMLElement): HTMLButtonElement {
 }
 
 describe("the pending → materialised turn handover", () => {
-  it("keeps an opened deliberation open across the first step's commit", () => {
+  it("keeps an opened deliberation open across the first step's commit", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
     // A turn that exists only as streamed tokens: the pending item holds the tail slot.
-    render(root, generating, []);
+    await render(root, generating, []);
     const button = disclosureButton(container);
     expect(button.textContent).toContain("generating…");
     act(() => button.click());
@@ -138,41 +152,43 @@ describe("the pending → materialised turn handover", () => {
 
     // The first step commits: the fold materialises the turn and the supersede clears the
     // in-flight accumulation, in one update. The opened disclosure must ride through.
-    render(root, null, [materialisedTurn()]);
+    await render(root, null, [materialisedTurn()]);
     expect(container.textContent).toContain("pondered the reply");
 
     act(() => root.unmount());
     container.remove();
   });
 
-  it("streams the reply into the message body, visible without opening the deliberation", () => {
+  it("streams the reply into the message body, visible without opening the deliberation", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
     // The disclosure stays closed: the thinking is opt-in, the speech is not.
-    render(root, { ...generating, reply: "Hello wor" }, []);
+    await render(root, { ...generating, reply: "Hello wor" }, []);
     expect(container.textContent).toContain("Hello wor");
     expect(container.textContent).not.toContain("pondering the reply");
     // Once the step commits (marked superseded), the streamed text yields until the fold's own
     // text takes over — never two copies at once.
-    render(root, { ...generating, reply: "Hello wor", superseded: true }, []);
+    await render(root, { ...generating, reply: "Hello wor", superseded: true }, []);
     expect(container.textContent).not.toContain("Hello wor");
 
     act(() => root.unmount());
     container.remove();
   });
 
-  it("keeps the disclosure open across the next step streaming in", () => {
+  it("keeps the disclosure open across the next step streaming in", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
-    render(root, generating, []);
+    await render(root, generating, []);
     act(() => disclosureButton(container).click());
-    render(root, null, [materialisedTurn()]);
+    await render(root, null, [materialisedTurn()]);
     // Step 2 begins streaming into the now-materialised turn.
-    render(root, { ...generating, step: 1, reasoning: "second thoughts" }, [materialisedTurn()]);
+    await render(root, { ...generating, step: 1, reasoning: "second thoughts" }, [
+      materialisedTurn(),
+    ]);
     expect(container.textContent).toContain("pondered the reply");
     expect(container.textContent).toContain("second thoughts");
 
@@ -180,17 +196,17 @@ describe("the pending → materialised turn handover", () => {
     container.remove();
   });
 
-  it("keeps an opened deliberation open across the handover in the sessions branch", () => {
+  it("keeps an opened deliberation open across the handover in the sessions branch", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
     // The shape a live conversation actually has: the session opened, the pending item held in the
     // last session's list, and the materialised turn landing in that same list.
-    render(root, generating, [], [openingSession()]);
+    await render(root, generating, [], [openingSession()]);
     act(() => disclosureButton(container).click());
     expect(container.textContent).toContain("pondering the reply");
-    render(root, null, [materialisedTurn()], [openingSession()]);
+    await render(root, null, [materialisedTurn()], [openingSession()]);
     expect(container.textContent).toContain("pondered the reply");
 
     act(() => root.unmount());

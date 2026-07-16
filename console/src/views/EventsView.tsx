@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
@@ -52,10 +52,10 @@ export function EventsView({
   const names = nameById(replica.memories(""));
   const convNames = conversationNameById(replica.conversations());
   const base = useStreamBase();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   // The memory the view is pinned to (the State view's "events touching this" jump), carried in the
   // URL so the focus is shareable and survives back/forward. `null` shows the whole log.
-  const focusId = searchParams.get("focus");
+  const focusId = useSearch({ strict: false }).focus ?? null;
   const focusName = focusId ? (names.get(focusId) ?? focusId) : null;
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [activeSources, setActiveSources] = useState<Set<EventSource>>(
@@ -66,14 +66,7 @@ export function EventsView({
   const [expanded, setExpanded] = useState<number | null>(null);
 
   function clearFocus() {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        updated.delete("focus");
-        return updated;
-      },
-      { replace: true },
-    );
+    navigate({ to: ".", replace: true, search: (prev) => ({ ...prev, focus: undefined }) });
   }
 
   const needle = search.trim().toLowerCase();

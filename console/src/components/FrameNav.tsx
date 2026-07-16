@@ -1,6 +1,6 @@
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 
-import { useConsoleNav } from "../lib/nav/consoleNav.ts";
+import { useAppStore } from "../lib/nav/appStore.ts";
 
 /// The cross-section nav in a frame's header. The section you are in is marked; a loaded sibling is
 /// a link; a sibling not yet loaded is a file picker, so you can bring it in without a trip back to
@@ -8,7 +8,7 @@ import { useConsoleNav } from "../lib/nav/consoleNav.ts";
 /// the scenarios view is not cluttered with a picker for it — while the trends screen keeps the
 /// scenarios pivot for the way back.
 export function FrameNav({ current }: { current: "eval" | "trends" }) {
-  const nav = useConsoleNav();
+  const nav = useAppStore();
   return (
     <nav className="flex shrink-0 items-baseline gap-4 font-mono text-2xs">
       <Section

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearch } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
@@ -7,7 +7,8 @@ import type { TurnModel } from "../../lib/model/conversation.ts";
 import { formatDateTime, formatTime } from "../../lib/format/format.ts";
 import { Disclosure, LabeledDivider } from "../../components/primitives.tsx";
 import { EventDetail } from "../../components/EventDetail.tsx";
-import { useStreamBase, useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
+import { useSeq, useStreamBase, useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
+import { conversationPath } from "../../lib/nav/routes.ts";
 import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
@@ -39,8 +40,7 @@ export function TurnItem({
     .find((step) => step.kind === "model" && step.phase === "Step")?.seq;
   // The deep-linked turn (`?turn=<id>`) announces itself: scrolled into view once and washed in
   // fading sage, so a pasted link lands the reader on the moment it points at.
-  const [searchParams] = useSearchParams();
-  const linked = searchParams.get("turn") === turn.turnId;
+  const linked = useSearch({ strict: false }).turn === turn.turnId;
   const itemRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (linked) itemRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -216,11 +216,11 @@ function TurnEvent({ event, seq }: { event: Event; seq: number }) {
   );
 }
 
-/// A turn's timestamp as its deep-link anchor: a real `<a>` whose href is this view's URL with the
-/// room and turn pinned (`?room=…&turn=<ulid>`), so the browser's own copy-link affordance carries
-/// the id the agent's `convo.turn` resolver reads, and a plain click lands on the moment with the
-/// arrival wash. The current params (the timeline cursor included) ride along, so the link
-/// reproduces this view of this moment in either frame (live or an eval run).
+/// A turn's timestamp as its deep-link anchor: a real `<a>` whose href is the Conversation view
+/// opened on this room (`…/conversation/<room>`) with the turn pinned (`?turn=<ulid>`), so the
+/// browser's own copy-link affordance carries the id the agent's `convo.turn` resolver reads, and a
+/// plain click lands on the moment with the arrival wash. The timeline cursor rides along when
+/// pinned, so the link reproduces this view of this moment in either frame (live or an eval run).
 export function TurnTimeAnchor({
   roomKey,
   turnId,
@@ -230,13 +230,11 @@ export function TurnTimeAnchor({
   turnId: string;
   recordedAt: number;
 }) {
-  const [searchParams] = useSearchParams();
-  const params = new URLSearchParams(searchParams);
-  params.set("room", roomKey);
-  params.set("turn", turnId);
+  const base = useStreamBase();
+  const seq = useSeq();
   return (
     <Link
-      to={{ search: params.toString() }}
+      {...conversationPath(base, { room: roomKey, turn: turnId, seq })}
       title={`${formatDateTime(recordedAt)} — a link to this moment; copy the address to cite it`}
       className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink"
     >
