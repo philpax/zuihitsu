@@ -127,7 +127,6 @@ pub struct PlatformClient {
     base_url: String,
     platform_key: String,
 }
-
 impl PlatformClient {
     pub fn new(base_url: String, platform_key: String) -> Self {
         PlatformClient {
@@ -150,6 +149,23 @@ impl PlatformClient {
         present: &[PersonId],
         on_progress: impl FnMut(&TurnProgress),
     ) -> Result<StreamOutcome> {
+        /// One inbound message on the wire — the sender's bare id (the platform is the request's connector
+        /// scope, from the key) and its text.
+        #[derive(Serialize)]
+        struct WireMessage<'a> {
+            sender: &'a str,
+            text: &'a str,
+        }
+
+        /// The request body for `POST /platform/messages` and `/platform/messages/stream`. No platform: the
+        /// key scopes the request to one connector's platform, so ids ride bare.
+        #[derive(Serialize)]
+        struct MessageBody<'a> {
+            scope_path: &'a str,
+            messages: Vec<WireMessage<'a>>,
+            present: Vec<&'a str>,
+        }
+
         let body = MessageBody {
             scope_path: locator.scope_path.as_str(),
             messages: messages
@@ -236,6 +252,13 @@ impl PlatformClient {
 
     /// `POST /platform/join` — note a participant arriving mid-session.
     pub async fn join(&self, locator: &ConversationLocator, participant: &PersonId) -> Result<()> {
+        /// The request body for `POST /platform/join`.
+        #[derive(Serialize)]
+        struct JoinBody<'a> {
+            scope_path: &'a str,
+            participant: &'a str,
+        }
+
         let body = JoinBody {
             scope_path: locator.scope_path.as_str(),
             participant: participant.id.as_str(),
@@ -273,6 +296,13 @@ impl PlatformClient {
         locator: &ConversationLocator,
         entries: &[ContextEntry],
     ) -> Result<()> {
+        /// The request body for `POST /platform/context`.
+        #[derive(Serialize)]
+        struct ContextBody<'a> {
+            scope_path: &'a str,
+            entries: &'a [ContextEntry],
+        }
+
         let body = ContextBody {
             scope_path: locator.scope_path.as_str(),
             entries,
@@ -312,6 +342,13 @@ impl PlatformClient {
         participant: &PersonId,
         attributes: &[ParticipantAttribute],
     ) -> Result<Vec<Option<EntryId>>> {
+        /// The request body for `POST /platform/participant`.
+        #[derive(Serialize)]
+        struct ParticipantBody<'a> {
+            participant: &'a str,
+            attributes: &'a [ParticipantAttribute],
+        }
+
         let body = ParticipantBody {
             participant: participant.id.as_str(),
             attributes,
@@ -346,42 +383,4 @@ impl PlatformClient {
                 source: e,
             })
     }
-}
-
-/// One inbound message on the wire — the sender's bare id (the platform is the request's connector
-/// scope, from the key) and its text.
-#[derive(Serialize)]
-struct WireMessage<'a> {
-    sender: &'a str,
-    text: &'a str,
-}
-
-/// The request body for `POST /platform/messages` and `/platform/messages/stream`. No platform: the
-/// key scopes the request to one connector's platform, so ids ride bare.
-#[derive(Serialize)]
-struct MessageBody<'a> {
-    scope_path: &'a str,
-    messages: Vec<WireMessage<'a>>,
-    present: Vec<&'a str>,
-}
-
-/// The request body for `POST /platform/join`.
-#[derive(Serialize)]
-struct JoinBody<'a> {
-    scope_path: &'a str,
-    participant: &'a str,
-}
-
-/// The request body for `POST /platform/context`.
-#[derive(Serialize)]
-struct ContextBody<'a> {
-    scope_path: &'a str,
-    entries: &'a [ContextEntry],
-}
-
-/// The request body for `POST /platform/participant`.
-#[derive(Serialize)]
-struct ParticipantBody<'a> {
-    participant: &'a str,
-    attributes: &'a [ParticipantAttribute],
 }
