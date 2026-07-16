@@ -124,19 +124,19 @@ The conversation is minted on first contact if it doesn't yet exist. This is int
 
 Returns `204 No Content` on success.
 
-## Projecting a participant's identity
+## Projecting attributes
 
-### `POST /platform/participant`
+### `POST /platform/project`
 
-Project a participant's platform identity — the username, display name, and nickname a platform surfaces to other users — onto their `person/*` stub as ordinary public entries, so the agent reads someone's current handles from their profile. The stub is minted on first contact if it doesn't yet exist.
+Project platform attributes onto a scoped memory as ordinary public entries: a participant's identity — the username, display name, and nickname a platform surfaces — onto their `person/*` stub, or a guild's name onto its `context/*` memory. The target is minted on first contact if it doesn't yet exist.
 
-Each attribute either records a new value or clears one, and the connector holds the entry id a prior projection returned for it — so a changed value **supersedes** that entry and a cleared one **retracts** it, with no attribute keying on the server. The connector sends an attribute only when its value changed, tracking the last-seen value and returned id per attribute (a nickname per guild, since it varies by server).
+Each attribute either records a new value or clears one, and the connector holds the entry id a prior projection returned for it — so a changed value **supersedes** that entry and a cleared one **retracts** it, with no attribute keying on the server. The connector sends an attribute only when its value changed, tracking the last-seen value and returned id per `(subject, attribute)` (a nickname per guild, since it varies by server).
 
 **Request body:**
 
 ```json
 {
-  "participant": "dave",
+  "target": { "participant": { "id": "dave" } },
   "attributes": [
     { "text": "Chat username: dave1234", "supersedes": null },
     { "text": "Chat nickname in Acme: Dave", "supersedes": "01J…" },
@@ -145,7 +145,7 @@ Each attribute either records a new value or clears one, and the connector holds
 }
 ```
 
-- `participant` — the bare id of the participant, resolved under the request's connector platform to `person/<id>@<platform>`.
+- `target` — the memory to project onto, scoped to the request's connector: `{ "participant": { "id": … } }` (resolved to `person/<id>@<platform>`) or `{ "context": { "scope_path": … } }` (resolved to that scope's `context/*` memory, e.g. `guild/42` for a guild's name).
 - `text` — the value to record now, or `null` to clear a value that is no longer set.
 - `supersedes` — the entry id a prior projection of this attribute returned, to supersede (on a change) or retract (on a clear); `null` on first contact. A target the agent has since dropped is a no-op — the fresh value still lands.
 

@@ -18,7 +18,9 @@ use serenity::{
 };
 use tokio::sync::Mutex;
 
-use zuihitsu_connector_api::{PlatformClient, PlatformMessage, StreamOutcome, TurnOutcome};
+use zuihitsu_connector_api::{
+    LinkEndpoint, PlatformClient, PlatformMessage, StreamOutcome, TurnOutcome,
+};
 use zuihitsu_core::{
     ids::{ConversationLocator, PersonId, TurnId},
     progress::{ProgressKind, TurnProgress},
@@ -29,9 +31,10 @@ use crate::{
     config::DiscordConfig,
     context_sync::{ContextParams, ContextSync},
     error::{Error, Result},
-    locator::{ChannelContext, DISCORD_PLATFORM},
+    guild_sync::GuildSync,
+    locator::{ChannelContext, DISCORD_PLATFORM, guild_locator},
     pacing::{DebounceState, PendingMessage},
-    participant_sync::{ObservedAttribute, ParticipantSync},
+    projection_sync::{ObservedAttribute, ProjectionSync},
     turn_map::TurnMap,
 };
 
@@ -42,7 +45,8 @@ pub struct BotState {
     pub bot_id: Mutex<Option<UserId>>,
     pub turn_map: Mutex<TurnMap>,
     pub context_sync: ContextSync,
-    pub participant_sync: ParticipantSync,
+    pub guild_sync: GuildSync,
+    pub projection_sync: ProjectionSync,
     /// Per-channel present sets: users who have spoken in a channel the bot operates in. Grown
     /// lazily — a user is added when they send a message the bot processes, not eagerly from the
     /// guild member list. Keyed by channel so presence is per-conversation, not global. A user who
@@ -67,7 +71,7 @@ impl BotState {
                 db_path.display()
             ))
         })?;
-        let participant_sync = ParticipantSync::open(&db_path).map_err(|e| {
+        let projection_sync = ProjectionSync::open(&db_path).map_err(|e| {
             Error::config(format!(
                 "could not open the state db at {}: {e}",
                 db_path.display()
@@ -79,7 +83,8 @@ impl BotState {
             bot_id: Mutex::new(None),
             turn_map: Mutex::new(turn_map),
             context_sync: ContextSync::new(),
-            participant_sync,
+            guild_sync: GuildSync::new(),
+            projection_sync,
             present_members: Mutex::new(HashMap::new()),
             debounce: DebounceState::new(debounce_ms),
         })
@@ -179,11 +184,10 @@ impl EventHandler for Handler {
         };
 
         // Ensure context is written on first contact.
-        let guild_name = msg
-            .guild_id
-            .and_then(|g| ctx.cache.guild(g))
-            .map(|g| g.name.clone())
-            .unwrap_or_default();
+        let guild_name = match msg.guild_id {
+            Some(guild_id) => guild_name(&ctx, guild_id).await,
+            None => String::new(),
+        };
         let (channel_name, topic) = channel_metadata(&ctx, msg.channel_id).await;
 
         if let Err(error) = state
@@ -210,15 +214,45 @@ impl EventHandler for Handler {
         // as another entity.
         let sender_person = PersonId::new(DISCORD_PLATFORM, msg.author.id.to_string());
         if let Err(error) = state
-            .participant_sync
+            .projection_sync
             .sync(
                 &state.platform,
-                &sender_person,
+                &LinkEndpoint::Participant(sender_person.clone()),
+                sender_person.id.as_str(),
                 &observed_identity(&msg, &guild_name),
             )
             .await
         {
             tracing::warn!(%error, "discord connector: could not project participant identity");
+        }
+
+        // In a guild, keep the guild's context and its structural links current: project the server
+        // name onto the guild's context memory (superseding it on a rename), place the channel in the
+        // guild, and place the sender in the guild as a durable member.
+        if let Some(guild_id) = msg.guild_id {
+            let guild_id = guild_id.get();
+            if let Err(error) = sync_guild_name(&state, guild_id, &guild_name).await {
+                tracing::warn!(%error, "discord connector: could not sync guild name");
+            }
+            if let Err(error) = state
+                .guild_sync
+                .link_channel(&state.platform, guild_id, &locator, msg.channel_id.get())
+                .await
+            {
+                tracing::warn!(%error, "discord connector: could not link channel to guild");
+            }
+            if let Err(error) = state
+                .guild_sync
+                .link_member(
+                    &state.platform,
+                    guild_id,
+                    &sender_person,
+                    msg.author.id.get(),
+                )
+                .await
+            {
+                tracing::warn!(%error, "discord connector: could not link member to guild");
+            }
         }
 
         // Gather the present set. A DM is just the sender: the bot is the agent itself, not another
@@ -269,15 +303,26 @@ impl EventHandler for Handler {
         _member_data: Option<Member>,
     ) {
         let data = ctx.data.read().await;
-        if let Some(state) = data.get::<BotStateKey>() {
-            // Remove the departing user from every channel's present set.
+        let Some(state) = data.get::<BotStateKey>() else {
+            return;
+        };
+        // Remove the departing user from every channel's present set.
+        {
             let mut present = state.present_members.lock().await;
             for set in present.values_mut() {
                 set.remove(&user.id);
             }
         }
-        // Departures are eventless by design.
-        let _ = guild_id;
+        // Retract the member's `part_of` guild link — guild membership is durable, so a departure must
+        // undo it rather than leave the person a standing member.
+        let person = PersonId::new(DISCORD_PLATFORM, user.id.to_string());
+        if let Err(error) = state
+            .guild_sync
+            .unlink_member(&state.platform, guild_id.get(), &person, user.id.get())
+            .await
+        {
+            tracing::warn!(%error, "discord connector: could not unlink departed member from guild");
+        }
     }
 
     async fn channel_update(&self, ctx: Context, _old: Option<GuildChannel>, new: GuildChannel) {
@@ -316,6 +361,22 @@ impl EventHandler for Handler {
             .await
         {
             tracing::warn!(%error, "discord connector: could not update context on channel update");
+        }
+    }
+
+    async fn guild_update(
+        &self,
+        ctx: Context,
+        _old: Option<serenity::all::Guild>,
+        new: serenity::all::PartialGuild,
+    ) {
+        let data = ctx.data.read().await;
+        let Some(state) = data.get::<BotStateKey>() else {
+            return;
+        };
+        // Supersede the guild's context name if the server was renamed.
+        if let Err(error) = sync_guild_name(state, new.id.get(), &new.name).await {
+            tracing::warn!(%error, "discord connector: could not sync guild name on update");
         }
     }
 
@@ -358,6 +419,41 @@ fn observed_identity(msg: &Message, guild_name: &str) -> Vec<ObservedAttribute> 
         });
     }
     observed
+}
+
+/// Project a guild's server name onto its context memory, superseding it on a rename. A blank name (the
+/// cache cold and the fetch failed) is skipped rather than recorded as an empty attribute.
+async fn sync_guild_name(state: &BotState, guild_id: u64, guild_name: &str) -> Result<()> {
+    if guild_name.is_empty() {
+        return Ok(());
+    }
+    state
+        .projection_sync
+        .sync(
+            &state.platform,
+            &LinkEndpoint::Context(guild_locator(guild_id)),
+            &format!("guild/{guild_id}"),
+            &[ObservedAttribute {
+                key: "server_name".to_owned(),
+                value: Some(guild_name.to_owned()),
+                entry_text: format!("Discord server: {guild_name}"),
+            }],
+        )
+        .await
+}
+
+/// The guild's name — from the cache when it is warm, else fetched over HTTP, so the very first
+/// message (before `GUILD_CREATE` populates the cache) still resolves the real name. Empty only if
+/// both the cache miss and the fetch fails.
+async fn guild_name(ctx: &Context, guild_id: GuildId) -> String {
+    if let Some(name) = ctx.cache.guild(guild_id).map(|guild| guild.name.clone()) {
+        return name;
+    }
+    guild_id
+        .to_partial_guild(&ctx.http)
+        .await
+        .map(|guild| guild.name)
+        .unwrap_or_default()
 }
 
 /// Extract `(name, topic)` from a channel, returning empty strings if unavailable.

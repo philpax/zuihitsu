@@ -54,6 +54,15 @@ impl ChannelContext {
     }
 }
 
+/// The locator for a guild's own context memory (`guild/{guild_id}`) — the scope a channel and its
+/// members are placed in via `part_of`, distinct from any one channel's scope.
+pub fn guild_locator(guild_id: u64) -> ConversationLocator {
+    ConversationLocator::new(
+        SmolStr::new(DISCORD_PLATFORM),
+        SmolStr::new(format!("guild/{guild_id}")),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,9 +14,10 @@ mod bot;
 mod config;
 mod context_sync;
 mod error;
+mod guild_sync;
 mod locator;
 mod pacing;
-mod participant_sync;
+mod projection_sync;
 mod turn_map;
 
 use bot::{BotState, BotStateKey, Handler};
@@ -59,7 +60,10 @@ async fn main() {
         }
     };
 
-    let intents = GatewayIntents::GUILD_MESSAGES
+    // `GUILDS` populates the guild cache (from `GUILD_CREATE`) and drives `guild_update` for renames;
+    // without it the guild name is never cached and rename events never fire.
+    let intents = GatewayIntents::GUILDS
+        | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;

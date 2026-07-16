@@ -1,3 +1,5 @@
+use zuihitsu::LinkNode;
+
 use super::*;
 
 /// Collect the live entry texts of a memory, for asserting what a projection left on the profile.
@@ -21,8 +23,8 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
     // come back for the connector to hold.
     let ids = server
         .platform()
-        .project_participant(
-            &dave,
+        .project(
+            &LinkNode::Participant(dave.clone()),
             "discord",
             &[
                 ParticipantAttribute {
@@ -45,8 +47,8 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
     // the new one is live.
     let ids = server
         .platform()
-        .project_participant(
-            &dave,
+        .project(
+            &LinkNode::Participant(dave.clone()),
             "discord",
             &[ParticipantAttribute {
                 text: Some("Discord username: dave5678".to_owned()),
@@ -66,8 +68,8 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
     // The display name is cleared: the projection carries no text, so its entry is retracted.
     let ids = server
         .platform()
-        .project_participant(
-            &dave,
+        .project(
+            &LinkNode::Participant(dave.clone()),
             "discord",
             &[ParticipantAttribute {
                 text: None,
@@ -99,8 +101,8 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
     // lands rather than the whole projection failing.
     let ids = server
         .platform()
-        .project_participant(
-            &dave,
+        .project(
+            &LinkNode::Participant(dave.clone()),
             "discord",
             &[ParticipantAttribute {
                 text: Some("Discord username: dave9999".to_owned()),
@@ -117,7 +119,7 @@ async fn projecting_no_attributes_is_a_no_op() {
     let dave = PersonId::new(TEST_PLATFORM, "dave");
     let ids = server
         .platform()
-        .project_participant(&dave, "discord", &[])
+        .project(&LinkNode::Participant(dave.clone()), "discord", &[])
         .unwrap();
     assert!(ids.is_empty());
     // No stub is minted for an empty projection.

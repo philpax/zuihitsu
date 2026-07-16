@@ -176,23 +176,24 @@ pub(super) async fn write_context(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `POST /platform/participant` — project a participant's platform identity (username, display name,
-/// nickname) onto their `person/*` stub as public entries. Each attribute records a new value or clears
-/// one, superseding or retracting the entry a prior projection returned. The write is attributed to the
-/// request's connector; the response is the new entry id per attribute, in order.
+/// `POST /platform/project` — project platform attributes onto a scoped memory as public entries: a
+/// participant's identity (username, display name, nickname) onto their `person/*` stub, or a guild's
+/// name onto its `context/*` memory. Each attribute records a new value or clears one, superseding or
+/// retracting the entry a prior projection returned. The write is attributed to the request's connector;
+/// the response is the new entry id per attribute, in order.
 #[derive(Deserialize)]
-pub(super) struct ParticipantRequest {
-    participant: String,
+pub(super) struct ProjectRequest {
+    target: WireLinkNode,
     attributes: Vec<ParticipantAttribute>,
 }
 
-pub(super) async fn project_participant(
+pub(super) async fn project(
     State(state): State<AppState>,
     Extension(scope): Extension<ConnectorScope>,
-    Json(request): Json<ParticipantRequest>,
+    Json(request): Json<ProjectRequest>,
 ) -> Result<Json<Vec<Option<EntryId>>>, ApiError> {
-    let ids = state.server.platform().project_participant(
-        &person(&scope, request.participant),
+    let ids = state.server.platform().project(
+        &link_node(&scope, request.target),
         &scope.id,
         &request.attributes,
     )?;

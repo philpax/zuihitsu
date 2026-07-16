@@ -46,8 +46,8 @@ pub enum Operation {
     Join,
     /// `POST /platform/context` — writing context entries.
     WriteContext,
-    /// `POST /platform/participant` — projecting a participant's identity attributes.
-    ProjectParticipant,
+    /// `POST /platform/project` — projecting attributes onto a scoped memory.
+    Project,
     /// `POST /platform/link` — asserting or retracting a structural link.
     Link,
 }
@@ -58,7 +58,7 @@ impl fmt::Display for Operation {
             Operation::SendMessageStream => write!(f, "send message stream"),
             Operation::Join => write!(f, "join"),
             Operation::WriteContext => write!(f, "write context"),
-            Operation::ProjectParticipant => write!(f, "project participant"),
+            Operation::Project => write!(f, "project"),
             Operation::Link => write!(f, "link"),
         }
     }
@@ -107,10 +107,10 @@ pub struct ContextEntry {
     pub text: String,
 }
 
-/// One identity attribute to project onto a participant's profile via `POST /platform/participant`.
-/// `text` is the value to record now, or `None` to clear a value that is no longer set. `supersedes`
-/// is the entry id a prior projection of this same attribute returned, which the server supersedes on a
-/// change or retracts on a clear — the connector holds it, so the server needs no per-attribute keying.
+/// One attribute to project onto a scoped memory via `POST /platform/project`. `text` is the value to
+/// record now, or `None` to clear a value that is no longer set. `supersedes` is the entry id a prior
+/// projection of this same attribute returned, which the server supersedes on a change or retracts on a
+/// clear — the connector holds it, so the server needs no per-attribute keying.
 #[derive(Serialize)]
 pub struct ParticipantAttribute {
     pub text: Option<String>,
@@ -366,28 +366,29 @@ impl PlatformClient {
         Ok(())
     }
 
-    /// `POST /platform/participant` — project a participant's identity attributes (username, display
-    /// name, nickname) onto their `person/*` stub as public entries. Each attribute records a new value
-    /// or clears one, superseding or retracting the entry a prior projection returned for it. Returns
-    /// the new entry id per attribute, in request order — `Some` for a recorded value, `None` for a
-    /// cleared one — which the connector holds to supersede on the next change.
-    pub async fn project_participant(
+    /// `POST /platform/project` — project attributes onto a scoped memory as public entries: a
+    /// participant's identity (username, display name, nickname) onto their `person/*` stub, or a
+    /// guild's name onto its `context/*` memory. Each attribute records a new value or clears one,
+    /// superseding or retracting the entry a prior projection returned for it. Returns the new entry id
+    /// per attribute, in request order — `Some` for a recorded value, `None` for a cleared one — which
+    /// the connector holds to supersede on the next change.
+    pub async fn project(
         &self,
-        participant: &PersonId,
+        target: &LinkEndpoint,
         attributes: &[ParticipantAttribute],
     ) -> Result<Vec<Option<EntryId>>> {
-        /// The request body for `POST /platform/participant`.
+        /// The request body for `POST /platform/project`.
         #[derive(Serialize)]
-        struct ParticipantBody<'a> {
-            participant: &'a str,
+        struct ProjectBody<'a> {
+            target: WireLinkNode<'a>,
             attributes: &'a [ParticipantAttribute],
         }
 
-        let body = ParticipantBody {
-            participant: participant.id.as_str(),
+        let body = ProjectBody {
+            target: target.wire(),
             attributes,
         };
-        let url = format!("{}/platform/participant", self.base_url);
+        let url = format!("{}/platform/project", self.base_url);
         let response = self
             .http
             .post(&url)
@@ -396,7 +397,7 @@ impl PlatformClient {
             .send()
             .await
             .map_err(|e| Error::Http {
-                operation: Operation::ProjectParticipant,
+                operation: Operation::Project,
                 source: e,
             })?;
 
@@ -404,7 +405,7 @@ impl PlatformClient {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(Error::Status {
-                operation: Operation::ProjectParticipant,
+                operation: Operation::Project,
                 status,
                 body,
             });
@@ -413,7 +414,7 @@ impl PlatformClient {
             .json::<Vec<Option<EntryId>>>()
             .await
             .map_err(|e| Error::Http {
-                operation: Operation::ProjectParticipant,
+                operation: Operation::Project,
                 source: e,
             })
     }

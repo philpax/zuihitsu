@@ -141,11 +141,11 @@ async fn a_connector_key_scopes_a_write_to_its_own_platform() {
             Request::builder()
                 .extension(loopback())
                 .method("POST")
-                .uri("/platform/participant")
+                .uri("/platform/project")
                 .header("authorization", "Bearer discord-key")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"participant":"dave","attributes":[{"text":"Discord username: dave1234","supersedes":null}]}"#,
+                    r#"{"target":{"participant":{"id":"dave"}},"attributes":[{"text":"Discord username: dave1234","supersedes":null}]}"#,
                 ))
                 .unwrap(),
         )

@@ -39,8 +39,8 @@ pub struct MessageInput {
     pub text: String,
 }
 
-/// One identity attribute projected onto a participant's profile via [`Platform::project_participant`]
-/// — a username, display name, or nickname the platform surfaces to other users. `text` is the value
+/// One attribute projected onto a scoped memory via [`Platform::project`] — a participant's username,
+/// display name, or nickname, or a guild's name. `text` is the value
 /// to record now, or `None` to clear a value that is no longer set. `supersedes` is the entry id a
 /// prior projection of this same attribute returned, so a changed value supersedes it and a cleared
 /// one retracts it — the connector holds that id, so the server needs no per-attribute keying.
@@ -553,19 +553,19 @@ impl Platform<'_> {
         Ok(())
     }
 
-    /// Project a participant's platform identity attributes — the username, display name, and nickname
-    /// a platform surfaces to other users — onto their `person/*` stub as ordinary `Public` entries, so
-    /// the agent reads someone's current handles from their profile. Each attribute either records a new
-    /// value, superseding the entry a prior projection returned for it, or clears a value no longer set,
-    /// retracting that entry. The connector holds the entry ids, so the server keys nothing itself.
+    /// Project platform attributes onto a scoped memory as ordinary `Public` entries: a participant's
+    /// current handles onto their `person/*` stub, or a guild's name onto its `context/*` memory. Each
+    /// attribute either records a new value, superseding the entry a prior projection returned for it, or
+    /// clears a value no longer set, retracting that entry. The connector holds the entry ids, so the
+    /// server keys nothing itself.
     ///
-    /// The stub is resolved (or minted) from the `PersonId`, so a projection lands even on first contact.
-    /// Returns the new entry id per attribute, in request order: `Some` for a recorded value, `None` for
-    /// a cleared or absent one. A supersede or retract target the agent has since dropped is a no-op —
-    /// the fresh append still stands — so a projection never fails on a target that moved underneath it.
-    pub fn project_participant(
+    /// The target is resolved (or minted), so a projection lands even on first contact. Returns the new
+    /// entry id per attribute, in request order: `Some` for a recorded value, `None` for a cleared or
+    /// absent one. A supersede or retract target the agent has since dropped is a no-op — the fresh
+    /// append still stands — so a projection never fails on a target that moved underneath it.
+    pub fn project(
         &self,
-        participant: &PersonId,
+        target: &LinkNode,
         connector_id: &str,
         attributes: &[ParticipantAttribute],
     ) -> Result<Vec<Option<EntryId>>, InstanceError> {
@@ -573,23 +573,14 @@ impl Platform<'_> {
             return Ok(Vec::new());
         }
         let engine = &self.server.engine;
-        // Resolve (or mint) the participant's stub, the same path a message takes.
-        let memory = {
-            let graph = engine.graph.lock();
-            resolve_or_mint_participant(
-                engine.store.lock().as_mut(),
-                engine.clock.as_ref(),
-                &graph,
-                participant.platform.as_str(),
-                participant.id.as_str(),
-            )?
-        };
+        // Resolve (or mint) the target memory, the same path a message or a link takes.
+        let memory = self.resolve_or_mint_node(target)?;
         engine
             .graph
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
 
-        // No conversation to attribute to — an identity projection is about the person, not a room.
+        // No conversation to attribute to — a projection is about the subject, not a room.
         let mut block = MemoryBlock::new(
             engine.clone(),
             Teller::Agent,
