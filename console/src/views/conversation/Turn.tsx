@@ -1,14 +1,17 @@
-import { useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { TurnModel } from "../../lib/model/conversation.ts";
 import { formatDateTime, formatTime } from "../../lib/format/format.ts";
-import { LabeledDivider } from "../../components/primitives.tsx";
+import { Disclosure, LabeledDivider } from "../../components/primitives.tsx";
+import { EventDetail } from "../../components/EventDetail.tsx";
+import { useStreamBase, useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
 import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
-import { ConversationNames, ModelCalls, Names } from "./conversationContexts.ts";
+import { ConversationNames, EventsBySeq, ModelCalls, Names } from "./conversationContexts.ts";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
 import { Deliberation } from "./Deliberation.tsx";
@@ -139,12 +142,77 @@ export function TurnItem({
         </p>
       )}
       {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
-      {lastCallSeq !== undefined && (
-        <div className="mt-2">
-          <CallContext seq={lastCallSeq} tokensOut={tokens.output} />
+      <TurnDebug seq={turn.seq} lastCallSeq={lastCallSeq} tokensOut={tokens.output} />
+    </motion.li>
+  );
+}
+
+/// The turn's debugging surface: a single `debug` disclosure that gathers the final call's context
+/// and the underlying `ConversationTurn` event beneath it, so the transcript stays clean until the
+/// operator reaches for them. Both nested items disclose through the shared [`Disclosure`], so they
+/// carry the same icon and spacing. Rendered only when there is something to show — a final Step call,
+/// a landed event, or both.
+function TurnDebug({
+  seq,
+  lastCallSeq,
+  tokensOut,
+}: {
+  seq: number;
+  lastCallSeq: number | undefined;
+  tokensOut: number | null;
+}) {
+  const eventsBySeq = useContext(EventsBySeq);
+  const [open, setOpen] = useState(false);
+  const event = eventsBySeq.get(seq);
+  if (lastCallSeq === undefined && !event) return null;
+  return (
+    <div className="mt-2">
+      <Disclosure open={open} onToggle={() => setOpen(!open)} label="debug" />
+      {open && (
+        <div className="mt-1 flex flex-col gap-1.5 pl-5">
+          {event && <TurnEvent event={event} seq={seq} />}
+          {lastCallSeq !== undefined && (
+            <CallContext seq={lastCallSeq} tokensOut={tokensOut} defaultOpen />
+          )}
         </div>
       )}
-    </motion.li>
+    </div>
+  );
+}
+
+/// The turn's underlying `ConversationTurn` event, surfaced by its seq — the coordinate the operator
+/// cites when debugging — as a disclosure that expands, in place, into the same viewer the Events tab
+/// uses. Sits under the `debug` dropdown alongside the call context, disclosing identically.
+function TurnEvent({ event, seq }: { event: Event; seq: number }) {
+  const names = useContext(Names);
+  const convNames = useContext(ConversationNames);
+  const base = useStreamBase();
+  const { setSeq } = useStreamLocation(base);
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <Disclosure
+        open={open}
+        onToggle={() => setOpen(!open)}
+        label="event"
+        summary={`seq ${seq}`}
+        onSummaryClick={() => setSeq(seq)}
+        summaryTitle="Move the timeline cursor to this event"
+      />
+      {open && (
+        <div className="mt-1 border-l-2 border-line pl-3">
+          <EventDetail
+            payload={event.payload}
+            nameById={names}
+            conversationNameById={convNames}
+            base={base}
+            seq={seq}
+            recordedAt={event.recorded_at}
+            source={event.source}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

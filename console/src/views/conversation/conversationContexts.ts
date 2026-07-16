@@ -1,5 +1,6 @@
 import { createContext } from "react";
 
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { DigestStatus } from "../../lib/replica/replica.ts";
 import type { ContextDebug } from "../../lib/model/contextDebug.ts";
 import type { LiveConnection } from "../../lib/api/live.ts";
@@ -35,3 +36,8 @@ export const Names = createContext<Map<string, string>>(new Map());
 /// The conversation id → context memory name map at the cursor, so `ConversationRef` links in
 /// event detail panels can resolve the room name without a separate prop chain.
 export const ConversationNames = createContext<Map<string, string>>(new Map());
+
+/// The event by its seq, so a turn can surface the `ConversationTurn` record behind it — the seq the
+/// operator cites when debugging — and expand it into the same viewer the Events tab uses, without
+/// threading the raw log through the transcript.
+export const EventsBySeq = createContext<Map<number, Event>>(new Map());

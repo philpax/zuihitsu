@@ -204,14 +204,46 @@ export function Disclosure({
   onToggle,
   label,
   summary,
+  onSummaryClick,
+  summaryTitle,
   className = "",
 }: {
   open: boolean;
   onToggle: () => void;
   label: ReactNode;
   summary?: ReactNode;
+  /// When set, the summary becomes its own button — a distinct action from toggling — so a row can
+  /// both disclose and offer a click target (e.g. an event's seq that moves the timeline cursor). The
+  /// summary then carries the clay hover to read as interactive.
+  onSummaryClick?: () => void;
+  summaryTitle?: string;
   className?: string;
 }) {
+  // An interactive summary is a sibling button (a button cannot nest in the toggle button), so the row
+  // becomes a flex container carrying the shared font and colour; the summary reads as interactive
+  // through the clay hover. A plain summary rides inside the toggle button, unchanged.
+  if (onSummaryClick !== undefined && summary !== undefined) {
+    return (
+      <div className={"flex items-baseline gap-2 font-mono text-xs text-ink-soft " + className}>
+        <button
+          onClick={onToggle}
+          className="flex items-baseline gap-2 text-left transition-colors hover:text-ink"
+        >
+          <span aria-hidden className="inline-block w-3 shrink-0 text-center">
+            {open ? "▾" : "▸"}
+          </span>
+          <span>{label}</span>
+        </button>
+        <button
+          onClick={onSummaryClick}
+          title={summaryTitle}
+          className="text-ink-faint/70 transition-colors hover:text-clay"
+        >
+          {summary}
+        </button>
+      </div>
+    );
+  }
   return (
     <button
       onClick={onToggle}

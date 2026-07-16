@@ -11,10 +11,20 @@ import { ModelCalls } from "./conversationContexts.ts";
 /// digest verification on one line; expanding it shows the full breakdown. `tokensOut` overrides
 /// the call's own completion count where the caller aggregates (a turn's total generation across
 /// its steps).
-export function CallContext({ seq, tokensOut }: { seq: number; tokensOut?: number | null }) {
+export function CallContext({
+  seq,
+  tokensOut,
+  defaultOpen = false,
+}: {
+  seq: number;
+  tokensOut?: number | null;
+  /// Start expanded — the turn's `debug` dropdown opens its context straight to the breakdown, while
+  /// the deliberation steps keep it collapsed.
+  defaultOpen?: boolean;
+}) {
   const { bySeq, verdictBySeq, attributionBySeq, denominatorsBySeq, digestBySeq } =
     useContext(ModelCalls);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const interaction = bySeq.get(seq);
   const verdict = verdictBySeq.get(seq);
   const attribution = attributionBySeq.get(seq);
