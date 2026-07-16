@@ -8,7 +8,7 @@ use crate::{
     settings::Settings,
 };
 
-use super::super::{Instance, InstanceError};
+use crate::instance::{Instance, InstanceError};
 
 impl Instance {
     /// Record a participant arriving mid-session: a `ParticipantJoined` plus the joiner's brief,

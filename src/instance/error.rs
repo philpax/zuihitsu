@@ -1,4 +1,4 @@
-//! The instance-side error type — the failures an [`super::Instance`] operation surfaces, delegating
+//! The instance-side error type — the failures an [`crate::instance::Instance`] operation surfaces, delegating
 //! to the underlying subsystem error (store, graph, turn, MCP, index, search, Lua).
 
 use crate::{

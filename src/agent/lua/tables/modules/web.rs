@@ -1,8 +1,7 @@
 //! The `web` global: `web.markdown(url)`, which fetches a page and returns its main content as
 //! Markdown.
 
-use super::*;
-use crate::web::WebError;
+use crate::{agent::lua::tables::modules::*, web::WebError};
 
 /// The `web` global: `web.markdown(url)`, which fetches `url`, extracts the page's main content
 /// (dropping nav, footers, and other chrome), and returns it as Markdown. Async — the fetch suspends

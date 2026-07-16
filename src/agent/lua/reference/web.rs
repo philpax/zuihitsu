@@ -1,6 +1,6 @@
 //! Web API reference entries: `web.markdown`.
 
-use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
+use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
 
 /// The web entries, gated on the `browsing` feature.
 pub(super) fn entries() -> Vec<ApiEntry> {

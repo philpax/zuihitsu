@@ -16,10 +16,7 @@ use crate::{
     settings::Settings,
 };
 
-use super::{
-    super::{Instance, InstanceError},
-    RoutedTurn,
-};
+use crate::instance::{Instance, InstanceError, session::RoutedTurn};
 
 impl Instance {
     /// Open or continue the session for `conversation`, then run one turn of `inbound` from

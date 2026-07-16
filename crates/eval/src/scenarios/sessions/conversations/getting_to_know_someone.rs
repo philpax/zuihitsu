@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::sessions::conversations::*;
 
 /// Getting to know one person over a thread: facts accumulate on a `person/*` memory across turns, one
 /// of them is explicitly corrected (an update — the agent should supersede the stale value, not keep it

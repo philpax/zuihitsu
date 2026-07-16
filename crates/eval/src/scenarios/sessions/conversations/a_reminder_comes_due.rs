@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::sessions::conversations::*;
 
 /// A one-off deadline, not a recurrence: the agent is asked to remember a task due "this Friday", the
 /// clock crosses Friday, and a fresh-session turn should fire the wake-up and surface the reminder. A

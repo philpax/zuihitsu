@@ -2,8 +2,10 @@
 //! find_entry, history, details, supersede, retract, revise, rename, set_volatility, and the
 //! always-on block.abort.
 
-use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
-use crate::ids::Namespace;
+use crate::{
+    agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object},
+    ids::Namespace,
+};
 
 /// The always-on memory entries plus the handle methods (append, entries, details, …).
 pub(super) fn entries() -> Vec<ApiEntry> {

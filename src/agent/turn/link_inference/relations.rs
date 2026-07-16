@@ -12,7 +12,9 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{LinkInferenceArgs, Recording, link_inference_argument, prompt::render_prompt};
+use crate::agent::turn::link_inference::{
+    LinkInferenceArgs, Recording, link_inference_argument, prompt::render_prompt,
+};
 
 /// The gathered inputs for one memory's inference, held outside the graph lock.
 pub(super) struct InferenceContext {

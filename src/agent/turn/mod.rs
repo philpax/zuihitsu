@@ -71,7 +71,7 @@ pub(super) use crate::{
 };
 
 #[allow(unused_imports)]
-pub(super) use super::{lua::Session, templates};
+pub(super) use crate::agent::{lua::Session, templates};
 
 /// What a completed turn delivers to the platform client.
 ///

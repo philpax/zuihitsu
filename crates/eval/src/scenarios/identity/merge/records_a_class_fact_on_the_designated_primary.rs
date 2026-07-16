@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::identity::merge::*;
 
 /// A merged cross-platform identity whose **primary is the stub the operator designated**, not the one
 /// the day-to-day handle resolves to. A supplier is known in conversation as `person/nordic` (the stub

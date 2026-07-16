@@ -7,7 +7,7 @@ use zuihitsu::{
     BEFORE_AFTER_EPSILON_MILLIS, EntryId, Event, EventPayload, MemoryName, TemporalRef, Timestamp,
 };
 
-use super::events::memory_names;
+use crate::analysis::events::memory_names;
 
 /// One content entry's full temporal picture: its `MemoryContentAppended` (the text, the memory it
 /// landed on, and when it was asserted, plus any occurrence stamped *at append* — the authored slot)

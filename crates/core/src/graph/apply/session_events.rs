@@ -1,5 +1,5 @@
 //! Session and conversation event materialization arms, extracted from
-//! [`Graph::apply`](super::Graph::apply).
+//! [`Graph::apply`](crate::graph::Graph::apply).
 
 use rusqlite::params;
 
@@ -8,11 +8,11 @@ use crate::{
     graph::{GraphError, backend},
 };
 
-use super::super::Graph;
+use crate::graph::Graph;
 
 impl Graph {
     /// Materialize the session/conversation-event arm of
-    /// [`Graph::apply`](super::Graph::apply). Returns `Ok(true)` if the payload was a session
+    /// [`Graph::apply`](crate::graph::Graph::apply). Returns `Ok(true)` if the payload was a session
     /// event and was handled, `Ok(false)` otherwise.
     pub(super) fn apply_session_event(&mut self, event: &Event) -> Result<bool, GraphError> {
         match &event.payload {

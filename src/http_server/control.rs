@@ -1,6 +1,6 @@
 //! The operator surface (`/control/*`): agent creation, read-only inspection, settings and prompt
 //! edits, the Lua console, and on-demand snapshots (spec §Clients → control clients). The CLI and the
-//! web console drive these; the auth layer is applied to the whole surface in [`super::router`].
+//! web console drive these; the auth layer is applied to the whole surface in [`crate::http_server::router`].
 
 use axum::{
     Json,
@@ -17,7 +17,7 @@ use zuihitsu::{
 };
 use zuihitsu_connector_types::PlatformResponse;
 
-use super::{AppState, error::ApiError};
+use crate::http_server::{AppState, error::ApiError};
 
 /// The serving health/status: whether an agent exists yet, and the model transport's health — the
 /// circuit-breaker state, the consecutive-failure count, and the last failure's cause — which the

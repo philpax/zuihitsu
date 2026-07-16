@@ -1,7 +1,7 @@
 //! Calendar API reference entries: `calendar.upcoming`, `overdue`, `on`, `recurring`, date
 //! construction, and `<date>:*` methods.
 
-use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, object};
+use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, object};
 
 /// The calendar entries, gated on the `calendar` feature.
 pub(super) fn entries() -> Vec<ApiEntry> {

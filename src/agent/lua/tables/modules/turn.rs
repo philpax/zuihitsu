@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use super::*;
+use crate::agent::lua::tables::modules::*;
 
 /// The error raised by `turn.skip()` to stop Lua execution. Unlike `block.abort`'s
 /// `RuntimeError`, this is a typed `External` error so the execute path can distinguish a

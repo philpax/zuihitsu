@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::relations::*;
 
 /// A person's connections, recorded as links in one room, are retrieved when asked about them in
 /// another — the read side of the relationship graph. The two `knows` edges are established together,

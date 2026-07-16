@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::model::{GenerateRequest, ModelError, Role, ToolCall};
 
-use super::{ChatTemplateKwargs, backend};
+use crate::model::openai::{ChatTemplateKwargs, backend};
 
 /// The one custom type: the standard chat request plus the serving layer's sampling extensions,
 /// which the standard schema does not model. Sent through `create_byot`.

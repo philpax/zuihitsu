@@ -2,7 +2,7 @@
 
 use std::net::SocketAddr;
 
-use super::*;
+use crate::config::*;
 
 /// The default whole-request HTTP timeout, shared by the model and embedding clients. Long enough
 /// for a local model's worst-case prefill-plus-generation; short enough that a hung backend becomes

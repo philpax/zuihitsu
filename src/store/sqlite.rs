@@ -18,7 +18,7 @@ use crate::{
     time::Timestamp,
 };
 
-use super::{Store, StoreError, Subscription, notify};
+use crate::store::{Store, StoreError, Subscription, notify};
 
 pub struct SqliteStore {
     conn: Connection,

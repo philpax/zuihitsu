@@ -1,7 +1,7 @@
 //! Tag-related API reference entries: `<memory>:tag`, `:untag`, and the `tags.*` module
 //! (`create`, `describe`, `list`).
 
-use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
+use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
 
 /// The tag handle methods, gated on the `tagging` feature.
 pub(super) fn handle_methods() -> Vec<ApiEntry> {

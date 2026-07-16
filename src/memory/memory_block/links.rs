@@ -11,7 +11,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{
+use crate::memory::memory_block::{
     Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock, MemoryError,
     RelationSpec, parse_cardinality, reconcile_forced_visibility,
 };

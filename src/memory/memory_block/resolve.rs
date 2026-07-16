@@ -15,7 +15,7 @@ use crate::{
 
 use ulid::Ulid;
 
-use super::{
+use crate::memory::memory_block::{
     Authority, EntryRef, EntrySelector, ForcedVisibility, MIN_ENTRY_PREFIX, MemoryBlock,
     MemoryError, VisibilityChoice, WITHHELD_STUB,
 };

@@ -12,7 +12,7 @@ use crate::{
     memory::memory_block::{BlockEffects, MemoryBlock},
 };
 
-use super::{
+use crate::agent::lua::{
     BlockOutcome, LuaError, Session,
     runtime::{
         BlockApi, LockSet, combine_output, eval_block, release_locks, render, timed_out_cause,
@@ -35,7 +35,7 @@ impl Session {
     pub async fn execute(
         &self,
         engine: &Arc<Engine>,
-        context: &super::super::BlockContext,
+        context: &crate::agent::BlockContext,
         script: &str,
     ) -> Result<BlockOutcome, LuaError> {
         let manager = engine.memory_locks.clone();
@@ -75,7 +75,7 @@ impl Session {
             // `__index` is wired in `install_block_api`: it resolves `handle.name` / `handle.description`
             // lazily from the id and otherwise dispatches to `methods`.
             let entry_metatable =
-                super::tables::entry_metatable(&self.lua).map_err(LuaError::Vm)?;
+                crate::agent::lua::tables::entry_metatable(&self.lua).map_err(LuaError::Vm)?;
 
             // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects
             // this attempt only.
@@ -83,7 +83,7 @@ impl Session {
 
             // Installing the API is our-side setup: a failure here is a bug, not an agent-visible
             // outcome.
-            super::tables::install_block_api(
+            crate::agent::lua::tables::install_block_api(
                 &self.lua,
                 &api,
                 &methods,
@@ -157,9 +157,9 @@ impl Session {
                         // and does not re-issue them next turn for want of confirmation. Folded into the
                         // result the agent reads and the `LuaExecuted` record, so the log shows what was
                         // shown.
-                        let result = super::commit::with_commit_summary(
+                        let result = crate::agent::lua::commit::with_commit_summary(
                             result,
-                            super::commit::summarize_committed(engine, &events),
+                            crate::agent::lua::commit::summarize_committed(engine, &events),
                         );
                         events.push(self.lua_executed(
                             context.turn_id,
@@ -187,9 +187,9 @@ impl Session {
                     // ourselves.
                     let turn_skip = match &error {
                         mlua::Error::CallbackError { cause, .. } => {
-                            cause.downcast_ref::<super::tables::TurnSkip>()
+                            cause.downcast_ref::<crate::agent::lua::tables::TurnSkip>()
                         }
-                        _ => error.downcast_ref::<super::tables::TurnSkip>(),
+                        _ => error.downcast_ref::<crate::agent::lua::tables::TurnSkip>(),
                     };
                     if let Some(turn_skip) = turn_skip {
                         let skip = turn_skip.0.clone();
@@ -240,7 +240,7 @@ impl Session {
     fn commit_terminal(
         &self,
         engine: &Engine,
-        context: &super::super::BlockContext,
+        context: &crate::agent::BlockContext,
         script: &str,
         block: &Arc<Mutex<MemoryBlock>>,
         cause: TerminalCause,

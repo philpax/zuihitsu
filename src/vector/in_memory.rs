@@ -1,11 +1,13 @@
 //! Brute-force in-memory vector index: the test fake, and a usable implementation at personal-agent
-//! scale. Swapped for [`SqliteVectorIndex`](super::SqliteVectorIndex) when persistence is needed.
+//! scale. Swapped for [`SqliteVectorIndex`](crate::vector::SqliteVectorIndex) when persistence is needed.
 //! Infallible, so every operation returns `Ok`.
 
 use smol_str::SmolStr;
 
-use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
-use crate::ids::Seq;
+use crate::{
+    ids::Seq,
+    vector::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord},
+};
 
 #[derive(Default)]
 pub struct InMemoryVectorIndex {

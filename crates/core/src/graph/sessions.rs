@@ -1,11 +1,11 @@
 //! Session reads: conversation resolution, participants, and open-session state.
 
-use super::{
-    Graph, GraphError, OpenSessionView, ParticipantMint, SessionView, backend, parse_ulid,
-};
 use crate::{
     db::{query_map_into, query_opt_into},
     event::{ConversationRef, Teller},
+    graph::{
+        Graph, GraphError, OpenSessionView, ParticipantMint, SessionView, backend, parse_ulid,
+    },
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
     time::Timestamp,
     vocabulary::TagName,

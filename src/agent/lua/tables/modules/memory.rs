@@ -1,6 +1,6 @@
 //! The `memory` global: `create`, `get`, `get_or_create`, `search`, and `list`.
 
-use super::{metatables::*, *};
+use crate::agent::lua::tables::modules::{metatables::*, *};
 
 /// How many handles `memory.list` returns before eliding the rest — enough to reveal which stems
 /// exist without flooding the transcript when a broad prefix matches many. The elided count rides the

@@ -15,11 +15,13 @@ use crate::{
     time::Timestamp,
 };
 
-use super::{
-    BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport, buffer::TurnView,
-    recording::run_steps, tools::full_api_reference,
+use crate::agent::{
+    system_prompt, templates,
+    turn::{
+        BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport, buffer::TurnView,
+        recording::run_steps, tools::full_api_reference,
+    },
 };
-use crate::agent::{system_prompt, templates};
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
 pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
@@ -124,7 +126,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         let graph = engine.graph.lock();
         let exclude: HashSet<MemoryId> =
             present_set.iter().chain(brief_memories).copied().collect();
-        super::ambient::ambient_recall(
+        crate::agent::turn::ambient::ambient_recall(
             &graph,
             &ambient,
             &inbound_text,

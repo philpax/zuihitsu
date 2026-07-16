@@ -26,13 +26,15 @@ use crate::{
     store::Store,
 };
 
-use super::{
-    Steps, TurnError, TurnOutcome,
-    record::{TurnRecord, append_turn},
-    run::tool_call_id,
-    tools::{ToolCallResult, run_tool_call},
+use crate::{
+    agent::turn::{
+        Steps, TurnError, TurnOutcome,
+        record::{TurnRecord, append_turn},
+        run::tool_call_id,
+        tools::{ToolCallResult, run_tool_call},
+    },
+    ids::ConversationId,
 };
-use crate::ids::ConversationId;
 
 /// The cohesive context every model call needs to write its model-interaction record (spec
 /// §Observability): which `conversation` and `turn_id` the call belongs to, and how much to
@@ -280,7 +282,7 @@ pub(crate) async fn run_steps(
     } = steps;
     let conversation = session.conversation();
     let recording = Recording::new(Some(conversation), context.turn_id, capture);
-    let tools = vec![super::tools::run_lua_tool()];
+    let tools = vec![crate::agent::turn::tools::run_lua_tool()];
 
     let record_agent_turn =
         |store: &mut dyn Store, clock: &dyn Clock, text: String| -> Result<(), TurnError> {

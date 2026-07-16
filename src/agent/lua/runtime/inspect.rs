@@ -3,7 +3,7 @@
 
 use mlua::{Lua, Table, Value};
 
-use super::super::error::ConcatError;
+use crate::agent::lua::error::ConcatError;
 
 /// Render a script's final value to the text the agent sees back (REPL-style).
 /// Fold a block's `print` output and its final-value rendering into the one agent-visible result.

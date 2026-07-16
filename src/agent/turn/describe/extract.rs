@@ -11,7 +11,7 @@ use crate::{
 
 /// The `synthesize` argument shape (turn-end description + temporal extraction); doubles as the
 /// response-format schema, so the schema sent to the model and the parser can't drift. The
-/// contradiction verdict is a separate focused call ([`super::arbitration::arbitrate`]/[`ExtractedArbitration`]), not a
+/// contradiction verdict is a separate focused call ([`crate::agent::turn::describe::arbitration::arbitrate`]/[`ExtractedArbitration`]), not a
 /// field here.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SynthesizeArgs {
@@ -31,7 +31,7 @@ pub(crate) struct ExtractedOccurrence {
     pub(super) occurred_at: ExtractedTime,
 }
 
-/// A conflict the focused [`super::arbitration::arbitrate`] call found among the numbered statements (spec §Write path →
+/// A conflict the focused [`crate::agent::turn::describe::arbitration::arbitrate`] call found among the numbered statements (spec §Write path →
 /// arbitration): which statements collide, which the model credits, and a one-line reconciling note. It
 /// doubles as that call's response-format schema. Statement numbers are 1-based, the same numbering
 /// [`ExtractedOccurrence`] keys off.
@@ -160,7 +160,7 @@ pub(super) fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
 /// routinely expresses that by omitting the key or emitting `null` — a strict `Vec<usize>` parse throws
 /// the whole conflict away over exactly the shape this call exists to record. Every field defaults, so
 /// an empty `competing` (no conflict) or a null `credited` (both stand) parses cleanly; the returned
-/// arbitration is then validated by [`super::arbitration::arbitration_event`] (>= 2 competing, a reconciling note). `None`
+/// arbitration is then validated by [`crate::agent::turn::describe::arbitration::arbitration_event`] (>= 2 competing, a reconciling note). `None`
 /// means no JSON object came back at all. The model emits the schema as a fenced JSON block, so the
 /// object is located with [`extract_json_object`] before parsing.
 pub(super) fn arbitrate_argument(content: &str) -> Option<ExtractedArbitration> {

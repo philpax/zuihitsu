@@ -9,7 +9,7 @@ use crate::{
     time::Timestamp,
 };
 
-use super::{Store, StoreError, Subscription, notify};
+use crate::store::{Store, StoreError, Subscription, notify};
 
 #[derive(Default)]
 pub struct MemoryStore {

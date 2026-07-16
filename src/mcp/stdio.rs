@@ -22,7 +22,9 @@ use tokio::{
     sync::Mutex,
 };
 
-use super::{ContentBlock, McpError, McpHost, McpInstance, McpOutput, McpServerConfig, McpTool};
+use crate::mcp::{
+    ContentBlock, McpError, McpHost, McpInstance, McpOutput, McpServerConfig, McpTool,
+};
 
 /// The protocol versions this client can speak; the first is advertised in `initialize`. The server
 /// echoes the version it will actually use, and the spawn fails if it is none of these.

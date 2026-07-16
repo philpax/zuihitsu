@@ -1,4 +1,4 @@
-use super::{MILLIS_PER_DAY, MILLIS_PER_WEEK, Timestamp, temporal::Rrule};
+use crate::time::{MILLIS_PER_DAY, MILLIS_PER_WEEK, Timestamp, temporal::Rrule};
 
 /// The first instance of a recurrence strictly after `after`, anchored at `dtstart` — the entry's
 /// assertion time, since the rrule string carries no `DTSTART` (spec §Time, §Recurring materialization

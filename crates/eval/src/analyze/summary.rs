@@ -2,7 +2,7 @@
 
 use crate::package::{EvalPackage, ScenarioReport};
 
-use super::{bar_label, clears_bar, format::join_or_none};
+use crate::analyze::{bar_label, clears_bar, format::join_or_none};
 
 pub(crate) fn print_summary(pkg: &EvalPackage, base: Option<&EvalPackage>, scenario: Option<&str>) {
     let base_rate = |name: &str| {

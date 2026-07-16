@@ -1,9 +1,9 @@
 //! Content entry reads: live, history, class-wide, disputed, and by-id.
 
-use super::{EntryView, Graph, GraphError, MemoryView, parse_ulid};
 use crate::{
     db::{query_map_into, query_opt_into},
     event::Cardinality,
+    graph::{EntryView, Graph, GraphError, MemoryView, parse_ulid},
     ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,

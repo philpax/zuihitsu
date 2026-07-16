@@ -7,7 +7,7 @@ use std::{collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
 
-use super::{McpError, McpHost, McpInstance, McpOutput, McpServerConfig, McpTool};
+use crate::mcp::{McpError, McpHost, McpInstance, McpOutput, McpServerConfig, McpTool};
 
 /// A scriptable [`McpHost`]: a set of named servers, each scripted via [`FakeServer`].
 #[derive(Clone, Default)]

@@ -33,7 +33,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{Recording, TurnError, collect_written_memories, templates};
+use crate::agent::turn::{Recording, TurnError, collect_written_memories, templates};
 
 use argument::link_inference_argument;
 pub use argument::{InferredLink, LinkInferenceArgs, NewRelationSpec};

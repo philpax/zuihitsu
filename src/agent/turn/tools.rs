@@ -12,16 +12,18 @@ use crate::{
     model::{ToolCall, ToolSpec, schema_of},
 };
 
-use super::{BlockContext, TurnError};
-use crate::agent::lua::{self, BlockOutcome, Session};
+use crate::agent::{
+    lua::{self, BlockOutcome, Session},
+    turn::{BlockContext, TurnError},
+};
 
 /// The system prompt's API-description block: the build-derived Lua API catalogue, plus the connected
 /// MCP servers' projected tools (runtime-derived from the session's probed catalogue). Both render
-/// through the same [`super::super::api_doc::render`] so the description is one consistent catalogue.
+/// through the same [`crate::agent::api_doc::render`] so the description is one consistent catalogue.
 pub(crate) fn full_api_reference(session: &Session) -> String {
     let mut entries = lua::api_reference(&session.features());
     entries.extend(session.mcp_api_entries());
-    super::super::api_doc::render(&entries)
+    crate::agent::api_doc::render(&entries)
 }
 
 /// The outcome of a single tool call: either continue the step loop with a rendered result, or skip

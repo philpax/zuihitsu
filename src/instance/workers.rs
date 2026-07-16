@@ -23,8 +23,10 @@ use crate::{
     settings::Settings,
 };
 
-use super::{BackgroundPasses, Instance};
-use crate::engine::Engine;
+use crate::{
+    engine::Engine,
+    instance::{BackgroundPasses, Instance},
+};
 
 impl BackgroundPasses {
     /// Construct with the adjudicator and link-inference cursors seeded to `head`, matching `boot`'s

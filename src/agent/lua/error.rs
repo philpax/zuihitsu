@@ -423,7 +423,7 @@ fn find_entry_snippet(text: &str) -> String {
 /// A bad argument to `table.concat`, reworded from Luau's opaque native error. Stock Luau `table.concat`
 /// joins only strings and numbers, so a reader's handle list — `mem:entries()`, `hub:links()` — fails
 /// it with the unhelpful "invalid value (table) at index … in table for 'concat'". The thin wrapper in
-/// [`super::runtime::install_table_concat`] keeps stock semantics (it delegates the join untouched) and
+/// [`crate::agent::lua::runtime::install_table_concat`] keeps stock semantics (it delegates the join untouched) and
 /// only replaces that error: these two variants redirect the two observed slips — a whole reader
 /// *method* passed in place of its result, and a handle list that has no join, which now points at
 /// string interpolation as the way to compose text.

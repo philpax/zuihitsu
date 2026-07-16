@@ -10,7 +10,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{super::Graph, OccurrenceColumns};
+use crate::graph::{Graph, apply::OccurrenceColumns};
 
 impl Graph {
     /// Denormalize an `occurred_at` reference into the values the `content_entries` occurrence

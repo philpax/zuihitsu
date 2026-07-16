@@ -20,7 +20,7 @@ pub(super) use crate::{
     vocabulary::{RelationName, TagName},
 };
 
-pub(super) use super::{
+pub(super) use crate::agent::lua::{
     error::{
         BlockConsistencyError, CalendarError, FindEntryError, HandleKind, ListError,
         TurnResolveError,

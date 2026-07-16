@@ -26,7 +26,7 @@ use crate::{
     vector::{VectorError, VectorId, VectorIndex},
 };
 
-use super::{ModelError, embed::Embedder};
+use crate::model::{ModelError, embed::Embedder};
 
 pub use batch::{Batch, apply_batch, embed_batch};
 

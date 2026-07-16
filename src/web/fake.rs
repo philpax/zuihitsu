@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use super::{FetchedPage, WebError, WebFetcher};
+use crate::web::{FetchedPage, WebError, WebFetcher};
 
 /// A scriptable [`WebFetcher`]: a map from URL to the canned page (or error) it returns.
 #[derive(Clone, Default)]

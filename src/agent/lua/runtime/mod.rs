@@ -22,7 +22,7 @@ use crate::{
     memory::memory_block::{MemoryBlock, MemoryError},
 };
 
-use super::error::MissingReturnError;
+use crate::agent::lua::error::MissingReturnError;
 
 pub(crate) use handles::{
     HandleSelf, SEARCH_QUERY_FIELD, entry_handle_id, entry_selector, fold_lower, get_argument_name,
@@ -200,7 +200,7 @@ fn teach_block_load_error(error: mlua::Error) -> mlua::Error {
 /// Route a memory operation's error. A teachable violation (a duplicate name, an unknown relation)
 /// becomes the Lua runtime error the agent sees as the block's terminal cause. A graph read failure
 /// is infrastructure, not the agent's doing: it is stashed in the caller's `infra` slot for `execute`
-/// to bubble up as a [`super::LuaError`], and the returned Lua error only serves to stop the script.
+/// to bubble up as a [`crate::agent::lua::LuaError`], and the returned Lua error only serves to stop the script.
 pub(super) fn route_error(error: MemoryError, infra: &mut Option<GraphError>) -> mlua::Error {
     match error {
         MemoryError::Graph(graph_error) => {

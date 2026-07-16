@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 
-use super::ModelError;
+use crate::model::ModelError;
 
 /// A dense embedding vector. Dimensionality is fixed per embedder.
 pub type Embedding = Vec<f32>;

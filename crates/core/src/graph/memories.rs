@@ -1,8 +1,8 @@
 //! Memory lookups: by name, id, former name, and the same-identity (`same_as`) class.
 
-use super::{Graph, GraphError, MemoryView, backend, parse_ulid};
 use crate::{
     db::{query_map_into, query_opt_into},
+    graph::{Graph, GraphError, MemoryView, backend, parse_ulid},
     ids::{MemoryId, MemoryName},
 };
 use rusqlite::{OptionalExtension, params};

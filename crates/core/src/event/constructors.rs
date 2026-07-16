@@ -9,7 +9,7 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
-use super::{
+use crate::event::{
     AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
     LinkSource, MergeProposalSource, ProducedBy, PromptTemplateName, Teller, TerminalCause,
     TurnRole, Visibility, Volatility,

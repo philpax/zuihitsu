@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::identity::merge::*;
 
 /// The full adjudicated-merge flow, end to end: a person the agent already knows on one platform
 /// re-introduces themselves on a second, the agent records the new stub and proposes the merge on an

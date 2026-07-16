@@ -10,7 +10,7 @@ use crate::{
     mcp::McpTool,
 };
 
-use super::lua::escape_tool_name;
+use crate::agent::mcp_api::lua::escape_tool_name;
 
 /// Apply a server's `allow`/`deny` filter (spec §Allowlisting): the full advertised list, intersected
 /// with `allow` (if present), minus `deny`, matching raw names case-sensitively. An `allow`/`deny`

@@ -12,7 +12,7 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
-use super::{
+use crate::event::{
     ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
     LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
     PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
@@ -313,7 +313,7 @@ pub enum EventPayload {
         name: PromptTemplateName,
         version: u32,
         body: String,
-        /// Retired: the authoring authority now rides on the [`Event`](super::Event) envelope's
+        /// Retired: the authoring authority now rides on the [`Event`](crate::event::Event) envelope's
         /// `source`, which this field only ever duplicated. Kept `#[serde(default)]` so a log written
         /// before the retirement still deserialises, and `skip_serializing` so a new registration no
         /// longer writes it; no reader consults it.
@@ -325,7 +325,7 @@ pub enum EventPayload {
     /// behavior the values produced.
     ConfigSet {
         settings: Settings,
-        /// Retired: the authoring authority now rides on the [`Event`](super::Event) envelope's
+        /// Retired: the authoring authority now rides on the [`Event`](crate::event::Event) envelope's
         /// `source`, which this field only ever duplicated. Kept `#[serde(default)]` so a log written
         /// before the retirement still deserialises, and `skip_serializing` so a new snapshot no
         /// longer writes it; no reader consults it.

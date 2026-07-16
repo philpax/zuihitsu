@@ -8,9 +8,9 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use super::{Graph, GraphError, backend, parse_ulid};
 use crate::{
     db::query_map_into,
+    graph::{Graph, GraphError, backend, parse_ulid},
     ids::{EntryId, MemoryId, Seq},
 };
 

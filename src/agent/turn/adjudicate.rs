@@ -34,7 +34,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{Recording, TurnError, templates};
+use crate::agent::turn::{Recording, TurnError, templates};
 
 /// Catch merge adjudications up to the log (spec §Cross-platform identity → adjudicated merge): weigh
 /// every `MergeProposed` in `(cursor, head]` that is not already settled, emit its `MergeAdjudicated`,

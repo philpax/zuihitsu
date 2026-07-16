@@ -11,7 +11,7 @@ use crate::{
     vocabulary::TagName,
 };
 
-use super::super::error::MemorySearchError;
+use crate::agent::lua::error::MemorySearchError;
 
 /// The default number of `memory.search` results when the caller gives no `limit`.
 pub(crate) const DEFAULT_SEARCH_LIMIT: usize = 8;

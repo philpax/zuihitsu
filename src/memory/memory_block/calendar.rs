@@ -7,7 +7,9 @@ use crate::{
     time::{self, TemporalRef, Timestamp},
 };
 
-use super::{DEFAULT_OVERDUE_DAYS, DEFAULT_UPCOMING_DAYS, MemoryBlock, MemoryError};
+use crate::memory::memory_block::{
+    DEFAULT_OVERDUE_DAYS, DEFAULT_UPCOMING_DAYS, MemoryBlock, MemoryError,
+};
 
 impl MemoryBlock {
     /// The current time off the engine clock — the anchor the `calendar` date constructors build

@@ -12,7 +12,7 @@ use std::{
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use super::{
+use crate::model::{
     Completion, GenerateDelta, GenerateRequest, GenerateResponse, GenerateStream, Message,
     ModelClient, ModelError, ToolChoice, Usage,
 };

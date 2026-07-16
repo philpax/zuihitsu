@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::relations::*;
 
 /// A relationship is relayed by one participant; later, a *different* participant asks who is on
 /// record and who said so. A correct answer attributes it to the original teller (Erin), not to the

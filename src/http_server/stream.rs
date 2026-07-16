@@ -21,7 +21,7 @@ use tokio::sync::broadcast;
 use zuihitsu::{Event, ids::Seq};
 use zuihitsu_connector_types::StreamFrame;
 
-use super::{AppState, control::FromQuery, error::ApiError};
+use crate::http_server::{AppState, control::FromQuery, error::ApiError};
 
 /// Wrap a `StreamFrame` as an SSE event with a JSON `data:` payload. No `event:` field is
 /// emitted — the frame's type is inside the JSON (`{"type":"progress",…}`), so the SSE event

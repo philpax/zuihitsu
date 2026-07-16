@@ -26,7 +26,7 @@ pub struct ContextEntry {
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can
 /// never obtain one of these.
 pub struct Control<'a> {
-    pub(super) server: &'a super::Instance,
+    pub(super) server: &'a crate::instance::Instance,
 }
 
 /// One recorded belief arbitration: the memory it concerns and the reconciling statement the agent

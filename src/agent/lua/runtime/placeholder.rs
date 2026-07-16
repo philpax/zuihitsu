@@ -7,7 +7,7 @@
 //! crosses into the API, so genesis and console writes — which never pass through a script — are
 //! naturally exempt.
 
-use super::super::error::PlaceholderError;
+use crate::agent::lua::error::PlaceholderError;
 
 /// Reject `text` when it carries a literal `{ident}` placeholder — string-format syntax that a
 /// plain quoted string never interpolates, so the uninterpolated braces would be stored (or

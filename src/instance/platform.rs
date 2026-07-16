@@ -7,7 +7,6 @@ use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
-use super::{Carryover, ContextEntry, Instance, InstanceError, RoutedTurn};
 use crate::{
     agent::{
         InboundMessage, TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start,
@@ -16,6 +15,7 @@ use crate::{
     event::{EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, Visibility},
     graph::GraphError,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, Seq, TurnId},
+    instance::{Carryover, ContextEntry, Instance, InstanceError, RoutedTurn},
     memory::{
         identity::{
             resolve_context, resolve_or_mint_context, resolve_or_mint_conversation,

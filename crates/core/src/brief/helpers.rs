@@ -11,7 +11,7 @@ use crate::{
     vocabulary::RelationName,
 };
 
-use super::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP};
+use crate::brief::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP};
 
 /// Compose a single participant's brief block, against `present_set`. Used for a mid-session join:
 /// the joiner's brief is built against the now-present set and injected as a system message, rather

@@ -1,10 +1,10 @@
 //! Vocabulary reads: tags and relations.
 
-use super::{
-    Graph, GraphError, RelationView, TagVocabularyEntry, backend, entries::parse_cardinality,
-};
 use crate::{
     db::{query_map_into, query_opt_into},
+    graph::{
+        Graph, GraphError, RelationView, TagVocabularyEntry, backend, entries::parse_cardinality,
+    },
     vocabulary::{RelationName, TagName},
 };
 use rusqlite::{OptionalExtension, params};

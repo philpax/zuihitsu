@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::sessions::conversations::*;
 
 /// A week's worth of team chatter in one run: the agent is asked to track two teammates (a `knows`
 /// link), put a recurring standup on the calendar (a recurring occurrence), is told a health confidence

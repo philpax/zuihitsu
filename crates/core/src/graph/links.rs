@@ -1,8 +1,8 @@
 //! Link reads: outgoing edges, full link lists, and class-wide links.
 
-use super::{ClassLinkView, Graph, GraphError, LinkView, MemoryView, NeighborLinkView, parse_ulid};
 use crate::{
     db::{query_map_into, query_opt_into},
+    graph::{ClassLinkView, Graph, GraphError, LinkView, MemoryView, NeighborLinkView, parse_ulid},
     ids::{MemoryId, MemoryName},
     vocabulary::RelationName,
 };

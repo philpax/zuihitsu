@@ -1,5 +1,5 @@
 //! The agent-facing Lua API as a typed catalogue, rendered into the system prompt's API description.
-//! Kept beside the functions installed in [`super::Session::execute`] so the prompt and the
+//! Kept beside the functions installed in [`crate::agent::lua::Session::execute`] so the prompt and the
 //! implementation cannot drift.
 
 mod calendar;
@@ -12,11 +12,10 @@ mod web;
 #[cfg(test)]
 mod tests;
 
-use super::super::api_doc::ApiEntry;
-use crate::InstanceFeatures;
+use crate::{InstanceFeatures, agent::api_doc::ApiEntry};
 
 /// The agent-facing Lua API, as a typed catalogue. Defined here, beside the functions installed in
-/// [`super::Session::execute`], so the prompt and the implementation cannot drift: changing a function
+/// [`crate::agent::lua::Session::execute`], so the prompt and the implementation cannot drift: changing a function
 /// means changing its entry right next to it. Rendered into the system prompt's API description
 /// through [`crate::agent::api_doc::render`] — the same renderer MCP tools project through (spec §System
 /// prompt → API description).
@@ -56,5 +55,5 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
 /// Render [`api_reference`] as the system prompt's API-description block, filtered by `features`.
 pub fn render_api_reference(features: &InstanceFeatures) -> String {
-    super::super::api_doc::render(&api_reference(features))
+    crate::agent::api_doc::render(&api_reference(features))
 }

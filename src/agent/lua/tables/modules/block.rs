@@ -1,6 +1,6 @@
 //! The `block` and `context` globals.
 
-use super::*;
+use crate::agent::lua::tables::modules::*;
 
 /// The `block` global: `abort(reason)`, which discards the buffer and ends the block. It touches no
 /// memory, so it stays a synchronous function and takes no lock.

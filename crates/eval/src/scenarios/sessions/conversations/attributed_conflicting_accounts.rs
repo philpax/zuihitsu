@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::sessions::conversations::*;
 
 /// The relayed-secondhand mirror of [`ConflictingAccounts`]: two people relay *other people's*
 /// conflicting accounts of where an event is held, each recorded as an `Attributed` (via-a-teller)

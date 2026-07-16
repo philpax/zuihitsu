@@ -4,7 +4,7 @@
 //! scoped to exactly one connector by its key (a loopback request to the `direct` interface), so a
 //! sender, a present set, a locator's scope path are all resolved under *that* connector's platform,
 //! and its writes are attributed to *that* connector. A connector cannot name another's platform. The
-//! auth-and-scope layer is applied to the whole surface in [`super::router`].
+//! auth-and-scope layer is applied to the whole surface in [`crate::http_server::router`].
 
 use axum::{
     Extension, Json,
@@ -19,7 +19,7 @@ use zuihitsu::{
 };
 use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
 
-use super::{AppState, auth::ConnectorScope, error::ApiError};
+use crate::http_server::{AppState, auth::ConnectorScope, error::ApiError};
 
 /// The locator for `scope_path` under the request's connector — the platform is the scope's, never the
 /// body's.

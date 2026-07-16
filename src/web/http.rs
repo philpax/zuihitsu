@@ -24,7 +24,7 @@ use reqwest::{
     redirect,
 };
 
-use super::{FetchedPage, WebError, WebFetcher, is_html};
+use crate::web::{FetchedPage, WebError, WebFetcher, is_html};
 
 /// How the real fetcher is built: the per-fetch timeout, the response byte cap, the user agent, and
 /// whether private addresses are permitted. Assembled by the serving host from [`WebSettings`]

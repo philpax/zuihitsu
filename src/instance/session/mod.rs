@@ -1,6 +1,6 @@
 //! The session machinery shared by both facets: opening/continuing a session and running one turn,
 //! plus the supporting runtime types (the routed-turn bundle, the compaction carryover, and the live
-//! open-session backing a conversation). On [`super::Instance`] (not a facet) so the platform
+//! open-session backing a conversation). On [`crate::instance::Instance`] (not a facet) so the platform
 //! `route_message` and the operator `imprint` both reach it.
 
 mod join;
@@ -30,7 +30,7 @@ pub(crate) struct Carryover {
     pub working_set: Vec<MemoryId>,
 }
 
-/// The live session backing a conversation (runtime state, see [`super::Instance::sessions`]). Held
+/// The live session backing a conversation (runtime state, see [`crate::instance::Instance::sessions`]). Held
 /// behind an `Arc` in the `sessions` map, so a running turn keeps its session alive without the map
 /// guard; only `last_activity` is mutated after open, so it is an atomic the reuse path bumps through
 /// `&self`.
@@ -40,7 +40,7 @@ pub(crate) struct OpenSession {
     pub brief: String,
     /// The memory ids the frozen brief reads over — the present set, the working set, the current
     /// room's context, and self. Threaded into each turn so the ambient recall pass can exclude what
-    /// the brief already surfaces (see [`super::super::agent::Turn::brief_memories`]).
+    /// the brief already surfaces (see [`crate::agent::Turn::brief_memories`]).
     pub brief_memories: Vec<MemoryId>,
     /// When the session opened — the time frozen into the system prompt's "the session begins on …",
     /// so every turn in the session sends an identical system prefix (the live wall clock rides in the
@@ -75,7 +75,7 @@ impl OpenSession {
 }
 
 /// One routed turn — the inbound message and its routing context, bundled so
-/// [`super::Instance::run_session_turn`] takes the routed turn as a whole. Shared by the platform
+/// [`crate::instance::Instance::run_session_turn`] takes the routed turn as a whole. Shared by the platform
 /// `route_messages` and the operator `imprint` paths.
 pub(crate) struct RoutedTurn<'a> {
     pub conversation: ConversationId,

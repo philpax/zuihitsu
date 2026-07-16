@@ -7,7 +7,7 @@ use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
 
 use crate::mcp::{ContentBlock, McpError, McpOutput, McpTool};
 
-use super::McpSession;
+use crate::agent::mcp_api::McpSession;
 
 /// Marshal a Lua argument table to JSON-RPC `arguments` (spec §Calling): a consecutive-integer-key
 /// table becomes a JSON array, otherwise an object; Lua integers serialize as JSON integers. The empty

@@ -1,8 +1,8 @@
 //! Semantic and lexical search over the projection.
 
-use super::{Graph, GraphError, MemoryView, parse_ulid};
 use crate::{
     db::{query_map_into, query_opt_into},
+    graph::{Graph, GraphError, MemoryView, parse_ulid},
     ids::MemoryId,
 };
 use rusqlite::params;

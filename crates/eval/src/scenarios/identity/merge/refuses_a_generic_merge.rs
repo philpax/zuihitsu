@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::identity::merge::*;
 
 /// Two people share only a generic overlap (both work in software). Asked whether they are the same,
 /// the agent must not merge them — a generic match could be almost anyone. Whether it declines to

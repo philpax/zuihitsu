@@ -1,6 +1,6 @@
 //! `install_handle_methods`: the `mem:*` handle methods on the metatable's `methods` table.
 
-use super::*;
+use crate::agent::lua::tables::*;
 
 /// The `mem:*` handle methods (`append`, `entries`, `find_entry`, `history`, `supersede`, `retract`,
 /// `revise`) on the
@@ -14,7 +14,7 @@ use super::*;
 /// receiver first, so a write through a `memory.search` hit the query did not name is refused before it
 /// commits — the fuzzy-write guard. Link *writes*
 /// (`links.create`/`links.remove`) live on the `links` module table rather than on a handle (see
-/// [`super::modules::links_table`]), so both endpoints read as explicit arguments and neither is a
+/// [`crate::agent::lua::tables::modules::links_table`]), so both endpoints read as explicit arguments and neither is a
 /// privileged receiver.
 pub(super) fn install_handle_methods(
     lua: &Lua,
@@ -289,7 +289,7 @@ pub(super) fn install_handle_methods(
 
     // The link *writers* (`links.create`/`links.remove`) live on the `links` module table, not on a
     // handle, so the subject and object read as explicit arguments with neither a privileged receiver
-    // (see [`super::modules::links_table`]). The link *readers* stay handle methods, gated on the same
+    // (see [`crate::agent::lua::tables::modules::links_table`]). The link *readers* stay handle methods, gated on the same
     // `linking` feature.
     if features.linking {
         // mem:outgoing(relation) / mem:incoming(relation) — the memory's links under `relation` out to

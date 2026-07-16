@@ -10,7 +10,7 @@ use crate::{
     time::{MILLIS_PER_DAY, TemporalRef, Timestamp},
 };
 
-use super::ExtractedOccurrence;
+use crate::agent::turn::describe::ExtractedOccurrence;
 
 /// The per-memory read context a resolution pass reasons over: the entries shown to the model
 /// (1-based statement numbers key into `list`), the new untimed entries it may resolve, the memory

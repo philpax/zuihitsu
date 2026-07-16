@@ -7,7 +7,7 @@ use zuihitsu::{
     TurnRole, Visibility,
 };
 
-use super::EntryFacts;
+use crate::analysis::EntryFacts;
 
 /// The durable conversation opened for `platform`/`scope`, if the run reached that room — so a
 /// multi-room scenario can scope a query to one room's events.
@@ -23,7 +23,7 @@ pub fn conversation_id(events: &[Event], platform: &str, scope: &str) -> Option<
 }
 
 /// Every agent reply to a participant within one room (located by `platform`/`scope`), in order —
-/// the per-room slice of [`super::agent_replies`], so a two-room scenario can probe each room's exposed
+/// the per-room slice of [`crate::analysis::agent_replies`], so a two-room scenario can probe each room's exposed
 /// surface separately.
 pub fn agent_replies_in<'a>(events: &'a [Event], platform: &str, scope: &str) -> Vec<&'a str> {
     let Some(conversation) = conversation_id(events, platform, scope) else {

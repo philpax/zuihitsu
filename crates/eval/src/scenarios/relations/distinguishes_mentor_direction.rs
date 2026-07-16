@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::relations::*;
 
 /// Dave sits on *both* sides of a mentorship: he mentors two people and is himself mentored by a
 /// third. Asked who he mentors, only the edge's *direction* answers correctly — a semantic search for

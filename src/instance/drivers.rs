@@ -1,6 +1,6 @@
 //! The background timer drivers: the wake-up scheduler, the graph snapshotter, the idle-session
 //! sweeper, and the checkpoint sweeper. Each runs on a `tokio::select!` timer loop until a shutdown
-//! signal resolves. Unlike the cursor-resumed catch-up workers in [`super::workers`], these fire
+//! signal resolves. Unlike the cursor-resumed catch-up workers in [`crate::instance::workers`], these fire
 //! globally-due work, checkpoint the graph, consolidate idle sessions, and flush live sessions'
 //! working state mid-session.
 
@@ -22,7 +22,7 @@ use crate::{
     time::Timestamp,
 };
 
-use super::{Instance, InstanceError, OpenSession, SnapshotSchedule};
+use crate::instance::{Instance, InstanceError, OpenSession, SnapshotSchedule};
 
 /// What drove a checkpoint sweep. The two triggers apply different gate sets, so
 /// [`Instance::checkpoint_live_sessions`] and [`Instance::checkpoint_delta`] branch on it: a timer

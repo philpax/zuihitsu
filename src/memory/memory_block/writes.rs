@@ -7,7 +7,7 @@ use crate::{
     time::TemporalRef,
 };
 
-use super::{
+use crate::memory::memory_block::{
     AppendOptions, EntrySelector, MemoryBlock, MemoryError, reconcile_forced_visibility,
     suggest::most_similar,
 };

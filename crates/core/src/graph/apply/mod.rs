@@ -4,9 +4,9 @@
 
 use rusqlite::params;
 
-use super::{Graph, GraphError, backend};
 use crate::{
     event::{Event, EventPayload},
+    graph::{Graph, GraphError, backend},
     vocabulary::RelationName,
 };
 

@@ -1,5 +1,5 @@
 //! The request error rendered as an HTTP response, shared by both surfaces' handlers. Distinct from
-//! the startup [`super::ServeError`]: this is a per-request failure, that is a boot failure.
+//! the startup [`crate::http_server::ServeError`]: this is a per-request failure, that is a boot failure.
 
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde::Serialize;

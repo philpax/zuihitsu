@@ -5,7 +5,7 @@
 
 use dom_smoothie::Readability;
 
-use super::{FetchedPage, WebError, is_html};
+use crate::web::{FetchedPage, WebError, is_html};
 
 /// The marker appended when the extracted Markdown is truncated, so the agent sees plainly that it is
 /// reading a cut-down page rather than the whole thing.

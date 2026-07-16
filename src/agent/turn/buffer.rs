@@ -1,7 +1,7 @@
 //! The live conversational buffer: the turn views the next turn replays as the prompt suffix,
 //! and the reads that assemble and bound it (spec §Conversations → the live buffer).
 
-use super::*;
+use crate::agent::turn::*;
 
 /// One tool-call step within an agent turn: the `run_lua` script the model asked to run and the
 /// result it saw back. Reconstructed from `LuaExecuted` events so the next turn's buffer carries the

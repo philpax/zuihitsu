@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::relations::*;
 
 /// The link-inference pass extracts a relationship implicit in content and mints a fresh relation to
 /// carry it: `person/theo`, a junior engineer, has an entry saying Clara has been mentoring him — an

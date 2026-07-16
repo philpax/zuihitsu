@@ -9,8 +9,10 @@ use crate::{
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
 };
 
-use super::{IndexError, VectorKey};
-use crate::model::embed::Embedder;
+use crate::model::{
+    embed::Embedder,
+    index::{IndexError, VectorKey},
+};
 
 /// Embed the content recorded in `events` into a [`Batch`] of pending index changes — **without
 /// touching the vector index**. Coalesces to one operation per vector (last event wins), so a

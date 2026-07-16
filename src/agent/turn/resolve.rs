@@ -1,7 +1,7 @@
 //! The `convo.turn` transcript resolver: resolve a turn id to that moment plus a window of
 //! surrounding turns, under the audience rule (spec §Transcripts).
 
-use super::*;
+use crate::agent::turn::*;
 
 /// One conversation turn resolved for the `convo.turn` transcript link resolver (spec §Transcripts):
 /// its stable id, who spoke, its role, its text, when it was recorded, and a ready-made canonical

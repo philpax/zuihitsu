@@ -8,7 +8,7 @@ use crate::{
     ids::{EntryId, MemoryId, MemoryName},
 };
 
-use super::{EntryRef, MemoryBlock, MemoryDetails, MemoryError};
+use crate::memory::memory_block::{EntryRef, MemoryBlock, MemoryDetails, MemoryError};
 
 impl MemoryBlock {
     /// Resolve a name to a memory id, or `None`, for `memory.get` — touches the result so it enters

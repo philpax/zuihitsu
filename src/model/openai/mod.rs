@@ -37,7 +37,7 @@ use crate::config::{EmbeddingConfig, ModelConfig};
 
 use futures_util::StreamExt;
 
-use super::{
+use crate::model::{
     GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError, ToolChoice,
     embed::{Embedder, Embedding},
 };
@@ -135,7 +135,7 @@ impl ModelClient for OpenAiClient {
 
     /// The one transport: a byot request with `stream: true` and usage requested on the final
     /// chunk. The assembler yields text fragments as they arrive and rebuilds the terminal
-    /// [`super::GenerateResponse`] through the same `into_response` mapper the whole-body shape
+    /// [`crate::model::GenerateResponse`] through the same `into_response` mapper the whole-body shape
     /// uses, so the assembled terminal is exactly what a non-streaming request would have returned.
     /// A transport failure mid-stream ends the stream with that error as its last item; the retry
     /// wrapper above decides whether to re-drive.

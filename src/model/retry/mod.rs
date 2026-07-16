@@ -23,7 +23,7 @@ use crate::{
 
 use futures_util::StreamExt;
 
-use super::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError};
+use crate::model::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError};
 
 /// A [`ModelClient`] that retries transient failures (bounded attempts, exponential backoff with
 /// jitter) and holds the circuit breaker: after `breaker_failure_threshold` consecutive transient

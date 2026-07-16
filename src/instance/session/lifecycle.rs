@@ -20,7 +20,7 @@ use crate::{
     time::{self, Timestamp},
 };
 
-use super::super::{CheckpointTrigger, Instance, InstanceError, OpenSession};
+use crate::instance::{CheckpointTrigger, Instance, InstanceError, OpenSession};
 
 impl Instance {
     /// The features this instance enables — the gate the Lua registration, the API reference, and the

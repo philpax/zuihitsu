@@ -1,4 +1,4 @@
-//! Memory event materialization arms, extracted from [`Graph::apply`](super::Graph::apply).
+//! Memory event materialization arms, extracted from [`Graph::apply`](crate::graph::Graph::apply).
 
 use rusqlite::params;
 
@@ -7,10 +7,10 @@ use crate::{
     graph::{GraphError, backend},
 };
 
-use super::super::Graph;
+use crate::graph::Graph;
 
 impl Graph {
-    /// Materialize the memory-event arm of [`Graph::apply`](super::Graph::apply). Returns `Ok(true)`
+    /// Materialize the memory-event arm of [`Graph::apply`](crate::graph::Graph::apply). Returns `Ok(true)`
     /// if the payload was a memory event and was handled, `Ok(false)` otherwise.
     pub(super) fn apply_memory_event(&mut self, event: &Event) -> Result<bool, GraphError> {
         match &event.payload {

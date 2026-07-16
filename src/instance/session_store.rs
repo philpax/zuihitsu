@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 
 use crate::ids::{ConversationId, SessionId};
 
-use super::session::{Carryover, OpenSession};
+use crate::instance::session::{Carryover, OpenSession};
 
 /// The live session map and its lifecycle/carryover state — pure runtime state, never logged.
 /// Each session map entry is an `Arc` so a turn holds its session across the turn `.await` without

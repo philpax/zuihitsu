@@ -10,7 +10,7 @@ use crate::{
     vocabulary::TagName,
 };
 
-use super::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError};
+use crate::memory::memory_block::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError};
 
 /// A live entry of a memory's `same_as` class, reduced to the fields the supersede guards read: its
 /// id, who told it, and its visibility posture. Assembled from the committed class entries and this

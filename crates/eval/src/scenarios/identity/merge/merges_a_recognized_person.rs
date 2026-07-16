@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::identity::merge::*;
 
 /// The same person turns up on two platforms and, in separate sessions, independently mentions the same
 /// improbable specifics (a particular trip for a particular reason). Asked whether the two are one, the

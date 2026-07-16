@@ -1,7 +1,7 @@
 //! The `links` global: `create`/`remove` write and clear edges, `register` adds a relation to the
 //! schema, and `list`/`get` read the registry.
 
-use super::{metatables::*, *};
+use crate::agent::lua::tables::modules::{metatables::*, *};
 
 /// The `links` global. `create`/`remove` instantiate a relation as an edge; `register` adds a
 /// relation to the schema, and `list`/`get` read the registry (spec §Link relation registry). A

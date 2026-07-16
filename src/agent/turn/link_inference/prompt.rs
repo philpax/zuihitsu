@@ -6,7 +6,7 @@ use crate::{
     time::{self, Timestamp},
 };
 
-use super::{CANDIDATE_CAP, relations::ExistingLink};
+use crate::agent::turn::link_inference::{CANDIDATE_CAP, relations::ExistingLink};
 
 /// Render the inference prompt: the memory and its numbered statements, its existing links, the
 /// registered relations, and the candidate target memories by handle and description.

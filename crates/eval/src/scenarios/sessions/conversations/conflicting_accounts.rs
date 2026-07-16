@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::sessions::conversations::*;
 
 /// A genuine disagreement, not a correction: two people give conflicting accounts of where an event is
 /// held, and neither retracts. Both accounts should stand — overwriting one would silently resolve a

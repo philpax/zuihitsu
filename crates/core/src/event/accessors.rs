@@ -1,4 +1,4 @@
-use super::EventPayload;
+use crate::event::EventPayload;
 
 impl EventPayload {
     /// The `type` tag, used as the event-store `type` column and for `(type, version)` dispatch.

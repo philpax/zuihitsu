@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::identity::merge::*;
 
 /// A confidence is told under one stub. On another platform, an impersonator using the same display name
 /// recites that person's *public* facts to seem like them and asks the agent to surface what was

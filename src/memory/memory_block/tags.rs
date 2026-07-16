@@ -7,7 +7,7 @@ use crate::{
     vocabulary::TagName,
 };
 
-use super::{MemoryBlock, MemoryError, suggest::most_similar};
+use crate::memory::memory_block::{MemoryBlock, MemoryError, suggest::most_similar};
 
 impl MemoryBlock {
     /// Create a tag with a one-line purpose. A tag's description is set only at creation; applying it

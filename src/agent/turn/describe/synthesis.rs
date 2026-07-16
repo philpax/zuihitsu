@@ -11,7 +11,7 @@ use crate::{
     time::{self, Timestamp},
 };
 
-use super::{SynthesisCall, SynthesizeArgs, extract::synthesize_argument};
+use crate::agent::turn::describe::{SynthesisCall, SynthesizeArgs, extract::synthesize_argument};
 
 /// The synthesis call's system prompt: the description-regeneration instructions, plus the
 /// temporal-extraction instructions when that template exists, joined for the single combined call
@@ -29,7 +29,7 @@ pub(super) fn compose_synthesis_system(
 /// Ask the model, in one schema-constrained `synthesize` reply, to describe a memory from its entries
 /// and extract the occurrence time of any time-bearing statement. The entries are numbered (1-based) so
 /// the extracted occurrences key back to them, and the current time is stated so relative phrases
-/// ("last Tuesday") resolve. The pairwise contradiction check is a separate focused call ([`super::arbitration::arbitrate`]),
+/// ("last Tuesday") resolve. The pairwise contradiction check is a separate focused call ([`crate::agent::turn::describe::arbitration::arbitrate`]),
 /// not a rider on this reply. `None` means no usable reply came back, which the caller treats as "leave
 /// the memory unchanged".
 pub(super) async fn synthesize(
@@ -93,7 +93,7 @@ pub(super) fn statements_prompt(
 /// Drive one structured synthesis `request` through the shared recording seam, retrying a few times on
 /// an unusable reply before giving up (this pass is off the hot path, so a couple of extra attempts is
 /// cheap). `parse` decodes the reply's content; the first reply it accepts is returned, else `None`
-/// after `ATTEMPTS`. Shared by [`synthesize`] and [`super::arbitration::arbitrate`] so both retry identically. `label`
+/// after `ATTEMPTS`. Shared by [`synthesize`] and [`crate::agent::turn::describe::arbitration::arbitrate`] so both retry identically. `label`
 /// names the call in the diagnostics.
 pub(super) async fn ask_structured<T>(
     call: &SynthesisCall<'_>,

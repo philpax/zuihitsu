@@ -28,7 +28,7 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
-use super::visibility;
+use crate::memory::visibility;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
 /// a private entry, and `None` otherwise. `snippet` is the fragment of matched content that produced

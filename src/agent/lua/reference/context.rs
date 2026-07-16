@@ -1,7 +1,9 @@
 //! Context and conversation API reference entries: `context.current` and `convo.turn`.
 
-use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
-use crate::ids::Namespace;
+use crate::{
+    agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT},
+    ids::Namespace,
+};
 
 /// The always-on context entry.
 pub(super) fn entries() -> Vec<ApiEntry> {

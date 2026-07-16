@@ -7,7 +7,7 @@ use zuihitsu::{EventPayload, MemoryId};
 
 use crate::package::EvalPackage;
 
-use super::format::{plural, render_locations};
+use crate::analyze::format::{plural, render_locations};
 
 /// How many namespace shapes to show per relation before collapsing the tail into a `+N more` note —
 /// enough to read the dominant shapes at a glance without letting a scattered relation run off the line.

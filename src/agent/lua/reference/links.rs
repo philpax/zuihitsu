@@ -1,7 +1,7 @@
 //! Link-related API reference entries: the `<memory>:outgoing`/`:incoming`/`:links` readers, and
 //! the `links.*` module (`create`, `remove`, `register`, `list`, `get`).
 
-use super::super::super::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
+use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
 
 /// The link reader handle methods (`:outgoing`/`:incoming`/`:links`), gated on the `linking`
 /// feature. The link *writers* are `links.*` module functions (see [`module_entries`]).

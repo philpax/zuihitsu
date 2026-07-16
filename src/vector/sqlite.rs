@@ -7,8 +7,11 @@ use rusqlite::{Connection, OptionalExtension, ffi::sqlite3_auto_extension, param
 use smol_str::SmolStr;
 use sqlite_vec::sqlite3_vec_init;
 
-use super::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord};
-use crate::{db::query_map_into, ids::Seq};
+use crate::{
+    db::query_map_into,
+    ids::Seq,
+    vector::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord},
+};
 
 pub struct SqliteVectorIndex {
     conn: Connection,

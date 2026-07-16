@@ -1,7 +1,7 @@
 //! Handle and result metatables minted for the per-block Lua globals: memory and entry
 //! handles, date objects, and the search, tag, link, relation, and turn-window result rows.
 
-use super::*;
+use crate::agent::lua::tables::*;
 
 /// The metatable backing entry handles: `__tostring` and `__concat` render the handle as its
 /// `text`, so a content read stays ergonomic (printable, concatenable) while the handle remains an

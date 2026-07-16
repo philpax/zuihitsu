@@ -20,7 +20,7 @@ use crate::{
     time::{self, Timestamp},
 };
 
-use super::visibility;
+use crate::memory::visibility;
 
 /// A scheduled-work failure, delegating to the store or graph beneath it.
 #[derive(Debug)]

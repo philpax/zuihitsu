@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use zuihitsu::ids::DIRECT_PLATFORM;
 
-use super::AppState;
+use crate::http_server::AppState;
 
 /// The connector a `/platform/*` request is authenticated as: the id is both the platform every
 /// operation acts on and the connector its events are attributed to. Inserted into the request by

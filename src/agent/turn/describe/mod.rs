@@ -25,7 +25,7 @@ use crate::{
     time::TemporalRef,
 };
 
-use super::{Recording, TurnError, templates};
+use crate::agent::turn::{Recording, TurnError, templates};
 use templates::PromptTemplate;
 
 pub(super) use extract::{ExtractedArbitration, ExtractedOccurrence, SynthesizeArgs};

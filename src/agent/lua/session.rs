@@ -1,15 +1,15 @@
 //! Session construction and MCP lifecycle — the methods that set up and tear down the VM's
-//! per-conversation state, distinct from the per-block execution in [`super::execute`].
+//! per-conversation state, distinct from the per-block execution in [`crate::agent::lua::execute`].
 
 use std::sync::Arc;
 
 use crate::{InstanceFeatures, agent::api_doc::ApiEntry, ids::ConversationId, web::WebClient};
 
-use super::Session;
+use crate::agent::lua::Session;
 
 impl Session {
     pub fn new(conversation: ConversationId, features: InstanceFeatures) -> Session {
-        let lua = super::sandboxed_lua();
+        let lua = crate::agent::lua::sandboxed_lua();
         Session {
             lua,
             conversation,
@@ -35,12 +35,12 @@ impl Session {
     pub fn with_mcp(
         conversation: ConversationId,
         host: Arc<dyn crate::mcp::McpHost>,
-        catalogue: super::super::mcp_api::McpCatalogue,
+        catalogue: crate::agent::mcp_api::McpCatalogue,
         features: InstanceFeatures,
     ) -> Session {
-        let lua = super::sandboxed_lua();
-        let mcp = Arc::new(super::super::mcp_api::McpSession::new(host, catalogue));
-        super::super::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
+        let lua = crate::agent::lua::sandboxed_lua();
+        let mcp = Arc::new(crate::agent::mcp_api::McpSession::new(host, catalogue));
+        crate::agent::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
         Session {
             lua,
             conversation,

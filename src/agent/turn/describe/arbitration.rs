@@ -11,7 +11,7 @@ use crate::{
     time::Timestamp,
 };
 
-use super::{
+use crate::agent::turn::describe::{
     ExtractedArbitration, SynthesisCall,
     extract::arbitrate_argument,
     synthesis::{ask_structured, statements_prompt},
@@ -33,7 +33,7 @@ const ARBITRATION_SYSTEM: &str = "You audit a numbered set of statements about o
 
 /// Ask the model, in its own focused schema-constrained reply, which of the numbered statements assert
 /// incompatible values for the same fact (spec §Write path → arbitration). This is deliberately a
-/// separate call from [`super::synthesis::synthesize`]: bundled with the mandatory description rewrite, the conditional
+/// separate call from [`crate::agent::turn::describe::synthesis::synthesize`]: bundled with the mandatory description rewrite, the conditional
 /// contradiction check was crowded out and the model omitted it; alone, the check is the reply's whole
 /// job. The statements are a numbered, teller-annotated list of the memory's `Public` + `Attributed`
 /// entries — wider than the `Public`-only slice the description saw — so the returned 1-based numbers

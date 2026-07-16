@@ -8,7 +8,7 @@
 pub use zuihitsu_core::store::{MemoryStore, Store, StoreError, Subscription};
 
 // The subscriber fan-out helper is shared infrastructure, not public API; `SqliteStore` reaches it
-// as `super::notify`.
+// as `crate::store::notify`.
 pub(crate) use zuihitsu_core::store::notify;
 
 mod sqlite;

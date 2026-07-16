@@ -1,10 +1,11 @@
 //! Occurrence queries: due items, recurring schedules, and pending wake-ups.
 
-use super::{
-    EntryView, Graph, GraphError, MemoryColumns, MemoryView, entries::entry_from_row, parse_ulid,
-};
 use crate::{
     db::query_map_into,
+    graph::{
+        EntryView, Graph, GraphError, MemoryColumns, MemoryView, entries::entry_from_row,
+        parse_ulid,
+    },
     ids::{EntryId, MemoryId},
     time::{self, TemporalRef, Timestamp},
 };

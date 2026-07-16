@@ -1,6 +1,6 @@
 //! The `calendar` global: `upcoming`, `overdue`, `on`, `recurring`, and date construction.
 
-use super::{metatables::*, *};
+use crate::agent::lua::tables::modules::{metatables::*, *};
 
 /// The `calendar` global: `upcoming`, `overdue`, `on`, and `recurring`, each returning a list of memory
 /// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own

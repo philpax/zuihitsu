@@ -42,8 +42,10 @@ use std::sync::{
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
-use super::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError};
-use crate::metrics::observe_background_model_deferral;
+use crate::{
+    metrics::observe_background_model_deferral,
+    model::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError},
+};
 
 /// Arbitrates one shared [`ModelClient`] between conversation turns and background passes, giving a
 /// waiting turn priority over queued background work. Wrap the real client once at serving

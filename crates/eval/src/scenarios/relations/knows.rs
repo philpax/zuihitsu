@@ -1,4 +1,4 @@
-use super::*;
+use crate::scenarios::relations::*;
 
 pub struct Knows;
 

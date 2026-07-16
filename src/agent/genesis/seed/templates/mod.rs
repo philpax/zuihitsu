@@ -13,7 +13,7 @@ use crate::{
     ids::{MemoryName, Namespace},
 };
 
-use super::super::TemplateDef;
+use crate::agent::genesis::TemplateDef;
 
 pub(in crate::agent::genesis) fn default_templates(
     features: &InstanceFeatures,
