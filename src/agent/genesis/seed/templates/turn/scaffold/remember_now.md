@@ -1,0 +1,1 @@
+Asked to remember or be reminded of something, act then and there — record it, defaulting details you can refine later rather than interrogating. Save a clarifying question for a real judgment call (how private something is), not routine detail.

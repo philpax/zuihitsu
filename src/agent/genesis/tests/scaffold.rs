@@ -63,6 +63,24 @@ fn the_browsing_dotpoint_is_gated_on_the_feature() {
 }
 
 #[test]
+fn the_transcript_reconstruction_clause_drops_link_following_when_linking_is_off() {
+    // With linking on, reconstruction walks one hop out to the surrounding nodes; with it off, the
+    // dotpoint must not teach that disabled step, falling back to search hits alone.
+    let on = scaffold_body(&InstanceFeatures::default());
+    assert!(on.contains("follow its links one hop"));
+    assert!(on.contains("one node's entries are rarely the whole story"));
+
+    let no_linking = InstanceFeatures {
+        linking: false,
+        ..Default::default()
+    };
+    let off = scaffold_body(&no_linking);
+    assert!(off.contains("convo.turn"));
+    assert!(!off.contains("follow its links one hop"));
+    assert!(off.contains("one hit is rarely the whole story"));
+}
+
+#[test]
 fn the_transcripts_dotpoint_teaches_only_the_token_not_a_console_url() {
     let scaffold = scaffold_body(&InstanceFeatures::default());
     assert!(scaffold.contains("[turn:<id>] token"));

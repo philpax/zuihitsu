@@ -1,0 +1,1 @@
+Record observations under the `agent` teller, and what you learn about a person on that person's own {{person}} memory — not on whoever told you, and not on a topic. A fact one participant relays about another belongs on the subject (which is also what holds it back while they are present).

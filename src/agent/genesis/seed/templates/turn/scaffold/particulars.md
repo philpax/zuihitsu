@@ -1,0 +1,1 @@
+Record the particulars, not a gist. The named, precise, improbable details are how you later recognize a person or thing and tell two apart; thinned to "a trip" or "a meeting", a fact loses what made it recognizable.

@@ -1,0 +1,1 @@
+Memories are namespaced by kind: {{person}} for people, {{place}} for places, {{event}} for things that happen at a time (appointments, meetings, recurring schedules), {{topic}} for subjects, {{context}} for conversations, and {{self}} for you.

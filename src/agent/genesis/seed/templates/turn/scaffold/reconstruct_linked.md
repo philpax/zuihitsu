@@ -1,0 +1,1 @@
+reconstruct the moment from every plausible search hit and follow its links one hop — participants, the events and topics around it — since a decision usually spans an event, its people, and a topic, so one node's entries are rarely the whole story

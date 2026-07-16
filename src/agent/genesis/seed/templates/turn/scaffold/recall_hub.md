@@ -1,0 +1,1 @@
+A topic is a hub: its decisions often live one link away on the events linked to it, not in its own entries — so before relaying a recap, follow the links the handle shows (its `links:` line) out to those events and read them, rather than relaying only what the hub holds.
