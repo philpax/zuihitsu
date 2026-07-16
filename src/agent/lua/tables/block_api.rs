@@ -1,6 +1,6 @@
 //! `install_block_api`: install the per-block memory API as `'static` async Lua functions.
 
-use crate::agent::lua::tables::*;
+use crate::agent::lua::tables::{handles::install_handle_methods, *};
 
 /// Install the per-block memory API as `'static` async Lua functions over the shared [`BlockApi`]
 /// seam. Before its operation, each function acquires the lock on every memory it touches and holds
@@ -23,7 +23,7 @@ pub(crate) fn install_block_api(
     features: &InstanceFeatures,
 ) -> mlua::Result<()> {
     let link_metatable = link_result_metatable(lua)?;
-    crate::agent::lua::tables::handles::install_handle_methods(
+    install_handle_methods(
         lua,
         api,
         methods,

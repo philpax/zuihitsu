@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    event::ModelPhase,
+    event::{ModelPhase, Teller},
     graph::{EntryView, MemoryView},
     ids::MemoryId,
     model::{Completion, GenerateRequest, GenerateResponse, ModelError},
@@ -63,12 +63,12 @@ pub(super) fn statements_prompt(
     );
     for (index, entry) in entries.iter().enumerate() {
         let teller = match entry.told_by {
-            crate::event::Teller::Participant(id) => teller_names
+            Teller::Participant(id) => teller_names
                 .get(&id)
                 .map(String::as_str)
                 .unwrap_or("a participant"),
-            crate::event::Teller::Agent => "the agent",
-            crate::event::Teller::Bootstrap => "genesis",
+            Teller::Agent => "the agent",
+            Teller::Bootstrap => "genesis",
         };
         // A dated statement carries its occurrence in the bracket, so a back-pointing phrase in an undated sibling
         // ("this date") resolves against the stated date rather than the conversation's "now".

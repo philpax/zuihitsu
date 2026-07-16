@@ -12,14 +12,14 @@ use crate::{
     memory::memory_block::Authority,
     metrics::observe_turn_deferred,
     model::Message,
-    time::Timestamp,
+    time::{Timestamp, format_stamp},
 };
 
 use crate::agent::{
     system_prompt, templates,
     turn::{
-        BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport, buffer::TurnView,
-        recording::run_steps, tools::full_api_reference,
+        BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
+        ambient::ambient_recall, buffer::TurnView, recording::run_steps, tools::full_api_reference,
     },
 };
 
@@ -126,7 +126,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         let graph = engine.graph.lock();
         let exclude: HashSet<MemoryId> =
             present_set.iter().chain(brief_memories).copied().collect();
-        crate::agent::turn::ambient::ambient_recall(
+        ambient_recall(
             &graph,
             &ambient,
             &inbound_text,
@@ -424,7 +424,7 @@ pub(super) fn speaker_display(memory_name: &str) -> String {
 /// multi-party room.
 pub(super) fn stamp(text: &str, at: Timestamp, speaker: Option<&str>) -> String {
     match speaker {
-        Some(name) => format!("[{}] {}: {}", crate::time::format_stamp(at), name, text),
-        None => format!("[{}] {}", crate::time::format_stamp(at), text),
+        Some(name) => format!("[{}] {}: {}", format_stamp(at), name, text),
+        None => format!("[{}] {}", format_stamp(at), text),
     }
 }

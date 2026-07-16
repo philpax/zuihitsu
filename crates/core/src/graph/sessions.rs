@@ -8,6 +8,7 @@ use crate::{
     },
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
     time::Timestamp,
+    visibility::{MarkerRoom, MarkerTurn, room_display},
     vocabulary::TagName,
 };
 use rusqlite::{OptionalExtension, params};
@@ -129,26 +130,24 @@ impl Graph {
     /// which bake the marker at build time (spec §Visibility → marker). When the reference's turn
     /// is `Some`, the turn id is carried for the `[turn:<ulid>]` token; the room is resolved from
     /// the conversation's context memory regardless.
-    pub fn marker_ref(
-        &self,
-        told_in: Option<&ConversationRef>,
-    ) -> Result<crate::visibility::MarkerTurn, GraphError> {
+    pub fn marker_ref(&self, told_in: Option<&ConversationRef>) -> Result<MarkerTurn, GraphError> {
         let Some(r) = told_in else {
-            return Ok(crate::visibility::MarkerTurn {
+            return Ok(MarkerTurn {
                 turn_id: None,
                 room: None,
             });
         };
         let context_memory = self.context_for_conversation(r.conversation)?;
         let room = context_memory.and_then(|context_id| {
-            self.memory_by_id(context_id).ok().flatten().map(|context| {
-                crate::visibility::MarkerRoom {
-                    name: crate::visibility::room_display(context.name.as_str()),
+            self.memory_by_id(context_id)
+                .ok()
+                .flatten()
+                .map(|context| MarkerRoom {
+                    name: room_display(context.name.as_str()),
                     confidential: context.tags.contains(&TagName::Confidential),
-                }
-            })
+                })
         });
-        Ok(crate::visibility::MarkerTurn {
+        Ok(MarkerTurn {
             turn_id: r.turn,
             room,
         })

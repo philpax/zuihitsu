@@ -10,7 +10,10 @@ use crate::{
     vocabulary::TagName,
 };
 
-use crate::memory::memory_block::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError};
+use crate::{
+    engine::Engine,
+    memory::memory_block::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError},
+};
 
 /// A live entry of a memory's `same_as` class, reduced to the fields the supersede guards read: its
 /// id, who told it, and its visibility posture. Assembled from the committed class entries and this
@@ -26,7 +29,7 @@ impl MemoryBlock {
     /// A handle to the shared backends and the present set this block runs under — the inputs the
     /// async `memory.search` needs (the embedder, vector index, graph, clock, settings, and visibility
     /// set). Returned together so the Lua layer can embed and search without holding the block lock.
-    pub fn retrieval_handle(&self) -> (std::sync::Arc<crate::engine::Engine>, Vec<MemoryId>) {
+    pub fn retrieval_handle(&self) -> (std::sync::Arc<Engine>, Vec<MemoryId>) {
         (self.engine.clone(), self.present_set.clone())
     }
 
@@ -35,7 +38,7 @@ impl MemoryBlock {
     /// apply the audience rule: a turn resolves iff everyone present here was in that moment's audience
     /// (spec §Transcripts). Returned together so the Lua layer can resolve without holding the block
     /// lock.
-    pub fn turn_resolution_handle(&self) -> (std::sync::Arc<crate::engine::Engine>, Vec<MemoryId>) {
+    pub fn turn_resolution_handle(&self) -> (std::sync::Arc<Engine>, Vec<MemoryId>) {
         (self.engine.clone(), self.present_set.clone())
     }
 

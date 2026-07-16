@@ -3,13 +3,17 @@
 
 use std::sync::Arc;
 
-use crate::{InstanceFeatures, agent::api_doc::ApiEntry, ids::ConversationId, web::WebClient};
+use crate::{InstanceFeatures, ids::ConversationId, web::WebClient};
 
-use crate::agent::lua::Session;
+use crate::agent::{
+    api_doc::ApiEntry,
+    lua::{Session, sandboxed_lua},
+    mcp_api::{McpCatalogue, McpSession, install},
+};
 
 impl Session {
     pub fn new(conversation: ConversationId, features: InstanceFeatures) -> Session {
-        let lua = crate::agent::lua::sandboxed_lua();
+        let lua = sandboxed_lua();
         Session {
             lua,
             conversation,
@@ -35,12 +39,12 @@ impl Session {
     pub fn with_mcp(
         conversation: ConversationId,
         host: Arc<dyn crate::mcp::McpHost>,
-        catalogue: crate::agent::mcp_api::McpCatalogue,
+        catalogue: McpCatalogue,
         features: InstanceFeatures,
     ) -> Session {
-        let lua = crate::agent::lua::sandboxed_lua();
-        let mcp = Arc::new(crate::agent::mcp_api::McpSession::new(host, catalogue));
-        crate::agent::mcp_api::install(&lua, &mcp).expect("installing the mcp projection global");
+        let lua = sandboxed_lua();
+        let mcp = Arc::new(McpSession::new(host, catalogue));
+        install(&lua, &mcp).expect("installing the mcp projection global");
         Session {
             lua,
             conversation,

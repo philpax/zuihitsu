@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    event::Event,
+    event::{Event, EventPayload},
     ids::Seq,
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
 };
@@ -24,19 +24,19 @@ pub async fn embed_batch(embedder: &dyn Embedder, events: &[Event]) -> Result<Ba
     let mut ops: BTreeMap<VectorId, Pending> = BTreeMap::new();
     for event in events {
         match &event.payload {
-            crate::event::EventPayload::MemoryContentAppended { entry_id, text, .. } => {
+            EventPayload::MemoryContentAppended { entry_id, text, .. } => {
                 ops.insert(
                     VectorKey::Entry(*entry_id).to_vector_id(),
                     Pending::Embed(text.clone()),
                 );
             }
-            crate::event::EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
+            EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                 ops.insert(
                     VectorKey::Description(*id).to_vector_id(),
                     Pending::Embed(new_text.clone()),
                 );
             }
-            crate::event::EventPayload::MemoryDeleted { id } => {
+            EventPayload::MemoryDeleted { id } => {
                 ops.insert(VectorKey::Description(*id).to_vector_id(), Pending::Remove);
             }
             _ => {}

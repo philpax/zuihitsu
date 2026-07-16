@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use crate::agent::lua::{
     error::{HandleAssignmentError, HandleError, HandleKind, SearchWriteError, TaintedWriteError},
-    runtime::{BlockApi, check_interpolated, route_error},
+    runtime::{BlockApi, check_interpolated, render, route_error},
 };
 use ulid::Ulid;
 
@@ -124,10 +124,7 @@ pub(crate) fn render_details(
     for entry in &details.entries {
         let handle = make_entry_handle(lua, entry, entry_metatable)?;
         entry_block.push('\n');
-        entry_block.push_str(&crate::agent::lua::runtime::render(
-            lua,
-            &Value::Table(handle),
-        ));
+        entry_block.push_str(&render(lua, &Value::Table(handle)));
     }
     sections.push(entry_block);
 
@@ -138,10 +135,7 @@ pub(crate) fn render_details(
         for link in &details.links {
             let handle = make_link_handle(lua, link, memory_metatable, link_metatable)?;
             link_block.push('\n');
-            link_block.push_str(&crate::agent::lua::runtime::render(
-                lua,
-                &Value::Table(handle),
-            ));
+            link_block.push_str(&render(lua, &Value::Table(handle)));
         }
         sections.push(link_block);
     }

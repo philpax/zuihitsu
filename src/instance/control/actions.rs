@@ -18,7 +18,8 @@ use crate::{
     instance::{
         InstanceError,
         control::{
-            DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
+            Control, DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome,
+            UnmergeOutcome,
         },
         session::RoutedTurn,
     },
@@ -32,7 +33,7 @@ use crate::{
 };
 use zuihitsu_connector_types::PlatformResponse;
 
-impl crate::instance::control::Control<'_> {
+impl Control<'_> {
     /// Run one operator message of the imprint interview: the console conversation where the
     /// operator introduces themselves and the agent learns who they are and what it is for (spec
     /// §Imprint interview). It runs under operator authority, so the agent may write `self` — the

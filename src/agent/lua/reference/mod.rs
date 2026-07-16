@@ -12,12 +12,15 @@ mod web;
 #[cfg(test)]
 mod tests;
 
-use crate::{InstanceFeatures, agent::api_doc::ApiEntry};
+use crate::{
+    InstanceFeatures,
+    agent::api_doc::{ApiEntry, render},
+};
 
 /// The agent-facing Lua API, as a typed catalogue. Defined here, beside the functions installed in
 /// [`crate::agent::lua::Session::execute`], so the prompt and the implementation cannot drift: changing a function
 /// means changing its entry right next to it. Rendered into the system prompt's API description
-/// through [`crate::agent::api_doc::render`] — the same renderer MCP tools project through (spec §System
+/// through [`render`] — the same renderer MCP tools project through (spec §System
 /// prompt → API description).
 ///
 /// The catalogue is filtered by `features`: a disabled feature's entries are omitted, so the prompt's
@@ -55,5 +58,5 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 
 /// Render [`api_reference`] as the system prompt's API-description block, filtered by `features`.
 pub fn render_api_reference(features: &InstanceFeatures) -> String {
-    crate::agent::api_doc::render(&api_reference(features))
+    render(&api_reference(features))
 }

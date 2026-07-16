@@ -14,10 +14,12 @@ use crate::{
 
 use crate::instance::{
     InstanceError,
-    control::{Arbitration, MergeProposal, ModelCall, canonical_pair},
+    control::{
+        Arbitration, Control, MergeProposal, MergeProposalSource, ModelCall, canonical_pair,
+    },
 };
 
-impl crate::instance::control::Control<'_> {
+impl Control<'_> {
     pub fn genesis_status(&self) -> Result<GenesisStatus, InstanceError> {
         Ok(genesis::status(self.server.engine.store.lock().as_ref())?)
     }
@@ -82,10 +84,7 @@ impl crate::instance::control::Control<'_> {
         // Track each pair by its canonical key (`same_as` is symmetric) for settlement matching, but
         // keep the original `(from, to)` order of the first proposal for a stable display direction.
         let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
-        let mut source: BTreeMap<
-            (MemoryId, MemoryId),
-            crate::instance::control::MergeProposalSource,
-        > = BTreeMap::new();
+        let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
         let mut refused: BTreeSet<(MemoryId, MemoryId)> = BTreeSet::new();
         for event in events {
             match event.payload {

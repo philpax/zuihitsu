@@ -9,6 +9,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use futures_util::StreamExt;
+
 use zuihitsu_core::progress::{ProgressKind, TurnProgress};
 
 use crate::{
@@ -19,7 +20,7 @@ use crate::{
     metrics::observe_model_call,
     model::{
         Completion, GenerateDelta, GenerateRequest, GenerateResponse, Message, ModelClient,
-        ToolCall, ToolChoice,
+        ModelError, ToolCall, ToolChoice,
     },
     prompt::PromptSectionSpan,
     settings::CaptureLevel,
@@ -31,7 +32,7 @@ use crate::{
         Steps, TurnError, TurnOutcome,
         record::{TurnRecord, append_turn},
         run::tool_call_id,
-        tools::{ToolCallResult, run_tool_call},
+        tools::{ToolCallResult, run_lua_tool, run_tool_call},
     },
     ids::ConversationId,
 };
@@ -86,7 +87,7 @@ impl Recording {
         request: &GenerateRequest,
         phase: ModelPhase,
         record: Option<RequestRecord>,
-    ) -> Result<GenerateResponse, crate::model::ModelError> {
+    ) -> Result<GenerateResponse, ModelError> {
         let started = Instant::now();
         let response = self
             .generate_streaming(engine, model, request, phase)
@@ -142,7 +143,7 @@ impl Recording {
         model: &dyn ModelClient,
         request: &GenerateRequest,
         phase: ModelPhase,
-    ) -> Result<GenerateResponse, crate::model::ModelError> {
+    ) -> Result<GenerateResponse, ModelError> {
         let step = self.steps_started.fetch_add(1, Ordering::Relaxed);
         let publish = |kind: ProgressKind, text: String| {
             if let Some(conversation) = self.conversation {
@@ -209,7 +210,7 @@ impl Recording {
                 GenerateDelta::Finished(response) => return Ok(response),
             }
         }
-        let error = crate::model::ModelError::Backend {
+        let error = ModelError::Backend {
             model: model.model_id().to_owned(),
             message: "the stream ended without a terminal response".to_owned(),
             transient: false,
@@ -282,7 +283,7 @@ pub(crate) async fn run_steps(
     } = steps;
     let conversation = session.conversation();
     let recording = Recording::new(Some(conversation), context.turn_id, capture);
-    let tools = vec![crate::agent::turn::tools::run_lua_tool()];
+    let tools = vec![run_lua_tool()];
 
     let record_agent_turn =
         |store: &mut dyn Store, clock: &dyn Clock, text: String| -> Result<(), TurnError> {

@@ -13,7 +13,7 @@ use crate::{
     store::StoreError,
 };
 
-use crate::{agent::TurnError, memory::search::SearchError};
+use crate::{agent::TurnError, mcp::McpError, memory::search::SearchError};
 
 /// An instance-side failure, delegating its message to the underlying error.
 #[derive(Debug)]
@@ -28,7 +28,7 @@ pub enum InstanceError {
         error: TurnError,
     },
     /// Connecting the MCP servers failed (a probe-level hard error, e.g. a stale `allow`/`deny`).
-    Mcp(crate::mcp::McpError),
+    Mcp(McpError),
     /// Writing a graph snapshot failed (creating the directory, or the `VACUUM INTO` itself).
     Snapshot(String),
     /// Catching the vector index up to the log failed (embedding, the vector store, or the log read).
@@ -104,8 +104,8 @@ impl From<IndexError> for InstanceError {
     }
 }
 
-impl From<crate::mcp::McpError> for InstanceError {
-    fn from(error: crate::mcp::McpError) -> Self {
+impl From<McpError> for InstanceError {
+    fn from(error: McpError) -> Self {
         InstanceError::Mcp(error)
     }
 }

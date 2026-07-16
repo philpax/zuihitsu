@@ -1,7 +1,7 @@
 //! Handle and result metatables minted for the per-block Lua globals: memory and entry
 //! handles, date objects, and the search, tag, link, relation, and turn-window result rows.
 
-use crate::agent::lua::tables::*;
+use crate::{agent::lua::tables::*, time::TemporalRef};
 
 /// The metatable backing entry handles: `__tostring` and `__concat` render the handle as its
 /// `text`, so a content read stays ergonomic (printable, concatenable) while the handle remains an
@@ -32,7 +32,7 @@ pub(in crate::agent::lua) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
             // `occurred_at` is the structured tagged table; render it back to a date for display.
             let occurred = this.get::<Value>("occurred_at")?;
             if !occurred.is_nil()
-                && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
+                && let Ok(temporal) = lua.from_value::<TemporalRef>(occurred)
             {
                 segments.push(time::format_occurrence(&temporal));
             }
@@ -178,7 +178,7 @@ pub(super) fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             // is the structured tagged table; render it back to a date for display.
             let occurred = this.get::<Value>("occurred_at")?;
             if !occurred.is_nil()
-                && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
+                && let Ok(temporal) = lua.from_value::<TemporalRef>(occurred)
             {
                 line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
             }
@@ -261,7 +261,7 @@ pub(super) fn link_result_metatable(lua: &Lua) -> mlua::Result<Table> {
             // render it back to a date for display.
             let occurred = this.get::<Value>("occurred_at")?;
             if !occurred.is_nil()
-                && let Ok(temporal) = lua.from_value::<crate::time::TemporalRef>(occurred)
+                && let Ok(temporal) = lua.from_value::<TemporalRef>(occurred)
             {
                 line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
             }

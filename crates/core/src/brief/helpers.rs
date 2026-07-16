@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use crate::{
+    brief::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP},
     decay,
-    event::Visibility,
+    event::{Teller, Visibility},
     graph::{EntryView, Graph, MemoryView},
     ids::MemoryId,
     settings::BriefSettings,
@@ -10,8 +11,6 @@ use crate::{
     visibility::{self, ClassOf},
     vocabulary::RelationName,
 };
-
-use crate::brief::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP};
 
 /// Compose a single participant's brief block, against `present_set`. Used for a mid-session join:
 /// the joiner's brief is built against the now-present set and injected as a system message, rather
@@ -243,11 +242,7 @@ fn relationships(
             continue;
         };
         let marker = if link.visibility != Visibility::Public {
-            let teller = graph.teller_display(
-                link.told_by
-                    .as_ref()
-                    .unwrap_or(&crate::event::Teller::Agent),
-            )?;
+            let teller = graph.teller_display(link.told_by.as_ref().unwrap_or(&Teller::Agent))?;
             let marker = graph.marker_ref(link.told_in.as_ref())?;
             visibility::link_marker(&link.visibility, &teller, Some(&marker))
         } else {
