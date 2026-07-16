@@ -26,9 +26,9 @@ async fn app_with_metrics_after_a_turn(
         ..test_state(Arc::new(server))
     });
     let body = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
-        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
+        "scope_path": "general",
+        "messages": [{ "sender": "dave", "text": "hello" }],
+        "present": ["dave"],
     });
     app.clone()
         .oneshot(

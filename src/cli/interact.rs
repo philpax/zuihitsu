@@ -3,8 +3,6 @@
 
 use clap::Subcommand;
 
-use zuihitsu::{MessageInput, PersonId};
-
 use crate::cli::{client::Client, error::CliError, print_json};
 
 #[derive(Subcommand)]
@@ -14,10 +12,10 @@ pub(crate) enum InteractCommand {
         #[arg(long)]
         text: String,
     },
-    /// Deliver a participant message and print the agent's reply.
+    /// Deliver a participant message and print the agent's reply. The CLI is the operator's own
+    /// loopback client, so the message is delivered under the `direct` interface — ids are bare, with
+    /// no platform to name.
     Send {
-        #[arg(long)]
-        platform: String,
         #[arg(long)]
         scope: String,
         #[arg(long)]
@@ -28,10 +26,8 @@ pub(crate) enum InteractCommand {
         #[arg(long = "present")]
         present: Vec<String>,
     },
-    /// Note a participant arriving mid-session.
+    /// Note a participant arriving mid-session, under the `direct` interface.
     Join {
-        #[arg(long)]
-        platform: String,
         #[arg(long)]
         scope: String,
         #[arg(long)]
@@ -43,33 +39,14 @@ pub(crate) fn dispatch(client: &Client, command: &InteractCommand) -> Result<(),
     match command {
         InteractCommand::Imprint { text } => print_json(&client.imprint(text)?),
         InteractCommand::Send {
-            platform,
             scope,
             sender,
             text,
             present,
-        } => {
-            let sender_id = PersonId::new(platform, sender);
-            let present_ids: Vec<PersonId> =
-                present.iter().map(|u| PersonId::new(platform, u)).collect();
-            print_json(&client.send(
-                platform,
-                scope,
-                &[MessageInput {
-                    sender: sender_id.clone(),
-                    text: text.clone(),
-                }],
-                &present_ids,
-            )?)
-        }
-        InteractCommand::Join {
-            platform,
-            scope,
-            participant,
-        } => {
-            let participant_id = PersonId::new(platform, participant);
-            client.join(platform, scope, &participant_id)?;
-            tracing::info!(%platform, %scope, %participant, "noted join");
+        } => print_json(&client.send(scope, sender, text, present)?),
+        InteractCommand::Join { scope, participant } => {
+            client.join(scope, participant)?;
+            tracing::info!(%scope, %participant, "noted join");
             Ok(())
         }
     }

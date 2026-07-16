@@ -151,9 +151,15 @@ impl PlatformClient {
         on_progress: impl FnMut(&TurnProgress),
     ) -> Result<StreamOutcome> {
         let body = MessageBody {
-            locator,
-            messages,
-            present,
+            scope_path: locator.scope_path.as_str(),
+            messages: messages
+                .iter()
+                .map(|message| WireMessage {
+                    sender: message.sender.id.as_str(),
+                    text: &message.text,
+                })
+                .collect(),
+            present: present.iter().map(|person| person.id.as_str()).collect(),
         };
         let url = format!("{}/platform/messages/stream", self.base_url);
         let response = self
@@ -231,8 +237,8 @@ impl PlatformClient {
     /// `POST /platform/join` — note a participant arriving mid-session.
     pub async fn join(&self, locator: &ConversationLocator, participant: &PersonId) -> Result<()> {
         let body = JoinBody {
-            locator,
-            participant,
+            scope_path: locator.scope_path.as_str(),
+            participant: participant.id.as_str(),
         };
         let url = format!("{}/platform/join", self.base_url);
         let response = self
@@ -260,17 +266,15 @@ impl PlatformClient {
     }
 
     /// `POST /platform/context` — write context entries to a conversation's context memory directly.
-    /// A connector uses this to write channel metadata and laconic guidance on first contact. The
-    /// `connector_id` identifies the caller in the event log.
+    /// A connector uses this to write channel metadata and laconic guidance on first contact. The write
+    /// is attributed to the connector the request's key registers.
     pub async fn write_context(
         &self,
         locator: &ConversationLocator,
-        connector_id: &str,
         entries: &[ContextEntry],
     ) -> Result<()> {
         let body = ContextBody {
-            locator,
-            connector: connector_id,
+            scope_path: locator.scope_path.as_str(),
             entries,
         };
         let url = format!("{}/platform/context", self.base_url);
@@ -306,12 +310,10 @@ impl PlatformClient {
     pub async fn project_participant(
         &self,
         participant: &PersonId,
-        connector_id: &str,
         attributes: &[ParticipantAttribute],
     ) -> Result<Vec<Option<EntryId>>> {
         let body = ParticipantBody {
-            participant,
-            connector: connector_id,
+            participant: participant.id.as_str(),
             attributes,
         };
         let url = format!("{}/platform/participant", self.base_url);
@@ -346,33 +348,40 @@ impl PlatformClient {
     }
 }
 
-/// The request body for `POST /platform/messages` and `/platform/messages/stream`.
+/// One inbound message on the wire — the sender's bare id (the platform is the request's connector
+/// scope, from the key) and its text.
+#[derive(Serialize)]
+struct WireMessage<'a> {
+    sender: &'a str,
+    text: &'a str,
+}
+
+/// The request body for `POST /platform/messages` and `/platform/messages/stream`. No platform: the
+/// key scopes the request to one connector's platform, so ids ride bare.
 #[derive(Serialize)]
 struct MessageBody<'a> {
-    locator: &'a ConversationLocator,
-    messages: &'a [PlatformMessage],
-    present: &'a [PersonId],
+    scope_path: &'a str,
+    messages: Vec<WireMessage<'a>>,
+    present: Vec<&'a str>,
 }
 
 /// The request body for `POST /platform/join`.
 #[derive(Serialize)]
 struct JoinBody<'a> {
-    locator: &'a ConversationLocator,
-    participant: &'a PersonId,
+    scope_path: &'a str,
+    participant: &'a str,
 }
 
 /// The request body for `POST /platform/context`.
 #[derive(Serialize)]
 struct ContextBody<'a> {
-    locator: &'a ConversationLocator,
-    connector: &'a str,
+    scope_path: &'a str,
     entries: &'a [ContextEntry],
 }
 
 /// The request body for `POST /platform/participant`.
 #[derive(Serialize)]
 struct ParticipantBody<'a> {
-    participant: &'a PersonId,
-    connector: &'a str,
+    participant: &'a str,
     attributes: &'a [ParticipantAttribute],
 }

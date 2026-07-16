@@ -7,7 +7,7 @@ use axum::{
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceExt;
 use zuihitsu::{
-    Completion, ManualClock, ModelCall, ScriptedModel, Server, TEST_PLATFORM,
+    Completion, ManualClock, ModelCall, ScriptedModel, Server,
     metrics::{LATENCY_BUCKETS, describe},
     time::Timestamp,
 };
@@ -19,6 +19,11 @@ mod metrics;
 
 /// No configured keys — the existing tests run loopback, where keys are not consulted.
 fn no_keys() -> Arc<[String]> {
+    Vec::new().into()
+}
+
+/// No configured connectors — the existing platform tests run loopback, scoped to `direct`.
+fn no_connectors() -> Arc<[(String, String)]> {
     Vec::new().into()
 }
 
@@ -36,7 +41,7 @@ fn test_state(server: Arc<Server>) -> AppState {
         metrics: None,
         boot: std::time::Instant::now(),
         control_keys: no_keys(),
-        platform_keys: no_keys(),
+        connectors: no_connectors(),
         config: Arc::new(zuihitsu::EnvConfig::default()),
     }
 }

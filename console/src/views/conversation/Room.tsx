@@ -3,7 +3,7 @@ import { useContext, useState } from "react";
 import type { Replica } from "../../lib/replica/replica.ts";
 import { normalizeTurnRefs } from "../../lib/replica/replica.ts";
 import { imprint } from "../../lib/api/operator.ts";
-import { sendMessage } from "../../lib/api/participant.ts";
+import { DIRECT_PLATFORM, sendMessage } from "../../lib/api/participant.ts";
 import { formatTokens } from "../../lib/format/format.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { Composer } from "./Composer.tsx";
@@ -44,6 +44,11 @@ export function Room({
   unknownTurn?: string | null;
 }) {
   const isOperator = channel.authority === "operator";
+  // The console is the operator's loopback `direct` interface: the server scopes every message it
+  // sends to `direct`, so composing into a room that belongs to another platform's connector would
+  // silently target a `direct` room of the same scope path instead of the real one. Such rooms are
+  // view-only here — the console is not a stand-in for that platform's connector.
+  const foreignRoom = !isOperator && channel.locator.platform !== DIRECT_PLATFORM;
   const handle = participate?.sender.trim() ?? "";
   const handleScoped = hasScopeChar(handle);
   const { bySeq, denominators } = useContext(ModelCalls);
@@ -200,11 +205,13 @@ export function Room({
                 <Composer
                   onSend={onSend}
                   onPendingChange={setThinking}
-                  disabled={!isOperator && (handle.length === 0 || handleScoped)}
+                  disabled={foreignRoom || (!isOperator && (handle.length === 0 || handleScoped))}
                   disabledHint={
-                    handleScoped
-                      ? "The handle should be a bare name, not a memory path."
-                      : "Set who you are to start."
+                    foreignRoom
+                      ? `View-only — ${channel.locator.platform} rooms belong to that platform's connector, not the console.`
+                      : handleScoped
+                        ? "The handle should be a bare name, not a memory path."
+                        : "Set who you are to start."
                   }
                   placeholder={
                     isOperator

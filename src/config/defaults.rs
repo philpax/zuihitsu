@@ -27,7 +27,6 @@ impl Default for ServingConfig {
         ServingConfig {
             bind: SocketAddr::from(([127, 0, 0, 1], 7777)),
             control_keys: Vec::new(),
-            platform_keys: Vec::new(),
         }
     }
 }

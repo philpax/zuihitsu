@@ -1,6 +1,9 @@
-//! Per-surface bearer-key middleware (spec §Trust model). A loopback peer is trusted without a key; a
-//! remote peer must present a valid key for the surface it is reaching. The two surfaces carry
-//! independent key lists, so a control key never authorizes `/platform` and vice versa.
+//! Per-surface bearer-key middleware (spec §Trust model). The operator surface trusts a loopback peer
+//! and requires a control key from a remote one. The participant surface instead *scopes* every request
+//! to a connector: a loopback request is the operator's own `direct` interface, and a remote request
+//! must present a connector's key, which resolves to exactly that connector's platform. A control key
+//! never authorizes `/platform` and vice versa, and no request carries a platform to spoof — the key is
+//! the one source of truth for which platform a connector acts on.
 
 use std::net::SocketAddr;
 
@@ -12,7 +15,18 @@ use axum::{
 };
 use sha2::{Digest, Sha256};
 
+use zuihitsu::ids::DIRECT_PLATFORM;
+
 use super::AppState;
+
+/// The connector a `/platform/*` request is authenticated as: the id is both the platform every
+/// operation acts on and the connector its events are attributed to. Inserted into the request by
+/// [`require_platform_key`] and read by each participant handler; the handler never trusts a platform
+/// from the body, because there is none.
+#[derive(Clone, Debug)]
+pub(super) struct ConnectorScope {
+    pub id: String,
+}
 
 /// Operator-surface auth: a loopback peer passes without a key; a remote peer must present a valid
 /// control key (spec §Trust model).
@@ -25,14 +39,58 @@ pub(super) async fn require_control_key(
     authorize(&state.control_keys, peer, request, next).await
 }
 
-/// Participant-surface auth: the same rule against the platform key list.
+/// Participant-surface auth and scoping: resolve the request to exactly one connector, and stamp its
+/// [`ConnectorScope`] onto the request for the handler to act under. The key is checked *first*, so a
+/// connector running on the same host as the server (a bot on `localhost`, the common deployment) is
+/// still scoped to its own platform by its key rather than mistaken for the operator's console. A
+/// request bearing a registered connector's key is scoped to that connector, wherever it connects from;
+/// a request bearing no key falls back to the loopback rule — the operator's own console, scoped to the
+/// reserved `direct` platform, and rejected from a remote peer; and a request bearing an *unrecognized*
+/// key is rejected outright (a misconfigured connector should fail loudly, never silently act as
+/// `direct`). Fail-closed: with no connectors configured, only a keyless loopback peer (as `direct`)
+/// reaches the surface.
 pub(super) async fn require_platform_key(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
-    authorize(&state.platform_keys, peer, request, next).await
+    let scope = match presented_key(&request) {
+        Some(key) => match resolve_connector(&state.connectors, key) {
+            Some(id) => ConnectorScope { id },
+            None => return StatusCode::UNAUTHORIZED.into_response(),
+        },
+        None if peer.ip().is_loopback() => ConnectorScope {
+            id: DIRECT_PLATFORM.to_owned(),
+        },
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    request.extensions_mut().insert(scope);
+    next.run(request).await
+}
+
+/// The bearer key a request presents, or `None` if it carries no `Authorization: Bearer` header.
+fn presented_key(request: &Request) -> Option<&str> {
+    request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+/// Resolve a presented bearer key to the connector id it registers, or `None` if it matches none.
+/// Compares fixed-width SHA-256 digests and scans the whole registry unconditionally (no early
+/// return), so neither the key's length nor the matching connector's position leaks through timing —
+/// the same discipline as [`key_is_valid`].
+fn resolve_connector(connectors: &[(String, String)], presented: &str) -> Option<String> {
+    let presented = Sha256::digest(presented.as_bytes());
+    let mut matched = None;
+    for (id, key) in connectors {
+        if presented == Sha256::digest(key.as_bytes()) {
+            matched = Some(id.clone());
+        }
+    }
+    matched
 }
 
 /// Trust a loopback peer; require a valid bearer key from every remote peer. Fail-closed — an empty

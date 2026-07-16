@@ -93,9 +93,9 @@ async fn a_platform_message_runs_a_turn() {
     });
 
     let body = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
-        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
+        "scope_path": "general",
+        "messages": [{ "sender": "dave", "text": "hello" }],
+        "present": ["dave"],
     });
     let response = app
         .oneshot(
@@ -124,6 +124,52 @@ async fn a_platform_message_runs_a_turn() {
 }
 
 #[tokio::test]
+async fn a_connector_key_scopes_a_write_to_its_own_platform() {
+    // A connector on the same host as the server connects over loopback, yet its key — not its loopback
+    // origin — decides its platform: its writes must land under its own platform, never mistaken for
+    // the operator's `direct` interface. Regression for the loopback-first scoping bug.
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    let connectors: Arc<[(String, String)]> =
+        Arc::from([("discord".to_owned(), "discord-key".to_owned())]);
+    let app = router(AppState {
+        connectors,
+        ..test_state(server.clone())
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("POST")
+                .uri("/platform/participant")
+                .header("authorization", "Bearer discord-key")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"participant":"dave","attributes":[{"text":"Discord username: dave1234","supersedes":null}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    // The write landed on the discord-qualified stub the key scopes to, not a direct one.
+    assert!(
+        server
+            .control()
+            .memory("person/dave@discord")
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        server
+            .control()
+            .memory("person/dave@direct")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
     // A born agent with a scripted model: a /platform/messages opens a session with Dave present,
     // then a /platform/roster resync brings Erin in and drops Dave, returning the diff as JSON.
@@ -145,9 +191,9 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
     });
 
     let message = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
-        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
+        "scope_path": "general",
+        "messages": [{ "sender": "dave", "text": "hello" }],
+        "present": ["dave"],
     });
     app.clone()
         .oneshot(
@@ -163,8 +209,8 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
         .unwrap();
 
     let resync = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "roster": [{ "platform": TEST_PLATFORM, "id": "erin" }],
+        "scope_path": "general",
+        "roster": ["erin"],
     });
     let response = app
         .oneshot(
@@ -184,10 +230,7 @@ async fn a_platform_roster_resync_briefs_arrivals_and_reports_departures() {
         .unwrap();
     // Erin arrived (briefed in); Dave, absent from the roster, is the one prior member reported as
     // departed.
-    assert_eq!(
-        std::str::from_utf8(&bytes).unwrap(),
-        format!(r#"{{"joined":[{{"platform":"{TEST_PLATFORM}","id":"erin"}}],"departed":1}}"#)
-    );
+    assert_eq!(&bytes[..], br#"{"joined":["erin"],"departed":1}"#);
 }
 
 #[tokio::test]
@@ -211,9 +254,9 @@ async fn interactions_surface_the_recorded_model_calls() {
     });
 
     let body = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
-        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
+        "scope_path": "general",
+        "messages": [{ "sender": "dave", "text": "hello" }],
+        "present": ["dave"],
     });
     app.clone()
         .oneshot(
@@ -558,9 +601,9 @@ async fn a_streamed_platform_message_yields_progress_then_the_outcome() {
     });
 
     let message = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
-        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
+        "scope_path": "general",
+        "messages": [{ "sender": "dave", "text": "hello" }],
+        "present": ["dave"],
     });
     let response = app
         .oneshot(
@@ -651,9 +694,9 @@ async fn the_event_stream_pushes_the_live_tail_and_progress_frames() {
     let mut frames = response.into_body().into_data_stream();
 
     let message = serde_json::json!({
-        "locator": { "platform": TEST_PLATFORM, "scope_path": "general" },
-        "messages": [{ "sender": { "platform": TEST_PLATFORM, "id": "dave" }, "text": "hello" }],
-        "present": [{ "platform": TEST_PLATFORM, "id": "dave" }],
+        "scope_path": "general",
+        "messages": [{ "sender": "dave", "text": "hello" }],
+        "present": ["dave"],
     });
     app.oneshot(
         Request::builder()

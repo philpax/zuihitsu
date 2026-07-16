@@ -1,49 +1,80 @@
-//! The participant surface (`/platform/*`): delivering turns, noting mid-session joins, and
-//! resyncing a room's roster (spec §Clients → platform clients). It carries the platform identity in
-//! the payload — the locator's
-//! platform, the sender, the present set — never operator authority. The auth layer is applied to the
-//! whole surface in [`super::router`].
+//! The participant surface (`/platform/*`): delivering turns, noting mid-session joins, resyncing a
+//! room's roster, and writing context or a participant's identity (spec §Clients → platform clients).
+//! It carries no operator authority, and — crucially — no platform in the payload: every request is
+//! scoped to exactly one connector by its key (a loopback request to the `direct` interface), so a
+//! sender, a present set, a locator's scope path are all resolved under *that* connector's platform,
+//! and its writes are attributed to *that* connector. A connector cannot name another's platform. The
+//! auth-and-scope layer is applied to the whole surface in [`super::router`].
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::State,
     http::StatusCode,
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ContextEntry, ConversationLocator, EntryId, MessageInput, ParticipantAttribute, PersonId,
     RosterResync,
 };
 use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
 
-use super::{AppState, error::ApiError};
+use super::{AppState, auth::ConnectorScope, error::ApiError};
+
+/// The locator for `scope_path` under the request's connector — the platform is the scope's, never the
+/// body's.
+fn locator(scope: &ConnectorScope, scope_path: String) -> ConversationLocator {
+    ConversationLocator::new(scope.id.clone(), scope_path)
+}
+
+/// The participant identity for a bare id under the request's connector.
+fn person(scope: &ConnectorScope, id: String) -> PersonId {
+    PersonId::new(scope.id.clone(), id)
+}
+
+/// One inbound message on the wire: the sender's bare id (the platform is the request's scope) and its
+/// text.
+#[derive(Deserialize)]
+pub(super) struct WireMessage {
+    sender: String,
+    text: String,
+}
 
 /// `POST /platform/messages` — deliver a batch of participant turns and run one agent response
 /// cycle. Each message is recorded as a separate participant turn; the agent sees them all and
-/// responds once. Carries the platform identity in the payload (the locator's platform, the
-/// senders, the present set); needs the model, so `503` if none is configured.
+/// responds once. Senders and the present set are bare ids resolved under the request's connector;
+/// needs the model, so `503` if none is configured.
 #[derive(Deserialize)]
 pub(super) struct MessageRequest {
-    locator: ConversationLocator,
-    messages: Vec<MessageInput>,
-    present: Vec<PersonId>,
+    scope_path: String,
+    messages: Vec<WireMessage>,
+    present: Vec<String>,
 }
 
 pub(super) async fn message(
     State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<Json<PlatformResponse>, ApiError> {
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
+    let locator = locator(&scope, request.scope_path);
+    let messages: Vec<MessageInput> = request
+        .messages
+        .into_iter()
+        .map(|message| MessageInput {
+            sender: person(&scope, message.sender),
+            text: message.text,
+        })
+        .collect();
+    let present: Vec<PersonId> = request
+        .present
+        .into_iter()
+        .map(|id| person(&scope, id))
+        .collect();
     let response = state
         .server
         .platform()
-        .route_messages(
-            model.as_ref(),
-            &request.locator,
-            &request.messages,
-            &request.present,
-        )
+        .route_messages(model.as_ref(), &locator, &messages, &present)
         .await?;
     Ok(Json(response))
 }
@@ -53,12 +84,13 @@ pub(super) async fn message(
 /// succeeds off the current prose rather than returning a 503.
 #[derive(Deserialize)]
 pub(super) struct JoinRequest {
-    locator: ConversationLocator,
-    participant: PersonId,
+    scope_path: String,
+    participant: String,
 }
 
 pub(super) async fn join(
     State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
     Json(request): Json<JoinRequest>,
 ) -> Result<StatusCode, ApiError> {
     state
@@ -66,8 +98,8 @@ pub(super) async fn join(
         .platform()
         .note_join(
             state.model.as_deref(),
-            &request.locator,
-            &request.participant,
+            &locator(&scope, request.scope_path),
+            &person(&scope, request.participant),
         )
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -81,41 +113,64 @@ pub(super) async fn join(
 /// without one the resync still succeeds off the current prose rather than returning a 503.
 #[derive(Deserialize)]
 pub(super) struct RosterRequest {
-    locator: ConversationLocator,
-    roster: Vec<PersonId>,
+    scope_path: String,
+    roster: Vec<String>,
+}
+
+/// The roster resync on the wire: the bare ids briefed in (the platform is the request's scope) and the
+/// count of prior members no longer present.
+#[derive(Serialize)]
+pub(super) struct RosterResyncBody {
+    joined: Vec<String>,
+    departed: usize,
 }
 
 pub(super) async fn roster(
     State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
     Json(request): Json<RosterRequest>,
-) -> Result<Json<RosterResync>, ApiError> {
-    let resync = state
+) -> Result<Json<RosterResyncBody>, ApiError> {
+    let roster: Vec<PersonId> = request
+        .roster
+        .into_iter()
+        .map(|id| person(&scope, id))
+        .collect();
+    let RosterResync { joined, departed } = state
         .server
         .platform()
-        .note_presence(state.model.as_deref(), &request.locator, &request.roster)
+        .note_presence(
+            state.model.as_deref(),
+            &locator(&scope, request.scope_path),
+            &roster,
+        )
         .await?;
-    Ok(Json(resync))
+    Ok(Json(RosterResyncBody {
+        joined: joined
+            .into_iter()
+            .map(|person| person.id.to_string())
+            .collect(),
+        departed,
+    }))
 }
 
 /// `POST /platform/context` — write context entries to a conversation's context memory directly.
 /// A connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
-/// first contact, posting structured data rather than interpolating untrusted strings into code.
-/// The `connector` field identifies the caller in the event log so context writes are attributed to
-/// the connector, not the agent.
+/// first contact, posting structured data rather than interpolating untrusted strings into code. The
+/// write is attributed in the event log to the request's connector, not the agent.
 #[derive(Deserialize)]
 pub(super) struct ContextRequest {
-    locator: ConversationLocator,
-    connector: String,
+    scope_path: String,
     entries: Vec<ContextEntry>,
 }
 
 pub(super) async fn write_context(
     State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
     Json(request): Json<ContextRequest>,
 ) -> Result<StatusCode, ApiError> {
     state.server.platform().write_context(
-        &request.locator,
-        &request.connector,
+        &locator(&scope, request.scope_path),
+        &scope.id,
         &request.entries,
     )?;
     Ok(StatusCode::NO_CONTENT)
@@ -123,22 +178,22 @@ pub(super) async fn write_context(
 
 /// `POST /platform/participant` — project a participant's platform identity (username, display name,
 /// nickname) onto their `person/*` stub as public entries. Each attribute records a new value or clears
-/// one, superseding or retracting the entry a prior projection returned. The `connector` field
-/// attributes the write in the event log; the response is the new entry id per attribute, in order.
+/// one, superseding or retracting the entry a prior projection returned. The write is attributed to the
+/// request's connector; the response is the new entry id per attribute, in order.
 #[derive(Deserialize)]
 pub(super) struct ParticipantRequest {
-    participant: PersonId,
-    connector: String,
+    participant: String,
     attributes: Vec<ParticipantAttribute>,
 }
 
 pub(super) async fn project_participant(
     State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
     Json(request): Json<ParticipantRequest>,
 ) -> Result<Json<Vec<Option<EntryId>>>, ApiError> {
     let ids = state.server.platform().project_participant(
-        &request.participant,
-        &request.connector,
+        &person(&scope, request.participant),
+        &scope.id,
         &request.attributes,
     )?;
     Ok(Json(ids))
@@ -158,27 +213,34 @@ pub(super) async fn project_participant(
 /// it as a `StreamFrame`.
 pub(super) async fn message_stream(
     State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let model = state.model.clone().ok_or(ApiError::NoModel)?;
+    let locator = locator(&scope, request.scope_path);
+    let messages: Vec<MessageInput> = request
+        .messages
+        .into_iter()
+        .map(|message| MessageInput {
+            sender: person(&scope, message.sender),
+            text: message.text,
+        })
+        .collect();
+    let present: Vec<PersonId> = request
+        .present
+        .into_iter()
+        .map(|id| person(&scope, id))
+        .collect();
     // Resolve (or mint) the conversation up front so the progress subscription can filter this
     // room's frames from the shared feed; route_messages resolves to the same id.
-    let conversation = state
-        .server
-        .platform()
-        .ensure_conversation(&request.locator)?;
+    let conversation = state.server.platform().ensure_conversation(&locator)?;
     let mut progress = state.server.subscribe_progress();
 
     let server = state.server.clone();
     let mut turn = tokio::spawn(async move {
         server
             .platform()
-            .route_messages(
-                model.as_ref(),
-                &request.locator,
-                &request.messages,
-                &request.present,
-            )
+            .route_messages(model.as_ref(), &locator, &messages, &present)
             .await
     });
 

@@ -93,10 +93,9 @@ fn serving_bind_defaults_to_loopback_and_parses_an_override() {
 }
 
 #[test]
-fn serving_api_keys_default_empty_and_parse_as_arrays() {
+fn control_keys_default_empty_and_parse_as_arrays() {
     // No keys by default — a loopback-only, no-remote-access posture.
     assert!(EnvConfig::default().serving.control_keys.is_empty());
-    assert!(EnvConfig::default().serving.platform_keys.is_empty());
 
     let dir = temp_dir();
     let path = dir.join("config.toml");
@@ -104,13 +103,32 @@ fn serving_api_keys_default_empty_and_parse_as_arrays() {
         &path,
         "[serving]\n\
          bind = \"0.0.0.0:7777\"\n\
-         control_keys = [\"op-key\"]\n\
-         platform_keys = [\"discord-key\", \"web-key\"]\n",
+         control_keys = [\"op-key\"]\n",
     )
     .unwrap();
     let config = EnvConfig::load(&path).unwrap();
     assert_eq!(config.serving.control_keys, vec!["op-key"]);
-    assert_eq!(config.serving.platform_keys, vec!["discord-key", "web-key"]);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn connectors_parse_as_a_platform_keyed_map() {
+    // No connectors by default — nothing may reach the platform surface remotely.
+    assert!(EnvConfig::default().connectors.is_empty());
+
+    let dir = temp_dir();
+    let path = dir.join("config.toml");
+    std::fs::write(
+        &path,
+        "[connectors]\n\
+         discord = { key = \"discord-key\" }\n\
+         slack = { key = \"slack-key\" }\n",
+    )
+    .unwrap();
+    let config = EnvConfig::load(&path).unwrap();
+    assert_eq!(config.connectors.len(), 2);
+    assert_eq!(config.connectors["discord"].key, "discord-key");
+    assert_eq!(config.connectors["slack"].key, "slack-key");
     std::fs::remove_dir_all(&dir).ok();
 }
 

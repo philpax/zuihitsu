@@ -1,11 +1,18 @@
 use super::*;
-fn keyed_app(control: &[&str], platform: &[&str]) -> axum::Router {
+fn keyed_app(control: &[&str], connectors: &[&str]) -> axum::Router {
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
-    let keys = |k: &[&str]| -> Arc<[String]> { k.iter().map(|s| s.to_string()).collect() };
+    let control_keys: Arc<[String]> = control.iter().map(|s| s.to_string()).collect();
+    // Each connector key registers under a distinct id — the id scopes the request; the auth tests
+    // only assert the key is accepted, so a generated id suffices.
+    let connectors: Arc<[(String, String)]> = connectors
+        .iter()
+        .enumerate()
+        .map(|(index, key)| (format!("connector{index}"), key.to_string()))
+        .collect();
     router(AppState {
-        control_keys: keys(control),
-        platform_keys: keys(platform),
+        control_keys,
+        connectors,
         ..test_state(server)
     })
 }
@@ -74,6 +81,30 @@ async fn a_valid_key_authorizes_only_its_own_surface() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_connector_key_scopes_a_remote_request_onto_the_platform() {
+    // A remote peer bearing a registered connector's key clears the participant surface — and needs no
+    // platform in the body, because the key is the scope. Without a model configured the turn answers
+    // 503, which proves it passed the auth-and-scope layer rather than being rejected 401.
+    let app = keyed_app(&[], &["pf-key"]);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(remote())
+                .method("POST")
+                .uri("/platform/messages")
+                .header("authorization", "Bearer pf-key")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"scope_path":"general","messages":[{"sender":"dave","text":"hi"}],"present":["dave"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]

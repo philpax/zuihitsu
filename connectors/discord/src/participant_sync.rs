@@ -78,7 +78,6 @@ impl ParticipantSync {
     pub async fn sync(
         &self,
         client: &PlatformClient,
-        connector_id: &str,
         person: &PersonId,
         observed: &[ObservedAttribute],
     ) -> Result<()> {
@@ -102,9 +101,7 @@ impl ParticipantSync {
             return Ok(());
         }
 
-        let results = client
-            .project_participant(person, connector_id, &attributes)
-            .await?;
+        let results = client.project_participant(person, &attributes).await?;
 
         for ((key, value), entry_id) in changed.into_iter().zip(results) {
             write_state(&conn, user_id, key, value.as_deref(), entry_id);

@@ -4,7 +4,16 @@ A connector bridges a platform to the agent server. It delivers participant mess
 
 ## Auth
 
-Every `/platform/*` endpoint authenticates with a platform key: `Authorization: Bearer <key>`. Loopback peers are trusted without a credential; remote peers must present one. The platform surface carries no operator authority — a connector acts only as the participants it represents, never as the operator (see [Trust and authority → Clients and the server boundary](trust-and-authority.md#clients-and-the-server-boundary)).
+Each connector is registered in the instance config under a top-level `[connectors]` map. The map key is the connector's id, which is both its platform id and the id its writes are attributed to; the value carries its bearer key:
+
+```toml
+[connectors]
+discord = { key = "totally secret key!" }
+```
+
+Every `/platform/*` request is scoped to exactly one connector, and the key decides the scope first. A request bearing a registered connector's key (`Authorization: Bearer <key>`) resolves to that connector's id — wherever it connects from, so a connector running on the same host as the server (a bot on `localhost`, the usual deployment) is still scoped to its own platform by its key, not mistaken for the operator's console. That id is the platform every operation in the request acts on, and the connector its writes are attributed to. A request bearing no key falls back to its origin: a loopback peer is the operator's own console, scoped to the reserved `direct` platform; a remote peer is rejected with `401`. A request bearing an unrecognised key is rejected with `401` outright — a misconfigured connector fails loudly rather than silently acting as `direct`.
+
+Because the platform is derived from the connector's key, no request body carries one — there is nothing in the payload to spoof. The platform surface carries no operator authority: a connector acts only as the participants it represents, never as the operator (see [Trust and authority → Clients and the server boundary](trust-and-authority.md#clients-and-the-server-boundary)).
 
 ## Delivering messages
 
@@ -16,21 +25,18 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
 
 ```json
 {
-  "locator": { "platform": "chat", "scope_path": "room/42" },
+  "scope_path": "room/42",
   "messages": [
-    { "sender": { "platform": "chat", "id": "dave" }, "text": "hello" },
-    { "sender": { "platform": "chat", "id": "dave" }, "text": "anyone there?" }
+    { "sender": "dave", "text": "hello" },
+    { "sender": "dave", "text": "anyone there?" }
   ],
-  "present": [
-    { "platform": "chat", "id": "dave" },
-    { "platform": "chat", "id": "erin" }
-  ]
+  "present": ["dave", "erin"]
 }
 ```
 
-- `locator` — the conversation's `(platform, scope_path)` pair. The server resolves (or mints) a conversation and its context memory on first contact.
-- `messages` — the inbound batch. Each carries a `sender` — a `PersonId`, the `{ platform, id }` pair the server resolves to `person/<id>@<platform>` — and `text`. A single message is a one-element batch.
-- `present` — the `PersonId`s currently in the room. The server resolves each to a participant stub (minting on first contact) and uses the set for the subject-guard and join-brief logic.
+- `scope_path` — the conversation's address within the connector's platform. The server pairs it with the request's connector platform, and resolves (or mints) a conversation and its context memory on first contact.
+- `messages` — the inbound batch. Each carries a `sender` — the bare id of the sender, resolved under the request's connector platform to `person/<id>@<platform>` — and `text`. A single message is a one-element batch.
+- `present` — the bare ids currently in the room, each resolved under the request's connector platform. The server resolves each to a participant stub (minting on first contact) and uses the set for the subject-guard and join-brief logic.
 
 **Response body (`200 OK`):**
 
@@ -62,12 +68,13 @@ Note a participant arriving mid-session. If the room has a live session, this re
 
 ```json
 {
-  "locator": { "platform": "chat", "scope_path": "room/42" },
-  "participant": { "platform": "chat", "id": "erin" }
+  "scope_path": "room/42",
+  "participant": "erin"
 }
 ```
 
-`participant` is a `PersonId` — the `{ platform, id }` pair the server resolves to `person/<id>@<platform>`.
+- `scope_path` — the room's address within the connector's platform.
+- `participant` — the bare id of the joiner, resolved under the request's connector platform to `person/<id>@<platform>`.
 
 ### `POST /platform/roster`
 
@@ -77,24 +84,21 @@ Resync the room's roster against a fresh member list. Each newly-arrived member 
 
 ```json
 {
-  "locator": { "platform": "chat", "scope_path": "room/42" },
-  "present": [
-    { "platform": "chat", "id": "dave" },
-    { "platform": "chat", "id": "erin" },
-    { "platform": "chat", "id": "frank" }
-  ]
+  "scope_path": "room/42",
+  "roster": ["dave", "erin", "frank"]
 }
 ```
 
-`present` is the full set of `PersonId`s currently in the room.
+- `scope_path` — the room's address within the connector's platform.
+- `roster` — the full set of bare ids currently in the room, each resolved under the request's connector platform.
 
 **Response body (`200 OK`):**
 
 ```json
-{ "joined": [{ "platform": "chat", "id": "frank" }], "departed": 0 }
+{ "joined": ["frank"], "departed": 0 }
 ```
 
-`joined` is the `PersonId`s newly briefed in.
+`joined` is the bare ids newly briefed in.
 
 ## Writing context
 
@@ -108,16 +112,15 @@ The conversation is minted on first contact if it doesn't yet exist. This is int
 
 ```json
 {
-  "locator": { "platform": "chat", "scope_path": "room/42" },
-  "connector": "my-connector",
+  "scope_path": "room/42",
   "entries": [
     { "text": "Room: #general. Topic: Welcome to the project." }
   ]
 }
 ```
 
-- `connector` — identifies the caller in the event log. Context entries are attributed to `EventSource::Connector`, not the agent.
-- `entries` — the context text to append to the conversation's context memory.
+- `scope_path` — the room's address within the connector's platform.
+- `entries` — the context text to append to the conversation's context memory. The entries are attributed to `EventSource::Connector` — the request's connector, from its key — not the agent.
 
 Returns `204 No Content` on success.
 
@@ -133,8 +136,7 @@ Each attribute either records a new value or clears one, and the connector holds
 
 ```json
 {
-  "participant": { "platform": "chat", "id": "dave" },
-  "connector": "my-connector",
+  "participant": "dave",
   "attributes": [
     { "text": "Chat username: dave1234", "supersedes": null },
     { "text": "Chat nickname in Acme: Dave", "supersedes": "01J…" },
@@ -143,6 +145,7 @@ Each attribute either records a new value or clears one, and the connector holds
 }
 ```
 
+- `participant` — the bare id of the participant, resolved under the request's connector platform to `person/<id>@<platform>`.
 - `text` — the value to record now, or `null` to clear a value that is no longer set.
 - `supersedes` — the entry id a prior projection of this attribute returned, to supersede (on a change) or retract (on a clear); `null` on first contact. A target the agent has since dropped is a no-op — the fresh value still lands.
 

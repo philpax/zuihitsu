@@ -19,8 +19,8 @@ const DM_GUIDANCE: &str = "This is a Discord DM. Be conversational but still con
 
 /// Tracks which channels have already had their context written, and the last-seen channel
 /// name/topic for change detection.
+#[derive(Default)]
 pub struct ContextSync {
-    connector_id: String,
     seen: Mutex<HashSet<ChannelId>>,
     last_metadata: Mutex<HashMap<ChannelId, (String, String)>>,
 }
@@ -35,12 +35,8 @@ pub struct ContextParams<'a> {
 }
 
 impl ContextSync {
-    pub fn new(connector_id: String) -> Self {
-        ContextSync {
-            connector_id,
-            seen: Mutex::new(HashSet::new()),
-            last_metadata: Mutex::new(HashMap::new()),
-        }
+    pub fn new() -> Self {
+        ContextSync::default()
     }
 
     /// On first contact with a channel, write the context via `POST /platform/context`.
@@ -66,9 +62,7 @@ impl ContextSync {
             )
         };
         let entries = vec![ContextEntry { text: metadata }];
-        client
-            .write_context(locator, &self.connector_id, &entries)
-            .await?;
+        client.write_context(locator, &entries).await?;
 
         // Mark as seen and record the metadata.
         self.seen.lock().await.insert(params.channel_id);
@@ -102,9 +96,7 @@ impl ContextSync {
         let metadata =
             format!("Channel: {guild_name} / {channel_name}. Topic: {topic}. {CHANNEL_GUIDANCE}");
         let entries = vec![ContextEntry { text: metadata }];
-        client
-            .write_context(locator, &self.connector_id, &entries)
-            .await?;
+        client.write_context(locator, &entries).await?;
 
         // Update the recorded metadata.
         self.last_metadata.lock().await.insert(channel_id, key);

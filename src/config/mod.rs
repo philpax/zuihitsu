@@ -33,6 +33,20 @@ pub struct EnvConfig {
     /// at load.
     #[serde(default)]
     pub mcp: BTreeMap<String, McpServerConfig>,
+    /// The registered connectors, one `[connectors.<id>]` entry each. The table key is the connector's
+    /// platform id (`discord`, `slack`, `direct`): a `/platform/*` request bearing that connector's
+    /// `key` is scoped to that platform and attributed to that connector, so a connector can only ever
+    /// act on its own platform — there is no per-request platform to spoof (spec §Trust model).
+    #[serde(default)]
+    pub connectors: BTreeMap<String, ConnectorConfig>,
+}
+
+/// One registered connector. The platform/connector id is the `[connectors]` map key; this carries the
+/// bearer key it authenticates with. The key serializes redacted, so the config view cannot leak it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConnectorConfig {
+    #[serde(serialize_with = "redact_key")]
+    pub key: String,
 }
 
 /// Where to reach the generation model, and how to sample from it. An empty `endpoint` means "not
@@ -105,9 +119,6 @@ pub struct ServingConfig {
     /// cannot leak a secret.
     #[serde(default, serialize_with = "redact_keys")]
     pub control_keys: Vec<String>,
-    /// Valid API keys for the participant surface (`/platform/*`); the same rule as `control_keys`.
-    #[serde(default, serialize_with = "redact_keys")]
-    pub platform_keys: Vec<String>,
 }
 
 /// Serialize a list of API keys as its length — the count is informative ("two keys configured"); the
@@ -115,6 +126,12 @@ pub struct ServingConfig {
 /// expose a key.
 fn redact_keys<S: Serializer>(keys: &[String], serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_u64(keys.len() as u64)
+}
+
+/// Serialize a single connector key as a fixed placeholder — its presence is informative, the secret
+/// never is. Intrinsic to [`ConnectorConfig`], so no serialization can expose a connector's key.
+fn redact_key<S: Serializer>(_key: &str, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str("<redacted>")
 }
 
 /// Where to reach the embedding model, and the dimensionality it produces.

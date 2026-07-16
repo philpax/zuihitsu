@@ -1,5 +1,4 @@
 import type { ConversationLocator } from "@zuihitsu/wire/types/ConversationLocator.ts";
-import type { PersonId } from "@zuihitsu/wire/types/PersonId.ts";
 import type { PlatformResponse } from "@zuihitsu/wire/types/PlatformResponse.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
@@ -32,15 +31,16 @@ export async function sendMessage(
   connection: LiveConnection,
   message: OutboundMessage,
 ): Promise<PlatformResponse> {
-  const platform = message.locator.platform;
-  const person = (id: string): PersonId => ({ platform, id });
+  // The console is the operator's loopback `direct` interface: the server scopes the request to
+  // `direct` by its loopback origin, so the body carries only the room's scope path and bare ids —
+  // no platform.
   const response = await fetch(`${connection.baseUrl}/platform/messages`, {
     method: "POST",
     headers: authHeaders(connection),
     body: JSON.stringify({
-      locator: message.locator,
-      messages: [{ sender: person(message.sender), text: message.text }],
-      present: message.present.map(person),
+      scope_path: message.locator.scope_path,
+      messages: [{ sender: message.sender, text: message.text }],
+      present: message.present,
     }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));

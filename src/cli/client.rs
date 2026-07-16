@@ -10,8 +10,8 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zuihitsu::{
-    Arbitration, ConversationLocator, EntryView, GenesisStatus, MemoryView, MessageInput,
-    ModelCall, PersonId, PlatformResponse, Rollout, SeedSelf, SessionView, Settings,
+    Arbitration, EntryView, GenesisStatus, MemoryView, ModelCall, PlatformResponse, Rollout,
+    SeedSelf, SessionView, Settings,
 };
 
 /// A blocking client for the operator/control API, bound to the instance the config selects.
@@ -101,31 +101,28 @@ impl Client {
         )
     }
 
-    /// `POST /platform/messages` — deliver participant turns and run the agent's response.
+    /// `POST /platform/messages` — deliver a participant message and run the agent's response. The CLI
+    /// is the operator's own loopback client, so the server scopes the request to the `direct`
+    /// interface: the body carries only the room's scope path and bare ids, never a platform.
     pub fn send(
         &self,
-        platform: &str,
         scope: &str,
-        messages: &[MessageInput],
-        present: &[PersonId],
+        sender: &str,
+        text: &str,
+        present: &[String],
     ) -> Result<PlatformResponse, ClientError> {
         let body = MessageBody {
-            locator: ConversationLocator::new(platform, scope),
-            messages,
-            present,
+            scope_path: scope,
+            messages: vec![WireMessage { sender, text }],
+            present: present.iter().map(String::as_str).collect(),
         };
         self.json(self.http.post(self.url("/platform/messages")).json(&body))
     }
 
-    /// `POST /platform/join` — note a participant arriving mid-session.
-    pub fn join(
-        &self,
-        platform: &str,
-        scope: &str,
-        participant: &PersonId,
-    ) -> Result<(), ClientError> {
+    /// `POST /platform/join` — note a participant arriving mid-session, under the `direct` scope.
+    pub fn join(&self, scope: &str, participant: &str) -> Result<(), ClientError> {
         let body = JoinBody {
-            locator: ConversationLocator::new(platform, scope),
+            scope_path: scope,
             participant,
         };
         self.no_content(self.http.post(self.url("/platform/join")).json(&body))
@@ -200,16 +197,22 @@ struct ImprintBody<'a> {
 }
 
 #[derive(Serialize)]
+struct WireMessage<'a> {
+    sender: &'a str,
+    text: &'a str,
+}
+
+#[derive(Serialize)]
 struct MessageBody<'a> {
-    locator: ConversationLocator,
-    messages: &'a [MessageInput],
-    present: &'a [PersonId],
+    scope_path: &'a str,
+    messages: Vec<WireMessage<'a>>,
+    present: Vec<&'a str>,
 }
 
 #[derive(Serialize)]
 struct JoinBody<'a> {
-    locator: ConversationLocator,
-    participant: &'a PersonId,
+    scope_path: &'a str,
+    participant: &'a str,
 }
 
 /// A failure talking to the server.

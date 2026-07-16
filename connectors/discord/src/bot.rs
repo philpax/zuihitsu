@@ -54,7 +54,6 @@ pub struct BotState {
 impl BotState {
     pub fn new(config: DiscordConfig) -> Result<Self> {
         let debounce_ms = config.pacing.debounce_ms;
-        let connector_id = config.server.connector_id.clone();
         let turn_map_path = config.storage.turn_map_path.clone();
         let platform = PlatformClient::new(
             config.server.url.clone(),
@@ -78,7 +77,7 @@ impl BotState {
             config,
             bot_id: Mutex::new(None),
             turn_map: Mutex::new(turn_map),
-            context_sync: ContextSync::new(connector_id),
+            context_sync: ContextSync::new(),
             participant_sync,
             present_members: Mutex::new(HashMap::new()),
             debounce: DebounceState::new(debounce_ms),
@@ -206,7 +205,6 @@ impl EventHandler for Handler {
             .participant_sync
             .sync(
                 &state.platform,
-                &state.config.server.connector_id,
                 &sender_person,
                 &observed_identity(&msg, &guild_name),
             )
