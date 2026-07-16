@@ -14,10 +14,11 @@ use crate::{
         session_touched,
     },
     event::{EventSource, PromptTemplateName, Teller},
-    graph::GraphError,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, Seq, TurnId},
     memory::{
-        identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
+        identity::{
+            resolve_or_mint_context, resolve_or_mint_conversation, resolve_or_mint_participant,
+        },
         memory_block::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice},
     },
     model::ModelClient,
@@ -415,11 +416,12 @@ impl Platform<'_> {
     /// connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
     /// first contact, posting structured data rather than interpolating untrusted strings into code.
     ///
-    /// The conversation and its context memory are resolved (or minted) from the locator — this is
-    /// intentional, so a connector can establish context before the first participant message arrives.
-    /// Each entry is appended as `Public` under the agent's teller. The `max_entry_chars` guard is
-    /// bypassed (passed as `usize::MAX`): platform-authority context writes are blessed, like
-    /// self-memories, and not subject to the agent's entry length limit.
+    /// The context memory is resolved (or minted) by name from the locator's scope — independent of any
+    /// conversation, so a connector can establish context for a scope that has no messages of its own (a
+    /// guild), and can establish a room's context before its first participant message. A room's first
+    /// message reuses the same memory by name. Each entry is appended as `Public` under the agent's
+    /// teller. The `max_entry_chars` guard is bypassed (passed as `usize::MAX`): platform-authority
+    /// context writes are blessed, like self-memories, and not subject to the agent's entry length limit.
     pub fn write_context(
         &self,
         locator: &ConversationLocator,
@@ -429,13 +431,12 @@ impl Platform<'_> {
         if entries.is_empty() {
             return Ok(());
         }
-        // Resolve (or mint) the conversation and its context memory — the same path
-        // `route_message` takes. The context memory is minted alongside the conversation; we
-        // materialize the graph so `context_for_conversation` can read it back.
+        // Resolve (or mint) the scope's context memory by name — no conversation, so this works for a
+        // guild as well as a room. We materialize so the append sees a freshly minted one.
         let engine = &self.server.engine;
-        let conversation = {
+        let context_memory = {
             let graph = engine.graph.lock();
-            resolve_or_mint_conversation(
+            resolve_or_mint_context(
                 engine.store.lock().as_mut(),
                 engine.clock.as_ref(),
                 &graph,
@@ -446,21 +447,12 @@ impl Platform<'_> {
             .graph
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
-        let context_memory = engine
-            .graph
-            .lock()
-            .context_for_conversation(conversation)?
-            .ok_or_else(|| {
-                InstanceError::Graph(GraphError::Malformed(
-                    "the context memory was not found after resolving the conversation".to_owned(),
-                ))
-            })?;
 
         let mut block = MemoryBlock::new(
             engine.clone(),
             Teller::Agent,
             Authority::Platform,
-            Some(conversation),
+            None,
             None,
             Vec::new(),
             usize::MAX,

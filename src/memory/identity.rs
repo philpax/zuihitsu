@@ -134,12 +134,38 @@ pub fn resolve_or_mint_participant(
     .map_err(|e| e.with_context(context))
 }
 
+/// Resolve a scope to its [`Namespace::Context`] memory, minting one on first contact. The context
+/// memory is keyed by its name (`context/<platform>:<scope_path>`), independent of any conversation:
+/// a room's context and a standalone context — a guild that hosts channels but has no messages of its
+/// own — resolve the same way, so a connector can establish context for a scope that never becomes a
+/// conversation. A room's [`resolve_or_mint_conversation`] reuses this same memory by name, so a scope
+/// has exactly one context memory whichever path first mints it (spec §Contexts are first-class
+/// memories). The caller materializes the graph to see a freshly minted one.
+pub fn resolve_or_mint_context(
+    store: &mut dyn Store,
+    clock: &dyn Clock,
+    graph: &Graph,
+    locator: &ConversationLocator,
+) -> Result<MemoryId, IdentityError> {
+    let name = context_name(locator);
+    if let Some(existing) = graph.memory_by_name(&name)? {
+        return Ok(existing.id);
+    }
+    let id = MemoryId::generate();
+    store.append(
+        clock.now(),
+        EventSource::Orchestration,
+        vec![EventPayload::memory_created(id, name)],
+    )?;
+    Ok(id)
+}
+
 /// Resolve a room locator to its conversation, opening one on first contact. Returns the
-/// conversation's id (the caller materializes the graph to see a freshly opened room). Opening a
-/// room eagerly mints its [`Namespace::Context`] memory under a provisional locator-derived name
-/// and records it on the `ConversationStarted`, so the locator resolves to a first-class memory
-/// the agent can
-/// tag and reason about (spec §Contexts are first-class memories).
+/// conversation's id (the caller materializes the graph to see a freshly opened room). Opening a room
+/// resolves its [`Namespace::Context`] memory via [`resolve_or_mint_context`] — reusing one already
+/// established for the scope (e.g. by an earlier context write) rather than minting a duplicate — and
+/// records it on the `ConversationStarted`, so the locator resolves to a first-class memory the agent
+/// can tag and reason about (spec §Contexts are first-class memories).
 pub fn resolve_or_mint_conversation(
     store: &mut dyn Store,
     clock: &dyn Clock,
@@ -151,15 +177,16 @@ pub fn resolve_or_mint_conversation(
         if let Some(id) = graph.conversation_for_locator(locator)? {
             return Ok(id);
         }
+        let context_memory = resolve_or_mint_context(store, clock, graph, locator)?;
         let id = ConversationId::generate();
-        let context_memory = MemoryId::generate();
         store.append(
             clock.now(),
             EventSource::Orchestration,
-            vec![
-                EventPayload::memory_created(context_memory, context_name(locator)),
-                EventPayload::conversation_started(id, locator.clone(), context_memory),
-            ],
+            vec![EventPayload::conversation_started(
+                id,
+                locator.clone(),
+                context_memory,
+            )],
         )?;
         tracing::info!(
             platform = %locator.platform,
