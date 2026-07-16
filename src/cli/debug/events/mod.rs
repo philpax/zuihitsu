@@ -9,6 +9,7 @@ use zuihitsu::{
     Event, MemoryId, Seq, SqliteStore, Store,
     config::EnvConfig,
     event::{EventPayload, EventSource, Teller, TerminalCause, TurnRole, Visibility},
+    time::format_iso8601,
 };
 
 use crate::cli::error::CliError;
@@ -61,7 +62,12 @@ pub(crate) fn events(config: &EnvConfig, query: EventQuery) -> Result<(), CliErr
         let payload = serde_json::to_string_pretty(&event.payload).map_err(|source| {
             CliError::Events(format!("could not render the payload: {source}"))
         })?;
-        println!("seq {} · {}\n{payload}", event.seq.0, event.payload.kind());
+        println!(
+            "seq {} · {} · {}\n{payload}",
+            event.seq.0,
+            format_iso8601(event.recorded_at),
+            event.payload.kind()
+        );
         return Ok(());
     }
 
@@ -138,9 +144,12 @@ pub(crate) fn write_event(
         EventSource::Agent => String::new(),
         other => format!("  [{}]", other.as_str().to_lowercase()),
     };
+    // The wall-clock stamp rides dim beside the seq, so a glance sees both the log position and *when*
+    // the write landed without decoding the payload.
+    let stamp = format_iso8601(event.recorded_at);
     writeln!(
         out,
-        "{dim}{:>6}{dim:#}  {kind_style}{kind}{kind_style:#}{dim}{source}{dim:#}",
+        "{dim}{:>6} {stamp}{dim:#} {kind_style}{kind}{kind_style:#}{dim}{source}{dim:#}",
         event.seq.0
     )?;
     let detail = describe_event(&event.payload, names);
@@ -446,15 +455,21 @@ fn print_event_summary(events: &[Event]) {
             } => {
                 any = true;
                 println!(
-                    "  seq {:>5}  started  {}  brief {}ch",
+                    "  seq {:>5}  {}  started  {}  brief {}ch",
                     event.seq.0,
+                    format_iso8601(event.recorded_at),
                     conversation.0,
                     brief.len()
                 );
             }
             EventPayload::SessionEnded { conversation, .. } => {
                 any = true;
-                println!("  seq {:>5}  ended    {}", event.seq.0, conversation.0);
+                println!(
+                    "  seq {:>5}  {}  ended    {}",
+                    event.seq.0,
+                    format_iso8601(event.recorded_at),
+                    conversation.0
+                );
             }
             _ => {}
         }

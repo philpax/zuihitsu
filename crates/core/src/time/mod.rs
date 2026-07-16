@@ -114,6 +114,21 @@ pub fn format_day(at: Timestamp) -> String {
     format_with(at, "%a %d %b")
 }
 
+/// Render a timestamp as an ISO 8601 / RFC 3339 instant in the operator's local timezone, offset and
+/// all (e.g. `2026-06-08T16:36:22+02:00`) — the machine-sortable, second-resolution form for
+/// diagnostic output on the operator's own machine, where local wall-clock reads more naturally than
+/// UTC. Falls back to raw epoch milliseconds for a time outside the supported range. Distinct from the
+/// UTC helpers above, which anchor the agent's own reasoning; this one is purely for operator display.
+pub fn format_iso8601(at: Timestamp) -> String {
+    match jiff::Timestamp::from_millisecond(at.as_millis()) {
+        Ok(timestamp) => timestamp
+            .to_zoned(jiff::tz::TimeZone::system())
+            .strftime("%Y-%m-%dT%H:%M:%S%:z")
+            .to_string(),
+        Err(_) => format!("{} milliseconds since the Unix epoch", at.as_millis()),
+    }
+}
+
 /// Render an entry's [`TemporalRef`] occurrence as a compact, human-readable phrase for a read —
 /// `2027-03-15` for a day, the instant for a precise time, a span for a range, and the rule or anchor
 /// for the vaguer forms. So a dated fact shows *when* it happens on read, rather than hiding the date
