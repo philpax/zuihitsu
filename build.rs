@@ -37,7 +37,6 @@ fn main() {
         "console/vite.config.ts",
         "console/tsconfig.json",
         "console/tsconfig.app.json",
-        "console/scripts",
         "build.rs",
         "Cargo.toml",
         "crates/frontend-types/Cargo.toml",
