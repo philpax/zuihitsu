@@ -56,9 +56,9 @@ export function ScenarioOverview() {
 
       {groupScenariosByCategory(pkg.scenarios).map((group) => (
         <section key={group.category} className="mb-8 last:mb-0">
-          <h3 className="mb-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+          <h3 className="mb-1 font-mono text-2xs tracking-widest text-ink-faint uppercase">
             {group.category}
-            <span className="ml-2 normal-case tracking-normal">· {group.entries.length}</span>
+            <span className="ml-2 tracking-normal normal-case">· {group.entries.length}</span>
           </h3>
           <ul>
             {group.entries.map(({ scenario, index }) => (
@@ -161,7 +161,7 @@ function ScenarioRow({
             </span>
           )}
         </div>
-        <p className="mt-2 max-w-prose text-sm leading-relaxed text-ink-soft">{meta.description}</p>
+        <p className="mt-2 max-w-prose text-sm/relaxed text-ink-soft">{meta.description}</p>
       </div>
 
       <div className="flex flex-col items-start gap-2.5 sm:items-end">
@@ -170,13 +170,13 @@ function ScenarioRow({
             <Link
               to={runPath(meta.name, openRun)}
               title="Watch this run live"
-              className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-sage transition-colors hover:text-clay"
+              className="flex items-center gap-2 font-mono text-2xs tracking-widest text-sage uppercase transition-colors hover:text-clay"
             >
               <ActivityDot />
               running · 0/{runsPlanned}
             </Link>
           ) : (
-            <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            <span className="font-mono text-2xs tracking-widest text-ink-faint uppercase">
               pending · 0/{runsPlanned}
             </span>
           )
@@ -222,9 +222,9 @@ function ScenarioRow({
 /// A sage pulse marking a scenario whose run is driving right now.
 function ActivityDot() {
   return (
-    <span className="relative flex h-1.5 w-1.5 self-center">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-60" />
-      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sage" />
+    <span className="relative flex size-1.5 self-center">
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-sage opacity-60" />
+      <span className="relative inline-flex size-1.5 rounded-full bg-sage" />
     </span>
   );
 }

@@ -55,7 +55,7 @@ export function EvalFrame({
   useDocumentTitle("eval", runMatch?.params.view);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-4 sm:px-8">
+    <div className="mx-auto flex min-h-screen max-w-304 flex-col px-4 sm:px-8">
       <header className="border-b border-line py-4 sm:py-6">
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex min-w-0 items-baseline gap-3">
@@ -72,7 +72,7 @@ export function EvalFrame({
               ) : (
                 fileName && (
                   <>
-                    <span className="max-w-[14rem] truncate text-ink" title={fileName}>
+                    <span className="max-w-56 truncate text-ink" title={fileName}>
                       {fileName}
                     </span>
                     <Dot />
@@ -164,13 +164,13 @@ function LiveBadge({ status }: { status: LiveEvalStatus }) {
         : { dot: "bg-sage", text: "text-sage", label: "live", pulse: true };
   return (
     <span className="flex items-baseline gap-1.5">
-      <span className="relative flex h-1.5 w-1.5 self-center">
+      <span className="relative flex size-1.5 self-center">
         {tone.pulse && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-60" />
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-sage opacity-60" />
         )}
-        <span className={"relative inline-flex h-1.5 w-1.5 rounded-full " + tone.dot} />
+        <span className={"relative inline-flex size-1.5 rounded-full " + tone.dot} />
       </span>
-      <span className={"uppercase tracking-widest " + tone.text}>{tone.label}</span>
+      <span className={"tracking-widest uppercase " + tone.text}>{tone.label}</span>
     </span>
   );
 }

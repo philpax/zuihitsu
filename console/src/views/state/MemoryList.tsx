@@ -73,7 +73,7 @@ export function MemoryList({
                     {/* The synthesized description, clamped, so the list reads as a glanceable index of
                         what each memory is about rather than a bare list of names. */}
                     {memory.description && (
-                      <span className="mt-0.5 line-clamp-2 text-2xs leading-snug text-ink-faint">
+                      <span className="mt-0.5 line-clamp-2 text-2xs/snug text-ink-faint">
                         {memory.description}
                       </span>
                     )}
@@ -108,11 +108,7 @@ export function EntryItem({
   const priv = isPrivate(entry.visibility);
   return (
     <li className={faded ? "opacity-55" : undefined}>
-      <div
-        className={
-          "text-base leading-relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")
-        }
-      >
+      <div className={"text-base/relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")}>
         <ReactMarkdown remarkPlugins={entryMarkdownPlugins} components={turnComponents}>
           {entry.text}
         </ReactMarkdown>

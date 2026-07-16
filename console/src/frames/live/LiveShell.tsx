@@ -57,7 +57,7 @@ export function LiveShell({
   }, [connection]);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[76rem] flex-col px-4 sm:px-8">
+    <div className="mx-auto flex min-h-screen max-w-304 flex-col px-4 sm:px-8">
       <header className="border-b border-line py-4 sm:py-6">
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex items-baseline gap-3">

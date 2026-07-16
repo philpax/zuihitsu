@@ -172,7 +172,7 @@ export function ContextSectionList({
   return (
     <div className="mt-2 border-l border-line pl-4">
       {inferred && (
-        <p className="mb-1.5 font-mono text-2xs italic text-ink-faint">
+        <p className="mb-1.5 font-mono text-2xs text-ink-faint italic">
           Section boundaries are inferred from the prompt's headers; this call was recorded before
           sections were captured.
         </p>
@@ -356,7 +356,7 @@ function StackedBar({
             key={segment.key}
             className={
               `min-w-0.5 border-r border-paper/60 last:border-r-0 ${segment.swatch}` +
-              (segment.cold ? " ring-1 ring-inset ring-clay" : "")
+              (segment.cold ? " ring-1 ring-clay ring-inset" : "")
             }
             style={{ flexBasis: `${(segment.tokens / scale) * 100}%` }}
             title={
@@ -417,10 +417,10 @@ function Row({
           {spec.provenance}
         </span>
       )}
-      <span className="w-14 text-right tabular-nums text-ink-soft">
+      <span className="w-14 text-right text-ink-soft tabular-nums">
         {formatTokens(spec.tokens)}
       </span>
-      <span className="w-12 text-right tabular-nums text-ink-faint" title={spec.hint}>
+      <span className="w-12 text-right text-ink-faint tabular-nums" title={spec.hint}>
         {scale > 0 ? `${((spec.tokens / scale) * 100).toFixed(1)}%` : ""}
       </span>
     </>
@@ -442,11 +442,7 @@ function Row({
       )}
       {detail != null &&
         detail !== "" &&
-        (typeof detail === "string" ? (
-          <Excerpt className="mb-1.5 mt-1.5">{detail}</Excerpt>
-        ) : (
-          detail
-        ))}
+        (typeof detail === "string" ? <Excerpt className="my-1.5">{detail}</Excerpt> : detail)}
     </div>
   );
 }
@@ -457,7 +453,7 @@ function Row({
 function MessageDetail({ message }: { message: Message | undefined }) {
   if (!message) return null;
   return (
-    <div className="mb-1.5 mt-1.5 flex flex-col gap-2 border-l border-line bg-oat/40 px-3 py-2">
+    <div className="my-1.5 flex flex-col gap-2 border-l border-line bg-oat/40 px-3 py-2">
       {message.content && <TurnMarkdown text={message.content} />}
       {message.tool_calls.map((call) => (
         <ToolCallDetail key={call.id} call={call} />
@@ -487,7 +483,7 @@ function ToolCallDetail({ call }: { call: ToolCall }) {
   return script ? (
     <Lua code={script} />
   ) : (
-    <p className="whitespace-pre-wrap font-mono text-xs text-ink-soft">
+    <p className="font-mono text-xs whitespace-pre-wrap text-ink-soft">
       → {call.name}({call.arguments})
     </p>
   );
@@ -504,11 +500,11 @@ function CompletionDetail({
   reasoning: string | null;
 }) {
   return (
-    <div className="mb-1.5 mt-1.5 flex flex-col gap-2 border-l border-line bg-oat/40 px-3 py-2">
+    <div className="my-1.5 flex flex-col gap-2 border-l border-line bg-oat/40 px-3 py-2">
       {reasoning && (
         <div>
           <p
-            className="mb-1 font-mono text-2xs uppercase tracking-widest text-ink-faint"
+            className="mb-1 font-mono text-2xs tracking-widest text-ink-faint uppercase"
             title="Generated and counted in the completion tokens, but never resent — the next call's prompt carries only the message below."
           >
             reasoning
@@ -519,7 +515,7 @@ function CompletionDetail({
         </div>
       )}
       {completion === "Silent" ? (
-        <p className="text-sm italic text-ink-faint">stayed silent</p>
+        <p className="text-sm text-ink-faint italic">stayed silent</p>
       ) : "Reply" in completion ? (
         <TurnMarkdown text={completion.Reply} />
       ) : (

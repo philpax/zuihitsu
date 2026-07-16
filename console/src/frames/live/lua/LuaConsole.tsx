@@ -208,7 +208,7 @@ function ApiPanel({
           className="mt-3"
         />
         {filtered && (
-          <div className="mt-5 overflow-y-auto pr-2 lg:max-h-[calc(100vh_-_12rem)]">
+          <div className="mt-5 overflow-y-auto pr-2 lg:max-h-[calc(100vh-12rem)]">
             {filtered.length === 0 ? (
               <Hint>nothing matches “{query.trim()}”</Hint>
             ) : (
@@ -228,11 +228,11 @@ function RunResult({ run }: { run: Run }) {
     <li className="border-l-2 border-line pl-4">
       <Lua code={run.script} />
       {error ? (
-        <pre className="mt-2 whitespace-pre-wrap font-mono text-xs text-clay">{error}</pre>
+        <pre className="mt-2 font-mono text-xs whitespace-pre-wrap text-clay">{error}</pre>
       ) : result !== null && result !== "" ? (
-        <pre className="mt-2 whitespace-pre-wrap font-mono text-xs text-ink">{result}</pre>
+        <pre className="mt-2 font-mono text-xs whitespace-pre-wrap text-ink">{result}</pre>
       ) : (
-        <p className="mt-2 font-mono text-xs italic text-ink-faint">nil</p>
+        <p className="mt-2 font-mono text-xs text-ink-faint italic">nil</p>
       )}
     </li>
   );

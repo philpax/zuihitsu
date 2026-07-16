@@ -16,7 +16,7 @@ export function SessionDivider({ session, first }: { session: SessionModel; firs
     <LabeledDivider
       className={(first ? "mb-4 " : "my-4 ") + (session.compaction ? "text-clay" : "text-ink-soft")}
     >
-      <span className="uppercase tracking-widest">{label}</span>
+      <span className="tracking-widest uppercase">{label}</span>
       <span className="text-ink-faint">{formatDateTime(session.startedAt)}</span>
     </LabeledDivider>
   );

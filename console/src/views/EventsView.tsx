@@ -141,7 +141,7 @@ export function EventsView({
   return (
     <section>
       {focusName && (
-        <div className="mb-5 flex items-baseline justify-between gap-4 border-l-2 border-clay bg-clay-soft/15 py-2 pl-3 pr-2">
+        <div className="mb-5 flex items-baseline justify-between gap-4 border-l-2 border-clay bg-clay-soft/15 py-2 pr-2 pl-3">
           <span className="font-mono text-xs text-ink-soft">
             events touching <span className="text-ink">{focusName}</span>
           </span>
@@ -160,7 +160,7 @@ export function EventsView({
               key={category}
               onClick={() => toggle(category)}
               className={
-                "font-mono text-2xs uppercase tracking-widest transition-colors " +
+                "font-mono text-2xs tracking-widest uppercase transition-colors " +
                 (active.has(category) ? CATEGORY_COLOR[category] : "text-ink-faint/45 line-through")
               }
             >
@@ -177,7 +177,7 @@ export function EventsView({
       </div>
 
       <div className="mb-7 flex items-baseline gap-x-4 gap-y-2">
-        <span className="shrink-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+        <span className="shrink-0 font-mono text-2xs tracking-widest text-ink-faint uppercase">
           by
         </span>
         <div className="flex flex-wrap gap-x-4 gap-y-2">
@@ -186,7 +186,7 @@ export function EventsView({
               key={sourceLabel(source)}
               onClick={() => toggleSource(source)}
               className={
-                "font-mono text-2xs uppercase tracking-widest transition-colors " +
+                "font-mono text-2xs tracking-widest uppercase transition-colors " +
                 (activeSources.has(source) ? "text-ink-soft" : "text-ink-faint/45 line-through")
               }
               title={`Filter to events authored by the ${sourceLabel(source)}`}
@@ -227,7 +227,7 @@ export function EventsView({
                 key={event.seq}
                 data-index={item.index}
                 ref={virtualizer.measureElement}
-                className="absolute left-0 top-0 w-full border-b border-line/60"
+                className="absolute top-0 left-0 w-full border-b border-line/60"
                 style={{
                   transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
                 }}
@@ -271,7 +271,7 @@ export function EventsView({
                   </time>
                 </button>
                 {open && (
-                  <div className="border-l-2 border-line py-3 pl-4 pr-2">
+                  <div className="border-l-2 border-line py-3 pr-2 pl-4">
                     <EventDetail
                       payload={event.payload}
                       nameById={names}
@@ -301,7 +301,7 @@ function StepBoundary({ markers }: { markers: StepMarker[] }) {
     <div className="mt-4 flex flex-col gap-1 border-t border-line pt-2">
       {markers.map((marker, index) =>
         marker.kind === "genesis" ? (
-          <span key={index} className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+          <span key={index} className="font-mono text-2xs tracking-widest text-ink-faint uppercase">
             genesis
           </span>
         ) : marker.kind === "resume" ? (
@@ -310,14 +310,14 @@ function StepBoundary({ markers }: { markers: StepMarker[] }) {
           </span>
         ) : (
           <span key={index} className="flex items-baseline gap-2">
-            <span className="shrink-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            <span className="shrink-0 font-mono text-2xs tracking-widest text-ink-faint uppercase">
               step {marker.index}
             </span>
             <span className="truncate font-mono text-2xs text-ink-soft" title={marker.label}>
               {marker.label}
             </span>
             {marker.skipped && (
-              <span className="shrink-0 font-mono text-2xs italic text-ink-faint">skipped</span>
+              <span className="shrink-0 font-mono text-2xs text-ink-faint italic">skipped</span>
             )}
           </span>
         ),

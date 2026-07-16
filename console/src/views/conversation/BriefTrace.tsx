@@ -71,7 +71,7 @@ function EntryRow({ entry }: { entry: EntryTrace }) {
       <div>
         <p
           className={
-            "text-sm leading-relaxed " +
+            "text-sm/relaxed " +
             (tone === "in" ? "text-ink" : tone === "filtered" ? "text-ink-faint" : "text-ink-soft")
           }
         >

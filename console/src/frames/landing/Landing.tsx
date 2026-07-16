@@ -21,7 +21,7 @@ export function Landing({
 }) {
   useDocumentTitle("console");
   return (
-    <div className="mx-auto flex min-h-screen max-w-[40rem] flex-col justify-center px-5 py-10 sm:px-8">
+    <div className="mx-auto flex min-h-screen max-w-160 flex-col justify-center px-5 py-10 sm:px-8">
       <div className="mb-9 flex flex-col items-center gap-2">
         <span className="font-serif text-4xl text-ink">zuihitsu</span>
         <Eyebrow>console</Eyebrow>
@@ -69,7 +69,7 @@ function Choice({ label, hint, children }: { label: string; hint: string; childr
     <div className="flex items-baseline justify-between gap-6 border-b border-line py-5">
       <div className="min-w-0">
         <div className="text-sm text-ink">{label}</div>
-        <p className="mt-1 text-xs leading-relaxed text-ink-soft">{hint}</p>
+        <p className="mt-1 text-xs/relaxed text-ink-soft">{hint}</p>
       </div>
       <div className="shrink-0 font-mono text-xs text-ink-faint">{children}</div>
     </div>
@@ -100,7 +100,7 @@ function UrlSubmit({
         onChange={(event) => setUrl(event.target.value)}
         spellCheck={false}
         aria-label={aria}
-        className="w-44 border-b border-line bg-transparent py-0.5 text-right text-ink-soft outline-none transition-colors focus:border-clay"
+        className="w-44 border-b border-line bg-transparent py-0.5 text-right text-ink-soft transition-colors outline-none focus:border-clay"
       />
       <button type="submit" title="Connect" className="transition-colors hover:text-clay">
         →

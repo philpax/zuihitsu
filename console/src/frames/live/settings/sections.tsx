@@ -115,7 +115,7 @@ export function BehavioralSettings({ connection }: { connection: LiveConnection 
         ))}
       </div>
 
-      <div className="sticky bottom-0 mt-8 flex items-center gap-4 border-t border-line bg-paper/95 py-4 backdrop-blur">
+      <div className="sticky bottom-0 mt-8 flex items-center gap-4 border-t border-line bg-paper/95 py-4 backdrop-blur-sm">
         <Button primary onClick={save} disabled={!dirty || status === "saving"}>
           {status === "saving" ? "Saving…" : "Save"}
         </Button>
@@ -153,7 +153,7 @@ export function EnvironmentSection({ connection }: { connection: LiveConnection 
   }
   return (
     <div>
-      <p className="max-w-prose text-sm leading-relaxed text-ink-soft">
+      <p className="max-w-prose text-sm/relaxed text-ink-soft">
         The TOML config this instance booted from — read-only here (it is read at startup, not from
         the log). Secrets are redacted: API keys show as counts, MCP env as its variable names.
       </p>
@@ -198,7 +198,7 @@ export function MaintenanceSection({ connection }: { connection: LiveConnection 
   return (
     <section>
       <Eyebrow>Graph snapshot</Eyebrow>
-      <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">
+      <p className="mt-3 max-w-prose text-sm/relaxed text-ink-soft">
         Write a graph snapshot now — the take-one-before-an-experiment trigger. Boot restores from
         the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
       </p>

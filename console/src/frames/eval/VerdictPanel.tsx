@@ -35,7 +35,7 @@ export function VerdictPanel({ run, gating }: { run: RunSummary; gating: boolean
           <span className="font-mono text-2xs text-ink-faint">{open ? "▾" : "▸"}</span>
           <span
             className={
-              "font-mono text-2xs uppercase tracking-widest " + (clean ? "text-sage" : "text-clay")
+              "font-mono text-2xs tracking-widest uppercase " + (clean ? "text-sage" : "text-clay")
             }
           >
             {badge}
@@ -91,9 +91,7 @@ function VerdictRow({ verdict }: { verdict: Verdict }) {
         <Eyebrow>{verdict.kind}</Eyebrow>
       </div>
       {verdict.rationale && (
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
-          {verdict.rationale}
-        </p>
+        <p className="mt-1 max-w-prose text-sm/relaxed text-ink-soft">{verdict.rationale}</p>
       )}
       {verdict.judge_raw && (
         <div className="mt-1">

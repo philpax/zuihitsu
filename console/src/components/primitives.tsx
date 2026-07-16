@@ -10,7 +10,7 @@ import type {
 export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <span
-      className={`font-mono text-2xs font-medium uppercase tracking-widest text-ink-soft ${className}`}
+      className={`font-mono text-2xs font-medium tracking-widest text-ink-soft uppercase ${className}`}
     >
       {children}
     </span>
@@ -102,7 +102,7 @@ export function Excerpt({ children, className = "" }: { children: ReactNode; cla
   return (
     <pre
       className={
-        "max-h-72 overflow-auto whitespace-pre-wrap border-l border-line bg-oat/40 px-3 py-2 font-mono text-xs leading-relaxed text-ink-soft " +
+        "max-h-72 overflow-auto border-l border-line bg-oat/40 px-3 py-2 font-mono text-xs/relaxed whitespace-pre-wrap text-ink-soft " +
         className
       }
     >
@@ -192,9 +192,9 @@ export function Segmented({
 /// wrapper (e.g. `self-center`, `ml-2`).
 export function WorkingPulse({ className = "" }: { className?: string }) {
   return (
-    <span className={"relative flex h-1 w-1 " + className}>
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
-      <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
+    <span className={"relative flex size-1 " + className}>
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-sage opacity-70" />
+      <span className="relative inline-flex size-1 rounded-full bg-sage" />
     </span>
   );
 }

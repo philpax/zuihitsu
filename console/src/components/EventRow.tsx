@@ -64,7 +64,7 @@ export function EventRow({
       </button>
       {triggeredBy && <TriggeredBy {...triggeredBy} base={base} />}
       {open && (
-        <div className="mb-1 ml-4 mt-1 border-l-2 border-line py-1 pl-3">
+        <div className="my-1 ml-4 border-l-2 border-line py-1 pl-3">
           <EventDetail
             payload={row.payload}
             nameById={nameById}
@@ -102,7 +102,7 @@ function TriggeredBy({
   const label = speaker ? `after ${speaker}'s turn` : "after the agent's turn";
   const to = `${base}/conversation?room=${encodeURIComponent(room)}`;
   return (
-    <div className="ml-4 mt-0.5">
+    <div className="mt-0.5 ml-4">
       <Link
         to={to}
         className="text-ink-faint transition-colors hover:text-clay"

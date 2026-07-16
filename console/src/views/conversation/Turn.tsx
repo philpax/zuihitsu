@@ -97,7 +97,7 @@ export function TurnItem({
       <div className="mb-1.5 flex items-baseline gap-2">
         <span
           className={
-            "font-mono text-2xs font-medium uppercase tracking-widest " +
+            "font-mono text-2xs font-medium tracking-widest uppercase " +
             (isAgent ? "text-sage" : "text-clay")
           }
         >
@@ -135,7 +135,7 @@ export function TurnItem({
       ) : inflight ? null : ( // An in-progress turn has no text yet — "silent" is a finished turn's verdict.
         <p
           className={
-            "text-sm italic text-ink-faint" + (turn.deliberation.length > 0 ? " mt-3" : "")
+            "text-sm text-ink-faint italic" + (turn.deliberation.length > 0 ? " mt-3" : "")
           }
         >
           stayed silent

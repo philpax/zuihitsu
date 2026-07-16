@@ -111,7 +111,7 @@ function TurnRefPopup({
             <span className="flex items-baseline gap-2">
               <span
                 className={
-                  "font-mono text-2xs uppercase tracking-widest " +
+                  "font-mono text-2xs tracking-widest uppercase " +
                   (focused ? (turn.role === "Agent" ? "text-sage" : "text-clay") : "text-ink-faint")
                 }
               >
@@ -128,7 +128,7 @@ function TurnRefPopup({
             </span>
             <span
               className={
-                "mt-0.5 line-clamp-2 block text-xs leading-relaxed " +
+                "mt-0.5 line-clamp-2 block text-xs/relaxed " +
                 (focused ? "text-ink" : "text-ink-soft")
               }
             >

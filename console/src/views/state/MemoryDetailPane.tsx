@@ -40,7 +40,7 @@ export function MemoryDetailPane({
   const disputed = new Set(detail.disputed);
 
   return (
-    <article className="max-w-[46rem]">
+    <article className="max-w-184">
       <header className="border-b border-line pb-5">
         <div className="flex items-baseline justify-between gap-4">
           {/* On mobile the dropdown already names the open memory, so the heading would just repeat it. */}
@@ -71,9 +71,7 @@ export function MemoryDetailPane({
           </div>
         )}
         {memory.description && (
-          <p className="mt-4 font-serif text-base leading-relaxed text-ink-soft">
-            {memory.description}
-          </p>
+          <p className="mt-4 font-serif text-base/relaxed text-ink-soft">{memory.description}</p>
         )}
         {classPeers.length > 0 && (
           <p className="mt-3 font-mono text-2xs text-ink-faint">
@@ -166,7 +164,7 @@ export function MemoryDetailPane({
                 >
                   ↻ {rruleLabel(item.rrule)}
                 </span>
-                <span className="text-sm leading-relaxed text-ink">{item.text}</span>
+                <span className="text-sm/relaxed text-ink">{item.text}</span>
               </li>
             ))}
           </ul>
@@ -178,7 +176,7 @@ export function MemoryDetailPane({
           <ul className="flex flex-col gap-3">
             {arbitrations.map((arbitration, index) => (
               <li key={index}>
-                <p className="text-sm leading-relaxed text-ink">{arbitration.statement}</p>
+                <p className="text-sm/relaxed text-ink">{arbitration.statement}</p>
                 <p className="mt-1 font-mono text-2xs text-ink-faint">
                   reconciled {arbitration.competing} competing{" "}
                   {arbitration.competing === 1 ? "entry" : "entries"}

@@ -134,12 +134,12 @@ export function Room({
   useFollowBottom(atHead, `${cursor}|${optimistic !== null}|${thinking}|${inflightSignal}`);
 
   return (
-    <div className="flex w-full min-w-0 max-w-[60rem] flex-col">
+    <div className="flex w-full max-w-240 min-w-0 flex-col">
       <header className="mb-4">
         <Eyebrow>
           {channel.label}
           {!isOperator && (
-            <span className=" text-ink-faint">
+            <span className="text-ink-faint">
               {" "}
               ({channel.locator.platform} · {channel.locator.scope_path})
             </span>
@@ -199,8 +199,8 @@ export function Room({
           sits exactly under the transcript column, with the spacer standing in for the room list. */}
       {participate && (
         <Docked>
-          <div className="pb-2.5 pt-2 md:grid md:grid-cols-[1fr_12rem] md:gap-8">
-            <div className="w-full min-w-0 max-w-[60rem]">
+          <div className="pt-2 pb-2.5 md:grid md:grid-cols-[1fr_12rem] md:gap-8">
+            <div className="w-full max-w-240 min-w-0">
               {atHead ? (
                 <Composer
                   onSend={onSend}
@@ -239,8 +239,8 @@ export function Room({
 function DeferredNotice() {
   return (
     <div className="mt-5 flex items-center gap-2 text-ink-faint">
-      <span className="inline-flex h-1.5 w-1.5 rounded-full border border-line-strong" />
-      <span className="font-mono text-2xs uppercase tracking-widest">
+      <span className="inline-flex size-1.5 rounded-full border border-line-strong" />
+      <span className="font-mono text-2xs tracking-widest uppercase">
         delivered — the agent will catch up when its model returns
       </span>
     </div>
@@ -253,8 +253,8 @@ function DeferredNotice() {
 function UnknownTurnNotice() {
   return (
     <div className="mb-4 flex items-center gap-2 text-ink-faint">
-      <span className="inline-flex h-1.5 w-1.5 rounded-full border border-line-strong" />
-      <span className="font-mono text-2xs uppercase tracking-widest">
+      <span className="inline-flex size-1.5 rounded-full border border-line-strong" />
+      <span className="font-mono text-2xs tracking-widest uppercase">
         that turn link points nowhere in view — an unknown id, or a moment past the timeline cursor
       </span>
     </div>
@@ -266,11 +266,11 @@ function UnknownTurnNotice() {
 function ThinkingIndicator() {
   return (
     <div className="mt-5 flex items-center gap-2 text-sage">
-      <span className="relative flex h-1.5 w-1.5">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-60" />
-        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sage" />
+      <span className="relative flex size-1.5">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-sage opacity-60" />
+        <span className="relative inline-flex size-1.5 rounded-full bg-sage" />
       </span>
-      <span className="font-mono text-2xs uppercase tracking-widest">the agent is thinking…</span>
+      <span className="font-mono text-2xs tracking-widest uppercase">the agent is thinking…</span>
     </div>
   );
 }
@@ -282,7 +282,7 @@ function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
   return (
     <div className="border-t border-line/70 py-4 opacity-55 sm:py-5">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <span className="font-mono text-2xs font-medium uppercase tracking-widest text-clay">
+        <span className="font-mono text-2xs font-medium tracking-widest text-clay uppercase">
           {speaker}
         </span>
         <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">sending…</span>

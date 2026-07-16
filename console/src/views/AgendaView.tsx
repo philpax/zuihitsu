@@ -80,7 +80,7 @@ function AgendaRow({ item, base, cursor }: { item: AgendaItem; base: string; cur
     <li className="flex items-baseline gap-3">
       <span className="w-12 shrink-0 font-mono text-2xs text-ink-faint">{at ?? "—"}</span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-relaxed text-ink">{item.text}</p>
+        <p className="text-sm/relaxed text-ink">{item.text}</p>
         <p className="mt-0.5 flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
           <Link
             to={statePath(base, cursor, item.memory)}

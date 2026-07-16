@@ -10,9 +10,7 @@ import { type Components } from "react-markdown";
 /// Defined once at the module level so the React Compiler sees a stable object rather than a fresh one
 /// each render.
 export const turnComponents: Components = {
-  p: ({ children }) => (
-    <p className="text-base leading-relaxed text-ink [&:not(:first-child)]:mt-3">{children}</p>
-  ),
+  p: ({ children }) => <p className="text-base/relaxed text-ink not-first:mt-3">{children}</p>,
   a: ({ children, href }) => (
     <a
       href={href}
@@ -24,12 +22,10 @@ export const turnComponents: Components = {
     </a>
   ),
   ul: ({ children }) => (
-    <ul className="mt-2 list-disc space-y-1 pl-5 text-base leading-relaxed text-ink">{children}</ul>
+    <ul className="mt-2 list-disc space-y-1 pl-5 text-base/relaxed text-ink">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="mt-2 list-decimal space-y-1 pl-5 text-base leading-relaxed text-ink">
-      {children}
-    </ol>
+    <ol className="mt-2 list-decimal space-y-1 pl-5 text-base/relaxed text-ink">{children}</ol>
   ),
   li: ({ children }) => <li className="pl-1">{children}</li>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
@@ -45,13 +41,13 @@ export const turnComponents: Components = {
     <h5 className="mt-3 font-serif text-sm font-medium text-ink">{children}</h5>
   ),
   h4: ({ children }) => (
-    <h6 className="mt-3 font-mono text-2xs uppercase tracking-widest text-ink-soft">{children}</h6>
+    <h6 className="mt-3 font-mono text-2xs tracking-widest text-ink-soft uppercase">{children}</h6>
   ),
   h5: ({ children }) => (
-    <h6 className="mt-3 font-mono text-2xs uppercase tracking-widest text-ink-faint">{children}</h6>
+    <h6 className="mt-3 font-mono text-2xs tracking-widest text-ink-faint uppercase">{children}</h6>
   ),
   h6: ({ children }) => (
-    <h6 className="mt-3 font-mono text-2xs uppercase tracking-widest text-ink-faint">{children}</h6>
+    <h6 className="mt-3 font-mono text-2xs tracking-widest text-ink-faint uppercase">{children}</h6>
   ),
   hr: () => <hr className="my-4 border-line" />,
   // A fenced block (multi-line, or carrying a language class) is laid out by `pre`; only inline code
@@ -61,11 +57,11 @@ export const turnComponents: Components = {
     return isBlock ? (
       <code className="font-mono">{children}</code>
     ) : (
-      <code className="rounded bg-oat/50 px-1 py-0.5 font-mono text-[0.9em]">{children}</code>
+      <code className="rounded-sm bg-oat/50 px-1 py-0.5 font-mono text-[0.9em]">{children}</code>
     );
   },
   pre: ({ children }) => (
-    <pre className="mt-3 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-xs leading-relaxed">
+    <pre className="mt-3 overflow-auto bg-oat/50 px-3 py-2 font-mono text-xs/relaxed whitespace-pre-wrap">
       {children}
     </pre>
   ),
@@ -97,17 +93,15 @@ export const turnComponents: Components = {
 export const thinkingComponents: Components = {
   ...turnComponents,
   p: ({ children }) => (
-    <p className="text-sm italic leading-relaxed text-ink-soft [&:not(:first-child)]:mt-2">
-      {children}
-    </p>
+    <p className="text-sm/relaxed text-ink-soft italic not-first:mt-2">{children}</p>
   ),
   ul: ({ children }) => (
-    <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm italic leading-relaxed text-ink-soft">
+    <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm/relaxed text-ink-soft italic">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-sm italic leading-relaxed text-ink-soft">
+    <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-sm/relaxed text-ink-soft italic">
       {children}
     </ol>
   ),
@@ -116,19 +110,19 @@ export const thinkingComponents: Components = {
     return isBlock ? (
       <code className="font-mono not-italic">{children}</code>
     ) : (
-      <code className="rounded bg-oat/50 px-1 py-0.5 font-mono text-[0.9em] not-italic">
+      <code className="rounded-sm bg-oat/50 px-1 py-0.5 font-mono text-[0.9em] not-italic">
         {children}
       </code>
     );
   },
   pre: ({ children }) => (
-    <pre className="mt-2 overflow-auto whitespace-pre-wrap bg-oat/50 px-3 py-2 font-mono text-xs not-italic leading-relaxed text-ink-soft">
+    <pre className="mt-2 overflow-auto bg-oat/50 px-3 py-2 font-mono text-xs/relaxed whitespace-pre-wrap text-ink-soft not-italic">
       {children}
     </pre>
   ),
   td: ({ children, style }) => (
     <td
-      className="border-b border-line/50 px-2 py-1 text-sm not-italic text-ink-soft"
+      className="border-b border-line/50 px-2 py-1 text-sm text-ink-soft not-italic"
       style={style}
     >
       {children}

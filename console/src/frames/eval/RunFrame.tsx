@@ -158,7 +158,7 @@ function ScenarioRail({
         <nav className="mt-3 flex flex-col gap-0.5">
           {groupScenariosByCategory(pkg.scenarios).map((group) => (
             <div key={group.category} className="mb-2 flex flex-col gap-0.5 last:mb-0">
-              <span className="pt-1 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+              <span className="pt-1 font-mono text-2xs tracking-widest text-ink-faint uppercase">
                 {group.category}
               </span>
               {group.entries.map(({ scenario: entry, index }) => {
@@ -188,9 +188,9 @@ function ScenarioRail({
                     className="flex shrink-0 items-baseline gap-1 text-ink-faint"
                     title="running"
                   >
-                    <span className="relative flex h-1 w-1 self-center">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
-                      <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
+                    <span className="relative flex size-1 self-center">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-sage opacity-70" />
+                      <span className="relative inline-flex size-1 rounded-full bg-sage" />
                     </span>
                     <span>
                       {completed}/{runsPlanned}
@@ -268,7 +268,7 @@ function ScenarioHeader({ scenario }: { scenario: ScenarioSummary }) {
     <header className="border-b border-line pb-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">{meta.name}</h2>
-        <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+        <span className="font-mono text-2xs tracking-widest text-ink-faint uppercase">
           {meta.category}
         </span>
       </div>
@@ -304,7 +304,7 @@ function ScenarioHeader({ scenario }: { scenario: ScenarioSummary }) {
         )}
       </div>
       {meta.description && (
-        <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-soft">{meta.description}</p>
+        <p className="mt-3 max-w-prose text-sm/relaxed text-ink-soft">{meta.description}</p>
       )}
     </header>
   );
@@ -350,7 +350,7 @@ function RunPicker({
               to={runPath(scenario.meta.name, run.index, view)}
               title={`Run ${run.index} · ${passed ? "passed" : "failed"}${isActive ? " · open" : ""}`}
               className={
-                "flex h-7 min-w-[1.75rem] items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
+                "flex h-7 min-w-7 items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
                 state +
                 selection
               }
@@ -364,15 +364,15 @@ function RunPicker({
             to={runPath(scenario.meta.name, liveRun, view)}
             title={`Run ${liveRun} · streaming live`}
             className={
-              "flex h-7 min-w-[1.75rem] items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +
+              "flex h-7 min-w-7 items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +
               (liveRun === active
-                ? "border-sage text-sage ring-1 ring-inset ring-ink font-semibold "
-                : "border-sage/50 text-sage hover:border-sage ")
+                ? "border-sage font-semibold text-sage ring-1 ring-ink ring-inset"
+                : "border-sage/50 text-sage hover:border-sage")
             }
           >
-            <span className="relative flex h-1 w-1">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sage opacity-70" />
-              <span className="relative inline-flex h-1 w-1 rounded-full bg-sage" />
+            <span className="relative flex size-1">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-sage opacity-70" />
+              <span className="relative inline-flex size-1 rounded-full bg-sage" />
             </span>
             {liveRun}
           </Link>

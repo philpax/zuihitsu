@@ -48,7 +48,7 @@ export function GenesisGate({
     <div className="mx-auto max-w-prose py-12">
       <header className="mb-6">
         <h2 className="font-serif text-xl text-ink sm:text-2xl">No agent here yet</h2>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-soft">
+        <p className="mt-1 max-w-prose text-sm/relaxed text-ink-soft">
           This instance has no agent. Bring one into being — its name, a persona, and any
           first-person truths to plant in <code>self</code>. You can refine who it is afterward in
           the imprint conversation.
@@ -75,7 +75,7 @@ export function GenesisGate({
             onChange={(event) => setPersona(event.target.value)}
             rows={3}
             placeholder="A thoughtful, discreet companion with a long memory."
-            className="w-full resize-none border border-line bg-transparent p-3 font-serif text-base leading-relaxed text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+            className="w-full resize-none border border-line bg-transparent p-3 font-serif text-base/relaxed text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
           />
         </Field>
         <Field label="seed entries · one per line">
@@ -84,7 +84,7 @@ export function GenesisGate({
             onChange={(event) => setSeeds(event.target.value)}
             rows={3}
             placeholder="I keep what people tell me in confidence."
-            className="w-full resize-none border border-line bg-transparent p-3 font-serif text-base leading-relaxed text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+            className="w-full resize-none border border-line bg-transparent p-3 font-serif text-base/relaxed text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
           />
         </Field>
         {error && <p className="text-sm text-clay">{error}</p>}

@@ -171,7 +171,7 @@ export function StreamWorkspace({
             key={entry.id}
             onClick={() => selectView(entry.id)}
             className={
-              "-mb-px shrink-0 whitespace-nowrap border-b-2 py-3 transition-colors " +
+              "-mb-px shrink-0 border-b-2 py-3 whitespace-nowrap transition-colors " +
               (entry.id === view
                 ? "border-clay font-medium text-ink"
                 : "border-transparent text-ink-soft hover:text-ink")
@@ -278,7 +278,7 @@ export function StreamWorkspace({
 
       {/* The sticky bottom chrome: the dock (a view's floating controls) stacked over the global
           timeline, in one region so they never fight for the same edge. */}
-      <footer className="sticky bottom-0 z-10 bg-paper/95 backdrop-blur">
+      <footer className="sticky bottom-0 z-10 bg-paper/95 backdrop-blur-sm">
         <div ref={setDock} />
         {head > 0 && !extra && (
           <Timeline head={head} seq={cursor} events={events} onScrub={scrub} onReset={reset} />

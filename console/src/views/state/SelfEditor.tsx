@@ -91,7 +91,7 @@ export function SelfEditor({
         }}
         rows={3}
         placeholder="the agent's self, in its own voice…"
-        className="mt-3 w-full resize-y border border-line bg-transparent px-3 py-2 font-serif text-base leading-relaxed text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
+        className="mt-3 w-full resize-y border border-line bg-transparent px-3 py-2 font-serif text-base/relaxed text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none"
       />
 
       <div className="mt-2 flex items-center gap-2">

@@ -105,7 +105,7 @@ export function MergeProposals({
               </div>
 
               {proposal.rationale && (
-                <p className="border-l border-line pl-3 text-xs leading-relaxed text-ink-soft">
+                <p className="border-l border-line pl-3 text-xs/relaxed text-ink-soft">
                   {proposal.rationale}
                 </p>
               )}
@@ -197,7 +197,7 @@ function PrimaryBadge({ pinned }: { pinned: boolean }) {
   const tone = pinned ? "border-clay/50 text-clay" : "border-line text-ink-faint";
   return (
     <span
-      className={`rounded-xs border px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wider ${tone}`}
+      className={`rounded-xs border px-1.5 py-0.5 font-mono text-2xs tracking-wider uppercase ${tone}`}
     >
       {pinned ? "primary · pinned" : "primary"}
     </span>
@@ -215,7 +215,7 @@ function StatusBadge({ status }: { status: MergeStatus }) {
         : "border-line text-ink-faint";
   return (
     <span
-      className={`rounded-xs border px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wider ${tone}`}
+      className={`rounded-xs border px-1.5 py-0.5 font-mono text-2xs tracking-wider uppercase ${tone}`}
     >
       {status}
     </span>

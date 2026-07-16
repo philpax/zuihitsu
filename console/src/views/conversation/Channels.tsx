@@ -164,7 +164,7 @@ export function ChannelLink({
         (active
           ? "border-clay font-medium text-ink"
           : "border-transparent text-ink-soft hover:text-ink") +
-        (channel.conversation ? "" : " italic text-ink-faint")
+        (channel.conversation ? "" : " text-ink-faint italic")
       }
     >
       <span className="truncate">{channel.label}</span>

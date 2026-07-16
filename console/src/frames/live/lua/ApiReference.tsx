@@ -20,9 +20,7 @@ export function ApiReference({ entries }: { entries: ApiEntry[] }) {
                   <span className="text-clay">{entry.call}</span>
                   <Signature entry={entry} />
                 </p>
-                {entry.doc && (
-                  <p className="mt-1 text-sm leading-relaxed text-ink-soft">{entry.doc}</p>
-                )}
+                {entry.doc && <p className="mt-1 text-sm/relaxed text-ink-soft">{entry.doc}</p>}
               </li>
             ))}
           </ul>

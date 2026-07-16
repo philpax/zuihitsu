@@ -45,12 +45,12 @@ export function RelationLegend({
       ) : (
         // Scrolls sideways on a narrow screen rather than crushing its fixed columns.
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[34rem] table-fixed border-collapse">
+          <table className="w-full min-w-136 table-fixed border-collapse">
             <thead>
-              <tr className="border-b border-line text-left font-mono text-2xs uppercase tracking-widest text-ink-faint">
-                <th className="w-[20%] pb-1 pr-2 font-normal">name</th>
-                <th className="w-[20%] pb-1 pr-2 font-normal">inverse</th>
-                <th className="w-24 pb-1 pr-2 font-normal">card</th>
+              <tr className="border-b border-line text-left font-mono text-2xs tracking-widest text-ink-faint uppercase">
+                <th className="w-[20%] pr-2 pb-1 font-normal">name</th>
+                <th className="w-[20%] pr-2 pb-1 font-normal">inverse</th>
+                <th className="w-24 pr-2 pb-1 font-normal">card</th>
                 <th className="pb-1 font-normal">description</th>
               </tr>
             </thead>
@@ -67,7 +67,7 @@ export function RelationLegend({
                       (active ? "border-clay" : "border-transparent hover:bg-oat/30")
                     }
                   >
-                    <td className="py-1 pl-2.5 pr-2 font-mono text-xs" style={{ color }}>
+                    <td className="py-1 pr-2 pl-2.5 font-mono text-xs" style={{ color }}>
                       {relation.name}
                     </td>
                     <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
@@ -76,7 +76,7 @@ export function RelationLegend({
                     <td className="py-1 pr-2 font-mono text-2xs text-ink-faint">
                       {cardinalityLabel(relation)}
                     </td>
-                    <td className="py-1 text-2xs leading-snug text-ink-faint">
+                    <td className="py-1 text-2xs/snug text-ink-faint">
                       {relation.description || "—"}
                     </td>
                   </tr>
@@ -113,7 +113,7 @@ export function LinkedPairs({
   }
   return (
     <section>
-      <span className="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+      <span className="font-mono text-2xs tracking-widest text-ink-faint uppercase">
         {`linked · ${graph.links.length}`}
       </span>
       <ul className="mt-2 flex flex-col gap-0.5 font-mono text-xs text-ink-soft">

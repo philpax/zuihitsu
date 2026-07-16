@@ -11,13 +11,13 @@ import { WorkingPulse } from "../../components/primitives.tsx";
 export function StreamingStep({ generation }: { generation: InFlightGeneration }) {
   return (
     <div className="text-xs">
-      <div className="flex items-baseline gap-2 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+      <div className="flex items-baseline gap-2 font-mono text-2xs tracking-widest text-ink-faint uppercase">
         <WorkingPulse className="self-center" />
         <span>
           {generation.phase === "Synthesis" ? "synthesising" : `step ${generation.step + 1}`}
         </span>
         {generation.restarts > 0 && (
-          <span className="normal-case tracking-normal text-clay">
+          <span className="tracking-normal text-clay normal-case">
             · attempt {generation.restarts + 1}
           </span>
         )}

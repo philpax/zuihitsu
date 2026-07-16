@@ -101,7 +101,7 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
         <p className="mt-1 font-mono text-xs text-clay">{terminalCauseLabel(error)}</p>
       ) : (
         step.result && (
-          <p className="mt-1 whitespace-pre-wrap font-mono text-xs text-ink-soft">
+          <p className="mt-1 font-mono text-xs whitespace-pre-wrap text-ink-soft">
             → {step.result}
           </p>
         )
@@ -128,7 +128,7 @@ function AmbientStep({ step }: { step: Extract<DeliberationStep, { kind: "ambien
           </>
         )}
       </div>
-      <div className="mt-1 whitespace-pre-wrap font-mono text-xs text-ink-soft">{step.text}</div>
+      <div className="mt-1 font-mono text-xs whitespace-pre-wrap text-ink-soft">{step.text}</div>
     </div>
   );
 }
@@ -139,9 +139,9 @@ function AmbientStep({ step }: { step: Extract<DeliberationStep, { kind: "ambien
 function AbortedStep({ step }: { step: Extract<DeliberationStep, { kind: "aborted" }> }) {
   return (
     <div className="text-xs">
-      <div className="font-mono text-2xs uppercase tracking-widest text-clay">
+      <div className="font-mono text-2xs tracking-widest text-clay uppercase">
         attempt {step.attempt} discarded
-        <span className="ml-2 normal-case tracking-normal text-ink-faint">· {step.cause}</span>
+        <span className="ml-2 tracking-normal text-ink-faint normal-case">· {step.cause}</span>
       </div>
       {(step.partialReasoning || step.partialReply) && (
         <div className="mt-1 text-ink-faint line-through opacity-60">

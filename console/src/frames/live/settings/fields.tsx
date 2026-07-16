@@ -134,9 +134,7 @@ export function Leaf({
       <label className="flex flex-col gap-0.5">
         <span className="font-mono text-2xs text-ink-soft">{label(name)}</span>
         {meta?.description && (
-          <span className="max-w-prose text-xs leading-snug text-ink-faint">
-            {meta.description}
-          </span>
+          <span className="max-w-prose text-xs/snug text-ink-faint">{meta.description}</span>
         )}
       </label>
       <span className="flex shrink-0 items-baseline gap-1.5">
