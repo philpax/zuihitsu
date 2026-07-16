@@ -58,6 +58,15 @@ pub struct StorageConfig {
     /// Path to the SQLite database for the turn map (Discord message ID → zuihitsu turn ID).
     /// The mapping survives connector restarts.
     pub turn_map_path: PathBuf,
+    /// Path to the SQLite database for the participant identity sync (the last-projected username,
+    /// display name, and nickname per user, and the entry id to supersede on the next change). Survives
+    /// connector restarts, so a restart supersedes in place rather than re-appending a duplicate.
+    #[serde(default = "default_participant_sync_path")]
+    pub participant_sync_path: PathBuf,
+}
+
+fn default_participant_sync_path() -> PathBuf {
+    PathBuf::from("participant_sync.db")
 }
 
 /// Pacing tunables.

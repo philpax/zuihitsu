@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::Serialize;
 use zuihitsu_core::{
-    ids::{ConversationLocator, PersonId},
+    ids::{ConversationLocator, EntryId, PersonId},
     progress::TurnProgress,
 };
 
@@ -46,6 +46,8 @@ pub enum Operation {
     Join,
     /// `POST /platform/context` — writing context entries.
     WriteContext,
+    /// `POST /platform/participant` — projecting a participant's identity attributes.
+    ProjectParticipant,
 }
 
 impl fmt::Display for Operation {
@@ -54,6 +56,7 @@ impl fmt::Display for Operation {
             Operation::SendMessageStream => write!(f, "send message stream"),
             Operation::Join => write!(f, "join"),
             Operation::WriteContext => write!(f, "write context"),
+            Operation::ProjectParticipant => write!(f, "project participant"),
         }
     }
 }
@@ -99,6 +102,16 @@ pub enum StreamOutcome {
 #[derive(Serialize)]
 pub struct ContextEntry {
     pub text: String,
+}
+
+/// One identity attribute to project onto a participant's profile via `POST /platform/participant`.
+/// `text` is the value to record now, or `None` to clear a value that is no longer set. `supersedes`
+/// is the entry id a prior projection of this same attribute returned, which the server supersedes on a
+/// change or retracts on a clear — the connector holds it, so the server needs no per-attribute keying.
+#[derive(Serialize)]
+pub struct ParticipantAttribute {
+    pub text: Option<String>,
+    pub supersedes: Option<EntryId>,
 }
 
 /// One inbound message to submit to the platform API.
@@ -284,6 +297,53 @@ impl PlatformClient {
         }
         Ok(())
     }
+
+    /// `POST /platform/participant` — project a participant's identity attributes (username, display
+    /// name, nickname) onto their `person/*` stub as public entries. Each attribute records a new value
+    /// or clears one, superseding or retracting the entry a prior projection returned for it. Returns
+    /// the new entry id per attribute, in request order — `Some` for a recorded value, `None` for a
+    /// cleared one — which the connector holds to supersede on the next change.
+    pub async fn project_participant(
+        &self,
+        participant: &PersonId,
+        connector_id: &str,
+        attributes: &[ParticipantAttribute],
+    ) -> Result<Vec<Option<EntryId>>> {
+        let body = ParticipantBody {
+            participant,
+            connector: connector_id,
+            attributes,
+        };
+        let url = format!("{}/platform/participant", self.base_url);
+        let response = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.platform_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::ProjectParticipant,
+                source: e,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::ProjectParticipant,
+                status,
+                body,
+            });
+        }
+        response
+            .json::<Vec<Option<EntryId>>>()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::ProjectParticipant,
+                source: e,
+            })
+    }
 }
 
 /// The request body for `POST /platform/messages` and `/platform/messages/stream`.
@@ -307,4 +367,12 @@ struct ContextBody<'a> {
     locator: &'a ConversationLocator,
     connector: &'a str,
     entries: &'a [ContextEntry],
+}
+
+/// The request body for `POST /platform/participant`.
+#[derive(Serialize)]
+struct ParticipantBody<'a> {
+    participant: &'a PersonId,
+    connector: &'a str,
+    attributes: &'a [ParticipantAttribute],
 }

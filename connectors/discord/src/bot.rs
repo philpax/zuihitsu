@@ -31,6 +31,7 @@ use crate::{
     error::{Error, Result},
     locator::{ChannelContext, DISCORD_PLATFORM},
     pacing::{DebounceState, PendingMessage},
+    participant_sync::{ObservedAttribute, ParticipantSync},
     turn_map::TurnMap,
 };
 
@@ -41,6 +42,7 @@ pub struct BotState {
     pub bot_id: Mutex<Option<UserId>>,
     pub turn_map: Mutex<TurnMap>,
     pub context_sync: ContextSync,
+    pub participant_sync: ParticipantSync,
     /// Per-channel present sets: users who have spoken in a channel the bot operates in. Grown
     /// lazily — a user is added when they send a message the bot processes, not eagerly from the
     /// guild member list. Keyed by channel so presence is per-conversation, not global. A user who
@@ -64,12 +66,20 @@ impl BotState {
                 turn_map_path.display()
             ))
         })?;
+        let participant_sync_path = config.storage.participant_sync_path.clone();
+        let participant_sync = ParticipantSync::open(&participant_sync_path).map_err(|e| {
+            Error::config(format!(
+                "could not open participant sync at {}: {e}",
+                participant_sync_path.display()
+            ))
+        })?;
         Ok(BotState {
             platform,
             config,
             bot_id: Mutex::new(None),
             turn_map: Mutex::new(turn_map),
             context_sync: ContextSync::new(connector_id),
+            participant_sync,
             present_members: Mutex::new(HashMap::new()),
             debounce: DebounceState::new(debounce_ms),
         })
@@ -187,12 +197,28 @@ impl EventHandler for Handler {
             tracing::warn!(%error, "discord connector: could not write context on first contact");
         }
 
-        // Gather the present set (for DMs, it's [sender, bot]).
+        // Project the sender's current username, display name, and nickname onto their profile,
+        // superseding whichever changed since we last saw them. Only the sender is projected — never
+        // the bot, whose own messages are filtered above — so the agent's own identity is never minted
+        // as another entity.
+        let sender_person = PersonId::new(DISCORD_PLATFORM, msg.author.id.to_string());
+        if let Err(error) = state
+            .participant_sync
+            .sync(
+                &state.platform,
+                &state.config.server.connector_id,
+                &sender_person,
+                &observed_identity(&msg, &guild_name),
+            )
+            .await
+        {
+            tracing::warn!(%error, "discord connector: could not project participant identity");
+        }
+
+        // Gather the present set. A DM is just the sender: the bot is the agent itself, not another
+        // participant, so it is never added to presence (which would mint a phantom person stub).
         let present: Vec<PersonId> = if is_dm {
-            vec![
-                PersonId::new(DISCORD_PLATFORM, msg.author.id.to_string()),
-                PersonId::new(DISCORD_PLATFORM, bot_id.to_string()),
-            ]
+            vec![PersonId::new(DISCORD_PLATFORM, msg.author.id.to_string())]
         } else {
             let present = state.present_members.lock().await;
             present
@@ -290,6 +316,42 @@ impl EventHandler for Handler {
     async fn resume(&self, _ctx: Context, _: ResumedEvent) {
         tracing::info!("discord connector: gateway resumed");
     }
+}
+
+/// The identity attributes to project for a message's sender: the account username and display name
+/// (global to Discord), and the server nickname (per guild, keyed by guild id). An unset display name
+/// or nickname is carried as `None`, so clearing it later retracts the prior projection rather than
+/// leaving a stale handle. The nickname is only observed in a guild — a DM has none.
+fn observed_identity(msg: &Message, guild_name: &str) -> Vec<ObservedAttribute> {
+    let mut observed = vec![
+        ObservedAttribute {
+            key: "username".to_owned(),
+            value: Some(msg.author.name.clone()),
+            entry_text: format!("Discord username: {}", msg.author.name),
+        },
+        ObservedAttribute {
+            key: "display_name".to_owned(),
+            entry_text: msg
+                .author
+                .global_name
+                .as_deref()
+                .map(|name| format!("Discord display name: {name}"))
+                .unwrap_or_default(),
+            value: msg.author.global_name.clone(),
+        },
+    ];
+    if let Some(guild_id) = msg.guild_id {
+        let nick = msg.member.as_ref().and_then(|member| member.nick.clone());
+        observed.push(ObservedAttribute {
+            key: format!("nickname:{}", guild_id.get()),
+            entry_text: nick
+                .as_deref()
+                .map(|nick| format!("Discord nickname in {guild_name}: {nick}"))
+                .unwrap_or_default(),
+            value: nick,
+        });
+    }
+    observed
 }
 
 /// Extract `(name, topic)` from a channel, returning empty strings if unavailable.

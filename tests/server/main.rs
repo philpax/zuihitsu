@@ -8,10 +8,10 @@ use std::time::Duration;
 use zuihitsu::{
     CheckpointTrigger, Completion, ConcurrencySettings, ConversationLocator, Embedder,
     FakeEmbedder, GenerateRequest, GenerateResponse, GenerateStream, Graph, InMemoryVectorIndex,
-    ManualClock, MemoryId, MemoryName, MemoryStore, ModelClient, ModelError, Namespace, PersonId,
-    ScriptedModel, SeedSelf, Server, SqliteStore, Store, TEST_PLATFORM, ToolCall, TurnOutcome,
-    TurnRole, Usage, VectorIndex,
-    event::{EventPayload, PromptTemplateName},
+    ManualClock, MemoryId, MemoryName, MemoryStore, ModelClient, ModelError, Namespace,
+    ParticipantAttribute, PersonId, ScriptedModel, SeedSelf, Server, SqliteStore, Store,
+    TEST_PLATFORM, ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
+    event::{EventPayload, EventSource, PromptTemplateName},
     genesis::{GenesisStatus, Rollout},
     stream_response,
     time::MILLIS_PER_DAY,
@@ -41,6 +41,7 @@ mod checkpoint;
 mod checkpoint_advanced;
 mod control;
 mod joins;
+mod participant;
 mod routing;
 mod streaming;
 

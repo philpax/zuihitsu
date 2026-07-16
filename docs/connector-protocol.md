@@ -121,6 +121,33 @@ The conversation is minted on first contact if it doesn't yet exist. This is int
 
 Returns `204 No Content` on success.
 
+## Projecting a participant's identity
+
+### `POST /platform/participant`
+
+Project a participant's platform identity — the username, display name, and nickname a platform surfaces to other users — onto their `person/*` stub as ordinary public entries, so the agent reads someone's current handles from their profile. The stub is minted on first contact if it doesn't yet exist.
+
+Each attribute either records a new value or clears one, and the connector holds the entry id a prior projection returned for it — so a changed value **supersedes** that entry and a cleared one **retracts** it, with no attribute keying on the server. The connector sends an attribute only when its value changed, tracking the last-seen value and returned id per attribute (a nickname per guild, since it varies by server).
+
+**Request body:**
+
+```json
+{
+  "participant": { "platform": "chat", "id": "dave" },
+  "connector": "my-connector",
+  "attributes": [
+    { "text": "Chat username: dave1234", "supersedes": null },
+    { "text": "Chat nickname in Acme: Dave", "supersedes": "01J…" },
+    { "text": null, "supersedes": "01J…" }
+  ]
+}
+```
+
+- `text` — the value to record now, or `null` to clear a value that is no longer set.
+- `supersedes` — the entry id a prior projection of this attribute returned, to supersede (on a change) or retract (on a clear); `null` on first contact. A target the agent has since dropped is a no-op — the fresh value still lands.
+
+Returns a JSON array of the new entry id per attribute, in request order: a string for a recorded value, `null` for a cleared one. The connector stores these to supersede on the next change.
+
 ## Stream frames
 
 Both streaming endpoints (`/platform/messages/stream` and `/control/events/stream`) use the same wire format: an SSE stream where every event has a `data:` payload that is a JSON `StreamFrame`. No `event:` field is emitted — the frame's type lives inside the JSON (`{"type":"progress",…}`), so a consumer reads SSE events, takes each `data:` field, and deserialises it as a `StreamFrame`.

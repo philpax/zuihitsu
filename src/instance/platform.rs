@@ -15,10 +15,10 @@ use crate::{
     },
     event::{EventSource, PromptTemplateName, Teller},
     graph::GraphError,
-    ids::{ConversationId, ConversationLocator, MemoryId, PersonId, Seq, TurnId},
+    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, Seq, TurnId},
     memory::{
         identity::{resolve_or_mint_conversation, resolve_or_mint_participant},
-        memory_block::{AppendOptions, Authority, MemoryBlock, VisibilityChoice},
+        memory_block::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice},
     },
     model::ModelClient,
     settings::Settings,
@@ -32,6 +32,19 @@ pub struct MessageInput {
     pub sender: PersonId,
     /// The message text.
     pub text: String,
+}
+
+/// One identity attribute projected onto a participant's profile via [`Platform::project_participant`]
+/// — a username, display name, or nickname the platform surfaces to other users. `text` is the value
+/// to record now, or `None` to clear a value that is no longer set. `supersedes` is the entry id a
+/// prior projection of this same attribute returned, so a changed value supersedes it and a cleared
+/// one retracts it — the connector holds that id, so the server needs no per-attribute keying.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ParticipantAttribute {
+    /// The attribute's current value, or `None` to clear the prior value.
+    pub text: Option<String>,
+    /// The entry a prior projection of this attribute returned, to supersede or retract.
+    pub supersedes: Option<EntryId>,
 }
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
@@ -474,6 +487,89 @@ impl Platform<'_> {
         Ok(())
     }
 
+    /// Project a participant's platform identity attributes — the username, display name, and nickname
+    /// a platform surfaces to other users — onto their `person/*` stub as ordinary `Public` entries, so
+    /// the agent reads someone's current handles from their profile. Each attribute either records a new
+    /// value, superseding the entry a prior projection returned for it, or clears a value no longer set,
+    /// retracting that entry. The connector holds the entry ids, so the server keys nothing itself.
+    ///
+    /// The stub is resolved (or minted) from the `PersonId`, so a projection lands even on first contact.
+    /// Returns the new entry id per attribute, in request order: `Some` for a recorded value, `None` for
+    /// a cleared or absent one. A supersede or retract target the agent has since dropped is a no-op —
+    /// the fresh append still stands — so a projection never fails on a target that moved underneath it.
+    pub fn project_participant(
+        &self,
+        participant: &PersonId,
+        connector_id: &str,
+        attributes: &[ParticipantAttribute],
+    ) -> Result<Vec<Option<EntryId>>, InstanceError> {
+        if attributes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let engine = &self.server.engine;
+        // Resolve (or mint) the participant's stub, the same path a message takes.
+        let memory = {
+            let graph = engine.graph.lock();
+            resolve_or_mint_participant(
+                engine.store.lock().as_mut(),
+                engine.clock.as_ref(),
+                &graph,
+                participant.platform.as_str(),
+                participant.id.as_str(),
+            )?
+        };
+        engine
+            .graph
+            .lock()
+            .materialize_from(engine.store.lock().as_ref())?;
+
+        // No conversation to attribute to — an identity projection is about the person, not a room.
+        let mut block = MemoryBlock::new(
+            engine.clone(),
+            Teller::Agent,
+            Authority::Platform,
+            None,
+            None,
+            Vec::new(),
+            usize::MAX,
+        )?;
+        let mut results = Vec::with_capacity(attributes.len());
+        for attribute in attributes {
+            match &attribute.text {
+                Some(text) => {
+                    let opts = AppendOptions {
+                        visibility: Some(VisibilityChoice::Public),
+                        ..AppendOptions::default()
+                    };
+                    let new = block
+                        .append(memory, text, opts)
+                        .map_err(InstanceError::Memory)?;
+                    if let Some(old) = attribute.supersedes {
+                        supersede_if_live(&mut block, memory, old, new)?;
+                    }
+                    results.push(Some(new));
+                }
+                None => {
+                    if let Some(old) = attribute.supersedes {
+                        retract_if_live(&mut block, memory, old)?;
+                    }
+                    results.push(None);
+                }
+            }
+        }
+        let now = engine.clock.now();
+        engine.store.lock().append(
+            now,
+            EventSource::Connector(connector_id.to_owned()),
+            block.into_effects().events,
+        )?;
+        engine
+            .graph
+            .lock()
+            .materialize_from(engine.store.lock().as_ref())?;
+        Ok(results)
+    }
+
     /// Force the live session in `locator`'s room to end and compact right now, through the exact path
     /// the token-budget trigger drives — the pre-compaction flush, the raw-transcript and working-set
     /// carryover staging, and a fresh session seeded from that carryover on the next message. This
@@ -577,6 +673,34 @@ impl Platform<'_> {
             }
         }
         Ok(working_set)
+    }
+}
+
+/// Supersede `old` by `new` on `memory`, treating an `old` the agent has already dropped as a no-op.
+/// A projection's supersede target can vanish between projections — the agent may have retracted or
+/// superseded it — so a missing target leaves the fresh append standing rather than failing the write.
+fn supersede_if_live(
+    block: &mut MemoryBlock,
+    memory: MemoryId,
+    old: EntryId,
+    new: EntryId,
+) -> Result<(), InstanceError> {
+    match block.supersede(memory, old, new) {
+        Ok(()) | Err(MemoryError::UnknownEntry(_)) => Ok(()),
+        Err(e) => Err(InstanceError::Memory(e)),
+    }
+}
+
+/// Retract `old` on `memory`, treating an `old` the agent has already dropped as a no-op — the cleared
+/// attribute's target may no longer be live, exactly as in [`supersede_if_live`].
+fn retract_if_live(
+    block: &mut MemoryBlock,
+    memory: MemoryId,
+    old: EntryId,
+) -> Result<(), InstanceError> {
+    match block.retract(memory, old, "no longer set on the platform.") {
+        Ok(()) | Err(MemoryError::UnknownEntry(_)) => Ok(()),
+        Err(e) => Err(InstanceError::Memory(e)),
     }
 }
 

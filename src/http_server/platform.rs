@@ -11,7 +11,10 @@ use axum::{
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use serde::Deserialize;
-use zuihitsu::{ContextEntry, ConversationLocator, MessageInput, PersonId, RosterResync};
+use zuihitsu::{
+    ContextEntry, ConversationLocator, EntryId, MessageInput, ParticipantAttribute, PersonId,
+    RosterResync,
+};
 use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
 
 use super::{AppState, error::ApiError};
@@ -116,6 +119,29 @@ pub(super) async fn write_context(
         &request.entries,
     )?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /platform/participant` — project a participant's platform identity (username, display name,
+/// nickname) onto their `person/*` stub as public entries. Each attribute records a new value or clears
+/// one, superseding or retracting the entry a prior projection returned. The `connector` field
+/// attributes the write in the event log; the response is the new entry id per attribute, in order.
+#[derive(Deserialize)]
+pub(super) struct ParticipantRequest {
+    participant: PersonId,
+    connector: String,
+    attributes: Vec<ParticipantAttribute>,
+}
+
+pub(super) async fn project_participant(
+    State(state): State<AppState>,
+    Json(request): Json<ParticipantRequest>,
+) -> Result<Json<Vec<Option<EntryId>>>, ApiError> {
+    let ids = state.server.platform().project_participant(
+        &request.participant,
+        &request.connector,
+        &request.attributes,
+    )?;
+    Ok(Json(ids))
 }
 
 /// `POST /platform/messages/stream` — deliver a batch of turns and watch its generation arrive: the
