@@ -50,18 +50,11 @@ pub struct BehaviorConfig {
 /// Persistent storage paths.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StorageConfig {
-    /// Path to the SQLite database for the turn map (Discord message ID → zuihitsu turn ID).
-    /// The mapping survives connector restarts.
-    pub turn_map_path: PathBuf,
-    /// Path to the SQLite database for the participant identity sync (the last-projected username,
-    /// display name, and nickname per user, and the entry id to supersede on the next change). Survives
-    /// connector restarts, so a restart supersedes in place rather than re-appending a duplicate.
-    #[serde(default = "default_participant_sync_path")]
-    pub participant_sync_path: PathBuf,
-}
-
-fn default_participant_sync_path() -> PathBuf {
-    PathBuf::from("participant_sync.db")
+    /// Path to the connector's SQLite state database. It holds the turn map (Discord message id →
+    /// zuihitsu turn id) and the identity sync (the last-projected username, display name, and
+    /// nickname per user, and the entry id to supersede on the next change), each in its own table.
+    /// All of it survives a connector restart.
+    pub db_path: PathBuf,
 }
 
 /// Pacing tunables.
@@ -134,14 +127,14 @@ platform_key = "key"
 token = "tok"
 
 [storage]
-turn_map_path = "turn_map.db"
+db_path = "discord.db"
 "#,
         )
         .unwrap();
         assert_eq!(config.pacing.debounce_ms, 500);
         assert_eq!(config.pacing.typing_refresh_secs, 8);
         assert!(config.behavior.allowed_channels.is_empty());
-        assert_eq!(config.storage.turn_map_path, PathBuf::from("turn_map.db"));
+        assert_eq!(config.storage.db_path, PathBuf::from("discord.db"));
     }
 
     #[test]
@@ -156,7 +149,7 @@ platform_key = "key"
 token = "tok"
 
 [storage]
-turn_map_path = "turn_map.db"
+db_path = "discord.db"
 "#,
         );
         let config = result.unwrap();
@@ -175,7 +168,7 @@ platform_key = "key"
 token = ""
 
 [storage]
-turn_map_path = "turn_map.db"
+db_path = "discord.db"
 "#,
         );
         let config = result.unwrap();

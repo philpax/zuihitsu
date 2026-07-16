@@ -8,7 +8,7 @@
 //! carries the guild id for a nickname, since a user may be nicknamed differently in each server the bot
 //! shares with them, while the username and display name are global to the account.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use tokio::sync::Mutex;
@@ -56,6 +56,9 @@ impl ParticipantSync {
     }
 
     fn init(conn: &Connection) -> rusqlite::Result<()> {
+        // The turn map shares this file through its own connection, so a writer waits for the other's
+        // brief write lock rather than failing `SQLITE_BUSY`.
+        conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS participant_sync (
                 user_id  TEXT NOT NULL,
@@ -98,9 +101,15 @@ impl ParticipantSync {
             changed.push((obs.key.as_str(), obs.value.clone()));
         }
         if attributes.is_empty() {
+            tracing::debug!(
+                user_id,
+                "identity unchanged since last projection — nothing to send"
+            );
             return Ok(());
         }
 
+        let keys: Vec<&str> = changed.iter().map(|(key, _)| *key).collect();
+        tracing::info!(user_id, ?keys, "projecting participant identity");
         let results = client.project_participant(person, &attributes).await?;
 
         for ((key, value), entry_id) in changed.into_iter().zip(results) {

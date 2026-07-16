@@ -54,22 +54,23 @@ pub struct BotState {
 impl BotState {
     pub fn new(config: DiscordConfig) -> Result<Self> {
         let debounce_ms = config.pacing.debounce_ms;
-        let turn_map_path = config.storage.turn_map_path.clone();
+        let db_path = config.storage.db_path.clone();
         let platform = PlatformClient::new(
             config.server.url.clone(),
             config.server.platform_key.clone(),
         );
-        let turn_map = TurnMap::open(&turn_map_path).map_err(|e| {
+        // The turn map and the identity sync are two tables in the connector's one SQLite state DB,
+        // each opening its own connection to `db_path`.
+        let turn_map = TurnMap::open(&db_path).map_err(|e| {
             Error::config(format!(
-                "could not open turn map at {}: {e}",
-                turn_map_path.display()
+                "could not open the state db at {}: {e}",
+                db_path.display()
             ))
         })?;
-        let participant_sync_path = config.storage.participant_sync_path.clone();
-        let participant_sync = ParticipantSync::open(&participant_sync_path).map_err(|e| {
+        let participant_sync = ParticipantSync::open(&db_path).map_err(|e| {
             Error::config(format!(
-                "could not open participant sync at {}: {e}",
-                participant_sync_path.display()
+                "could not open the state db at {}: {e}",
+                db_path.display()
             ))
         })?;
         Ok(BotState {

@@ -4,7 +4,7 @@
 //! user replies to a mapped message, the connector injects a `[turn:<id>]` token into the message
 //! text before forwarding to the platform API.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension};
 use serenity::model::id::MessageId;
@@ -39,6 +39,9 @@ impl TurnMap {
     }
 
     fn init(conn: &Connection) -> rusqlite::Result<()> {
+        // The identity sync shares this file through its own connection, so a writer waits for the
+        // other's brief write lock rather than failing `SQLITE_BUSY`.
+        conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS turn_map (
                 message_id INTEGER PRIMARY KEY,
