@@ -1,5 +1,6 @@
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
+import type { LinkSource } from "@zuihitsu/wire/types/LinkSource.ts";
 import { terminalCauseLabel } from "./labels.ts";
 
 /// The authoring authorities offered as an author filter in the Events view — genesis first, then
@@ -15,6 +16,14 @@ export function sourceLabel(source: EventSource): string {
   if (source === "Agent") return "agent";
   if (source === "Operator") return "operator";
   if (source === "Orchestration") return "system";
+  return `connector: ${source.Connector}`;
+}
+
+/// The human-facing label for a link's provenance — the agent's own edge, an operator's console
+/// assertion, an adjudicated merge `same_as`, an inferred edge, or a connector's structural link,
+/// which names the connector so an audit can tell which one authored it.
+export function linkSourceLabel(source: LinkSource): string {
+  if (typeof source === "string") return source.toLowerCase();
   return `connector: ${source.Connector}`;
 }
 

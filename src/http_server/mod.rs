@@ -43,7 +43,7 @@ use control::{
     register_prompt, resolve_merge, retract_entry, run_lua, sessions, set_settings, settings,
     snapshot as snapshot_handler, unmerge,
 };
-use platform::{join, message, message_stream, project_participant, roster, write_context};
+use platform::{join, link, message, message_stream, project_participant, roster, write_context};
 
 /// Shared HTTP handler state: the agent server behind an `Arc`, and the model client the conversing
 /// endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is configured, in
@@ -546,6 +546,7 @@ fn router(state: AppState) -> Router {
         .route("/roster", post(roster))
         .route("/context", post(write_context))
         .route("/participant", post(project_participant))
+        .route("/link", post(link))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_platform_key,

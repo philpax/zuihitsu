@@ -1,6 +1,6 @@
 use super::{
-    EntryId, Event, EventPayload, EventSource, Initiation, MemoryId, MergeProposalSource,
-    ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
+    EntryId, Event, EventPayload, EventSource, Initiation, LinkSource, MemoryId,
+    MergeProposalSource, ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
 };
 use crate::{
     brief::{Brief, BriefFact, BriefRelationship},
@@ -517,4 +517,24 @@ fn model_call_aborted_round_trips() {
         }
         other => panic!("expected the abort back, got {other:?}"),
     }
+}
+
+#[test]
+fn link_source_connector_round_trips_through_the_stored_label() {
+    // The graph `links.source` column stores `LinkSource::as_str` and reads it back with `FromStr`, so
+    // a connector edge must round-trip its identifier through that label — not just through serde.
+    let source = LinkSource::Connector("discord".to_owned());
+    let label = source.as_str();
+    assert_eq!(label, "Connector(discord)");
+    assert_eq!(label.parse::<LinkSource>().unwrap(), source);
+
+    // The prefix is case-insensitive, matching the other variants' parse.
+    assert_eq!(
+        "connector(discord)".parse::<LinkSource>().unwrap(),
+        LinkSource::Connector("discord".to_owned())
+    );
+
+    // A bare `Connector` with no parenthesised identifier is not a valid label.
+    assert!("Connector".parse::<LinkSource>().is_err());
+    assert!("Connectorish".parse::<LinkSource>().is_err());
 }

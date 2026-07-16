@@ -14,8 +14,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ContextEntry, ConversationLocator, EntryId, MessageInput, ParticipantAttribute, PersonId,
-    RosterResync,
+    ContextEntry, ConversationLocator, EntryId, LinkError, LinkNode, MessageInput,
+    ParticipantAttribute, PersonId, RosterResync,
 };
 use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
 
@@ -197,6 +197,63 @@ pub(super) async fn project_participant(
         &request.attributes,
     )?;
     Ok(Json(ids))
+}
+
+/// One endpoint of a link on the wire — a bare participant id or a bare scope path, each resolved
+/// under the request's connector, never naming a platform of its own.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum WireLinkNode {
+    Participant { id: String },
+    Context { scope_path: String },
+}
+
+/// `POST /platform/link` — assert or retract a structural link between two of the connector's own
+/// scoped memories (a channel or a member `part_of` a guild, say). Both endpoints are resolved under
+/// the request's connector, so a connector can only link memories it owns; `remove` retracts instead of
+/// asserting. The write is attributed to the request's connector.
+#[derive(Deserialize)]
+pub(super) struct LinkRequest {
+    from: WireLinkNode,
+    to: WireLinkNode,
+    relation: String,
+    #[serde(default)]
+    remove: bool,
+}
+
+pub(super) async fn link(
+    State(state): State<AppState>,
+    Extension(scope): Extension<ConnectorScope>,
+    Json(request): Json<LinkRequest>,
+) -> Result<StatusCode, ApiError> {
+    let from = link_node(&scope, request.from);
+    let to = link_node(&scope, request.to);
+    state
+        .server
+        .platform()
+        .link(&from, &to, &request.relation, &scope.id, request.remove)
+        .map_err(link_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Scope a wire link endpoint to the request's connector — the platform is the scope's, never the
+/// body's, mirroring [`person`] and [`locator`].
+fn link_node(scope: &ConnectorScope, node: WireLinkNode) -> LinkNode {
+    match node {
+        WireLinkNode::Participant { id } => LinkNode::Participant(person(scope, id)),
+        WireLinkNode::Context { scope_path } => LinkNode::Context(locator(scope, scope_path)),
+    }
+}
+
+/// A connector-contract violation (an unregistered relation, or an attempt at `same_as`) is a `400`
+/// for the connector to fix; an underlying store or graph failure is a `500`.
+fn link_error(error: LinkError) -> ApiError {
+    match error {
+        LinkError::SameAsForbidden | LinkError::UnknownRelation(_) => {
+            ApiError::BadRequest(error.to_string())
+        }
+        LinkError::Instance(error) => ApiError::Server(error),
+    }
 }
 
 /// `POST /platform/messages/stream` — deliver a batch of turns and watch its generation arrive: the

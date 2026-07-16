@@ -151,6 +151,33 @@ Each attribute either records a new value or clears one, and the connector holds
 
 Returns a JSON array of the new entry id per attribute, in request order: a string for a recorded value, `null` for a cleared one. The connector stores these to supersede on the next change.
 
+## Linking scoped memories
+
+### `POST /platform/link`
+
+Assert — or, with `remove`, retract — a structural link between two of the connector's own scoped memories. A connector uses this to record placement: a channel and its members are `part_of` a guild, say. Both endpoints are resolved under the request's connector, so a connector can only ever link memories it owns.
+
+Each endpoint is either a participant (by bare id, resolved to `person/<id>@<platform>`) or a context (by scope path, resolved to that scope's `context/*` memory). On assert, a missing endpoint is minted, so a link lands even on first sight of the guild or member; on retract, the endpoints are resolved without minting, so a retract naming an unknown node is a no-op rather than a pointless mint.
+
+**Request body:**
+
+```json
+{
+  "from": { "participant": { "id": "dave" } },
+  "to": { "context": { "scope_path": "guild/42" } },
+  "relation": "part_of",
+  "remove": false
+}
+```
+
+- `from`, `to` — the link's endpoints. Each is `{ "participant": { "id": … } }` or `{ "context": { "scope_path": … } }`, scoped to the request's connector.
+- `relation` — the link relation, which must be registered in the ontology (`part_of`, for placement). `same_as` is refused: cross-platform identity is operator-adjudicated, never a connector's to assert.
+- `remove` — `false` (or omitted) to assert the link, `true` to retract it.
+
+The edge is `Public` (a structural fact, not a told aside) and carries `LinkSource::Connector` — the request's connector, from its key — so an audit reads which connector authored it.
+
+Returns `204 No Content` on success. An unregistered relation or an attempt at `same_as` is a `400`.
+
 ## Stream frames
 
 Both streaming endpoints (`/platform/messages/stream` and `/control/events/stream`) use the same wire format: an SSE stream where every event has a `data:` payload that is a JSON `StreamFrame`. No `event:` field is emitted — the frame's type lives inside the JSON (`{"type":"progress",…}`), so a consumer reads SSE events, takes each `data:` field, and deserialises it as a `StreamFrame`.

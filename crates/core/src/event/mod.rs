@@ -117,8 +117,9 @@ impl std::str::FromStr for Cardinality {
 /// `Adjudicated` is the one path past the operator-only merge gate, distinguishable in the log so an
 /// audit can tell a console merge from an adjudicated one (spec §Cross-platform identity); `Inferred`
 /// marks links the background pass authored without a teller behind them (spec §Write path → link
-/// inference).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// inference); `Connector` marks a structural edge a connector asserted through the platform API,
+/// carrying the connector's identifier.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
     Agent,
@@ -127,28 +128,38 @@ pub enum LinkSource {
     /// A link the off-hot-path link-inference pass authored from a relationship implicit in memory
     /// content (spec §Write path → link inference).
     Inferred,
+    /// A structural link a connector asserted through the platform API — a channel's or a
+    /// participant's placement in a guild, say. The string identifies the connector instance, matching
+    /// [`EventSource::Connector`], so an audit can tell which connector authored the edge.
+    Connector(String),
 }
 
 impl LinkSource {
-    pub fn as_str(self) -> &'static str {
+    /// The stored/wire label, matching the serialized enum form so the graph `links.source` column
+    /// carries the same string [`FromStr`](Self::from_str) reads back. A `Connector` label includes
+    /// the connector's identifier, mirroring [`EventSource::as_str`].
+    pub fn as_str(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            LinkSource::Agent => "Agent",
-            LinkSource::Operator => "Operator",
-            LinkSource::Adjudicated => "Adjudicated",
-            LinkSource::Inferred => "Inferred",
+            LinkSource::Agent => "Agent".into(),
+            LinkSource::Operator => "Operator".into(),
+            LinkSource::Adjudicated => "Adjudicated".into(),
+            LinkSource::Inferred => "Inferred".into(),
+            LinkSource::Connector(id) => format!("Connector({id})").into(),
         }
     }
 
     /// The lowercase provenance label, matching the entry teller register: `agent` for the agent's
     /// own link, `operator` for one asserted from the console, `adjudicated` for a merge-pass
-    /// `same_as`, `inferred` for one the link-inference pass authored from content. The wire/audit
-    /// form is [`Self::as_str`] (capitalized); this is the agent-facing Lua label.
-    pub fn as_str_lowercase(self) -> &'static str {
+    /// `same_as`, `inferred` for one the link-inference pass authored from content, `connector(<id>)`
+    /// for one a connector asserted. The wire/audit form is [`Self::as_str`] (capitalized); this is the
+    /// agent-facing Lua label.
+    pub fn as_str_lowercase(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            LinkSource::Agent => "agent",
-            LinkSource::Operator => "operator",
-            LinkSource::Adjudicated => "adjudicated",
-            LinkSource::Inferred => "inferred",
+            LinkSource::Agent => "agent".into(),
+            LinkSource::Operator => "operator".into(),
+            LinkSource::Adjudicated => "adjudicated".into(),
+            LinkSource::Inferred => "inferred".into(),
+            LinkSource::Connector(id) => format!("connector({id})").into(),
         }
     }
 }
@@ -157,7 +168,8 @@ impl std::str::FromStr for LinkSource {
     type Err = ();
 
     /// Parse case-insensitively: the stored form is capitalized (`"Agent"`/`"Operator"`/…), but the
-    /// agent-facing Lua label and model replies may emit either casing.
+    /// agent-facing Lua label and model replies may emit either casing. A `Connector(<id>)` label
+    /// round-trips the connector identifier from between the parentheses.
     fn from_str(text: &str) -> Result<LinkSource, Self::Err> {
         let text = text.trim();
         if text.eq_ignore_ascii_case("agent") {
@@ -168,10 +180,25 @@ impl std::str::FromStr for LinkSource {
             Ok(LinkSource::Adjudicated)
         } else if text.eq_ignore_ascii_case("inferred") {
             Ok(LinkSource::Inferred)
+        } else if let Some(id) = strip_connector_label(text) {
+            Ok(LinkSource::Connector(id.to_owned()))
         } else {
             Err(())
         }
     }
+}
+
+/// Extract the connector identifier from a `Connector(<id>)` label, case-insensitive on the prefix.
+/// Returns `None` when `text` is not a connector label, so [`LinkSource::from_str`] can fall through
+/// to its `Err`.
+fn strip_connector_label(text: &str) -> Option<&str> {
+    let rest = text.get(.."Connector".len())?;
+    if !rest.eq_ignore_ascii_case("Connector") {
+        return None;
+    }
+    text["Connector".len()..]
+        .strip_prefix('(')
+        .and_then(|inner| inner.strip_suffix(')'))
 }
 
 /// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec

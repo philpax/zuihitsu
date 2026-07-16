@@ -42,6 +42,7 @@ mod checkpoint_advanced;
 mod context;
 mod control;
 mod joins;
+mod links;
 mod participant;
 mod routing;
 mod streaming;

@@ -8,7 +8,7 @@ import {
   terminalCauseLabel,
   visibilityLabel,
 } from "../lib/model/labels.ts";
-import { sourceLabel } from "../lib/model/events.ts";
+import { linkSourceLabel, sourceLabel } from "../lib/model/events.ts";
 import { formatMs } from "../lib/format/format.ts";
 import { Lua } from "../components/Lua.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
@@ -91,7 +91,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           <Field label="from">{ref(payload.from)}</Field>
           <Field label="relation">{payload.relation}</Field>
           <Field label="to">{ref(payload.to)}</Field>
-          <Field label="source">{payload.source}</Field>
+          <Field label="source">{linkSourceLabel(payload.source)}</Field>
           {payload.told_by && (
             <Field label="told by">{tellerLabel(payload.told_by, nameById)}</Field>
           )}

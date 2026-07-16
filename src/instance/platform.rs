@@ -13,16 +13,20 @@ use crate::{
         InboundMessage, TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start,
         session_touched,
     },
-    event::{EventSource, PromptTemplateName, Teller},
+    event::{EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, Visibility},
+    graph::GraphError,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, Seq, TurnId},
     memory::{
         identity::{
-            resolve_or_mint_context, resolve_or_mint_conversation, resolve_or_mint_participant,
+            resolve_context, resolve_or_mint_context, resolve_or_mint_conversation,
+            resolve_or_mint_participant,
         },
         memory_block::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice},
     },
     model::ModelClient,
     settings::Settings,
+    store::StoreError,
+    vocabulary::RelationName,
 };
 use zuihitsu_connector_types::PlatformResponse;
 
@@ -46,6 +50,76 @@ pub struct ParticipantAttribute {
     pub text: Option<String>,
     /// The entry a prior projection of this attribute returned, to supersede or retract.
     pub supersedes: Option<EntryId>,
+}
+
+/// One endpoint of a connector-authored structural link ([`Platform::link`]) — a participant or a
+/// context, each named under the connector's own platform. A connector can only ever link memories it
+/// owns, so both nodes are scoped to its platform by construction.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum LinkNode {
+    /// A participant's `person/*` stub, by platform identity.
+    Participant(PersonId),
+    /// A scope's `context/*` memory, by locator (a guild, a channel).
+    Context(ConversationLocator),
+}
+
+/// A failure asserting or retracting a connector-authored link. The first two are client-contract
+/// violations a connector should never send — a `400` for the connector to fix — distinct from an
+/// underlying store or graph failure.
+#[derive(Debug)]
+pub enum LinkError {
+    /// A connector may not assert `same_as`: cross-platform identity is operator-adjudicated, never a
+    /// connector's to assert (spec §Cross-platform identity is operator-asserted only).
+    SameAsForbidden,
+    /// The named relation is not registered in the ontology, so the edge would be mis-typed.
+    UnknownRelation(RelationName),
+    /// An underlying instance failure resolving the endpoints or appending the edge.
+    Instance(InstanceError),
+}
+
+impl std::fmt::Display for LinkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LinkError::SameAsForbidden => write!(
+                f,
+                "platform link: a connector may not assert same_as; cross-platform identity is \
+                 operator-adjudicated"
+            ),
+            LinkError::UnknownRelation(relation) => write!(
+                f,
+                "platform link: unknown relation {:?}; a connector may link only registered relations",
+                relation.as_str()
+            ),
+            LinkError::Instance(error) => write!(f, "platform link: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for LinkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LinkError::SameAsForbidden | LinkError::UnknownRelation(_) => None,
+            LinkError::Instance(error) => Some(error),
+        }
+    }
+}
+
+impl From<InstanceError> for LinkError {
+    fn from(error: InstanceError) -> Self {
+        LinkError::Instance(error)
+    }
+}
+
+impl From<StoreError> for LinkError {
+    fn from(error: StoreError) -> Self {
+        LinkError::Instance(InstanceError::Store(error))
+    }
+}
+
+impl From<GraphError> for LinkError {
+    fn from(error: GraphError) -> Self {
+        LinkError::Instance(InstanceError::Graph(error))
+    }
 }
 
 /// Platform-authority operations: a client delivering participant turns. It can act only as the
@@ -560,6 +634,115 @@ impl Platform<'_> {
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
         Ok(results)
+    }
+
+    /// Assert (or, with `remove`, retract) a structural link a connector authored between two of its
+    /// own scoped memories — a channel's or a participant's placement in a guild, say. Both endpoints
+    /// are named under the connector's platform, so a connector can only ever link memories it owns.
+    /// The edge is `Public` (a structural fact, not a told aside) and carries
+    /// [`LinkSource::Connector`], so an audit reads which connector authored it. `same_as` is refused:
+    /// cross-platform identity is operator-adjudicated, never a connector's to assert.
+    ///
+    /// On assert, each endpoint is resolved or minted, so a link lands even on first sight of the guild
+    /// or member. On retract, the endpoints are resolved without minting — an edge to a node that does
+    /// not exist cannot exist, so the retract is a no-op rather than a pointless mint.
+    pub fn link(
+        &self,
+        from: &LinkNode,
+        to: &LinkNode,
+        relation: &str,
+        connector_id: &str,
+        remove: bool,
+    ) -> Result<(), LinkError> {
+        let relation = RelationName::new(relation);
+        if relation == RelationName::SameAs {
+            return Err(LinkError::SameAsForbidden);
+        }
+        let engine = &self.server.engine;
+        if engine.graph.lock().relation(relation.as_str())?.is_none() {
+            return Err(LinkError::UnknownRelation(relation));
+        }
+
+        let endpoints = if remove {
+            match (self.resolve_node(from)?, self.resolve_node(to)?) {
+                (Some(from_id), Some(to_id)) => Some((from_id, to_id)),
+                _ => None,
+            }
+        } else {
+            let from_id = self.resolve_or_mint_node(from)?;
+            let to_id = self.resolve_or_mint_node(to)?;
+            // Materialize the freshly minted endpoints so the edge apply resolves their classes.
+            engine
+                .graph
+                .lock()
+                .materialize_from(engine.store.lock().as_ref())?;
+            Some((from_id, to_id))
+        };
+        let Some((from_id, to_id)) = endpoints else {
+            return Ok(());
+        };
+
+        let payload = if remove {
+            EventPayload::link_removed(from_id, to_id, relation)
+        } else {
+            EventPayload::link_created(
+                from_id,
+                to_id,
+                relation,
+                LinkSource::Connector(connector_id.to_owned()),
+                // No teller and no told_in: a connector's structural edge has no human behind it,
+                // mirroring the adjudication pass's authored `same_as`.
+                None,
+                None,
+                Visibility::Public,
+            )
+        };
+        let now = engine.clock.now();
+        engine.store.lock().append(
+            now,
+            EventSource::Connector(connector_id.to_owned()),
+            vec![payload],
+        )?;
+        engine
+            .graph
+            .lock()
+            .materialize_from(engine.store.lock().as_ref())?;
+        Ok(())
+    }
+
+    /// Resolve a link endpoint to its memory id, minting one on first contact — the assert path, where
+    /// a guild or member seen for the first time should still take the edge.
+    fn resolve_or_mint_node(&self, node: &LinkNode) -> Result<MemoryId, InstanceError> {
+        let engine = &self.server.engine;
+        let graph = engine.graph.lock();
+        let id = match node {
+            LinkNode::Participant(person) => resolve_or_mint_participant(
+                engine.store.lock().as_mut(),
+                engine.clock.as_ref(),
+                &graph,
+                person.platform.as_str(),
+                person.id.as_str(),
+            )?,
+            LinkNode::Context(locator) => resolve_or_mint_context(
+                engine.store.lock().as_mut(),
+                engine.clock.as_ref(),
+                &graph,
+                locator,
+            )?,
+        };
+        Ok(id)
+    }
+
+    /// Resolve a link endpoint to its memory id without minting — the retract path, where a missing
+    /// endpoint means the edge never existed.
+    fn resolve_node(&self, node: &LinkNode) -> Result<Option<MemoryId>, GraphError> {
+        let graph = self.server.engine.graph.lock();
+        match node {
+            LinkNode::Participant(person) => {
+                graph.participant_for(person.platform.as_str(), person.id.as_str())
+            }
+            LinkNode::Context(locator) => resolve_context(&graph, locator),
+        }
     }
 
     /// Force the live session in `locator`'s room to end and compact right now, through the exact path

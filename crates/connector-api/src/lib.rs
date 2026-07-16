@@ -48,6 +48,8 @@ pub enum Operation {
     WriteContext,
     /// `POST /platform/participant` — projecting a participant's identity attributes.
     ProjectParticipant,
+    /// `POST /platform/link` — asserting or retracting a structural link.
+    Link,
 }
 
 impl fmt::Display for Operation {
@@ -57,6 +59,7 @@ impl fmt::Display for Operation {
             Operation::Join => write!(f, "join"),
             Operation::WriteContext => write!(f, "write context"),
             Operation::ProjectParticipant => write!(f, "project participant"),
+            Operation::Link => write!(f, "link"),
         }
     }
 }
@@ -119,6 +122,37 @@ pub struct ParticipantAttribute {
 pub struct PlatformMessage {
     pub sender: PersonId,
     pub text: String,
+}
+
+/// A scoped memory named on the wire — a participant or a context. It is the endpoint of a structural
+/// link (`POST /platform/link`) and the target of an attribute projection (`POST /platform/project`).
+/// Only the bare id or scope path rides the wire; the connector's platform is the request's scope, so
+/// the server resolves it under it.
+pub enum LinkEndpoint {
+    Participant(PersonId),
+    Context(ConversationLocator),
+}
+
+/// One scoped-memory reference on the wire — a bare participant id or a bare scope path, matching the
+/// server's `WireLinkNode`. The connector's platform is the request's scope.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum WireLinkNode<'a> {
+    Participant { id: &'a str },
+    Context { scope_path: &'a str },
+}
+
+impl LinkEndpoint {
+    fn wire(&self) -> WireLinkNode<'_> {
+        match self {
+            LinkEndpoint::Participant(person) => WireLinkNode::Participant {
+                id: person.id.as_str(),
+            },
+            LinkEndpoint::Context(locator) => WireLinkNode::Context {
+                scope_path: locator.scope_path.as_str(),
+            },
+        }
+    }
 }
 
 /// The async platform API client.
@@ -382,5 +416,56 @@ impl PlatformClient {
                 operation: Operation::ProjectParticipant,
                 source: e,
             })
+    }
+
+    /// `POST /platform/link` — assert (or, with `remove`, retract) a structural link between two of the
+    /// connector's own scoped memories: a channel or a member `part_of` a guild, say. Both endpoints
+    /// ride the wire as bare ids resolved under the request's connector, so a connector can link only
+    /// memories it owns. `same_as` is refused server-side: cross-platform identity is operator-adjudicated.
+    pub async fn link(
+        &self,
+        from: &LinkEndpoint,
+        to: &LinkEndpoint,
+        relation: &str,
+        remove: bool,
+    ) -> Result<()> {
+        /// The request body for `POST /platform/link`.
+        #[derive(Serialize)]
+        struct LinkBody<'a> {
+            from: WireLinkNode<'a>,
+            to: WireLinkNode<'a>,
+            relation: &'a str,
+            remove: bool,
+        }
+
+        let body = LinkBody {
+            from: from.wire(),
+            to: to.wire(),
+            relation,
+            remove,
+        };
+        let url = format!("{}/platform/link", self.base_url);
+        let response = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.platform_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::Link,
+                source: e,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::Link,
+                status,
+                body,
+            });
+        }
+        Ok(())
     }
 }

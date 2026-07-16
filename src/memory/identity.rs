@@ -160,6 +160,17 @@ pub fn resolve_or_mint_context(
     Ok(id)
 }
 
+/// Resolve a scope to its [`Namespace::Context`] memory without minting one — `None` when the scope
+/// has no context memory yet. The retract counterpart to [`resolve_or_mint_context`]: a connector
+/// removing a structural link resolves the nodes it already established rather than minting them
+/// afresh, so a retract naming an unknown scope is a no-op rather than a pointless mint.
+pub fn resolve_context(
+    graph: &Graph,
+    locator: &ConversationLocator,
+) -> Result<Option<MemoryId>, GraphError> {
+    Ok(graph.memory_by_name(context_name(locator))?.map(|m| m.id))
+}
+
 /// Resolve a room locator to its conversation, opening one on first contact. Returns the
 /// conversation's id (the caller materializes the graph to see a freshly opened room). Opening a room
 /// resolves its [`Namespace::Context`] memory via [`resolve_or_mint_context`] — reusing one already
