@@ -52,15 +52,31 @@ export function Timeline({
           </>
         )}
       </div>
-      <input
-        type="range"
-        min={0}
-        max={head}
-        value={seq}
-        onChange={(event) => onScrub(Number(event.target.value))}
-        className="scrubber"
-        style={{ "--scrubbed": `${head > 0 ? (seq / head) * 100 : 0}%` } as CSSProperties}
-      />
+      {/* The scrubber, flanked by single-step buttons: each nudges the cursor one event, for a precise
+          walk where dragging the range is too coarse. Stepping onto the head re-enters follow mode. */}
+      <div className="flex items-center gap-2">
+        <StepButton
+          label="←"
+          title="Step back one event"
+          onClick={() => onScrub(Math.max(0, seq - 1))}
+          disabled={seq <= 0}
+        />
+        <input
+          type="range"
+          min={0}
+          max={head}
+          value={seq}
+          onChange={(event) => onScrub(Number(event.target.value))}
+          className="scrubber min-w-0 flex-1"
+          style={{ "--scrubbed": `${head > 0 ? (seq / head) * 100 : 0}%` } as CSSProperties}
+        />
+        <StepButton
+          label="→"
+          title="Step forward one event"
+          onClick={() => onScrub(Math.min(head, seq + 1))}
+          disabled={seq >= head}
+        />
+      </div>
       {/* The run's span flanks the scrubber where there is room; on a phone the bottom chrome
           stays two rows. */}
       {first && last && (
@@ -70,6 +86,31 @@ export function Timeline({
         </div>
       )}
     </div>
+  );
+}
+
+/// One single-step arrow flanking the scrubber — a faint mono glyph that dims when the cursor is
+/// already at that end of the range.
+function StepButton({
+  label,
+  title,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="shrink-0 px-1 font-mono text-xs text-ink-faint transition-colors hover:text-ink disabled:cursor-default disabled:text-ink-faint/40 disabled:hover:text-ink-faint/40"
+    >
+      {label}
+    </button>
   );
 }
 
