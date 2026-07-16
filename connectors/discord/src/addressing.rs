@@ -1,9 +1,10 @@
 //! Addressing model: the cheap filter that decides whether to forward a message to the platform API.
 //!
-//! This runs before the agent's smart filter (the stay-silent terminal). It drops bot messages,
-//! ignored channels, and guild messages that neither mention nor reply to the bot.
+//! This runs before the agent's smart filter (the stay-silent terminal). It always drops bot messages
+//! and messages in channels not on the allow-list; within an allowed channel it forwards either every
+//! message or only ones addressing the bot, per [`ReplyMode`].
 
-use crate::config::BehaviorConfig;
+use crate::config::{BehaviorConfig, ReplyMode};
 
 /// The addressing decision for an inbound message.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,8 +32,10 @@ pub struct MessageContext {
 /// Rules:
 /// - **Ignore bot messages** — never forward.
 /// - **DMs** (`guild_id.is_none()`) → always forward, `is_direct = true`.
-/// - **Guild channels**: forward only if the message mentions the bot or replies to the bot.
-///   Messages in channels not in `allowed_channels` are silently dropped.
+/// - **Guild channels**: messages in channels not in `allowed_channels` are silently dropped. Within
+///   an allowed channel, [`ReplyMode::All`] (the default) forwards every message and
+///   [`ReplyMode::Addressed`] forwards only a mention or a reply to the bot. `is_direct` marks the
+///   latter either way, so the agent still knows which messages spoke to it directly.
 pub fn should_respond(msg: &MessageContext, config: &BehaviorConfig) -> AddressingDecision {
     // Never forward messages from bots.
     if msg.author_is_bot {
@@ -64,10 +67,15 @@ pub fn should_respond(msg: &MessageContext, config: &BehaviorConfig) -> Addressi
         }
     }
 
-    // In an allowed guild channel: forward on mention or reply-to-bot.
+    // In an allowed guild channel: forward per the reply mode. A mention or reply-to-bot is always a
+    // direct address, whether or not the mode also forwards the un-addressed chatter around it.
     let is_direct = msg.mentions_bot || msg.replies_to_bot;
+    let should_forward = match config.reply_to {
+        ReplyMode::All => true,
+        ReplyMode::Addressed => is_direct,
+    };
     AddressingDecision {
-        should_forward: is_direct,
+        should_forward,
         is_direct,
     }
 }
@@ -80,6 +88,14 @@ mod tests {
     fn config_with_channels(channels: &[u64]) -> BehaviorConfig {
         BehaviorConfig {
             allowed_channels: channels.iter().map(|&c| ChannelId::new(c)).collect(),
+            ..BehaviorConfig::default()
+        }
+    }
+
+    fn config_addressed(channels: &[u64]) -> BehaviorConfig {
+        BehaviorConfig {
+            allowed_channels: channels.iter().map(|&c| ChannelId::new(c)).collect(),
+            reply_to: ReplyMode::Addressed,
         }
     }
 
@@ -157,7 +173,9 @@ mod tests {
     }
 
     #[test]
-    fn addressing_no_mention_in_allowed_channel() {
+    fn addressing_all_mode_forwards_unaddressed() {
+        // The default reply mode forwards every message in an allowed channel; it just is not `direct`,
+        // so the agent's own filter decides whether the un-addressed message warrants a reply.
         let msg = MessageContext {
             author_is_bot: false,
             guild_id: Some(1),
@@ -165,8 +183,37 @@ mod tests {
             mentions_bot: false,
             replies_to_bot: false,
         };
-        let config = config_with_channels(&[100]);
-        let decision = should_respond(&msg, &config);
+        let decision = should_respond(&msg, &config_with_channels(&[100]));
+        assert!(decision.should_forward);
+        assert!(!decision.is_direct);
+    }
+
+    #[test]
+    fn addressing_addressed_mode_drops_unaddressed() {
+        // Under `reply_to = "addressed"`, an un-addressed message in an allowed channel is dropped.
+        let msg = MessageContext {
+            author_is_bot: false,
+            guild_id: Some(1),
+            channel_id: 100,
+            mentions_bot: false,
+            replies_to_bot: false,
+        };
+        let decision = should_respond(&msg, &config_addressed(&[100]));
         assert!(!decision.should_forward);
+    }
+
+    #[test]
+    fn addressing_addressed_mode_forwards_a_mention() {
+        // ...but a mention is still forwarded, and marked direct.
+        let msg = MessageContext {
+            author_is_bot: false,
+            guild_id: Some(1),
+            channel_id: 100,
+            mentions_bot: true,
+            replies_to_bot: false,
+        };
+        let decision = should_respond(&msg, &config_addressed(&[100]));
+        assert!(decision.should_forward);
+        assert!(decision.is_direct);
     }
 }

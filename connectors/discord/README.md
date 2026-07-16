@@ -36,6 +36,9 @@ token = "<your bot token>"
 # Messages in guild channels not in this list are ignored.
 # DMs are always open.
 allowed_channels = [123456789012345678]
+# Which messages in an allowed channel to forward: "all" (default) forwards every message and lets
+# the agent decide when to reply; "addressed" forwards only mentions and replies to the bot.
+reply_to = "all"
 
 [storage]
 # Path to the connector's SQLite state database. It holds the turn map (message ID → turn ID) and
@@ -54,13 +57,17 @@ typing_refresh_secs = 8
 cargo run -p zuihitsu-discord -- --config config.discord.toml
 ```
 
-The bot connects to Discord and starts forwarding messages. Only messages that mention the bot or
-reply to it (in an allowed guild channel) or arrive as DMs are forwarded to the platform API.
+The bot connects to Discord and starts forwarding messages. By default every message in an allowed
+guild channel (and every DM) is forwarded to the platform API, and the agent decides when to reply;
+set `reply_to = "addressed"` to forward only mentions and replies.
 
 ## behaviour
 
-- **Addressing**: the bot responds to @mentions, replies to its own messages, and DMs. Messages in
-  guild channels that don't mention or reply to the bot are ignored.
+- **Addressing**: DMs are always forwarded. In an allowed guild channel the connector forwards every
+  message by default (`reply_to = "all"`) and leaves it to the agent's stay-silent terminal to decide
+  which warrant a reply; with `reply_to = "addressed"` only @mentions and replies to the bot are
+  forwarded. Messages in channels not on the allow-list are always ignored. A dropped message is
+  logged at `debug` level, so it is out of default logging but available when diagnosing silence.
 - **Pacing**: rapid-fire messages are debounced (500ms default). Only the latest message per channel
   is forwarded when the debounce fires — the agent's buffer carries the rest as context.
 - **Typing indicator**: shown only after the agent begins emitting reply tokens (not during
@@ -84,7 +91,8 @@ reply to it (in an allowed guild channel) or arrive as DMs are forwarded to the 
    allowed channel IDs.
 4. Run `cargo run -p zuihitsu-discord -- --config config.discord.toml`.
 5. In a Discord channel the bot is authorised in: @mention the bot, verify it responds.
-6. Send a message without mentioning the bot, verify it stays silent.
+6. Send a plain message: by default (`reply_to = "all"`) it is forwarded and the agent may reply or
+   stay silent; with `reply_to = "addressed"` it stays silent.
 7. DM the bot, verify it responds.
 8. Reply to the bot's message, verify the agent can reference the prior turn.
 9. Verify typing indicator appears during reply streaming, not during deliberation.

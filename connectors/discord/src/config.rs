@@ -45,6 +45,22 @@ pub struct BehaviorConfig {
     /// are ignored. DMs are always open.
     #[serde(default)]
     pub allowed_channels: HashSet<ChannelId>,
+    /// Which messages in an allowed guild channel the bot forwards to the agent. DMs are always
+    /// forwarded regardless.
+    #[serde(default)]
+    pub reply_to: ReplyMode,
+}
+
+/// Which messages in an allowed guild channel the connector forwards to the agent.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplyMode {
+    /// Every message — the agent's own stay-silent terminal then decides whether a given one warrants
+    /// a reply. The default: the bot is a full participant in the channel.
+    #[default]
+    All,
+    /// Only messages that address the bot — a mention, or a reply to one of its messages.
+    Addressed,
 }
 
 /// Persistent storage paths.

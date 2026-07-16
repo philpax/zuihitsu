@@ -148,6 +148,13 @@ impl EventHandler for Handler {
         let AddressingDecision { should_forward, .. } =
             should_respond(&msg_ctx, &state.config.behavior);
         if !should_forward {
+            // Dropped by the addressing filter — the channel is not on the allow-list, or `reply_to =
+            // addressed` and this message did not mention or reply to the bot. Debug so it stays out of
+            // default logging but is there when a "nothing happened" needs explaining.
+            tracing::debug!(
+                channel_id = msg.channel_id.get(),
+                "discord connector: message not forwarded (channel not allowed, or unaddressed)"
+            );
             return;
         }
 
