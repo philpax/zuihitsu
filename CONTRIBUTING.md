@@ -85,7 +85,7 @@
 ### Module organisation
 
 - Use `mod.rs` files to re-export public items.
-- Keep module boundaries strict with restricted visibility.
+- Keep module boundaries strict with restricted visibility, but prefer `pub(crate)` and `pub(super)` over `pub(in <path>)`. The `pub(in …)` form scopes to a named ancestor, which is precise but reads as a smell; reach for it only when neither `pub(crate)` nor `pub(super)` expresses the intended scope.
 - Use `#[cfg(unix)]` and `#[cfg(windows)]` for conditional compilation.
 - **Always** import types or functions at the very top of the module, with the one exception being `cfg()`-gated functions. Never import types or modules within function contexts, other than this `cfg()`-gated exception.
 - It is okay to import enum variants for pattern matching, though.

@@ -6,11 +6,7 @@ use crate::agent::lua::tables::modules::{metatables::*, *};
 /// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own
 /// queries and are not visibility-filtered (like `mem:entries`, the agent sees its whole memory).
 /// Strict locking: each returned memory is locked, since the query read (and touched) it.
-pub(in crate::agent::lua) fn calendar_table(
-    lua: &Lua,
-    api: &BlockApi,
-    metatable: &Table,
-) -> mlua::Result<Table> {
+pub(crate) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
     let calendar = lua.create_table()?;
     calendar.set(
         "upcoming",
@@ -154,7 +150,7 @@ pub(in crate::agent::lua) fn calendar_table(
 /// while `{ within = "…" }` and `nil` (the default window) keep working. Anything else is a teachable
 /// [`CalendarError`] rather than an opaque conversion failure; an unparseable duration string still
 /// errors downstream where the duration is parsed, with its own teachable message.
-pub(in crate::agent::lua) fn within_arg(opts: Value) -> mlua::Result<Option<String>> {
+pub(crate) fn within_arg(opts: Value) -> mlua::Result<Option<String>> {
     match opts {
         Value::Nil => Ok(None),
         Value::String(within) => Ok(Some(within.to_string_lossy())),

@@ -4,7 +4,7 @@ use crate::agent::lua::tables::modules::*;
 
 /// The `block` global: `abort(reason)`, which discards the buffer and ends the block. It touches no
 /// memory, so it stays a synchronous function and takes no lock.
-pub(in crate::agent::lua) fn block_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
+pub(crate) fn block_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     let block_tbl = lua.create_table()?;
     block_tbl.set(
         "abort",
@@ -22,11 +22,7 @@ pub(in crate::agent::lua) fn block_table(lua: &Lua, api: &BlockApi) -> mlua::Res
 /// The `context` global: `current()`, the current conversation's [`Namespace::Context`] memory (its
 /// `#confidential` tag tells the agent whether the room is confidential), or nil if there is none.
 /// The resolved context memory is locked like any other touched memory.
-pub(in crate::agent::lua) fn context_table(
-    lua: &Lua,
-    api: &BlockApi,
-    metatable: &Table,
-) -> mlua::Result<Table> {
+pub(crate) fn context_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
     let context = lua.create_table()?;
     context.set(
         "current",

@@ -15,9 +15,7 @@ use crate::{
 
 use crate::agent::genesis::TemplateDef;
 
-pub(in crate::agent::genesis) fn default_templates(
-    features: &InstanceFeatures,
-) -> Vec<TemplateDef> {
+pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
@@ -68,7 +66,7 @@ pub(in crate::agent::genesis) fn default_templates(
 /// It teaches no session-lifetime link flag: the working set carried across a compaction seam is
 /// platform-derived (the session's touched set), so the agent has no such flags to manage on the
 /// semantic graph.
-pub(in crate::agent::genesis) fn flush_template_body() -> String {
+pub(crate) fn flush_template_body() -> String {
     body_of(include_str!("turn/flush.md"))
 }
 

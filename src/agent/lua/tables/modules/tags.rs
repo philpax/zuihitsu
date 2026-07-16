@@ -5,7 +5,7 @@ use crate::agent::lua::tables::modules::{metatables::*, *};
 /// The `tags` global: `create` and `describe` mutate the vocabulary, `list` reads it. Creation and
 /// application are deliberately distinct — applying (`mem:tag`) never mutates a tag's description,
 /// creating always forces a purpose (spec §Tag operations).
-pub(in crate::agent::lua) fn tags_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
+pub(crate) fn tags_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     let tags = lua.create_table()?;
     // tags.create(name, description) — add a tag to the vocabulary with a one-line purpose.
     tags.set(

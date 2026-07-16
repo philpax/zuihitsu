@@ -9,7 +9,7 @@ use crate::{agent::lua::tables::modules::*, web::WebError};
 /// takes no lock, and it deliberately does not latch the block's "made an external call" flag the way
 /// an MCP call does: a GET is idempotent, so a block that only fetched can still abort-and-retry on a
 /// lock-wait timeout (spec §Concurrency → timeout-and-retry) rather than surfacing the timeout at once.
-pub(in crate::agent::lua) fn web_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
+pub(crate) fn web_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     let web = lua.create_table()?;
     web.set(
         "markdown",

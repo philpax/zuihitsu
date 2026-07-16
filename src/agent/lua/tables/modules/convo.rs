@@ -15,7 +15,7 @@ use crate::agent::lua::tables::modules::{metatables::*, *};
 /// malformed id, an id whose moment the present audience did not all share, and an unknown id are three
 /// distinct teachable errors (see [`TurnResolveError`]); resolving is read-only and touches no memory,
 /// so it takes no lock.
-pub(in crate::agent::lua) fn convo_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
+pub(crate) fn convo_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     let convo = lua.create_table()?;
     let line_metatable = turn_line_metatable(lua)?;
     let window_metatable = turn_window_metatable(lua)?;

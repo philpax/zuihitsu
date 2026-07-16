@@ -6,7 +6,7 @@ use crate::{agent::lua::tables::*, time::TemporalRef};
 /// The metatable backing entry handles: `__tostring` and `__concat` render the handle as its
 /// `text`, so a content read stays ergonomic (printable, concatenable) while the handle remains an
 /// addressable entry for `mem:supersede`.
-pub(in crate::agent::lua) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
+pub(crate) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     // An entry renders self-describingly: its text prefixed by its id and by what governs reading it
     // — when the fact occurs (if dated), a `disputed` marker when it is under an unresolved
@@ -83,7 +83,7 @@ pub(in crate::agent::lua) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
 /// methods are calendar-correct arithmetic returning new date objects (`:add_days`, `:add_weeks`,
 /// `:add_months`), plus `:weekday()`. A date object is `{ day = "YYYY-MM-DD" }`, so it doubles as an
 /// `occurred_at` value — the runtime does the date math the model would otherwise slip on.
-pub(in crate::agent::lua) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
+pub(crate) fn date_metatable(lua: &Lua) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     metatable.set(
         "__tostring",

@@ -9,11 +9,7 @@ const LIST_CAP: usize = 50;
 
 /// The `memory` global: `create`, `get`, and `get_or_create`, all of which mint handles (hence the
 /// metatable).
-pub(in crate::agent::lua) fn memory_table(
-    lua: &Lua,
-    api: &BlockApi,
-    metatable: &Table,
-) -> mlua::Result<Table> {
+pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
     let memory = lua.create_table()?;
     // memory.create(name[, content][, opts]) — create a memory and optionally its first entry,
     // then lock the freshly-minted id (uncontended — no other block knows it yet). `opts` carries

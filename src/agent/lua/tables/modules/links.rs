@@ -8,7 +8,7 @@ use crate::agent::lua::tables::modules::{metatables::*, *};
 /// link *edge* is written with `links.create(subject, relation, object[, opts])` — a triadic call
 /// whose subject and object are ordinary arguments (neither is a privileged receiver), so the call
 /// reads as a sentence and an asymmetric edge is not recorded backwards.
-pub(in crate::agent::lua) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
+pub(crate) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
     let links = lua.create_table()?;
     let result_metatable = relation_result_metatable(lua)?;
     // links.create(subject, relation, object[, opts]) — record a relation such as `knows`, locking
