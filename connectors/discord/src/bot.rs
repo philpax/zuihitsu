@@ -272,7 +272,7 @@ impl EventHandler for Handler {
         if let Some(state) = data.get::<BotStateKey>() {
             // Remove the departing user from every channel's present set.
             let mut present = state.present_members.lock().await;
-            for (_, set) in present.iter_mut() {
+            for set in present.values_mut() {
                 set.remove(&user.id);
             }
         }
