@@ -54,7 +54,8 @@ pub(super) async fn genesis(
 
 /// `GET /control/config` — the environmental config this instance booted from (the TOML), read-only:
 /// storage paths, model and embedding endpoints, the bind address, snapshots, and the MCP servers.
-/// Secrets are redacted by the types themselves (API keys as counts, MCP env as its variable names).
+/// Secrets are redacted by the types themselves (API keys as counts, MCP env and HTTP headers as
+/// their names).
 pub(super) async fn env_config(State(state): State<AppState>) -> Json<EnvConfig> {
     Json((*state.config).clone())
 }

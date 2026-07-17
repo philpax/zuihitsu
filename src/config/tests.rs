@@ -155,6 +155,48 @@ fn parses_mcp_server_blocks() {
 }
 
 #[test]
+fn parses_an_mcp_http_server_block() {
+    let config = EnvConfig::load_from_string(
+        "[mcp.remote]\n\
+         url = \"https://example.com/mcp\"\n\
+         [mcp.remote.headers]\n\
+         Authorization = \"Bearer secret\"\n",
+        base(),
+    )
+    .unwrap();
+    let server = config.mcp.get("remote").expect("the remote block");
+    assert_eq!(server.url.as_deref(), Some("https://example.com/mcp"));
+    assert_eq!(
+        server.headers.get("Authorization").map(String::as_str),
+        Some("Bearer secret")
+    );
+    assert!(server.command.is_empty());
+}
+
+#[test]
+fn an_mcp_server_with_no_transport_is_rejected() {
+    // A block with neither `command` nor `url` has no transport to reach the server through.
+    match EnvConfig::load_from_string("[mcp.empty]\nargs = [\"x\"]\n", base()).unwrap_err() {
+        super::ConfigError::McpServerMissingTransport(name) => assert_eq!(name, "empty"),
+        other => panic!("unexpected error: {other}"),
+    }
+}
+
+#[test]
+fn an_mcp_server_with_both_transports_is_rejected() {
+    // Setting both `command` and `url` is ambiguous — a server has one transport.
+    match EnvConfig::load_from_string(
+        "[mcp.both]\ncommand = \"x\"\nurl = \"https://example.com/mcp\"\n",
+        base(),
+    )
+    .unwrap_err()
+    {
+        super::ConfigError::McpServerAmbiguousTransport(name) => assert_eq!(name, "both"),
+        other => panic!("unexpected error: {other}"),
+    }
+}
+
+#[test]
 fn an_mcp_server_name_that_is_not_a_lua_identifier_is_rejected() {
     // `light-panda` is not a valid Lua identifier, so it cannot be a `mcp.<name>` prefix.
     match EnvConfig::load_from_string("[mcp.\"light-panda\"]\ncommand = \"x\"\n", base())

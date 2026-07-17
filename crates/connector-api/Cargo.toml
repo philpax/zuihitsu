@@ -7,7 +7,6 @@ edition = "2024"
 futures-util = { workspace = true }
 reqwest = { workspace = true, features = [
     "rustls",
-    "webpki-roots",
     "json",
     "stream",
 ] }

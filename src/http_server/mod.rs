@@ -28,8 +28,8 @@ use axum::{
 use tokio::net::TcpListener;
 use zuihitsu::{
     EnvConfig, Graph, HttpFetcher, HttpFetcherConfig, ModelArbiter, ModelClient, OpenAiClient,
-    OpenAiEmbedder, RetryingModel, Server, SnapshotSchedule, SqliteStore, SqliteVectorIndex,
-    StdioHost, SystemClock, VectorIndex,
+    OpenAiEmbedder, RetryingModel, RmcpHost, Server, SnapshotSchedule, SqliteStore,
+    SqliteVectorIndex, SystemClock, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
     snapshot,
@@ -81,7 +81,7 @@ struct AppState {
     /// clone is a refcount bump.
     connectors: Arc<[(String, String)]>,
     /// The environmental config this instance booted from, for the read-only config view. Serializing
-    /// it redacts the secrets (API keys serialize as counts, MCP env as its variable names).
+    /// it redacts the secrets (API keys serialize as counts, MCP env and HTTP headers as their names).
     config: Arc<EnvConfig>,
 }
 
@@ -225,7 +225,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
 
     // Connect the configured MCP servers once, before the server is shared (`connect_mcp` is `&mut`).
     if !config.mcp.is_empty() {
-        server.connect_mcp(Arc::new(StdioHost), config.mcp).await?;
+        server.connect_mcp(Arc::new(RmcpHost), config.mcp).await?;
     }
 
     let settings = server.control().settings()?;

@@ -16,6 +16,15 @@ jiff = "0.2.28"
 parking_lot = "0.12.5"
 proptest = "1.11"
 reqwest = { version = "0.13", default-features = false }
+# The official Model Context Protocol SDK; the real MCP host drives servers over a stdio subprocess or
+# a remote streamable-HTTP endpoint. `client` for the client role, `transport-child-process` for the
+# subprocess transport, and the reqwest-backed streamable-HTTP client (with rustls) for the URL one.
+rmcp = { version = "2.2", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+    "reqwest",
+] }
 rusqlite = { version = "0.40.0", features = ["bundled"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = "1.2.1"
@@ -91,11 +100,11 @@ reqwest = { workspace = true, features = [
     "blocking",
     "json",
     "rustls",
-    "webpki-roots",
     "gzip",
     "brotli",
     "stream",
 ] }
+rmcp = { workspace = true }
 rusqlite = { workspace = true }
 rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = { workspace = true }

@@ -16,7 +16,7 @@ use std::{
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::mcp::McpServerConfig;
+use crate::mcp::{McpServerConfig, McpTransportError};
 
 /// The parsed environmental config. Unknown sections (e.g. `[model]`, wired in Stage 5) are
 /// ignored, so the file can carry settings later stages will consume.
@@ -257,10 +257,22 @@ impl EnvConfig {
             config.snapshots.dir = Some(base.join(dir));
         }
         // Each MCP server name is the `mcp.<name>.*` projection prefix, so it must be a valid Lua
-        // identifier — rejected here rather than producing an uncallable projection.
-        for name in config.mcp.keys() {
+        // identifier — rejected here rather than producing an uncallable projection. Its transport must
+        // resolve (exactly one of `command`/`url`), so a misconfiguration is caught at load rather than
+        // silently dropping the server when it fails to spawn.
+        for (name, server) in &config.mcp {
             if !is_lua_identifier(name) {
                 return Err(ConfigError::InvalidMcpServerName(name.clone()));
+            }
+            if let Err(error) = server.transport() {
+                return Err(match error {
+                    McpTransportError::Missing => {
+                        ConfigError::McpServerMissingTransport(name.clone())
+                    }
+                    McpTransportError::Ambiguous => {
+                        ConfigError::McpServerAmbiguousTransport(name.clone())
+                    }
+                });
             }
         }
         Ok(config)
@@ -290,6 +302,10 @@ pub enum ConfigError {
     },
     /// An `[mcp.<name>]` key that is not a valid Lua identifier (it is the projection prefix).
     InvalidMcpServerName(String),
+    /// An `[mcp.<name>]` block that sets neither `command` nor `url` — it has no transport.
+    McpServerMissingTransport(String),
+    /// An `[mcp.<name>]` block that sets both `command` and `url` — a server has one transport.
+    McpServerAmbiguousTransport(String),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -306,6 +322,16 @@ impl std::fmt::Display for ConfigError {
                 "config: MCP server name {name:?} is not a valid Lua identifier \
                  ([A-Za-z_][A-Za-z0-9_]*)"
             ),
+            ConfigError::McpServerMissingTransport(name) => write!(
+                f,
+                "config: MCP server {name:?} has no transport: set either `command` (a stdio \
+                 subprocess) or `url` (a streamable-HTTP endpoint)"
+            ),
+            ConfigError::McpServerAmbiguousTransport(name) => write!(
+                f,
+                "config: MCP server {name:?} sets both `command` and `url`: a server has one \
+                 transport, not both"
+            ),
         }
     }
 }
@@ -315,7 +341,9 @@ impl std::error::Error for ConfigError {
         match self {
             ConfigError::Io { source, .. } => Some(source),
             ConfigError::Parse { source, .. } => Some(source),
-            ConfigError::InvalidMcpServerName(_) => None,
+            ConfigError::InvalidMcpServerName(_)
+            | ConfigError::McpServerMissingTransport(_)
+            | ConfigError::McpServerAmbiguousTransport(_) => None,
         }
     }
 }

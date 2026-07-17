@@ -105,7 +105,7 @@ pub use instance::{
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,
-    McpServerConfig, McpTool, StdioHost,
+    McpServerConfig, McpTool, RmcpHost,
 };
 pub use memory::{
     brief::{BriefError, BriefRequest, compose, compose_participant},
