@@ -81,7 +81,11 @@ export function Transcript({
         const turns = conversation.turns.filter((turn) => turn.seq >= fromSeq && turn.seq < toSeq);
         return (
           <div key={session.id}>
-            <SessionDivider session={session} first={index === 0} />
+            <SessionDivider
+              session={session}
+              previousEndCause={conversation.sessions[index - 1]?.endCause ?? null}
+              first={index === 0}
+            />
             <BriefBlock
               replica={replica}
               session={session}

@@ -5,6 +5,7 @@ import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { Initiation } from "@zuihitsu/wire/types/Initiation.ts";
 import type { ModelPhase } from "@zuihitsu/wire/types/ModelPhase.ts";
+import type { SessionEndCause } from "@zuihitsu/wire/types/SessionEndCause.ts";
 import type { TerminalCause } from "@zuihitsu/wire/types/TerminalCause.ts";
 import type { TurnRole } from "@zuihitsu/wire/types/TurnRole.ts";
 import { type EventCategory, eventCategory, eventSummary } from "./events.ts";
@@ -62,9 +63,14 @@ export interface SessionModel {
   participants: string[];
   /// The present set as memory ids (the names above are resolved from these).
   participantIds: string[];
-  /// True when the session opened by re-segmenting a prior one (compaction) rather than fresh — it
-  /// carries `seeded_from_turn`, so the transcript can mark a continuity cut.
-  compaction: boolean;
+  /// True when the session opened by re-segmenting a prior one rather than fresh — it carries
+  /// `seeded_from_turn`, so the transcript can mark a continuity cut. The specific seam kind is the
+  /// *previous* session's `endCause`, which the divider reads to label it.
+  seededFromTail: boolean;
+  /// Why this session ended, set when its `SessionEnded` arrives — `null` while still open, or for a
+  /// close recorded before the cause was captured. The next session's divider reads it to name the
+  /// seam (a compaction cut, an idle timeout, or a recovery close).
+  endCause: SessionEndCause | null;
   /// The recorded working-set memory ids the session opened with, or `null` for a session recorded
   /// before capture — the raw payload lacks the key, which is distinct from a genuinely empty set.
   workingSet: string[] | null;
@@ -252,11 +258,21 @@ export function buildConversations(
           startedAt: payload.started_at,
           participants: payload.participants.map((id) => name(id) ?? id),
           participantIds: payload.participants,
-          compaction: payload.seeded_from_turn !== null,
+          seededFromTail: payload.seeded_from_turn !== null,
+          endCause: null,
           // Serde defaults an absent key to an empty array before the typed payload reaches us, so
           // the pre-capture distinction must come from the raw JSON key's presence.
           workingSet: "working_set" in payload ? payload.working_set : null,
         });
+        break;
+      }
+      case "SessionEnded": {
+        // Record the close cause on the ending session, so the next session's divider can name the
+        // seam. A close for a session not in view (folded from before this window) is a no-op.
+        const ended = conversation(payload.conversation).sessions.find(
+          (session) => session.id === payload.id,
+        );
+        if (ended) ended.endCause = payload.cause;
         break;
       }
       case "ConversationTurn": {

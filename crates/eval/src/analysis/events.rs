@@ -69,6 +69,22 @@ pub fn session_briefs(events: &[Event]) -> Vec<(&str, &[MemoryId])> {
         .collect()
 }
 
+/// Whether each session, in open order, was seeded from a prior session's carried tail — its
+/// `SessionStarted.seeded_from_turn` is set. A fresh first-contact open is `false`; a compaction,
+/// idle, or recovery reopen that carried a raw-transcript tail is `true` (issue #86). Lets an oracle
+/// assert the mechanism fired at a given seam without re-running the model.
+pub fn session_seeds(events: &[Event]) -> Vec<bool> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::SessionStarted {
+                seeded_from_turn, ..
+            } => Some(seeded_from_turn.is_some()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether a fired wake-up was raised into a session — the recurrence actually surfaced, not merely
 /// got recorded.
 pub fn scheduled_item_surfaced(events: &[Event]) -> bool {

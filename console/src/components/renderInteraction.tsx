@@ -289,6 +289,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           <Field label="session">
             <Mono>{payload.id}</Mono>
           </Field>
+          {payload.cause && <Field label="cause">{payload.cause.toLowerCase()}</Field>}
         </Fields>
       );
 

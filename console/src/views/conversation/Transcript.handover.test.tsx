@@ -67,7 +67,8 @@ function openingSession(): ConversationModel["sessions"][number] {
     startedAt: 1_000,
     participants: ["someone"],
     participantIds: ["person/someone"],
-    compaction: false,
+    seededFromTail: false,
+    endCause: null,
     workingSet: null,
   };
 }
