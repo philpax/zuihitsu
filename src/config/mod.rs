@@ -217,14 +217,13 @@ impl SnapshotConfig {
 impl EnvConfig {
     /// Load config from `path`, resolving relative storage paths against the file's directory. A
     /// missing file yields defaults (resolved against the file's intended directory), so a bare
-    /// instance still has somewhere to put its databases.
+    /// instance still has somewhere to put its databases. The parse, resolution, and validation are
+    /// [`load_from_string`](Self::load_from_string); this only reads the file.
     pub fn load(path: &Path) -> Result<EnvConfig, ConfigError> {
-        let mut config = match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).map_err(|source| ConfigError::Parse {
-                path: path.to_path_buf(),
-                source,
-            })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => EnvConfig::default(),
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            // A missing file is not an error — an empty document parses to the all-defaults config.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(source) => {
                 return Err(ConfigError::Io {
                     path: path.to_path_buf(),
@@ -233,6 +232,26 @@ impl EnvConfig {
             }
         };
         let base = path.parent().unwrap_or_else(|| Path::new("."));
+        // Re-attach the file path to a parse failure: `load_from_string` only knows the base directory,
+        // but the operator wants the offending file named.
+        EnvConfig::load_from_string(&text, base).map_err(|error| match error {
+            ConfigError::Parse { source, .. } => ConfigError::Parse {
+                path: path.to_path_buf(),
+                source,
+            },
+            other => other,
+        })
+    }
+
+    /// Parse config from TOML `text`, resolving relative storage paths against `base` (the directory
+    /// the config file lives in) and validating the MCP blocks. The in-memory core of [`load`]: a
+    /// caller with the text already in hand — a test, or an embedded default — skips the filesystem.
+    /// An empty `text` yields the all-defaults config, so a missing file and a blank one coincide.
+    pub fn load_from_string(text: &str, base: &Path) -> Result<EnvConfig, ConfigError> {
+        let mut config: EnvConfig = toml::from_str(text).map_err(|source| ConfigError::Parse {
+            path: base.to_path_buf(),
+            source,
+        })?;
         config.storage.dir = base.join(&config.storage.dir);
         if let Some(dir) = &config.snapshots.dir {
             config.snapshots.dir = Some(base.join(dir));
