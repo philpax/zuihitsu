@@ -40,6 +40,7 @@
 - Comments describe the present state. Reserve past-tense narration for the rare case where history explains a standing "why".
 - Prose that names a namespace concept links the canonical enum ([`Namespace::Person`]), never a literal prefix string. Concrete handles, prefix-string argument examples, and agent-facing text are syntax, not prose, and are exempt.
 - Core code (`src/`, `crates/core`) never references the eval harness, scenarios, or run statistics in comments — state the behaviour and its hazards directly. Only the eval crate may reference itself.
+- The README's example `config.toml` mirrors the environmental config — the structs in `src/config` (and [`McpServerConfig`] in `src/mcp`), which are the source of truth. Whenever you add, rename, or remove a config field, change a default, or alter how a field serialises, update that example in the same change so it stays a faithful, copy-pasteable reference: the field must appear under the right section, its inline comment must state the current default and meaning, and a new secret-bearing field must be shown with its redaction noted.
 
 ## Code style
 
