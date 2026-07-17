@@ -28,6 +28,7 @@ use zuihitsu_core::{
 
 use crate::{
     addressing::{AddressingDecision, MessageContext, should_respond},
+    bot_loop::BotLoopGuard,
     config::DiscordConfig,
     context_sync::{ContextParams, ContextSync},
     error::{Error, Result},
@@ -53,11 +54,14 @@ pub struct BotState {
     /// leaves the guild is removed from every channel they were in.
     pub present_members: Mutex<HashMap<ChannelId, HashSet<UserId>>>,
     pub debounce: DebounceState,
+    /// Guards against a bot-to-bot reply loop by capping consecutive bot-initiated turns per channel.
+    pub bot_loop: BotLoopGuard,
 }
 
 impl BotState {
     pub fn new(config: DiscordConfig) -> Result<Self> {
         let debounce_ms = config.pacing.debounce_ms;
+        let max_consecutive_bot_turns = config.behavior.max_consecutive_bot_turns;
         let db_path = config.storage.db_path.clone();
         let platform = PlatformClient::new(
             config.server.url.clone(),
@@ -87,6 +91,7 @@ impl BotState {
             projection_sync,
             present_members: Mutex::new(HashMap::new()),
             debounce: DebounceState::new(debounce_ms),
+            bot_loop: BotLoopGuard::new(max_consecutive_bot_turns),
         })
     }
 }
@@ -109,11 +114,6 @@ impl EventHandler for Handler {
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
-        // Never process our own messages.
-        if msg.author.bot {
-            return;
-        }
-
         let state = {
             let data = ctx.data.read().await;
             let Some(state) = data.get::<BotStateKey>().cloned() else {
@@ -125,6 +125,18 @@ impl EventHandler for Handler {
         let Some(bot_id) = *state.bot_id.lock().await else {
             return;
         };
+
+        // Never process our own messages — matched precisely by id, not the coarse bot flag, so that
+        // other bots in the channel remain visible. Whether they are forwarded is decided below.
+        if msg.author.id == bot_id {
+            return;
+        }
+        let author_is_other_bot = msg.author.bot;
+
+        // A human message breaks any bot-to-bot streak in this channel, clearing the loop guard.
+        if !author_is_other_bot {
+            state.bot_loop.note_human(msg.channel_id);
+        }
 
         // Track the sender in the channel's present set (lazy presence tracking).
         state
@@ -143,7 +155,7 @@ impl EventHandler for Handler {
             .is_some_and(|rm| rm.author.id == bot_id);
 
         let msg_ctx = MessageContext {
-            author_is_bot: msg.author.bot,
+            author_is_bot: author_is_other_bot,
             guild_id: msg.guild_id.map(|g| g.get()),
             channel_id: msg.channel_id.get(),
             mentions_bot,
@@ -159,6 +171,16 @@ impl EventHandler for Handler {
             tracing::debug!(
                 channel_id = msg.channel_id.get(),
                 "discord connector: message not forwarded (channel not allowed, or unaddressed)"
+            );
+            return;
+        }
+
+        // Loop safeguard: cap consecutive turns another bot may initiate, so two agents cannot answer
+        // each other forever. Trips only for other bots — a human message clears the streak above.
+        if author_is_other_bot && !state.bot_loop.admit_bot(msg.channel_id) {
+            tracing::warn!(
+                channel_id = msg.channel_id.get(),
+                "discord connector: bot-to-bot loop guard tripped; dropping further bot messages until a human speaks"
             );
             return;
         }
@@ -210,8 +232,9 @@ impl EventHandler for Handler {
 
         // Project the sender's current username, display name, and nickname onto their profile,
         // superseding whichever changed since we last saw them. Only the sender is projected — never
-        // the bot, whose own messages are filtered above — so the agent's own identity is never minted
-        // as another entity.
+        // the connector's own bot, whose messages are filtered by id above — so the agent's own
+        // identity is never minted as another entity. Another bot, seen as a participant, is projected
+        // like any other sender.
         let sender_person = PersonId::new(DISCORD_PLATFORM, msg.author.id.to_string());
         if let Err(error) = state
             .projection_sync

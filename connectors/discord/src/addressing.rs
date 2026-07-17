@@ -1,8 +1,10 @@
 //! Addressing model: the cheap filter that decides whether to forward a message to the platform API.
 //!
-//! This runs before the agent's smart filter (the stay-silent terminal). It always drops bot messages
-//! and messages in channels not on the allow-list; within an allowed channel it forwards either every
-//! message or only ones addressing the bot, per [`ReplyMode`].
+//! This runs before the agent's smart filter (the stay-silent terminal). It drops messages in
+//! channels not on the allow-list, and — when [`BehaviorConfig::see_other_bots`] is off — messages
+//! from other bots; within an allowed channel it forwards either every message or only ones
+//! addressing the bot, per [`ReplyMode`]. The connector's own messages are filtered upstream by id,
+//! so they never reach here.
 
 use crate::config::{BehaviorConfig, ReplyMode};
 
@@ -30,15 +32,17 @@ pub struct MessageContext {
 /// Decide whether to forward a message.
 ///
 /// Rules:
-/// - **Ignore bot messages** — never forward.
+/// - **Other bots** — dropped when [`BehaviorConfig::see_other_bots`] is off; otherwise treated like
+///   any participant, subject to every rule below. (The connector's own messages never reach here.)
 /// - **DMs** (`guild_id.is_none()`) → always forward, `is_direct = true`.
 /// - **Guild channels**: messages in channels not in `allowed_channels` are silently dropped. Within
 ///   an allowed channel, [`ReplyMode::All`] (the default) forwards every message and
 ///   [`ReplyMode::Addressed`] forwards only a mention or a reply to the bot. `is_direct` marks the
 ///   latter either way, so the agent still knows which messages spoke to it directly.
 pub fn should_respond(msg: &MessageContext, config: &BehaviorConfig) -> AddressingDecision {
-    // Never forward messages from bots.
-    if msg.author_is_bot {
+    // Drop other bots' messages when the operator has opted out of seeing them. With the option on,
+    // a bot is just another participant and falls through to the rules below.
+    if msg.author_is_bot && !config.see_other_bots {
         return AddressingDecision {
             should_forward: false,
             is_direct: false,
@@ -96,11 +100,13 @@ mod tests {
         BehaviorConfig {
             allowed_channels: channels.iter().map(|&c| ChannelId::new(c)).collect(),
             reply_to: ReplyMode::Addressed,
+            ..BehaviorConfig::default()
         }
     }
 
     #[test]
-    fn addressing_ignores_bots() {
+    fn addressing_treats_other_bots_as_participants_by_default() {
+        // With `see_other_bots` on (the default), a bot's mention is forwarded like anyone else's.
         let msg = MessageContext {
             author_is_bot: true,
             guild_id: Some(1),
@@ -109,6 +115,24 @@ mod tests {
             replies_to_bot: false,
         };
         let config = config_with_channels(&[100]);
+        let decision = should_respond(&msg, &config);
+        assert!(decision.should_forward);
+        assert!(decision.is_direct);
+    }
+
+    #[test]
+    fn addressing_drops_other_bots_when_opted_out() {
+        let msg = MessageContext {
+            author_is_bot: true,
+            guild_id: Some(1),
+            channel_id: 100,
+            mentions_bot: true,
+            replies_to_bot: false,
+        };
+        let config = BehaviorConfig {
+            see_other_bots: false,
+            ..config_with_channels(&[100])
+        };
         let decision = should_respond(&msg, &config);
         assert!(!decision.should_forward);
     }

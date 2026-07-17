@@ -39,6 +39,13 @@ allowed_channels = [123456789012345678]
 # Which messages in an allowed channel to forward: "all" (default) forwards every message and lets
 # the agent decide when to reply; "addressed" forwards only mentions and replies to the bot.
 reply_to = "all"
+# Whether to see messages from other bots. On (the default) treats another bot like any participant,
+# subject to reply_to and repliable; off drops every other bot's message. The connector never
+# processes its own messages regardless.
+see_other_bots = true
+# Cap on consecutive turns another bot may initiate in a channel before its messages are dropped
+# until a human speaks. Bounds a bot-to-bot reply loop. Only meaningful when see_other_bots is on.
+max_consecutive_bot_turns = 10
 
 [storage]
 # Path to the connector's SQLite state database. It holds the turn map (message ID → turn ID) and
@@ -68,6 +75,12 @@ set `reply_to = "addressed"` to forward only mentions and replies.
   which warrant a reply; with `reply_to = "addressed"` only @mentions and replies to the bot are
   forwarded. Messages in channels not on the allow-list are always ignored. A dropped message is
   logged at `debug` level, so it is out of default logging but available when diagnosing silence.
+- **Other bots**: by default (`see_other_bots = true`) another bot in the channel is treated like any
+  participant — subject to the same `reply_to` rule, and repliable. Set `see_other_bots = false` to
+  drop every other bot's message. The connector never processes its own messages, matching them by
+  the bot's own user id rather than the coarse bot flag. To stop two agents answering each other
+  endlessly, a channel drops further bot-initiated turns once `max_consecutive_bot_turns` (default 10)
+  have fired with no human message between them; a human speaking clears the cap.
 - **Pacing**: rapid-fire messages are debounced (500ms default). Only the latest message per channel
   is forwarded when the debounce fires — the agent's buffer carries the rest as context.
 - **Typing indicator**: shown only after the agent begins emitting reply tokens (not during

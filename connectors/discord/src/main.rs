@@ -11,6 +11,7 @@ use serenity::{all::GatewayIntents, prelude::*};
 
 mod addressing;
 mod bot;
+mod bot_loop;
 mod config;
 mod context_sync;
 mod error;

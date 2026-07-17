@@ -39,7 +39,7 @@ pub struct DiscordSection {
 }
 
 /// Channel authorisation and addressing rules.
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BehaviorConfig {
     /// Channel IDs the bot is authorised to operate in. Messages in guild channels not in this list
     /// are ignored. DMs are always open.
@@ -49,6 +49,27 @@ pub struct BehaviorConfig {
     /// forwarded regardless.
     #[serde(default)]
     pub reply_to: ReplyMode,
+    /// Whether messages from *other* bots are seen. On (the default), another bot is treated like any
+    /// participant — subject to the same reply mode, and repliable. Off drops every other bot's
+    /// message. The connector never processes its own messages regardless, matching them by id.
+    #[serde(default = "default_see_other_bots")]
+    pub see_other_bots: bool,
+    /// The cap on consecutive turns another bot may initiate in a channel before its messages are
+    /// dropped until a human speaks. This bounds a bot-to-bot reply loop, where two agents answer
+    /// each other endlessly. Only meaningful when [`see_other_bots`](Self::see_other_bots) is on.
+    #[serde(default = "default_max_consecutive_bot_turns")]
+    pub max_consecutive_bot_turns: u32,
+}
+
+impl Default for BehaviorConfig {
+    fn default() -> Self {
+        BehaviorConfig {
+            allowed_channels: HashSet::new(),
+            reply_to: ReplyMode::default(),
+            see_other_bots: default_see_other_bots(),
+            max_consecutive_bot_turns: default_max_consecutive_bot_turns(),
+        }
+    }
 }
 
 /// Which messages in an allowed guild channel the connector forwards to the agent.
@@ -91,6 +112,14 @@ impl Default for PacingConfig {
             typing_refresh_secs: default_typing_refresh_secs(),
         }
     }
+}
+
+fn default_see_other_bots() -> bool {
+    true
+}
+
+fn default_max_consecutive_bot_turns() -> u32 {
+    10
 }
 
 fn default_debounce_ms() -> u64 {
@@ -150,6 +179,8 @@ db_path = "discord.db"
         assert_eq!(config.pacing.debounce_ms, 500);
         assert_eq!(config.pacing.typing_refresh_secs, 8);
         assert!(config.behavior.allowed_channels.is_empty());
+        assert!(config.behavior.see_other_bots);
+        assert_eq!(config.behavior.max_consecutive_bot_turns, 10);
         assert_eq!(config.storage.db_path, PathBuf::from("discord.db"));
     }
 
