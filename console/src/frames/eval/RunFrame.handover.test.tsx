@@ -32,7 +32,7 @@ vi.mock("../../lib/replica/replica.ts", async (importOriginal) => ({
         foldedSeq: events.length > 0 ? events[events.length - 1].seq : 0,
         foldTo() {},
         memories: () => [],
-        conversations: () => [],
+        conversations: () => [{ id: "conv-1", context_name: null }],
         participantIds: () => [],
         requestDigests: () => [],
       }),

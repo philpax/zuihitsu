@@ -267,3 +267,56 @@ fn recurring_memories_lists_only_true_recurrences() {
         .collect();
     assert_eq!(names, vec![standup_name.to_string()]);
 }
+
+#[test]
+fn recurring_entries_lists_live_recurring_entries_by_memory() {
+    let (mem_a, mem_b) = (MemoryId::generate(), MemoryId::generate());
+    let (e1, e2, e3, e4) = (
+        EntryId::generate(),
+        EntryId::generate(),
+        EntryId::generate(),
+        EntryId::generate(),
+    );
+    let (_store, graph) = materialized(vec![
+        created(mem_a, Namespace::Person.with_name("rowan")),
+        created(mem_b, Namespace::Event.with_name("standup")),
+        // A live recurring entry on mem_a, and a non-recurring one (excluded).
+        appended(
+            mem_a,
+            e1,
+            Some(TemporalRef::Recurring(Rrule("FREQ=WEEKLY".into()))),
+        ),
+        appended(
+            mem_a,
+            e2,
+            Some(TemporalRef::Instant(Timestamp::from_millis(1_000))),
+        ),
+        // A recurring entry on mem_b that is superseded (excluded), then a live one.
+        appended(
+            mem_b,
+            e3,
+            Some(TemporalRef::Recurring(Rrule("FREQ=DAILY".into()))),
+        ),
+        EventPayload::MemorySuperseded {
+            id: mem_b,
+            entry: e3,
+            superseded_by: e4,
+        },
+        appended(
+            mem_b,
+            e4,
+            Some(TemporalRef::Recurring(Rrule("FREQ=MONTHLY".into()))),
+        ),
+    ]);
+
+    // Only the two live recurring entries, each under its memory — the instant and the superseded one
+    // are absent.
+    let recurring = graph.recurring_entries().unwrap();
+    let by_memory: std::collections::BTreeMap<_, _> = recurring
+        .iter()
+        .map(|entry| (entry.memory, entry.rrule.as_str()))
+        .collect();
+    assert_eq!(recurring.len(), 2);
+    assert_eq!(by_memory.get(&mem_a).copied(), Some("FREQ=WEEKLY"));
+    assert_eq!(by_memory.get(&mem_b).copied(), Some("FREQ=MONTHLY"));
+}

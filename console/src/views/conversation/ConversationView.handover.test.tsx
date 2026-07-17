@@ -49,7 +49,12 @@ beforeAll(() => {
 /// handlers this test never fires.
 const replica = {
   memories: () => [],
-  conversations: () => [],
+  // The graph's live conversations — the authority on which rooms exist (the transcript folds the
+  // events for their content, but is shown only for rooms listed here).
+  conversations: () => [
+    { id: "conv-1", context_name: null },
+    { id: "conv-2", context_name: null },
+  ],
   participantIds: () => [],
   requestDigests: () => [],
 } as unknown as Replica;

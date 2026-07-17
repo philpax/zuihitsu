@@ -4,7 +4,8 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::{ConversationRef, Teller},
     graph::{
-        Graph, GraphError, OpenSessionView, ParticipantMint, SessionView, backend, parse_ulid,
+        ConversationView, Graph, GraphError, OpenSessionView, ParticipantMint, SessionView,
+        backend, parse_ulid,
     },
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
     time::Timestamp,
@@ -30,6 +31,30 @@ impl Graph {
             .optional()
             .map_err(backend)?;
         id.map(|id| parse_ulid(&id).map(ConversationId)).transpose()
+    }
+
+    /// Every live conversation, as projected — the rooms that still have a context memory. A
+    /// conversation whose room was deleted (a `MemoryDeleted` on its context memory) is gone from the
+    /// projection, so it is absent here; this is what makes the graph, not a re-scan of the log, the
+    /// authority on which conversations exist. Ordered by insertion, the order rooms were first opened.
+    pub fn conversations(&self) -> Result<Vec<ConversationView>, GraphError> {
+        let stmt = self
+            .conn
+            .prepare(
+                "SELECT id, platform, scope_path, context_memory FROM conversations ORDER BY rowid",
+            )
+            .map_err(backend)?;
+        query_map_into(stmt, params![], |row| {
+            let id: String = row.get("id")?;
+            let platform: String = row.get("platform")?;
+            let scope_path: String = row.get("scope_path")?;
+            let context_memory: String = row.get("context_memory")?;
+            Ok(ConversationView {
+                id: ConversationId(parse_ulid(&id)?),
+                locator: ConversationLocator::new(platform, scope_path),
+                context_memory: MemoryId(parse_ulid(&context_memory)?),
+            })
+        })
     }
 
     /// Resolve a platform participant `(platform, platform_user_id)` to its [`Namespace::Person`]

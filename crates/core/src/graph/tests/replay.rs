@@ -290,4 +290,67 @@ fn conversations_and_sessions_project() {
     assert_eq!(graph.session(s1).unwrap().unwrap().participants, expected);
     // The second session has only its open participant.
     assert_eq!(graph.session_participants(s2).unwrap(), vec![alice]);
+
+    // The graph lists the live conversation from its projection.
+    let conversations = graph.conversations().unwrap();
+    assert_eq!(conversations.len(), 1);
+    assert_eq!(conversations[0].id, conv);
+    assert_eq!(conversations[0].context_memory, context);
+}
+
+#[test]
+fn deleting_a_context_memory_drops_its_conversation_from_the_projection() {
+    let conv = ConversationId::generate();
+    let context = MemoryId::generate();
+    let session = SessionId::generate();
+    let participant = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(context, Namespace::Context.with_name("console:lua")),
+        EventPayload::conversation_started(
+            conv,
+            ConversationLocator::new("console", "lua"),
+            context,
+        ),
+        // An open session in the room, so the cascade has sessions and participants to clean up.
+        EventPayload::SessionStarted {
+            conversation: conv,
+            id: session,
+            participants: vec![participant],
+            started_at: Timestamp::from_millis(1_000),
+            seeded_from_turn: None,
+            brief: "a brief".to_owned(),
+            working_set: Vec::new(),
+            initiators: Vec::new(),
+        },
+        // An operator `delete-memory` on the room: the conversation's context memory is deleted.
+        EventPayload::memory_deleted(context),
+    ]);
+    // The room is gone, so the conversation is no longer projected — the graph, not a re-scan of the
+    // log, is the authority on which conversations exist.
+    assert!(graph.conversations().unwrap().is_empty());
+    assert!(
+        graph
+            .conversation_for_locator(&ConversationLocator::new("console", "lua"))
+            .unwrap()
+            .is_none()
+    );
+    // The cascade takes the conversation's sessions and their participants too, so the idle sweep's
+    // `open_sessions` finds no orphan to flush a turn into a room that no longer exists.
+    assert!(graph.sessions_in(conv).unwrap().is_empty());
+    assert!(graph.open_sessions().unwrap().is_empty());
+    assert!(graph.session_participants(session).unwrap().is_empty());
+    // Deleting an unrelated (non-context) memory leaves a conversation standing.
+    let conv2 = ConversationId::generate();
+    let context2 = MemoryId::generate();
+    let unrelated = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(context2, Namespace::Context.with_name("discord:general")),
+        EventPayload::conversation_started(
+            conv2,
+            ConversationLocator::new("discord", "general"),
+            context2,
+        ),
+        EventPayload::memory_deleted(unrelated),
+    ]);
+    assert_eq!(graph.conversations().unwrap().len(), 1);
 }

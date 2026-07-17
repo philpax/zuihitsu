@@ -16,6 +16,7 @@ import type {
   MemoryDetail,
   MemoryView,
   MergeProposalView,
+  RecurringEntry,
   RelationView,
   TagVocabularyEntry,
 } from "../model/graph.ts";
@@ -136,6 +137,12 @@ export class Replica {
 
   relations(): RelationView[] {
     return this.#inner.relations() as RelationView[];
+  }
+
+  /// Every live recurring entry, with the memory it belongs to — the graph's authority on which
+  /// memories carry a recurring occurrence, so the state view badges them without re-folding the log.
+  recurringEntries(): RecurringEntry[] {
+    return this.#inner.recurringEntries() as RecurringEntry[];
   }
 
   /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with

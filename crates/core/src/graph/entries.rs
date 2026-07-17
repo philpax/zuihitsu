@@ -3,15 +3,45 @@
 use crate::{
     db::{query_map_into, query_opt_into},
     event::Cardinality,
-    graph::{EntryView, Graph, GraphError, MemoryView, parse_ulid},
+    graph::{EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid},
     ids::{EntryId, MemoryId, Namespace},
-    time::Timestamp,
+    time::{Timestamp, temporal::TemporalRef},
     vocabulary::RelationName,
 };
 use rusqlite::params;
 use std::collections::BTreeSet;
 
 impl Graph {
+    /// Every live entry across all memories that carries a recurrence rule, with the memory it belongs
+    /// to. The graph, not a re-fold of the log, is the authority on which entries recur: an entry's
+    /// `occurred_at` decodes to a [`TemporalRef::Recurring`], and a superseded or retracted entry is
+    /// excluded (`superseded_by IS NULL`). Ordered by memory, then commit order.
+    pub fn recurring_entries(&self) -> Result<Vec<RecurringEntry>, GraphError> {
+        let stmt = self
+            .conn
+            .prepare(
+                "SELECT memory_id, text, occurred_at FROM content_entries
+                 WHERE occurred_at IS NOT NULL AND superseded_by IS NULL ORDER BY memory_id, seq",
+            )
+            .map_err(backend)?;
+        let rows: Vec<Option<RecurringEntry>> =
+            query_map_into(stmt, params![], |row| -> Result<_, GraphError> {
+                let occurred_at: String = row.get("occurred_at")?;
+                let TemporalRef::Recurring(rrule) =
+                    serde_json::from_str::<TemporalRef>(&occurred_at)?
+                else {
+                    return Ok(None);
+                };
+                let memory: String = row.get("memory_id")?;
+                Ok(Some(RecurringEntry {
+                    memory: MemoryId(parse_ulid(&memory)?),
+                    text: row.get("text")?,
+                    rrule: rrule.0.to_string(),
+                }))
+            })?;
+        Ok(rows.into_iter().flatten().collect())
+    }
+
     /// A memory's own live content entries, in commit order — the per-stub read primitive that
     /// class-aware reads compose across a `same_as` class. Excludes superseded entries (a live
     /// surface, spec §Visibility); see [`Graph::entries_local_history`] for the unfiltered form, and

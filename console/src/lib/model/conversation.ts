@@ -190,6 +190,7 @@ export function emptyTurn(turnId: string, seq: number): TurnModel {
 export function buildConversations(
   events: Event[],
   nameById: Map<string, string>,
+  liveConversationIds: Set<string>,
 ): ConversationModel[] {
   const conversations = new Map<string, ConversationModel>();
   const turns = new Map<string, TurnModel>();
@@ -410,7 +411,10 @@ export function buildConversations(
       }
     }
   }
-  return [...conversations.values()];
+  // The graph is the single authority on which conversations exist: `replica.conversations()` drops a
+  // conversation whose room memory was deleted, so keep only those it still holds. The transcript above
+  // is folded from the event stream (the events are the content); existence is not re-derived here.
+  return [...conversations.values()].filter((model) => liveConversationIds.has(model.id));
 }
 
 /// The memory ids an outcome event targets — used to check it against the turn's touched set. A

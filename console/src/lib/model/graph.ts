@@ -93,6 +93,14 @@ export interface ConversationDetail {
   sessions: SessionSummary[];
 }
 
+/// A live entry carrying a recurrence rule, with the memory it belongs to — the graph's projection
+/// behind the console's per-memory recurring list (mirrors the Rust `RecurringEntry`).
+export interface RecurringEntry {
+  memory: string;
+  text: string;
+  rrule: string;
+}
+
 /// Where a merge proposal stands at the fold cursor — pending an operator or adjudicator decision,
 /// merged (the two stubs now share a `same_as` class), or rejected (a refusal was recorded).
 export type MergeStatus = "pending" | "merged" | "rejected";

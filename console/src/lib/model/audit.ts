@@ -1,5 +1,4 @@
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
-import type { TemporalRef } from "@zuihitsu/wire/types/TemporalRef.ts";
 
 /// One belief the agent reconciled: the competing entries it weighed and the one-line statement it
 /// wrote to settle them (spec §Write path → arbitration). The audit answer to "why does it believe
@@ -32,46 +31,6 @@ export function arbitrationsFor(events: Event[], memoryId: string, cursor: numbe
 export interface RecurringItem {
   text: string;
   rrule: string;
-}
-
-/// The live recurring entries per memory, up to the cursor — derived from the log by tracking each
-/// entry's occurrence through its append, any temporal re-resolution, and supersession, then keeping
-/// those that resolve to a `Recurring` rule and were not superseded. Deleted memories drop out
-/// naturally: the caller only looks these up for memories the folded graph still holds.
-export function recurringByMemory(events: Event[], cursor: number): Map<string, RecurringItem[]> {
-  const entries = new Map<
-    string,
-    { memory: string; text: string; occurred: TemporalRef | null; superseded: boolean }
-  >();
-  for (const event of events) {
-    if (event.seq > cursor) continue;
-    const payload = event.payload;
-    if (payload.type === "MemoryContentAppended") {
-      entries.set(payload.entry_id, {
-        memory: payload.id,
-        text: payload.text,
-        occurred: payload.occurred_at,
-        superseded: false,
-      });
-    } else if (payload.type === "EntryTemporalResolved") {
-      const entry = entries.get(payload.entry_id);
-      if (entry) entry.occurred = payload.occurred_at;
-    } else if (payload.type === "MemorySuperseded" || payload.type === "EntryRetracted") {
-      // A retraction tombstones an entry exactly as a supersession does, so a retracted recurring
-      // entry drops from the live recurring list too.
-      const entry = entries.get(payload.entry);
-      if (entry) entry.superseded = true;
-    }
-  }
-
-  const byMemory = new Map<string, RecurringItem[]>();
-  for (const entry of entries.values()) {
-    if (entry.superseded || !entry.occurred || !("recurring" in entry.occurred)) continue;
-    const items = byMemory.get(entry.memory) ?? [];
-    items.push({ text: entry.text, rrule: entry.occurred.recurring });
-    byMemory.set(entry.memory, items);
-  }
-  return byMemory;
 }
 
 /// A friendly cadence read off an RRULE's `FREQ`/`INTERVAL` (the supported subset), e.g. "every 2

@@ -84,6 +84,40 @@ impl Graph {
                         params![id.0.to_string()],
                     )
                     .map_err(backend)?;
+                // A deleted context memory takes its conversation with it: the room is the
+                // conversation's identity, so a conversation whose room is gone is dropped from the
+                // projection, along with its sessions and their participants (there are no foreign
+                // keys, so the cascade is explicit — and it must be complete, or the idle sweep's
+                // `open_sessions` would surface an orphaned open session and flush a turn into a room
+                // that no longer exists). Ordered inner-to-outer so each delete's subquery still
+                // resolves the conversation. The `ConversationStarted`/`SessionStarted` events stay in
+                // the log (this is the materialized graph, rebuilt from it), and a non-context memory
+                // matches no row.
+                let id = id.0.to_string();
+                self.conn
+                    .execute(
+                        "DELETE FROM session_participants WHERE session IN (
+                             SELECT s.id FROM sessions s
+                             JOIN conversations c ON s.conversation = c.id
+                             WHERE c.context_memory = ?1
+                         )",
+                        params![id],
+                    )
+                    .map_err(backend)?;
+                self.conn
+                    .execute(
+                        "DELETE FROM sessions WHERE conversation IN (
+                             SELECT id FROM conversations WHERE context_memory = ?1
+                         )",
+                        params![id],
+                    )
+                    .map_err(backend)?;
+                self.conn
+                    .execute(
+                        "DELETE FROM conversations WHERE context_memory = ?1",
+                        params![id],
+                    )
+                    .map_err(backend)?;
             }
             EventPayload::MemoryContentAppended {
                 id,

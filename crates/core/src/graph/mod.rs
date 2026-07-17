@@ -14,7 +14,7 @@ use ulid::Ulid;
 use crate::{
     db::query_map_into,
     event::{Cardinality, ConversationRef, LinkSource, Teller, Visibility, Volatility},
-    ids::{ConversationId, EntryId, MemoryId, MemoryName, Seq, SessionId},
+    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId},
     store::Store,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -45,6 +45,17 @@ pub struct MemoryView {
     pub volatility: Volatility,
     pub created_at: Timestamp,
     pub tags: Vec<TagName>,
+}
+
+/// A live entry that carries a recurrence rule, with the memory it belongs to and the rule text —
+/// the projection behind the console's per-memory recurring list, so the operator reads which rooms
+/// carry recurring occurrences from the graph rather than a re-fold of the log (see
+/// [`Graph::recurring_entries`]).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecurringEntry {
+    pub memory: MemoryId,
+    pub text: String,
+    pub rrule: String,
 }
 
 /// A content entry as projected, ordered within its memory by commit order. `occurred_sort` is the
@@ -217,6 +228,16 @@ impl NeighborLinkView {
             told_in: self.told_in.clone(),
         }
     }
+}
+
+/// A conversation as projected: its id, its locator (the room it addresses), and the context memory
+/// that is its room. A conversation whose context memory has been deleted is not projected, so a
+/// listing reflects only the live rooms (see [`Graph::conversations`]).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ConversationView {
+    pub id: ConversationId,
+    pub locator: ConversationLocator,
+    pub context_memory: MemoryId,
 }
 
 /// A session as projected: its conversation, when it opened, the carryover extent (if it opened via

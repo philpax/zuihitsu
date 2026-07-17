@@ -106,13 +106,26 @@ export function StreamWorkspace({
 }) {
   const cursor = seq ?? head;
 
+  // Fold the graph to the cursor before anything queries it — the shared maps just below and the
+  // views further down. The replica is an external mutable store, not React state, so syncing it here
+  // (rather than in an effect that runs after the queries) keeps every read this render makes
+  // consistent with the cursor: the conversation existence set the shared maps derive is gated on the
+  // graph, so a stale horizon would flicker conversations in and out during a time-travel scrub. The
+  // guard makes it idempotent — a no-op on renders where the cursor did not move.
+  if (replica.foldedSeq !== cursor) replica.foldTo(cursor);
+
   // Shared context maps built once per render, available to all views so `ConversationRefLink`
   // and `TurnRefChip` work everywhere — not just inside the Conversation view.
   const names = nameById(replica.memories(""));
-  const convNames = conversationNameById(replica.conversations());
+  const conversationList = replica.conversations();
+  const convNames = conversationNameById(conversationList);
+  // The graph's live conversations: a room deleted via `delete-memory` is already dropped from the
+  // projection, so the transcript shows only conversations the graph still holds.
+  const liveConversationIds = new Set(conversationList.map((conv) => conv.id));
   const conversations = buildConversations(
     events.filter((event) => event.seq <= cursor),
     names,
+    liveConversationIds,
   );
   const refTargets = new Map<string, TurnRefTarget>();
   for (const conversation of conversations) {
@@ -136,13 +149,6 @@ export function StreamWorkspace({
   const [direction, setDirection] = useState(1);
   const reduce = useReducedMotion();
   const shift = reduce ? 0 : 36;
-
-  // Fold the graph to the cursor before the views below query it. The replica is an external mutable
-  // store, not React state, so syncing it here — rather than in an effect that runs after the views
-  // have already queried — keeps every query this render makes consistent with the cursor, with no
-  // stale flash when a back/forward jump moves the cursor without a remount. The guard makes it
-  // idempotent, so it is a no-op on the renders where the cursor did not move.
-  if (replica.foldedSeq !== cursor) replica.foldTo(cursor);
 
   const tabs = [...STREAM_VIEWS.map((entry) => entry.id), ...extraViews.map((entry) => entry.id)];
   const extra = extraViews.find((entry) => entry.id === view);

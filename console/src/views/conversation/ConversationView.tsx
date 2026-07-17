@@ -68,13 +68,18 @@ export function ConversationView({
   progress?: ReadonlyMap<string, InFlightGeneration>;
 }) {
   const names = nameById(replica.memories(""));
-  const convNames = conversationNameById(replica.conversations());
+  const conversationList = replica.conversations();
+  const convNames = conversationNameById(conversationList);
+  // The graph's live conversations: a room deleted via `delete-memory` is already dropped from the
+  // projection, so the transcript below shows only conversations the graph still holds.
+  const liveConversationIds = new Set(conversationList.map((conv) => conv.id));
   // The bare handles a user can type in the "you are" field, sourced from `participant_identities`
   // so the `@platform` disambiguation suffix never surfaces as a separate entry.
   const personHandles = replica.participantIds(DIRECT_PLATFORM);
   const conversations = buildConversations(
     events.filter((event) => event.seq <= cursor),
     names,
+    liveConversationIds,
   );
   const modelCalls = {
     ...deriveContextDebug(events, cursor),

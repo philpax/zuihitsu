@@ -5,7 +5,7 @@ import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import type { MemoryView } from "../../lib/model/graph.ts";
 import { nameById } from "../../lib/model/labels.ts";
-import { type RecurringItem, arbitrationsFor, recurringByMemory } from "../../lib/model/audit.ts";
+import { type RecurringItem, arbitrationsFor } from "../../lib/model/audit.ts";
 import { Select } from "../../components/primitives.tsx";
 import { MemoryList } from "./MemoryList.tsx";
 import { MemoryDetailPane } from "./MemoryDetailPane.tsx";
@@ -37,7 +37,14 @@ export function MemoryBrowser({
 }) {
   const memories = replica.memories("");
   const names = nameById(memories);
-  const recurring = recurringByMemory(events, cursor);
+  // Which memories carry a live recurring occurrence, from the graph's projection (not a re-fold of
+  // the log): the replica is the authority, grouped here into the per-memory shape the list badges.
+  const recurring = new Map<string, RecurringItem[]>();
+  for (const entry of replica.recurringEntries()) {
+    const items = recurring.get(entry.memory) ?? [];
+    items.push({ text: entry.text, rrule: entry.rrule });
+    recurring.set(entry.memory, items);
+  }
   const [query, setQuery] = useState("");
 
   if (memories.length === 0) {

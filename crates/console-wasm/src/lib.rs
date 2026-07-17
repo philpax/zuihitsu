@@ -173,6 +173,14 @@ impl Replica {
         to_js(&self.graph.all_relations().map_err(graph_error)?)
     }
 
+    /// Every live recurring entry at the current fold horizon, as `RecurringEntry[]` (its memory, text,
+    /// and rule) — read from the graph so the console badges recurring memories from the projection,
+    /// not a re-fold of the log.
+    #[wasm_bindgen(js_name = recurringEntries)]
+    pub fn recurring_entries(&self) -> Result<JsValue, JsError> {
+        to_js(&self.graph.recurring_entries().map_err(graph_error)?)
+    }
+
     /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with
     /// where it now stands — pending, merged, or rejected (spec §Cross-platform identity → adjudicated
     /// merge). `MergeProposed`/`MergeAdjudicated` are log-only, so this reads them from the events (up to
@@ -456,27 +464,25 @@ impl Replica {
         to_js(&items)
     }
 
-    /// Every durable conversation up to the current fold horizon, each with its sessions — the
-    /// structure behind the Conversation view, with the [`Namespace::Context`] room name and the
-    /// per-session participant handles resolved from ids the raw log only carries opaquely.
+    /// Every live conversation at the current fold horizon, each with its sessions — the structure
+    /// behind the Conversation view, with the [`Namespace::Context`] room name and the per-session
+    /// participant handles resolved from ids the raw log only carries opaquely. Read from the graph's
+    /// own conversation projection (not a re-scan of the log), so a conversation whose room was deleted
+    /// is already gone here — the graph is the single authority on which conversations exist.
     pub fn conversations(&self) -> Result<JsValue, JsError> {
         let mut conversations = Vec::new();
-        for event in self.events.iter().filter(|event| event.seq <= self.head) {
-            let EventPayload::ConversationStarted {
-                id,
-                locator,
-                context_memory,
-            } = &event.payload
-            else {
-                continue;
-            };
+        for conversation in self.graph.conversations().map_err(graph_error)? {
             let context_name = self
                 .graph
-                .memory_by_id(*context_memory)
+                .memory_by_id(conversation.context_memory)
                 .map_err(graph_error)?
                 .map(|view| view.name.as_str().to_owned());
             let mut sessions = Vec::new();
-            for session in self.graph.sessions_in(*id).map_err(graph_error)? {
+            for session in self
+                .graph
+                .sessions_in(conversation.id)
+                .map_err(graph_error)?
+            {
                 let mut participants = Vec::new();
                 for participant in &session.participants {
                     if let Some(view) =
@@ -493,9 +499,9 @@ impl Replica {
                 });
             }
             conversations.push(ConversationDetail {
-                id: *id,
-                platform: locator.platform.to_string(),
-                scope_path: locator.scope_path.to_string(),
+                id: conversation.id,
+                platform: conversation.locator.platform.to_string(),
+                scope_path: conversation.locator.scope_path.to_string(),
                 context_name,
                 sessions,
             });
