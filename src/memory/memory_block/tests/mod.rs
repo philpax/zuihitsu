@@ -10,7 +10,7 @@ pub(super) use super::{AppendOptions, Authority, MemoryBlock, MemoryError, Visib
 use crate::{
     clock::ManualClock,
     engine::Engine,
-    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
     graph::Graph,
     ids::{ConversationId, MemoryId, MemoryName, Namespace},
     store::{MemoryStore, Store},
@@ -33,6 +33,28 @@ pub(super) fn block(
         teller,
         authority,
         Some(ConversationId::generate()),
+        None,
+        Vec::new(),
+        TEST_MAX_ENTRY_CHARS,
+    )
+    .unwrap()
+}
+
+/// A block like [`block`] but with no conversation attached, so its links carry `told_in: None`. That
+/// keeps a link's provenance a deterministic function of its inputs across two separately-built blocks —
+/// what the redundant-link-guard test leans on to re-derive the exact posture a first block committed.
+pub(super) fn block_without_conversation(
+    graph: Graph,
+    clock: ManualClock,
+    teller: Teller,
+    authority: Authority,
+) -> MemoryBlock {
+    let engine = Engine::new(Box::new(MemoryStore::new()), graph, Box::new(clock));
+    MemoryBlock::new(
+        engine,
+        teller,
+        authority,
+        None,
         None,
         Vec::new(),
         TEST_MAX_ENTRY_CHARS,
@@ -129,10 +151,12 @@ pub(super) fn graph_with_merged_pair() -> (Graph, MemoryId, MemoryId) {
                     quinn,
                     quinn_chat,
                     RelationName::SameAs,
-                    LinkSource::Operator,
-                    None,
-                    None,
-                    Visibility::Public,
+                    LinkPosture {
+                        source: LinkSource::Operator,
+                        told_by: None,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
                 ),
             ],
         )

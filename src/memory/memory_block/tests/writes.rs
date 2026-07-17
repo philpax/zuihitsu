@@ -1,9 +1,11 @@
 //! The write-path basics and teachable write errors.
 
+use std::collections::BTreeSet;
+
 use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
 use crate::{
     clock::ManualClock,
-    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
     ids::{EntryId, MemoryId, Namespace},
     memory::memory_block::{LinkOptions, RelationSpec},
@@ -133,7 +135,7 @@ fn append_with_exclude_records_the_named_parties() {
             erin,
             "everyone but them is chipping in on the gift",
             AppendOptions {
-                exclude: Some(vec![dave, frank]),
+                exclude: Some(BTreeSet::from([dave, frank])),
                 ..AppendOptions::default()
             },
         )
@@ -148,7 +150,10 @@ fn append_with_exclude_records_the_named_parties() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(visibility, Visibility::Exclude(vec![dave, frank]));
+    assert_eq!(
+        visibility,
+        Visibility::Exclude(BTreeSet::from([dave, frank]))
+    );
 }
 
 #[test]
@@ -165,7 +170,7 @@ fn create_with_content_honors_the_exclude_opt() {
             Namespace::Topic.with_name("gift"),
             Some("collecting for a farewell gift"),
             Some(AppendOptions {
-                exclude: Some(vec![dave]),
+                exclude: Some(BTreeSet::from([dave])),
                 ..AppendOptions::default()
             }),
         )
@@ -180,7 +185,7 @@ fn create_with_content_honors_the_exclude_opt() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(visibility, Visibility::Exclude(vec![dave]));
+    assert_eq!(visibility, Visibility::Exclude(BTreeSet::from([dave])));
 }
 
 #[test]
@@ -207,7 +212,7 @@ fn exclude_beside_a_defaulted_open_seed_is_a_teachable_error() {
             plan,
             "it is a surprise — keep it from them",
             AppendOptions {
-                exclude: Some(vec![dave]),
+                exclude: Some(BTreeSet::from([dave])),
                 ..AppendOptions::default()
             },
         )
@@ -235,7 +240,7 @@ fn exclude_is_accepted_beside_a_deliberately_classified_seed() {
     );
     let dave = MemoryId::generate();
     let exclude_opts = || AppendOptions {
-        exclude: Some(vec![dave]),
+        exclude: Some(BTreeSet::from([dave])),
         ..AppendOptions::default()
     };
 
@@ -295,7 +300,7 @@ fn exclude_is_accepted_when_the_defaulted_seed_landed_private() {
             marcus,
             "keep this from the named party",
             AppendOptions {
-                exclude: Some(vec![dave]),
+                exclude: Some(BTreeSet::from([dave])),
                 ..AppendOptions::default()
             },
         )
@@ -341,7 +346,7 @@ fn exclude_is_accepted_on_a_previously_committed_memory() {
             plan,
             "it is a surprise — keep it from them",
             AppendOptions {
-                exclude: Some(vec![MemoryId::generate()]),
+                exclude: Some(BTreeSet::from([MemoryId::generate()])),
                 ..AppendOptions::default()
             },
         )
@@ -369,7 +374,7 @@ fn a_redundant_private_beside_exclude_folds_into_the_exclude() {
             "logistics",
             AppendOptions {
                 visibility: Some(VisibilityChoice::Private),
-                exclude: Some(vec![dave]),
+                exclude: Some(BTreeSet::from([dave])),
                 ..AppendOptions::default()
             },
         )
@@ -383,7 +388,7 @@ fn a_redundant_private_beside_exclude_folds_into_the_exclude() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(visibility, Visibility::Exclude(vec![dave]));
+    assert_eq!(visibility, Visibility::Exclude(BTreeSet::from([dave])));
 }
 
 #[test]
@@ -406,7 +411,7 @@ fn a_public_or_attributed_beside_exclude_is_a_conflict() {
                 "logistics",
                 AppendOptions {
                     visibility: Some(contradictory),
-                    exclude: Some(vec![MemoryId::generate()]),
+                    exclude: Some(BTreeSet::from([MemoryId::generate()])),
                     ..AppendOptions::default()
                 },
             )
@@ -437,7 +442,7 @@ fn an_empty_exclude_beside_private_is_still_a_teachable_error() {
             "logistics",
             AppendOptions {
                 visibility: Some(VisibilityChoice::Private),
-                exclude: Some(Vec::new()),
+                exclude: Some(BTreeSet::new()),
                 ..AppendOptions::default()
             },
         )
@@ -463,7 +468,7 @@ fn an_empty_exclude_is_a_teachable_error() {
             plan,
             "logistics",
             AppendOptions {
-                exclude: Some(Vec::new()),
+                exclude: Some(BTreeSet::new()),
                 ..AppendOptions::default()
             },
         )
@@ -510,7 +515,7 @@ fn link_with_exclude_records_the_named_parties() {
             RelationName::Other("plans".into()),
             Some(LinkOptions {
                 visibility: None,
-                exclude: Some(vec![dave]),
+                exclude: Some(BTreeSet::from([dave])),
             }),
         )
         .unwrap();
@@ -524,7 +529,7 @@ fn link_with_exclude_records_the_named_parties() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(visibility, Visibility::Exclude(vec![dave]));
+    assert_eq!(visibility, Visibility::Exclude(BTreeSet::from([dave])));
 }
 
 #[test]
@@ -559,10 +564,12 @@ fn class_handle_write_lands_on_the_primary_stub() {
                     primary,
                     chat_stub,
                     RelationName::SameAs,
-                    LinkSource::Operator,
-                    None,
-                    None,
-                    Visibility::Public,
+                    LinkPosture {
+                        source: LinkSource::Operator,
+                        told_by: None,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
                 ),
             ],
         )
@@ -638,10 +645,12 @@ fn designated_primary_seed() -> (Vec<EventPayload>, MemoryId, MemoryId) {
             earliest,
             later,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
         EventPayload::class_primary_designated(later, true),
     ];
@@ -798,10 +807,12 @@ fn a_write_is_never_redirected_onto_the_operator_anchor() {
             anchor,
             dana,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ];
     let clock = ManualClock::new(Timestamp::from_millis(2_000));

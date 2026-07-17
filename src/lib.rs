@@ -49,9 +49,9 @@ pub use config::{
 };
 pub use event::{
     AmbientHit, Cardinality, ConversationRef, Event, EventPayload, EventSource, InferredLinkSpec,
-    InferredRelationSpec, Initiation, LinkInferenceResult, LinkSource, MergeProposalSource,
-    ModelPhase, ProducedBy, PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole,
-    Visibility, Volatility,
+    InferredRelationSpec, Initiation, LinkInferenceResult, LinkPosture, LinkSource,
+    MergeProposalSource, ModelPhase, ProducedBy, PromptTemplateName, RequestRecord, Teller,
+    TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
     ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,

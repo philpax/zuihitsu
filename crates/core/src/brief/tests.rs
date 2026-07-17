@@ -2,9 +2,11 @@
 //! `[brief]`/`[predicate]` surface). Each builds a materialized graph, composes a brief for a
 //! present set, and asserts a fact is present or absent — model-free, because composition is
 //! deterministic.
+use std::collections::BTreeSet;
+
 use crate::{
     brief::{self, Brief, BriefFact, BriefRelationship, BriefRequest},
-    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, MemoryName},
     settings::{BriefSettings, Settings},
@@ -256,19 +258,23 @@ fn a_same_as_class_collapses_to_a_single_block() {
             direct,
             canonical,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
         EventPayload::link_created(
             chat,
             canonical,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
         // A distinctive class-wide fact, filed on a non-present stub — it merges across the class, so
         // before the collapse it rendered once per stub (three times).
@@ -377,7 +383,7 @@ fn the_present_set_cap_does_not_narrow_the_predicate() {
             text: "thinking of leaving, keep it from Dave".to_owned(),
             told_by: Teller::Participant(marcus),
             told_in: None,
-            visibility: Visibility::Exclude(vec![dave]),
+            visibility: Visibility::Exclude(BTreeSet::from([dave])),
         },
     ]);
 
@@ -465,10 +471,12 @@ fn the_structured_join_brief_projects_to_the_frozen_markup() {
             priya,
             erin,
             RelationName::new("knows"),
-            LinkSource::Agent,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ]);
     let settings = Settings::default().brief;
@@ -579,15 +587,17 @@ fn linked(from: MemoryId, to: MemoryId, relation: &str) -> EventPayload {
         from,
         to,
         RelationName::new(relation),
-        LinkSource::Agent,
-        None,
-        None,
-        Visibility::Public,
+        LinkPosture {
+            source: LinkSource::Agent,
+            told_by: None,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
     )
 }
 
-/// The relationship lines of a rendered brief, in order — the `- {relation}: …` bullets under
-/// `<relationships>`, so a test can assert the ranking without pinning the whole block.
+/// The relationship lines of a rendered brief, in order — the `- {source} → {relation} → {target}`
+/// bullets under `<relationships>`, so a test can assert the ranking without pinning the whole block.
 fn relationship_lines(rendered: &str) -> Vec<String> {
     rendered
         .lines()

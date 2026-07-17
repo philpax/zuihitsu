@@ -11,8 +11,8 @@ use crate::{
 
 use crate::event::{
     AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
-    LinkSource, MergeProposalSource, ProducedBy, PromptTemplateName, Teller, TerminalCause,
-    TurnRole, Visibility, Volatility,
+    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, TerminalCause, TurnRole,
+    Volatility,
 };
 
 impl EventPayload {
@@ -213,19 +213,16 @@ impl EventPayload {
         from: MemoryId,
         to: MemoryId,
         relation: RelationName,
-        source: LinkSource,
-        told_by: Option<Teller>,
-        told_in: Option<ConversationRef>,
-        visibility: Visibility,
+        posture: LinkPosture,
     ) -> EventPayload {
         EventPayload::LinkCreated {
             from,
             to,
             relation,
-            source,
-            told_by,
-            told_in,
-            visibility,
+            source: posture.source,
+            told_by: posture.told_by,
+            told_in: posture.told_in,
+            visibility: posture.visibility,
         }
     }
 

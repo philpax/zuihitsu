@@ -243,7 +243,7 @@ pub enum VisibilityChoice {
 /// already-reconciled choice.
 pub(super) enum ForcedVisibility {
     Choice(VisibilityChoice),
-    Exclude(Vec<MemoryId>),
+    Exclude(BTreeSet<MemoryId>),
 }
 
 /// Reconcile an append's (or link's) `visibility` posture and `exclude` list into the single forced
@@ -258,7 +258,7 @@ pub(super) enum ForcedVisibility {
 /// returns `None`.
 pub(super) fn reconcile_forced_visibility(
     visibility: Option<VisibilityChoice>,
-    exclude: Option<Vec<MemoryId>>,
+    exclude: Option<BTreeSet<MemoryId>>,
 ) -> Result<Option<ForcedVisibility>, MemoryError> {
     match (visibility, exclude) {
         (_, Some(ids)) if ids.is_empty() => Err(MemoryError::ExcludeEmpty),
@@ -315,7 +315,7 @@ pub struct AppendOptions {
     #[serde(skip)]
     pub told_by: Option<Teller>,
     #[serde(skip)]
-    pub exclude: Option<Vec<MemoryId>>,
+    pub exclude: Option<BTreeSet<MemoryId>>,
 }
 
 /// The overrides a `links.create` call accepts: `visibility` forces the visibility instead of the
@@ -328,7 +328,7 @@ pub struct AppendOptions {
 pub struct LinkOptions {
     pub visibility: Option<VisibilityChoice>,
     #[serde(skip)]
-    pub exclude: Option<Vec<MemoryId>>,
+    pub exclude: Option<BTreeSet<MemoryId>>,
 }
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities

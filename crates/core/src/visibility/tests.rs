@@ -1,7 +1,7 @@
 //! Visibility predicate tests (spec appendix scenarios 1, 3, 4, 5, 6, 7–10, 16). Asserts directly
 //! on `visible(...)` and `default_visibility(...)` over hand-built memories, entries, present
 //! sets, and a `class_of` resolver — deterministic and model-free.
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use super::{
     MarkerRoom, MarkerTurn, default_link_visibility, default_visibility, link_explain, link_marker,
@@ -180,7 +180,10 @@ fn exclude_honours_the_named_party() {
         MemoryId::generate(),
         MemoryId::generate(),
     );
-    let aside = entry(Teller::Participant(erin), Visibility::Exclude(vec![dave]));
+    let aside = entry(
+        Teller::Participant(erin),
+        Visibility::Exclude(BTreeSet::from([dave])),
+    );
 
     assert!(visible(&aside, &project, &[erin], &identity).unwrap()); // (a)
     assert!(!visible(&aside, &project, &[erin, dave], &identity).unwrap()); // (b) excluded present
@@ -200,7 +203,7 @@ fn exclude_is_class_aware_across_platforms() {
 
     let aside = entry(
         Teller::Participant(erin),
-        Visibility::Exclude(vec![dave_forum]),
+        Visibility::Exclude(BTreeSet::from([dave_forum])),
     );
     // dave@chat shares dave's class, so the exclude fires.
     assert!(!visible(&aside, &project, &[erin, dave_chat], &class_of).unwrap());
@@ -448,7 +451,7 @@ fn link_exclude_hidden_when_excludee_present() {
         erin,
         marcus,
         Some(Teller::Participant(erin)),
-        Visibility::Exclude(vec![dave]),
+        Visibility::Exclude(BTreeSet::from([dave])),
     );
     // Teller present, excludee present: hidden.
     assert!(!link_visible(&link, false, &[erin, dave], &identity).unwrap());
@@ -467,7 +470,7 @@ fn link_exclude_hidden_when_target_present() {
         erin,
         marcus,
         Some(Teller::Participant(erin)),
-        Visibility::Exclude(vec![dave]),
+        Visibility::Exclude(BTreeSet::from([dave])),
     );
     // Teller and target present: hidden by the subject-guard.
     assert!(!link_visible(&link, false, &[erin, marcus], &identity).unwrap());

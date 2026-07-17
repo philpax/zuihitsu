@@ -70,10 +70,12 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
                 bound,
                 formal,
                 RelationName::SameAs,
-                LinkSource::Operator,
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Operator,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ),
             // The operator pins the formal record as the class primary — the console designation #37's
             // redirect resolves a class-spanning write to.

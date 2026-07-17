@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     UnmergeOutcome,
     clock::ManualClock,
-    event::{EventPayload, LinkSource, Visibility},
+    event::{EventPayload, LinkPosture, LinkSource, Visibility},
     ids::{MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,
@@ -36,10 +36,12 @@ fn merged_server() -> (Instance, MemoryId, MemoryId) {
                 a,
                 b,
                 RelationName::SameAs,
-                LinkSource::Operator,
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Operator,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ),
         ])
         .unwrap();

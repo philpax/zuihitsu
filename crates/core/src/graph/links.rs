@@ -2,6 +2,7 @@
 
 use crate::{
     db::{query_map_into, query_opt_into},
+    event::LinkPosture,
     graph::{ClassLinkView, Graph, GraphError, LinkView, MemoryView, NeighborLinkView, parse_ulid},
     ids::{MemoryId, MemoryName},
     vocabulary::RelationName,
@@ -122,6 +123,44 @@ impl Graph {
                 from: MemoryId(parse_ulid(&from)?),
                 to: MemoryId(parse_ulid(&to)?),
                 relation: RelationName::new(&relation),
+                source: source.parse().map_err(|()| {
+                    GraphError::Malformed(format!("unknown link source {source:?}"))
+                })?,
+                told_by: told_by
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()?,
+                told_in: told_in
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()?,
+                visibility: serde_json::from_str(&visibility)?,
+            })
+        })
+    }
+
+    /// The overwritable posture of the stored edge for `(from, to, relation)`, or `None` when no such
+    /// link is committed. Canonicalizes the lookup exactly as the fold canonicalizes a write — by either
+    /// label, in either endpoint order — so it finds the single row a re-link would collide with, and
+    /// returns just the columns that re-link would overwrite. A caller compares it against the posture a
+    /// create *would* write to tell a redundant re-link (nothing would differ) from one that asserts or
+    /// changes an edge. Does not filter soft-deleted endpoints: the row exists — and a re-link would
+    /// upsert it — regardless of whether an endpoint is currently live.
+    pub fn link_between(
+        &self,
+        from: MemoryId,
+        to: MemoryId,
+        relation: &RelationName,
+    ) -> Result<Option<LinkPosture>, GraphError> {
+        let (from_id, to_id, relation) = self.canonical_edge(from, to, relation)?;
+        let stmt = self.conn.prepare(
+            "SELECT source, told_by, told_in, visibility
+             FROM links WHERE from_id = ?1 AND to_id = ?2 AND relation = ?3",
+        )?;
+        query_opt_into(stmt, params![from_id, to_id, relation], |row| {
+            let source: String = row.get("source")?;
+            let told_by: Option<String> = row.get("told_by")?;
+            let told_in: Option<String> = row.get("told_in")?;
+            let visibility: String = row.get("visibility")?;
+            Ok::<LinkPosture, GraphError>(LinkPosture {
                 source: source.parse().map_err(|()| {
                     GraphError::Malformed(format!("unknown link source {source:?}"))
                 })?,

@@ -1,6 +1,6 @@
 use super::materialized;
 use crate::{
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
     graph::EntryView,
     ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
@@ -29,10 +29,12 @@ fn same_as_merges_stubs_into_one_class() {
             a,
             b,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ]);
 
@@ -90,10 +92,12 @@ fn class_entries_compose_across_a_merged_class_in_commit_order() {
             a,
             b,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ]);
 

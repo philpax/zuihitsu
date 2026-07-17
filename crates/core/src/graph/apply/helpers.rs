@@ -70,8 +70,10 @@ impl Graph {
     /// Resolve a link (asserted under either label) to its stored canonical direction:
     /// `(from_id, to_id, canonical_relation)`. A relation matched by its inverse swaps endpoints;
     /// a symmetric relation orders endpoints so `(a, b)` and `(b, a)` collapse to one edge. An
-    /// unregistered relation is stored as given (the Lua layer enforces registration in Stage 4).
-    pub(super) fn canonical_edge(
+    /// unregistered relation is stored as given (the Lua layer enforces registration in Stage 4). Shared
+    /// with [`Graph::link_between`], which canonicalizes a lookup the same way the fold canonicalizes a
+    /// write, so a redundant re-link finds the one row it would collide with.
+    pub(crate) fn canonical_edge(
         &self,
         from: MemoryId,
         to: MemoryId,

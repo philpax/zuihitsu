@@ -4,7 +4,7 @@
 
 use super::materialized;
 use crate::{
-    event::{Cardinality, EventPayload, EventSource, LinkSource, Visibility},
+    event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Visibility},
     ids::{MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -30,10 +30,12 @@ fn merge(a: MemoryId, b: MemoryId) -> EventPayload {
         a,
         b,
         RelationName::SameAs,
-        LinkSource::Operator,
-        None,
-        None,
-        Visibility::Public,
+        LinkPosture {
+            source: LinkSource::Operator,
+            told_by: None,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
     )
 }
 

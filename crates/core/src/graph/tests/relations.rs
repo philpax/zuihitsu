@@ -1,6 +1,6 @@
 use super::{materialized, mentor_relation};
 use crate::{
-    event::{Cardinality, EventPayload, LinkSource, Teller, Visibility},
+    event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
     ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,
@@ -57,19 +57,23 @@ fn owned_context_gathers_the_persons_events_but_not_a_linked_persons_facts() {
             dave,
             trip,
             RelationName::new("attended"),
-            LinkSource::Agent,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
         EventPayload::link_created(
             dave,
             erin,
             RelationName::new("mentor_of"),
-            LinkSource::Agent,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ]);
 
@@ -119,10 +123,12 @@ fn link_canonicalizes_inverse_label_to_one_edge() {
             erin,
             dave,
             RelationName::new("mentored_by"),
-            LinkSource::Agent,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ]);
 
@@ -166,20 +172,24 @@ fn symmetric_link_is_order_independent() {
             a,
             b,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
         // Asserting the reverse direction is the same edge, not a second one.
         EventPayload::link_created(
             b,
             a,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
     ]);
 
@@ -187,6 +197,61 @@ fn symmetric_link_is_order_independent() {
     // Traversable from either side.
     assert_eq!(graph.outgoing(a, "same_as").unwrap().len(), 1);
     assert_eq!(graph.outgoing(b, "same_as").unwrap().len(), 1);
+}
+
+#[test]
+fn relink_supersedes_visibility_and_provenance() {
+    // Re-asserting an existing edge with a new posture updates the stored row rather than being
+    // dropped. Visibility and teller are not part of the edge's key, so without the fold's upsert a
+    // later "make this public" re-link would silently no-op — the first write's posture would stick.
+    let dave = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        mentor_relation(),
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+        // First asserted teller-private, with no teller on record.
+        EventPayload::link_created(
+            dave,
+            erin,
+            RelationName::new("mentor_of"),
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::PrivateToTeller,
+            },
+        ),
+        // Re-asserted public and now attributed to a teller: the same canonical edge, so it updates.
+        EventPayload::link_created(
+            dave,
+            erin,
+            RelationName::new("mentor_of"),
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: Some(Teller::Agent),
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ),
+    ]);
+
+    let links = graph.links(dave).unwrap();
+    assert_eq!(
+        links.len(),
+        1,
+        "the re-link updates the row rather than adding a second"
+    );
+    assert_eq!(
+        links[0].visibility,
+        Visibility::Public,
+        "the later posture wins"
+    );
+    assert_eq!(
+        links[0].told_by,
+        Some(Teller::Agent),
+        "the later provenance wins"
+    );
 }
 
 #[test]
@@ -204,19 +269,23 @@ fn link_removed_and_deleted_endpoint_drop_from_traversal() {
                 dave,
                 erin,
                 RelationName::new("mentor_of"),
-                LinkSource::Agent,
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Agent,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ),
             EventPayload::link_created(
                 dave,
                 frank,
                 RelationName::new("mentor_of"),
-                LinkSource::Agent,
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Agent,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ),
         ]
     };

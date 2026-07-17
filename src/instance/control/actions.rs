@@ -11,8 +11,8 @@ use crate::{
         templates,
     },
     event::{
-        EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, TerminalCause,
-        Visibility,
+        EventPayload, EventSource, LinkPosture, LinkSource, PromptTemplateName, Teller,
+        TerminalCause, Visibility,
     },
     ids::{ConversationLocator, EntryId, MemoryId, MemoryName, TurnId},
     instance::{
@@ -427,11 +427,13 @@ impl Control<'_> {
                 from,
                 to,
                 RelationName::SameAs,
-                LinkSource::Operator,
-                // No teller behind it: the operator authored this from the console, not a participant.
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Operator,
+                    // No teller behind it: the operator authored this from the console, not a participant.
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             )
         } else {
             EventPayload::MergeAdjudicated {

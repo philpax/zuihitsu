@@ -7,9 +7,9 @@ use std::{sync::Arc, time::Instant};
 
 use zuihitsu::{
     CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeWebFetcher, Graph,
-    InstanceFeatures, LinkSource, ManualClock, MemoryId, MemoryStore, ModelClient, PersonId,
-    RelationName, SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome,
-    Visibility,
+    InstanceFeatures, LinkPosture, LinkSource, ManualClock, MemoryId, MemoryStore, ModelClient,
+    PersonId, RelationName, SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp,
+    TurnOutcome, Visibility,
 };
 
 use crate::{error::EvalError, fetch_fixture::FIXTURE_MAX_MARKDOWN_CHARS};
@@ -167,10 +167,12 @@ impl RunContext {
             from,
             to,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         )])
     }
 

@@ -204,10 +204,20 @@ impl Graph {
                     .transpose()?;
                 let visibility_json =
                     serde_json::to_string(visibility).map_err(GraphError::Serialize)?;
+                // A re-assertion of an existing edge updates its mutable columns rather than being
+                // dropped: the primary key is the canonical `(from, to, relation)`, so the provenance and
+                // visibility a later `LinkCreated` carries supersede the earlier row's. Without this a
+                // re-link that widens or narrows an edge's audience — "make this public" — would silently
+                // no-op, since visibility is not part of the key.
                 self.conn
                     .execute(
-                        "INSERT OR IGNORE INTO links (from_id, to_id, relation, source, told_by, told_in, visibility)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        "INSERT INTO links (from_id, to_id, relation, source, told_by, told_in, visibility)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                         ON CONFLICT(from_id, to_id, relation) DO UPDATE SET
+                             source = excluded.source,
+                             told_by = excluded.told_by,
+                             told_in = excluded.told_in,
+                             visibility = excluded.visibility",
                         params![
                             edge.0,
                             edge.1,

@@ -4,8 +4,8 @@ use crate::{
     agent::genesis::{self, SeedSelf},
     clock::ManualClock,
     event::{
-        Cardinality, ConversationRef, Event, EventPayload, EventSource, LinkSource, Teller,
-        Visibility, Volatility,
+        Cardinality, ConversationRef, Event, EventPayload, EventSource, LinkPosture, LinkSource,
+        Teller, Visibility, Volatility,
     },
     graph::Graph,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq},
@@ -373,10 +373,12 @@ impl Corpus {
                     from,
                     to,
                     RelationName::new(relation),
-                    LinkSource::Agent,
-                    Some(Teller::Agent),
-                    None,
-                    Visibility::Public,
+                    LinkPosture {
+                        source: LinkSource::Agent,
+                        told_by: Some(Teller::Agent),
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
                 ),
             ],
         )

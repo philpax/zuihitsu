@@ -21,8 +21,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     engine::Engine,
     event::{
-        EventPayload, EventSource, LinkSource, ModelPhase, ProducedBy, PromptTemplateName,
-        Visibility,
+        EventPayload, EventSource, LinkPosture, LinkSource, ModelPhase, ProducedBy,
+        PromptTemplateName, Visibility,
     },
     graph::{EntryView, MemoryView},
     ids::{MemoryId, Seq, TurnId},
@@ -172,12 +172,14 @@ async fn adjudicate(
                 from,
                 to,
                 RelationName::SameAs,
-                LinkSource::Adjudicated,
-                // No teller behind it: the adjudication pass authors this, not a participant's turn.
-                None,
-                // No told_in: the adjudication pass has no conversation context.
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Adjudicated,
+                    // No teller behind it: the adjudication pass authors this, not a participant's turn.
+                    told_by: None,
+                    // No told_in: the adjudication pass has no conversation context.
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ));
         }
     }

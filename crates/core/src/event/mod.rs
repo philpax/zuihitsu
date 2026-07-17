@@ -8,6 +8,8 @@
 //! and the materializer dispatches on the payload variant, absorbing version differences via the
 //! serde defaults.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
@@ -199,6 +201,20 @@ fn strip_connector_label(text: &str) -> Option<&str> {
     text["Connector".len()..]
         .strip_prefix('(')
         .and_then(|inner| inner.strip_suffix(')'))
+}
+
+/// The overwritable posture of a link — the provenance columns an [`EventPayload::LinkCreated`] carries
+/// and that a re-link upserts (`source`, `told_by`, `told_in`, `visibility`), bundled so the four
+/// similarly-typed fields ride together, named and order-safe, rather than as loose positional
+/// arguments. [`EventPayload::link_created`] takes one to assert a link; [`crate::graph::Graph::link_between`]
+/// returns one to read a stored link's posture back, so a caller can compare what it would write against
+/// what is already committed and drop a re-link that would change nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkPosture {
+    pub source: LinkSource,
+    pub told_by: Option<Teller>,
+    pub told_in: Option<ConversationRef>,
+    pub visibility: Visibility,
 }
 
 /// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec
@@ -522,8 +538,10 @@ pub enum Visibility {
     Attributed,
     /// Surfaces only while the teller is present, and never to the memory's subject.
     PrivateToTeller,
-    /// As `PrivateToTeller`, additionally suppressed whenever any named party is present.
-    Exclude(Vec<MemoryId>),
+    /// As `PrivateToTeller`, additionally suppressed whenever any named party is present. A set — the
+    /// excluded parties are unordered and deduplicated, so two excludes withholding from the same people
+    /// compare equal regardless of the order they were named in, and the stored form is canonical.
+    Exclude(BTreeSet<MemoryId>),
 }
 
 /// A committed event: a payload assigned a position in the log's total order, stamped with the

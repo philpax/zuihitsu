@@ -297,7 +297,9 @@ async fn interactions_surface_the_recorded_model_calls() {
 
 #[tokio::test]
 async fn unmerge_endpoint_retracts_a_merge_then_404s_when_nothing_to_retract() {
-    use zuihitsu::{EventPayload, LinkSource, MemoryId, Namespace, RelationName, Visibility};
+    use zuihitsu::{
+        EventPayload, LinkPosture, LinkSource, MemoryId, Namespace, RelationName, Visibility,
+    };
 
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
     server
@@ -319,10 +321,12 @@ async fn unmerge_endpoint_retracts_a_merge_then_404s_when_nothing_to_retract() {
                 a,
                 b,
                 RelationName::SameAs,
-                LinkSource::Operator,
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Operator,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ),
         ])
         .unwrap();
@@ -350,7 +354,9 @@ async fn unmerge_endpoint_retracts_a_merge_then_404s_when_nothing_to_retract() {
 
 #[tokio::test]
 async fn designate_primary_endpoint_pins_a_stub_then_404s_on_an_unknown_memory() {
-    use zuihitsu::{EventPayload, LinkSource, MemoryId, Namespace, RelationName, Visibility};
+    use zuihitsu::{
+        EventPayload, LinkPosture, LinkSource, MemoryId, Namespace, RelationName, Visibility,
+    };
 
     let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
     server
@@ -373,10 +379,12 @@ async fn designate_primary_endpoint_pins_a_stub_then_404s_on_an_unknown_memory()
                 older,
                 newer,
                 RelationName::SameAs,
-                LinkSource::Operator,
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Operator,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             ),
         ])
         .unwrap();

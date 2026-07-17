@@ -4,7 +4,10 @@
 
 use super::Graph;
 use crate::{
-    event::{Cardinality, EventPayload, EventSource, LinkSource, Teller, Visibility, Volatility},
+    event::{
+        Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility,
+        Volatility,
+    },
     ids::{EntryId, MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -92,10 +95,12 @@ pub(super) fn recovery_log() -> Vec<EventPayload> {
             dave,
             erin,
             RelationName::new("mentor_of"),
-            LinkSource::Agent,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ),
         // A describer pass over both people, so a rebuild stresses the described-state handler too.
         EventPayload::describe_pass_completed(vec![dave, erin]),

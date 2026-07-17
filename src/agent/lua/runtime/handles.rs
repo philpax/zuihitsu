@@ -13,7 +13,7 @@ use crate::{
     time::format_occurrence,
 };
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::agent::lua::{
     error::{HandleAssignmentError, HandleError, HandleKind, SearchWriteError, TaintedWriteError},
@@ -561,24 +561,31 @@ pub(crate) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<Memor
 /// handle or name for the single-party case, or `nil` (no exclusion). An empty list resolves to an
 /// empty vec, which the block rejects as a teachable error — an exclude naming no one is just a private
 /// confidence, not an exclusion. Mirrors `told_by`'s handle-or-name resolution.
-pub(crate) fn resolve_exclude(api: &BlockApi, value: Value) -> mlua::Result<Option<Vec<MemoryId>>> {
+pub(crate) fn resolve_exclude(
+    api: &BlockApi,
+    value: Value,
+) -> mlua::Result<Option<BTreeSet<MemoryId>>> {
     match value {
         Value::Nil => Ok(None),
-        Value::String(_) => Ok(Some(vec![resolve_excludee(api, value)?])),
+        Value::String(_) => Ok(Some(BTreeSet::from([resolve_excludee(api, value)?]))),
         Value::Table(table) => {
             // A sequence (a `[1]` element) is a list of parties resolved one by one; a bare handle
             // table (an `id` field, no `[1]`) is a single party; anything else — an empty `{}` — yields
-            // an empty vec the block turns into the teachable "exclude names no one" error.
+            // an empty set the block turns into the teachable "exclude names no one" error. The excluded
+            // parties are a set: naming the same party twice, or in a different order, is the same edge.
             if !table.get::<Value>(1)?.is_nil() {
-                let mut ids = Vec::new();
+                let mut ids = BTreeSet::new();
                 for element in table.sequence_values::<Value>() {
-                    ids.push(resolve_excludee(api, element?)?);
+                    ids.insert(resolve_excludee(api, element?)?);
                 }
                 Ok(Some(ids))
             } else if table.contains_key("id")? {
-                Ok(Some(vec![resolve_excludee(api, Value::Table(table))?]))
+                Ok(Some(BTreeSet::from([resolve_excludee(
+                    api,
+                    Value::Table(table),
+                )?])))
             } else {
-                Ok(Some(Vec::new()))
+                Ok(Some(BTreeSet::new()))
             }
         }
         other => Err(HandleError::WrongExcludeeType {

@@ -2,7 +2,10 @@ use super::{TurnResolution, recording::reply_leaks_special_tokens, resolve_turn}
 use crate::{
     clock::ManualClock,
     engine::Engine,
-    event::{Cardinality, EventPayload, EventSource, Initiation, LinkSource, TurnRole, Visibility},
+    event::{
+        Cardinality, EventPayload, EventSource, Initiation, LinkPosture, LinkSource, TurnRole,
+        Visibility,
+    },
     graph::Graph,
     ids::{ConversationId, MemoryId, Namespace, SessionId, TurnId},
     store::{MemoryStore, Store},
@@ -56,10 +59,12 @@ fn chat_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, TurnId)
             direct,
             chat,
             RelationName::SameAs,
-            LinkSource::Operator,
-            None,
-            None,
-            Visibility::Public,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
         ));
     }
 

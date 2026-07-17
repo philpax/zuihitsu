@@ -14,8 +14,8 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
 use zuihitsu::{
-    Event, EventPayload, LinkSource, MemoryId, MemoryName, RelationName, TEST_PLATFORM,
-    TEST_PLATFORM_ALT, Visibility,
+    Event, EventPayload, LinkPosture, LinkSource, MemoryId, MemoryName, RelationName,
+    TEST_PLATFORM, TEST_PLATFORM_ALT, Visibility,
 };
 
 use crate::{

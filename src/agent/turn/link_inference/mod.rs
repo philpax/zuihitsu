@@ -24,7 +24,7 @@ use crate::{
     engine::Engine,
     event::{
         Cardinality, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
-        LinkInferenceResult, LinkSource, ProducedBy, PromptTemplateName, Visibility,
+        LinkInferenceResult, LinkPosture, LinkSource, ProducedBy, PromptTemplateName, Visibility,
     },
     graph::EntryView,
     ids::{MemoryId, MemoryName, Seq, TurnId},
@@ -334,10 +334,12 @@ async fn infer_links(
                 from,
                 to,
                 RelationName::new(&canonical_label),
-                LinkSource::Inferred,
-                None,
-                None,
-                source_visibility,
+                LinkPosture {
+                    source: LinkSource::Inferred,
+                    told_by: None,
+                    told_in: None,
+                    visibility: source_visibility,
+                },
             ));
         }
     }

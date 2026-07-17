@@ -14,6 +14,8 @@
 //! Injecting the resolver keeps the predicate free of I/O (and trivially testable) while letting the
 //! caller back it with the graph.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -483,7 +485,7 @@ fn teller_is(subject: MemoryId, teller: &Teller, class_of: &ClassOf) -> Result<b
 
 /// Whether any excluded party is present, resolving each over its class.
 fn no_excludee_present(
-    excluded: &[MemoryId],
+    excluded: &BTreeSet<MemoryId>,
     present_set: &[MemoryId],
     class_of: &ClassOf,
 ) -> Result<bool, GraphError> {

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    event::{EventPayload, LinkSource, MergeProposalSource, Teller, Visibility},
+    event::{EventPayload, LinkPosture, LinkSource, MergeProposalSource, Teller, Visibility},
     graph::{Graph, RelationView},
     ids::MemoryId,
     memory::visibility::link_visible,
@@ -288,21 +288,39 @@ impl MemoryBlock {
         } else {
             (Visibility::Public, None)
         };
+        // Both endpoints count as interacted-with this turn and stay touched even if the create below
+        // turns out redundant and emits nothing — the same "touched regardless of outcome" rule a
+        // rolled-back write follows, so a re-link keeps its endpoints in the working set.
         self.touched.insert(from);
         self.touched.insert(to);
-        self.buffer.push(if create {
-            EventPayload::link_created(
-                from,
-                to,
-                relation,
+        let event = if create {
+            // The posture this create would write — the same columns `link_between` returns. A re-link
+            // matching what is already committed is a no-op: the graph upserts by canonical edge, so
+            // re-recording it would only fold to the identical row. Drop it so the log records a link
+            // act only when it asserts or changes an edge. Committed state only: a create earlier in
+            // this same block is not yet visible here (mirroring the link readers), so an in-block
+            // repeat still records and folds harmlessly.
+            let posture = LinkPosture {
                 source,
-                Some(self.teller.clone()),
+                told_by: Some(self.teller.clone()),
                 told_in,
                 visibility,
-            )
+            };
+            if self
+                .engine
+                .graph
+                .lock()
+                .link_between(from, to, &relation)?
+                .as_ref()
+                == Some(&posture)
+            {
+                return Ok(());
+            }
+            EventPayload::link_created(from, to, relation, posture)
         } else {
             EventPayload::link_removed(from, to, relation)
-        });
+        };
+        self.buffer.push(event);
         Ok(())
     }
 }

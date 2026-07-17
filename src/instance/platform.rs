@@ -12,7 +12,9 @@ use crate::{
         InboundMessage, TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start,
         session_touched,
     },
-    event::{EventPayload, EventSource, LinkSource, PromptTemplateName, Teller, Visibility},
+    event::{
+        EventPayload, EventSource, LinkPosture, LinkSource, PromptTemplateName, Teller, Visibility,
+    },
     graph::GraphError,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, Seq, TurnId},
     instance::{Carryover, ContextEntry, Instance, InstanceError, RoutedTurn},
@@ -680,12 +682,14 @@ impl Platform<'_> {
                 from_id,
                 to_id,
                 relation,
-                LinkSource::Connector(connector_id.to_owned()),
-                // No teller and no told_in: a connector's structural edge has no human behind it,
-                // mirroring the adjudication pass's authored `same_as`.
-                None,
-                None,
-                Visibility::Public,
+                LinkPosture {
+                    source: LinkSource::Connector(connector_id.to_owned()),
+                    // No teller and no told_in: a connector's structural edge has no human behind it,
+                    // mirroring the adjudication pass's authored `same_as`.
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
             )
         };
         let now = engine.clock.now();

@@ -1,14 +1,140 @@
 //! The confidential-untag and foreign-confidence supersede guards (issue #16).
 
-use super::{Authority, MemoryError, VisibilityChoice, block, graph_with_merged_pair, told};
+use super::{
+    Authority, MemoryBlock, MemoryError, VisibilityChoice, block, block_without_conversation,
+    graph_with_merged_pair, told,
+};
 use crate::{
     clock::ManualClock,
-    event::{EventPayload, Teller},
+    event::{Cardinality, EventPayload, EventSource, Teller},
     graph::Graph,
     ids::{MemoryId, Namespace},
+    memory::memory_block::LinkOptions,
+    store::{MemoryStore, Store},
     time::Timestamp,
-    vocabulary::TagName,
+    vocabulary::{RelationName, TagName},
 };
+
+#[test]
+fn a_redundant_link_create_is_dropped_but_a_changed_one_records() {
+    // Re-asserting a link identical to what is already committed records nothing — the graph would only
+    // upsert the same row — while a re-link that changes the edge's posture (here, its visibility) still
+    // records, so the "make this public" path keeps working. Two blocks with no conversation keep a
+    // link's provenance a deterministic function of its inputs, so the second re-derives the first's.
+    let dave = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let mut store = MemoryStore::new();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            EventSource::Agent,
+            vec![
+                EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+                EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::new("knows"),
+                    inverse: RelationName::new("known_by"),
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: false,
+                    reflexive: false,
+                    description: String::new(),
+                },
+            ],
+        )
+        .unwrap();
+
+    let materialize = |store: &MemoryStore| {
+        let mut graph = Graph::open_in_memory().unwrap();
+        graph.materialize_from(store).unwrap();
+        graph
+    };
+    // A person-link needs an explicit visibility (the teachable gate), so every assertion forces one.
+    let forced = |choice| {
+        Some(LinkOptions {
+            visibility: Some(choice),
+            exclude: None,
+        })
+    };
+    let created_links = |block: MemoryBlock| {
+        block
+            .into_effects()
+            .events
+            .into_iter()
+            .filter(|event| matches!(event, EventPayload::LinkCreated { .. }))
+            .collect::<Vec<_>>()
+    };
+
+    // The first assertion of a public knows-link records it; commit it to the log.
+    let mut first = block_without_conversation(
+        materialize(&store),
+        ManualClock::new(Timestamp::from_millis(2_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    first
+        .link(
+            dave,
+            erin,
+            RelationName::new("knows"),
+            forced(VisibilityChoice::Public),
+        )
+        .unwrap();
+    let committed = created_links(first);
+    assert_eq!(committed.len(), 1, "the first assertion records the link");
+    store
+        .append(Timestamp::from_millis(3_000), EventSource::Agent, committed)
+        .unwrap();
+
+    // Re-asserting the identical link — same source, teller, room, and visibility — records nothing.
+    let mut again = block_without_conversation(
+        materialize(&store),
+        ManualClock::new(Timestamp::from_millis(4_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    again
+        .link(
+            dave,
+            erin,
+            RelationName::new("knows"),
+            forced(VisibilityChoice::Public),
+        )
+        .unwrap();
+    let effects = again.into_effects();
+    assert!(
+        !effects
+            .events
+            .iter()
+            .any(|event| matches!(event, EventPayload::LinkCreated { .. })),
+        "the redundant re-link is dropped"
+    );
+    assert!(
+        effects.touched.contains(&dave) && effects.touched.contains(&erin),
+        "but its endpoints still count as touched this turn"
+    );
+
+    // Re-asserting the same edge with a different visibility does record — the upsert must take effect.
+    let mut changed = block_without_conversation(
+        materialize(&store),
+        ManualClock::new(Timestamp::from_millis(5_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    changed
+        .link(
+            dave,
+            erin,
+            RelationName::new("knows"),
+            forced(VisibilityChoice::Private),
+        )
+        .unwrap();
+    assert_eq!(
+        created_links(changed).len(),
+        1,
+        "a re-link that changes visibility still records"
+    );
+}
 
 #[test]
 fn platform_authority_cannot_untag_confidential() {
