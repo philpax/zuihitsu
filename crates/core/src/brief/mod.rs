@@ -31,12 +31,6 @@ use crate::visibility::{self};
 
 use helpers::{ranked_present, render_memory_body};
 
-/// The maximum length, in Unicode scalar values, of a relationship's inline spoke fact
-/// ([`BriefRelationship::latest`]). A neighbour's latest entry can be arbitrarily long, and every
-/// visible relationship carries one, so the text is clipped on a `char` boundary with a trailing
-/// ellipsis before it rides the prompt — bounding the brief's growth without dropping the substance.
-pub(super) const SPOKE_CLIP: usize = 200;
-
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]
 pub enum BriefError {
@@ -73,6 +67,10 @@ impl From<GraphError> for BriefError {
 /// parts without parsing them back out of the text (spec §Mid-conversation joins).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+// Deserialization routes through [`BriefWire`] so a brief recorded before a relationship named both
+// endpoints — an edge stored only as its neighbour `subject` — still loads: the wire form reconstructs
+// the missing `source`/`target` from this brief's own subject. Serialization stays the derived new form.
+#[serde(try_from = "BriefWire")]
 pub struct Brief {
     /// The memory this block is about — the `## <subject>` header of the rendered form.
     pub subject: MemoryName,
@@ -80,7 +78,7 @@ pub struct Brief {
     pub summary: Option<String>,
     /// The visible recent facts, oldest first, in the same recency window the composer applies.
     pub recent_facts: Vec<BriefFact>,
-    /// The memory's key relationships, each `relation → subject`.
+    /// The memory's key relationships, each `source → relation → target`.
     pub relationships: Vec<BriefRelationship>,
 }
 
@@ -96,29 +94,29 @@ pub struct BriefFact {
     pub markers: Vec<String>,
 }
 
-/// One relationship in a [`Brief`]: the relation label and the neighbour it points to, rendered as
-/// `relation: subject [marker]`. `relation` serializes as its bare label (the wire form
-/// [`RelationName`] keeps), so it is typed as a `string` on the console side. `marker` carries the
-/// provenance marker for a non-public link (`[via Erin]` or `[teller-private, …]`), appended after
-/// the relationship line since a link has no text body. `latest` carries the neighbour's most recent
-/// entry that is visible to this audience — the substance one hop away, so the relationship line is
-/// not spoke-blind: a fact filed on the linked hub (`Priya hosts book club at her place`) reaches the
-/// person's brief through her `participates_in` edge rather than being invisible for living on the
-/// neighbour. It passes the exact same visibility predicate as a recent fact, and its text is clipped
-/// to [`SPOKE_CLIP`].
+/// One relationship in a [`Brief`]: the edge's two endpoints in their stored direction and the relation
+/// between them, rendered as `source → relation → target [marker]`. Both endpoints are named explicitly
+/// (rather than leaving this brief's own identity implicit) so the direction reads off the line — an edge
+/// running *into* this identity has the neighbour as `source` and this identity as `target`, an edge
+/// running out reverses it. A brief recorded before this pairing stored only the neighbour as `subject`;
+/// [`BriefWire`] reconstructs the endpoints for such a log at deserialization. `relation` serializes as
+/// its bare label (the wire form [`RelationName`] keeps), so it is typed as a `string` on the console
+/// side. `marker` carries the provenance marker for a non-public link (`[via Erin]` or
+/// `[teller-private, …]`), appended after the relationship line since a link has no text body. The
+/// relationship carries no fact of its own: the neighbour's substance lives in the neighbour, reached by
+/// its handle, not duplicated onto every edge that points at it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefRelationship {
     #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub relation: RelationName,
-    pub subject: MemoryName,
+    /// The edge's `from` endpoint — this identity for an outgoing edge, the neighbour for an incoming one.
+    pub source: MemoryName,
+    /// The edge's `to` endpoint — the neighbour for an outgoing edge, this identity for an incoming one.
+    pub target: MemoryName,
     /// The provenance marker for a non-public link, appended after the relationship line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marker: Option<String>,
-    /// The neighbour's most recent entry visible to this audience, clipped to [`SPOKE_CLIP`], carrying
-    /// the substance one hop away. `None` when the neighbour has no visible entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest: Option<BriefFact>,
 }
 
 impl Brief {
@@ -149,21 +147,13 @@ impl Brief {
             for relationship in &self.relationships {
                 let _ = write!(
                     out,
-                    "- {}: {}",
+                    "- {} → {} → {}",
+                    relationship.source.as_str(),
                     relationship.relation.as_str(),
-                    relationship.subject.as_str()
+                    relationship.target.as_str()
                 );
                 if let Some(marker) = &relationship.marker {
                     let _ = write!(out, " {marker}");
-                }
-                // Carry the neighbour's latest visible fact inline, so the edge is not spoke-blind:
-                // its clipped text in quotes, then its own markers appended the way a recent fact
-                // renders them.
-                if let Some(latest) = &relationship.latest {
-                    let _ = write!(out, " — \"{}\"", latest.text);
-                    for marker in &latest.markers {
-                        let _ = write!(out, " {marker}");
-                    }
                 }
                 out.push('\n');
             }
@@ -181,6 +171,75 @@ impl BriefFact {
             line.push_str(marker);
         }
         line
+    }
+}
+
+/// The on-the-wire shape [`Brief`] deserializes through, so both the current form (each relationship
+/// naming its `source` and `target`) and a pre-pairing log (each relationship storing only the neighbour
+/// as `subject`) load. The conversion to [`Brief`] is where the reconstruction happens: it has the
+/// brief's own subject, the near end a bare `subject` row left implicit.
+#[derive(Deserialize)]
+struct BriefWire {
+    subject: MemoryName,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    recent_facts: Vec<BriefFact>,
+    #[serde(default)]
+    relationships: Vec<RelationshipWire>,
+}
+
+/// One relationship as it may appear in a stored brief: the current form carries `source` and `target`;
+/// a pre-pairing log carries only `subject` (the neighbour), with the direction dropped and this
+/// identity implicit.
+#[derive(Deserialize)]
+struct RelationshipWire {
+    relation: RelationName,
+    #[serde(default)]
+    source: Option<MemoryName>,
+    #[serde(default)]
+    target: Option<MemoryName>,
+    #[serde(default)]
+    subject: Option<MemoryName>,
+    #[serde(default)]
+    marker: Option<String>,
+}
+
+impl TryFrom<BriefWire> for Brief {
+    type Error = String;
+
+    fn try_from(wire: BriefWire) -> Result<Brief, String> {
+        let relationships = wire
+            .relationships
+            .into_iter()
+            .map(|relationship| {
+                let (source, target) = match (relationship.source, relationship.target) {
+                    (Some(source), Some(target)) => (source, target),
+                    // A pre-pairing log stored only the neighbour as `subject`, with this identity the
+                    // implicit near end and the edge rendered outgoing. Reconstruct that as
+                    // subject → neighbour, matching how it read before the endpoints were named.
+                    _ => {
+                        let neighbour = relationship.subject.ok_or_else(|| {
+                            "brief: relationship carries neither source/target nor subject"
+                                .to_owned()
+                        })?;
+                        (wire.subject.clone(), neighbour)
+                    }
+                };
+                Ok(BriefRelationship {
+                    relation: relationship.relation,
+                    source,
+                    target,
+                    marker: relationship.marker,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(Brief {
+            subject: wire.subject,
+            summary: wire.summary,
+            recent_facts: wire.recent_facts,
+            relationships,
+        })
     }
 }
 
@@ -468,7 +527,7 @@ pub(super) fn compose_packed(
 }
 
 /// The number of Unicode scalar values in `text` — the unit `char_budget` counts, matching how the
-/// spoke clip and the entry text are measured elsewhere in the brief.
+/// entry text is measured elsewhere in the brief.
 fn char_len(text: &str) -> usize {
     text.chars().count()
 }

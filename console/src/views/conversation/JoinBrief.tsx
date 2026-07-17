@@ -6,6 +6,7 @@ import type { TurnModel } from "../../lib/model/conversation.ts";
 import { linkedClass } from "./turnUtilities.ts";
 import { TurnTimeAnchor } from "./Turn.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
+import { relationColor } from "../../lib/format/relationColor.ts";
 
 /// A mid-session join, drawn as an entrance seam: a labelled rule whose centered label is a disclosure
 /// into the pretty-printed brief the joiner arrived with. Collapsed by default — the seam reads at a
@@ -56,8 +57,9 @@ export function JoinBriefTurn({
 
 /// The pretty-printed join brief, read straight from its structured parts (nothing is parsed back out
 /// of the markup): the summary as prose, the recent facts as a compact list with each fact's
-/// provenance/staleness markers set quietly beside it, and the relationships as `relation → name` with
-/// each name opening the memory in the State view at this moment in the timeline.
+/// provenance/staleness markers set quietly beside it, and the relationships as `source → relation →
+/// target` — the colored relation flanked by direction arrows — with each endpoint opening the memory
+/// in the State view at this moment in the timeline.
 export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
   return (
     <div className="space-y-3 border-l-2 border-line pl-4 text-sm">
@@ -80,23 +82,19 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
         <ul className="space-y-1 font-mono text-xs text-ink-soft">
           {brief.relationships.map((relationship, index) => (
             <li key={index} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-ink-faint">{relationship.relation}</span>
+              <MemoryNameLink name={relationship.source} seq={seq} />
               <span aria-hidden className="text-ink-faint">
                 →
               </span>
-              <MemoryNameLink name={relationship.subject} seq={seq} />
+              <span style={{ color: relationColor(relationship.relation) }}>
+                {relationship.relation}
+              </span>
+              <span aria-hidden className="text-ink-faint">
+                →
+              </span>
+              <MemoryNameLink name={relationship.target} seq={seq} />
               {relationship.marker && (
                 <span className="text-2xs text-ink-faint">{relationship.marker}</span>
-              )}
-              {relationship.latest && (
-                <>
-                  <span className="text-ink-soft">“{relationship.latest.text}”</span>
-                  {relationship.latest.markers.map((marker, markerIndex) => (
-                    <span key={markerIndex} className="text-2xs text-ink-faint">
-                      {marker}
-                    </span>
-                  ))}
-                </>
               )}
             </li>
           ))}

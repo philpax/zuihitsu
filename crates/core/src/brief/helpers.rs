@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
 use crate::{
-    brief::{Brief, BriefError, BriefFact, BriefRelationship, SPOKE_CLIP},
+    brief::{Brief, BriefError, BriefFact, BriefRelationship},
     decay,
     event::{Teller, Visibility},
     graph::{EntryView, Graph, MemoryView},
-    ids::MemoryId,
+    ids::{MemoryId, MemoryName},
     settings::BriefSettings,
     time::Timestamp,
     visibility::{self, ClassOf},
@@ -95,9 +95,9 @@ fn memory_brief(
         relationships: relationships(
             graph,
             memory.id,
+            &memory.name,
             present_set,
             class_of,
-            now,
             key_relationships,
         )?,
     })
@@ -155,11 +155,10 @@ fn entry_fact(
     })
 }
 
-/// The neighbour's most recent entry visible to `present_set` — the substance one hop away that the
-/// relationship line carries, and the recency signal that ranks the edge. It runs the *exact* same
-/// visibility predicate as a recent fact, so a confided aside on the neighbour never rides into a
-/// brief for an audience that may not see it; a hidden latest entry falls back to the most recent
-/// visible one, and `None` when the neighbour has no visible entry at all.
+/// The neighbour's most recent entry visible to `present_set` — the recency signal that ranks the edge.
+/// It runs the *exact* same visibility predicate as a recent fact, so a confided aside on the neighbour
+/// never sways the ranking for an audience that may not see it; `None` when the neighbour has no visible
+/// entry at all.
 fn latest_visible_entry(
     graph: &Graph,
     neighbour: &MemoryView,
@@ -175,52 +174,29 @@ fn latest_visible_entry(
     Ok(latest)
 }
 
-/// The [`SPOKE_CLIP`]-clipped spoke fact for a neighbour's latest visible entry — its text bounded on
-/// a `char` boundary so an arbitrarily long neighbour entry never bloats the relationship line.
-fn spoke_fact(
-    graph: &Graph,
-    neighbour: &MemoryView,
-    entry: &EntryView,
-    now: Timestamp,
-) -> Result<BriefFact, BriefError> {
-    let mut fact = entry_fact(graph, neighbour, entry, now)?;
-    fact.text = clip(&fact.text, SPOKE_CLIP);
-    Ok(fact)
-}
-
-/// Clip `text` to at most `max` Unicode scalar values, appending an ellipsis when it is shortened. The
-/// cut lands on a `char` boundary, so multibyte text is never split mid-scalar.
-fn clip(text: &str, max: usize) -> String {
-    let mut chars = text.chars();
-    let head: String = chars.by_ref().take(max).collect();
-    if chars.next().is_some() {
-        format!("{head}…")
-    } else {
-        head
-    }
-}
-
-/// A memory's key relationships across its whole `same_as` class, as `relation → other-handle`, ranked
-/// by type-weight then recency and capped at `cap`. Reads [`Graph::class_neighbor_links`], so the class
-/// is collapsed to one relationship set that points *out* of the identity: the intra-class `same_as`
-/// plumbing (both endpoints in the class) is dropped, and an external edge carried by more than one stub
-/// is shown once (deduplicated by relation and neighbour). Soft-deleted neighbours are skipped and each
-/// edge is filtered through `link_visible` when an audience is present. An `Attributed` link carries a
-/// `[via teller]` provenance marker appended to the relationship line; a teller-private link carries its
-/// marker the same way. Each surviving edge also carries the neighbour's most recent visible entry as
-/// its inline spoke fact, so the substance one hop away reaches the brief.
+/// A memory's key relationships across its whole `same_as` class, as `source → relation → target`,
+/// ranked by type-weight then recency and capped at `cap`. Reads [`Graph::class_neighbor_links`], so the
+/// class is collapsed to one relationship set: the intra-class `same_as` plumbing (both endpoints in the
+/// class) is dropped, and an external edge carried by more than one stub is shown once (deduplicated by
+/// relation and neighbour). Both edges leaving the identity and edges running into it are surfaced, each
+/// oriented by its stored direction — the neighbour is the source of an incoming edge and the target of
+/// an outgoing one, with `subject` (this identity's handle) taking the other end — so the relationship
+/// reads unambiguously rather than leaving this identity implicit. Soft-deleted neighbours are skipped
+/// and each edge is filtered through `link_visible` when an audience is present. An `Attributed` link
+/// carries a `[via teller]` provenance marker appended to the relationship line; a teller-private link
+/// carries its marker the same way.
 ///
 /// A hub memory can touch many live edges, so the list is ranked rather than dumped whole: the
 /// structural, identity-bearing relations ([`relation_weight`]) float to the top and the high-volume
 /// social edges (`knows`) fall away first when the list overflows `cap`. Ties within a weight break by
-/// the neighbour's recency (its latest visible entry), then by relation label and neighbour id, so the
-/// order is fully deterministic.
+/// the neighbour's recency (its latest visible entry), then by relation label and endpoint handles, so
+/// the order is fully deterministic.
 fn relationships(
     graph: &Graph,
     id: MemoryId,
+    subject: &MemoryName,
     present_set: &[MemoryId],
     class_of: &ClassOf,
-    now: Timestamp,
     cap: usize,
 ) -> Result<Vec<BriefRelationship>, BriefError> {
     let mut ranked: Vec<RankedRelationship> = Vec::new();
@@ -248,23 +224,25 @@ fn relationships(
         } else {
             None
         };
-        let latest_entry = latest_visible_entry(graph, &memory, present_set, class_of)?;
         // The neighbour's latest visible activity is the edge's recency signal; a neighbour with no
         // visible entry ranks last on recency (it still keeps its type-weight).
-        let recency = latest_entry
-            .as_ref()
+        let recency = latest_visible_entry(graph, &memory, present_set, class_of)?
             .map_or(i64::MIN, |entry| entry.asserted_at.as_millis());
-        let latest = latest_entry
-            .map(|entry| spoke_fact(graph, &memory, &entry, now))
-            .transpose()?;
+        // Orient the edge against this identity: an incoming edge runs neighbour → subject, an outgoing
+        // one runs subject → neighbour, so the rendered line names both ends in stored order.
+        let (source, target) = if link.incoming {
+            (memory.name.clone(), subject.clone())
+        } else {
+            (subject.clone(), memory.name.clone())
+        };
         ranked.push(RankedRelationship {
             weight: relation_weight(&link.relation),
             recency,
             relationship: BriefRelationship {
                 relation: link.relation.clone(),
-                subject: memory.name.clone(),
+                source,
+                target,
                 marker,
-                latest,
             },
         });
     }
@@ -280,9 +258,15 @@ fn relationships(
             })
             .then_with(|| {
                 a.relationship
-                    .subject
+                    .source
                     .as_str()
-                    .cmp(b.relationship.subject.as_str())
+                    .cmp(b.relationship.source.as_str())
+            })
+            .then_with(|| {
+                a.relationship
+                    .target
+                    .as_str()
+                    .cmp(b.relationship.target.as_str())
             })
     });
     ranked.truncate(cap);

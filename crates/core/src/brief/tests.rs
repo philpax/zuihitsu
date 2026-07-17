@@ -312,7 +312,7 @@ fn a_same_as_class_collapses_to_a_single_block() {
         1
     );
     // The external edge surfaces on the collapsed block; the intra-class `same_as` plumbing does not.
-    assert!(out.contains("knows: person/erin"));
+    assert!(out.contains("person/rowan@direct → knows → person/erin"));
     assert!(!out.contains("same_as"));
 }
 
@@ -503,10 +503,9 @@ fn the_structured_join_brief_projects_to_the_frozen_markup() {
             ],
             relationships: vec![BriefRelationship {
                 relation: RelationName::new("knows"),
-                subject: MemoryName::new("person/erin"),
+                source: MemoryName::new("person/priya"),
+                target: MemoryName::new("person/erin"),
                 marker: None,
-                // Erin has no entries, so her spoke is empty and the relationship line is unchanged.
-                latest: None,
             }],
         }
     );
@@ -519,7 +518,7 @@ fn the_structured_join_brief_projects_to_the_frozen_markup() {
 - weighing an offer from a competitor [via person/erin]
 </recent_facts>
 <relationships>
-- knows: person/erin
+- person/priya → knows → person/erin
 </relationships>
 ";
     assert_eq!(brief.render(), expected);
@@ -559,213 +558,6 @@ fn upcoming_respects_the_subject_guard() {
     assert!(only_erin.contains("farewell lunch"));
     let with_marcus = compose_at_epoch(&graph, &settings, &[erin, marcus], None, &[]);
     assert!(!with_marcus.contains("farewell lunch"));
-}
-
-/// Register a `participates_in` relation and link `person` to `event`, so a person's brief carries the
-/// event as a relationship whose spoke reaches the fact filed on the event hub.
-fn participates_in(person: MemoryId, event: MemoryId) -> Vec<EventPayload> {
-    vec![
-        EventPayload::LinkTypeRegistered {
-            name: RelationName::new("participates_in"),
-            inverse: RelationName::new("has_participant"),
-            from_card: Cardinality::Many,
-            to_card: Cardinality::Many,
-            symmetric: false,
-            reflexive: false,
-            description: String::new(),
-        },
-        EventPayload::link_created(
-            person,
-            event,
-            RelationName::new("participates_in"),
-            LinkSource::Agent,
-            None,
-            None,
-            Visibility::Public,
-        ),
-    ]
-}
-
-#[test]
-fn a_relationship_carries_the_neighbours_latest_public_fact_as_a_spoke() {
-    // A fact filed on the event hub (Priya hosts book club) reaches Priya's brief through her
-    // `participates_in` edge, so the greeting is not spoke-blind: the relationship line carries the
-    // neighbour's latest visible entry inline.
-    let priya = MemoryId::generate();
-    let book_club = MemoryId::generate();
-    let mut payloads = vec![
-        created(priya, "person/priya"),
-        created(book_club, "event/book_club"),
-        appended(
-            book_club,
-            1_000,
-            "Priya is hosting for July 2026 at her place on Alder Street",
-            Teller::Participant(priya),
-            Visibility::Public,
-        ),
-    ];
-    payloads.extend(participates_in(priya, book_club));
-    let (_store, graph) = materialized(payloads);
-
-    let brief = brief::compose_participant_brief(
-        &graph,
-        priya,
-        &[priya],
-        &Settings::default().brief,
-        Timestamp::from_millis(0),
-    )
-    .unwrap()
-    .unwrap();
-
-    let relationship = brief
-        .relationships
-        .iter()
-        .find(|r| r.subject == MemoryName::new("event/book_club"))
-        .expect("Priya participates in the book club");
-    assert_eq!(
-        relationship.latest.as_ref().map(|fact| fact.text.as_str()),
-        Some("Priya is hosting for July 2026 at her place on Alder Street")
-    );
-    // The rendered body carries the spoke inline on the relationship line, in quotes.
-    assert!(brief.render().contains(
-        "- participates_in: event/book_club — \"Priya is hosting for July 2026 at her place on Alder Street\""
-    ));
-}
-
-#[test]
-fn a_spoke_falls_back_to_the_visible_entry_never_the_private_one() {
-    // The book club's latest entry is a private aside told by an absent teller (Erin). Priya's brief,
-    // built for an audience that does not include Erin, must never carry that private entry as a
-    // spoke — it falls back to the most recent *visible* entry instead.
-    let priya = MemoryId::generate();
-    let erin = MemoryId::generate();
-    let book_club = MemoryId::generate();
-    let mut payloads = vec![
-        created(priya, "person/priya"),
-        created(erin, "person/erin"),
-        created(book_club, "event/book_club"),
-        appended(
-            book_club,
-            1_000,
-            "meets on the first Tuesday",
-            Teller::Agent,
-            Visibility::Public,
-        ),
-        appended(
-            book_club,
-            1_100,
-            "attendance has been dropping, keep it quiet",
-            Teller::Participant(erin),
-            Visibility::PrivateToTeller,
-        ),
-    ];
-    payloads.extend(participates_in(priya, book_club));
-    let (_store, graph) = materialized(payloads);
-
-    // Present set is just Priya — Erin (the teller) is absent, so her aside is not visible.
-    let brief = brief::compose_participant_brief(
-        &graph,
-        priya,
-        &[priya],
-        &Settings::default().brief,
-        Timestamp::from_millis(0),
-    )
-    .unwrap()
-    .unwrap();
-
-    let relationship = brief
-        .relationships
-        .iter()
-        .find(|r| r.subject == MemoryName::new("event/book_club"))
-        .unwrap();
-    assert_eq!(
-        relationship.latest.as_ref().map(|fact| fact.text.as_str()),
-        Some("meets on the first Tuesday")
-    );
-    let rendered = brief.render();
-    assert!(rendered.contains("meets on the first Tuesday"));
-    assert!(!rendered.contains("attendance has been dropping"));
-}
-
-#[test]
-fn a_neighbour_with_no_entries_renders_the_relationship_unchanged() {
-    // The book club has no entries at all, so the relationship line carries no spoke and reads exactly
-    // as before — no dangling separator.
-    let priya = MemoryId::generate();
-    let book_club = MemoryId::generate();
-    let mut payloads = vec![
-        created(priya, "person/priya"),
-        created(book_club, "event/book_club"),
-    ];
-    payloads.extend(participates_in(priya, book_club));
-    let (_store, graph) = materialized(payloads);
-
-    let brief = brief::compose_participant_brief(
-        &graph,
-        priya,
-        &[priya],
-        &Settings::default().brief,
-        Timestamp::from_millis(0),
-    )
-    .unwrap()
-    .unwrap();
-
-    let relationship = brief
-        .relationships
-        .iter()
-        .find(|r| r.subject == MemoryName::new("event/book_club"))
-        .unwrap();
-    assert_eq!(relationship.latest, None);
-    let rendered = brief.render();
-    assert!(rendered.contains("- participates_in: event/book_club\n"));
-    assert!(!rendered.contains("event/book_club —"));
-}
-
-#[test]
-fn an_over_long_spoke_is_clipped_on_a_char_boundary_with_an_ellipsis() {
-    // A long entry with multibyte text: the spoke is clipped to SPOKE_CLIP scalar values with a
-    // trailing ellipsis, and the cut lands on a `char` boundary (never mid-scalar).
-    let priya = MemoryId::generate();
-    let book_club = MemoryId::generate();
-    // 250 accented `é` characters (2 bytes each) — over the 200-char clip.
-    let long_text: String = std::iter::repeat_n('é', 250).collect();
-    let mut payloads = vec![
-        created(priya, "person/priya"),
-        created(book_club, "event/book_club"),
-        appended(
-            book_club,
-            1_000,
-            &long_text,
-            Teller::Agent,
-            Visibility::Public,
-        ),
-    ];
-    payloads.extend(participates_in(priya, book_club));
-    let (_store, graph) = materialized(payloads);
-
-    let brief = brief::compose_participant_brief(
-        &graph,
-        priya,
-        &[priya],
-        &Settings::default().brief,
-        Timestamp::from_millis(0),
-    )
-    .unwrap()
-    .unwrap();
-
-    let text = brief
-        .relationships
-        .iter()
-        .find(|r| r.subject == MemoryName::new("event/book_club"))
-        .unwrap()
-        .latest
-        .as_ref()
-        .map(|fact| fact.text.clone())
-        .unwrap();
-    // 200 `é` plus the ellipsis, and the string is valid UTF-8 (no split scalar).
-    assert_eq!(text.chars().filter(|&c| c == 'é').count(), 200);
-    assert!(text.ends_with('…'));
-    assert_eq!(text.chars().count(), 201);
 }
 
 /// Register a relation `name`/`inverse` (both `Many`, asymmetric) so a link can be created under it.
@@ -838,8 +630,8 @@ fn relationships_are_ranked_by_type_weight() {
     assert_eq!(
         lines,
         vec![
-            "- created_by: agent/self".to_owned(),
-            "- knows: person/friend".to_owned(),
+            "- person/hub → created_by → agent/self".to_owned(),
+            "- person/hub → knows → person/friend".to_owned(),
         ],
         "the structural created_by edge ranks above the social knows edge"
     );
@@ -890,13 +682,13 @@ fn the_relationships_cap_keeps_the_highest_ranked_edges() {
         brief::compose_participant_brief(&graph, hub, &[hub], &settings, Timestamp::from_millis(0))
             .unwrap()
             .unwrap();
-    let subjects: Vec<&str> = brief
+    let targets: Vec<&str> = brief
         .relationships
         .iter()
-        .map(|relationship| relationship.subject.as_str())
+        .map(|relationship| relationship.target.as_str())
         .collect();
     assert_eq!(
-        subjects,
+        targets,
         vec!["agent/self", "person/fresh"],
         "created_by is kept by weight, and the most recently active knows-neighbour wins the tie"
     );
@@ -988,20 +780,30 @@ fn a_zero_char_budget_still_renders_the_mandatory_self_block() {
 }
 
 #[test]
-fn a_brief_relationship_without_latest_deserializes() {
-    // An old log's `BriefRelationship` predates the `latest` spoke field. `serde(default)` must fill
-    // `None` so the historical relationship deserializes unchanged.
-    let json = r#"{"relation":"knows","subject":"person/erin","marker":null}"#;
-    let relationship: BriefRelationship = serde_json::from_str(json).unwrap();
+fn a_pre_pairing_brief_reconstructs_relationship_endpoints() {
+    // A brief recorded before a relationship named both endpoints stored only the neighbour as
+    // `subject`, with the near end implicit and the edge rendered outgoing. Deserializing such a log
+    // must reconstruct `source` (this brief's own subject) and `target` (the neighbour), so the
+    // historical join renders as it did — subject → neighbour — rather than failing to load.
+    let json = r#"{
+        "subject":"person/priya",
+        "summary":null,
+        "recent_facts":[],
+        "relationships":[{"relation":"knows","subject":"person/erin","marker":null}]
+    }"#;
+    let brief: Brief = serde_json::from_str(json).unwrap();
     assert_eq!(
-        relationship,
-        BriefRelationship {
+        brief.relationships,
+        vec![BriefRelationship {
             relation: RelationName::new("knows"),
-            subject: MemoryName::new("person/erin"),
+            source: MemoryName::new("person/priya"),
+            target: MemoryName::new("person/erin"),
             marker: None,
-            latest: None,
-        }
+        }]
     );
+    // And the current form (endpoints named) round-trips through the same wire.
+    let current = serde_json::to_string(&brief).unwrap();
+    assert_eq!(serde_json::from_str::<Brief>(&current).unwrap(), brief);
 }
 
 #[test]

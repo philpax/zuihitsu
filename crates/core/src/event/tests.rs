@@ -35,9 +35,9 @@ fn representative_brief() -> Brief {
         }],
         relationships: vec![BriefRelationship {
             relation: RelationName::new("knows"),
-            subject: MemoryName::new("person/erin"),
+            source: MemoryName::new("person/priya"),
+            target: MemoryName::new("person/erin"),
             marker: None,
-            latest: None,
         }],
     }
 }
@@ -60,6 +60,36 @@ fn conversation_turn_without_a_brief_replays_as_none() {
         replayed,
         EventPayload::ConversationTurn { brief: None, .. }
     ));
+}
+
+#[test]
+fn a_join_turn_with_a_pre_pairing_brief_reconstructs_endpoints() {
+    // A join-turn recorded before a brief relationship named both endpoints stored only the neighbour
+    // as `subject`, with this identity the implicit near end and the edge rendered outgoing. Loading
+    // such a log must reconstruct `source` (the brief's own subject) and `target` (the neighbour), so an
+    // old join replays rather than failing to deserialize — the `#[serde(try_from = "BriefWire")]` path.
+    let mut value = serde_json::to_value(join_turn(Some(representative_brief()))).unwrap();
+    let relationship = value["brief"]["relationships"][0].as_object_mut().unwrap();
+    relationship.remove("source");
+    relationship.remove("target");
+    relationship.insert("subject".to_owned(), serde_json::json!("person/erin"));
+
+    let replayed: EventPayload = serde_json::from_value(value).unwrap();
+    let EventPayload::ConversationTurn {
+        brief: Some(brief), ..
+    } = replayed
+    else {
+        panic!("the join turn carries a brief");
+    };
+    assert_eq!(
+        brief.relationships,
+        vec![BriefRelationship {
+            relation: RelationName::new("knows"),
+            source: MemoryName::new("person/priya"),
+            target: MemoryName::new("person/erin"),
+            marker: None,
+        }]
+    );
 }
 
 #[test]
