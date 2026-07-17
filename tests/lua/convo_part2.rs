@@ -36,7 +36,7 @@ async fn convo_turn_two_person_dm_resolves_only_when_both_attended() {
         )
         .unwrap();
 
-    let session_vm = Session::new(room, InstanceFeatures::default());
+    let session_vm = Session::new(Some(room), InstanceFeatures::default());
     let engine = resolver_engine(store, &clock);
 
     // Both attended — resolves.
@@ -83,7 +83,7 @@ async fn convo_turn_unknown_and_malformed_ids_are_distinct_errors() {
     )
     .unwrap();
 
-    let session_vm = Session::new(conversation, InstanceFeatures::default());
+    let session_vm = Session::new(Some(conversation), InstanceFeatures::default());
     let engine = resolver_engine(store, &clock);
 
     // A well-formed but never-recorded id is not-found — worded distinctly from the audience warning.
@@ -163,7 +163,7 @@ async fn convo_turn_window_filters_a_mid_session_join() {
         )
         .unwrap();
 
-    let session_vm = Session::new(conversation, InstanceFeatures::default());
+    let session_vm = Session::new(Some(conversation), InstanceFeatures::default());
     let engine = resolver_engine(store, &clock);
     let outcome = session_vm
         .execute(

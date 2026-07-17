@@ -209,7 +209,7 @@ async fn a_rerendered_buffer_reproduces_the_live_tool_call_ids() {
     );
 
     // Turn 2 re-renders turn 1 from the log; the rebuilt exchange must carry the same ids.
-    let conversation = h.session.conversation();
+    let conversation = h.session.conversation().unwrap();
     let buffer = buffer_turns(h.engine.store.lock().as_ref(), conversation, Seq::ZERO).unwrap();
     run_turn(h.as_turn_buffered(&model, "Anything else?", 8, &buffer))
         .await
@@ -299,7 +299,7 @@ async fn real_model_supersedes_a_corrected_fact() {
         .lock()
         .materialize_from(h.engine.store.lock().as_ref())
         .unwrap();
-    let conversation = h.session.conversation();
+    let conversation = h.session.conversation().unwrap();
 
     // Turn 1: the model records the fact under a name of its own choosing.
     let first = run_turn(h.as_turn(&client, "Please remember that Dave works at Hooli.", 12)).await;

@@ -199,7 +199,7 @@ async fn tool_calls_persist_in_the_buffer_across_turns() {
         Completion::Reply("done".to_owned()),
         Completion::Reply("ok".to_owned()),
     ]);
-    let conversation = h.session.conversation();
+    let conversation = h.session.conversation().unwrap();
 
     // Turn 1: a run_lua block then a reply.
     run_turn(h.as_turn(&model, "go", 8)).await.unwrap();

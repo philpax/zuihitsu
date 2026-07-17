@@ -126,16 +126,11 @@ impl Control<'_> {
             .await
             .expect("the stream semaphore is never closed");
 
-        // A dedicated console conversation, minted once (graph before store, per the lock-ordering rule).
-        let conversation = {
-            let graph = self.server.engine.graph.lock();
-            identity::resolve_or_mint_conversation(
-                self.server.engine.store.lock().as_mut(),
-                self.server.engine.clock.as_ref(),
-                &graph,
-                &ConversationLocator::new("console", "lua"),
-            )?
-        };
+        // Bring the graph to head so the block reads current state, then run against no conversation:
+        // the console is a throwaway sandbox with no room, so it neither resolves nor mints one (which
+        // would persist a `console/lua` conversation and context memory), keeping the run invisible to
+        // the log. Writes are discarded anyway, and `context.current` is nil — matching the other
+        // conversation-less operator paths (self-edit, retraction).
         self.server
             .engine
             .graph
@@ -147,12 +142,12 @@ impl Control<'_> {
         // leaves `web` absent even with the opt-in set.
         let base = match (allow_mcp, self.server.mcp.as_ref()) {
             (true, Some(runtime)) => Session::with_mcp(
-                conversation,
+                None,
                 runtime.host.clone(),
                 runtime.catalogue.clone(),
                 self.server.features,
             ),
-            _ => Session::new(conversation, self.server.features),
+            _ => Session::new(None, self.server.features),
         };
         let session = if allow_web {
             base.with_web(self.server.web.clone())
@@ -177,7 +172,7 @@ impl Control<'_> {
             .execute(&self.server.engine, &context, script)
             .await
             .map_err(|error| InstanceError::Lua {
-                conversation: Some(conversation),
+                conversation: None,
                 error,
             })?;
         session.shutdown_mcp().await;

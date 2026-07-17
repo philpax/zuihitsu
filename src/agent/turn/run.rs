@@ -45,7 +45,9 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_entry_chars,
         capture,
     } = turn;
-    let conversation = session.conversation();
+    let conversation = session
+        .conversation()
+        .expect("a participant turn always runs in a conversation");
     // Content the agent writes this turn is attributed to the speaker by default (an append opts out
     // with `by_agent` for the agent's own observations — see `mem:append`). The teller is the last
     // message's participant — the most recent speaker in the batch.

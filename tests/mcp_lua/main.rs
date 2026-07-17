@@ -72,7 +72,7 @@ async fn run_bounded(
     let host = Arc::new(host);
     let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
     let session = Session::with_mcp(
-        ConversationId::generate(),
+        Some(ConversationId::generate()),
         host,
         catalogue,
         InstanceFeatures::default(),

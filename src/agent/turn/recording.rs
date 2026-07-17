@@ -281,7 +281,9 @@ pub(crate) async fn run_steps(
         max_steps,
         capture,
     } = steps;
-    let conversation = session.conversation();
+    let conversation = session
+        .conversation()
+        .expect("a recorded turn always runs in a conversation");
     let recording = Recording::new(Some(conversation), context.turn_id, capture);
     let tools = vec![run_lua_tool()];
 

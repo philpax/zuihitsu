@@ -34,7 +34,11 @@ pub use reference::{api_reference, render_api_reference};
 /// agent scratchpad.
 pub struct Session {
     pub(super) lua: Lua,
-    pub(super) conversation: ConversationId,
+    /// The conversation this session's blocks write in, or `None` for the operator Lua console: a
+    /// throwaway sandbox that has no room, so its (discarded) writes attribute to no conversation and
+    /// `context.current` is nil, matching the other conversation-less operator paths (self-edit,
+    /// retraction). A live turn always has one.
+    pub(super) conversation: Option<ConversationId>,
     /// The session's MCP state — the host, configured servers, and lazily-spawned instances backing the
     /// `mcp.<server>.*` projection — or `None` when no host is configured.
     pub(super) mcp: Option<std::sync::Arc<crate::agent::mcp_api::McpSession>>,

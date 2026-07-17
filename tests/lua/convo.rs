@@ -142,7 +142,7 @@ async fn convo_turn_resolves_within_audience_and_carries_a_ref() {
         )
         .unwrap();
 
-    let session_vm = Session::new(conversation, InstanceFeatures::default());
+    let session_vm = Session::new(Some(conversation), InstanceFeatures::default());
     let engine = resolver_engine(store, &clock);
 
     // Sarah is present, and she was the moment's audience — it resolves with its window.
@@ -235,7 +235,7 @@ async fn convo_turn_warns_when_a_newcomer_was_not_in_the_audience() {
         )
         .unwrap();
 
-    let session_vm = Session::new(conversation, InstanceFeatures::default());
+    let session_vm = Session::new(Some(conversation), InstanceFeatures::default());
     let engine = resolver_engine(store, &clock);
     let outcome = session_vm
         .execute(
@@ -313,7 +313,7 @@ async fn convo_turn_resolves_cross_room_for_a_solo_dm() {
         )
         .unwrap();
 
-    let session_vm = Session::new(dm, InstanceFeatures::default());
+    let session_vm = Session::new(Some(dm), InstanceFeatures::default());
     let engine = resolver_engine(store, &clock);
     let outcome = session_vm
         .execute(

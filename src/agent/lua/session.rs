@@ -12,7 +12,7 @@ use crate::agent::{
 };
 
 impl Session {
-    pub fn new(conversation: ConversationId, features: InstanceFeatures) -> Session {
+    pub fn new(conversation: Option<ConversationId>, features: InstanceFeatures) -> Session {
         let lua = sandboxed_lua();
         Session {
             lua,
@@ -37,7 +37,7 @@ impl Session {
     /// Lua-table creation cannot realistically fail at construction, so installation is treated as
     /// infallible, like [`Session::new`].
     pub fn with_mcp(
-        conversation: ConversationId,
+        conversation: Option<ConversationId>,
         host: Arc<dyn crate::mcp::McpHost>,
         catalogue: McpCatalogue,
         features: InstanceFeatures,
@@ -98,7 +98,9 @@ impl Session {
         self.mcp.as_ref().is_some_and(|mcp| mcp.block_made_a_call())
     }
 
-    pub fn conversation(&self) -> ConversationId {
+    /// The conversation this session's blocks write in, or `None` for the console sandbox. A live turn
+    /// always has one, so the turn runner unwraps it.
+    pub fn conversation(&self) -> Option<ConversationId> {
         self.conversation
     }
 }

@@ -45,7 +45,7 @@ async fn run(fetcher: FakeWebFetcher, features: InstanceFeatures, script: &str) 
         Graph::open_in_memory().unwrap(),
         Box::new(ManualClock::new(common::time::EARLY)),
     );
-    let session = Session::new(ConversationId::generate(), features).with_web(Some(
+    let session = Session::new(Some(ConversationId::generate()), features).with_web(Some(
         WebClient::new(Arc::new(fetcher), TEST_MAX_MARKDOWN_CHARS),
     ));
     session

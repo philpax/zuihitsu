@@ -191,7 +191,7 @@ async fn the_catalogue_renders_callable_entries_for_the_prompt() {
     let host = Arc::new(host);
     let catalogue = McpCatalogue::probe(&*host, &configs).await.unwrap();
     let session = Session::with_mcp(
-        ConversationId::generate(),
+        Some(ConversationId::generate()),
         host,
         catalogue,
         InstanceFeatures::default(),

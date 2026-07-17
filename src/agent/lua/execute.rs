@@ -57,7 +57,7 @@ impl Session {
                     engine.clone(),
                     context.teller.clone(),
                     context.authority,
-                    Some(self.conversation),
+                    self.conversation,
                     Some(context.turn_id),
                     context.present_set.clone(),
                     context.max_entry_chars,
@@ -274,7 +274,11 @@ impl Session {
         duration_ms: u64,
     ) -> EventPayload {
         EventPayload::LuaExecuted {
-            conversation: self.conversation,
+            // A `LuaExecuted` is only recorded on the committing (non-dry-run) path, which is a live
+            // turn; the console sandbox never reaches here, so the conversation is always present.
+            conversation: self
+                .conversation
+                .expect("a committed block belongs to a conversation"),
             turn_id,
             script: script.to_owned(),
             result,

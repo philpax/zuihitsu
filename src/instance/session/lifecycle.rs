@@ -47,12 +47,12 @@ impl Instance {
     pub(crate) fn mint_vm(&self, conversation: ConversationId) -> Session {
         let base = match &self.mcp {
             Some(runtime) => Session::with_mcp(
-                conversation,
+                Some(conversation),
                 runtime.host.clone(),
                 runtime.catalogue.clone(),
                 self.features,
             ),
-            None => Session::new(conversation, self.features),
+            None => Session::new(Some(conversation), self.features),
         };
         base.with_web(self.web.clone())
     }

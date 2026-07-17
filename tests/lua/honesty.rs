@@ -31,7 +31,7 @@ async fn append_carries_teller_context_and_default_visibility() {
         .context_for_conversation(conversation)
         .unwrap()
         .unwrap();
-    let session = Session::new(conversation, InstanceFeatures::default());
+    let session = Session::new(Some(conversation), InstanceFeatures::default());
 
     // The shared engine the block writes through, read back below via the same handle.
     let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
@@ -209,7 +209,7 @@ async fn a_write_in_a_confidential_room_defaults_private() {
     // The agent records a topic in the confidential room. A topic write would normally default
     // public, and the agent teller is always present — but the confidential room forces it private,
     // so it cannot silently surface to whoever is around.
-    let session = Session::new(conversation, InstanceFeatures::default());
+    let session = Session::new(Some(conversation), InstanceFeatures::default());
     let engine = Engine::new(Box::new(store), graph, Box::new(clock.clone()));
     session
         .execute(
