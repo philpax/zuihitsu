@@ -168,6 +168,8 @@ fn an_mcp_tool_renders_with_a_braced_table_signature() {
         ),
     );
     assert!(entry.table_args);
+    // The console reads this to mark the tool as needing the `allow_mcp` opt-in.
+    assert_eq!(entry.gate, Some(crate::agent::api_doc::ApiGate::Mcp));
     let rendered = crate::agent::api_doc::render(&[entry]);
     assert!(
         rendered.contains("mcp.browser.markdown{ url }"),

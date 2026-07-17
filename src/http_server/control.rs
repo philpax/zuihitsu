@@ -426,13 +426,16 @@ pub(super) async fn retract_entry(
 }
 
 /// `POST /control/lua` — run an ad-hoc operator Lua block in a no-commit sandbox and return its
-/// rendered result (or error). MCP is off unless `allow_mcp` is set; needs no model (a block only
-/// embeds if it calls `memory.search`, which uses the embedder, not the chat model).
+/// rendered result (or error). Outward reach is off by default: `allow_mcp` opts into MCP calls and
+/// `allow_web` into `web.markdown`. Needs no model (a block only embeds if it calls `memory.search`,
+/// which uses the embedder, not the chat model).
 #[derive(Deserialize)]
 pub(super) struct LuaRequest {
     script: String,
     #[serde(default)]
     allow_mcp: bool,
+    #[serde(default)]
+    allow_web: bool,
 }
 
 pub(super) async fn run_lua(
@@ -442,7 +445,7 @@ pub(super) async fn run_lua(
     let outcome = state
         .server
         .control()
-        .run_lua(&request.script, request.allow_mcp)
+        .run_lua(&request.script, request.allow_mcp, request.allow_web)
         .await?;
     Ok(Json(outcome))
 }

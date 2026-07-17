@@ -43,6 +43,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
     '-- read-only: nothing here persists\nreturn memory.get("self"):entries()',
   );
   const [allowMcp, setAllowMcp] = useState(false);
+  const [allowWeb, setAllowWeb] = useState(false);
   const [pending, setPending] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [api, setApi] = useState<ApiEntry[] | null>(null);
@@ -67,7 +68,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
     setPending(true);
     const id = runs.length;
     try {
-      const outcome = await runLua(connection, text, allowMcp);
+      const outcome = await runLua(connection, text, allowMcp, allowWeb);
       setRuns((prev) => [{ id, script: text, outcome, failure: null }, ...prev]);
     } catch (cause) {
       const failure = cause instanceof Error ? cause.message : String(cause);
@@ -107,6 +108,21 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
                 </>
               }
             />
+            <Checkbox
+              checked={allowWeb}
+              onChange={setAllowWeb}
+              label={
+                <>
+                  allow web
+                  <span
+                    className="text-ink-faint/60"
+                    title="web.markdown fetches a real page over the network, even in the sandbox."
+                  >
+                    (real I/O)
+                  </span>
+                </>
+              }
+            />
           </div>
           <Hint className="hidden sm:inline">⌘/ctrl + ↵ to run</Hint>
         </div>
@@ -114,6 +130,8 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
         <div className="mt-6 lg:hidden">
           <ApiPanel
             api={api}
+            allowMcp={allowMcp}
+            allowWeb={allowWeb}
             open={showApiOnMobile}
             onToggle={() => setShowApiOnMobile(!showApiOnMobile)}
           />
@@ -158,7 +176,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
       </div>
 
       <aside className="hidden min-w-0 lg:sticky lg:top-4 lg:block lg:self-start">
-        <ApiPanel api={api} open onToggle={() => {}} />
+        <ApiPanel api={api} allowMcp={allowMcp} allowWeb={allowWeb} open onToggle={() => {}} />
       </aside>
     </div>
   );
@@ -169,10 +187,14 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
 /// behind a disclosure on a narrow one.
 function ApiPanel({
   api,
+  allowMcp,
+  allowWeb,
   open,
   onToggle,
 }: {
   api: ApiEntry[] | null;
+  allowMcp: boolean;
+  allowWeb: boolean;
   open: boolean;
   onToggle: () => void;
 }) {
@@ -212,7 +234,7 @@ function ApiPanel({
             {filtered.length === 0 ? (
               <Hint>nothing matches “{query.trim()}”</Hint>
             ) : (
-              <ApiReference entries={filtered} />
+              <ApiReference entries={filtered} allowMcp={allowMcp} allowWeb={allowWeb} />
             )}
           </div>
         )}

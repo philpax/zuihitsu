@@ -1,10 +1,11 @@
 //! Web API reference entries: `web.markdown`.
 
-use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
+use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiGate, ApiType as AT};
 
 /// The web entries, gated on the `browsing` feature.
 pub(super) fn entries() -> Vec<ApiEntry> {
     let markdown = AE::new("web.markdown")
+        .gated(ApiGate::Web)
         .description(
             "Fetch a web page and return its main content as Markdown. The page's chrome — \
              navigation, sidebars, cookie banners, footers — is stripped, leaving the article text \

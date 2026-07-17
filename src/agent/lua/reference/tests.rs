@@ -1,5 +1,5 @@
 use super::api_reference;
-use crate::InstanceFeatures;
+use crate::{InstanceFeatures, agent::api_doc::ApiGate};
 
 /// The call names of a feature's entries, in order, for a readable diff on failure.
 fn names(features: &InstanceFeatures) -> Vec<String> {
@@ -49,6 +49,23 @@ fn browsing_gates_the_web_entry() {
     assert!(!names(&features).contains(&"web.markdown".to_owned()));
     // The rest of the surface is unaffected.
     assert!(names(&features).contains(&"memory.create".to_owned()));
+}
+
+#[test]
+fn web_markdown_carries_the_web_gate_and_plain_calls_carry_none() {
+    // The console reads the gate to mark `web.markdown` as needing the `allow_web` opt-in; a plain
+    // memory call carries no gate.
+    let entries = api_reference(&InstanceFeatures::default());
+    let web = entries
+        .iter()
+        .find(|entry| entry.call == "web.markdown")
+        .expect("web.markdown is described by default");
+    assert_eq!(web.gate, Some(ApiGate::Web));
+    let create = entries
+        .iter()
+        .find(|entry| entry.call == "memory.create")
+        .expect("memory.create is always described");
+    assert_eq!(create.gate, None);
 }
 
 #[test]

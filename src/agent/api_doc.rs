@@ -133,6 +133,17 @@ impl From<ObjectBuilder> for ApiType {
     }
 }
 
+/// The runtime opt-in a call depends on, for surfaces that gate outward reach. In a live turn every
+/// projection the agent sees is already connected, so this is advisory metadata the renderer ignores;
+/// the operator Lua console reads it to mark which calls need their toggle before they will run.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum ApiGate {
+    /// Needs the web fetcher — the `allow_web` opt-in (`web.markdown`).
+    Web,
+    /// Needs a connected MCP host — the `allow_mcp` opt-in (`mcp.<server>.*`).
+    Mcp,
+}
+
 /// One callable: its call form, what it does, its parameters, and what it returns. Built fluently —
 /// `ApiEntry::new(call).description(…).required(…).optional(…).returns(…)` — defaulting to an empty
 /// description, no parameters, and a `nil` return.
@@ -146,6 +157,9 @@ pub struct ApiEntry {
     /// arguments — the calling convention of the MCP projection, where the table is the tool's JSON
     /// input. The signature renders with braces so the convention is unmistakable.
     pub table_args: bool,
+    /// The runtime opt-in this call depends on, or `None` for an always-available call. Set for the
+    /// outward-reaching projections (`web.markdown`, the MCP tools) so the console can mark them.
+    pub gate: Option<ApiGate>,
 }
 
 impl ApiEntry {
@@ -156,7 +170,14 @@ impl ApiEntry {
             params: Vec::new(),
             returns: ApiType::Nil,
             table_args: false,
+            gate: None,
         }
+    }
+
+    /// Mark this call as gated on a runtime opt-in (see [`ApiGate`]).
+    pub fn gated(mut self, gate: ApiGate) -> ApiEntry {
+        self.gate = Some(gate);
+        self
     }
 
     pub fn description(mut self, doc: impl Into<String>) -> ApiEntry {

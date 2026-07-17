@@ -25,11 +25,16 @@ export interface ApiParam {
   doc: string;
 }
 
+/// The runtime opt-in a call depends on: `web.markdown` needs `allowWeb`, an `mcp.*` tool needs
+/// `allowMcp`. `null` for an always-available call. The console marks a gated call whose opt-in is off.
+export type ApiGate = "Web" | "Mcp";
+
 export interface ApiEntry {
   call: string;
   doc: string;
   params: ApiParam[];
   returns: ApiType;
+  gate: ApiGate | null;
 }
 
 /// The result of a Lua console run: the rendered value, or the error/abort that ended it. Exactly
@@ -40,17 +45,19 @@ export interface LuaOutcome {
 }
 
 /// Run an operator Lua block in the agent's no-commit sandbox. `allowMcp` opts the block into real
-/// MCP calls (off by default; an MCP call performs external I/O even though memory writes are
-/// discarded). Throws on an infrastructure failure; a *script* error returns as `outcome.error`.
+/// MCP calls and `allowWeb` into `web.markdown`; both are off by default, since each performs external
+/// I/O even though memory writes are discarded. Throws on an infrastructure failure; a *script* error
+/// returns as `outcome.error`.
 export async function runLua(
   connection: LiveConnection,
   script: string,
   allowMcp: boolean,
+  allowWeb: boolean,
 ): Promise<LuaOutcome> {
   const response = await fetch(`${connection.baseUrl}/control/lua`, {
     method: "POST",
     headers: authHeaders(connection),
-    body: JSON.stringify({ script, allow_mcp: allowMcp }),
+    body: JSON.stringify({ script, allow_mcp: allowMcp, allow_web: allowWeb }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as LuaOutcome;

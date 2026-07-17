@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use crate::{
-    agent::api_doc::{ApiEntry, ApiParam, ApiType},
+    agent::api_doc::{ApiEntry, ApiGate, ApiParam, ApiType},
     mcp::McpTool,
 };
 
@@ -54,6 +54,7 @@ pub(crate) fn tool_to_api_entry(server: &str, tool: &McpTool) -> ApiEntry {
         // MCP tools take one table of named arguments (the tool's JSON input), so the signature
         // renders as `mcp.server.tool{ … }`, not positional.
         table_args: true,
+        gate: Some(ApiGate::Mcp),
     }
 }
 

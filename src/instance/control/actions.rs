@@ -107,13 +107,15 @@ impl Control<'_> {
     /// console). The block executes against the live graph — reads see real memory — but its buffered
     /// effects, including any `LuaExecuted` record, are discarded, so nothing persists and the run is
     /// invisible to the log. It runs under operator authority on a throwaway VM bound to a dedicated
-    /// `console/lua` conversation. MCP is **off** unless `allow_mcp` is set and a host is connected:
-    /// an MCP call is a real external effect that no sandbox can roll back, so reaching outward is an
-    /// explicit opt-in (e.g. to exercise an input-leaning integration), never the default.
+    /// `console/lua` conversation. Outward reach is **off** by default: `allow_mcp` opts into MCP calls
+    /// (when a host is connected) and `allow_web` into `web.markdown` (when a fetcher is connected).
+    /// Both perform real external I/O that no sandbox can roll back, even though the block's memory
+    /// writes are discarded, so each is an explicit opt-in rather than the default.
     pub async fn run_lua(
         &self,
         script: &str,
         allow_mcp: bool,
+        allow_web: bool,
     ) -> Result<LuaConsoleOutcome, InstanceError> {
         // The block may embed (`memory.search`) and, with MCP, reach outward, so it takes a stream
         // permit like any model-driving operation (spec §Concurrency), held across the run below.
@@ -140,8 +142,10 @@ impl Control<'_> {
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
 
-        // A throwaway VM isolated from live sessions; MCP only when opted in and a host is connected.
-        let session = match (allow_mcp, self.server.mcp.as_ref()) {
+        // A throwaway VM isolated from live sessions; each outward projection installed only when opted
+        // in and its dependency is connected. `with_web(None)` is a no-op, so a missing fetcher simply
+        // leaves `web` absent even with the opt-in set.
+        let base = match (allow_mcp, self.server.mcp.as_ref()) {
             (true, Some(runtime)) => Session::with_mcp(
                 conversation,
                 runtime.host.clone(),
@@ -149,6 +153,11 @@ impl Control<'_> {
                 self.server.features,
             ),
             _ => Session::new(conversation, self.server.features),
+        };
+        let session = if allow_web {
+            base.with_web(self.server.web.clone())
+        } else {
+            base
         };
 
         let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
@@ -198,10 +207,16 @@ impl Control<'_> {
     }
 
     /// The Lua API as the structured catalogue the console renders into a reference guide — the same
-    /// build-derived entries projected into the agent's system prompt (spec §What you can do). Static,
-    /// so it needs no engine access. MCP tools are excluded; they appear only when actually connected.
+    /// entries projected into the agent's system prompt (spec §What you can do). The hand-written API
+    /// is build-derived and needs no engine access; the MCP tools are appended from the connected host's
+    /// probed catalogue, so the reference matches what a turn's `full_api_reference` shows rather than
+    /// omitting the servers. Each MCP entry carries its `allow_mcp` gate for the console to mark.
     pub fn lua_api(&self) -> Vec<ApiEntry> {
-        lua::api_reference(&self.server.features)
+        let mut entries = lua::api_reference(&self.server.features);
+        if let Some(runtime) = self.server.mcp.as_ref() {
+            entries.extend(runtime.catalogue.api_entries());
+        }
+        entries
     }
 
     /// Register a new version of a prompt template — the operator edit path (spec §Initialization →
