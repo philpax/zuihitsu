@@ -8,6 +8,7 @@
 //! without the feature for their normal builds.
 
 pub mod agent;
+pub mod api;
 pub mod executor;
 pub mod live;
 pub mod package;
@@ -19,6 +20,7 @@ pub mod export;
 // Re-export the types at the crate root so consumers can import them without reaching into
 // submodules (the types lived at the crate root before the module split).
 pub use agent::{BackendHealth, CircuitState};
+pub use api::{ApiEntry, ApiGate, ApiParam, ApiType, ObjectBuilder, enum_of, object};
 pub use executor::StepRecord;
 pub use live::LiveEvent;
 pub use package::{

@@ -1,41 +1,16 @@
+import type { ApiEntry } from "@zuihitsu/wire/types/ApiEntry.ts";
+import type { ApiType } from "@zuihitsu/wire/types/ApiType.ts";
 import type { LiveConnection } from "./live.ts";
 import { authHeaders, errorMessage } from "./http.ts";
 
 /// The structured Lua API catalogue the agent projects into its system prompt, served by
-/// `GET /control/lua-api` for the console to render as a reference guide. These mirror the Rust
-/// `api_doc` types (serde's external tagging: a unit variant is its name, a data variant an object).
-export type ApiType =
-  | "String"
-  | "Integer"
-  | "Number"
-  | "Boolean"
-  | "Handle"
-  | "Entry"
-  | "Nil"
-  | "Any"
-  | { Object: ApiParam[] }
-  | { List: ApiType }
-  | { Enum: string[] }
-  | { Optional: ApiType };
-
-export interface ApiParam {
-  name: string;
-  ty: ApiType;
-  required: boolean;
-  doc: string;
-}
-
-/// The runtime opt-in a call depends on: `web.markdown` needs `allowWeb`, an `mcp.*` tool needs
-/// `allowMcp`. `null` for an always-available call. The console marks a gated call whose opt-in is off.
-export type ApiGate = "Web" | "Mcp";
-
-export interface ApiEntry {
-  call: string;
-  doc: string;
-  params: ApiParam[];
-  returns: ApiType;
-  gate: ApiGate | null;
-}
+/// `GET /control/lua-api` for the console to render as a reference guide. The shapes are generated
+/// from the Rust `zuihitsu_frontend_types::api` types (`ApiGate` marks a call gated on an opt-in);
+/// re-exported here so the reference components import the whole catalogue from one place.
+export type { ApiType } from "@zuihitsu/wire/types/ApiType.ts";
+export type { ApiParam } from "@zuihitsu/wire/types/ApiParam.ts";
+export type { ApiGate } from "@zuihitsu/wire/types/ApiGate.ts";
+export type { ApiEntry } from "@zuihitsu/wire/types/ApiEntry.ts";
 
 /// The result of a Lua console run: the rendered value, or the error/abort that ended it. Exactly
 /// one is non-null (mirrors the Rust `LuaConsoleOutcome`).

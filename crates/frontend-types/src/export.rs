@@ -17,6 +17,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
 
     use crate::{
         agent::{BackendHealth, CircuitState},
+        api::ApiEntry,
         live::LiveEvent,
         package::{EvalPackage, PackageSummary},
     };
@@ -41,6 +42,9 @@ pub fn export_types(dir: &Path) -> Result<()> {
     StreamFrame::export_all_to(dir).context("exporting StreamFrame")?;
     BackendHealth::export_all_to(dir).context("exporting BackendHealth")?;
     CircuitState::export_all_to(dir).context("exporting CircuitState")?;
+    // Exports ApiEntry and, transitively, ApiType, ApiParam, and ApiGate — the Lua API catalogue the
+    // console reference renders (`GET /control/lua-api`).
+    ApiEntry::export_all_to(dir).context("exporting ApiEntry")?;
     TurnProgress::export_all_to(dir).context("exporting TurnProgress")?;
     write_console_constants(dir).context("writing console constants")?;
 
