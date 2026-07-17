@@ -9,6 +9,7 @@ use zuihitsu::config::EnvConfig;
 use crate::cli::{client::Client, error::CliError, print_json};
 
 mod brief;
+mod delete_memory;
 mod events;
 mod markdown_fetch;
 mod mcp;
@@ -65,6 +66,17 @@ pub(crate) enum DebugCommand {
         #[arg(long)]
         seq: u64,
         /// Confirm the destructive truncation. Without it, the command only reports what it would do.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Soft-delete a memory: append a `MemoryDeleted` tombstone so it drops from the graph, search, and
+    /// the console on the next fold. Its contents stay in the log (a soft delete preserves history), so
+    /// this hides the memory without rewriting the past — appending forward rather than truncating. It
+    /// opens the log read-write, so the agent must be stopped first, and it requires `--yes`.
+    DeleteMemory {
+        /// The memory to delete: its exact name (e.g. `context/console:lua`) or its full id.
+        memory: String,
+        /// Confirm the soft delete. Without it, the command only reports what it would do.
         #[arg(long)]
         yes: bool,
     },
@@ -127,6 +139,9 @@ pub(crate) fn dispatch(
             brief(config, selector)
         }
         DebugCommand::Revert { seq, yes } => revert::revert(config, *seq, *yes),
+        DebugCommand::DeleteMemory { memory, yes } => {
+            delete_memory::delete_memory(config, memory, *yes)
+        }
         DebugCommand::Interactions => print_json(&client.interactions()?),
         DebugCommand::Arbitrations => print_json(&client.arbitrations()?),
         DebugCommand::Mcp => mcp::mcp(config),

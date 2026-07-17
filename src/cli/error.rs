@@ -30,6 +30,8 @@ pub(crate) enum CliError {
     Brief(String),
     /// The `revert` command could not truncate the log or reset the derived stores.
     Revert(String),
+    /// The `delete-memory` command could not resolve the memory or append the tombstone.
+    DeleteMemory(String),
     /// The `markdown-fetch` command could not fetch the page or extract its content.
     MarkdownFetch(String),
 }
@@ -65,6 +67,7 @@ impl std::fmt::Display for CliError {
             CliError::Events(message) => write!(f, "events: {message}"),
             CliError::Brief(message) => write!(f, "brief: {message}"),
             CliError::Revert(message) => write!(f, "revert: {message}"),
+            CliError::DeleteMemory(message) => write!(f, "delete-memory: {message}"),
             CliError::MarkdownFetch(message) => write!(f, "markdown-fetch: {message}"),
         }
     }
@@ -83,6 +86,7 @@ impl std::error::Error for CliError {
             CliError::Events(_)
             | CliError::Brief(_)
             | CliError::Revert(_)
+            | CliError::DeleteMemory(_)
             | CliError::MarkdownFetch(_) => None,
         }
     }
