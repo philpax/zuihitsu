@@ -78,7 +78,7 @@ pub(super) fn render_memory_body(
 /// structured form both [`compose`] (via [`render_memory_body`]) and the join path draw from. Reads
 /// the depth bounds (`recent_facts`, `key_relationships`) from `settings` rather than taking them
 /// pre-extracted, so a single argument carries the whole composition budget.
-fn memory_brief(
+pub(super) fn memory_brief(
     graph: &Graph,
     memory: &MemoryView,
     present_set: &[MemoryId],

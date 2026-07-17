@@ -271,6 +271,11 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
         <div className="flex flex-col gap-2">
           <Fields>
             <Field label="present">{refs(payload.participants, "no one")}</Field>
+            {/* The initiating speakers the brief guaranteed a full block; absent for an
+                agent-initiated open or a pre-capture event. */}
+            {(payload.initiators ?? []).length > 0 && (
+              <Field label="answering">{refs(payload.initiators, "no one")}</Field>
+            )}
             {payload.seeded_from_turn && (
               <Field label="seeded from">{convRef(payload.seeded_from_turn)}</Field>
             )}

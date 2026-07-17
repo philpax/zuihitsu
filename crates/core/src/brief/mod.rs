@@ -29,7 +29,7 @@ use crate::{
 
 use crate::visibility::{self};
 
-use helpers::{ranked_present, render_memory_body};
+use helpers::{memory_brief, ranked_present, render_memory_body};
 
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]
@@ -249,6 +249,12 @@ impl TryFrom<BriefWire> for Brief {
 pub struct BriefRequest<'a> {
     /// The full present set — the visibility predicate always resolves against all of it.
     pub present_set: &'a [MemoryId],
+    /// The initiating speakers — the participants whose inbound message opens the turn, a subset of
+    /// `present_set`. Each is guaranteed a full block, rendered ahead of the recency-ranked remainder
+    /// and exempt from both the present-set cap and the char-budget drop, so the person the agent is
+    /// answering is never collapsed to a name-only line. Empty for an agent-initiated open or a
+    /// reconstruction with no recorded speaker.
+    pub speakers: &'a [MemoryId],
     /// The room's [`Namespace::Context`] memory, if any.
     pub current_context: Option<MemoryId>,
     /// Memories carried across a compaction seam (empty otherwise), rendered as active threads.
@@ -305,6 +311,7 @@ pub(super) fn compose_packed(
 ) -> Result<PackedBrief, BriefError> {
     let &BriefRequest {
         present_set,
+        speakers,
         current_context,
         working_set,
         now,
@@ -321,18 +328,16 @@ pub(super) fn compose_packed(
     // participant, each active thread) so a later stub of an identity already shown is skipped.
     let mut rendered_classes: HashSet<MemoryId> = HashSet::new();
 
-    // 1. Self brief — the agent's own memory in the per-participant shape. Mandatory.
+    // 1. Self brief — the agent's own memory in the per-participant shape. Mandatory. The summary is
+    //    dropped (the block clears it before rendering): on the self block the authored entries are the
+    //    canonical statement of who the agent is, and a generated summary only restates them at the cost
+    //    of budget the present set needs.
     if let Some(self_memory) = graph.self_memory()? {
         let mut block = String::from("# You\n");
-        render_memory_body(
-            &mut block,
-            graph,
-            &self_memory,
-            present_set,
-            &class_of,
-            settings,
-            now,
-        )?;
+        let mut self_brief =
+            memory_brief(graph, &self_memory, present_set, &class_of, settings, now)?;
+        self_brief.summary = None;
+        self_brief.render_body(&mut block);
         block.push('\n');
         budget.charge(char_len(&block));
         out.push_str(&block);
@@ -359,13 +364,28 @@ pub(super) fn compose_packed(
         out.push_str(&block);
     }
 
-    // 3. Per-participant briefs, ranked by recency, capped, and packed. The predicate above and below
-    //    always sees the full present set; the cap and the budget only govern who gets a full block.
+    // 3. Per-participant briefs. The initiating speakers come first, so the person the agent is
+    //    answering fills the present-set cap ahead of the rest and is never dropped for ranking low
+    //    among a crowded room; the remaining present participants follow in recency rank. The total
+    //    number of full blocks stays bounded by the cap either way — the guarantee is priority and a
+    //    budget exemption, not an unbounded escape from the cap, so a large inbound batch of distinct
+    //    senders cannot balloon the brief. Within the cap a speaker is budget-guaranteed (charged) while
+    //    a non-speaker is budget-gated. The predicate above and below always sees the full present set;
+    //    the cap and the budget only govern who gets a full block.
     if !present_set.is_empty() {
         out.push_str("# Present\n");
         budget.charge(char_len("# Present\n"));
         let cap = settings.present_set_cap.max(0) as usize;
-        for (index, participant) in ranked_present(graph, present_set)?.into_iter().enumerate() {
+        // Speakers first (in recency order among themselves), then the remaining present participants
+        // (also in recency order).
+        let ranked = ranked_present(graph, present_set)?;
+        let is_speaker = |id: &MemoryId| speakers.contains(id);
+        let ordered = ranked
+            .iter()
+            .filter(|id| is_speaker(id))
+            .chain(ranked.iter().filter(|id| !is_speaker(id)));
+        let mut full_blocks = 0;
+        for &participant in ordered {
             let Some(memory) = graph.memory_by_id(participant)? else {
                 continue;
             };
@@ -375,7 +395,10 @@ pub(super) fn compose_packed(
                 continue;
             }
             let mut placed_full = false;
-            if index < cap {
+            // Full blocks are capped in total. A speaker within the cap is guaranteed (charged, exempt
+            // from the budget drop); a non-speaker within the cap gets one only while the budget affords
+            // it. A placed block consumes a cap slot; a name-only fallback does not.
+            if full_blocks < cap {
                 let mut block = String::new();
                 let _ = writeln!(block, "## {}", memory.name.as_str());
                 render_memory_body(
@@ -387,10 +410,18 @@ pub(super) fn compose_packed(
                     settings,
                     now,
                 )?;
-                if budget.take(char_len(&block)) {
+                if is_speaker(&participant) {
+                    budget.charge(char_len(&block));
                     out.push_str(&block);
                     full_participants.insert(participant);
                     placed_full = true;
+                } else if budget.take(char_len(&block)) {
+                    out.push_str(&block);
+                    full_participants.insert(participant);
+                    placed_full = true;
+                }
+                if placed_full {
+                    full_blocks += 1;
                 }
             }
             if !placed_full {

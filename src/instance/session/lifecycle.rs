@@ -189,6 +189,7 @@ impl Instance {
         &self,
         conversation: ConversationId,
         present_set: &[MemoryId],
+        speakers: &[MemoryId],
         model: &dyn ModelClient,
     ) -> Result<Arc<OpenSession>, InstanceError> {
         // Before taking this conversation's lifecycle lock, checkpoint-flush the *other* live
@@ -418,6 +419,7 @@ impl Instance {
             &settings.brief,
             &brief::BriefRequest {
                 present_set,
+                speakers,
                 current_context: context,
                 working_set: &working_set,
                 now,
@@ -435,6 +437,7 @@ impl Instance {
                 seeded_from_turn,
                 brief: brief.clone(),
                 working_set,
+                initiators: speakers.to_vec(),
             }],
         )?;
         observe_session_opened();

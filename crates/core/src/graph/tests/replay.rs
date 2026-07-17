@@ -221,6 +221,7 @@ fn conversations_and_sessions_project() {
             seeded_from_turn: None,
             brief: "first brief".to_owned(),
             working_set: Vec::new(),
+            initiators: Vec::new(),
         },
         EventPayload::participant_joined(
             conv,
@@ -244,6 +245,7 @@ fn conversations_and_sessions_project() {
             }),
             brief: "second brief".to_owned(),
             working_set: Vec::new(),
+            initiators: Vec::new(),
         },
     ]);
 

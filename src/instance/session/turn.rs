@@ -96,9 +96,19 @@ impl Instance {
         routed: &RoutedTurn<'_>,
     ) -> Result<(TurnReport, Vec<TurnView>), InstanceError> {
         // `ensure_session` returns the open session as an `Arc`, so the turn holds it across
-        // `run_turn().await` without keeping the `sessions` map guard.
+        // `run_turn().await` without keeping the `sessions` map guard. The inbound senders are the
+        // speakers this session opens to answer, so a fresh session's brief guarantees each of them a
+        // full block (a reused warm session composes no brief, so they are inert there). Deduplicated in
+        // first-seen order: one sender posting several messages in the batch is one speaker, recorded
+        // once on the session's initiators.
+        let mut speakers: Vec<MemoryId> = Vec::new();
+        for message in routed.inbound {
+            if !speakers.contains(&message.participant) {
+                speakers.push(message.participant);
+            }
+        }
         let open = self
-            .ensure_session(routed.conversation, routed.present_set, model)
+            .ensure_session(routed.conversation, routed.present_set, &speakers, model)
             .await?;
         // Presence sync: anyone on this message who is not yet among the live session's participants
         // arrived mid-session — most clients only ever deliver messages, so the message itself is the

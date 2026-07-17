@@ -296,6 +296,7 @@ impl EventPayload {
             seeded_from_turn,
             brief: brief.into(),
             working_set: Vec::new(),
+            initiators: Vec::new(),
         }
     }
 

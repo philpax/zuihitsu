@@ -46,6 +46,7 @@ pub(crate) fn brief(config: &EnvConfig, selector: BriefSelector) -> Result<(), C
         started_at,
         brief: recorded,
         working_set,
+        initiators,
         ..
     } = &target.payload
     else {
@@ -83,6 +84,7 @@ pub(crate) fn brief(config: &EnvConfig, selector: BriefSelector) -> Result<(), C
         &settings.brief,
         &BriefRequest {
             present_set: participants,
+            speakers: initiators,
             current_context: context,
             working_set,
             now: *started_at,
@@ -175,6 +177,7 @@ mod tests {
                 seeded_from_turn: None,
                 brief: String::new(),
                 working_set: Vec::new(),
+                initiators: Vec::new(),
             },
         }
     }

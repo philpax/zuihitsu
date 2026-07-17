@@ -163,15 +163,17 @@ export class Replica {
 
   /// Re-derive a session's brief and the trace of how it was composed, against the graph at the
   /// current fold, with the brief settings folded from the log at the same horizon. `present`,
-  /// `context`, and `workingSet` are memory ids; `nowMs` is the session start time; `workingSet` is
-  /// the `SessionStarted` payload's recorded working set (empty for pre-capture sessions).
+  /// `speakers`, `context`, and `workingSet` are memory ids; `nowMs` is the session start time.
+  /// `speakers` is the `SessionStarted` payload's recorded initiators (whom the brief guarantees a
+  /// full block); `workingSet` is its recorded working set (both empty for pre-capture sessions).
   brief(
     present: string[],
+    speakers: string[],
     context: string | null,
     nowMs: number,
     workingSet: string[],
   ): BriefTrace {
-    return this.#inner.brief(present, context, nowMs, workingSet) as BriefTrace;
+    return this.#inner.brief(present, speakers, context, nowMs, workingSet) as BriefTrace;
   }
 
   /// The memory name a freshly minted `person/*` participant would receive — delegates to the

@@ -63,6 +63,12 @@ export interface SessionModel {
   participants: string[];
   /// The present set as memory ids (the names above are resolved from these).
   participantIds: string[];
+  /// The initiating speakers — the participants whose inbound message opened the session, whom the
+  /// brief guarantees a full block. Resolved names; a subset of `participants`. Empty for an
+  /// agent-initiated open or a session recorded before capture.
+  speakers: string[];
+  /// The initiating speakers as memory ids (the names above are resolved from these).
+  speakerIds: string[];
   /// True when the session opened by re-segmenting a prior one rather than fresh — it carries
   /// `seeded_from_turn`, so the transcript can mark a continuity cut. The specific seam kind is the
   /// *previous* session's `endCause`, which the divider reads to label it.
@@ -258,6 +264,8 @@ export function buildConversations(
           startedAt: payload.started_at,
           participants: payload.participants.map((id) => name(id) ?? id),
           participantIds: payload.participants,
+          speakers: payload.initiators.map((id) => name(id) ?? id),
+          speakerIds: payload.initiators,
           seededFromTail: payload.seeded_from_turn !== null,
           endCause: null,
           // Serde defaults an absent key to an empty array before the typed payload reaches us, so

@@ -470,6 +470,13 @@ pub enum EventPayload {
         /// field's presence in the raw payload.
         #[serde(default)]
         working_set: Vec<MemoryId>,
+        /// The initiating speakers — the participants whose inbound message opened the session, whom
+        /// the brief guarantees a full block (spec §Contextual briefs → present-set cap). Recorded so
+        /// the brief composition is reproducible after the fact: reconstruction reads them back rather
+        /// than re-deriving who was being answered. Empty for sessions recorded before capture and for
+        /// an agent-initiated open with no inbound speaker.
+        #[serde(default)]
+        initiators: Vec<MemoryId>,
     },
     /// Closes a session's activity window. `cause` records why it ended — a warm [`Compaction`] cut, an
     /// [`Idle`] timeout, or a cold-start [`Recovery`] close — as first-class provenance for display and

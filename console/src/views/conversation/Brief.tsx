@@ -33,6 +33,7 @@ export function BriefBlock({
       setTrace(
         replica.brief(
           session.participantIds,
+          session.speakerIds,
           contextMemory,
           session.startedAt,
           session.workingSet ?? [],
@@ -49,7 +50,10 @@ export function BriefBlock({
         open={open}
         onToggle={() => setOpen(!open)}
         label="brief"
-        summary={session.participants.join(", ") || "no one present"}
+        summary={
+          (session.participants.join(", ") || "no one present") +
+          (session.speakers.length > 0 ? ` · answering ${session.speakers.join(", ")}` : "")
+        }
       />
       {open && (
         <>

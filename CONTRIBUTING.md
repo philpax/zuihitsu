@@ -174,6 +174,16 @@ The scaffold teaches load-bearing practices as principles, stated once. API opti
 - No personal names in fixtures, and never the operator's own identity. Anonymise every test, scenario, and eval to invented placeholders (`person/rowan`, `person/rowan@direct`); do not seed one from the operator's — or any real person's — real name, handles, or biographical details, even when a live instance's data reproduces the behaviour under test. The operator is a collaborator debugging the system, not an eval subject: reproduce the *shape* of what you observed in their instance, never their actual content.
 - Scenario dates are computed from `RUN_START_MS` and the shared time constants (`MILLIS_PER_DAY`, …), never bare epoch literals.
 
+## Debugging against a live instance
+
+The `debug` subcommands read the event log directly and read-only, so they are safe to run against a configured instance — the store takes no write lock for them. To inspect a change to brief composition (or any log-derived surface) against a real instance's data without re-running the agent:
+
+- Stop the agent first if you want a quiet log, though the reads themselves are safe while it runs.
+- `cargo run -- debug events` lists the log. `--seq N` prints one event's full payload; `--type SessionStarted` (case-insensitive) filters by payload type; `--target <id-or-prefix>` follows one conversation or memory; `--summary` counts events by type and lays out the session timeline (each session's open/close seqs and brief size).
+- `cargo run -- debug brief --seq N` reproduces the brief of the session active at seq `N`, printing the brief frozen at session start beside the one the current code composes from the same recorded inputs — the way to see a composition change against real data. Select by `--session <id>` instead to name a session directly.
+
+Keep the default (`console`-featured) build for these so the build cache stays warm across runs.
+
 ## Evaluations
 
 The eval harness in `crates/eval` runs the agent through a suite of behavioural scenarios against a local model, judges each run against per-scenario oracles, and writes a package (`eval/<name>.json`) that the console renders and the `analyze` subcommand reads. A run drives a local inference server, so it needs a configured model (`config.toml`) and a GPU, and it is kept out of `cargo test`.

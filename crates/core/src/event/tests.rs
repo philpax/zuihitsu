@@ -418,6 +418,7 @@ fn a_session_started_without_a_working_set_replays_as_empty() {
         seeded_from_turn: None,
         brief: "the brief".to_owned(),
         working_set: Vec::new(),
+        initiators: Vec::new(),
     };
     let mut value = serde_json::to_value(&event).unwrap();
     value.as_object_mut().unwrap().remove("working_set");
@@ -427,6 +428,30 @@ fn a_session_started_without_a_working_set_replays_as_empty() {
         panic!("expected a SessionStarted, got {replayed:?}");
     };
     assert!(working_set.is_empty());
+}
+
+#[test]
+fn a_session_started_without_initiators_replays_as_empty() {
+    // A `SessionStarted` recorded before initiator capture has no `initiators` key; the field defaults
+    // empty so the historical event still deserializes.
+    let event = EventPayload::SessionStarted {
+        conversation: ConversationId::generate(),
+        id: SessionId::generate(),
+        participants: vec![MemoryId::generate()],
+        started_at: Timestamp::from_millis(1_000),
+        seeded_from_turn: None,
+        brief: "the brief".to_owned(),
+        working_set: Vec::new(),
+        initiators: Vec::new(),
+    };
+    let mut value = serde_json::to_value(&event).unwrap();
+    value.as_object_mut().unwrap().remove("initiators");
+
+    let replayed = serde_json::from_value::<EventPayload>(value).unwrap();
+    let EventPayload::SessionStarted { initiators, .. } = replayed else {
+        panic!("expected a SessionStarted, got {replayed:?}");
+    };
+    assert!(initiators.is_empty());
 }
 
 fn stamped(source: EventSource) -> Event {

@@ -2,8 +2,9 @@
 //! visibility (`compaction`), a cold open resurfacing recent threads (`cold_open`), an idle reopen
 //! carrying the prior session's raw-transcript tail (`idle_carryover`), a checkpoint syncing parallel
 //! rooms via the timer sweep (`checkpoint`) and via a fresh session opening (`session_open`), lived
-//! multi-turn conversations (`conversations`), the join brief handed to a newcomer (`joins`), and
-//! transcript linking and its audience gate (`transcripts`).
+//! multi-turn conversations (`conversations`), the join brief handed to a newcomer (`joins`), the
+//! initiating speaker's guaranteed brief block (`speaker_brief`), and transcript linking and its
+//! audience gate (`transcripts`).
 
 pub(crate) mod checkpoint;
 pub(crate) mod cold_open;
@@ -12,6 +13,7 @@ pub(crate) mod conversations;
 pub(crate) mod idle_carryover;
 pub(crate) mod joins;
 pub(crate) mod session_open;
+pub(crate) mod speaker_brief;
 pub(crate) mod transcripts;
 
 use std::sync::Arc;
@@ -29,6 +31,7 @@ pub(super) fn scenarios() -> Vec<Arc<dyn Scenario>> {
         idle_carryover::scenarios(),
         checkpoint::scenarios(),
         session_open::scenarios(),
+        speaker_brief::scenarios(),
     ]
     .into_iter()
     .flatten()

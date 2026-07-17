@@ -24,11 +24,32 @@ fn compose_at_epoch(
     current_context: Option<MemoryId>,
     working_set: &[MemoryId],
 ) -> String {
+    compose_at_epoch_answering(
+        graph,
+        settings,
+        present_set,
+        &[],
+        current_context,
+        working_set,
+    )
+}
+
+/// [`compose_at_epoch`] with an explicit speaker set — the participants the session opens to answer,
+/// each guaranteed a full block.
+fn compose_at_epoch_answering(
+    graph: &Graph,
+    settings: &BriefSettings,
+    present_set: &[MemoryId],
+    speakers: &[MemoryId],
+    current_context: Option<MemoryId>,
+    working_set: &[MemoryId],
+) -> String {
     brief::compose(
         graph,
         settings,
         &BriefRequest {
             present_set,
+            speakers,
             current_context,
             working_set,
             now: Timestamp::from_millis(0),
@@ -751,6 +772,151 @@ fn the_char_budget_collapses_lower_ranked_participants_to_name_only() {
     assert!(out.contains("fresh has news to share")); // the recency winner keeps its full block
     assert!(out.contains("- person/stale (present)")); // the other collapses to name-only
     assert!(!out.contains("stale has quiet news")); // ...and its facts do not surface
+}
+
+#[test]
+fn the_active_speaker_is_guaranteed_a_full_block_over_the_recency_winner() {
+    // The shape of issue #85: two participants present, the recency winner is *not* the one speaking.
+    // With the budget set to admit only one full block, the recency winner would ordinarily take it and
+    // the speaker collapse to name-only — but the speaker is guaranteed, so it keeps its full block and
+    // the recency winner is the one that collapses.
+    let speaker = MemoryId::generate();
+    let winner = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(speaker, "person/rowan"),
+        created(winner, "person/wren"),
+        appended(
+            speaker,
+            1_000,
+            "rowan is the one asking",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        appended(
+            winner,
+            5_000,
+            "wren was touched more recently",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+    let present_set = [speaker, winner];
+
+    // Budget to admit exactly the present header plus the speaker's own full block. Without the
+    // guarantee the recency winner (wren) would win this single slot.
+    let mut generous = Settings::default().brief;
+    generous.char_budget = i64::MAX;
+    let speaker_block = brief::compose_participant(
+        &graph,
+        speaker,
+        &present_set,
+        &generous,
+        Timestamp::from_millis(0),
+    )
+    .unwrap();
+    let budget = "# Present\n".chars().count() + speaker_block.chars().count();
+
+    let mut settings = Settings::default().brief;
+    settings.char_budget = budget as i64;
+    let out = compose_at_epoch_answering(&graph, &settings, &present_set, &[speaker], None, &[]);
+
+    assert!(out.contains("rowan is the one asking")); // the speaker keeps its full block...
+    assert!(out.contains("## person/rowan"));
+    assert!(out.contains("- person/wren (present)")); // ...and the recency winner collapses instead
+    assert!(!out.contains("wren was touched more recently"));
+    // The speaker renders ahead of the remaining present participants.
+    assert!(out.find("## person/rowan").unwrap() < out.find("person/wren").unwrap());
+}
+
+#[test]
+fn the_guaranteed_speaker_set_stays_bounded_by_the_cap() {
+    // The speaker guarantee is priority within the cap, not an unbounded escape from it: with three
+    // speakers present under a cap of two, only the two most-recent speakers get a full block and the
+    // third collapses to a name-only line, so a large inbound batch of distinct senders cannot balloon
+    // the brief past the cap.
+    let older = MemoryId::generate();
+    let middle = MemoryId::generate();
+    let newest = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(older, "person/quinn"),
+        created(middle, "person/rowan"),
+        created(newest, "person/wren"),
+        appended(
+            older,
+            1_000,
+            "quinn spoke",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        appended(
+            middle,
+            2_000,
+            "rowan spoke",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        appended(
+            newest,
+            3_000,
+            "wren spoke",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+    let present_set = [older, middle, newest];
+
+    // A generous budget so only the cap — not the budget — bounds the full blocks.
+    let mut settings = Settings::default().brief;
+    settings.char_budget = i64::MAX;
+    settings.present_set_cap = 2;
+    let out = compose_at_epoch_answering(&graph, &settings, &present_set, &present_set, None, &[]);
+
+    // The two most-recent speakers keep full blocks; the oldest speaker is the one over the cap.
+    assert!(out.contains("## person/wren"));
+    assert!(out.contains("## person/rowan"));
+    assert!(out.contains("- person/quinn (present)"));
+    assert!(!out.contains("## person/quinn"));
+    assert_eq!(out.matches("## person/").count(), 2); // exactly the cap, never more
+}
+
+#[test]
+fn the_self_block_renders_entries_without_a_summary() {
+    // The `# You` block drops the generated summary and renders its authored entries only: on the self
+    // memory the entries are canonical, and the summary would only restate them at the cost of budget
+    // the present set needs (issue #85).
+    let agent = MemoryId::generate();
+    let mut store = MemoryStore::new();
+    let mut graph = Graph::open_in_memory().unwrap();
+    for payload in [
+        created(agent, "self"),
+        EventPayload::MemoryDescriptionRegenerated {
+            id: agent,
+            new_text: "a generated summary of who the agent is".to_owned(),
+            produced_by: None,
+        },
+        appended(
+            agent,
+            1_000,
+            "the agent's own authored charter",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ] {
+        let committed = store
+            .append(Timestamp::from_millis(0), EventSource::Agent, vec![payload])
+            .unwrap();
+        for event in committed {
+            graph.apply(&event).unwrap();
+        }
+    }
+
+    let settings = Settings::default().brief;
+    let out = compose_at_epoch(&graph, &settings, &[], None, &[]);
+
+    assert!(out.contains("# You"));
+    assert!(out.contains("the agent's own authored charter")); // the entry surfaces...
+    assert!(!out.contains("<summary>")); // ...but no summary block is rendered for self
+    assert!(!out.contains("a generated summary of who the agent is"));
 }
 
 #[test]

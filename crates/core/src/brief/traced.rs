@@ -102,7 +102,15 @@ pub fn compose_traced(
         sections.push(section);
     }
 
-    for participant in ranked_present(graph, request.present_set)? {
+    // Speakers first, then the remaining present participants, matching the order [`compose_packed`]
+    // renders them so the traced sections line up with the brief text.
+    let ranked = ranked_present(graph, request.present_set)?;
+    let is_speaker = |id: &MemoryId| request.speakers.contains(id);
+    let ordered = ranked
+        .iter()
+        .filter(|id| is_speaker(id))
+        .chain(ranked.iter().filter(|id| !is_speaker(id)));
+    for &participant in ordered {
         if let Some(memory) = graph.memory_by_id(participant)? {
             sections.push(section_trace(
                 graph,

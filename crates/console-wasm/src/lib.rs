@@ -370,19 +370,25 @@ impl Replica {
 
     /// Re-derive a session's contextual brief and the trace of how it was composed — every memory the
     /// composer considered and, per entry, the visibility verdict and whether it reached the brief.
-    /// The inputs are the session's present set (memory ids), its room's [`Namespace::Context`]
-    /// memory (if any), its start time, and its recorded working set (from the `SessionStarted`
-    /// payload; empty for sessions recorded before capture). The brief is composed against the graph
-    /// at the current fold horizon, with the brief settings folded from the log at the same horizon —
-    /// so a caller that folds to the session's seq re-derives exactly what the server composed.
+    /// The inputs are the session's present set (memory ids), its initiating speakers (the recorded
+    /// `initiators`, whom the brief guarantees a full block), its room's [`Namespace::Context`] memory
+    /// (if any), its start time, and its recorded working set (from the `SessionStarted` payload; empty
+    /// for sessions recorded before capture). The brief is composed against the graph at the current
+    /// fold horizon, with the brief settings folded from the log at the same horizon — so a caller that
+    /// folds to the session's seq re-derives exactly what the server composed.
     pub fn brief(
         &self,
         present_set: Vec<String>,
+        speakers: Vec<String>,
         context: Option<String>,
         now_ms: f64,
         working_set: Vec<String>,
     ) -> Result<JsValue, JsError> {
         let present = present_set
+            .iter()
+            .map(|id| parse_memory_id(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let speaking = speakers
             .iter()
             .map(|id| parse_memory_id(id))
             .collect::<Result<Vec<_>, _>>()?;
@@ -396,6 +402,7 @@ impl Replica {
             .collect::<Result<Vec<_>, _>>()?;
         let request = BriefRequest {
             present_set: &present,
+            speakers: &speaking,
             current_context,
             working_set: &working,
             now: Timestamp::from_millis(now_ms as i64),

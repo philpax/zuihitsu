@@ -264,7 +264,15 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
         .unwrap();
 
     let events = server.control().events().unwrap();
-    let (session_seq, conversation, participants, started_at, working_set, recorded_brief) = events
+    let (
+        session_seq,
+        conversation,
+        participants,
+        started_at,
+        working_set,
+        initiators,
+        recorded_brief,
+    ) = events
         .iter()
         .find_map(|event| match &event.payload {
             EventPayload::SessionStarted {
@@ -274,6 +282,7 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
                 seeded_from_turn: Some(_),
                 brief,
                 working_set,
+                initiators,
                 ..
             } => Some((
                 event.seq,
@@ -281,6 +290,7 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
                 participants.clone(),
                 *started_at,
                 working_set.clone(),
+                initiators.clone(),
                 brief.clone(),
             )),
             _ => None,
@@ -305,6 +315,7 @@ async fn the_recorded_brief_is_reproducible_from_the_log() {
         &folded.brief,
         &zuihitsu::brief::BriefRequest {
             present_set: &participants,
+            speakers: &initiators,
             current_context: context,
             working_set: &working_set,
             now: started_at,

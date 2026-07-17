@@ -76,6 +76,7 @@ const beforeCommit: Event[] = [
     participants: [],
     seeded_from_turn: null,
     working_set: [],
+    initiators: [],
   }),
   event(3, {
     type: "ConversationTurn",
