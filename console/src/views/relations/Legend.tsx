@@ -97,13 +97,11 @@ export function RelationLegend({
 /// show the link's full provenance: who asserted it, where it was told, and its visibility posture.
 export function LinkedPairs({
   graph,
-  base,
   cursor,
   nameById,
   conversationNameById,
 }: {
   graph: MemoryGraph;
-  base: string;
   cursor: number;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
@@ -121,7 +119,6 @@ export function LinkedPairs({
           <LinkRow
             key={`${link.source}-${link.relation}-${link.target}-${index}`}
             link={link}
-            base={base}
             cursor={cursor}
             nameById={nameById}
             conversationNameById={conversationNameById}
@@ -136,13 +133,11 @@ export function LinkedPairs({
 /// expands a detail panel with the link's provenance (told by, told in, visibility).
 function LinkRow({
   link,
-  base,
   cursor,
   nameById,
   conversationNameById,
 }: {
   link: MemoryGraphLink;
-  base: string;
   cursor: number;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
@@ -157,9 +152,9 @@ function LinkRow({
         }
         onClick={() => hasDetail && setExpanded(!expanded)}
       >
-        <MemoryNameLink name={link.source} base={base} seq={cursor} />
+        <MemoryNameLink name={link.source} seq={cursor} />
         <span style={{ color: relationColor(link.relation) }}>{link.relation}</span>
-        <MemoryNameLink name={link.target} base={base} seq={cursor} />
+        <MemoryNameLink name={link.target} seq={cursor} />
         {isPrivate(link.visibility) && (
           <span className="text-2xs text-clay/70">
             {visibilityLabel(link.visibility, nameById)}
@@ -186,7 +181,7 @@ function LinkRow({
                   }
                   const participantId = link.told_by.Participant;
                   const name = nameById.get(participantId) ?? participantId;
-                  return <MemoryNameLink name={name} base={base} seq={cursor} />;
+                  return <MemoryNameLink name={name} seq={cursor} />;
                 })()}
               </dd>
             </div>
@@ -199,7 +194,6 @@ function LinkRow({
                   value={link.told_in}
                   nameById={nameById}
                   conversationNameById={conversationNameById}
-                  base={base}
                 />
               </dd>
             </div>

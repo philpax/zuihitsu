@@ -2,10 +2,9 @@ import { createContext, useContext } from "react";
 
 import type { EvalContext } from "../../lib/api/liveEval.ts";
 
-/// The open package and its live-run seams, provided by the eval frame to its nested routes (the
-/// scenario overview and a run's deep views) so each resolves its scenario and run from the URL
-/// against it. This stands in for react-router's `<Outlet context>`: TanStack renders nested routes
-/// through a bare `<Outlet />`, so the frame passes shared data down through a React context instead.
+/// The open package and its live-run seams, provided by the eval frame to its inner screen (the
+/// scenario overview or a run's deep views) so each resolves its scenario and run from the location
+/// against it. The frame renders the screen as its children and wraps them in this context.
 export const EvalRouteContext = createContext<EvalContext | null>(null);
 
 export function useEvalContext(): EvalContext {

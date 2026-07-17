@@ -3,7 +3,6 @@ import { motion } from "motion/react";
 
 import type { Brief } from "@zuihitsu/wire/types/Brief.ts";
 import type { TurnModel } from "../../lib/model/conversation.ts";
-import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
 import { linkedClass } from "./turnUtilities.ts";
 import { TurnTimeAnchor } from "./Turn.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
@@ -60,7 +59,6 @@ export function JoinBriefTurn({
 /// provenance/staleness markers set quietly beside it, and the relationships as `relation → name` with
 /// each name opening the memory in the State view at this moment in the timeline.
 export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
-  const base = useStreamBase();
   return (
     <div className="space-y-3 border-l-2 border-line pl-4 text-sm">
       {brief.summary && <p className="leading-relaxed text-ink-soft">{brief.summary}</p>}
@@ -86,7 +84,7 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
               <span aria-hidden className="text-ink-faint">
                 →
               </span>
-              <MemoryNameLink name={relationship.subject} base={base} seq={seq} />
+              <MemoryNameLink name={relationship.subject} seq={seq} />
               {relationship.marker && (
                 <span className="text-2xs text-ink-faint">{relationship.marker}</span>
               )}

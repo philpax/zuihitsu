@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link, Navigate, useParams } from "@tanstack/react-router";
 
 import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
 import type { ScenarioSummary } from "@zuihitsu/wire/types/ScenarioSummary.ts";
@@ -7,10 +6,11 @@ import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { liveRunOf, runningKey } from "../../lib/api/liveEval.ts";
 import { useEvalContext } from "./evalContext.ts";
 import { type ReplicaState, useReplica } from "../../lib/replica/useReplica.ts";
-import { runBase, runPath } from "../../lib/nav/routes.ts";
+import { evalRunLocation } from "../../lib/nav/location.ts";
+import { Link, Redirect } from "../../lib/nav/history.tsx";
 import { groupScenariosByCategory } from "../../lib/model/scenarioGroups.ts";
-import { useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
-import { type ViewId, isStreamViewId } from "../../lib/nav/streamViews.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
+import type { ViewId } from "../../lib/nav/streamViews.ts";
 import { formatMs, formatRate, formatTokens, formatTokenSplit } from "../../lib/format/format.ts";
 import { Dot, Eyebrow } from "../../components/primitives.tsx";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
@@ -18,30 +18,32 @@ import { StreamWorkspace } from "../../components/StreamWorkspace.tsx";
 import { VerdictPanel } from "./VerdictPanel.tsx";
 import { useRunRecord, type RunRecordState } from "./useRunRecord.ts";
 
-/// A single run's deep views, resolved from the URL: `:scenario` (name) and `:run` (index) pick the
-/// run out of the package, `:view` selects the view, and the `seq` search pins the timeline cursor. Folding the
-/// run's embedded log into a [`Replica`] and handing it to the shared [`StreamWorkspace`] — driven
-/// from the URL through [`useStreamLocation`], exactly as the agent frame drives it — is what makes
-/// browser back and forward step through views and timeline positions. A scenario, run, or view the
-/// URL names but the package does not hold redirects back.
+/// A single run's deep views, resolved from the location: the eval-run frame's scenario and run pick
+/// the run out of the package, its view selects the view, and the `seq` search pins the timeline
+/// cursor. Folding the run's embedded log into a [`Replica`] and handing it to the shared
+/// [`StreamWorkspace`] — driven through [`useStream`], exactly as the agent frame drives it — is what
+/// makes browser back and forward step through views and timeline positions. A scenario or run the
+/// location names but the package does not hold redirects back to the overview.
 ///
 /// The layout reads as a drill-down: the scenario list on the left, then the scenario's summary, the
 /// run picker, this run's verdicts, and finally the run's views — outer scope to inner, top to bottom.
 export function RunFrame() {
   const { pkg, liveRuns, progress, getRun } = useEvalContext();
-  const params = useParams({ strict: false });
-  const scenarioIndex = pkg.scenarios.findIndex((entry) => entry.meta.name === params.scenario);
+  const { frame, view, seq, selectView, setSeq } = useStream();
+  // RunFrame only renders under an eval-run location, so the frame carries the scenario and run.
+  const scenarioName = frame.kind === "evalRun" ? frame.scenario : "";
+  const runFromUrl = frame.kind === "evalRun" ? frame.run : null;
+  const scenarioIndex = pkg.scenarios.findIndex((entry) => entry.meta.name === scenarioName);
   const scenario = scenarioIndex >= 0 ? pkg.scenarios[scenarioIndex] : null;
   // The completed run's lean summary — verdicts and metrics render from it immediately; its full event
   // log is fetched separately below. A run still driving has no summary yet.
-  const summary = scenario?.runs.find((entry) => String(entry.index) === params.run) ?? null;
-  const runIndex =
-    summary !== null ? summary.index : params.run !== undefined ? Number(params.run) : null;
+  const summary = scenario?.runs.find((entry) => entry.index === runFromUrl) ?? null;
+  const runIndex = summary !== null ? summary.index : runFromUrl;
   // A run still driving streams its events into the live map until it completes, so a deep-dive opened
   // on it watches the deliberation arrive.
   const liveEvents =
-    scenario && params.run !== undefined && !summary
-      ? (liveRuns.get(runningKey(scenarioIndex, Number(params.run))) ?? null)
+    scenario && runFromUrl !== null && !summary
+      ? (liveRuns.get(runningKey(scenarioIndex, runFromUrl)) ?? null)
       : null;
 
   // A completed run's full record (its event log and journal) is fetched on demand — the lean package
@@ -66,18 +68,12 @@ export function RunFrame() {
   // has not landed yet (and no bridge exists) — the latter shows the Pending treatment, not a redirect.
   const events = fetched?.events ?? liveEvents ?? bridged;
   const replica = useReplica(events);
-  const { view, seq, selectView, setSeq } = useStreamLocation(
-    scenario && runIndex !== null ? runBase(scenario.meta.name, runIndex) : "",
-  );
 
   // The run is unresolved (a bad URL) when there is neither a completed summary nor a driving live run.
+  // The view is already a valid stream view — the location codec only parses eval-run views the frame
+  // carries — so it needs no guard here.
   if (!scenario || runIndex === null || (!summary && !liveEvents)) {
-    return <Navigate to="/eval" replace />;
-  }
-  // The eval frame carries only the timeline-scoped views (no agent extras), so a `:view` that is not
-  // one of them — or a bare segment — redirects to the run's default view.
-  if (!isStreamViewId(view)) {
-    return <Navigate {...runPath(scenario.meta.name, runIndex)} replace />;
+    return <Redirect to={{ kind: "evalOverview" }} />;
   }
 
   const ready = replica.status === "ready" ? replica.replica : null;
@@ -226,7 +222,7 @@ function ScenarioRail({
                 return openRun !== null ? (
                   <Link
                     key={entry.meta.name}
-                    {...runPath(entry.meta.name, openRun, view)}
+                    to={evalRunLocation(entry.meta.name, openRun, view)}
                     title={entry.meta.name}
                     className={rowClass}
                   >
@@ -350,7 +346,7 @@ function RunPicker({
           return (
             <Link
               key={run.index}
-              {...runPath(scenario.meta.name, run.index, view)}
+              to={evalRunLocation(scenario.meta.name, run.index, view)}
               title={`Run ${run.index} · ${passed ? "passed" : "failed"}${isActive ? " · open" : ""}`}
               className={
                 "flex h-7 min-w-7 items-center justify-center border px-1.5 font-mono text-2xs transition-colors " +
@@ -364,7 +360,7 @@ function RunPicker({
         })}
         {liveRun !== null && (
           <Link
-            {...runPath(scenario.meta.name, liveRun, view)}
+            to={evalRunLocation(scenario.meta.name, liveRun, view)}
             title={`Run ${liveRun} · streaming live`}
             className={
               "flex h-7 min-w-7 items-center justify-center gap-1.5 border px-1.5 font-mono text-2xs transition-colors " +

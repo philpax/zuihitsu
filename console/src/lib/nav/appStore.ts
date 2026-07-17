@@ -6,10 +6,9 @@ import type { LiveConnection } from "../api/live.ts";
 import type { LiveEvalConnection, useLiveEval } from "../api/liveEval.ts";
 import type { HistoryEntry } from "../model/history.ts";
 
-/// The console's mutable state, lifted out of the route tree. TanStack routes are defined statically
-/// at module load, so a route element cannot close over React state the way the old inline `<Route
-/// element={…}>` did; instead the whole console's state and its actions live in the
-/// [`AppStoreProvider`], and each route component reads what it needs through [`useAppStore`]. The
+/// The console's mutable state, lifted out of the screens. The screens are chosen by a `switch` over the current location, so a
+/// screen cannot close over React state directly; instead the whole console's state and its actions live in the
+/// [`AppStoreProvider`], and each screen reads what it needs through [`useAppStore`]. The
 /// package, the metrics history, and a live connection are held *independently* — they are the same
 /// eval seen different ways, not mutually exclusive modes — so any frame can pivot to a sibling
 /// section without returning to the landing.

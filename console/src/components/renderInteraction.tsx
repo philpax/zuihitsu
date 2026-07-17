@@ -20,17 +20,16 @@ import type { RenderContext } from "./renderPayload.tsx";
 /// events. Returns `undefined` if the payload type does not match any case here (so the caller can
 /// fall through to `renderMemoryPayload` or the default tree).
 export function renderInteractionPayload(ctx: RenderContext): ReactNode {
-  const { payload, nameById, conversationNameById, base, seq } = ctx;
-  const ref = (id: string) => <Ref id={id} nameById={nameById} base={base} seq={seq} />;
+  const { payload, nameById, conversationNameById, seq } = ctx;
+  const ref = (id: string) => <Ref id={id} nameById={nameById} seq={seq} />;
   const refs = (ids: string[], empty?: string) => (
-    <RefList ids={ids} nameById={nameById} base={base} seq={seq} empty={empty} />
+    <RefList ids={ids} nameById={nameById} seq={seq} empty={empty} />
   );
   const convRef = (value: ConversationRef) => (
     <ConversationRefLink
       value={value}
       nameById={nameById}
       conversationNameById={conversationNameById}
-      base={base}
       seq={seq}
     />
   );

@@ -1,7 +1,8 @@
-import { RouterProvider } from "@tanstack/react-router";
+import { Suspense } from "react";
 
+import { RouterProvider } from "./lib/nav/history.tsx";
 import { AppStoreProvider } from "./lib/nav/AppStoreProvider.tsx";
-import { consoleRouter, embeddedRouter } from "./router.tsx";
+import { ConsoleApp, EmbeddedApp } from "./screens.tsx";
 
 // The serving binary announces its mode at runtime via `window.__APP_MODE__` (the template token in
 // index.html is replaced at serve time), so one built bundle serves every host. The agent serves its
@@ -19,19 +20,35 @@ const MODE: AppMode =
     : "console";
 
 export function App() {
-  // The embedded build (the agent's own live view) is the whole app, served at the root with its own
-  // route tree and connected to the agent automatically — no landing, so no store to hold a package.
-  if (MODE === "agent") return <RouterProvider router={embeddedRouter} />;
+  // The embedded build (the agent's own live view) is the whole app, served at the root under the
+  // embedded URL grammar — no landing, so no store to hold a package.
+  if (MODE === "agent") {
+    return (
+      <RouterProvider mode="embedded">
+        <Suspense fallback={<Loading label="Connecting to the agent…" />}>
+          <EmbeddedApp />
+        </Suspense>
+      </RouterProvider>
+    );
+  }
 
   // The full console holds the package, the metrics history, and a live connection in the store; the
-  // router renders from it. The store's actions navigate through the router instance directly, since
-  // the store provider sits outside the router's own hook context.
+  // screens render from it and from the current location.
   return (
-    <AppStoreProvider
-      autoWatchEval={MODE === "eval"}
-      navigate={(to) => consoleRouter.navigate({ to })}
-    >
-      <RouterProvider router={consoleRouter} />
-    </AppStoreProvider>
+    <RouterProvider mode="console">
+      <AppStoreProvider autoWatchEval={MODE === "eval"}>
+        <Suspense fallback={<Loading label="Loading…" />}>
+          <ConsoleApp />
+        </Suspense>
+      </AppStoreProvider>
+    </RouterProvider>
+  );
+}
+
+function Loading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center text-sm text-ink-faint">
+      {label}
+    </div>
   );
 }

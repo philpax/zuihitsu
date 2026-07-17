@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
 import ForceGraph2D, {
   type ForceGraphMethods,
   type LinkObject,
@@ -14,8 +13,8 @@ import {
   collapseSameAs,
   filterByRelations,
 } from "../../lib/model/memoryGraph.ts";
-import { useStreamBase } from "../../lib/nav/useStreamLocation.ts";
-import { statePath } from "../../lib/nav/routes.ts";
+import { useNavigate } from "../../lib/nav/historyContext.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { MergeProposals } from "./MergeProposals.tsx";
 import { LinkedPairs, RelationLegend } from "./Legend.tsx";
 import { conversationNameById } from "../../lib/model/conversationNameById.ts";
@@ -64,9 +63,8 @@ export function RelationsView({
   merge?: MergeControls;
 }) {
   const navigate = useNavigate();
-  const base = useStreamBase();
+  const { search, link, patchSearch } = useStream();
   const palette = readPalette();
-  const search = useSearch({ strict: false });
 
   // URL state: the selected relations (empty = all), the `same_as` collapse toggle (default on),
   // and the comma-joined set of expanded virtual-node ids. Defaults are applied when the param is
@@ -90,33 +88,21 @@ export function RelationsView({
   const filtered = filterByRelations(collapsed, selected);
 
   // The filter and display toggles are continuous interaction, so each replaces (rather than pushes) a
-  // history entry, and stays on the current route (`to: "."`) mutating only its own search key.
+  // history entry via `patchSearch`, mutating only its own search key.
   function toggleRelation(name: string) {
-    navigate({
-      to: ".",
-      replace: true,
-      search: (prev) => ({ ...prev, relations: toggleCsv(prev.relations, name) }),
-    });
+    patchSearch((prev) => ({ ...prev, relations: toggleCsv(prev.relations, name) }));
   }
 
   function clearRelations() {
-    navigate({ to: ".", replace: true, search: (prev) => ({ ...prev, relations: undefined }) });
+    patchSearch((prev) => ({ ...prev, relations: undefined }));
   }
 
   function toggleSameAs(on: boolean) {
-    navigate({
-      to: ".",
-      replace: true,
-      search: (prev) => ({ ...prev, sameAs: on ? undefined : "off" }),
-    });
+    patchSearch((prev) => ({ ...prev, sameAs: on ? undefined : "off" }));
   }
 
   function toggleExpand(id: string) {
-    navigate({
-      to: ".",
-      replace: true,
-      search: (prev) => ({ ...prev, expand: toggleCsv(prev.expand, id) }),
-    });
+    patchSearch((prev) => ({ ...prev, expand: toggleCsv(prev.expand, id) }));
   }
 
   // The force-graph canvas needs explicit pixel dimensions, so measure the container it fills.
@@ -153,7 +139,6 @@ export function RelationsView({
           adjudication surface, above the relation graph the merges reshape. */}
       <MergeProposals
         proposals={proposals}
-        base={base}
         cursor={cursor}
         onResolve={merge?.resolve}
         onUnmerge={merge?.unmerge}
@@ -280,7 +265,7 @@ export function RelationsView({
                   if (isVirtual(node)) {
                     toggleExpand(String(node.id));
                   } else {
-                    navigate(statePath(base, String(node.id), cursor));
+                    navigate(link.state(String(node.id), { seq: cursor }));
                   }
                 }}
               />
@@ -292,7 +277,6 @@ export function RelationsView({
               relations when "all" is active, or just the selected ones when filtering. */}
           <LinkedPairs
             graph={linkedPairsGraph}
-            base={base}
             cursor={cursor}
             nameById={nameById}
             conversationNameById={convNameById}

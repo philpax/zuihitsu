@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { type Replica } from "../../lib/replica/replica.ts";
-import { useSelection, useSeq, useStreamBase } from "../../lib/nav/useStreamLocation.ts";
-import { conversationPath } from "../../lib/nav/routes.ts";
+import { useNavigate } from "../../lib/nav/historyContext.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { nameById } from "../../lib/model/labels.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { ConversationLocator } from "@zuihitsu/wire/types/ConversationLocator.ts";
@@ -85,14 +84,11 @@ export function ConversationView({
   };
   // Every event by its seq, so a turn can surface (and expand) the `ConversationTurn` record behind it.
   const eventsBySeq = new Map(events.map((event) => [event.seq, event]));
-  // The open room rides in the URL as the `:selection` segment, so it deep-links, survives a view
+  // The open room rides in the URL as the location's selection segment, so it deep-links, survives a view
   // switch, and moves with browser back and forward like the rest of the stream's state (each room
   // switch is a `push`). `?turn` stays a query — it is a highlight, not a room selection.
   const navigate = useNavigate();
-  const base = useStreamBase();
-  const search = useSearch({ strict: false });
-  const seq = useSeq();
-  const selectedKey = useSelection() ?? null;
+  const { selection: selectedKey, search, seq, link } = useStream();
   const [draftRoom, setDraftRoom] = useState("");
   // A room the operator named but has not sent to yet — held as its own locator rather than packed
   // into a key, so it survives until its first message creates it on the log.
@@ -176,7 +172,7 @@ export function ConversationView({
     // the prior room). The `seq` cursor rides along when pinned; the `turn` highlight does not — the
     // turn link has done its job, so it does not follow to highlight a moment in a room it never
     // pointed at.
-    navigate(conversationPath(base, { room: key, seq }));
+    navigate(link.conversation({ room: key, seq }));
   }
 
   function startRoom() {

@@ -48,7 +48,7 @@ const IDLE: LiveEval = {
   progress: new Map(),
 };
 
-/// What the eval frame hands its nested routes: the lean package summary, the runs currently driving
+/// What the eval frame hands its inner screens: the lean package summary, the runs currently driving
 /// (keyed `scenario:run`, with their events-so-far), the live status (when watching a running eval),
 /// and `getRun` — the seam a deep-dive fetches one run's full record through. A live context fetches
 /// over the harness's run endpoint; a file-loaded context resolves synchronously from the retained

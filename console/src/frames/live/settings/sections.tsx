@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 
 import type { LiveConnection } from "../../../lib/api/live.ts";
-import { useSelection, useStreamBase } from "../../../lib/nav/useStreamLocation.ts";
-import { settingsPath } from "../../../lib/nav/routes.ts";
+import { useNavigate } from "../../../lib/nav/historyContext.ts";
+import { useStream } from "../../../lib/nav/useStreamLocation.ts";
 import { type Settings, getSettings, putSettings } from "../../../lib/api/settings.ts";
 import { type ConfigTree, getConfig } from "../../../lib/api/config.ts";
 import { snapshotNow } from "../../../lib/api/operator.ts";
@@ -20,17 +19,16 @@ import { SECTIONS, type SectionId } from "./sectionConstants.ts";
 /// anything else.
 export function SettingsView({ connection }: { connection: LiveConnection }) {
   const navigate = useNavigate();
-  const base = useStreamBase();
-  // The open tab rides the `:selection` segment; a bare `/…/settings` defaults to the behavioral
+  const { selection, link } = useStream();
+  // The open tab rides the selection segment; a bare `/…/settings` defaults to the behavioral
   // settings tab.
-  const requested = useSelection();
-  const section: SectionId = SECTIONS.some((entry) => entry.id === requested)
-    ? (requested as SectionId)
+  const section: SectionId = SECTIONS.some((entry) => entry.id === selection)
+    ? (selection as SectionId)
     : "settings";
 
   // Switching tabs is navigation, so it pushes a history entry (back returns to the prior tab).
   function selectSection(id: string) {
-    navigate(settingsPath(base, id));
+    navigate(link.settings(id));
   }
 
   return (

@@ -1,16 +1,16 @@
-import { Link } from "@tanstack/react-router";
+import { Link } from "../lib/nav/history.tsx";
 
 import type { ScenarioSummary } from "@zuihitsu/wire/types/ScenarioSummary.ts";
 import { activeScenarios, liveRunOf } from "../lib/api/liveEval.ts";
 import { useEvalContext } from "../frames/eval/evalContext.ts";
 import { groupScenariosByCategory } from "../lib/model/scenarioGroups.ts";
 import { formatMs, formatRate, formatTokenSplit } from "../lib/format/format.ts";
-import { runPath } from "../lib/nav/routes.ts";
+import { evalRunLocation } from "../lib/nav/location.ts";
 import { Dot } from "../components/primitives.tsx";
 
 /// The eval-package overview: every scenario with its pass rate, how it is judged, and the cost it
 /// ran at. The first thing an operator wants — which scenarios held, and which did not — and the
-/// way into a single run for the deeper views. The package arrives as the eval frame's outlet context.
+/// way into a single run for the deeper views. The package arrives as the eval frame's context.
 export function ScenarioOverview() {
   const { pkg, liveRuns, live } = useEvalContext();
   const active = activeScenarios(liveRuns);
@@ -128,7 +128,7 @@ function ScenarioRow({
           {active && <ActivityDot />}
           {openRun !== null ? (
             <Link
-              {...runPath(meta.name, openRun)}
+              to={evalRunLocation(meta.name, openRun)}
               className="font-mono text-sm text-ink transition-colors hover:text-clay"
               title={firstRun ? "Inspect this run" : "Watch this run live"}
             >
@@ -143,7 +143,7 @@ function ScenarioRow({
               {scenario.runs.map((run) => (
                 <Link
                   key={run.index}
-                  {...runPath(meta.name, run.index)}
+                  to={evalRunLocation(meta.name, run.index)}
                   className="font-mono text-xs text-ink-faint transition-colors hover:text-clay"
                   title={`Inspect run ${run.index}`}
                 >
@@ -152,7 +152,7 @@ function ScenarioRow({
               ))}
               {liveRun !== null && (
                 <Link
-                  {...runPath(meta.name, liveRun)}
+                  to={evalRunLocation(meta.name, liveRun)}
                   title={`Run ${liveRun} · streaming live`}
                   className="font-mono text-xs text-sage transition-colors hover:text-clay"
                 >
@@ -169,7 +169,7 @@ function ScenarioRow({
         {completed === 0 ? (
           active && openRun !== null ? (
             <Link
-              {...runPath(meta.name, openRun)}
+              to={evalRunLocation(meta.name, openRun)}
               title="Watch this run live"
               className="flex items-center gap-2 font-mono text-2xs tracking-widest text-sage uppercase transition-colors hover:text-clay"
             >

@@ -1,12 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { EventCategory } from "../lib/model/events.ts";
 import { CATEGORY_COLOR } from "../lib/model/events.ts";
-import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
-import { conversationPath } from "../lib/nav/routes.ts";
+import { Link } from "../lib/nav/history.tsx";
+import { useOptionalStream } from "../lib/nav/useStreamLocation.ts";
 import { EventDetail } from "./EventDetail.tsx";
 
 /// The shared shape of an expandable event row — the fields both [`TurnOutcome`] and
@@ -44,7 +43,6 @@ export function EventRow({
   } | null;
 }) {
   const [open, setOpen] = useState(false);
-  const base = useStreamBase();
   return (
     <li className="font-mono text-xs">
       <button
@@ -63,14 +61,13 @@ export function EventRow({
           {row.summary}
         </span>
       </button>
-      {triggeredBy && <TriggeredBy {...triggeredBy} base={base} />}
+      {triggeredBy && <TriggeredBy {...triggeredBy} />}
       {open && (
         <div className="my-1 ml-4 border-l-2 border-line py-1 pl-3">
           <EventDetail
             payload={row.payload}
             nameById={nameById}
             conversationNameById={conversationNameById}
-            base={base}
             seq={row.seq}
             recordedAt={row.recordedAt}
             source={row.source}
@@ -90,31 +87,38 @@ function TriggeredBy({
   text,
   platform,
   scopePath,
-  base,
 }: {
   speaker: string | null;
   text: string;
   platform: string;
   scopePath: string;
-  base: string;
 }): ReactNode {
+  const stream = useOptionalStream();
   const room = `${platform} · ${scopePath}`;
   const snippet = text.replace(/\s+/g, " ").trim();
   const label = speaker ? `after ${speaker}'s turn` : "after the agent's turn";
-  const to = conversationPath(base, { room });
+  const body = (
+    <>
+      {label}
+      {" · "}
+      <span className="italic">
+        {snippet.length > 60 ? `“${snippet.slice(0, 60)}…”` : `“${snippet}”`}
+      </span>
+    </>
+  );
   return (
-    <div className="mt-0.5 ml-4">
-      <Link
-        {...to}
-        className="text-ink-faint transition-colors hover:text-clay"
-        title={`Open the conversation in ${room}`}
-      >
-        {label}
-        {" · "}
-        <span className="italic">
-          {snippet.length > 60 ? `“${snippet.slice(0, 60)}…”` : `“${snippet}”`}
-        </span>
-      </Link>
+    <div className="mt-0.5 ml-4 text-ink-faint">
+      {stream ? (
+        <Link
+          to={stream.link.conversation({ room })}
+          className="transition-colors hover:text-clay"
+          title={`Open the conversation in ${room}`}
+        >
+          {body}
+        </Link>
+      ) : (
+        body
+      )}
     </div>
   );
 }

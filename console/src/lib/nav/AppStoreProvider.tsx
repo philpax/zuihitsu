@@ -8,22 +8,29 @@ import { type HistoryEntry, parseHistory } from "../model/history.ts";
 import { summarizePackage } from "../model/packageSummary.ts";
 import { loadPackageFromFile } from "../replica/package.ts";
 import { type AppStore, AppStoreContext } from "./appStore.ts";
+import type { AppLocation } from "./location.ts";
+import { useNavigate } from "./historyContext.ts";
 
-/// Holds the console's state and exposes it through context, so the static route tree can render from
-/// it. `navigate` is the router's imperative navigation, threaded in from the app root — the provider
-/// wraps the `RouterProvider`, so it sits outside the router's own hook context and cannot call
-/// `useNavigate`. While a file is being read (a soak package is tens of megabytes, so the parse is not
-/// instant), a calm loading screen stands in for the router.
+// The live agent's conversation view — where opening a live connection lands.
+const LIVE_HOME: AppLocation = {
+  kind: "stream",
+  frame: { kind: "live" },
+  stream: { view: "conversation", search: {} },
+};
+
+/// Holds the console's state and exposes it through context, so the screens can render from it. It
+/// sits inside the `RouterProvider`, so it navigates through the shared [`useNavigate`]. While a file
+/// is being read (a soak package is tens of megabytes, so the parse is not instant), a calm loading
+/// veil is overlaid without unmounting the app beneath it.
 export function AppStoreProvider({
   autoWatchEval = false,
-  navigate,
   children,
 }: {
   /// Point at the same-origin live eval on mount — the eval binary serves the console this way.
   autoWatchEval?: boolean;
-  navigate: (to: string) => void;
   children: ReactNode;
 }) {
+  const navigate = useNavigate();
   const [pkg, setPkg] = useState<EvalPackage | null>(null);
   const [pkgName, setPkgName] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
@@ -41,7 +48,7 @@ export function AppStoreProvider({
   useEffect(() => {
     if (openedInitialView.current || !autoWatchEval) return;
     openedInitialView.current = true;
-    navigate("/eval");
+    navigate({ kind: "evalOverview" });
   }, [autoWatchEval, navigate]);
 
   async function openPackage(file: File) {
@@ -51,7 +58,7 @@ export function AppStoreProvider({
       setPkgName(file.name);
       setError(null);
       setReading(null);
-      navigate("/eval");
+      navigate({ kind: "evalOverview" });
     } catch (cause) {
       setError(describe(file, cause));
       setReading(null);
@@ -64,7 +71,7 @@ export function AppStoreProvider({
       setHistory(parseHistory(await file.text()));
       setError(null);
       setReading(null);
-      navigate("/trends");
+      navigate({ kind: "trends" });
     } catch (cause) {
       setError(describe(file, cause));
       setReading(null);
@@ -76,14 +83,14 @@ export function AppStoreProvider({
     // trimmed so `${baseUrl}/control/...` is well-formed. A loopback peer needs no key.
     setLive({ baseUrl: baseUrl.trim().replace(/\/$/, ""), key: null });
     setError(null);
-    navigate("/live");
+    navigate(LIVE_HOME);
   }
 
   function watchEval(baseUrl: string) {
     // Trim a trailing slash so `${baseUrl}/eval/stream` is well-formed whichever way it was typed.
     setLiveEvalConn({ baseUrl: baseUrl.trim().replace(/\/$/, "") });
     setError(null);
-    navigate("/eval");
+    navigate({ kind: "evalOverview" });
   }
 
   const fileSummary = pkg ? summarizePackage(pkg) : null;
@@ -122,9 +129,8 @@ export function AppStoreProvider({
   };
 
   // Reading a large package (a soak file is tens of megabytes) takes a beat. Overlay the progress
-  // rather than replacing `children` with it: the router is a long-lived singleton, so tearing it down
-  // and remounting it — losing its state and interrupting the `navigate` fired when the read lands —
-  // just to show a spinner would be a needless churn. Keep it mounted underneath the veil.
+  // rather than replacing `children` with it, so the app and its current location stay mounted
+  // underneath the veil and the `navigate` fired when the read lands takes effect in place.
   return (
     <AppStoreContext.Provider value={store}>
       {children}

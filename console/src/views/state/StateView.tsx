@@ -1,15 +1,13 @@
-import { useNavigate } from "@tanstack/react-router";
-
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
-import { useSelection, useSeq, useStreamBase } from "../../lib/nav/useStreamLocation.ts";
-import { eventsPath, statePath } from "../../lib/nav/routes.ts";
+import { useNavigate } from "../../lib/nav/historyContext.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { MemoryBrowser } from "./MemoryBrowser.tsx";
 
 /// The State view: the materialized graph as it stands at the timeline cursor, browsed memory by
 /// memory. The Shell folds the replica to `cursor`; keying the browser by it re-queries at that
-/// fold, while the open memory rides in the URL as the `:selection` segment so it survives the
+/// fold, while the open memory rides in the URL as the location's selection segment so it survives the
 /// remount, deep-links from an event's memory ref, and moves with browser back and forward (each
 /// selection is a `push`). The "events touching this memory" jump navigates to the Events view with
 /// the memory pinned in `?focus`, so that jump is shareable and reversible like the rest. `events`
@@ -31,20 +29,16 @@ export function StateView({
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const navigate = useNavigate();
-  const base = useStreamBase();
-  // The open memory rides the `:selection` segment. Absent on a bare `/…/state`, where the browser
-  // defaults to `self` or the first memory.
-  const selected = useSelection() ?? null;
-  const seq = useSeq();
+  const { selection: selected, seq, link } = useStream();
 
   // Selecting a memory is navigation, so it pushes a history entry (back returns to the prior memory).
   function onSelect(name: string) {
-    navigate(statePath(base, name, seq));
+    navigate(link.state(name, { seq }));
   }
 
   // Jump to the Events view, filtered to the events touching this memory (carried in `focus`).
   function showEvents(id: string) {
-    navigate(eventsPath(base, { focus: id, seq }));
+    navigate(link.events({ focus: id, seq }));
   }
 
   return (

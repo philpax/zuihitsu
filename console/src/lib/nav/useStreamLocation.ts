@@ -1,74 +1,119 @@
-import { useLocation, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import {
+  type AppLocation,
+  type StreamFrame,
+  type StreamSearch,
+  type StreamView,
+  streamLocation,
+  streamPartsOf,
+} from "./location.ts";
+import type { ViewId } from "./streamViews.ts";
+import { type Navigate, useLocation, useNavigate } from "./historyContext.ts";
 
-import { type ViewId, asViewId } from "./streamViews.ts";
-import { viewPath } from "./routes.ts";
-
-/// The active view and timeline cursor for a stream, read from and written to the URL: the `:view`
-/// path segment and the `seq` search, both relative to `base` — a run's path under the eval frame, or
-/// `/live` under the agent frame. Pulling this into one hook is what makes routing behave identically
-/// in either frame: the same view tabs and the same scrubber move through the browser's history the
-/// same way. `seq` is `null` at the head (following the latest state) or a pinned earlier seq. A
-/// view's own navigational selection (the open memory, room, or settings tab) rides the trailing
-/// `:selection` segment, read with [`useSelection`]; switching views drops it, since it is
-/// view-specific.
-export interface StreamLocation {
-  view: ViewId | undefined;
+/// The stream views' window onto routing. Because the frame is a field of the [`AppLocation`] — not a
+/// path prefix — a view rendered under the eval run, the live agent, or the embedded build reads its
+/// frame straight out of the current location and carries it forward when it navigates. So one
+/// implementation serves all three frames, fully typed, with no per-frame link builders and no `base`
+/// string threaded down: the frame travels *in the value*.
+export interface Stream {
+  frame: StreamFrame;
+  view: ViewId;
+  /// The open memory (State), room (Conversation), or settings tab (Settings), or `null` at the view's
+  /// default.
+  selection: string | null;
+  /// The pinned cursor, or `null` when following the head.
   seq: number | null;
+  search: StreamSearch;
+  /// Typed destinations within this frame, for a `<Link to={…}>`.
+  link: StreamLink;
+  /// Switch views (a tab move): keep only the cursor, dropping the selection and the leaving view's
+  /// own search. Pushes, so back and forward step between views.
   selectView: (view: ViewId) => void;
+  /// Move the cursor: replace, so scrubbing does not bury the back button; the view and selection stay.
   setSeq: (seq: number | null) => void;
+  /// Transform this view's own search keys (a filter toggle, clearing the focus pin): replace.
+  patchSearch: (update: (search: StreamSearch) => StreamSearch) => void;
 }
 
-/// The current stream's base path — the path with its trailing `:view` (and any `:selection`)
-/// segment dropped, so a run's `/eval/:scenario/:run/:view/:selection?` yields `/eval/:scenario/:run`
-/// and the agent's `/live/:view/:selection?` yields `/live`. Lets a view deep inside a stream (an
-/// event's memory ref, a turn's room link) build a link to a sibling view without being told which
-/// frame it lives in. Reads the route's own params rather than counting path segments, so an encoded
-/// selection (a memory name, a room key) is dropped as a single segment.
-export function useStreamBase(): string {
-  const { pathname } = useLocation();
-  const { selection } = useParams({ strict: false });
-  // Drop the `:selection` segment first (present only on State, Conversation, and Settings), then the
-  // `:view` segment, leaving the frame's base.
-  const withoutSelection = selection !== undefined ? pathname.replace(/\/[^/]*$/, "") : pathname;
-  return withoutSelection.replace(/\/[^/]*$/, "");
+/// Typed navigation targets within a fixed frame. Each returns a full [`AppLocation`] carrying that
+/// frame, so a shared view builds links without naming — or even knowing — which frame it sits in.
+export interface StreamLink {
+  view: (view: ViewId, opts?: { seq?: number | null }) => AppLocation;
+  state: (memory: string, opts?: { seq?: number | null }) => AppLocation;
+  conversation: (opts?: { room?: string; turn?: string; seq?: number | null }) => AppLocation;
+  events: (opts?: { focus?: string; seq?: number | null }) => AppLocation;
+  settings: (section?: string) => AppLocation;
 }
 
-/// The active view, narrowed to a [`ViewId`] (or `undefined` on a bare or unknown segment).
-export function useStreamView(): ViewId | undefined {
-  return asViewId(useParams({ strict: false }).view);
-}
-
-/// The pinned timeline cursor, or `null` when a live view follows its head — the value the deep-link
-/// builders carry along so a jump folds to the same point in the timeline.
-export function useSeq(): number | null {
-  return useSearch({ strict: false }).seq ?? null;
-}
-
-/// The active view's `:selection` segment — the open memory, room, or settings tab, decoded — or
-/// `undefined` when the view carries none or sits at its default. Free-form (a memory name, a room
-/// key), so `string`; a view with a closed set narrows it itself.
-export function useSelection(): string | undefined {
-  return useParams({ strict: false }).selection;
-}
-
-export function useStreamLocation(base: string): StreamLocation {
-  const navigate = useNavigate();
-  const view = useParams({ strict: false }).view;
-  const seq = useSearch({ strict: false }).seq ?? null;
-
+export function streamLink(frame: StreamFrame): StreamLink {
+  const at = (stream: StreamView): AppLocation => streamLocation(frame, stream);
   return {
-    view: asViewId(view),
+    view: (view, opts) => at({ view, search: seqSearch(opts?.seq) }),
+    state: (memory, opts) => at({ view: "state", selection: memory, search: seqSearch(opts?.seq) }),
+    conversation: ({ room, turn, seq } = {}) =>
+      at({
+        view: "conversation",
+        ...(room !== undefined ? { selection: room } : {}),
+        search: { ...(turn ? { turn } : {}), ...seqSearch(seq) },
+      }),
+    events: ({ focus, seq } = {}) =>
+      at({ view: "events", search: { ...(focus ? { focus } : {}), ...seqSearch(seq) } }),
+    settings: (section) =>
+      at(
+        section !== undefined
+          ? { view: "settings", selection: section, search: {} }
+          : { view: "settings", search: {} },
+      ),
+  };
+}
+
+/// The stream window for a component that is always rendered inside a stream frame; throws otherwise.
+export function useStream(): Stream {
+  const stream = useOptionalStream();
+  if (!stream) throw new Error("useStream must be used within a stream frame");
+  return stream;
+}
+
+/// The stream window, or `null` when the current location is not a stream frame — for a component that
+/// may also render frameless (an event detail rendered outside a stream), where it degrades to plain,
+/// unlinked text rather than crashing.
+export function useOptionalStream(): Stream | null {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return buildStream(location, navigate);
+}
+
+function buildStream(location: AppLocation, navigate: Navigate): Stream | null {
+  const parts = streamPartsOf(location);
+  if (!parts) return null;
+  const { frame, stream } = parts;
+  const link = streamLink(frame);
+  const seq = stream.search.seq ?? null;
+  return {
+    frame,
+    view: stream.view,
+    selection: stream.selection ?? null,
     seq,
-    // A tab move keeps only the cross-cutting `seq` cursor, dropping the `:selection` segment and the
-    // leaving view's own search (`focus`, `turn`).
-    selectView: (next) => navigate(viewPath(base, next, seq)),
-    // Replace, not push, so dragging the scrubber does not bury the back button under a history entry
-    // per step; the view path is left intact by staying on the current route (`to: "."`).
+    search: stream.search,
+    link,
+    selectView: (view) => navigate(link.view(view, { seq })),
     setSeq: (next) =>
-      navigate({
-        to: ".",
-        search: (prev) => ({ ...prev, seq: next ?? undefined }),
+      navigate(streamLocation(frame, { ...stream, search: withSeq(stream.search, next) }), {
+        replace: true,
+      }),
+    patchSearch: (update) =>
+      navigate(streamLocation(frame, { ...stream, search: update(stream.search) }), {
         replace: true,
       }),
   };
+}
+
+function seqSearch(seq: number | null | undefined): StreamSearch {
+  return seq != null ? { seq } : {};
+}
+
+function withSeq(search: StreamSearch, seq: number | null): StreamSearch {
+  const next = { ...search };
+  if (seq === null) delete next.seq;
+  else next.seq = seq;
+  return next;
 }

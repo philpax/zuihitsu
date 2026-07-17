@@ -1,11 +1,9 @@
-import { Link } from "@tanstack/react-router";
-
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { AgendaItem } from "../lib/model/graph.ts";
 import type { Replica } from "../lib/replica/replica.ts";
 import { formatDate } from "../lib/format/format.ts";
-import { statePath } from "../lib/nav/routes.ts";
-import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
+import { Link } from "../lib/nav/history.tsx";
+import { useOptionalStream } from "../lib/nav/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
 /// How far ahead recurring rules are projected (they are unbounded, so they need a horizon). One-off
@@ -26,7 +24,6 @@ export function AgendaView({
   events: Event[];
   cursor: number;
 }) {
-  const base = useStreamBase();
   const now = events.reduce(
     (max, event) => (event.seq <= cursor && event.recorded_at > max ? event.recorded_at : max),
     0,
@@ -63,7 +60,7 @@ export function AgendaView({
             </div>
             <ul className="flex flex-col gap-3 border-l border-line pl-5">
               {dayItems.map((item, index) => (
-                <AgendaRow key={index} item={item} base={base} cursor={cursor} />
+                <AgendaRow key={index} item={item} cursor={cursor} />
               ))}
             </ul>
           </li>
@@ -73,7 +70,8 @@ export function AgendaView({
   );
 }
 
-function AgendaRow({ item, base, cursor }: { item: AgendaItem; base: string; cursor: number }) {
+function AgendaRow({ item, cursor }: { item: AgendaItem; cursor: number }) {
+  const stream = useOptionalStream();
   // A day-granular occurrence (and its noon sort) carries no stated time; only a precise instant does.
   const at = item.all_day ? null : clockTime(item.when);
   return (
@@ -82,13 +80,17 @@ function AgendaRow({ item, base, cursor }: { item: AgendaItem; base: string; cur
       <div className="min-w-0 flex-1">
         <p className="text-sm/relaxed text-ink">{item.text}</p>
         <p className="mt-0.5 flex items-baseline gap-2 font-mono text-2xs text-ink-faint">
-          <Link
-            {...statePath(base, item.memory, cursor)}
-            title={`Open ${item.memory} in State`}
-            className="truncate text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-          >
-            {item.memory}
-          </Link>
+          {stream ? (
+            <Link
+              to={stream.link.state(item.memory, { seq: cursor })}
+              title={`Open ${item.memory} in State`}
+              className="truncate text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+            >
+              {item.memory}
+            </Link>
+          ) : (
+            <span className="truncate">{item.memory}</span>
+          )}
           {item.recurring && (
             <span className="shrink-0 text-sage" title="recurring">
               ↻

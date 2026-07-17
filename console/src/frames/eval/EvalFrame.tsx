@@ -1,4 +1,4 @@
-import { Outlet, useParams } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 import type { PackageSummary } from "@zuihitsu/wire/types/PackageSummary.ts";
 import type { RunRecord } from "@zuihitsu/wire/types/RunRecord.ts";
@@ -14,16 +14,16 @@ import {
 } from "../../lib/api/liveEval.ts";
 import { formatSpan, formatTime } from "../../lib/format/format.ts";
 import { useDocumentTitle } from "../../lib/nav/useDocumentTitle.ts";
+import { useLocation } from "../../lib/nav/historyContext.ts";
 import { EvalRouteContext } from "./evalContext.ts";
 import { Dot } from "../../components/primitives.tsx";
 import { FrameNav } from "../../components/FrameNav.tsx";
 
 /// The eval frame: a package of many runs, whether loaded from a file or folded live from a running
-/// harness. The header is shared by every nested route — the Scenarios overview at the index, and a
-/// single run's deep views below it — carrying the source (a file name, or a live badge and progress),
-/// model, commit, and date, with a breadcrumb back to the overview that shows while a run is open.
-/// The package itself flows to the nested routes as the outlet context, so a run route can resolve
-/// its scenario and run from the URL against it.
+/// harness. The header is shared by both inner screens — the Scenarios overview and a single run's
+/// deep views, rendered as `children` — carrying the source (a file name, or a live badge and
+/// progress), model, commit, and date. The package itself flows to the inner screen as the eval
+/// context, so a run screen can resolve its scenario and run from the location against it.
 export function EvalFrame({
   pkg,
   fileName,
@@ -32,6 +32,7 @@ export function EvalFrame({
   progress,
   getRun,
   onClose,
+  children,
 }: {
   pkg: PackageSummary;
   fileName?: string | null;
@@ -42,7 +43,10 @@ export function EvalFrame({
   /// or synchronously from the retained full package for a file-loaded one.
   getRun: (scenario: number, run: number) => Promise<RunRecord>;
   onClose: () => void;
+  /// The inner screen — the scenario overview or a single run's deep views — carried the eval context.
+  children: ReactNode;
 }) {
+  const location = useLocation();
   const context: EvalContext = {
     pkg,
     liveRuns: liveRuns ?? NO_LIVE_RUNS,
@@ -50,10 +54,12 @@ export function EvalFrame({
     progress: progress ?? NO_PROGRESS,
     getRun,
   };
-  // The active run route names the view for the document title (absent on the overview); the scenario
-  // and run themselves are legible in the frame's own rail, summary, and run picker, so the header
-  // carries no breadcrumb.
-  const view = useParams({ strict: false }).view;
+  // The open run names the view for the document title (absent on the overview); the scenario and run
+  // themselves are legible in the frame's own rail, summary, and run picker, so no breadcrumb.
+  const view =
+    location.kind === "stream" && location.frame.kind === "evalRun"
+      ? location.stream.view
+      : undefined;
   useDocumentTitle("eval", view);
 
   return (
@@ -118,9 +124,7 @@ export function EvalFrame({
         </div>
       </header>
 
-      <EvalRouteContext.Provider value={context}>
-        <Outlet />
-      </EvalRouteContext.Provider>
+      <EvalRouteContext.Provider value={context}>{children}</EvalRouteContext.Provider>
     </div>
   );
 }

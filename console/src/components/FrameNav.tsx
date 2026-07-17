@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
-
+import { Link } from "../lib/nav/history.tsx";
+import type { AppLocation } from "../lib/nav/location.ts";
 import { useAppStore } from "../lib/nav/appStore.ts";
 
 /// The cross-section nav in a frame's header. The section you are in is marked; a loaded sibling is
@@ -15,7 +15,7 @@ export function FrameNav({ current }: { current: "eval" | "trends" }) {
         label="scenarios"
         active={current === "eval"}
         loaded={nav.hasPackage}
-        to="/eval"
+        to={{ kind: "evalOverview" }}
         accept="application/json,.json"
         onLoad={nav.openPackage}
       />
@@ -24,7 +24,7 @@ export function FrameNav({ current }: { current: "eval" | "trends" }) {
           label="trends"
           active
           loaded={nav.hasHistory}
-          to="/trends"
+          to={{ kind: "trends" }}
           accept=".jsonl,application/json"
           onLoad={nav.openHistory}
         />
@@ -44,7 +44,7 @@ function Section({
   label: string;
   active: boolean;
   loaded: boolean;
-  to: string;
+  to: AppLocation;
   accept: string;
   onLoad: (file: File) => void;
 }) {

@@ -19,14 +19,12 @@ import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 /// picture, and a resolution folds back through the same materializer that produced the list.
 export function MergeProposals({
   proposals,
-  base,
   cursor,
   onResolve,
   onUnmerge,
   onDesignatePrimary,
 }: {
   proposals: MergeProposalView[];
-  base: string;
   cursor: number;
   onResolve?: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
   onUnmerge?: (from: MemoryId, to: MemoryId) => Promise<void>;
@@ -95,10 +93,10 @@ export function MergeProposals({
           return (
             <li key={key} className="flex flex-col gap-1.5 py-3">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <MemoryNameLink name={proposal.from} base={base} seq={cursor} />
+                <MemoryNameLink name={proposal.from} seq={cursor} />
                 {proposal.from_primary && <PrimaryBadge pinned={proposal.from_designated} />}
                 <span className="font-mono text-2xs text-ink-faint">same&nbsp;as</span>
-                <MemoryNameLink name={proposal.to} base={base} seq={cursor} />
+                <MemoryNameLink name={proposal.to} seq={cursor} />
                 {proposal.to_primary && <PrimaryBadge pinned={proposal.to_designated} />}
                 <StatusBadge status={proposal.status} />
                 <span className="font-mono text-2xs text-ink-faint">proposed by the agent</span>

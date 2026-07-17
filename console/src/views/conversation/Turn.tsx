@@ -1,5 +1,4 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { Link, useSearch } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
@@ -7,8 +6,8 @@ import type { TurnModel } from "../../lib/model/conversation.ts";
 import { formatDateTime, formatTime } from "../../lib/format/format.ts";
 import { Disclosure, LabeledDivider } from "../../components/primitives.tsx";
 import { EventDetail } from "../../components/EventDetail.tsx";
-import { useSeq, useStreamBase, useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
-import { conversationPath } from "../../lib/nav/routes.ts";
+import { Link } from "../../lib/nav/history.tsx";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
@@ -40,7 +39,7 @@ export function TurnItem({
     .find((step) => step.kind === "model" && step.phase === "Step")?.seq;
   // The deep-linked turn (`?turn=<id>`) announces itself: scrolled into view once and washed in
   // fading sage, so a pasted link lands the reader on the moment it points at.
-  const linked = useSearch({ strict: false }).turn === turn.turnId;
+  const linked = useStream().search.turn === turn.turnId;
   const itemRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (linked) itemRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -186,8 +185,7 @@ function TurnDebug({
 function TurnEvent({ event, seq }: { event: Event; seq: number }) {
   const names = useContext(Names);
   const convNames = useContext(ConversationNames);
-  const base = useStreamBase();
-  const { setSeq } = useStreamLocation(base);
+  const { setSeq } = useStream();
   const [open, setOpen] = useState(true);
   return (
     <div>
@@ -205,7 +203,6 @@ function TurnEvent({ event, seq }: { event: Event; seq: number }) {
             payload={event.payload}
             nameById={names}
             conversationNameById={convNames}
-            base={base}
             seq={seq}
             recordedAt={event.recorded_at}
             source={event.source}
@@ -230,11 +227,10 @@ export function TurnTimeAnchor({
   turnId: string;
   recordedAt: number;
 }) {
-  const base = useStreamBase();
-  const seq = useSeq();
+  const { seq, link } = useStream();
   return (
     <Link
-      {...conversationPath(base, { room: roomKey, turn: turnId, seq })}
+      to={link.conversation({ room: roomKey, turn: turnId, seq })}
       title={`${formatDateTime(recordedAt)} — a link to this moment; copy the address to cite it`}
       className="font-mono text-2xs text-ink-faint transition-colors hover:text-ink"
     >

@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
@@ -18,7 +17,7 @@ import {
 import { buildStepMarkers, type StepMarker } from "../lib/model/stepJournal.ts";
 import { nameById } from "../lib/model/labels.ts";
 import { formatDateTime, formatTime } from "../lib/format/format.ts";
-import { useStreamBase } from "../lib/nav/useStreamLocation.ts";
+import { useStream } from "../lib/nav/useStreamLocation.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "../components/EventDetail.tsx";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
@@ -51,11 +50,10 @@ export function EventsView({
 }) {
   const names = nameById(replica.memories(""));
   const convNames = conversationNameById(replica.conversations());
-  const base = useStreamBase();
-  const navigate = useNavigate();
+  const { search: streamSearch, patchSearch } = useStream();
   // The memory the view is pinned to (the State view's "events touching this" jump), carried in the
   // URL so the focus is shareable and survives back/forward. `null` shows the whole log.
-  const focusId = useSearch({ strict: false }).focus ?? null;
+  const focusId = streamSearch.focus ?? null;
   const focusName = focusId ? (names.get(focusId) ?? focusId) : null;
   const [active, setActive] = useState<Set<EventCategory>>(() => new Set(CATEGORIES));
   const [activeSources, setActiveSources] = useState<Set<EventSource>>(
@@ -66,7 +64,7 @@ export function EventsView({
   const [expanded, setExpanded] = useState<number | null>(null);
 
   function clearFocus() {
-    navigate({ to: ".", replace: true, search: (prev) => ({ ...prev, focus: undefined }) });
+    patchSearch((prev) => ({ ...prev, focus: undefined }));
   }
 
   const needle = search.trim().toLowerCase();
@@ -269,7 +267,6 @@ export function EventsView({
                       payload={event.payload}
                       nameById={names}
                       conversationNameById={convNames}
-                      base={base}
                       seq={event.seq}
                       recordedAt={event.recorded_at}
                       source={event.source}

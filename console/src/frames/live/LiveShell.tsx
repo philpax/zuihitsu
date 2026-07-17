@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LiveConnection, LiveStatus } from "../../lib/api/live.ts";
 import { useLiveLog } from "../../lib/api/live.ts";
 import { useDocumentTitle } from "../../lib/nav/useDocumentTitle.ts";
-import { useStreamLocation } from "../../lib/nav/useStreamLocation.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../../lib/api/operator.ts";
 import { isDegraded, useBackendHealth } from "../../lib/api/health.ts";
 import { Dot, Eyebrow } from "../../components/primitives.tsx";
@@ -21,13 +21,9 @@ import { PromptsView } from "./PromptsView.tsx";
 /// an agentless instance is gated behind genesis until it is born.
 export function LiveShell({
   connection,
-  base = "/live",
   onClose,
 }: {
   connection: LiveConnection;
-  /// The route the views live under — `/live` in the full console, or the root (`""`) in the embedded
-  /// build, where the agent view is the whole app.
-  base?: string;
   /// Disconnect and return to the landing. Absent in the embedded build, where there is nowhere to
   /// return to, so the close affordance is hidden.
   onClose?: () => void;
@@ -37,7 +33,7 @@ export function LiveShell({
   const following = useRef(true);
   const log = useLiveLog(connection, following);
   // The active view and timeline cursor live in the URL, exactly as in the eval frame.
-  const { view, seq, selectView, setSeq } = useStreamLocation(base);
+  const { view, seq, selectView, setSeq } = useStream();
   useDocumentTitle("agent", view);
   // The handle you converse under as a participant, lifted here so it survives view switches.
   const [sender, setSender] = useState("");
@@ -107,7 +103,7 @@ export function LiveShell({
           replica={log.replica}
           events={log.events}
           head={log.head}
-          view={view ?? "conversation"}
+          view={view}
           onSelectView={selectView}
           seq={seq}
           onSeq={setSeq}

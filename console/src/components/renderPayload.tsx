@@ -9,21 +9,21 @@ import { producedByLabel, temporalRefLabel } from "./eventDetailUtilities.ts";
 import { renderInteractionPayload } from "./renderInteraction.tsx";
 
 /// The shared context the per-payload render functions receive — the event's payload, the name map,
-/// and the `ref`/`refs` closures bound to the stream's base and seq (or `null` outside a routed
-/// stream, where references render as plain names). `conversationNameById` maps conversation ids
-/// to their room display name, so `ConversationRef` links can label the room.
+/// and the `ref`/`refs` closures bound to this event's seq. The leaf refs read the enclosing stream
+/// frame themselves (rendering plain names when there is none), so references degrade gracefully
+/// outside a routed stream. `conversationNameById` maps conversation ids to their room display name,
+/// so `ConversationRef` links can label the room.
 export interface RenderContext {
   payload: EventPayload;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
-  base?: string;
   seq?: number;
 }
 
 /// Render the first half of payload cases: genesis, memory lifecycle, and entry-level events.
 export function renderMemoryPayload(ctx: RenderContext): ReactNode {
-  const { payload, nameById, conversationNameById, base, seq } = ctx;
-  const ref = (id: string) => <Ref id={id} nameById={nameById} base={base} seq={seq} />;
+  const { payload, nameById, conversationNameById, seq } = ctx;
+  const ref = (id: string) => <Ref id={id} nameById={nameById} seq={seq} />;
   switch (payload.type) {
     case "GenesisCompleted":
       return (
@@ -84,7 +84,6 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
                 value={payload.told_in}
                 nameById={nameById}
                 conversationNameById={conversationNameById}
-                base={base}
                 seq={seq}
               />
             </Field>

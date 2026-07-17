@@ -7,22 +7,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { emptyTurn, type ConversationModel } from "../../lib/model/conversation.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
+import { RouterProvider } from "../../lib/nav/history.tsx";
 import { Transcript } from "./Transcript.tsx";
 
-// The transcript is exercised for its own behaviour, not routing: stub the router hooks so it renders
-// as an ordinary React child (state preserved across re-renders) with no route to satisfy. `Link`
-// becomes a plain anchor keeping only the props the assertions read.
-vi.mock("@tanstack/react-router", async () => {
-  const { createElement } = await import("react");
-  return {
-    useSearch: () => ({}),
-    useParams: () => ({}),
-    useNavigate: () => () => {},
-    useLocation: () => ({ pathname: "/" }),
-    Link: ({ children, className, title }: Record<string, unknown>) =>
-      createElement("a", { className, title }, children as never),
-  };
-});
+// The transcript is exercised for its own behaviour, not routing — but the real (synchronous) router
+// runtime is light, so mount it at a live stream URL rather than stubbing: the turn anchors read their
+// frame from the location and render as ordinary children (state preserved across re-renders).
 
 // The wasm bridge needs a browser fetch to initialise; under jsdom the ref scanner is stubbed to
 // "no references", which every fixture text here satisfies.
@@ -34,6 +24,7 @@ vi.mock("../../lib/replica/replica.ts", async (importOriginal) => ({
 // jsdom lacks the browser APIs motion/react feature-detects; stub them before anything renders.
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState(null, "", "/live/conversation");
   window.matchMedia ??= ((query: string) => ({
     matches: false,
     media: query,
@@ -116,14 +107,14 @@ async function render(
   await act(async () => {
     root.render(
       <StrictMode>
-        <>
+        <RouterProvider mode="console">
           <Transcript
             replica={{} as Replica}
             conversation={conversation(turns, sessions)}
             cursor={0}
             inflight={inflight}
           />
-        </>
+        </RouterProvider>
       </StrictMode>,
     );
   });
