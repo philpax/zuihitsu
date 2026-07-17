@@ -3,21 +3,19 @@
 //! operator surface — the structural absence of those methods is what makes "the operator has no
 //! platform identity" enforceable (spec §Clients and the server boundary).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agent::{
-        InboundMessage, TurnError, TurnOutcome, TurnView, bounded_buffer_turns, carryover_start,
-        session_touched,
-    },
+    agent::{InboundMessage, TurnError, TurnOutcome, TurnView},
     event::{
-        EventPayload, EventSource, LinkPosture, LinkSource, PromptTemplateName, Teller, Visibility,
+        EventPayload, EventSource, LinkPosture, LinkSource, PromptTemplateName, SessionEndCause,
+        Teller, Visibility,
     },
     graph::GraphError,
-    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, Seq, TurnId},
-    instance::{Carryover, ContextEntry, Instance, InstanceError, RoutedTurn},
+    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, PersonId, TurnId},
+    instance::{ContextEntry, Instance, InstanceError, RoutedTurn},
     memory::{
         identity::{
             resolve_context, resolve_or_mint_context, resolve_or_mint_conversation,
@@ -768,47 +766,33 @@ impl Platform<'_> {
         Ok(true)
     }
 
-    /// End the live session because the buffer crossed the token budget, running the budget-gated
-    /// pre-compaction flush and staging a raw-transcript carryover for the next message to re-segment
-    /// from (spec §Compaction). The working-set carryover lands in a later stage.
+    /// End the live session because the buffer crossed the token budget (spec §Compaction). Runs the
+    /// budget-gated pre-compaction flush and records `SessionEnded` with a [`SessionEndCause::Compaction`]
+    /// cause (inside [`Instance::flush_and_end`]). Nothing is staged for the reopen: the next message's
+    /// `ensure_session` reconstructs the tail from the log, and because it reopens promptly (within the
+    /// idle gap) it reads as a warm continuation and carries this session's touched set — no runtime hand-
+    /// off needed (issue #86).
     async fn end_session_for_compaction(
         &self,
         conversation: ConversationId,
         model: &dyn ModelClient,
     ) -> Result<(), InstanceError> {
         // Take the session out under the map guard; the `Arc` then carries it across the flush and
-        // `shutdown_mcp().await` below without holding the guard.
+        // `shutdown_mcp().await` inside `flush_and_end` without holding the guard.
         let Some(open) = self.server.sessions.remove(conversation) else {
             return Ok(());
         };
-        let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
-        // Flush the ending session's working state to memory and record `SessionEnded` (shared with the
-        // idle and recovery closes); the buffer the flush reads includes the turn that crossed the
-        // budget. The carried tail and working set are staged below, after the flush turn lands.
+        // Flush the ending session's working state to memory and record `SessionEnded`; the buffer the
+        // flush reads includes the turn that crossed the budget.
         let flushed = self
             .server
-            .flush_and_end(conversation, open.as_ref(), model)
+            .flush_and_end(
+                conversation,
+                open.as_ref(),
+                model,
+                SessionEndCause::Compaction,
+            )
             .await?;
-
-        // Stage the next carryover from this session's *own* turns (those at or after its
-        // `SessionStarted`), not the whole buffer — so `from_seq` advances into the current session
-        // with each seam rather than sticking at the original carryover point (the buffer would
-        // otherwise re-span every session since it, unbounded, when the turns are small relative to the
-        // char budget). The prior carried tail has already served its continuity; the token-budget
-        // compaction bounds this session's own turns, and `carryover_tail` trims them to the char
-        // budget. The read starts at this session's own start (an empty carried tail).
-        let own = bounded_buffer_turns(
-            self.server.engine.store.lock().as_ref(),
-            conversation,
-            open.session_start_seq,
-            open.session_start_seq,
-            settings.compaction.carryover_char_budget,
-        )?;
-        let working_set = self.compaction_working_set(conversation, open.start_seq)?;
-        if let Some(mut carry) = carryover_tail(&own, settings.compaction.carryover_char_budget) {
-            carry.working_set = working_set;
-            self.server.sessions.insert_carryover(conversation, carry);
-        }
         tracing::info!(
             ?conversation,
             session = ?open.id,
@@ -817,32 +801,6 @@ impl Platform<'_> {
         );
         crate::metrics::observe_compaction();
         Ok(())
-    }
-
-    /// The working set carried across a compaction seam (spec §Compaction → working-set carryover):
-    /// the session's touch-derived set — every memory ID it read or wrote, taken from the per-block
-    /// `touched` sets on its `LuaExecuted` events. (The other source, the brief's recent facts, the
-    /// brief adds itself.) Read after the flush, so its own reads and writes count too. Purely
-    /// platform-derived: no agent-managed link flags on the semantic graph, which would strand stale
-    /// "keep live" markers when a thread closes without an explicit clear.
-    fn compaction_working_set(
-        &self,
-        conversation: ConversationId,
-        from_seq: Seq,
-    ) -> Result<Vec<MemoryId>, InstanceError> {
-        let mut working_set = Vec::new();
-        let mut seen = BTreeSet::new();
-        let touched = session_touched(
-            self.server.engine.store.lock().as_ref(),
-            conversation,
-            from_seq,
-        )?;
-        for id in touched {
-            if seen.insert(id) {
-                working_set.push(id);
-            }
-        }
-        Ok(working_set)
     }
 }
 
@@ -874,20 +832,6 @@ fn retract_if_live(
     }
 }
 
-/// The raw-transcript carryover tail: the most recent turns that fit `char_budget`, filled backward
-/// from the cut (spec §Compaction → raw-transcript carryover). The newest turn is always carried so
-/// the immediate conversational thread survives the seam, then older turns are added while they fit.
-/// Returns the oldest carried turn as the carryover extent, or `None` for an empty buffer.
-fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<Carryover> {
-    let start = carryover_start(buffer, char_budget);
-    buffer.get(start).map(|turn| Carryover {
-        seeded_from_turn: turn.turn_id,
-        from_seq: turn.seq,
-        // Filled in by the caller, which has the session's touched set.
-        working_set: Vec::new(),
-    })
-}
-
 /// A deterministic `chars / 4` estimate of the prompt's token count over the buffer plus the inbound
 /// message — the compaction-trigger fallback when the backend reports no usage. Coarse and an
 /// under-count (it omits the frozen prefix); only the real client's `prompt_tokens` is authoritative.
@@ -906,7 +850,12 @@ fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TEST_PLATFORM, event::TurnRole, ids::TurnId, time::Timestamp};
+    use crate::{
+        TEST_PLATFORM,
+        event::TurnRole,
+        ids::{Seq, TurnId},
+        time::Timestamp,
+    };
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {
@@ -919,46 +868,6 @@ mod tests {
             steps: Vec::new(),
             produced_by: None,
         }
-    }
-
-    #[test]
-    fn carryover_tail_admits_the_newest_turns_that_fit_the_budget() {
-        // Texts of 4, 4, and 2 chars, newest last.
-        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
-        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, but not the next "aaaa" — extent is seq 2.
-        let carry = carryover_tail(&buffer, 6).expect("a non-empty buffer carries a tail");
-        assert_eq!(carry.from_seq, Seq(2));
-        assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
-    }
-
-    #[test]
-    fn carryover_tail_always_keeps_the_newest_turn_even_over_budget() {
-        let buffer = vec![
-            turn(1, "short"),
-            turn(2, "a long final turn that alone exceeds the budget"),
-        ];
-        // The immediate thread survives the seam: the newest turn is carried regardless.
-        let carry = carryover_tail(&buffer, 1).expect("the newest turn is always carried");
-        assert_eq!(carry.from_seq, Seq(2));
-        assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
-    }
-
-    #[test]
-    fn carryover_tail_of_an_empty_buffer_is_none() {
-        assert!(carryover_tail(&[], 100).is_none());
-    }
-
-    #[test]
-    fn carryover_start_indexes_the_oldest_turn_that_fits() {
-        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
-        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, not "aaaa" — the kept tail starts at index 1.
-        assert_eq!(carryover_start(&buffer, 6), 1);
-        // A budget below the newest turn still keeps it (index 2), never an empty tail.
-        assert_eq!(carryover_start(&buffer, 0), 2);
-        // A budget the whole buffer fits keeps everything (index 0).
-        assert_eq!(carryover_start(&buffer, 1_000), 0);
-        // An empty slice keeps nothing — the past-the-end index.
-        assert_eq!(carryover_start(&[], 100), 0);
     }
 
     #[test]

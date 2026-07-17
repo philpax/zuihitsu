@@ -351,8 +351,6 @@ async fn the_idle_sweep_closes_and_flushes_a_stale_session() {
 
 #[tokio::test]
 async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
-    let path =
-        std::env::temp_dir().join(format!("zuihitsu-resume-{}.sqlite", MemoryId::generate().0));
     let clock = ManualClock::new(TEST_NOW);
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
@@ -360,10 +358,10 @@ async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
         Completion::Reply("two".to_owned()),
     ]);
 
-    // First process: a message opens a session.
-    let opened = {
+    // First process: a message opens a session. Its whole log is snapshotted before the instance drops.
+    let (opened, log) = {
         let mut server = Server::new(
-            Box::new(SqliteStore::open(&path).unwrap()),
+            Box::new(MemoryStore::new()),
             Graph::open_in_memory().unwrap(),
             Box::new(clock.clone()),
         );
@@ -382,13 +380,14 @@ async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
             .unwrap();
         let sessions = server.control().sessions(&leads).unwrap();
         assert_eq!(sessions.len(), 1);
-        sessions[0].id
+        (sessions[0].id, server.control().events().unwrap())
     }; // the server — and its in-memory session map — drops: a restart
 
-    // Second process: an empty session map, but the log still holds the open session. Within the idle
-    // gap, the next message resumes it rather than opening a new one.
+    // Second process: a fresh instance over the *same log* (carried in memory, no temp file), an empty
+    // session map, but the log still holds the open session. Within the idle gap, the next message
+    // resumes it rather than opening a new one.
     let mut server = Server::new(
-        Box::new(SqliteStore::open(&path).unwrap()),
+        Box::new(MemoryStore::from_events(log)),
         Graph::open_in_memory().unwrap(),
         Box::new(clock.clone()),
     );
@@ -411,8 +410,85 @@ async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
         "resumed the open session; no new session opened"
     );
     assert_eq!(sessions[0].id, opened, "the resumed session keeps its id");
+}
 
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
-    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+#[tokio::test]
+async fn a_reopen_after_a_restart_reconstructs_the_prior_tail_from_the_log() {
+    // Issue #86: the carryover is reconstructed from the event log at reopen, not cached in runtime
+    // state, so a session's tail survives a restart between the close and the reopen — the case an
+    // in-memory stash always lost. Process 1 idle-sweeps a session closed (its `SessionEnded` lands in
+    // the log with no successor), then only its *log* is carried into a fresh process 2 (its session map
+    // and any runtime state reset), which must still carry that session's messages into the reopen.
+    let clock = ManualClock::new(TEST_NOW);
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
+    let dave = PersonId::new(TEST_PLATFORM, "dave");
+
+    // Process 1: a message opens a session; past the idle gap the sweep closes it with no message
+    // arriving, so the log holds a `SessionEnded` and no later session. Its whole log is snapshotted;
+    // the instance (its session map, and under the old design any staged carryover) is then dropped.
+    let log = {
+        let model =
+            ScriptedModel::new([Completion::Reply("the migration ships Friday".to_owned())]);
+        let mut server = Server::new(
+            Box::new(MemoryStore::new()),
+            Graph::open_in_memory().unwrap(),
+            Box::new(clock.clone()),
+        );
+        server.boot().unwrap();
+        server.control().create_agent(&seed()).unwrap();
+        server
+            .platform()
+            .route_message(
+                &model,
+                &leads,
+                &dave,
+                "when does the migration ship?",
+                std::slice::from_ref(&dave),
+            )
+            .await
+            .unwrap();
+        clock.advance_millis(1_801 * 1_000);
+        assert_eq!(
+            server.sweep_idle_sessions(&model).await.unwrap(),
+            1,
+            "the idle sweep closes the session past the gap"
+        );
+        server.control().events().unwrap()
+    }; // process 1 (and its session map) drops — only the log survives, as across a restart
+
+    // Process 2: a fresh instance over the *same log* (carried in memory, no temp file), empty session
+    // map, no cached carryover. The next message reopens; the swept session's tail must be reconstructed
+    // from the log.
+    let model = ScriptedModel::new([Completion::Reply("still Friday".to_owned())]);
+    let mut server = Server::new(
+        Box::new(MemoryStore::from_events(log)),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.boot().unwrap();
+    server
+        .platform()
+        .route_message(
+            &model,
+            &leads,
+            &dave,
+            "remind me — when does it ship?",
+            std::slice::from_ref(&dave),
+        )
+        .await
+        .unwrap();
+
+    // The reopened session's prompt carries the pre-restart session's message, reconstructed from the
+    // log rather than lost with process 1.
+    let prompt: String = model
+        .recorded_messages()
+        .iter()
+        .flatten()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        prompt.contains("when does the migration ship?"),
+        "the reopened prompt must carry the pre-restart tail, reconstructed from the log; got:\n{prompt}"
+    );
 }

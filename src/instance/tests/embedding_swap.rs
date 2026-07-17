@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     Instance,
     clock::ManualClock,
-    event::{EventPayload, EventSource},
+    event::{EventPayload, EventSource, SessionEndCause},
     graph::Graph,
     ids::{ConversationId, MemoryId, Seq, SessionId},
     model::{
@@ -198,7 +198,7 @@ async fn the_idle_sweep_closes_a_session_once_not_every_tick() {
     });
     assert!(
         !server
-            .flush_and_end(conversation, &stale, &model)
+            .flush_and_end(conversation, &stale, &model, SessionEndCause::Idle)
             .await
             .unwrap(),
         "flush_and_end on an already-ended session is a no-op"
@@ -262,11 +262,15 @@ async fn concurrent_closes_of_one_session_record_a_single_end() {
     let (a, b) = tokio::join!(
         async {
             let _held = lifecycle.lock().await;
-            server.flush_and_end(conversation, &open, &model).await
+            server
+                .flush_and_end(conversation, &open, &model, SessionEndCause::Idle)
+                .await
         },
         async {
             let _held = lifecycle.lock().await;
-            server.flush_and_end(conversation, &open, &model).await
+            server
+                .flush_and_end(conversation, &open, &model, SessionEndCause::Idle)
+                .await
         },
     );
     a.unwrap();

@@ -212,7 +212,11 @@ async fn convo_turn_warns_when_a_newcomer_was_not_in_the_audience() {
                     "The layoffs land Friday — keep it off the record for now.",
                     Some(tom),
                 ),
-                EventPayload::session_ended(conversation, session_one),
+                EventPayload::session_ended(
+                    conversation,
+                    session_one,
+                    zuihitsu::event::SessionEndCause::Idle,
+                ),
             ],
         )
         .unwrap();

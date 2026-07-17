@@ -1,8 +1,6 @@
 use super::*;
 #[tokio::test]
 async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
-    let path =
-        std::env::temp_dir().join(format!("zuihitsu-reopen-{}.sqlite", MemoryId::generate().0));
     let clock = ManualClock::new(TEST_NOW);
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
@@ -13,10 +11,11 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
         Completion::Reply("three".to_owned()),
     ]);
 
-    // First process: two messages — four turns, enough to trigger the flush on close.
-    {
+    // First process: two messages — four turns, enough to trigger the flush on close. Its whole log is
+    // snapshotted before the instance drops.
+    let log = {
         let mut server = Server::new(
-            Box::new(SqliteStore::open(&path).unwrap()),
+            Box::new(MemoryStore::new()),
             Graph::open_in_memory().unwrap(),
             Box::new(clock.clone()),
         );
@@ -45,12 +44,14 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
             .await
             .unwrap();
         assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
-    } // restart
+        server.control().events().unwrap()
+    }; // restart — only the log survives, carried in memory
 
-    // Second process: past the idle gap, the next message closes the recovered session (flushing its
-    // working state) and opens a fresh one.
+    // Second process: a fresh instance over the *same log* (carried in memory, no temp file). Past the
+    // idle gap, the next message closes the recovered session (flushing its working state) and opens a
+    // fresh one.
     let mut server = Server::new(
-        Box::new(SqliteStore::open(&path).unwrap()),
+        Box::new(MemoryStore::from_events(log)),
         Graph::open_in_memory().unwrap(),
         Box::new(clock.clone()),
     );
@@ -72,10 +73,6 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
         2,
         "the stale recovered session closed and a fresh one opened"
     );
-
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
-    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
 
 #[tokio::test]
@@ -662,7 +659,11 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
         drained.recorded_messages()
     );
 
-    // A later session: the item is surfaced, so it is never raised a second time.
+    // A later session, opened past the idle gap: the item was surfaced in the prior session, so the
+    // scheduler never raises it a second time. The reopened session is seeded from the prior session's
+    // tail (issue #86), so its buffer may still *carry* the earlier "have come due" system turn as
+    // conversational history — that is the tail faithfully replaying what was said, not a fresh drain.
+    // The structural check is the surfacing count: the item is surfaced exactly once across the log.
     clock.advance_millis(2 * 86_400_000_i64);
     let quiet = ScriptedModel::new([Completion::Reply("ok".to_owned())]);
     server
@@ -676,13 +677,16 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
         )
         .await
         .unwrap();
-    assert!(
-        quiet
-            .recorded_messages()
-            .iter()
-            .flatten()
-            .all(|message| !message.content.contains("have come due")),
-        "a surfaced item must not be raised again",
+    let surfacings = server
+        .control()
+        .events()
+        .unwrap()
+        .iter()
+        .filter(|event| matches!(event.payload, EventPayload::ScheduledItemSurfaced { .. }))
+        .count();
+    assert_eq!(
+        surfacings, 1,
+        "a surfaced item must not be raised a second time by the scheduler",
     );
 }
 

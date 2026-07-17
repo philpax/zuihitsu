@@ -15,7 +15,8 @@ use crate::{
 use crate::event::{
     ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
     LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
-    PromptTemplateName, RequestRecord, Teller, TerminalCause, TurnRole, Visibility, Volatility,
+    PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause, TurnRole,
+    Visibility, Volatility,
 };
 
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
@@ -453,8 +454,9 @@ pub enum EventPayload {
     /// Opens a bounded activity window within a conversation — the brief-freeze unit.
     /// `participants` is the present set at open; `brief` is the composed brief captured verbatim so
     /// the frozen prompt is faithfully replayable (spec §System prompt → replay); `seeded_from_turn`
-    /// records the carryover extent when the session opened via compaction, as a
-    /// [`ConversationRef`] with the turn set (`None` for a fresh or idle-opened session).
+    /// records the carryover extent when the session opened seeded from a prior one's tail — a
+    /// compaction cut or an idle/recovery reopen alike (issue #86) — as a [`ConversationRef`] with the
+    /// turn set (`None` for a genuinely fresh session or a reopen whose prior session left no tail).
     SessionStarted {
         conversation: ConversationId,
         id: SessionId,
@@ -469,9 +471,19 @@ pub enum EventPayload {
         #[serde(default)]
         working_set: Vec<MemoryId>,
     },
+    /// Closes a session's activity window. `cause` records why it ended — a warm [`Compaction`] cut, an
+    /// [`Idle`] timeout, or a cold-start [`Recovery`] close — as first-class provenance for display and
+    /// analytics; `None` marks a close recorded before the cause was captured (spec §Conversations →
+    /// session lifecycle).
+    ///
+    /// [`Compaction`]: SessionEndCause::Compaction
+    /// [`Idle`]: SessionEndCause::Idle
+    /// [`Recovery`]: SessionEndCause::Recovery
     SessionEnded {
         conversation: ConversationId,
         id: SessionId,
+        #[serde(default)]
+        cause: Option<SessionEndCause>,
     },
     /// A participant arriving mid-session, at `at_turn` (a [`ConversationRef`] with the turn set).
     ParticipantJoined {

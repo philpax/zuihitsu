@@ -1,4 +1,4 @@
-//! The live session map and its lifecycle/carryover state — pure runtime state, never logged.
+//! The live session map and its lifecycle state — pure runtime state, never logged.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -6,13 +6,14 @@ use parking_lot::Mutex;
 
 use crate::ids::{ConversationId, SessionId};
 
-use crate::instance::session::{Carryover, OpenSession};
+use crate::instance::session::OpenSession;
 
-/// The live session map and its lifecycle/carryover state — pure runtime state, never logged.
-/// Each session map entry is an `Arc` so a turn holds its session across the turn `.await` without
-/// keeping the map guard. The lifecycle map mints a per-conversation async lock serializing the
-/// session lifecycle (close-with-flush then open). The carryover map stages a compacted session's
-/// tail for the next `ensure_session` to seed.
+/// The live session map and its lifecycle state — pure runtime state, never logged. Each session map
+/// entry is an `Arc` so a turn holds its session across the turn `.await` without keeping the map
+/// guard. The lifecycle map mints a per-conversation async lock serializing the session lifecycle
+/// (close-with-flush then open). No carryover is cached here: a reopen reconstructs the previous
+/// session's tail from the event log (see [`crate::instance::Instance::ensure_session`]), so nothing
+/// about continuity depends on runtime state surviving the close (issue #86).
 pub(crate) struct SessionStore {
     /// The live session per conversation: its id, the VM whose globals persist across the session's
     /// turns, the frozen brief, and the last-activity time the idle-gap is measured from. Pure
@@ -31,11 +32,6 @@ pub(crate) struct SessionStore {
     /// session already ended and skip. Locks are minted lazily and kept (one per conversation the agent
     /// ever holds; negligible).
     lifecycle: Mutex<HashMap<ConversationId, Arc<tokio::sync::Mutex<()>>>>,
-    /// Carryover staged by a token-triggered compaction, consumed by the next `ensure_session` to
-    /// seed the re-segmented session (spec §Compaction). Keyed by conversation; an entry lives only
-    /// between the compacting turn and the next message in that room. Behind a `Mutex` for the same
-    /// shared-`&Instance` reason as `sessions`.
-    pending_carryover: Mutex<HashMap<ConversationId, Carryover>>,
 }
 
 impl SessionStore {
@@ -44,7 +40,6 @@ impl SessionStore {
         Self {
             sessions: Mutex::new(HashMap::new()),
             lifecycle: Mutex::new(HashMap::new()),
-            pending_carryover: Mutex::new(HashMap::new()),
         }
     }
 
@@ -119,18 +114,5 @@ impl SessionStore {
             .entry(conversation)
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone()
-    }
-
-    /// Take and return the pending carryover for a conversation, if any (consumed by
-    /// `ensure_session`).
-    pub(crate) fn take_carryover(&self, conversation: ConversationId) -> Option<Carryover> {
-        self.pending_carryover.lock().remove(&conversation)
-    }
-
-    /// Stage a carryover for a conversation (set by `Platform::end_session_for_compaction`).
-    pub(crate) fn insert_carryover(&self, conversation: ConversationId, carryover: Carryover) {
-        self.pending_carryover
-            .lock()
-            .insert(conversation, carryover);
     }
 }

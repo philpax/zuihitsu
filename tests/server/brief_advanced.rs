@@ -19,18 +19,15 @@ async fn a_describe_backlog_survives_a_restart() {
     // A memory written but not yet described before shutdown stays stale in the log-derived
     // described-state, so after a rebuild the background describer picks it up — the backlog is not
     // silently dropped at boot.
-    let path = std::env::temp_dir().join(format!(
-        "zuihitsu-backlog-{}.sqlite",
-        MemoryId::generate().0
-    ));
     let clock = ManualClock::new(TEST_NOW);
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // First process: a turn writes a topic that the pre-brief pass does not describe (it is not in the
-    // brief's read set), so it is left stale when the process ends.
-    {
+    // brief's read set), so it is left stale when the process ends. Its whole log is snapshotted before
+    // the instance drops.
+    let log = {
         let mut server = Server::new(
-            Box::new(SqliteStore::open(&path).unwrap()),
+            Box::new(MemoryStore::new()),
             Graph::open_in_memory().unwrap(),
             Box::new(clock.clone()),
         );
@@ -62,12 +59,13 @@ async fn a_describe_backlog_survives_a_restart() {
             "the pre-brief pass left the topic undescribed: {:?}",
             model.synthesized()
         );
-    } // the server drops: a restart
+        server.control().events().unwrap()
+    }; // the server drops: a restart — only the log survives, carried in memory
 
-    // Second process: a fresh graph rebuilt from the same log. The backlog persists, so the describer
-    // catches it up.
+    // Second process: a fresh graph rebuilt from the same log (carried in memory, no temp file). The
+    // backlog persists, so the describer catches it up.
     let mut server = Server::new(
-        Box::new(SqliteStore::open(&path).unwrap()),
+        Box::new(MemoryStore::from_events(log)),
         Graph::open_in_memory().unwrap(),
         Box::new(clock.clone()),
     );
@@ -86,10 +84,6 @@ async fn a_describe_backlog_survives_a_restart() {
         "the restarted describer picks up the undescribed topic: {:?}",
         model.synthesized()
     );
-
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
-    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
 
 #[tokio::test]

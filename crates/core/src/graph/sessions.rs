@@ -197,6 +197,26 @@ impl Graph {
         })
     }
 
+    /// The `SessionStarted` seq of the conversation's most recent session, or `None` if it has never
+    /// had one. A reopen reads this to reconstruct the previous session's carryover tail from the log:
+    /// the seq is where that session's own turns begin, so its char-budget tail is re-derivable at open
+    /// time rather than cached across the close (issue #86). Ordered by seq, so it returns the latest
+    /// whether that session is still open or already ended — at a fresh open the caller has just closed
+    /// the lapsed one, so the latest is the just-closed predecessor.
+    pub fn last_session_start(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Option<Seq>, GraphError> {
+        self.conn
+            .query_row(
+                "SELECT seq FROM sessions WHERE conversation = ?1 ORDER BY seq DESC LIMIT 1",
+                params![conversation.0.to_string()],
+                |row| row.get::<_, i64>(0).map(|seq| Seq(seq as u64)),
+            )
+            .optional()
+            .map_err(backend)
+    }
+
     /// Whether `conversation` has a session that opened before `session` — i.e. `session` is not its
     /// first. The operator imprint reads this to leave imprint mode once onboarding is done (spec
     /// §Imprint interview): the first operator session runs the imprint template, and every session

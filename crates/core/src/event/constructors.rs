@@ -11,8 +11,8 @@ use crate::{
 
 use crate::event::{
     AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
-    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, TerminalCause, TurnRole,
-    Volatility,
+    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause,
+    TerminalCause, TurnRole, Volatility,
 };
 
 impl EventPayload {
@@ -354,8 +354,16 @@ impl EventPayload {
         }
     }
 
-    pub fn session_ended(conversation: ConversationId, id: SessionId) -> EventPayload {
-        EventPayload::SessionEnded { conversation, id }
+    pub fn session_ended(
+        conversation: ConversationId,
+        id: SessionId,
+        cause: SessionEndCause,
+    ) -> EventPayload {
+        EventPayload::SessionEnded {
+            conversation,
+            id,
+            cause: Some(cause),
+        }
     }
 
     pub fn participant_joined(

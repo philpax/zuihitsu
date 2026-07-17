@@ -1,6 +1,8 @@
 use super::{materialized, recovery_log};
 use crate::{
-    event::{ConversationRef, EventPayload, EventSource, Teller, Visibility, Volatility},
+    event::{
+        ConversationRef, EventPayload, EventSource, SessionEndCause, Teller, Visibility, Volatility,
+    },
     graph::Graph,
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
@@ -229,7 +231,7 @@ fn conversations_and_sessions_project() {
                 turn: Some(join_turn),
             },
         ),
-        EventPayload::session_ended(conv, s1),
+        EventPayload::session_ended(conv, s1, SessionEndCause::Compaction),
         // A second session opened via compaction carries the carryover extent.
         EventPayload::SessionStarted {
             conversation: conv,

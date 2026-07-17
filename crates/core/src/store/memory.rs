@@ -21,6 +21,18 @@ impl MemoryStore {
     pub fn new() -> MemoryStore {
         MemoryStore::default()
     }
+
+    /// Construct a store already holding `events` verbatim — a persisted log reloaded, the way a disk
+    /// backend reopens a file. Each event keeps its recorded seq, timestamp, and source, so the total
+    /// order is preserved exactly (unlike re-appending, which would re-stamp and re-seq). `events` must
+    /// be the whole log in seq order. Lets a test carry the in-memory log across a simulated restart —
+    /// a fresh instance over the same log, its runtime state reset — without a temp file.
+    pub fn from_events(events: Vec<Event>) -> MemoryStore {
+        MemoryStore {
+            events,
+            subscribers: Vec::new(),
+        }
+    }
 }
 
 impl Store for MemoryStore {

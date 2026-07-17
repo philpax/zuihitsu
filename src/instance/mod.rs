@@ -19,7 +19,7 @@ mod workers;
 
 pub use drivers::CheckpointTrigger;
 pub use error::InstanceError;
-use session::{Carryover, OpenSession, RoutedTurn};
+use session::{OpenSession, RoutedTurn, TailSeed, carryover_tail};
 
 pub use control::{
     Arbitration, ContextEntry, Control, DesignateOutcome, LuaConsoleOutcome, MergeProposal,

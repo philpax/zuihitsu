@@ -224,10 +224,11 @@ fn audience_turns(store: &dyn Store) -> Result<Vec<AudienceTurn>, StoreError> {
                     audience.push(participant);
                 }
             }
-            EventPayload::SessionEnded { conversation, id }
-                if open
-                    .get(&conversation)
-                    .is_some_and(|(open_id, _)| *open_id == id) =>
+            EventPayload::SessionEnded {
+                conversation, id, ..
+            } if open
+                .get(&conversation)
+                .is_some_and(|(open_id, _)| *open_id == id) =>
             {
                 open.remove(&conversation);
             }

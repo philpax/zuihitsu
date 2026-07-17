@@ -85,11 +85,19 @@ impl Graph {
                         .map_err(backend)?;
                 }
             }
-            EventPayload::SessionEnded { id, .. } => {
+            EventPayload::SessionEnded { id, cause, .. } => {
+                // Record the close cause alongside the `ended` flag — provenance for the console and
+                // analytics. `None` (a pre-cause log) leaves the column NULL.
                 self.conn
                     .execute(
-                        "UPDATE sessions SET ended = 1 WHERE id = ?1",
-                        params![id.0.to_string()],
+                        "UPDATE sessions SET ended = 1, end_cause = ?2 WHERE id = ?1",
+                        params![
+                            id.0.to_string(),
+                            cause
+                                .as_ref()
+                                .map(|c| serde_json::to_string(c).map_err(GraphError::Serialize))
+                                .transpose()?,
+                        ],
                     )
                     .map_err(backend)?;
             }

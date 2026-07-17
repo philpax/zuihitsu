@@ -33,28 +33,30 @@ fn control_creates_and_inspects_an_agent() {
 
 #[test]
 fn boot_reconciles_a_fresh_graph_from_a_persisted_log() {
-    let path =
-        std::env::temp_dir().join(format!("zuihitsu-server-{}.sqlite", MemoryId::generate().0));
-
-    {
-        let store = SqliteStore::open(&path).unwrap();
-        let mut server = Server::new(Box::new(store), Graph::open_in_memory().unwrap(), clock());
+    // The whole log is snapshotted before the instance drops, then carried in memory into a fresh
+    // instance — a restart that keeps the persisted log but resets runtime state.
+    let log = {
+        let mut server = Server::new(
+            Box::new(MemoryStore::new()),
+            Graph::open_in_memory().unwrap(),
+            clock(),
+        );
         server.boot().unwrap();
         server.control().create_agent(&seed()).unwrap();
-    } // the store (and its log lock) drop here
+        server.control().events().unwrap()
+    }; // the store (and its log lock) drop here
 
     {
         // Reopen the persisted log with a brand-new, empty graph: boot must catch it up to
         // log-head before the agent is inspectable.
-        let store = SqliteStore::open(&path).unwrap();
-        let mut server = Server::new(Box::new(store), Graph::open_in_memory().unwrap(), clock());
+        let mut server = Server::new(
+            Box::new(MemoryStore::from_events(log)),
+            Graph::open_in_memory().unwrap(),
+            clock(),
+        );
         assert_eq!(server.boot().unwrap(), GenesisStatus::Complete);
         assert!(server.control().memory("self").unwrap().is_some());
     }
-
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
-    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
 }
 
 #[test]

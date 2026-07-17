@@ -7,9 +7,11 @@ use std::{
 
 use crate::{
     InstanceFeatures,
-    agent::{Flush, bounded_buffer_turns, lua::Session, recent_touched, run_flush},
-    event::{ConversationRef, EventPayload, EventSource, Initiation, TurnRole},
-    ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, SessionId, TurnId},
+    agent::{
+        Flush, bounded_buffer_turns, lua::Session, recent_touched, run_flush, session_touched,
+    },
+    event::{ConversationRef, EventPayload, EventSource, Initiation, SessionEndCause, TurnRole},
+    ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, Seq, SessionId, TurnId},
     memory::{brief, scheduler},
     metrics::{
         observe_flush_turn, observe_session_closed, observe_session_opened,
@@ -20,7 +22,17 @@ use crate::{
     time::{self, Timestamp},
 };
 
-use crate::instance::{CheckpointTrigger, Instance, InstanceError, OpenSession};
+use crate::instance::{
+    CheckpointTrigger, Instance, InstanceError, OpenSession, TailSeed, carryover_tail,
+};
+
+/// The previous session's reconstructed tail: its char-budget extent (seeding the new buffer) plus the
+/// time of its last turn (deciding warm vs. cold). Both come from the log — nothing is cached across
+/// the close (issue #86).
+struct PreviousTail {
+    seed: TailSeed,
+    last_activity: Timestamp,
+}
 
 impl Instance {
     /// The features this instance enables — the gate the Lua registration, the API reference, and the
@@ -45,19 +57,23 @@ impl Instance {
         base.with_web(self.web.clone())
     }
 
-    /// Flush a closing session's working state to memory, then record `SessionEnded`. The budget-gated
-    /// pre-compaction flush gives a substantive session (at least `flush_min_turns`) one turn to write
-    /// durable memory before the cut, so nothing it learned is lost between its last write and the next
-    /// conversation; a light session skips it, so the hot-path model call is paid only when there is
-    /// state worth saving. The flush runs **before** `SessionEnded`, so a flush failure leaves the
-    /// session standing for a retry rather than dropping its state. Shared by the budget-compaction
-    /// close (which then stages a carryover) and the idle/recovery closes (which do not). The caller
-    /// has already removed `open` from the sessions map. Returns whether the flush ran.
+    /// Flush a closing session's working state to memory, then record `SessionEnded` with its `cause`.
+    /// The budget-gated pre-compaction flush gives a substantive session (at least `flush_min_turns`
+    /// of its own turns) one turn to write durable memory before the cut, so nothing it learned is lost
+    /// between its last write and the next conversation; a light session skips it, so the hot-path model
+    /// call is paid only when there is state worth saving. The flush runs **before** `SessionEnded`, so
+    /// a flush failure leaves the session standing for a retry rather than dropping its state. Shared by
+    /// every close — the budget-compaction cut ([`SessionEndCause::Compaction`]), the idle sweep and
+    /// lapsed-live closes ([`SessionEndCause::Idle`]), and the cold-start recovery close
+    /// ([`SessionEndCause::Recovery`]) — which is why the cause is a parameter. Nothing is staged for the
+    /// next session: the reopen reconstructs the tail from the log (issue #86). The caller has already
+    /// removed `open` from the sessions map. Returns whether the flush ran.
     pub(crate) async fn flush_and_end(
         &self,
         conversation: ConversationId,
         open: &OpenSession,
         model: &dyn ModelClient,
+        cause: SessionEndCause,
     ) -> Result<bool, InstanceError> {
         // The caller holds this conversation's lifecycle lock (see [`Instance::lifecycle`]), so the
         // open-check is reliable here — no other path can be closing this session concurrently. Skip if
@@ -74,7 +90,16 @@ impl Instance {
             open.session_start_seq,
             settings.compaction.carryover_char_budget,
         )?;
-        let flushed = buffer.len() as i64 >= settings.compaction.flush_min_turns;
+        // Gate the flush on this session's *own* turns, not the carried tail: a tail seeds the buffer
+        // for the flush's context, but it is a prior session's substance (already consolidated when that
+        // session closed), so counting it would flush a session that reopened after an idle gap and said
+        // almost nothing. The buffer is in seq order with the trimmed tail below `session_start_seq`, so
+        // the own turns are the suffix at or after it.
+        let own_turns = buffer
+            .iter()
+            .filter(|turn| turn.seq >= open.session_start_seq)
+            .count();
+        let flushed = own_turns as i64 >= settings.compaction.flush_min_turns;
         if flushed {
             let present_set = self.engine.graph.lock().session_participants(open.id)?;
             run_flush(Flush {
@@ -109,7 +134,7 @@ impl Instance {
         self.engine.store.lock().append(
             now,
             EventSource::Orchestration,
-            vec![EventPayload::session_ended(conversation, open.id)],
+            vec![EventPayload::session_ended(conversation, open.id, cause)],
         )?;
         observe_session_closed();
         // Apply the close to the graph so the session reads as `ended`. Without this the `SessionEnded`
@@ -120,6 +145,37 @@ impl Instance {
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
         Ok(flushed)
+    }
+
+    /// The previous session's raw-transcript tail, reconstructed from the log — its char-budget extent
+    /// plus the time of its last turn (issue #86). `None` when there is no previous session or it left
+    /// no turns. Reads the previous session's *own* turns from its `SessionStarted` seq, so the tail
+    /// advances into each session with the seam rather than re-spanning every session since the original
+    /// cut, and it includes any flush turn that close appended, so the next session's flush watermark
+    /// rides across the seam.
+    fn previous_session_tail(
+        &self,
+        conversation: ConversationId,
+        previous_start: Option<Seq>,
+        char_budget: i64,
+    ) -> Result<Option<PreviousTail>, InstanceError> {
+        let Some(previous_start) = previous_start else {
+            return Ok(None);
+        };
+        let own = bounded_buffer_turns(
+            self.engine.store.lock().as_ref(),
+            conversation,
+            previous_start,
+            previous_start,
+            char_budget,
+        )?;
+        Ok(carryover_tail(&own, char_budget).map(|seed| PreviousTail {
+            seed,
+            last_activity: own
+                .last()
+                .expect("carryover_tail is Some only for a non-empty buffer")
+                .recorded_at,
+        }))
     }
 
     /// Ensure a live session for `conversation`. Reuse the open one if activity is within the idle gap.
@@ -222,9 +278,8 @@ impl Instance {
             self.engine.graph.lock().last_open_session(conversation)?
         };
         if let Some(recovered) = recovered {
-            // A recovered session reads only from its own `SessionStarted` seq (the carried tail is not
-            // reconstructable from the log alone), so the read start and this session's start coincide
-            // — an empty tail, but routed through the bound for a single buffer-read path.
+            // A recovered session reads from its own `SessionStarted` seq — its own tail is
+            // reconstructed below at the fresh open, from the log, once it has been closed.
             let buffer = bounded_buffer_turns(
                 self.engine.store.lock().as_ref(),
                 conversation,
@@ -257,7 +312,8 @@ impl Instance {
                 tracing::info!(?conversation, session = ?open.id, "resumed an open session after a cold start");
                 return Ok(open);
             }
-            self.flush_and_end(conversation, &open, model).await?;
+            self.flush_and_end(conversation, &open, model, SessionEndCause::Recovery)
+                .await?;
             tracing::info!(?conversation, session = ?open.id, "flushed and closed a stale recovered session");
         }
 
@@ -268,45 +324,67 @@ impl Instance {
         self.fire_due_now(now)?;
 
         // A lapsed live session ends before the new one opens: take it out under the map guard (so no
-        // guard is held across the flush's `.await`), then flush-and-end it — the idle close now
-        // consolidates its working state too, not only the budget-compaction close.
+        // guard is held across the flush's `.await`), then flush-and-end it as an idle close — it went
+        // quiet past the gap, which is why control reached here rather than the reuse path above.
         let old = self.sessions.remove(conversation);
         if let Some(old) = old {
-            self.flush_and_end(conversation, old.as_ref(), model)
+            self.flush_and_end(conversation, old.as_ref(), model, SessionEndCause::Idle)
                 .await?;
         }
 
-        // A pending carryover from a just-compacted session seeds the new one: the next buffer read
-        // starts at the carried tail (not this `SessionStarted`), the boundary is recorded as
-        // `seeded_from_turn` for faithful replay, and the touch-derived working set augments the new
-        // brief as active threads (spec §Compaction → carryover).
-        let carryover = self.sessions.take_carryover(conversation);
-        let seeded_from_turn = carryover.as_ref().map(|carry| ConversationRef {
+        // Reconstruct the carryover from the log, not from any cached runtime state (issue #86). The
+        // previous session's own turns are all in the event log, so at reopen its char-budget tail is
+        // re-derivable: the new buffer reads from that tail (recorded as `seeded_from_turn` for faithful
+        // replay) rather than from this `SessionStarted`. This survives a restart between the close and
+        // the reopen — the exact case an in-memory stash dropped — and needs the previous session's
+        // `SessionStarted` seq, which the graph holds whether that session is still open or already
+        // closed (the lapsed and recovered closes above have just ended it, so it is the latest).
+        let previous_start = self.engine.graph.lock().last_session_start(conversation)?;
+        let tail = self.previous_session_tail(
             conversation,
-            turn: Some(carry.seeded_from_turn),
+            previous_start,
+            settings.compaction.carryover_char_budget,
+        )?;
+        let seeded_from_turn = tail.as_ref().map(|tail| ConversationRef {
+            conversation,
+            turn: Some(tail.seed.seeded_from_turn),
         });
-        // The active threads the new session re-surfaces. A compaction carryover supplies the ending
-        // session's touch-derived working set — even an empty one, a warm continuation that simply
-        // touched nothing. A session that opens with *no* carryover at all — an idle gap, or first
-        // contact — is a cold open: it derives a working set from the memories recent sessions across
-        // every conversation touched, so a fresh session re-surfaces the threads a warm continuation
-        // would rather than opening blank. Either source is re-filtered through the brief's visibility
-        // predicate against the new present set like any carried thread (spec §Compaction →
-        // working-set carryover).
-        let working_set: Vec<MemoryId> = match carryover.as_ref() {
-            Some(carry) => carry.working_set.clone(),
-            None => {
-                let window_days = settings.brief.cold_open_window_days.max(0);
-                let limit = settings.brief.cold_open_threads.max(0) as usize;
-                if window_days == 0 || limit == 0 {
-                    Vec::new()
-                } else {
-                    let since = Timestamp::from_millis(
-                        now.as_millis()
-                            .saturating_sub(window_days * time::MILLIS_PER_DAY),
-                    );
-                    recent_touched(self.engine.store.lock().as_ref(), since, limit)?
-                }
+
+        // The active threads the new session re-surfaces, chosen by the reopen *gap* measured from the
+        // previous session's last turn. A reopen within the idle gap reads as a *warm* continuation —
+        // near-always a promptly-reopened compaction, since an idle or recovery close only fires after
+        // the gap of silence — so it carries the previous session's own touched set (precise,
+        // this-conversation-scoped). At or past the gap it is a *cold* resumption (an idle timeout, a
+        // recovery, or a compaction nobody answered for a while), so it derives the threads from recent
+        // cross-conversation activity instead, so a fresh session re-surfaces what a warm continuation
+        // would rather than opening blank (issue #35). The warm/idle boundary is approximate at the
+        // edge: the idle sweep measures silence from the message-arrival `touch`, while this measures
+        // from the last turn's `recorded_at` (stamped after the model call), so a live session swept
+        // idle and reopened within one model-latency of the gap can read as warm. Benign — it only
+        // picks the working-set *source*, both re-filtered through the same visibility predicate against
+        // the new present set, and the raw tail is carried either way (spec §Compaction → working-set
+        // carryover). The recorded `SessionEnded.cause` is provenance; this decision reads the gap.
+        let warm = tail
+            .as_ref()
+            .is_some_and(|tail| now.as_millis() - tail.last_activity.as_millis() < idle_gap_ms);
+        let working_set: Vec<MemoryId> = if warm {
+            let previous_start = previous_start.expect("a tail implies a previous session");
+            session_touched(
+                self.engine.store.lock().as_ref(),
+                conversation,
+                previous_start,
+            )?
+        } else {
+            let window_days = settings.brief.cold_open_window_days.max(0);
+            let limit = settings.brief.cold_open_threads.max(0) as usize;
+            if window_days == 0 || limit == 0 {
+                Vec::new()
+            } else {
+                let since = Timestamp::from_millis(
+                    now.as_millis()
+                        .saturating_sub(window_days * time::MILLIS_PER_DAY),
+                );
+                recent_touched(self.engine.store.lock().as_ref(), since, limit)?
             }
         };
 
@@ -373,8 +451,8 @@ impl Instance {
             brief_memories,
             started_at: now,
             last_activity: AtomicI64::new(now.as_millis()),
-            start_seq: carryover
-                .map(|carry| carry.from_seq)
+            start_seq: tail
+                .map(|tail| tail.seed.from_seq)
                 .unwrap_or(session_start_seq),
             session_start_seq,
         });

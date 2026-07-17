@@ -327,6 +327,27 @@ pub enum TurnRole {
     System,
 }
 
+/// Why a session ended (spec §Conversations → session lifecycle). Recorded on `SessionEnded` so the
+/// close reason is a first-class fact rather than something a reopen re-infers: a [`Compaction`] cut is
+/// a warm continuation forced by the token budget, while an [`Idle`] timeout or a [`Recovery`] close (a
+/// dangling session found past the idle gap on cold start) is a cold resumption. Provenance for
+/// display, analytics, and debugging — the reopen's warm/cold working-set choice reads the reopen gap,
+/// not this field. `None` on the payload marks a close recorded before the cause was captured.
+///
+/// [`Compaction`]: SessionEndCause::Compaction
+/// [`Idle`]: SessionEndCause::Idle
+/// [`Recovery`]: SessionEndCause::Recovery
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum SessionEndCause {
+    /// The idle sweep closed a session gone quiet past `idle_gap_seconds`.
+    Idle,
+    /// The live buffer crossed the token budget, forcing a re-segmentation mid-conversation.
+    Compaction,
+    /// A cold start found a session still open in the log and closed it past the idle gap.
+    Recovery,
+}
+
 /// Whether a turn is the agent responding to a message or acting unprompted (spec §Time).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

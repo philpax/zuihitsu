@@ -393,6 +393,7 @@ impl Graph {
                  seeded_from_turn TEXT,
                  brief            TEXT    NOT NULL,
                  ended            INTEGER NOT NULL DEFAULT 0,
+                 end_cause        TEXT,
                  seq              INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_sessions_conversation ON sessions(conversation);

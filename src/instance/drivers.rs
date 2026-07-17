@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     agent::{Flush, TurnView, bounded_buffer_turns, flushed_up_to, run_flush},
-    event::TurnRole,
+    event::{SessionEndCause, TurnRole},
     ids::ConversationId,
     memory::scheduler,
     metrics::{observe_flush_turn, observe_wakeups_fired, observe_worker_error},
@@ -222,7 +222,7 @@ impl Instance {
                     session_start_seq: recovered.start_seq,
                 }),
             };
-            self.flush_and_end(conversation, stale.as_ref(), model)
+            self.flush_and_end(conversation, stale.as_ref(), model, SessionEndCause::Idle)
                 .await?;
             closed += 1;
         }
