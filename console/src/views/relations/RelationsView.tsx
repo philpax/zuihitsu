@@ -18,6 +18,7 @@ import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { MergeProposals } from "./MergeProposals.tsx";
 import { LinkedPairs, RelationLegend } from "./Legend.tsx";
 import { conversationNameById } from "../../lib/model/conversationNameById.ts";
+import { relationColor } from "../../lib/format/relationColor.ts";
 import {
   SIZES,
   expandVirtualNodes,
@@ -25,7 +26,6 @@ import {
   nodeLabel,
   nodeShape,
   readPalette,
-  relationColor,
 } from "./graphUtilities.ts";
 
 /// The operator's merge-decision hooks, supplied only by the live agent frame when the cursor is at the

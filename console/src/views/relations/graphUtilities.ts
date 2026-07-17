@@ -97,24 +97,6 @@ export function namespaceOf(name: string): string {
   return slash === -1 ? name : name.slice(0, slash);
 }
 
-/// A stable color for a relation name, derived from a hash so the legend swatch and the graph edge
-/// match without a hand-maintained palette. `same` edges fall back to the sage accent, since they are
-/// identity plumbing rather than a typed relation with a registry entry.
-export function relationColor(name: string, fallback?: string): string {
-  if (fallback !== undefined) {
-    // The canvas calls pass the palette's sage as the fallback for `same` edges.
-    if (name === "same as") return fallback;
-  }
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash << 5) - hash + name.charCodeAt(i);
-    hash |= 0;
-  }
-  const hue = Math.abs(hash) % 360;
-  // A moderate saturation and lightness that sits comfortably on the warm paper ground.
-  return `hsl(${hue}, 55%, 45%)`;
-}
-
 /// Read the Japandi tokens off the document once, so the canvas (which can only take concrete colors)
 /// stays in step with the design tokens rather than hard-coding hexes.
 let cachedPalette: {

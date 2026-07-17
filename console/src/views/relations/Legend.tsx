@@ -5,7 +5,8 @@ import type { MemoryGraph, MemoryGraphLink } from "../../lib/model/memoryGraph.t
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { Checkbox } from "../../components/primitives.tsx";
 import { ConversationRefLink, MemoryNameLink } from "../../components/eventDetailParts.tsx";
-import { cardinalityLabel, relationColor } from "./graphUtilities.ts";
+import { relationColor } from "../../lib/format/relationColor.ts";
+import { cardinalityLabel } from "./graphUtilities.ts";
 
 /// The relation registry as a table. Each row is a toggle filter; clicking "all" clears the filter.
 /// The swatch column matches the graph's edge color for the relation.
