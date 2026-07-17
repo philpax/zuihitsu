@@ -91,9 +91,10 @@ export function RelationLegend({
   );
 }
 
-/// The `source relation target` triples for the selected relations, each name a link into the State
-/// view at the cursor. The colored relation name is the verb — no arrows. Virtual nodes (collapsed
-/// identities) render their display id but do not link — they are not a single memory to open.
+/// The `source → relation → target` triples for the selected relations, each name a link into the
+/// State view at the cursor. The colored relation name is the verb, flanked by direction arrows so the
+/// edge reads source-to-target. Virtual nodes (collapsed identities) render their display id but do not
+/// link — they are not a single memory to open.
 /// Non-public links carry a faint visibility tag after the triple. Clicking a row expands it to
 /// show the link's full provenance: who asserted it, where it was told, and its visibility posture.
 export function LinkedPairs({
@@ -154,7 +155,13 @@ function LinkRow({
         onClick={() => hasDetail && setExpanded(!expanded)}
       >
         <MemoryNameLink name={link.source} seq={cursor} />
+        <span aria-hidden className="text-ink-faint">
+          →
+        </span>
         <span style={{ color: relationColor(link.relation) }}>{link.relation}</span>
+        <span aria-hidden className="text-ink-faint">
+          →
+        </span>
         <MemoryNameLink name={link.target} seq={cursor} />
         {isPrivate(link.visibility) && (
           <span className="text-2xs text-clay/70">

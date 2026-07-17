@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../lib/model/labels.ts";
 import { formatDateTime } from "../lib/format/format.ts";
+import { relationColor } from "../lib/format/relationColor.ts";
 import { Fields, Field, Tree } from "./Tree.tsx";
 import { Mono, Ref, ConversationRefLink } from "./eventDetailParts.tsx";
 import { producedByLabel, temporalRefLabel } from "./eventDetailUtilities.ts";
@@ -182,7 +183,8 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
             <Field label="coined relations">
               {payload.result.new_relations.map((r) => (
                 <div key={r.name}>
-                  {r.name} / {r.inverse} ({r.from_card} → {r.to_card}
+                  <span style={{ color: relationColor(r.name) }}>{r.name}</span> / {r.inverse} (
+                  {r.from_card} → {r.to_card}
                   {r.symmetric && ", symmetric"}
                   {r.reflexive && ", reflexive"})
                 </div>
@@ -191,12 +193,29 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
           )}
           {payload.result.links.length > 0 && (
             <Field label="inferred links">
-              {payload.result.links.map((l, i) => (
-                <div key={i}>
-                  {l.direction === "to" ? "→" : "←"} {l.relation} {l.target}
-                  <span className="text-ink-faint"> (entry {l.entry})</span>
-                </div>
-              ))}
+              {payload.result.links.map((l, i) => {
+                // Orient the inferred edge against the memory it was inferred for: `direction === "to"`
+                // runs memory → target, `"from"` runs target → memory. Render it source → relation →
+                // target so the direction reads off the line rather than off a bare glyph.
+                const memoryEnd = ref(payload.memory);
+                const targetEnd = <span>{l.target}</span>;
+                const [source, dest] =
+                  l.direction === "to" ? [memoryEnd, targetEnd] : [targetEnd, memoryEnd];
+                return (
+                  <div key={i} className="flex flex-wrap items-baseline gap-1">
+                    {source}
+                    <span aria-hidden className="text-ink-faint">
+                      →
+                    </span>
+                    <span style={{ color: relationColor(l.relation) }}>{l.relation}</span>
+                    <span aria-hidden className="text-ink-faint">
+                      →
+                    </span>
+                    {dest}
+                    <span className="text-ink-faint">(entry {l.entry})</span>
+                  </div>
+                );
+              })}
             </Field>
           )}
           {payload.result.new_relations.length === 0 && payload.result.links.length === 0 && (

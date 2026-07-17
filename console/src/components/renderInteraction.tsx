@@ -10,6 +10,7 @@ import {
 } from "../lib/model/labels.ts";
 import { linkSourceLabel, sourceLabel } from "../lib/model/events.ts";
 import { formatMs } from "../lib/format/format.ts";
+import { relationColor } from "../lib/format/relationColor.ts";
 import { Lua } from "../components/Lua.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 import { Fields, Field, Tree } from "./Tree.tsx";
@@ -69,7 +70,9 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
     case "LinkTypeRegistered":
       return (
         <Fields>
-          <Field label="relation">{payload.name}</Field>
+          <Field label="relation">
+            <span style={{ color: relationColor(payload.name) }}>{payload.name}</span>
+          </Field>
           <Field label="inverse">{payload.inverse}</Field>
           <Field label="cardinality">
             {payload.from_card} → {payload.to_card}
@@ -88,7 +91,9 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
       return (
         <Fields>
           <Field label="from">{ref(payload.from)}</Field>
-          <Field label="relation">{payload.relation}</Field>
+          <Field label="relation">
+            <span style={{ color: relationColor(payload.relation) }}>{payload.relation}</span>
+          </Field>
           <Field label="to">{ref(payload.to)}</Field>
           <Field label="source">{linkSourceLabel(payload.source)}</Field>
           {payload.told_by && (
@@ -107,7 +112,9 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
       return (
         <Fields>
           <Field label="from">{ref(payload.from)}</Field>
-          <Field label="relation">{payload.relation}</Field>
+          <Field label="relation">
+            <span style={{ color: relationColor(payload.relation) }}>{payload.relation}</span>
+          </Field>
           <Field label="to">{ref(payload.to)}</Field>
         </Fields>
       );

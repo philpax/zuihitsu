@@ -2,6 +2,7 @@ import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { MemoryDetail } from "../../lib/model/graph.ts";
 import type { Arbitration, RecurringItem } from "../../lib/model/audit.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
+import { relationColor } from "../../lib/format/relationColor.ts";
 import { rruleLabel } from "../../lib/model/audit.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { EntryItem, MemoryRef, Section } from "./MemoryList.tsx";
@@ -116,11 +117,24 @@ export function MemoryDetailPane({
         <Section label={`links · ${links.length}`}>
           <ul className="flex flex-col gap-1.5 font-mono text-xs text-ink-soft">
             {links.map((link, index) => {
+              // Render the edge in its stored direction — source, relation, target — so an incoming
+              // edge reads as who points *at* this memory rather than collapsing to the memory itself.
+              const source = nameById.get(link.from);
               const target = nameById.get(link.to);
               return (
                 <li key={index} className="flex items-baseline gap-2">
-                  <span className="text-clay">{link.relation}</span>
-                  <span className="text-ink-faint">→</span>
+                  {source ? (
+                    <MemoryRef name={source} onSelect={onSelect} />
+                  ) : (
+                    <span>{link.from}</span>
+                  )}
+                  <span aria-hidden className="text-ink-faint">
+                    →
+                  </span>
+                  <span style={{ color: relationColor(link.relation) }}>{link.relation}</span>
+                  <span aria-hidden className="text-ink-faint">
+                    →
+                  </span>
                   {target ? (
                     <MemoryRef name={target} onSelect={onSelect} />
                   ) : (
