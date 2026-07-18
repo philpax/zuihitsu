@@ -21,11 +21,11 @@ pub struct MemoryDetail {
     pub disputed: Vec<EntryId>,
 }
 
-/// One cross-platform merge proposal as the console surfaces it (spec §Cross-platform identity →
-/// adjudicated merge): the two stubs by handle *and* id (so the view can name them and deep-link into
-/// State), who raised it, the proposer's stated grounds if any, and where the proposal now stands. Unlike
-/// the operator backstop — which drops a settled proposal — the console keeps every proposal so it can
-/// show the whole adjudication record: what identity calls were made and which still await one.
+/// One cross-platform merge proposal as the console surfaces it (spec §Cross-platform identity): the
+/// two stubs by handle *and* id (so the view can name them and deep-link into State), who raised it,
+/// the proposer's stated grounds if any, and where the proposal now stands. Unlike the operator
+/// backstop — which drops a settled proposal — the console keeps every proposal so it can show the
+/// whole record: which pairs the agent flagged and which the operator has since confirmed.
 #[derive(Serialize)]
 pub struct MergeProposalView {
     pub from: MemoryName,
@@ -49,15 +49,13 @@ pub struct MergeProposalView {
     pub to_designated: bool,
 }
 
-/// Where a merge proposal stands at the current fold horizon: still awaiting a decision, merged (the two
-/// stubs now share a `same_as` class, whether an adjudication or an operator authored it), or rejected (an
-/// adjudication or an operator refused it, and the stubs stay distinct).
+/// Where a merge proposal stands at the current fold horizon: still awaiting the operator's decision, or
+/// merged (the operator confirmed it and the two stubs now share a `same_as` class).
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeStatus {
     Pending,
     Merged,
-    Rejected,
 }
 
 /// One item on the agent's agenda: when it occurs, the memory it lives in, the text, and whether it

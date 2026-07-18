@@ -77,10 +77,10 @@ pub(super) fn summarize_committed(engine: &Engine, events: &[EventPayload]) -> O
                 name_of(*from),
                 name_of(*to)
             )),
-            // A proposal is inert until the adjudication pass weighs it, so the summary says what
-            // actually happened — a proposal, not a merge — for the agent's reply to stay honest.
+            // A proposal is inert until the operator confirms it, so the summary says what actually
+            // happened — a proposal, not a merge — for the agent's reply to stay honest.
             EventPayload::MergeProposed { from, to, .. } => other.push(format!(
-                "proposed merging {} into {} — a merge lands only when adjudicated",
+                "proposed merging {} into {} — a merge lands only when the operator confirms it",
                 name_of(*from),
                 name_of(*to)
             )),

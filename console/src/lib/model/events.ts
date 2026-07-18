@@ -20,8 +20,8 @@ export function sourceLabel(source: EventSource): string {
 }
 
 /// The human-facing label for a link's provenance — the agent's own edge, an operator's console
-/// assertion, an adjudicated merge `same_as`, an inferred edge, or a connector's structural link,
-/// which names the connector so an audit can tell which one authored it.
+/// assertion, an inferred edge, or a connector's structural link, which names the connector so an
+/// audit can tell which one authored it.
 export function linkSourceLabel(source: LinkSource): string {
   if (typeof source === "string") return source.toLowerCase();
   return `connector: ${source.Connector}`;
@@ -70,7 +70,6 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "LinkCreated":
     case "LinkRemoved":
     case "MergeProposed":
-    case "MergeAdjudicated":
     case "LinksInferred":
       return "link";
     case "ConversationTurn":
@@ -100,11 +99,10 @@ export const BACKGROUND_TYPES = new Set<EventPayload["type"]>([
   "MemoryDescriptionRegenerated",
   "BeliefArbitrated",
   "LinksInferred",
-  "MergeAdjudicated",
 ]);
 
-/// Whether an event type is produced by a background pass (the describer, adjudicator,
-/// link-inference, or merge-adjudicator), and so belongs in the Background view.
+/// Whether an event type is produced by a background pass (the describer, belief arbitration, or
+/// link-inference), and so belongs in the Background view.
 export function isBackgroundEvent(type: EventPayload["type"]): boolean {
   return BACKGROUND_TYPES.has(type);
 }
@@ -145,7 +143,6 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "LinkCreated":
     case "LinkRemoved":
     case "MergeProposed":
-    case "MergeAdjudicated":
       return payload.from === memoryId || payload.to === memoryId;
     case "ConversationStarted":
       return payload.context_memory === memoryId;
@@ -203,10 +200,6 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${ref(payload.from)} −${payload.relation} ${ref(payload.to)}`;
     case "MergeProposed":
       return `${ref(payload.from)} ⇄ ${ref(payload.to)} — merge proposed`;
-    case "MergeAdjudicated":
-      return `${ref(payload.from)} ⇄ ${ref(payload.to)} — ${
-        payload.accepted ? "merged" : "merge refused"
-      }: ${payload.rationale}`;
     case "LinksInferred": {
       const links = payload.result.links.map((l) => `${l.relation} → ${l.target}`).join(", ");
       const coined = payload.result.new_relations.map((r) => r.name).join(", ");

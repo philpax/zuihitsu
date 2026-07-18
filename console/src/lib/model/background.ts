@@ -3,10 +3,9 @@ import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import { type EventCategory, eventCategory, eventSummary, isBackgroundEvent } from "./events.ts";
 
-/// One background-pass event (a description regeneration, a belief arbitration, an inferred link
-/// set, or a merge adjudication), summarized for the Background view and carrying the full payload
-/// so a row can expand into the same specialized viewer the Events tab uses — the same shape as
-/// [`TurnOutcome`].
+/// One background-pass event (a description regeneration, a belief arbitration, or an inferred link
+/// set), summarized for the Background view and carrying the full payload so a row can expand into
+/// the same specialized viewer the Events tab uses — the same shape as [`TurnOutcome`].
 export interface BackgroundEvent {
   seq: number;
   recordedAt: number;
@@ -32,8 +31,7 @@ export interface BackgroundEvent {
 
 /// The memory ids a background-pass event targets — mirrors [`outcomeMemoryIds`] but for the
 /// background types. `MemoryDescriptionRegenerated` uses `payload.id` (the memory being described);
-/// `BeliefArbitrated` and `LinksInferred` use `payload.memory`; `MergeAdjudicated` uses both
-/// `payload.from` and `payload.to`.
+/// `BeliefArbitrated` and `LinksInferred` use `payload.memory`.
 function backgroundMemoryIds(payload: EventPayload): string[] {
   switch (payload.type) {
     case "MemoryDescriptionRegenerated":
@@ -41,8 +39,6 @@ function backgroundMemoryIds(payload: EventPayload): string[] {
     case "BeliefArbitrated":
     case "LinksInferred":
       return [payload.memory];
-    case "MergeAdjudicated":
-      return [payload.from, payload.to];
     default:
       return [];
   }
@@ -107,7 +103,7 @@ export function buildBackgroundEvents(
       default: {
         if (isBackgroundEvent(payload.type)) {
           const ids = backgroundMemoryIds(payload);
-          // For `MergeAdjudicated` (two ids), use whichever was touched most recently.
+          // With several candidate ids, use whichever was touched most recently.
           let best: { seq: number; turnId: string; conversation: string } | null = null;
           for (const id of ids) {
             const candidate = memoryToLastTurn.get(id);

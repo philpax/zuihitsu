@@ -146,7 +146,7 @@ export class Replica {
   }
 
   /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with
-  /// its resolution state (pending, merged, or rejected) at the current fold cursor.
+  /// its resolution state (pending or merged) at the current fold cursor.
   mergeProposals(): MergeProposalView[] {
     return this.#inner.mergeProposals() as MergeProposalView[];
   }

@@ -2,7 +2,8 @@ use crate::scenarios::identity::merge::*;
 
 /// Two people share only a generic overlap (both work in software). Asked whether they are the same,
 /// the agent must not merge them — a generic match could be almost anyone. Whether it declines to
-/// propose or proposes and the adjudicator refuses, the gating outcome is the same: no merge.
+/// propose or raises a proposal that then pends for the operator, the gating outcome is the same: no
+/// `same_as` is authored.
 pub struct RefusesAGenericMerge;
 
 #[async_trait]
@@ -52,7 +53,6 @@ impl Scenario for RefusesAGenericMerge {
             )
             .with_present(&["marcus"])
             .into(),
-            EvalStep::AdjudicateCatchUp,
         ]
     }
 

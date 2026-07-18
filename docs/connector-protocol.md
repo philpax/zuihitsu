@@ -171,7 +171,7 @@ Each endpoint is either a participant (by bare id, resolved to `person/<id>@<pla
 ```
 
 - `from`, `to` — the link's endpoints. Each is `{ "participant": { "id": … } }` or `{ "context": { "scope_path": … } }`, scoped to the request's connector.
-- `relation` — the link relation, which must be registered in the ontology (`part_of`, for placement). `same_as` is refused: cross-platform identity is operator-adjudicated, never a connector's to assert.
+- `relation` — the link relation, which must be registered in the ontology (`part_of`, for placement). `same_as` is refused: cross-platform identity is operator-asserted, never a connector's to assert.
 - `remove` — `false` (or omitted) to assert the link, `true` to retract it.
 
 The edge is `Public` (a structural fact, not a told aside) and carries `LinkSource::Connector` — the request's connector, from its key — so an audit reads which connector authored it.

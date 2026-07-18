@@ -80,7 +80,7 @@ A genuinely new knob is the one exception, and it adopts its build default silen
 
 ## Prompt templates
 
-The orchestration prompt templates live in the stream as `PromptTemplateRegistered { name, version, body, source }`, materialised into a `prompt_templates` table and read back as the highest version per name. The name is a closed, build-defined enum (`PromptTemplateName`): the current set is the system-prompt scaffold, description-regen, temporal-extraction, flush, imprint, merge-adjudication, and link-inference. They are orchestration config, not agent-editable: `source: Orchestration` at genesis (an operator edit registers under `source: Operator`), never `Agent`, so the agent cannot rewrite its own regen prompt via Lua. Updating a template is a new registration with a bumped version, and old `produced_by` references keep pointing at the old version. Templates follow the same build-independence as settings (see [Build-default changes do not silently apply](#build-default-changes-do-not-silently-apply)): genesis copies the build's templates into the agent's own log, so a new default reaches only agents born after it.
+The orchestration prompt templates live in the stream as `PromptTemplateRegistered { name, version, body, source }`, materialised into a `prompt_templates` table and read back as the highest version per name. The name is a closed, build-defined enum (`PromptTemplateName`): the current set is the system-prompt scaffold, description-regen, temporal-extraction, flush, imprint, and link-inference. They are orchestration config, not agent-editable: `source: Orchestration` at genesis (an operator edit registers under `source: Operator`), never `Agent`, so the agent cannot rewrite its own regen prompt via Lua. Updating a template is a new registration with a bumped version, and old `produced_by` references keep pointing at the old version. Templates follow the same build-independence as settings (see [Build-default changes do not silently apply](#build-default-changes-do-not-silently-apply)): genesis copies the build's templates into the agent's own log, so a new default reaches only agents born after it.
 
 Prompt *content* is supplied by the build, not fixed by this document. Genesis ships build-authored templates whose wording is iterated over time, consistent with the API description being a function of the build rather than this document. The one fixed point: the entire judgement layer — sensitivity inference, "ask before writing," belief arbitration, and the third-party residual — is carried by the template wording, not by code.
 
@@ -96,7 +96,6 @@ PromptTemplateRegistered (description-regen, vN)
 PromptTemplateRegistered (temporal-extraction, vN)
 PromptTemplateRegistered (flush, vN)
 PromptTemplateRegistered (imprint, vN)
-PromptTemplateRegistered (merge-adjudication, vN)
 PromptTemplateRegistered (link-inference, vN)
 LinkTypeRegistered       (created_by / created)              -- historical origin (who made it)
 LinkTypeRegistered       (operator_of / operated_by)         -- current operatorship (whose instance this is); distinct from created_by, so operatorship can transfer without rewriting origin
@@ -132,7 +131,7 @@ Boot then classifies the log by the presence of `GenesisCompleted`, **not** by l
 2. *Log empty* → no agent yet. The server still starts (so the operator can create the agent), but there is no `self` to converse against; the operator is directed to create the agent via the console.
 3. *Log non-empty, no `GenesisCompleted`* → an interrupted genesis. Never treated as a born agent; re-running creation re-drives the whole sequence idempotently (present events no-op, missing ones emitted, the manifest hash stable across the resume). "Resume an interrupted genesis" is just "re-run creation."
 
-Once the graph is caught up, boot seeds the adjudicator and link-inference cursors to log-head, so state written before this boot is treated as already processed and a restart does not re-run those passes over it. Serving then brings up the HTTP API and the background workers (scheduler, indexer, describer, adjudicator, link-inference, idle and checkpoint sweepers, and the snapshotter), each spawned only when its prerequisites — a configured model, an embedding endpoint, or snapshotting enabled — are present.
+Once the graph is caught up, boot seeds the link-inference cursor to log-head, so state written before this boot is treated as already processed and a restart does not re-run that pass over it. Serving then brings up the HTTP API and the background workers (scheduler, indexer, describer, link-inference, idle and checkpoint sweepers, and the snapshotter), each spawned only when its prerequisites — a configured model, an embedding endpoint, or snapshotting enabled — are present.
 
 ## Imprint interview (creator self-introduction)
 

@@ -94,8 +94,8 @@ impl Recording {
             .await?;
         let duration = started.elapsed();
         // The metrics chokepoint (spec §Observability → metrics): every model call — a turn step, a
-        // flush, or a background describe/adjudicate pass — observes its latency and token usage
-        // here, so the `/control/metrics` saturation counters are complete. Independent of the
+        // flush, or a background describe pass — observes its latency and token usage here, so the
+        // `/control/metrics` saturation counters are complete. Independent of the
         // `ModelCalled` telemetry event (which is conversation-attributed and capture-gated).
         observe_model_call(duration, &response.usage);
         let duration_ms = duration.as_millis() as u64;

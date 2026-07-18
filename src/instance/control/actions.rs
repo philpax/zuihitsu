@@ -408,52 +408,35 @@ impl Control<'_> {
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
-        // Baseline the adjudicator and link-inference cursors past genesis so a synchronous caller does
-        // not re-run those passes over the seeded state. The describer needs no baseline call: the
-        // `GenesisCompleted` handler already marked the seeded `self` described in the graph
-        // materialization above, so the first describe pass over it regenerates nothing.
-        self.server.baseline_adjudicator_cursor()?;
+        // Baseline the link-inference cursor past genesis so a synchronous caller does not re-run that
+        // pass over the seeded state. The describer needs no baseline call: the `GenesisCompleted`
+        // handler already marked the seeded `self` described in the graph materialization above, so the
+        // first describe pass over it regenerates nothing.
         self.server.baseline_link_inference_cursor()?;
         Ok(outcome)
     }
 
-    /// Resolve a pending cross-platform merge proposal as the operator would from the console (spec
-    /// §Cross-platform identity → operator-asserted merge). On `accept`, author the merging `same_as`
-    /// link directly (`LinkSource::Operator`) — the console-only path to a merge that does not run
-    /// through the adjudicator, the same operator authority that lets the console assert identity the
-    /// agent's own `links.create(a, "same_as", b)` may not. On refusal, record a `MergeAdjudicated` decline (no
-    /// `produced_by` — the operator decided, not a model) so the proposal reads as settled and the
-    /// adjudicator does not weigh it again. Either way the graph is re-materialized so a subsequent read
-    /// reflects the decision.
-    pub fn resolve_merge(
-        &self,
-        from: MemoryId,
-        to: MemoryId,
-        accept: bool,
-    ) -> Result<(), InstanceError> {
+    /// Confirm a pending cross-platform merge proposal as the operator would from the console (spec
+    /// §Cross-platform identity → operator-asserted merge): author the merging `same_as` link directly
+    /// (`LinkSource::Operator`) — the console-only path to a merge, the same operator authority that
+    /// lets the console assert identity the agent's own `links.create(a, "same_as", b)` may not — and
+    /// re-materialize so a subsequent read reflects the merge. There is no decline counterpart: a
+    /// proposal has no recorded settlement of its own, so an unconvinced operator simply leaves it
+    /// pending, and nothing merges until they confirm.
+    pub fn confirm_merge(&self, from: MemoryId, to: MemoryId) -> Result<(), InstanceError> {
         let now = self.server.engine.clock.now();
-        let event = if accept {
-            EventPayload::link_created(
-                from,
-                to,
-                RelationName::SameAs,
-                LinkPosture {
-                    source: LinkSource::Operator,
-                    // No teller behind it: the operator authored this from the console, not a participant.
-                    told_by: None,
-                    told_in: None,
-                    visibility: Visibility::Public,
-                },
-            )
-        } else {
-            EventPayload::MergeAdjudicated {
-                from,
-                to,
-                accepted: false,
-                rationale: "declined by the operator".to_owned(),
-                produced_by: None,
-            }
-        };
+        let event = EventPayload::link_created(
+            from,
+            to,
+            RelationName::SameAs,
+            LinkPosture {
+                source: LinkSource::Operator,
+                // No teller behind it: the operator authored this from the console, not a participant.
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        );
         self.server
             .engine
             .store
@@ -467,7 +450,7 @@ impl Control<'_> {
 
     /// Retract an operator-asserted `same_as` merge, splitting the two identities back into their own
     /// visibility classes (spec §Cross-platform identity → operator-asserted merge). The console-only
-    /// undo of a wrong merge and the mirror of `resolve_merge`'s accept: it authors a `LinkRemoved` on
+    /// undo of a wrong merge and the mirror of `confirm_merge`: it authors a `LinkRemoved` on
     /// the `same_as` edge between the two stubs — the operator authority the agent's own turn is denied,
     /// since a `same_as` retraction is operator-only (see `change_link`) — then re-materializes so the
     /// classes split on the next read. Only a *direct* edge between exactly this pair is retractable: an

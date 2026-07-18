@@ -74,7 +74,6 @@ export function buildStepMarkers(
 export function summarizeStep(step: EvalStep): string {
   if (step === "settle") return "Settle";
   if (step === "describe_catch_up") return "DescribeCatchUp";
-  if (step === "adjudicate_catch_up") return "AdjudicateCatchUp";
   if (step === "link_inference_catch_up") return "LinkInferenceCatchUp";
   if (step === "checkpoint_sweep") return "CheckpointSweep";
 

@@ -113,20 +113,16 @@ impl std::str::FromStr for Cardinality {
     }
 }
 
-/// Who authored a link: the agent itself, an operator acting through the console, the
-/// merge-adjudication pass that accepted an agent's cross-platform proposal on the evidence, or the
+/// Who authored a link: the agent itself, an operator acting through the console, or the
 /// off-hot-path link-inference pass that extracted a relationship implicit in memory content.
-/// `Adjudicated` is the one path past the operator-only merge gate, distinguishable in the log so an
-/// audit can tell a console merge from an adjudicated one (spec §Cross-platform identity); `Inferred`
-/// marks links the background pass authored without a teller behind them (spec §Write path → link
-/// inference); `Connector` marks a structural edge a connector asserted through the platform API,
-/// carrying the connector's identifier.
+/// `Inferred` marks links the background pass authored without a teller behind them (spec §Write path
+/// → link inference); `Connector` marks a structural edge a connector asserted through the platform
+/// API, carrying the connector's identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
     Agent,
     Operator,
-    Adjudicated,
     /// A link the off-hot-path link-inference pass authored from a relationship implicit in memory
     /// content (spec §Write path → link inference).
     Inferred,
@@ -144,22 +140,19 @@ impl LinkSource {
         match self {
             LinkSource::Agent => "Agent".into(),
             LinkSource::Operator => "Operator".into(),
-            LinkSource::Adjudicated => "Adjudicated".into(),
             LinkSource::Inferred => "Inferred".into(),
             LinkSource::Connector(id) => format!("Connector({id})").into(),
         }
     }
 
     /// The lowercase provenance label, matching the entry teller register: `agent` for the agent's
-    /// own link, `operator` for one asserted from the console, `adjudicated` for a merge-pass
-    /// `same_as`, `inferred` for one the link-inference pass authored from content, `connector(<id>)`
-    /// for one a connector asserted. The wire/audit form is [`Self::as_str`] (capitalized); this is the
-    /// agent-facing Lua label.
+    /// own link, `operator` for one asserted from the console, `inferred` for one the link-inference
+    /// pass authored from content, `connector(<id>)` for one a connector asserted. The wire/audit form
+    /// is [`Self::as_str`] (capitalized); this is the agent-facing Lua label.
     pub fn as_str_lowercase(&self) -> std::borrow::Cow<'static, str> {
         match self {
             LinkSource::Agent => "agent".into(),
             LinkSource::Operator => "operator".into(),
-            LinkSource::Adjudicated => "adjudicated".into(),
             LinkSource::Inferred => "inferred".into(),
             LinkSource::Connector(id) => format!("connector({id})").into(),
         }
@@ -178,8 +171,6 @@ impl std::str::FromStr for LinkSource {
             Ok(LinkSource::Agent)
         } else if text.eq_ignore_ascii_case("operator") {
             Ok(LinkSource::Operator)
-        } else if text.eq_ignore_ascii_case("adjudicated") {
-            Ok(LinkSource::Adjudicated)
         } else if text.eq_ignore_ascii_case("inferred") {
             Ok(LinkSource::Inferred)
         } else if let Some(id) = strip_connector_label(text) {
@@ -217,10 +208,10 @@ pub struct LinkPosture {
     pub visibility: Visibility,
 }
 
-/// Who raised a `MergeProposed` — the provenance the adjudicator and operator read to weigh it (spec
-/// §Cross-platform identity). Every proposal is the agent's own judgment from a turn
-/// (`mem:propose_merge`): a recorded belief that two stubs may be one human, for the adjudicator or
-/// operator to weigh as a claim, never itself an assertion of identity.
+/// Who raised a `MergeProposed` — the provenance the operator reads to weigh it (spec §Cross-platform
+/// identity). Every proposal is the agent's own judgment from a turn (`mem:propose_merge`): a recorded
+/// belief that two stubs may be one human, for the operator to weigh as a claim, never itself an
+/// assertion of identity.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum MergeProposalSource {
@@ -251,7 +242,7 @@ impl MergeProposalSource {
 ///   records (inbound, reply, or system — the human speaker of an inbound message is carried by the
 ///   turn's `participant`/`told_by`, not the envelope source), and the `ModelCalled` deltas.
 /// - `Orchestration` — the system's autonomous machinery around and after a turn: the background
-///   passes (description synthesis, temporal resolution, link inference, merge adjudication), the
+///   passes (description synthesis, temporal resolution, link inference), the
 ///   scheduler, the boot-time embedding migration, and the identity and session plumbing (opening a
 ///   conversation, minting or joining a participant, opening and closing a session).
 /// - `Connector` — an external connector writing through the platform API surface (e.g. the Discord
@@ -387,9 +378,6 @@ pub enum PromptTemplateName {
     Flush,
     /// Frames the console imprint interview: meet the creator and form self-knowledge.
     Imprint,
-    /// Adjudicates a proposed cross-platform merge: weigh the two stubs' independently-recorded facts
-    /// against the confidences at risk and accept or refuse.
-    MergeAdjudication,
     /// Extracts relationships implicit in a memory's content and asserts them as links. The
     /// off-hot-path link-inference catch-up is gated on this template's presence: no template
     /// registered, no pass (spec §Write path → link inference).
@@ -404,7 +392,6 @@ impl PromptTemplateName {
             PromptTemplateName::TemporalExtraction => "temporal-extraction",
             PromptTemplateName::Flush => "flush",
             PromptTemplateName::Imprint => "imprint",
-            PromptTemplateName::MergeAdjudication => "merge-adjudication",
             PromptTemplateName::LinkInference => "link-inference",
         }
     }

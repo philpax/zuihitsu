@@ -1,7 +1,7 @@
 //! Turn-over-background priority at the shared model client.
 //!
-//! A participant's live turn and the off-hot-path synthesis passes (the describer, adjudicator,
-//! link-inference pass, and the idle and checkpoint flush sweeps) share one [`ModelClient`]. Without
+//! A participant's live turn and the off-hot-path synthesis passes (the describer, link-inference
+//! pass, and the idle and checkpoint flush sweeps) share one [`ModelClient`]. Without
 //! arbitration they contend on equal footing, so a busy session's describe backlog can crowd a
 //! waiting conversation turn at the shared model. The [`ModelArbiter`] restores the intended
 //! ordering: a waiting turn dispatches ahead of queued background work, and a background pass yields

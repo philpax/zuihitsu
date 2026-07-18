@@ -7,10 +7,11 @@ import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 
 /// The operator's merge-decision surface: every cross-platform merge proposal the folded log holds,
 /// each with the proposer's stated grounds, its two stubs (linked into State), and where it now stands
-/// — pending, merged, or rejected. When `onResolve` is supplied (the live agent frame at the head),
-/// a still-pending proposal carries approve/decline buttons that author the operator's call; a merged
-/// one carries an unmerge affordance (`onUnmerge`) that retracts the `same_as` — the undo of a wrong
-/// merge, splitting the two identities back apart. A merged pair also marks which stub is the class's
+/// — pending or merged. When `onResolve` is supplied (the live agent frame at the head), a
+/// still-pending proposal carries a confirm button that authors the operator's merge; leaving it
+/// unconfirmed keeps it pending. A merged one carries an unmerge affordance (`onUnmerge`) that
+/// retracts the `same_as` — the undo of a wrong merge, splitting the two identities back apart. A
+/// merged pair also marks which stub is the class's
 /// primary — the id class-level reads resolve through — and, with `onDesignatePrimary`, lets the
 /// operator pin the other stub or release a pin they set, overriding the earliest-ULID default. In the
 /// read-only eval viewer, or scrubbed back in time, the proposals render as a record without actions.
@@ -26,7 +27,7 @@ export function MergeProposals({
 }: {
   proposals: MergeProposalView[];
   cursor: number;
-  onResolve?: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
+  onResolve?: (from: MemoryId, to: MemoryId) => Promise<void>;
   onUnmerge?: (from: MemoryId, to: MemoryId) => Promise<void>;
   onDesignatePrimary?: (memory: MemoryId, designated: boolean) => Promise<void>;
 }) {
@@ -39,13 +40,13 @@ export function MergeProposals({
 
   if (proposals.length === 0) return null;
 
-  async function resolve(proposal: MergeProposalView, accept: boolean) {
+  async function resolve(proposal: MergeProposalView) {
     if (!onResolve) return;
     const key = `${proposal.from_id}:${proposal.to_id}`;
     setBusy(key);
     setError(null);
     try {
-      await onResolve(proposal.from_id, proposal.to_id, accept);
+      await onResolve(proposal.from_id, proposal.to_id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -110,11 +111,8 @@ export function MergeProposals({
 
               {pending && onResolve && (
                 <div className="mt-0.5 flex items-center gap-2">
-                  <Button primary disabled={busy !== null} onClick={() => resolve(proposal, true)}>
-                    approve merge
-                  </Button>
-                  <Button disabled={busy !== null} onClick={() => resolve(proposal, false)}>
-                    decline
+                  <Button primary disabled={busy !== null} onClick={() => resolve(proposal)}>
+                    confirm merge
                   </Button>
                   {busy === key && <Hint>working…</Hint>}
                 </div>
@@ -202,15 +200,10 @@ function PrimaryBadge({ pinned }: { pinned: boolean }) {
   );
 }
 
-/// A merge proposal's resolution state as a hairline chip — clay while it awaits a decision, sage once
-/// merged, muted once refused.
+/// A merge proposal's resolution state as a hairline chip — clay while it awaits the operator's
+/// confirmation, sage once merged.
 function StatusBadge({ status }: { status: MergeStatus }) {
-  const tone =
-    status === "pending"
-      ? "border-clay/50 text-clay"
-      : status === "merged"
-        ? "border-sage/50 text-sage"
-        : "border-line text-ink-faint";
+  const tone = status === "pending" ? "border-clay/50 text-clay" : "border-sage/50 text-sage";
   return (
     <span
       className={`rounded-xs border px-1.5 py-0.5 font-mono text-2xs tracking-wider uppercase ${tone}`}

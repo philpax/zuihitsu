@@ -80,7 +80,7 @@ async fn a_connector_places_a_channel_and_a_member_in_a_guild() {
 
 #[tokio::test]
 async fn a_connector_may_not_assert_same_as() {
-    // Cross-platform identity is operator-adjudicated: a connector asserting `same_as` is refused
+    // Cross-platform identity is operator-confirmed: a connector asserting `same_as` is refused
     // outright, never buffered as a proposal.
     let (server, _clock) = born_agent();
     let a = PersonId::new(TEST_PLATFORM, "1");

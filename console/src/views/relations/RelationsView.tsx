@@ -29,11 +29,11 @@ import {
 } from "./graphUtilities.ts";
 
 /// The operator's merge-decision hooks, supplied only by the live agent frame when the cursor is at the
-/// head — each authors an operator event, which the read-only eval viewer cannot do. `resolve` decides
+/// head — each authors an operator event, which the read-only eval viewer cannot do. `resolve` confirms
 /// a pending proposal; `unmerge` retracts a merge that was already made, splitting the class back apart;
 /// `designatePrimary` pins (or releases) which stub a merged class resolves through.
 export interface MergeControls {
-  resolve: (from: MemoryId, to: MemoryId, accept: boolean) => Promise<void>;
+  resolve: (from: MemoryId, to: MemoryId) => Promise<void>;
   unmerge: (from: MemoryId, to: MemoryId) => Promise<void>;
   designatePrimary: (memory: MemoryId, designated: boolean) => Promise<void>;
 }
@@ -136,7 +136,7 @@ export function RelationsView({
   return (
     <div className="flex flex-col gap-4">
       {/* The cross-platform merge proposals derived from the folded log — the operator's identity
-          adjudication surface, above the relation graph the merges reshape. */}
+          confirmation surface, above the relation graph the merges reshape. */}
       <MergeProposals
         proposals={proposals}
         cursor={cursor}

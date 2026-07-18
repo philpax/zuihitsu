@@ -11,7 +11,7 @@
 //! serializer, so numbers land as JS numbers rather than `BigInt` — matching the ts-rs bindings,
 //! which type `Seq` and the timestamps as `number`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -182,53 +182,39 @@ impl Replica {
     }
 
     /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with
-    /// where it now stands — pending, merged, or rejected (spec §Cross-platform identity → adjudicated
-    /// merge). `MergeProposed`/`MergeAdjudicated` are log-only, so this reads them from the events (up to
-    /// the fold horizon) and resolves the resolution: an accepted or operator merge shows as a shared
-    /// `same_as` class in the graph, a refusal as the latest `MergeAdjudicated` verdict, everything else
-    /// as still pending. A pair is keyed by its canonical (order-independent) form since `same_as` is
-    /// symmetric, but the first proposal's direction and stated grounds are kept for a stable display.
+    /// where it now stands — pending or merged (spec §Cross-platform identity). `MergeProposed` is
+    /// log-only, so this reads it from the events (up to the fold horizon) and resolves the outcome: an
+    /// operator merge shows as a shared `same_as` class in the graph, everything else as still pending —
+    /// a proposal pends until the operator confirms it. A pair is keyed by its canonical
+    /// (order-independent) form since `same_as` is symmetric, but the first proposal's direction and
+    /// stated grounds are kept for a stable display.
     #[wasm_bindgen(js_name = mergeProposals)]
     pub fn merge_proposals(&self) -> Result<JsValue, JsError> {
         let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
         let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
         let mut rationale: BTreeMap<(MemoryId, MemoryId), Option<String>> = BTreeMap::new();
-        // The pairs whose latest adjudication verdict refused the merge; an accept clears it.
-        let mut refused: BTreeSet<(MemoryId, MemoryId)> = BTreeSet::new();
         for event in self.events.iter().filter(|event| event.seq <= self.head) {
-            match &event.payload {
-                EventPayload::MergeProposed {
-                    from,
-                    to,
-                    source: raised_by,
-                    rationale: grounds,
-                } => {
-                    let pair = canonical_pair(*from, *to);
-                    match rationale.get_mut(&pair) {
-                        // A later proposal fills a rationale an earlier bare one lacked; a bare
-                        // re-proposal never erases stated grounds already recorded.
-                        Some(existing) if existing.is_none() && grounds.is_some() => {
-                            *existing = grounds.clone();
-                        }
-                        Some(_) => {}
-                        None => {
-                            order.push((*from, *to));
-                            source.insert(pair, *raised_by);
-                            rationale.insert(pair, grounds.clone());
-                        }
+            if let EventPayload::MergeProposed {
+                from,
+                to,
+                source: raised_by,
+                rationale: grounds,
+            } = &event.payload
+            {
+                let pair = canonical_pair(*from, *to);
+                match rationale.get_mut(&pair) {
+                    // A later proposal fills a rationale an earlier bare one lacked; a bare
+                    // re-proposal never erases stated grounds already recorded.
+                    Some(existing) if existing.is_none() && grounds.is_some() => {
+                        *existing = grounds.clone();
+                    }
+                    Some(_) => {}
+                    None => {
+                        order.push((*from, *to));
+                        source.insert(pair, *raised_by);
+                        rationale.insert(pair, grounds.clone());
                     }
                 }
-                EventPayload::MergeAdjudicated {
-                    from, to, accepted, ..
-                } => {
-                    let pair = canonical_pair(*from, *to);
-                    if *accepted {
-                        refused.remove(&pair);
-                    } else {
-                        refused.insert(pair);
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -248,8 +234,6 @@ impl Replica {
             let merged = from_class.is_some() && from_class == to_class;
             let status = if merged {
                 MergeStatus::Merged
-            } else if refused.contains(&pair) {
-                MergeStatus::Rejected
             } else {
                 MergeStatus::Pending
             };
@@ -624,8 +608,8 @@ fn graph_error(error: zuihitsu_core::graph::GraphError) -> JsError {
     JsError::new(&format!("console: {error}"))
 }
 
-/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
-/// adjudication key on the same canonical pair regardless of which stub each named first.
+/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal keys on
+/// the same canonical pair regardless of which stub each named first.
 fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {
     if from <= to { (from, to) } else { (to, from) }
 }

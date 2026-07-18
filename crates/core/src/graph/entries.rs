@@ -91,9 +91,9 @@ impl Graph {
     }
 
     /// The recorded facts of the non-person memories this person *owns* — the [`Namespace::Event`]
-    /// memories and the like reached by the links off their class — so a merge adjudication can weigh
+    /// memories and the like reached by the links off their class — so a reader weighing a merge can see
     /// the specifics the agent filed on separate event memories, not only the facts written directly
-    /// on the stub (spec §Cross-platform identity → adjudicated merge). Other [`Namespace::Person`]
+    /// on the stub (spec §Cross-platform identity). Other [`Namespace::Person`]
     /// memories the person is merely linked to (a friend, a mentor) are excluded: those are someone
     /// else's facts, not this person's identity, and pulling them in would weigh a stranger's
     /// confidences in the wrong person's merge.

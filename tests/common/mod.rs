@@ -89,7 +89,7 @@ mod harness {
         MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId,
         TurnRecord, TurnRole, TurnView, VectorIndex, append_turn,
         model::index::{apply_batch, embed_batch},
-        run_adjudicate_catch_up, run_describe_catch_up, run_link_inference_catch_up,
+        run_describe_catch_up, run_link_inference_catch_up,
     };
 
     use super::time::TEST_NOW;
@@ -123,7 +123,6 @@ mod harness {
         /// catches every stale memory up, and [`Harness::baseline_descriptions`] marks the current
         /// stale set described so a later catch-up never reconsiders the seeded `self`.
         describe_guard: tokio::sync::Mutex<()>,
-        adjudicator_cursor: Cell<Seq>,
         link_inference_cursor: Cell<Seq>,
     }
 
@@ -145,7 +144,6 @@ mod harness {
                 inbound_batch: Vec::new(),
                 participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
-                adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
             }
         }
@@ -183,7 +181,6 @@ mod harness {
                 inbound_batch: Vec::new(),
                 participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
-                adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
             }
         }
@@ -205,7 +202,6 @@ mod harness {
                 inbound_batch: Vec::new(),
                 participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
-                adjudicator_cursor: Cell::new(Seq::ZERO),
                 link_inference_cursor: Cell::new(Seq::ZERO),
             }
         }
@@ -263,17 +259,6 @@ mod harness {
             run_describe_catch_up(&self.engine, model, &self.describe_guard)
                 .await
                 .unwrap();
-        }
-
-        /// Run the merge-adjudication catch-up over the proposals written since its cursor — the
-        /// off-hot-path pass the server's background adjudicator does, driven explicitly. Weighs each
-        /// proposed merge and, on acceptance, authors the `same_as`, advancing the cursor.
-        pub async fn adjudicate(&self, model: &dyn ModelClient) {
-            let (advanced, _) =
-                run_adjudicate_catch_up(&self.engine, model, self.adjudicator_cursor.get())
-                    .await
-                    .unwrap();
-            self.adjudicator_cursor.set(advanced);
         }
 
         /// Run the link-inference catch-up over everything written since its cursor — the off-hot-path

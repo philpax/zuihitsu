@@ -1,7 +1,7 @@
 //! The off-hot-path link inference: for each memory whose content changed, identify relationships
 //! implicit in the content and assert them as links (spec §Write path → link inference).
 //!
-//! A sibling to the describer and adjudicator passes — a separate catch-up rather than an extra duty
+//! A sibling to the describer pass — a separate catch-up rather than an extra duty
 //! bolted onto the description-regen prompt, so one focused model call extracts relationships while
 //! the description call stays on its own concern. It reads each written memory's Public entries
 //! (private asides never become graph edges here), its existing links (to avoid duplicates), and the
@@ -9,9 +9,10 @@
 //! link the memory to one of the candidate target memories. New relations are registered before the
 //! links of that type are created. The model never invents ids: it names handles, and the pass
 //! resolves each via `memory_by_name`, skipping one it cannot resolve (an unresolved entity is not a
-//! link to create, never a new memory). The pass never infers `same_as` — those flow through the
-//! adjudication gate, not here — and carries no teller behind its links, like the adjudicated
-//! `same_as`. Idempotent: a duplicate `LinkCreated` is a graph no-op (`INSERT OR IGNORE`), a
+//! link to create, never a new memory). The pass never infers `same_as` — a `same_as` is not this
+//! pass's to propose; identity merges are proposed for the operator to confirm — and it carries no
+//! teller behind its links, like an operator-authored `same_as`. Idempotent: a duplicate `LinkCreated`
+//! is a graph no-op (`INSERT OR IGNORE`), a
 //! `LinkTypeRegistered` is an upsert, and the cursor advance keeps a window from being re-scanned.
 
 mod argument;
@@ -49,7 +50,7 @@ const CANDIDATE_CAP: usize = 100;
 /// commit any new relation registrations and links. Returns the head it advanced to and how many
 /// memories it considered. Gated by the `LinkInference` template existing — no template, no-op — so
 /// the feature is toggled by whether its prompt is registered. The cursor always advances to `head`
-/// regardless of the toggle, matching the describer and adjudicator precedents, so a toggled-off
+/// regardless of the toggle, matching the describer precedent, so a toggled-off
 /// pass does not re-scan the window. Idempotent: re-running from the same cursor produces no new
 /// events.
 pub async fn run_link_inference_catch_up(
@@ -71,8 +72,8 @@ pub async fn run_link_inference_catch_up(
 /// registered relations, ask the model to identify relationships in one schema-constrained call, and
 /// commit any new registrations and links in one batch. A memory with no Public entries is skipped;
 /// a model failure on one memory is logged and leaves it unchanged rather than failing the rest. The
-/// feature toggle lives here, inside the inner function, matching the adjudicate and describe
-/// precedents: no `LinkInference` template registered, the pass emits no events.
+/// feature toggle lives here, inside the inner function, matching the describe precedent: no
+/// `LinkInference` template registered, the pass emits no events.
 async fn infer_links(
     model: &dyn ModelClient,
     engine: &Engine,

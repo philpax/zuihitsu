@@ -21,8 +21,8 @@ pub enum InstanceError {
     Store(StoreError),
     Graph(GraphError),
     /// A turn (the agent loop) failed while routing a message. `conversation` is `Some` for a
-    /// routed turn or flush (the common case) and `None` for a background catch-up (describe/
-    /// adjudicate), which spans all conversations rather than one.
+    /// routed turn or flush (the common case) and `None` for a background catch-up (describe), which
+    /// spans all conversations rather than one.
     Turn {
         conversation: Option<ConversationId>,
         error: TurnError,

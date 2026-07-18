@@ -1,7 +1,7 @@
 //! Control inspection: read-only views of the agent's state — memories, entries, sessions, events,
 //! model calls, settings, and metrics gauges.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::{
     agent::genesis::{self, GenesisStatus},
@@ -74,43 +74,28 @@ impl Control<'_> {
     }
 
     /// The cross-platform merge proposals still awaiting the operator, in first-proposal order (spec
-    /// §Cross-platform identity → adjudicated merge). A proposal whose two stubs now share a `same_as`
-    /// class has been merged (by the adjudicator or an operator) and drops off; every other proposal —
-    /// unweighed, or weighed and refused — stays, so the operator's backstop never silently loses one.
-    /// `MergeProposed`/`MergeAdjudicated` are log-only, so this reads them from the log and resolves the
-    /// current class membership from the graph.
+    /// §Cross-platform identity). A proposal whose two stubs now share a `same_as` class has been merged
+    /// (by the operator) and drops off; every other proposal stays pending, so the operator's backstop
+    /// never silently loses one. `MergeProposed` is log-only, so this reads it from the log and resolves
+    /// the current class membership from the graph.
     pub fn merge_proposals(&self) -> Result<Vec<MergeProposal>, InstanceError> {
         let events = self.server.engine.store.lock().read_from(Seq::ZERO)?;
         // Track each pair by its canonical key (`same_as` is symmetric) for settlement matching, but
         // keep the original `(from, to)` order of the first proposal for a stable display direction.
         let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
         let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
-        let mut refused: BTreeSet<(MemoryId, MemoryId)> = BTreeSet::new();
         for event in events {
-            match event.payload {
-                EventPayload::MergeProposed {
-                    from,
-                    to,
-                    source: raised_by,
-                    ..
-                } => {
-                    let pair = canonical_pair(from, to);
-                    if source.insert(pair, raised_by).is_none() {
-                        order.push((from, to));
-                    }
+            if let EventPayload::MergeProposed {
+                from,
+                to,
+                source: raised_by,
+                ..
+            } = event.payload
+            {
+                let pair = canonical_pair(from, to);
+                if source.insert(pair, raised_by).is_none() {
+                    order.push((from, to));
                 }
-                EventPayload::MergeAdjudicated {
-                    from, to, accepted, ..
-                } => {
-                    let pair = canonical_pair(from, to);
-                    // The latest verdict wins: an accept clears a prior refusal, a refusal marks it.
-                    if accepted {
-                        refused.remove(&pair);
-                    } else {
-                        refused.insert(pair);
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -133,7 +118,6 @@ impl Control<'_> {
                 from: name(from)?,
                 to: name(to)?,
                 source: source[&pair],
-                refused: refused.contains(&pair),
             });
         }
         Ok(out)
@@ -231,9 +215,6 @@ impl Control<'_> {
         );
         // Read through the graph guard already held above — the graph lock is not reentrant.
         let describer_backlog = graph.stale_memory_count()?;
-        let adjudicator_lag = head
-            .0
-            .saturating_sub(self.server.adjudicator_cursor_value().0);
         let indexer_lag = self.server.engine.retrieval.as_ref().map(|retrieval| {
             retrieval
                 .vectors
@@ -242,7 +223,7 @@ impl Control<'_> {
                 .map(|cursor| head.0.saturating_sub(cursor.0))
                 .unwrap_or(head.0)
         });
-        set_lag(indexer_lag, describer_backlog, adjudicator_lag);
+        set_lag(indexer_lag, describer_backlog);
         let (servers_up, tools_total) = self
             .server
             .mcp

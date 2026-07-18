@@ -68,14 +68,14 @@ impl MemoryBlock {
         self.change_link(from, to, relation, false, None)
     }
 
-    /// Propose that two stubs are the same human across platforms, for the adjudication pass to weigh
-    /// (spec §Cross-platform identity → adjudicated merge). This is *not* a merge: it buffers an inert
-    /// `MergeProposed` — no `same_as`, no class change, nothing surfaces across the would-be merge — so
-    /// the agent records its judgment without itself collapsing two identities' visibility. `rationale`
-    /// carries the proposer's stated grounds for the coincidence, if any, which the adjudicator weighs
-    /// against the two stubs' independently-recorded facts. A proposal naming one memory twice is
-    /// rejected as a teachable error; everything else (whether the two are truly the same) is the
-    /// adjudicator's call, on the evidence.
+    /// Propose that two stubs are the same human across platforms, for the operator to weigh and confirm
+    /// (spec §Cross-platform identity). This is *not* a merge: it buffers an inert `MergeProposed` — no
+    /// `same_as`, no class change, nothing surfaces across the would-be merge — so the agent records its
+    /// judgment without itself collapsing two identities' visibility. `rationale` carries the proposer's
+    /// stated grounds for the coincidence, if any, which the operator weighs against the two stubs'
+    /// independently-recorded facts. A proposal naming one memory twice is rejected as a teachable
+    /// error; everything else (whether the two are truly the same) is the operator's call, on the
+    /// evidence — nothing merges until the operator confirms it.
     pub fn propose_merge(
         &mut self,
         from: MemoryId,
@@ -251,7 +251,7 @@ impl MemoryBlock {
         // the agent into merging (or splitting) two identities, which would collapse their visibility
         // classes (spec §Cross-platform identity is operator-asserted only). The agent nonetheless reads
         // for `link("same_as", other)` as "these are the same person" — its stated intent is a merge —
-        // so a create routes to the proposal path (an inert `MergeProposed` the adjudication pass weighs)
+        // so a create routes to the proposal path (an inert `MergeProposed` the operator confirms)
         // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
         // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
         if relation == RelationName::SameAs && self.authority == Authority::Platform {
@@ -264,8 +264,8 @@ impl MemoryBlock {
         self.guard_self(from)?;
         self.guard_self(to)?;
         // Operator-authored links carry operator provenance; the agent's own carry `Agent`. (The
-        // adjudicated `same_as` is authored by the merge-adjudication pass directly, not through a block,
-        // so it never reaches this seam — see `LinkSource::Adjudicated`.)
+        // merging `same_as` is authored by the operator's console merge directly, not through a block,
+        // so it never reaches this seam — it carries `LinkSource::Operator`.)
         let source = match self.authority {
             Authority::Operator => LinkSource::Operator,
             Authority::Platform => LinkSource::Agent,

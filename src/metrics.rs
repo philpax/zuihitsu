@@ -73,7 +73,6 @@ pub const TAG_COUNT: &str = "zuihitsu_tag_count";
 pub const RELATION_COUNT: &str = "zuihitsu_relation_count";
 pub const INDEXER_LAG_SEQ: &str = "zuihitsu_indexer_lag_seq";
 pub const DESCRIBER_STALE_MEMORIES: &str = "zuihitsu_describer_stale_memories";
-pub const ADJUDICATOR_LAG_SEQ: &str = "zuihitsu_adjudicator_lag_seq";
 pub const MCP_SERVERS_UP: &str = "zuihitsu_mcp_servers_up";
 pub const MCP_TOOLS_TOTAL: &str = "zuihitsu_mcp_tools_total";
 
@@ -179,10 +178,6 @@ pub fn describe() {
         "The background describer's backlog: memories whose content has changed since they were \
          last described."
     );
-    describe_gauge!(
-        ADJUDICATOR_LAG_SEQ,
-        "How far the background adjudicator trails the log head, in seqs."
-    );
     describe_gauge!(MCP_SERVERS_UP, "MCP servers brought up at boot.");
     describe_gauge!(
         MCP_TOOLS_TOTAL,
@@ -209,7 +204,7 @@ pub fn observe_turn_error(category: &str, cause: &str, duration: Duration) {
 }
 
 /// Observe a failure in a background worker pass (no turn-duration entry). Categories are `describe`,
-/// `adjudicate`, `indexer`, `scheduler`, `sweep`.
+/// `indexer`, `scheduler`, `sweep`.
 pub fn observe_worker_error(category: &str) {
     counter!(ERRORS_TOTAL, "category" => category.to_string(), "cause" => "none").increment(1);
 }
@@ -354,12 +349,11 @@ pub fn set_graph_counts(memories: u64, entries: u64, links: u64, tags: usize, re
 }
 
 /// Set the worker-lag gauges. `indexer_lag` is `None` on a graph-only instance (no embedder).
-pub fn set_lag(indexer_lag: Option<u64>, describer_backlog: u64, adjudicator_lag: u64) {
+pub fn set_lag(indexer_lag: Option<u64>, describer_backlog: u64) {
     if let Some(lag) = indexer_lag {
         gauge!(INDEXER_LAG_SEQ).set(lag as f64);
     }
     gauge!(DESCRIBER_STALE_MEMORIES).set(describer_backlog as f64);
-    gauge!(ADJUDICATOR_LAG_SEQ).set(adjudicator_lag as f64);
 }
 
 /// Set the MCP-health gauges.
@@ -459,7 +453,7 @@ mod tests {
             set_sessions_active(1);
             set_head_seq(1);
             set_graph_counts(1, 1, 1, 1, 1);
-            set_lag(Some(1), 1, 1);
+            set_lag(Some(1), 1);
             set_mcp(1, 1);
         });
         for name in [
@@ -498,7 +492,6 @@ mod tests {
             RELATION_COUNT,
             INDEXER_LAG_SEQ,
             DESCRIBER_STALE_MEMORIES,
-            ADJUDICATOR_LAG_SEQ,
             MCP_SERVERS_UP,
             MCP_TOOLS_TOTAL,
         ] {

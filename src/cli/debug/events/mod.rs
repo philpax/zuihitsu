@@ -298,14 +298,6 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
                 name(to)
             )
         }
-        EventPayload::MergeAdjudicated {
-            from, to, accepted, ..
-        } => format!(
-            "merge {}: {} → {}",
-            if *accepted { "accepted" } else { "refused" },
-            name(from),
-            name(to)
-        ),
         EventPayload::ModelCalled { phase, .. } => format!("{phase:?}"),
         EventPayload::ModelCallAborted { attempt, cause, .. } => {
             format!("attempt {attempt} discarded: {cause}")
@@ -414,7 +406,6 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         // Belief arbitration and merges.
         EventPayload::BeliefArbitrated { .. }
         | EventPayload::MergeProposed { .. }
-        | EventPayload::MergeAdjudicated { .. }
         | EventPayload::LinksInferred { .. }
         | EventPayload::DescribePassCompleted { .. } => AnsiColor::Magenta,
         // Telemetry and structural or config events — the quiet background.

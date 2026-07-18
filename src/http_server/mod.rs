@@ -38,9 +38,9 @@ use zuihitsu::{
 use auth::{require_control_key, require_platform_key};
 use console::{ShutdownFlag, console, ensure_parent_dir};
 use control::{
-    arbitrations, create_agent, designate_primary, edit_self, entries, env_config, events, genesis,
-    health, imprint, interactions, lua_api, memories, memory, merge_proposals, metrics, recurring,
-    register_prompt, resolve_merge, retract_entry, run_lua, sessions, set_settings, settings,
+    arbitrations, confirm_merge, create_agent, designate_primary, edit_self, entries, env_config,
+    events, genesis, health, imprint, interactions, lua_api, memories, memory, merge_proposals,
+    metrics, recurring, register_prompt, retract_entry, run_lua, sessions, set_settings, settings,
     snapshot as snapshot_handler, unmerge,
 };
 use platform::{join, link, message, message_stream, project, roster, write_context};
@@ -95,14 +95,9 @@ const INDEX_TICK_SECONDS: u64 = 5;
 /// fresh without a per-turn cost; an idle tick is cheap.
 const DESCRIBE_TICK_SECONDS: u64 = 5;
 
-/// How often the background adjudicator weighs proposed merges (spec §Cross-platform identity →
-/// adjudicated merge). Proposals are rare, so this polls less eagerly than the describer; an idle tick
-/// is cheap (a head check against the cursor).
-const ADJUDICATE_TICK_SECONDS: u64 = 7;
-
 /// How often the background link-inference pass extracts relationships implicit in memory content
-/// (spec §Write path → link inference). Like the adjudicator, it runs off the hot path and an idle
-/// tick is cheap (a head check against the cursor).
+/// (spec §Write path → link inference). It runs off the hot path and an idle tick is cheap (a head
+/// check against the cursor).
 const LINK_INFERENCE_TICK_SECONDS: u64 = 7;
 
 /// How often the background idle sweep closes-with-flush sessions idle past the gap, so a conversation
@@ -314,26 +309,6 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
-    // The background adjudicator weighs proposed cross-platform merges off the hot path (spec
-    // §Cross-platform identity → adjudicated merge). Spawned only when a model is configured; without
-    // one there is no judge to run.
-    let adjudicator = arbiter.as_ref().map(|arbiter| {
-        tokio::spawn({
-            let server = server.clone();
-            let model = arbiter.background();
-            let shutdown = shutdown.clone();
-            async move {
-                server
-                    .run_adjudicator(
-                        model,
-                        Duration::from_secs(ADJUDICATE_TICK_SECONDS),
-                        shutdown.wait(),
-                    )
-                    .await
-            }
-        })
-    });
-
     // The background link-inference pass extracts relationships implicit in memory content off the hot
     // path (spec §Write path → link inference). Spawned only when a model is configured; without one
     // there is nothing to run the extraction call.
@@ -477,9 +452,6 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     if let Some(describer) = describer {
         let _ = describer.await;
     }
-    if let Some(adjudicator) = adjudicator {
-        let _ = adjudicator.await;
-    }
     if let Some(link_inference) = link_inference {
         let _ = link_inference.await;
     }
@@ -517,7 +489,7 @@ fn router(state: AppState) -> Router {
         .route("/recurring", get(recurring))
         .route("/arbitrations", get(arbitrations))
         .route("/merge-proposals", get(merge_proposals))
-        .route("/merge", post(resolve_merge))
+        .route("/merge", post(confirm_merge))
         .route("/unmerge", post(unmerge))
         .route("/designate-primary", post(designate_primary))
         .route("/interactions", get(interactions))

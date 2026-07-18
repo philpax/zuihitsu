@@ -171,7 +171,7 @@ pub(crate) fn make_link_handle(
     table.set("direction", link_direction_label(link.direction))?;
     table.set("source", link.source.as_str_lowercase())?;
     // The teller who asserted the relationship, for a belief-bearing relation; absent (`nil`) for a
-    // link with no teller behind it, like the adjudicated `same_as`.
+    // link with no teller behind it, like an operator-authored `same_as`.
     if let Some(told_by) = &link.told_by {
         table.set("told_by", told_by.as_str())?;
     }

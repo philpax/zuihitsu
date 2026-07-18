@@ -1,5 +1,5 @@
 //! Identity: keeping one person one record across the ways their identity is asserted — an
-//! adjudicated cross-platform merge (`merge`), a second name landing on the existing operator
+//! operator-confirmed cross-platform merge (`merge`), a second name landing on the existing operator
 //! profile (`operator`), and a rename that must hold on later recall (`rename`).
 
 pub(crate) mod merge;

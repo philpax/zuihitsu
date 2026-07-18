@@ -271,7 +271,7 @@ pub fn memory_renamed(events: &[Event]) -> bool {
 }
 
 /// Whether the agent proposed a cross-platform merge (a `MergeProposed`) — the agent's judgment that
-/// two stubs may be one person, before any adjudication.
+/// two stubs may be one person, which pends for the operator to confirm.
 pub fn merge_proposed(events: &[Event]) -> bool {
     events
         .iter()
@@ -279,9 +279,9 @@ pub fn merge_proposed(events: &[Event]) -> bool {
 }
 
 /// Whether the agent proposed a cross-platform merge *and stated its grounds* — a `MergeProposed`
-/// carrying a non-empty rationale, the coincidence the agent reasoned from, which the adjudicator reads
-/// as the proposer's claim and weighs against the recorded facts. Stricter than [`merge_proposed`],
-/// which counts a bare proposal too: this asserts the agent said *why*.
+/// carrying a non-empty rationale, the coincidence the agent reasoned from, which the operator reads
+/// as the proposer's claim when weighing the merge. Stricter than [`merge_proposed`], which counts a
+/// bare proposal too: this asserts the agent said *why*.
 pub fn merge_proposed_with_rationale(events: &[Event]) -> bool {
     events.iter().any(|event| {
         matches!(
@@ -292,24 +292,28 @@ pub fn merge_proposed_with_rationale(events: &[Event]) -> bool {
 }
 
 /// The agent's responding replies recorded after the first cross-platform merge was proposed and before
-/// the first adjudication settled it — the window in which the two stubs are proposed-but-not-yet-merged.
-/// A reply here that already treats the two as one person is premature merged awareness: the gate exists
-/// precisely so nothing crosses the would-be merge until an adjudication (or the operator) accepts it. An
-/// initiated turn (a flush, a wake-up) is not a reply, so only `Responding` turns count. Empty when no
-/// merge was proposed (nothing to check), and open-ended when a proposal was never adjudicated.
-pub fn replies_between_proposal_and_adjudication(events: &[Event]) -> Vec<&str> {
+/// the first `same_as` merge landed — the window in which the two stubs are proposed-but-not-yet-merged.
+/// A reply here that already treats the two as one person is premature merged awareness: a proposal is
+/// inert precisely so nothing crosses the would-be merge until the operator confirms it. An initiated
+/// turn (a flush, a wake-up) is not a reply, so only `Responding` turns count. Empty when no merge was
+/// proposed (nothing to check), and open-ended when the operator never confirmed the merge.
+pub fn replies_between_proposal_and_merge(events: &[Event]) -> Vec<&str> {
     let Some(proposed_at) = events.iter().find_map(|event| {
         matches!(&event.payload, EventPayload::MergeProposed { .. }).then_some(event.seq)
     }) else {
         return Vec::new();
     };
-    let adjudicated_at = events.iter().find_map(|event| {
-        matches!(&event.payload, EventPayload::MergeAdjudicated { .. }).then_some(event.seq)
+    let merged_at = events.iter().find_map(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::LinkCreated { relation, .. } if relation.as_str() == "same_as"
+        )
+        .then_some(event.seq)
     });
     events
         .iter()
-        .filter(|event| match adjudicated_at {
-            Some(settled) => event.seq > proposed_at && event.seq < settled,
+        .filter(|event| match merged_at {
+            Some(landed) => event.seq > proposed_at && event.seq < landed,
             None => event.seq > proposed_at,
         })
         .filter_map(|event| match &event.payload {
@@ -324,15 +328,15 @@ pub fn replies_between_proposal_and_adjudication(events: &[Event]) -> Vec<&str> 
         .collect()
 }
 
-/// Whether the run actually merged two stubs: an adjudication accepted *and* authored the `same_as`
-/// (`source = Adjudicated`). This is the surfacing-changing outcome — distinct from merely proposing,
-/// which is inert.
+/// Whether the run actually merged two stubs: a `same_as` link was authored between them, however it
+/// happened (the operator confirming a proposal). This is the surfacing-changing outcome — distinct from
+/// merely proposing, which is inert.
 pub fn merge_committed(events: &[Event]) -> bool {
     events.iter().any(|event| {
         matches!(
             &event.payload,
-            EventPayload::LinkCreated { relation, source, .. }
-                if relation.as_str() == "same_as" && source.as_str() == "Adjudicated"
+            EventPayload::LinkCreated { relation, .. }
+                if relation.as_str() == "same_as"
         )
     })
 }

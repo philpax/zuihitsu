@@ -162,16 +162,14 @@ pub enum EventPayload {
         produced_by: Option<ProducedBy>,
     },
     /// A judgment that two [`Namespace::Person`] stubs may be the same human across platforms,
-    /// recorded for the off-hot-path adjudication pass to weigh (spec §Cross-platform identity →
-    /// adjudicated merge).
+    /// recorded so the operator can weigh it and confirm the merge (spec §Cross-platform identity).
     /// `source` records who raised it: the agent from a turn (`mem:propose_merge`), or the
     /// identity-resolution orchestration when a platform arrival's handle matched an existing but
-    /// platform-unbound stub. `rationale` carries the proposer's stated grounds for the adjudicator to
-    /// weigh against the evidence, when the agent gave any. Deliberately *not* a `same_as` link and not
-    /// projected into the graph: a proposal is inert — it leaves both stubs in their own classes and
-    /// surfaces nothing — so nothing
-    /// crosses the would-be merge until an adjudication accepts it, and an orchestration proposal in
-    /// particular never asserts identity from a bare handle match.
+    /// platform-unbound stub. `rationale` carries the proposer's stated grounds for the operator to
+    /// weigh, when the agent gave any. Deliberately *not* a `same_as` link and not projected into the
+    /// graph: a proposal is inert — it leaves both stubs in their own classes and surfaces nothing — so
+    /// nothing crosses the would-be merge until the operator confirms it, and an orchestration proposal
+    /// in particular never asserts identity from a bare handle match.
     MergeProposed {
         from: MemoryId,
         to: MemoryId,
@@ -180,26 +178,12 @@ pub enum EventPayload {
         #[serde(default)]
         source: MergeProposalSource,
         /// The proposer's stated grounds for the match, if any — the coincidence the agent reasoned
-        /// from (a shared wedding, the same volcanology trip). The adjudication pass reads it as the
-        /// proposer's *claim*, not as evidence, weighing it against the two stubs' independently-recorded
-        /// facts rather than rubber-stamping it. `None` for a proposal with no stated grounds — an
-        /// orchestration handle match, or a `same_as`-via-link routed here — and defaulted so
-        /// version-2 payloads (written before the field existed) replay without one.
+        /// from (a shared wedding, the same volcanology trip). The operator reads it as the proposer's
+        /// *claim* when weighing whether to confirm the merge. `None` for a proposal with no stated
+        /// grounds — an orchestration handle match, or a `same_as`-via-link routed here — and defaulted
+        /// so version-2 payloads (written before the field existed) replay without one.
         #[serde(default)]
         rationale: Option<String>,
-    },
-    /// The adjudication pass's verdict on a `MergeProposed`: whether the two stubs' independently-
-    /// recorded facts coincide improbably enough to be one person, given the confidences at risk (spec
-    /// §Cross-platform identity → adjudicated merge). A log-only audit record carrying the reasoning. On
-    /// `accepted`, the pass also authors the `same_as` link (`LinkSource::Adjudicated`) that actually
-    /// merges; on refusal, the proposal stands recorded for the operator backstop. `produced_by` records
-    /// the inference, so a refusal is replayable and a wrong accept is auditable.
-    MergeAdjudicated {
-        from: MemoryId,
-        to: MemoryId,
-        accepted: bool,
-        rationale: String,
-        produced_by: Option<ProducedBy>,
     },
     /// Records the operator's choice of a `same_as` class's primary stub — the id class-level facts and
     /// reads resolve through. Without a designation the primary is derived by earliest ULID (whichever
@@ -282,9 +266,9 @@ pub enum EventPayload {
     /// asserted under either label produces the same stored edge. `told_by` is the teller who asserted
     /// the relationship — the provenance an asymmetric-belief relation turns on (who claims that the
     /// edge holds), carried for every link the same way an entry carries its teller. `None` for a link
-    /// with no teller behind it (the adjudicated `same_as`), and for pre-provenance logs that predate
-    /// the field (`#[serde(default)]`). `visibility` is the audience posture — `Public` for
-    /// structural/operator/adjudicated links, `PrivateToTeller` for a participant-asserted belief about
+    /// with no teller behind it (an operator-authored `same_as`), and for pre-provenance logs that
+    /// predate the field (`#[serde(default)]`). `visibility` is the audience posture — `Public` for
+    /// structural and operator links, `PrivateToTeller` for a participant-asserted belief about
     /// someone else, `Attributed` for a secondhand relayed relationship. Defaults to `Public` for
     /// pre-visibility logs. `told_in` carries the [`ConversationRef`] (turn or room) the link was
     /// asserted in, mirroring content entries' `told_in` — the provenance a teller-private marker's

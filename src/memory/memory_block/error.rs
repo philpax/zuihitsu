@@ -53,8 +53,8 @@ pub enum MemoryError {
     /// `person/<name>` profile, which is merged into it — so the anchor stays a pure merge target.
     OperatorWriteForbidden,
     /// A platform-authority write tried to assert or retract a `same_as` merge directly. The agent
-    /// never authors a `same_as` from a turn — it `propose_merge`s, and the adjudication pass (or the
-    /// operator) decides; a retraction is operator-only.
+    /// never authors a `same_as` from a turn — it `propose_merge`s, and the operator confirms; a
+    /// retraction is operator-only.
     MergeForbidden,
     /// A merge proposal named the same memory twice — there is nothing to merge.
     MergeProposalInvalid,

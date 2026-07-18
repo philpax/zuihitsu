@@ -19,7 +19,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 21,
+            version: 22,
             body: scaffold_body(features),
         },
         TemplateDef {
@@ -45,17 +45,12 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             version: 2,
             body: body_of(include_str!("turn/imprint.md")),
         },
-        TemplateDef {
-            name: PromptTemplateName::MergeAdjudication,
-            version: 1,
-            body: body_of(include_str!("adjudication/merge_adjudication.md")),
-        },
         // A coined directional relation is easy to link the wrong way round, so the body has the
         // model restate the edge against each relation's rendered sentence reading before choosing
         // `direction`.
         TemplateDef {
             name: PromptTemplateName::LinkInference,
-            version: 3,
+            version: 4,
             body: body_of(include_str!("synthesis/link_inference.md")),
         },
     ]

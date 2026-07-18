@@ -354,9 +354,9 @@ pub(super) fn install_handle_methods(
     }
 
     // mem:propose_merge(other[, opts]) — record that this memory and `other` may be the same person
-    // across platforms, for the adjudication pass to weigh on the evidence. `opts.rationale` states the
-    // grounds for the match, which the adjudicator weighs as the proposer's claim, not as evidence. Not
-    // a merge: it surfaces nothing until adjudicated. Locks both endpoints.
+    // across platforms, for the operator to weigh on the evidence and confirm. `opts.rationale` states
+    // the grounds for the match, the proposer's stated claim, not evidence in itself. Not a merge: it
+    // surfaces nothing and merges nothing until the operator confirms it. Locks both endpoints.
     if features.merging {
         methods.set(
             "propose_merge",

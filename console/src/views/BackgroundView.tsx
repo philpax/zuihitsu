@@ -7,7 +7,7 @@ import { EventRow } from "../components/EventRow.tsx";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
-/// The Background view: the background passes' (describer, adjudicator, link-inference, merge)
+/// The Background view: the background passes' (describer, belief arbitration, link-inference)
 /// log-only audit events, collected from the run's event stream and grouped by pass type. These
 /// events carry no conversation or turn attribution — they run asynchronously, potentially long
 /// after the turn that inspired them — so they surface here as a top-level timeline alongside the
@@ -80,8 +80,7 @@ function passGroupId(type: EventPayload["type"]): string {
     case "MemoryDescriptionRegenerated":
       return "description";
     case "BeliefArbitrated":
-    case "MergeAdjudicated":
-      return "adjudication";
+      return "arbitration";
     case "LinksInferred":
       return "link-inference";
     default:
@@ -93,10 +92,10 @@ function passGroupId(type: EventPayload["type"]): string {
 /// events within each group by seq (they are already seq-sorted from `buildBackgroundEvents`, but
 /// the explicit sort guards against any drift).
 function groupByPass(events: BackgroundEvent[]): PassGroup[] {
-  const order = ["description", "adjudication", "link-inference", "other"];
+  const order = ["description", "arbitration", "link-inference", "other"];
   const labels: Record<string, string> = {
     description: "description",
-    adjudication: "adjudication",
+    arbitration: "arbitration",
     "link-inference": "link inference",
     other: "other",
   };

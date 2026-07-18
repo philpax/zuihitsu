@@ -11,7 +11,7 @@ import { DockContext } from "../lib/nav/dock.ts";
 import {
   designatePrimary,
   editSelf,
-  resolveMerge,
+  confirmMerge,
   retractEntry,
   unmerge,
 } from "../lib/api/operator.ts";
@@ -236,8 +236,8 @@ export function StreamWorkspace({
                           merge={
                             participant && cursor >= head
                               ? {
-                                  resolve: (from, to, accept) =>
-                                    resolveMerge(participant.connection, from, to, accept),
+                                  resolve: (from, to) =>
+                                    confirmMerge(participant.connection, from, to),
                                   unmerge: (from, to) => unmerge(participant.connection, from, to),
                                   designatePrimary: (memory, designated) =>
                                     designatePrimary(participant.connection, memory, designated),

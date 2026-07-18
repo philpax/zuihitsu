@@ -1,30 +1,11 @@
 use super::*;
 
-/// Register the merge-adjudication template directly, so the adjudication pass has its prompt without a
-/// full genesis rollout (the scripted model returns a fixed verdict regardless of the prompt text).
-fn register_adjudication_template(h: &Harness) {
-    h.engine
-        .store
-        .lock()
-        .as_mut()
-        .append(
-            h.clock.now(),
-            EventSource::Agent,
-            vec![EventPayload::prompt_template_registered(
-                PromptTemplateName::MergeAdjudication,
-                1,
-                "Decide whether two stubs are the same person, on the evidence.".to_owned(),
-            )],
-        )
-        .unwrap();
-}
-
 #[tokio::test]
-async fn an_adjudicated_merge_links_two_stubs_on_accept() {
-    // The agent proposes two stubs are one person; the off-hot-path adjudicator, accepting, authors the
-    // same_as that merges them into one class (spec §Cross-platform identity → adjudicated merge).
+async fn propose_merge_records_a_pending_proposal_and_merges_nothing() {
+    // The agent proposes two stubs are one person. The proposal is inert: it buffers a MergeProposed
+    // that pends for the operator, authoring no same_as and leaving the stubs in separate classes —
+    // nothing merges without the operator (spec §Cross-platform identity).
     let h = Harness::new();
-    register_adjudication_template(&h);
     h.run(
         r#"
         local a = memory.create(PERSON_DAVE_FORUM)
@@ -37,12 +18,6 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
     )
     .await;
 
-    let model = ScriptedModel::new([Completion::Reply(
-        r#"{"accepted": true, "rationale": "Both off sick the same week — an improbable coincidence."}"#
-            .to_owned(),
-    )]);
-    h.adjudicate(&model).await;
-
     let graph = h.engine.graph.lock();
     let a = graph
         .memory_by_name(Namespace::Person.with_name("dave-forum"))
@@ -52,122 +27,24 @@ async fn an_adjudicated_merge_links_two_stubs_on_accept() {
         .memory_by_name(Namespace::Person.with_name("dave-chat"))
         .unwrap()
         .unwrap();
-    let members = graph.class_members(a.id).unwrap();
-    assert!(
-        members.contains(&b.id),
-        "the accepted merge should put both stubs in one same_as class, got {members:?}"
-    );
-}
-
-#[tokio::test]
-async fn a_refused_merge_leaves_the_stubs_distinct() {
-    // On only a generic overlap the adjudicator refuses; no same_as is authored, the stubs stay in
-    // separate classes, and the refusal is recorded for the operator.
-    let h = Harness::new();
-    register_adjudication_template(&h);
-    h.run(
-        r#"
-        local a = memory.create(PERSON_SAM_FORUM)
-        a:append("Is an engineer", { visibility = "public" })
-        local b = memory.create(PERSON_SAM_CHAT)
-        b:append("Works in engineering", { visibility = "public" })
-        a:propose_merge(b)
-        return "ok"
-        "#,
-    )
-    .await;
-
-    let model = ScriptedModel::new([Completion::Reply(
-        r#"{"accepted": false, "rationale": "Only a generic overlap; no specific coincidence."}"#
-            .to_owned(),
-    )]);
-    h.adjudicate(&model).await;
-
-    let graph = h.engine.graph.lock();
-    let a = graph
-        .memory_by_name(Namespace::Person.with_name("sam-forum"))
-        .unwrap()
-        .unwrap();
-    let b = graph
-        .memory_by_name(Namespace::Person.with_name("sam-chat"))
-        .unwrap()
-        .unwrap();
     assert!(
         !graph.class_members(a.id).unwrap().contains(&b.id),
-        "a refused merge must leave the stubs in separate classes"
-    );
-    drop(graph);
-    let events = h.events();
-    assert!(
-        events.iter().any(|e| matches!(
-            &e.payload,
-            EventPayload::MergeAdjudicated {
-                accepted: false,
-                ..
-            }
-        )),
-        "a refusing verdict should be recorded for the operator"
-    );
-}
-
-#[tokio::test]
-async fn an_empty_stub_leaves_the_proposal_pending_for_the_operator() {
-    // A stub with no recorded facts gives the adjudicator nothing to weigh — and a fresh platform
-    // arrival is empty by construction. Rather than record a refusal that would settle the pair out of
-    // the operator's reach (and past every later pass), the pass leaves it pending: no
-    // MergeAdjudicated, the stubs stay distinct, and the model is never even consulted.
-    let h = Harness::new();
-    register_adjudication_template(&h);
-    h.run(
-        r#"
-        local a = memory.create(PERSON_SAM_FORUM)
-        a:append("Is an engineer", { visibility = "public" })
-        local b = memory.create(PERSON_SAM_CHAT)
-        a:propose_merge(b)
-        return "ok"
-        "#,
-    )
-    .await;
-
-    // A model that would accept, present only to prove the empty stub is skipped before any call.
-    let model = ScriptedModel::new([Completion::Reply(
-        r#"{"accepted": true, "rationale": "should never be reached"}"#.to_owned(),
-    )]);
-    h.adjudicate(&model).await;
-
-    let graph = h.engine.graph.lock();
-    let a = graph
-        .memory_by_name(Namespace::Person.with_name("sam-forum"))
-        .unwrap()
-        .unwrap();
-    let b = graph
-        .memory_by_name(Namespace::Person.with_name("sam-chat"))
-        .unwrap()
-        .unwrap();
-    assert!(
-        !graph.class_members(a.id).unwrap().contains(&b.id),
-        "an empty-evidence pair must be left unmerged"
+        "a proposal must merge nothing on its own — the stubs stay in separate classes"
     );
     drop(graph);
     assert!(
-        !h.events()
+        h.events()
             .iter()
-            .any(|e| matches!(&e.payload, EventPayload::MergeAdjudicated { .. })),
-        "an empty-evidence pair must be left pending, not settled with a verdict"
-    );
-    assert!(
-        model.recorded_messages().is_empty(),
-        "the adjudicator must not consult the model for an empty-evidence pair"
+            .any(|e| matches!(&e.payload, EventPayload::MergeProposed { .. })),
+        "the proposal should be recorded as a pending MergeProposed for the operator"
     );
 }
 
 #[tokio::test]
-async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
-    // The rationale the agent states with propose_merge rides the MergeProposed event and is injected
-    // into the adjudicator's prompt as the proposer's claim — so the adjudicator weighs the stated
-    // grounds against the two stubs' persisted entries rather than seeing only the entries.
+async fn a_proposals_rationale_rides_the_proposed_event() {
+    // The rationale the agent states with propose_merge rides the MergeProposed event as the proposer's
+    // stated grounds, so the operator can weigh the claim against the two stubs' persisted entries.
     let h = Harness::new();
-    register_adjudication_template(&h);
     h.run(
         r#"
         local a = memory.create(PERSON_DAVE_FORUM)
@@ -180,7 +57,6 @@ async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
     )
     .await;
 
-    // The stated grounds ride the event.
     assert!(
         h.events().iter().any(|e| matches!(
             &e.payload,
@@ -188,26 +64,5 @@ async fn a_proposals_rationale_reaches_the_adjudication_prompt() {
                 if text == "Both mention the same volcanology trip and the same wedding."
         )),
         "the rationale must ride the MergeProposed event"
-    );
-
-    let model = ScriptedModel::new([Completion::Reply(
-        r#"{"accepted": false, "rationale": "Weighed the claim against the facts; not enough."}"#
-            .to_owned(),
-    )]);
-    h.adjudicate(&model).await;
-
-    // ... and reach the adjudicator's prompt, labeled as the proposer's claim rather than as evidence.
-    let prompts: Vec<String> = model
-        .recorded_messages()
-        .iter()
-        .flatten()
-        .map(|message| message.content.clone())
-        .collect();
-    assert!(
-        prompts.iter().any(|p| {
-            p.contains("Both mention the same volcanology trip and the same wedding.")
-                && p.contains("their claim, not evidence")
-        }),
-        "the adjudication prompt must carry the proposer's stated rationale as a claim: {prompts:?}"
     );
 }

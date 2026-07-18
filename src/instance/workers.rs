@@ -1,4 +1,4 @@
-//! The background catch-up workers: the indexer, describer, adjudicator, and link-inference pass.
+//! The background catch-up workers: the indexer, describer, and link-inference pass.
 //! Each has a synchronous `catch_up` (driven explicitly by tests) and a
 //! background `run_*` loop (driven on a timer by the served runtime). All are cursor-resumed and
 //! idempotent, so an idle tick is cheap.
@@ -9,10 +9,7 @@ use parking_lot::Mutex;
 
 use crate::{
     InstanceError,
-    agent::{
-        run_adjudicate_catch_up, run_describe_catch_up, run_describe_catch_up_for,
-        run_link_inference_catch_up,
-    },
+    agent::{run_describe_catch_up, run_describe_catch_up_for, run_link_inference_catch_up},
     event::{EventPayload, EventSource},
     ids::{MemoryId, Seq},
     metrics::{observe_describe_priority_escape, observe_worker_error},
@@ -29,33 +26,25 @@ use crate::{
 };
 
 impl BackgroundPasses {
-    /// Construct with the adjudicator and link-inference cursors seeded to `head`, matching `boot`'s
-    /// re-seed behavior: everything written so far is treated as already processed, so a restart does
-    /// not re-run those passes. The describer has no cursor — its backlog is derived from the graph's
-    /// per-memory described-state, which survives a restart (spec §Write path).
+    /// Construct with the link-inference cursor seeded to `head`, matching `boot`'s re-seed behavior:
+    /// everything written so far is treated as already processed, so a restart does not re-run that
+    /// pass. The describer has no cursor — its backlog is derived from the graph's per-memory
+    /// described-state, which survives a restart (spec §Write path).
     pub(crate) fn new(head: Seq) -> Self {
         Self {
-            adjudicator_cursor: Mutex::new(head),
             link_inference_cursor: Mutex::new(head),
             describe_guard: tokio::sync::Mutex::new(()),
-            adjudicate_guard: tokio::sync::Mutex::new(()),
             link_inference_guard: tokio::sync::Mutex::new(()),
         }
     }
 
-    /// Re-seed the adjudicator and link-inference cursors to `head`, treating everything written so far
-    /// as already processed. Called at boot after genesis writes, so a restart does not re-weigh old
-    /// proposals or re-infer over old content. The describer is not re-seeded: its backlog lives in the
-    /// log-derived per-memory described-state, so a pre-shutdown describe backlog persists and is picked
-    /// up rather than silently dropped (genesis baselines the seeded `self` via `GenesisCompleted`).
+    /// Re-seed the link-inference cursor to `head`, treating everything written so far as already
+    /// processed. Called at boot after genesis writes, so a restart does not re-infer over old content.
+    /// The describer is not re-seeded: its backlog lives in the log-derived per-memory described-state,
+    /// so a pre-shutdown describe backlog persists and is picked up rather than silently dropped
+    /// (genesis baselines the seeded `self` via `GenesisCompleted`).
     pub(crate) fn reseed(&self, head: Seq) {
-        *self.adjudicator_cursor.lock() = head;
         *self.link_inference_cursor.lock() = head;
-    }
-
-    /// The current adjudicator cursor value, for lag reporting.
-    pub(crate) fn adjudicator_cursor_value(&self) -> Seq {
-        *self.adjudicator_cursor.lock()
     }
 
     /// Catch the vector index up to the log (spec §Storage → vector store). Reads the cursor and the
@@ -170,30 +159,6 @@ impl BackgroundPasses {
         Ok(run_describe_catch_up_for(engine, model, &self.describe_guard, ids).await?)
     }
 
-    /// Catch merge adjudications up to the log off the hot path (spec §Cross-platform identity →
-    /// adjudicated merge): weigh every proposed merge written since the cursor, advancing it. Driven on
-    /// a timer by the served runtime and explicitly by tests. Returns how many
-    /// proposals it considered.
-    pub async fn adjudicate_catch_up(
-        &self,
-        engine: &Engine,
-        model: &dyn ModelClient,
-    ) -> Result<usize, InstanceError> {
-        let _guard = self.adjudicate_guard.lock().await;
-        let cursor = *self.adjudicator_cursor.lock();
-        let (advanced, count) = run_adjudicate_catch_up(engine, model, cursor).await?;
-        *self.adjudicator_cursor.lock() = advanced;
-        Ok(count)
-    }
-
-    /// Seed the adjudicator's cursor to log-head, treating every proposal so far as already adjudicated.
-    /// Called at boot and at agent creation, like the describer's, so a restart does not re-weigh old
-    /// proposals.
-    pub(crate) fn baseline_adjudicator_cursor(&self, engine: &Engine) -> Result<(), InstanceError> {
-        *self.adjudicator_cursor.lock() = engine.store.lock().head()?;
-        Ok(())
-    }
-
     /// Catch link inference up to the log off the hot path (spec §Write path → link inference):
     /// identify relationships implicit in every memory whose content changed since the cursor,
     /// advancing it. Driven on a timer by the served runtime and explicitly by tests. Returns how many
@@ -211,8 +176,8 @@ impl BackgroundPasses {
     }
 
     /// Seed the link-inference pass's cursor to log-head, treating every relationship so far as
-    /// already inferred. Called at boot and at agent creation, like the describer's and adjudicator's,
-    /// so a restart does not re-infer over old content.
+    /// already inferred. Called at boot and at agent creation, like the describer's, so a restart does
+    /// not re-infer over old content.
     pub(crate) fn baseline_link_inference_cursor(
         &self,
         engine: &Engine,
@@ -336,37 +301,6 @@ impl Instance {
             .as_millis()
             .saturating_sub(changed_at.as_millis());
         Ok(age_ms >= escape_seconds.saturating_mul(1_000))
-    }
-
-    /// The background adjudicator: on each tick, weigh proposed merges off the hot path. Idempotent and
-    /// cursor-resumed, so an idle tick is cheap; a failure is logged, not fatal — a proposal stays
-    /// pending until the next tick or an operator decides.
-    pub async fn run_adjudicator(
-        self: Arc<Self>,
-        model: Arc<dyn ModelClient>,
-        interval: Duration,
-        shutdown: impl Future<Output = ()>,
-    ) {
-        let mut ticker = tokio::time::interval(interval);
-        tokio::pin!(shutdown);
-        loop {
-            tokio::select! {
-                _ = ticker.tick() => {
-                    match self.passes.adjudicate_catch_up(&self.engine, model.as_ref()).await {
-                        Ok(considered) if considered > 0 => {
-                            tracing::debug!(considered, "adjudicator weighed merge proposals")
-                        }
-                        Ok(_) => {}
-                        Err(error) => {
-                            observe_worker_error("adjudicate");
-                            tracing::error!(%error, "adjudicator: catch-up failed")
-                        }
-                    }
-                }
-                _ = &mut shutdown => break,
-            }
-        }
-        tracing::info!("adjudicator stopped");
     }
 
     /// The background link-inference pass: on each tick, infer relationships off the hot path.

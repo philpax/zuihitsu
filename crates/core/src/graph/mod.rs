@@ -136,7 +136,7 @@ pub struct LinkView {
     pub to: MemoryId,
     pub relation: RelationName,
     /// The teller who asserted the relationship, if one is on record. `None` for links with no
-    /// teller behind them (the adjudicated `same_as`) or predating link provenance.
+    /// teller behind them (an operator-authored `same_as`) or predating link provenance.
     pub told_by: Option<Teller>,
     /// The conversation reference (turn or room) the link was asserted in, mirroring content
     /// entries' `told_in`.
@@ -168,7 +168,7 @@ pub struct ClassLinkView {
     pub relation: RelationName,
     pub source: LinkSource,
     /// The teller who asserted the relationship, if one is on record — `None` for a link with no
-    /// teller behind it (the adjudicated `same_as`) or one predating link provenance.
+    /// teller behind it (an operator-authored `same_as`) or one predating link provenance.
     pub told_by: Option<Teller>,
     /// The conversation reference (turn or room) the link was asserted in, mirroring content
     /// entries' `told_in`.

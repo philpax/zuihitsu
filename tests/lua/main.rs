@@ -14,10 +14,9 @@ pub(crate) use std::{sync::Arc, time::Duration};
 pub(crate) use common::Harness;
 pub(crate) use zuihitsu::{
     Authority, BEFORE_AFTER_EPSILON_MILLIS, BlockContext, BlockOutcome, Cardinality, CivilDate,
-    Clock, Completion, ConversationLocator, Engine, Graph, InstanceFeatures, ManualClock, MemoryId,
-    MemoryName, MemoryStore, Namespace, PromptTemplateName, RelationName, ScriptedModel, Session,
-    SessionId, Store, TEST_PLATFORM, TagName, Teller, TemporalRef, TerminalCause, Timestamp,
-    TurnId, TurnRole, Visibility,
+    Clock, ConversationLocator, Engine, Graph, InstanceFeatures, ManualClock, MemoryId, MemoryName,
+    MemoryStore, Namespace, RelationName, Session, SessionId, Store, TEST_PLATFORM, TagName,
+    Teller, TemporalRef, TerminalCause, Timestamp, TurnId, TurnRole, Visibility,
     event::{ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation},
     ids::ConversationId,
     resolve_or_mint_conversation, turn_ref,

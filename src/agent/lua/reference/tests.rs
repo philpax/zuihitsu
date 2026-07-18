@@ -81,7 +81,7 @@ fn disabling_merging_omits_propose_merge() {
 #[test]
 fn propose_merge_documents_the_rationale_option() {
     // The propose_merge entry documents opts.rationale and when to state it (the observed
-    // coincidence), so the agent learns to pass its stated grounds for the adjudicator to weigh.
+    // coincidence), so the agent learns to pass its stated grounds for the operator to weigh.
     let propose_merge = api_reference(&InstanceFeatures::default())
         .into_iter()
         .find(|entry| entry.call == "<memory>:propose_merge")

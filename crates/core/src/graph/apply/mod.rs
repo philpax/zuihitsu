@@ -63,13 +63,12 @@ impl Graph {
             // An embedding-model swap bears only on the vector index (a separate projection); it is
             // acted on at boot, never in the graph materializer.
             EventPayload::EmbeddingModelChanged { .. } => {}
-            // The merge proposal and its adjudication are log-only audit records; neither touches the
-            // projection. A proposal is deliberately inert (it leaves both stubs in their own classes,
-            // so nothing surfaces across the would-be merge), and an *accepted* adjudication does its
-            // merging through a separately-emitted `same_as` link (which recomputes classes), not here.
+            // A merge proposal is a log-only audit record; it never touches the projection. It is
+            // deliberately inert — it leaves both stubs in their own classes, so nothing surfaces across
+            // the would-be merge — until the operator confirms it, at which point the merge is done
+            // through a separately-emitted `same_as` link (which recomputes classes), not here.
             EventPayload::EntryTemporalResolveFailed { .. }
             | EventPayload::MergeProposed { .. }
-            | EventPayload::MergeAdjudicated { .. }
             | EventPayload::LinksInferred { .. } => {}
             // The arbitration's reconciling resolution stays a log-only audit record, but its
             // unresolved competing entries are projected so reads can mark a fact as disputed (spec

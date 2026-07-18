@@ -68,7 +68,7 @@ pub enum LinkNode {
 /// underlying store or graph failure.
 #[derive(Debug)]
 pub enum LinkError {
-    /// A connector may not assert `same_as`: cross-platform identity is operator-adjudicated, never a
+    /// A connector may not assert `same_as`: cross-platform identity is operator-confirmed, never a
     /// connector's to assert (spec §Cross-platform identity is operator-asserted only).
     SameAsForbidden,
     /// The named relation is not registered in the ontology, so the edge would be mis-typed.
@@ -83,7 +83,7 @@ impl std::fmt::Display for LinkError {
             LinkError::SameAsForbidden => write!(
                 f,
                 "platform link: a connector may not assert same_as; cross-platform identity is \
-                 operator-adjudicated"
+                 operator-confirmed"
             ),
             LinkError::UnknownRelation(relation) => write!(
                 f,
@@ -632,7 +632,7 @@ impl Platform<'_> {
     /// are named under the connector's platform, so a connector can only ever link memories it owns.
     /// The edge is `Public` (a structural fact, not a told aside) and carries
     /// [`LinkSource::Connector`], so an audit reads which connector authored it. `same_as` is refused:
-    /// cross-platform identity is operator-adjudicated, never a connector's to assert.
+    /// cross-platform identity is operator-confirmed, never a connector's to assert.
     ///
     /// On assert, each endpoint is resolved or minted, so a link lands even on first sight of the guild
     /// or member. On retract, the endpoints are resolved without minting — an edge to a node that does
@@ -683,7 +683,7 @@ impl Platform<'_> {
                 LinkPosture {
                     source: LinkSource::Connector(connector_id.to_owned()),
                     // No teller and no told_in: a connector's structural edge has no human behind it,
-                    // mirroring the adjudication pass's authored `same_as`.
+                    // mirroring the operator-authored `same_as`.
                     told_by: None,
                     told_in: None,
                     visibility: Visibility::Public,

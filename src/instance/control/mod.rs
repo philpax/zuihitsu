@@ -37,20 +37,16 @@ pub struct Arbitration {
     pub statement: String,
 }
 
-/// One cross-platform merge proposal still awaiting the operator (spec §Cross-platform identity →
-/// adjudicated merge): the two stubs, who raised it, and whether the adjudicator has already weighed and
-/// refused it. A proposal the adjudicator (or an operator) has *accepted* — the two stubs now share a
-/// `same_as` class — drops off; every other proposal stays, so the "left for the operator" path is
-/// visible here rather than silently dropped. The operator's backstop for merges the evidence did not
-/// (yet) justify, including the orchestration-raised ones from a bare handle match.
+/// One cross-platform merge proposal still awaiting the operator (spec §Cross-platform identity): the
+/// two stubs and who raised it. A proposal the operator has *confirmed* — the two stubs now share a
+/// `same_as` class — drops off; every pending proposal stays, so nothing merges until the operator
+/// acts and no proposal is silently dropped. The operator's backstop for the merges an agent proposed,
+/// including the orchestration-raised ones from a bare handle match.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MergeProposal {
     pub from: MemoryName,
     pub to: MemoryName,
     pub source: MergeProposalSource,
-    /// `true` once the adjudicator has weighed the pair and refused the merge; `false` while it is still
-    /// unweighed (or the adjudicator could not reach a verdict). Either way the operator can act on it.
-    pub refused: bool,
 }
 
 /// One recorded model interaction — the console's view of a single model call (spec
@@ -87,7 +83,7 @@ pub struct LuaConsoleOutcome {
 /// The outcome of an operator unmerge (`Control::unmerge`): the retraction of an operator-asserted
 /// `same_as` merge, or the reason the request named nothing retractable. The console-only undo of a
 /// wrong cross-platform merge (spec §Cross-platform identity → operator-asserted merge), the mirror of
-/// [`Control::resolve_merge`]'s accept.
+/// [`Control::confirm_merge`].
 pub enum UnmergeOutcome {
     /// The `same_as` edge was removed and the graph re-materialized, so the two identities split back
     /// into their own visibility classes on the next read.
@@ -147,8 +143,8 @@ pub enum RetractOutcome {
     EmptyReason,
 }
 
-/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal and its
-/// adjudication key on the same canonical pair regardless of which stub each named first.
+/// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal keys on
+/// the same canonical pair regardless of which stub each named first.
 pub(super) fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {
     if from <= to { (from, to) } else { (to, from) }
 }

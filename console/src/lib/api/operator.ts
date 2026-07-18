@@ -95,26 +95,25 @@ export async function retractEntry(
   if (!response.ok) throw new Error(await errorMessage(response));
 }
 
-/// Resolve a pending cross-platform merge proposal as the operator (spec §Cross-platform identity →
-/// operator-asserted merge). `accept` authors the merging `same_as` between the two stubs — the
-/// console-only merge path — while a decline records the operator's refusal so the proposal settles.
-/// The resulting event arrives through the live tail, so the derived proposal list updates on the next
+/// Confirm a pending cross-platform merge proposal as the operator (spec §Cross-platform identity →
+/// operator-asserted merge). This authors the merging `same_as` between the two stubs — the
+/// console-only merge path; a proposal the operator does not confirm simply stays pending. The
+/// resulting event arrives through the live tail, so the derived proposal list updates on the next
 /// poll. Throws with the agent's reason on failure.
-export async function resolveMerge(
+export async function confirmMerge(
   connection: LiveConnection,
   from: MemoryId,
   to: MemoryId,
-  accept: boolean,
 ): Promise<void> {
   const response = await fetch(`${connection.baseUrl}/control/merge`, {
     method: "POST",
     headers: authHeaders(connection),
-    body: JSON.stringify({ from, to, accept }),
+    body: JSON.stringify({ from, to }),
   });
   if (!response.ok) throw new Error(await errorMessage(response));
 }
 
-/// Retract an operator-asserted `same_as` merge — the undo of `resolveMerge`'s accept (spec
+/// Retract an operator-asserted `same_as` merge — the undo of `confirmMerge` (spec
 /// §Cross-platform identity → operator-asserted merge). Removes the `same_as` edge between the two
 /// stubs, so their visibility classes split back apart on the next fold. The resulting `LinkRemoved`
 /// arrives through the live tail, so the derived proposal list re-derives on the next poll. Throws with

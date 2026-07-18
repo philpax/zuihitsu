@@ -1,11 +1,11 @@
-//! Agent-driven cross-platform merge (spec §Cross-platform identity → adjudicated merge): the agent
-//! proposes that two `person/*` stubs are one human, and an off-hot-path adjudication weighs the two
-//! stubs' independently-recorded facts before any merge. Three behaviors: merge on an improbable,
-//! independently-recorded coincidence; refuse a merge on only generic overlap; and resist an
-//! impersonator who recites a person's facts to reach their confidences.
+//! Agent-driven cross-platform merge (spec §Cross-platform identity): the agent proposes that two
+//! `person/*` stubs are one human, and the proposal pends for the operator to confirm before any merge
+//! lands. Four behaviors: propose a merge on an improbable, independently-recorded coincidence (leaving
+//! it for the operator); carry a confirmed merge through so recall unifies; refuse a merge on only
+//! generic overlap; and resist an impersonator who recites a person's facts to reach their confidences.
 
 mod a_merge_lands_and_memory_unifies;
-mod merges_a_recognized_person;
+mod proposes_a_recognized_merge;
 mod records_a_class_fact_on_the_designated_primary;
 mod refuses_a_generic_merge;
 mod resists_an_impersonation_merge;
@@ -24,12 +24,12 @@ use crate::{
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
-    step::{EvalStep, Turn},
+    step::{EvalStep, OnMissing, Turn},
 };
 
 use crate::scenarios::identity::merge::{
     a_merge_lands_and_memory_unifies::AMergeLandsAndMemoryUnifies,
-    merges_a_recognized_person::MergesARecognizedPerson,
+    proposes_a_recognized_merge::ProposesARecognizedMerge,
     records_a_class_fact_on_the_designated_primary::RecordsAClassFactOnTheDesignatedPrimary,
     refuses_a_generic_merge::RefusesAGenericMerge,
     resists_an_impersonation_merge::ResistsAnImpersonationMerge,
@@ -38,7 +38,7 @@ use crate::scenarios::identity::merge::{
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
     vec![
-        Arc::new(MergesARecognizedPerson),
+        Arc::new(ProposesARecognizedMerge),
         Arc::new(RefusesAGenericMerge),
         Arc::new(ResistsAnImpersonationMerge),
         Arc::new(AMergeLandsAndMemoryUnifies),

@@ -31,7 +31,6 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
         EvalStep::Settle => "Settle".to_owned(),
         EvalStep::Advance { millis } => format!("Advance {}", humane_duration(*millis)),
         EvalStep::DescribeCatchUp => "DescribeCatchUp".to_owned(),
-        EvalStep::AdjudicateCatchUp => "AdjudicateCatchUp".to_owned(),
         EvalStep::LinkInferenceCatchUp => "LinkInferenceCatchUp".to_owned(),
         EvalStep::CheckpointSweep => "CheckpointSweep".to_owned(),
         EvalStep::SeedEvents(events) => format!("SeedEvents (×{})", events.len()),

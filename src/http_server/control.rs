@@ -176,27 +176,25 @@ pub(super) async fn merge_proposals(
     Ok(Json(state.server.control().merge_proposals()?))
 }
 
-/// The body of a `POST /control/merge` — the two stubs of a pending proposal (by memory id) and
-/// whether the operator accepts the merge (`accept: true`) or declines it.
+/// The body of a `POST /control/merge` — the two stubs of a pending proposal (by memory id).
 #[derive(Deserialize)]
-pub(super) struct MergeResolution {
+pub(super) struct MergeConfirmation {
     from: MemoryId,
     to: MemoryId,
-    accept: bool,
 }
 
-/// `POST /control/merge` — resolve a pending cross-platform merge proposal as the operator: `accept`
-/// authors the merging `same_as` (the console-only merge path), a decline records the operator's
-/// refusal so the proposal settles. Operator authority (the whole `/control` surface is key-gated); the
-/// two stubs ride as their memory ids.
-pub(super) async fn resolve_merge(
+/// `POST /control/merge` — confirm a pending cross-platform merge proposal as the operator, authoring
+/// the merging `same_as` (the console-only merge path). Operator authority (the whole `/control`
+/// surface is key-gated); the two stubs ride as their memory ids. An unconvinced operator sends
+/// nothing: a proposal simply stays pending.
+pub(super) async fn confirm_merge(
     State(state): State<AppState>,
-    Json(request): Json<MergeResolution>,
+    Json(request): Json<MergeConfirmation>,
 ) -> Result<StatusCode, ApiError> {
     state
         .server
         .control()
-        .resolve_merge(request.from, request.to, request.accept)?;
+        .confirm_merge(request.from, request.to)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -210,7 +208,7 @@ pub(super) struct UnmergeRequest {
 
 /// `POST /control/unmerge` — lift a wrong cross-platform merge in place: retract the operator-asserted
 /// `same_as` between the two stubs so their visibility classes split back apart (spec §Cross-platform
-/// identity → operator-asserted merge), the undo of `POST /control/merge`'s accept. Operator authority
+/// identity → operator-asserted merge), the undo of `POST /control/merge`. Operator authority
 /// (the whole `/control` surface is key-gated); the two stubs ride as their memory ids. `404` when an id
 /// names no memory, or the pair is not directly merged — nothing to retract.
 pub(super) async fn unmerge(

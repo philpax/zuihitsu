@@ -422,7 +422,7 @@ impl PlatformClient {
     /// `POST /platform/link` — assert (or, with `remove`, retract) a structural link between two of the
     /// connector's own scoped memories: a channel or a member `part_of` a guild, say. Both endpoints
     /// ride the wire as bare ids resolved under the request's connector, so a connector can link only
-    /// memories it owns. `same_as` is refused server-side: cross-platform identity is operator-adjudicated.
+    /// memories it owns. `same_as` is refused server-side: cross-platform identity is operator-confirmed.
     pub async fn link(
         &self,
         from: &LinkEndpoint,

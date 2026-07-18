@@ -184,8 +184,8 @@ pub struct LinkRef {
     pub direction: LinkDirection,
     pub source: LinkSource,
     /// Who asserted the relationship, resolved to a readable label ("person/erin", "you"), or `None`
-    /// for a link with no teller behind it (the adjudicated `same_as`) — the provenance a belief-bearing
-    /// relation turns on, the same teller signal a content read carries.
+    /// for a link with no teller behind it (an operator-authored `same_as`) — the provenance a
+    /// belief-bearing relation turns on, the same teller signal a content read carries.
     pub told_by: Option<String>,
     /// The far memory's representative occurrence — its most recent dated entry's `occurred_at`, or
     /// `None` when it holds no dated fact. Resolved at read time (like `other_name`) so a link to a

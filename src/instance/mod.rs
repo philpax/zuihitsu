@@ -96,28 +96,21 @@ pub struct Instance {
 
 /// The off-hot-path synthesis cursors and their serialization guards. Each cursor tracks how far
 /// a background pass has progressed; its guard serializes that pass against the explicit catch-up.
-/// The adjudicator and link-inference cursors are re-seeded to log-head at boot, treating
-/// already-written state as processed so a restart does not re-run those passes. The describer keeps
-/// no cursor — its backlog is the graph's log-derived per-memory described-state, so a pending
-/// describe backlog persists across a restart rather than being reset at boot (spec §Write path).
+/// The link-inference cursor is re-seeded to log-head at boot, treating already-written state as
+/// processed so a restart does not re-run that pass. The describer keeps no cursor — its backlog is
+/// the graph's log-derived per-memory described-state, so a pending describe backlog persists across a
+/// restart rather than being reset at boot (spec §Write path).
 pub(crate) struct BackgroundPasses {
-    /// The merge-adjudicator's cursor: the log seq through which proposed merges have been adjudicated.
-    /// Its own background pass (and the explicit `adjudicate_catch_up`) advances it as it weighs pending
-    /// proposals off the hot path (spec §Cross-platform identity → adjudicated merge). Re-seeded to
-    /// log-head at boot, like the describer's.
-    adjudicator_cursor: Mutex<Seq>,
     /// The link-inference pass's cursor: the log seq through which implicit relationships have been
     /// inferred and linked. Its own background pass (and the explicit `link_inference_catch_up`)
     /// advances it as it extracts relationships off the hot path (spec §Write path → link inference).
-    /// Re-seeded to log-head at boot, like the describer's and adjudicator's.
+    /// Re-seeded to log-head at boot, like the describer's.
     link_inference_cursor: Mutex<Seq>,
     /// Serializes describe-catch-up passes — the narrow force-before-brief one (a new session opening)
     /// and the background timer one. Held per memory rather than across a whole pass, so a session
     /// open's narrow pass interleaves with a long background backlog; each memory's staleness is
     /// re-checked under it, so two passes never redescribe the same memory for the same change.
     describe_guard: tokio::sync::Mutex<()>,
-    /// As `describe_guard`, serializing the adjudicator's catch-up.
-    adjudicate_guard: tokio::sync::Mutex<()>,
     /// As `describe_guard`, serializing the link-inference catch-up.
     link_inference_guard: tokio::sync::Mutex<()>,
 }
@@ -269,10 +262,10 @@ impl Instance {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
-        // Seed the adjudicator and link-inference cursors to log-head: state written before this boot is
-        // treated as already processed, so a restart does not re-run those passes (spec §Write path).
-        // The describer needs no seeding — its backlog is the graph's log-derived per-memory
-        // described-state, so a pre-shutdown backlog survives the restart and is caught up here.
+        // Seed the link-inference cursor to log-head: state written before this boot is treated as
+        // already processed, so a restart does not re-run that pass (spec §Write path). The describer
+        // needs no seeding — its backlog is the graph's log-derived per-memory described-state, so a
+        // pre-shutdown backlog survives the restart and is caught up here.
         self.passes.reseed(self.engine.store.lock().head()?);
         let status = genesis::status(self.engine.store.lock().as_ref())?;
         tracing::info!(?status, applied, "instance booted");
@@ -390,17 +383,6 @@ impl Instance {
             .await
     }
 
-    pub async fn adjudicate_catch_up(
-        &self,
-        model: &dyn ModelClient,
-    ) -> Result<usize, InstanceError> {
-        self.passes.adjudicate_catch_up(&self.engine, model).await
-    }
-
-    pub(crate) fn baseline_adjudicator_cursor(&self) -> Result<(), InstanceError> {
-        self.passes.baseline_adjudicator_cursor(&self.engine)
-    }
-
     pub async fn link_inference_catch_up(
         &self,
         model: &dyn ModelClient,
@@ -412,11 +394,6 @@ impl Instance {
 
     pub(crate) fn baseline_link_inference_cursor(&self) -> Result<(), InstanceError> {
         self.passes.baseline_link_inference_cursor(&self.engine)
-    }
-
-    /// The current adjudicator cursor value, for lag reporting in [`Control::refresh_gauges`].
-    pub(crate) fn adjudicator_cursor_value(&self) -> Seq {
-        self.passes.adjudicator_cursor_value()
     }
 
     /// The lazily-minted async lock serializing `conversation`'s session lifecycle. Delegates to

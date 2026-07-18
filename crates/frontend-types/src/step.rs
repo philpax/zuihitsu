@@ -25,8 +25,6 @@ pub enum EvalStep {
     },
     /// Regenerate descriptions, belief arbitration, and temporal extraction.
     DescribeCatchUp,
-    /// Adjudicate the merges proposed so far.
-    AdjudicateCatchUp,
     /// Infer links from the content written so far.
     LinkInferenceCatchUp,
     /// Run one checkpoint sweep over the live sessions.

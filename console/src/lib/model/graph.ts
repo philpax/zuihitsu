@@ -101,9 +101,9 @@ export interface RecurringEntry {
   rrule: string;
 }
 
-/// Where a merge proposal stands at the fold cursor — pending an operator or adjudicator decision,
-/// merged (the two stubs now share a `same_as` class), or rejected (a refusal was recorded).
-export type MergeStatus = "pending" | "merged" | "rejected";
+/// Where a merge proposal stands at the fold cursor — pending the operator's confirmation, or merged
+/// (the two stubs now share a `same_as` class).
+export type MergeStatus = "pending" | "merged";
 
 /// One cross-platform merge proposal as the replica derives it from the folded log: the two stubs
 /// (by handle and id), who raised it, the proposer's stated grounds if any, and its resolution state.

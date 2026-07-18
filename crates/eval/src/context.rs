@@ -159,9 +159,9 @@ impl RunContext {
 
     /// Confirm a cross-platform merge as the operator would from the console (spec §Cross-platform
     /// identity → operator-asserted merge): author the `same_as` link between two `person/*` stubs
-    /// directly, the one path to a merge that does not run through the adjudicator. Drives the operator
-    /// confirmation a proposal surfaces for, so a scenario can assess what the agent does once identity
-    /// is confirmed.
+    /// directly. This is the one path to a merge — a proposal pends until the operator acts on it. Drives
+    /// the operator confirmation a proposal surfaces for, so a scenario can assess what the agent does
+    /// once identity is confirmed.
     pub(crate) fn operator_merge(&self, from: MemoryId, to: MemoryId) -> Result<(), EvalError> {
         self.seed_events(vec![EventPayload::link_created(
             from,
@@ -268,14 +268,6 @@ impl RunContext {
     /// occurrence calls this after the turn that wrote it, before its log is assessed.
     pub(crate) async fn describe_catch_up(&self) -> Result<(), EvalError> {
         self.server.describe_catch_up(self.model.as_ref()).await?;
-        Ok(())
-    }
-
-    /// Adjudicate the merges proposed so far — the off-hot-path pass the background adjudicator runs,
-    /// driven explicitly (spec §Cross-platform identity → adjudicated merge). A scenario that proposes a
-    /// merge calls this before its log is assessed, so the verdict (and any `same_as`) is recorded.
-    pub(crate) async fn adjudicate_catch_up(&self) -> Result<(), EvalError> {
-        self.server.adjudicate_catch_up(self.model.as_ref()).await?;
         Ok(())
     }
 

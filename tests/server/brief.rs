@@ -368,8 +368,8 @@ async fn a_platform_conversation_same_as_becomes_a_merge_proposal() {
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     // Steered by a participant, the agent tries to bind two identities with `same_as`. A direct merge
     // from a turn is refused — cross-platform identity is operator-asserted only — but the agent reads
-    // `link("same_as", …)` as "these are the same person", so it routes to an inert merge proposal for
-    // the adjudication gate rather than crashing the block and rolling back the innocent creates.
+    // `link("same_as", …)` as "these are the same person", so it routes to an inert merge proposal
+    // that pends for the operator rather than crashing the block and rolling back the innocent creates.
     let model = ScriptedModel::new([
         run_lua_call(
             r#"local a = memory.create("person/alpha")

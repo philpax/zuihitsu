@@ -81,7 +81,6 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
         EvalStep::Settle => ctx.settle().await?,
         EvalStep::Advance { millis } => ctx.advance(*millis),
         EvalStep::DescribeCatchUp => ctx.describe_catch_up().await?,
-        EvalStep::AdjudicateCatchUp => ctx.adjudicate_catch_up().await?,
         EvalStep::LinkInferenceCatchUp => ctx.link_inference_catch_up().await?,
         EvalStep::CheckpointSweep => {
             ctx.checkpoint_sweep().await?;
