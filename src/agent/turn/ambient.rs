@@ -49,9 +49,11 @@ pub(crate) struct AmbientHint {
     pub hits: Vec<AmbientHit>,
 }
 
-/// Run the ambient recall pass over `inbound`, excluding any memory whose id is in `exclude` — the ids
-/// the frozen brief already surfaces (present set, working set, current room, and self), so the hint
-/// never restates what the prompt already carries. `transcripts_enabled` reflects the instance's
+/// Run the ambient recall pass over `inbound`, excluding any memory in `exclude` — the ids the frozen
+/// brief already surfaces (present set, working set, current room, and self), so the hint never
+/// restates what the prompt already carries. Exclusion and deduplication both resolve to the `same_as`
+/// class primary, so a merged identity surfaces once, under its primary, and excluding one member
+/// excludes the whole class. `transcripts_enabled` reflects the instance's
 /// `transcripts` feature: when it is on, a `[turn:<id>]` token in the message leads the hint with an
 /// explicit `convo.turn` pointer, so the reference is never treated as inert (the resolver is
 /// feature-gated, so a token line would be cruel where the feature is off). `browsing_enabled`
@@ -102,20 +104,28 @@ pub(crate) fn ambient_recall(
         Vec::new()
     };
 
-    // The best (most negative bm25) score seen for each memory across every query that matched it, with
-    // the snippet of that best-scoring query — so a memory hit by several queries keeps its strongest
-    // evidence rather than the last one seen.
+    // The excluded ids resolved to their class primaries, so excluding one member of a merged `same_as`
+    // identity (present set or brief) excludes the whole class.
+    let excluded: HashSet<MemoryId> = exclude
+        .iter()
+        .map(|id| Ok(graph.class_id(*id)?.unwrap_or(*id)))
+        .collect::<Result<_, GraphError>>()?;
+
+    // The best (most negative bm25) score seen for each class across every query that matched it, with
+    // the snippet of that best-scoring query — so an identity hit by several queries or across its
+    // merged stubs keeps its strongest evidence and surfaces once, under its class primary.
     let queries = extract_queries(inbound);
     let mut best: HashMap<MemoryId, (f32, String)> = HashMap::new();
     for query in &queries {
         for hit in graph.search_lexical(query, PER_QUERY_LIMIT)? {
-            if exclude.contains(&hit.id) {
+            let primary = graph.class_id(hit.id)?.unwrap_or(hit.id);
+            if excluded.contains(&primary) {
                 continue;
             }
-            match best.get(&hit.id) {
+            match best.get(&primary) {
                 Some((score, _)) if *score <= hit.score => {}
                 _ => {
-                    best.insert(hit.id, (hit.score, hit.snippet));
+                    best.insert(primary, (hit.score, hit.snippet));
                 }
             }
         }
@@ -375,12 +385,13 @@ fn is_url_boundary(c: char) -> bool {
 mod tests {
     use super::{ResolvedHit, ambient_recall, extract_queries, extract_urls, render, turn_ref};
     use crate::{
-        event::{EventPayload, Teller, Visibility},
+        event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
         graph::Graph,
         ids::{EntryId, MemoryId, MemoryName, Namespace, TurnId},
         settings::AmbientSettings,
         store::{MemoryStore, Store},
         time::Timestamp,
+        vocabulary::RelationName,
     };
     use std::collections::HashSet;
 
@@ -413,6 +424,51 @@ mod tests {
                 told_in: None,
                 visibility: Visibility::Public,
             },
+        ]
+    }
+
+    /// A person stub named by its full handle, with one public content entry — the shape a merged
+    /// `same_as` class is built from.
+    fn person(id: MemoryId, name: &str, text: &str) -> Vec<EventPayload> {
+        vec![
+            EventPayload::memory_created(id, MemoryName::new(name)),
+            EventPayload::MemoryContentAppended {
+                id,
+                entry_id: EntryId::generate(),
+                asserted_at: Timestamp::from_millis(1),
+                occurred_at: None,
+                text: text.to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ]
+    }
+
+    /// Merge `a` and `b` into one `same_as` class (operator-adjudicated), mirroring the graph merge
+    /// tests' payload pattern.
+    fn same_as(a: MemoryId, b: MemoryId) -> Vec<EventPayload> {
+        vec![
+            EventPayload::LinkTypeRegistered {
+                name: RelationName::SameAs,
+                inverse: RelationName::SameAs,
+                from_card: Cardinality::Many,
+                to_card: Cardinality::Many,
+                symmetric: true,
+                reflexive: false,
+                description: String::new(),
+            },
+            EventPayload::link_created(
+                a,
+                b,
+                RelationName::SameAs,
+                LinkPosture {
+                    source: LinkSource::Operator,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ),
         ]
     }
 
@@ -585,6 +641,71 @@ mod tests {
         )
         .unwrap();
         assert!(hint.is_none(), "an excluded memory is dropped");
+    }
+
+    /// Two stubs of one identity, merged into one `same_as` class, both matching the kelp survey text.
+    fn merged_rowan() -> (Graph, MemoryId, MemoryId) {
+        let direct = MemoryId::generate();
+        let chat = MemoryId::generate();
+        let mut payloads = person(
+            direct,
+            "person/rowan@direct",
+            "Kelp survey planning at the harbour.",
+        );
+        payloads.extend(person(
+            chat,
+            "person/rowan@chat",
+            "Kelp logistics notes from the night shift.",
+        ));
+        payloads.extend(same_as(direct, chat));
+        (corpus(payloads), direct, chat)
+    }
+
+    #[test]
+    fn a_merged_class_surfaces_once_under_its_primary() {
+        // Both stubs match the inbound text, but the class collapses to one hint line, under its
+        // primary, rather than naming the identity twice.
+        let (graph, direct, chat) = merged_rowan();
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            "Any news on the kelp survey?",
+            &HashSet::new(),
+            true,
+            true,
+        )
+        .unwrap()
+        .expect("the merged class surfaces a hint");
+        assert_eq!(hint.hits.len(), 1, "the class surfaces as one hit");
+        assert_eq!(
+            hint.hits[0].memory,
+            direct.min(chat),
+            "the hit is the class primary"
+        );
+        let lines = hint.message.lines().filter(|l| l.starts_with("- ")).count();
+        assert_eq!(lines, 1, "one hint line for the class: {}", hint.message);
+    }
+
+    #[test]
+    fn excluding_one_member_suppresses_the_whole_class() {
+        // Excluding a non-primary member (say the frozen brief surfaced it) resolves to the class
+        // primary, so the whole identity is suppressed rather than surfacing under its other stub.
+        let (graph, direct, chat) = merged_rowan();
+        let mut exclude = HashSet::new();
+        exclude.insert(direct.max(chat));
+        let hint = ambient_recall(
+            &graph,
+            &AmbientSettings::default(),
+            "Any news on the kelp survey?",
+            &exclude,
+            true,
+            true,
+        )
+        .unwrap();
+        assert!(
+            hint.is_none(),
+            "excluding one member excludes the whole class"
+        );
     }
 
     #[test]

@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use crate::{
     decay,
     event::{Visibility, Volatility},
-    graph::{Graph, GraphError, LexicalHit, MemoryView},
+    graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, MemoryName, Namespace},
     memory::memory_block::LinkDirection,
     model::index::VectorKey,
@@ -134,12 +134,14 @@ pub fn search(
     limit: usize,
 ) -> Result<Vec<SearchHit>, SearchError> {
     let over_fetch = limit.saturating_mul(4).max(20);
-    // Resolve identity over the `same_as` class for the visibility predicate.
+    // Resolve identity over the `same_as` class: collapse a raw hit id to its class primary, so every
+    // signal is keyed by the primary and a merged class surfaces once, under its primary. Also serves
+    // as the visibility predicate's `class_of`. A lone or unknown memory is its own key.
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
 
-    // Semantic: cosine per memory — the best over its description hit and any visible entry hits
-    // (negative similarity clamped away). A description vector is public-safe; an entry vector must
-    // pass the predicate, and a surviving private one contributes a marker.
+    // Semantic: cosine per class — the best over any member's description hit and any visible entry
+    // hits (negative similarity clamped away). A description vector is public-safe; an entry vector
+    // must pass the predicate, and a surviving private one contributes a marker.
     let mut cosine: BTreeMap<MemoryId, f32> = BTreeMap::new();
     let mut markers: BTreeMap<MemoryId, String> = BTreeMap::new();
     // The matched-content snippet per memory, so a hit reads legibly even with a stale or empty
@@ -149,7 +151,7 @@ pub fn search(
     for hit in vectors.search(query.embedding, over_fetch)? {
         let score = hit.score.max(0.0);
         match VectorKey::parse(&hit.id) {
-            Some(VectorKey::Description(id)) => raise(&mut cosine, id, score),
+            Some(VectorKey::Description(id)) => raise(&mut cosine, class_of(id)?, score),
             Some(VectorKey::Entry(entry_id)) => {
                 let Some((memory, entry)) = graph.entry_by_id(entry_id)? else {
                     continue;
@@ -157,15 +159,16 @@ pub fn search(
                 if !visibility::visible(&entry, &memory, query.present_set, &class_of)? {
                     continue;
                 }
-                raise(&mut cosine, memory.id, score);
-                // The matched entry survived the predicate, so its text is safe to quote as this
-                // memory's snippet; the first surviving hit wins (best cosine, by search order).
-                if let Entry::Vacant(slot) = snippets.entry(memory.id) {
+                let primary = class_of(memory.id)?;
+                raise(&mut cosine, primary, score);
+                // The matched entry survived the predicate, so its text is safe to quote as the
+                // class's snippet; the first surviving hit wins (best cosine, by search order).
+                if let Entry::Vacant(slot) = snippets.entry(primary) {
                     slot.insert(clip_snippet(&entry.text));
                 }
-                // The first surviving hit for a memory sets its marker (visibility register and/or
+                // The first surviving hit for a class sets its marker (visibility register and/or
                 // staleness), via the vacant entry so the work and its `?` compose cleanly.
-                if let Entry::Vacant(slot) = markers.entry(memory.id) {
+                if let Entry::Vacant(slot) = markers.entry(primary) {
                     let mut parts = Vec::new();
                     if entry.visibility != Visibility::Public {
                         let teller = graph.teller_display(&entry.told_by)?;
@@ -189,16 +192,34 @@ pub fn search(
         }
     }
 
-    // Lexical: normalized bm25 per memory. FTS holds only public content, so a lexical hit needs no
-    // visibility filter — and neither does its snippet, an FTS extract of that public content. The
-    // FTS extract marks the matched span, so it takes precedence over any entry-vector snippet.
+    // Lexical: normalized bm25 per class. FTS holds only public content, so a lexical hit needs no
+    // visibility filter — and neither does its snippet, an FTS extract of that public content. Each
+    // hit is collapsed to its class primary, keeping the strongest (most negative) bm25 member and
+    // that member's snippet, so a merged class contributes one score and one extract, under its
+    // primary. Normalization then sees one score per class. The FTS extract marks the matched span,
+    // so it takes precedence over any entry-vector snippet.
     let lexical = graph.search_lexical(query.text, over_fetch)?;
+    let mut lexical_best: BTreeMap<MemoryId, (f32, String)> = BTreeMap::new();
     for hit in &lexical {
-        if !hit.snippet.is_empty() {
-            snippets.insert(hit.id, clip_snippet(&hit.snippet));
+        let primary = class_of(hit.id)?;
+        match lexical_best.entry(primary) {
+            Entry::Vacant(slot) => {
+                slot.insert((hit.score, hit.snippet.clone()));
+            }
+            Entry::Occupied(mut slot) if hit.score < slot.get().0 => {
+                slot.insert((hit.score, hit.snippet.clone()));
+            }
+            Entry::Occupied(_) => {}
         }
     }
-    let bm25 = normalize_bm25(&lexical);
+    // The best-bm25 member's extract wins for the class; a non-empty extract takes precedence over any
+    // entry-vector snippet already set, while an empty one leaves that fallback in place.
+    for (primary, (_, snippet)) in &lexical_best {
+        if !snippet.is_empty() {
+            snippets.insert(*primary, clip_snippet(snippet));
+        }
+    }
+    let bm25 = normalize_bm25(&lexical_best);
 
     let candidates: BTreeSet<MemoryId> = cosine.keys().chain(bm25.keys()).copied().collect();
 
@@ -368,26 +389,28 @@ fn tag_match(memory: &MemoryView, query_tags: &[TagName]) -> f32 {
     matched as f32 / query_tags.len() as f32
 }
 
-/// Normalize raw bm25 scores (more negative is a better match) to `[0, 1]`, best at 1.
-fn normalize_bm25(lexical: &[LexicalHit]) -> BTreeMap<MemoryId, f32> {
+/// Normalize the per-class raw bm25 scores (more negative is a better match) to `[0, 1]`, best at 1.
+/// The input is already collapsed to one score per class primary, so the normalization spans classes,
+/// not raw stubs.
+fn normalize_bm25(lexical: &BTreeMap<MemoryId, (f32, String)>) -> BTreeMap<MemoryId, f32> {
     let min = lexical
-        .iter()
-        .map(|hit| hit.score)
+        .values()
+        .map(|(score, _)| *score)
         .fold(f32::INFINITY, f32::min);
     let max = lexical
-        .iter()
-        .map(|hit| hit.score)
+        .values()
+        .map(|(score, _)| *score)
         .fold(f32::NEG_INFINITY, f32::max);
     let range = max - min;
     lexical
         .iter()
-        .map(|hit| {
+        .map(|(id, (score, _))| {
             let normalized = if range > 0.0 {
-                (max - hit.score) / range
+                (max - score) / range
             } else {
                 1.0
             };
-            (hit.id, normalized)
+            (*id, normalized)
         })
         .collect()
 }
