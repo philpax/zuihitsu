@@ -116,8 +116,8 @@ impl std::str::FromStr for Cardinality {
 /// Who authored a link: the agent itself, an operator acting through the console, or the
 /// off-hot-path link-inference pass that extracted a relationship implicit in memory content.
 /// `Inferred` marks links the background pass authored without a teller behind them (spec §Write path
-/// → link inference); `Connector` marks a structural edge a connector asserted through the platform
-/// API, carrying the connector's identifier.
+/// → link inference); `PlatformConnector` marks a structural edge a platform connector asserted through
+/// the platform API, carrying the platform's identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LinkSource {
@@ -126,35 +126,35 @@ pub enum LinkSource {
     /// A link the off-hot-path link-inference pass authored from a relationship implicit in memory
     /// content (spec §Write path → link inference).
     Inferred,
-    /// A structural link a connector asserted through the platform API — a channel's or a
-    /// participant's placement in a guild, say. The string identifies the connector instance, matching
-    /// [`EventSource::Connector`], so an audit can tell which connector authored the edge.
-    Connector(String),
+    /// A structural link a platform connector asserted through the platform API — a channel's or a
+    /// participant's placement in a guild, say. The string identifies the platform it serves, matching
+    /// [`EventSource::PlatformConnector`], so an audit can tell which connector authored the edge.
+    PlatformConnector(String),
 }
 
 impl LinkSource {
     /// The stored/wire label, matching the serialized enum form so the graph `links.source` column
-    /// carries the same string [`FromStr`](Self::from_str) reads back. A `Connector` label includes
-    /// the connector's identifier, mirroring [`EventSource::as_str`].
+    /// carries the same string [`FromStr`](Self::from_str) reads back. A `PlatformConnector` label
+    /// includes the platform's identifier, mirroring [`EventSource::as_str`].
     pub fn as_str(&self) -> std::borrow::Cow<'static, str> {
         match self {
             LinkSource::Agent => "Agent".into(),
             LinkSource::Operator => "Operator".into(),
             LinkSource::Inferred => "Inferred".into(),
-            LinkSource::Connector(id) => format!("Connector({id})").into(),
+            LinkSource::PlatformConnector(id) => format!("PlatformConnector({id})").into(),
         }
     }
 
     /// The lowercase provenance label, matching the entry teller register: `agent` for the agent's
     /// own link, `operator` for one asserted from the console, `inferred` for one the link-inference
-    /// pass authored from content, `connector(<id>)` for one a connector asserted. The wire/audit form
-    /// is [`Self::as_str`] (capitalized); this is the agent-facing Lua label.
+    /// pass authored from content, `platform_connector(<id>)` for one a platform connector asserted. The
+    /// wire/audit form is [`Self::as_str`] (capitalized); this is the agent-facing Lua label.
     pub fn as_str_lowercase(&self) -> std::borrow::Cow<'static, str> {
         match self {
             LinkSource::Agent => "agent".into(),
             LinkSource::Operator => "operator".into(),
             LinkSource::Inferred => "inferred".into(),
-            LinkSource::Connector(id) => format!("connector({id})").into(),
+            LinkSource::PlatformConnector(id) => format!("platform_connector({id})").into(),
         }
     }
 }
@@ -163,8 +163,8 @@ impl std::str::FromStr for LinkSource {
     type Err = ();
 
     /// Parse case-insensitively: the stored form is capitalized (`"Agent"`/`"Operator"`/…), but the
-    /// agent-facing Lua label and model replies may emit either casing. A `Connector(<id>)` label
-    /// round-trips the connector identifier from between the parentheses.
+    /// agent-facing Lua label and model replies may emit either casing. A `PlatformConnector(<id>)`
+    /// label round-trips the platform identifier from between the parentheses.
     fn from_str(text: &str) -> Result<LinkSource, Self::Err> {
         let text = text.trim();
         if text.eq_ignore_ascii_case("agent") {
@@ -173,25 +173,30 @@ impl std::str::FromStr for LinkSource {
             Ok(LinkSource::Operator)
         } else if text.eq_ignore_ascii_case("inferred") {
             Ok(LinkSource::Inferred)
-        } else if let Some(id) = strip_connector_label(text) {
-            Ok(LinkSource::Connector(id.to_owned()))
+        } else if let Some(id) = strip_platform_connector_label(text) {
+            Ok(LinkSource::PlatformConnector(id.to_owned()))
         } else {
             Err(())
         }
     }
 }
 
-/// Extract the connector identifier from a `Connector(<id>)` label, case-insensitive on the prefix.
-/// Returns `None` when `text` is not a connector label, so [`LinkSource::from_str`] can fall through
-/// to its `Err`.
-fn strip_connector_label(text: &str) -> Option<&str> {
-    let rest = text.get(.."Connector".len())?;
-    if !rest.eq_ignore_ascii_case("Connector") {
-        return None;
-    }
-    text["Connector".len()..]
-        .strip_prefix('(')
-        .and_then(|inner| inner.strip_suffix(')'))
+/// Extract the platform identifier from a `PlatformConnector(<id>)` label, case-insensitive on the
+/// prefix and accepting the underscored agent-facing spelling (`platform_connector(<id>)`), so both
+/// the wire label and the Lua label parse back. Returns `None` when `text` is not a
+/// platform-connector label, so [`LinkSource::from_str`] can fall through to its `Err`.
+fn strip_platform_connector_label(text: &str) -> Option<&str> {
+    ["PlatformConnector", "platform_connector"]
+        .iter()
+        .find_map(|prefix| {
+            let rest = text.get(..prefix.len())?;
+            rest.eq_ignore_ascii_case(prefix)
+                .then(|| &text[prefix.len()..])
+        })
+        .and_then(|rest| {
+            rest.strip_prefix('(')
+                .and_then(|inner| inner.strip_suffix(')'))
+        })
 }
 
 /// The overwritable posture of a link — the provenance columns an [`EventPayload::LinkCreated`] carries
@@ -245,9 +250,9 @@ impl MergeProposalSource {
 ///   passes (description synthesis, temporal resolution, link inference), the
 ///   scheduler, the boot-time embedding migration, and the identity and session plumbing (opening a
 ///   conversation, minting or joining a participant, opening and closing a session).
-/// - `Connector` — an external connector writing through the platform API surface (e.g. the Discord
-///   bot writing context memory). The string identifies the connector instance, so the event log
-///   attributes the write to the connector rather than the agent.
+/// - `PlatformConnector` — an external platform connector writing through the platform API surface
+///   (e.g. the Discord bot writing context memory). The string identifies the platform it serves, so
+///   the event log attributes the write to the connector rather than the agent.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventSource {
@@ -263,21 +268,22 @@ pub enum EventSource {
     #[serde(alias = "Debugger")]
     Operator,
     Orchestration,
-    /// A connector writing through the platform API surface. The string identifies the connector
-    /// instance — free-form for now, a typed identification protocol may follow.
-    Connector(String),
+    /// An external platform connector writing through the platform API surface. The string identifies
+    /// the platform it serves — free-form for now, a typed identification protocol may follow.
+    PlatformConnector(String),
 }
 
 impl EventSource {
     /// The stored/wire label, matching the serialized enum form so the event-store `source` column
-    /// carries the same string serde emits. A `Connector` label includes the connector's identifier.
+    /// carries the same string serde emits. A `PlatformConnector` label includes the platform's
+    /// identifier.
     pub fn as_str(&self) -> std::borrow::Cow<'static, str> {
         match self {
             EventSource::Bootstrap => "Bootstrap".into(),
             EventSource::Agent => "Agent".into(),
             EventSource::Operator => "Operator".into(),
             EventSource::Orchestration => "Orchestration".into(),
-            EventSource::Connector(id) => format!("Connector({id})").into(),
+            EventSource::PlatformConnector(id) => format!("PlatformConnector({id})").into(),
         }
     }
 }
@@ -286,7 +292,9 @@ impl std::str::FromStr for EventSource {
     type Err = ();
 
     /// Parse the stored column form back into the enum. `Debugger` maps to `Operator`, matching the
-    /// serde alias, so a column written under the old name stays readable.
+    /// serde alias, so a column written under the old name stays readable. Only the capitalized wire
+    /// label parses — unlike [`LinkSource`], this form is read back solely from the `events.source`
+    /// column, which never carries the agent-facing spelling.
     fn from_str(text: &str) -> Result<EventSource, Self::Err> {
         match text {
             "Bootstrap" => Ok(EventSource::Bootstrap),
@@ -294,11 +302,11 @@ impl std::str::FromStr for EventSource {
             "Operator" | "Debugger" => Ok(EventSource::Operator),
             "Orchestration" => Ok(EventSource::Orchestration),
             _ => {
-                // The `Connector(id)` form is the `as_str()` output for a connector-sourced event.
-                // The id is free-form, so we extract it from between the parentheses.
-                text.strip_prefix("Connector(")
+                // The `PlatformConnector(id)` form is the `as_str()` output for a connector-sourced
+                // event. The id is free-form, so we extract it from between the parentheses.
+                text.strip_prefix("PlatformConnector(")
                     .and_then(|s| s.strip_suffix(')'))
-                    .map(|id| EventSource::Connector(id.to_owned()))
+                    .map(|id| EventSource::PlatformConnector(id.to_owned()))
                     .ok_or(())
             }
         }

@@ -583,7 +583,7 @@ impl Platform<'_> {
         let now = engine.clock.now();
         engine.store.lock().append(
             now,
-            EventSource::Connector(platform.to_owned()),
+            EventSource::PlatformConnector(platform.to_owned()),
             block.into_effects().events,
         )?;
         engine
@@ -657,7 +657,7 @@ impl Platform<'_> {
         let now = engine.clock.now();
         engine.store.lock().append(
             now,
-            EventSource::Connector(platform.to_owned()),
+            EventSource::PlatformConnector(platform.to_owned()),
             block.into_effects().events,
         )?;
         engine
@@ -671,7 +671,7 @@ impl Platform<'_> {
     /// own scoped memories — a channel's or a participant's placement in a guild, say. Both endpoints
     /// are named under the connector's platform, so a connector can only ever link memories it owns.
     /// The edge is `Public` (a structural fact, not a told aside) and carries
-    /// [`LinkSource::Connector`], so an audit reads which connector authored it. `same_as` is refused:
+    /// [`LinkSource::PlatformConnector`], so an audit reads which connector authored it. `same_as` is refused:
     /// cross-platform identity is operator-confirmed, never a connector's to assert.
     ///
     /// On assert, each endpoint is resolved or minted, so a link lands even on first sight of the guild
@@ -721,7 +721,7 @@ impl Platform<'_> {
                 to_id,
                 relation,
                 LinkPosture {
-                    source: LinkSource::Connector(platform.to_owned()),
+                    source: LinkSource::PlatformConnector(platform.to_owned()),
                     // No teller and no told_in: a connector's structural edge has no human behind it,
                     // mirroring the operator-authored `same_as`.
                     told_by: None,
@@ -733,7 +733,7 @@ impl Platform<'_> {
         let now = engine.clock.now();
         engine.store.lock().append(
             now,
-            EventSource::Connector(platform.to_owned()),
+            EventSource::PlatformConnector(platform.to_owned()),
             vec![payload],
         )?;
         engine

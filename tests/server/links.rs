@@ -1,5 +1,5 @@
 //! Connector-authored structural links via `Platform::link`: a channel or a member placed in a guild,
-//! carrying `LinkSource::Connector`, refusing `same_as`, and retracting on departure.
+//! carrying `LinkSource::PlatformConnector`, refusing `same_as`, and retracting on departure.
 
 use zuihitsu::{
     LinkError, LinkNode,
@@ -73,7 +73,7 @@ async fn a_connector_places_a_channel_and_a_member_in_a_guild() {
     let links = part_of_links(&server);
     assert_eq!(links.len(), 2, "a channel edge and a member edge");
     for (source, visibility) in &links {
-        assert_eq!(*source, LinkSource::Connector("chat".to_owned()));
+        assert_eq!(*source, LinkSource::PlatformConnector("chat".to_owned()));
         assert_eq!(*visibility, Visibility::Public);
     }
 }

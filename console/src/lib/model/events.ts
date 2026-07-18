@@ -4,8 +4,8 @@ import type { LinkSource } from "@zuihitsu/wire/types/LinkSource.ts";
 import { terminalCauseLabel } from "./labels.ts";
 
 /// The authoring authorities offered as an author filter in the Events view — genesis first, then
-/// the agent's turns, the operator's console actions, and the system's background work. A connector
-/// is not offered as a standalone filter (it is a tagged variant, not a bare string), but
+/// the agent's turns, the operator's console actions, and the system's background work. A platform
+/// connector is not offered as a standalone filter (it is a tagged variant, not a bare string), but
 /// `sourceLabel` renders it when it appears in an event.
 export const EVENT_SOURCES: EventSource[] = ["Bootstrap", "Agent", "Operator", "Orchestration"];
 
@@ -16,15 +16,15 @@ export function sourceLabel(source: EventSource): string {
   if (source === "Agent") return "agent";
   if (source === "Operator") return "operator";
   if (source === "Orchestration") return "system";
-  return `connector: ${source.Connector}`;
+  return `platform connector: ${source.PlatformConnector}`;
 }
 
 /// The human-facing label for a link's provenance — the agent's own edge, an operator's console
-/// assertion, an inferred edge, or a connector's structural link, which names the connector so an
-/// audit can tell which one authored it.
+/// assertion, an inferred edge, or a platform connector's structural link, which names the platform
+/// so an audit can tell which one authored it.
 export function linkSourceLabel(source: LinkSource): string {
   if (typeof source === "string") return source.toLowerCase();
-  return `connector: ${source.Connector}`;
+  return `platform connector: ${source.PlatformConnector}`;
 }
 
 /// A coarse grouping of event kinds, for a calm colour rhythm in the log: memory writes, the link
