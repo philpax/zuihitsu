@@ -14,7 +14,7 @@
 //! The two forms are not peers on the agent's side of the boundary. The `[turn:<ulid>]` token is the
 //! **canonical agent-facing form**: the agent's resolver (`convo.turn(id)` in `src/agent/lua`) reads a
 //! bare ULID that it only ever sees inside a token, and a console URL never reaches it. URL awareness
-//! exists **for connectors to normalize *from*** — a frontend or platform integration converts a
+//! exists **for platform connectors to normalize *from*** — a frontend or platform integration converts a
 //! pasted deep-link into the token *before* the message reaches the agent. The console composer is one
 //! such connector: it calls [`normalize`] (through `console-wasm`) at send time, so a message that
 //! leaves the console carries only token syntax. The URL-recognizing half of [`scan`] therefore serves
@@ -93,7 +93,7 @@ pub fn normalize(text: &str) -> String {
 }
 
 /// Every turn id referenced in `text`, in order of appearance — the extract-all-ids path (the console's
-/// pretty projection, and a connector resolving every reference pasted into a message before it reaches
+/// pretty projection, and a platform connector resolving every reference pasted into a message before it reaches
 /// the agent).
 pub fn extract_ids(text: &str) -> Vec<TurnId> {
     scan(text)
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn the_agent_side_resolver_reads_a_bare_id_that_no_url_form_satisfies() {
         // The agent-facing resolver (`convo.turn(id)`) parses a bare ULID — the value carried inside a
-        // `[turn:<ulid>]` token. URL awareness lives on the connector side (scan/normalize) only, so
+        // `[turn:<ulid>]` token. URL awareness lives on the platform connector side (scan/normalize) only, so
         // the token's body round-trips as a bare ULID while a whole console deep-link does not, which
         // is why a URL can never resolve on the agent's side of the boundary.
         let turn = turn_id(5);
@@ -303,7 +303,7 @@ mod tests {
 
         let url = format!("https://host/room?turn={}", turn.0);
         assert_eq!(parse_ulid(&url), None);
-        // The connector-side scanner still resolves that URL — the awareness the agent lacks.
+        // The platform-connector-side scanner still resolves that URL — the awareness the agent lacks.
         assert_eq!(extract_ids(&url), vec![turn]);
     }
 

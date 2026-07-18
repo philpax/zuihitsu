@@ -1,4 +1,4 @@
-//! Connector configuration: loaded from `config.discord.toml`.
+//! Platform connector configuration: loaded from `config.discord.toml`.
 
 use std::{
     collections::HashSet,
@@ -10,7 +10,7 @@ use serenity::model::id::ChannelId;
 
 use crate::error::{Error, Result};
 
-/// The top-level connector config.
+/// The top-level platform connector config.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DiscordConfig {
     pub server: ServerConfig,

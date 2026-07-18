@@ -1,5 +1,5 @@
 //! Transcript references: a participant references an earlier moment as a `[turn:<ulid>]` token (the
-//! connector normalizes any pasted console link to it) and asks about it. The agent resolves it with `convo.turn` and
+//! platform connector normalizes any pasted console link to it) and asks about it. The agent resolves it with `convo.turn` and
 //! answers from that moment's actual content, *when* the audience rule permits it (spec §Transcripts).
 //!
 //! Three scenarios cover the surface:
@@ -87,7 +87,7 @@ impl Scenario for TranscriptLink {
                 millis: MILLIS_PER_DAY,
             },
             // Turn 2: Sarah returns and pastes the console link to turn 1, asking what she committed
-            // to. The reference arrives as the canonical token: the connector contract has any pasted
+            // to. The reference arrives as the canonical token: the platform connector contract has any pasted
             // console link normalized to `[turn:<id>]` before a message reaches the agent — the
             // executor resolves it to turn 1's id at execution time.
             Turn::new(

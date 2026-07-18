@@ -87,7 +87,7 @@ export function Room({
 
   async function onSend(text: string) {
     if (!participate) return;
-    // The connector contract: a console URL must never reach the agent. The console is a connector,
+    // The platform connector contract: a console URL must never reach the agent. The console is a platform connector,
     // so it converts any pasted turn deep-link into the canonical `[turn:<ulid>]` token here, before
     // the POST — the single send path for both authorities below (participant message and operator
     // imprint), so no console-originated message escapes normalization. The log, and every downstream

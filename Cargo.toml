@@ -46,7 +46,7 @@ wasm-opt = "0.116"
 # The wasm-compatible materializer core, shared by the main crate and (later) the console-wasm
 # wrapper. Path dep so a local checkout always builds against the in-tree version.
 zuihitsu-core = { path = "crates/core" }
-# Internal wire-type and connector crates.
+# Internal wire-type and platform-connector crates.
 zuihitsu-platform-connector-api = { path = "crates/platform-connector-api" }
 zuihitsu-platform-connector-types = { path = "crates/platform-connector-types" }
 zuihitsu-frontend-types = { path = "crates/frontend-types" }

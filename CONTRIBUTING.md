@@ -150,9 +150,9 @@ When a newer inbound batch arrives for a conversation whose turn is still genera
 
 The block VM is Luau, frozen with `Lua::sandbox(true)` (`src/agent/lua/mod.rs`). Only the pure standard libraries load; `os`, `io`, `package`, `require`, `debug`, and the code-loading globals are absent, so a block stays deterministic under replay and cannot reach the host. Metamethods on our own objects and our own installed functions are fair game — shape the API however reads best. Standard-library semantics, by contrast, are never changed: a semantics-preserving error-rewrite shell (the lenient `table.concat`, installed before the freeze) is the ceiling — it delegates the real call untouched and only rewords the failure. Agent-facing surfaces name the language "Luau", and teach text assembly through interpolation (a backtick string stringifies a handle), not through library gymnastics.
 
-### The connector contract
+### The platform connector contract
 
-Console and platform URLs never reach the agent. A connector normalises every deep link to a canonical `[turn:<id>]` token before a message posts (`normalize` in `crates/core/src/turn_ref.rs`); the console composer is one such connector. Agent-facing surfaces — the scaffold, the API reference, error messages — speak tokens only, never a URL.
+Console and platform URLs never reach the agent. A platform connector normalises every deep link to a canonical `[turn:<id>]` token before a message posts (`normalize` in `crates/core/src/turn_ref.rs`); the console composer is one such connector. Agent-facing surfaces — the scaffold, the API reference, error messages — speak tokens only, never a URL.
 
 ### The seed ontology
 

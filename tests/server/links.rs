@@ -1,4 +1,4 @@
-//! Connector-authored structural links via `Platform::link`: a channel or a member placed in a guild,
+//! Platform-connector-authored structural links via `Platform::link`: a channel or a member placed in a guild,
 //! carrying `LinkSource::PlatformConnector`, refusing `same_as`, and retracting on departure.
 
 use zuihitsu::{
