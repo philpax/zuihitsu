@@ -162,6 +162,54 @@ impl Replica {
         })
     }
 
+    /// Resolve a `[mem:<ulid>]` reference to the memory the console should display for it, collapsed to
+    /// its `same_as` class primary — the chip in the transcript reads this. The reference names a
+    /// specific stub, but the class's primary is the memory a reader wants opened, so the id is folded
+    /// through `class_id` (falling back to the id itself for a lone or unknown memory) before the
+    /// lookup. Returns the primary's id and handle, as `MemRefResolution`, or `null` when the id names
+    /// no memory at the current fold horizon (so the chip degrades to a muted token).
+    #[wasm_bindgen(js_name = resolveMemRef)]
+    pub fn resolve_mem_ref(&self, id: &str) -> Result<JsValue, JsError> {
+        let memory_id = parse_memory_id(id)?;
+        let primary = self
+            .graph
+            .class_id(memory_id)
+            .map_err(graph_error)?
+            .unwrap_or(memory_id);
+        let Some(view) = self.graph.memory_by_id(primary).map_err(graph_error)? else {
+            return Ok(JsValue::NULL);
+        };
+        to_js(&MemRefResolution {
+            primary_id: primary.0.to_string(),
+            handle: view.name.as_str().to_string(),
+        })
+    }
+
+    /// The id of the live memory a handle currently names, or `null` when none does — a plain graph
+    /// lookup by name (`memory_by_name`), the console composer's first step in turning a pasted
+    /// state-view deep link into a `[mem:<ulid>]` token. The console owns recognizing its own route and
+    /// decoding the handle; this only answers "which memory is this handle", from the graph.
+    #[wasm_bindgen(js_name = memoryIdByName)]
+    pub fn memory_id_by_name(&self, name: &str) -> Result<Option<String>, JsError> {
+        Ok(self
+            .graph
+            .memory_by_name(MemoryName::new(name))
+            .map_err(graph_error)?
+            .map(|view| view.id.0.to_string()))
+    }
+
+    /// The id of the live memory that used to go by `name` under a since-changed handle, or `null` when
+    /// none did — the alias fallback (`memory_id_for_former_name`) behind a stale pasted state-view link
+    /// still normalizing after a rename. Consulted by the composer only after `memoryIdByName` misses.
+    #[wasm_bindgen(js_name = memoryIdForFormerName)]
+    pub fn memory_id_for_former_name(&self, name: &str) -> Result<Option<String>, JsError> {
+        Ok(self
+            .graph
+            .memory_id_for_former_name(MemoryName::new(name))
+            .map_err(graph_error)?
+            .map(|id| id.0.to_string()))
+    }
+
     /// The tag vocabulary at the current fold horizon, as `TagVocabularyEntry[]` (name, purpose, and
     /// live-use count).
     pub fn tags(&self) -> Result<JsValue, JsError> {
@@ -620,6 +668,18 @@ fn parse_memory_id(id: &str) -> Result<MemoryId, JsError> {
         .map(MemoryId)
         .map_err(|error| JsError::new(&format!("console: invalid memory id {id:?}: {error}")))
 }
+
+/// A resolved memory reference, crossing to the console's `MemRefChip`: the `same_as` class primary the
+/// reference collapses to (the memory the chip opens) and its handle (the chip's label).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemRefResolution {
+    primary_id: String,
+    handle: String,
+}
+
+pub mod mem_ref;
+pub mod refs;
 pub mod turn_ref;
 pub mod types;
 

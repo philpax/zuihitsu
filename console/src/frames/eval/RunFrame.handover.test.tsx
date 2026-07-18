@@ -24,7 +24,7 @@ import { EvalRouteContext } from "./evalContext.ts";
 // of the stack (`useReplica` included) is the real code under test.
 vi.mock("../../lib/replica/replica.ts", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  scanTurnRefs: (text: string) => [{ kind: "prose", text }],
+  scanRefs: (text: string) => [{ kind: "prose", text }],
   Replica: {
     fromEvents: (events: Event[]) =>
       Promise.resolve({

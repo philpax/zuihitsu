@@ -18,7 +18,7 @@ import { Transcript } from "./Transcript.tsx";
 // "no references", which every fixture text here satisfies.
 vi.mock("../../lib/replica/replica.ts", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  scanTurnRefs: (text: string) => [{ kind: "prose", text }],
+  scanRefs: (text: string) => [{ kind: "prose", text }],
 }));
 
 // jsdom lacks the browser APIs motion/react feature-detects; stub them before anything renders.

@@ -108,7 +108,7 @@ export function summarizeStep(step: EvalStep): string {
 }
 
 /// A step's text as a compact quoted fragment. A `with_turn_ref` shows its template and the anchor turn
-/// it references, since the resolved `[turn:<id>]` token is only known at execution.
+/// it references, since the resolved turn-reference token is only known at execution.
 function summarizeText(text: StepText): string {
   if ("literal" in text) return `"${clip(text.literal)}"`;
   return `"${clip(text.with_turn_ref.template)}" (ref: "${clip(text.with_turn_ref.of_turn)}")`;

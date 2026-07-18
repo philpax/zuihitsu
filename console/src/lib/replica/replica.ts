@@ -1,5 +1,8 @@
 import initWasm, {
   Replica as WasmReplica,
+  memRefConstruct,
+  memRefNormalize,
+  refScan,
   turnRefConstruct,
   turnRefExtract,
   turnRefNormalize,
@@ -29,8 +32,24 @@ function ensureWasm(): Promise<unknown> {
 }
 
 /// One span of scanned turn-reference text: literal prose, or a reference resolved to its turn's
-/// ULID. The wire shape of the wasm scanner's segments (see `RefSegment` in console-wasm).
+/// id. The wire shape of the wasm scanner's segments (see `RefSegment` in console-wasm).
 export type TurnRefSegment = { kind: "prose"; text: string } | { kind: "ref"; id: string };
+
+/// One span of the combined reference scan: literal prose, a turn reference, or a memory reference,
+/// each carrying its subject's id (an opaque string minted and parsed only in Rust). The wire shape of the wasm `refScan` segments (see `RefSegment` in
+/// console-wasm's `refs`); the remark pass dispatches on `kind` to mint the matching chip.
+export type RefSegment =
+  | { kind: "prose"; text: string }
+  | { kind: "turn"; id: string }
+  | { kind: "mem"; id: string };
+
+/// A memory reference resolved through the graph: the `same_as` class primary the reference
+/// collapses to (the memory the chip opens) and its handle (the chip's label). The wire shape of
+/// `resolveMemRef` (see `MemRefResolution` in console-wasm).
+export interface MemRefTarget {
+  primaryId: string;
+  handle: string;
+}
 
 /// How one model call's recorded prompt compares against the digest stamped at send time (see
 /// `DigestCheck` in console-wasm). `unverifiable` marks a structured synthesis call, whose response
@@ -49,12 +68,12 @@ export interface DigestCheck {
 // initialized wherever they are called (every view renders under a `Replica` built by `fromEvents`,
 // which awaits `ensureWasm` first).
 
-/// Split text into prose spans and turn references (`[turn:<ulid>]` tokens and `?turn=<ulid>` URLs).
+/// Split text into prose spans and turn references (reference tokens and `?turn=` deep-link URLs).
 export function scanTurnRefs(text: string): TurnRefSegment[] {
   return turnRefScan(text) as TurnRefSegment[];
 }
 
-/// Rebuild text with every turn reference collapsed to the canonical `[turn:<ulid>]` token — the
+/// Rebuild text with every turn reference collapsed to its canonical token — the
 /// composer's send-time normalization.
 export function normalizeTurnRefs(text: string): string {
   return turnRefNormalize(text);
@@ -65,10 +84,34 @@ export function extractTurnRefIds(text: string): string[] {
   return turnRefExtract(text) as string[];
 }
 
-/// The canonical `[turn:<ulid>]` token for a turn id — minted by the same constructor the agent's
-/// `ref` field uses. Throws if `id` is not a ULID.
+/// The canonical turn-reference token for a turn id — minted by the same constructor the agent's
+/// `ref` field uses. Throws if `id` is not a valid id.
 export function constructTurnRef(id: string): string {
   return turnRefConstruct(id);
+}
+
+// The memory-reference vocabulary, crossing from `zuihitsu_core::mem_ref` — the token half only. A
+// memory's deep-link URL routes by handle, so its URL recognition is the frontend's own route matching
+// (`lib/nav/refRoutes.ts`), not a wasm parser; these mint and canonicalize the tokens that matching
+// resolves to.
+
+/// Rebuild text with every memory-reference token canonicalized — the token half of the
+/// composer's memory-reference normalization; the URL half is route matching in `lib/nav/refRoutes.ts`.
+export function normalizeMemRefTokens(text: string): string {
+  return memRefNormalize(text);
+}
+
+/// The canonical memory-reference token for a memory id. Throws if `id` is not a valid id.
+export function constructMemRef(id: string): string {
+  return memRefConstruct(id);
+}
+
+/// Split text into prose spans, turn references, and memory references in one pass — the transcript's
+/// pretty projection, so both reference-token vocabularies (and a `?turn=` deep link the
+/// turn parser folds in) render as chips from a single wasm call. Token syntax is parsed only in Rust;
+/// the caller dispatches on `kind`.
+export function scanRefs(text: string): RefSegment[] {
+  return refScan(text) as RefSegment[];
 }
 
 /// A typed handle over the console-wasm `Replica`: an event log folded through the agent's own
@@ -129,6 +172,27 @@ export class Replica {
 
   memory(name: string): MemoryDetail | null {
     return this.#inner.memory(name) as MemoryDetail | null;
+  }
+
+  /// Resolve a memory reference to the memory the transcript chip should display for it,
+  /// collapsed to its `same_as` class primary — the primary's id and handle, or `null` when the id
+  /// names no memory at the current fold horizon (so the chip degrades to a muted token).
+  resolveMemRef(id: string): MemRefTarget | null {
+    return this.#inner.resolveMemRef(id) as MemRefTarget | null;
+  }
+
+  /// The id of the live memory a handle currently names, or `null` when none does — the composer's
+  /// first step in turning a pasted state-view deep link into a token (route matching decodes the
+  /// handle; this answers which memory it is). A plain graph lookup by name.
+  memoryIdByName(name: string): string | null {
+    return (this.#inner.memoryIdByName(name) ?? null) as string | null;
+  }
+
+  /// The id of the live memory that used to go by `name` under a since-changed handle, or `null` — the
+  /// alias fallback behind a stale pasted state-view link normalizing after a rename. Consulted only
+  /// after `memoryIdByName` misses.
+  memoryIdForFormerName(name: string): string | null {
+    return (this.#inner.memoryIdForFormerName(name) ?? null) as string | null;
   }
 
   tags(): TagVocabularyEntry[] {
