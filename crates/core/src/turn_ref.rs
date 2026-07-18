@@ -25,7 +25,10 @@
 
 use ulid::Ulid;
 
-use crate::ids::TurnId;
+use crate::{
+    ids::TurnId,
+    ref_token::{self, url_start_at, url_token_end},
+};
 
 /// One span of scanned text: literal prose, or a resolved turn reference. A `Ref` covers the whole
 /// matched token (a `[turn:…]` bracket or a `?turn=…` URL), so a renderer replaces the token wholesale
@@ -50,32 +53,26 @@ pub fn construct(turn: TurnId) -> String {
 /// value is not a ULID — as ordinary prose, never a reference. Adjacent prose is coalesced, and empty
 /// prose spans are dropped, so the segments read back as the original text.
 pub fn scan(text: &str) -> Vec<Segment<'_>> {
-    let mut segments = Vec::new();
+    ref_token::scan(text, BRACKET_OPEN, parse_ulid, url_at)
+        .into_iter()
+        .map(|segment| match segment {
+            ref_token::Segment::Prose(prose) => Segment::Prose(prose),
+            ref_token::Segment::Ref(turn) => Segment::Ref(turn),
+        })
+        .collect()
+}
+
+/// The turn reference a URL token starting at byte `i` carries (a console deep-link's `?turn=<ulid>`),
+/// and the token's byte length — the URL half of [`scan`], fed to the shared scan loop. `None` when no
+/// URL token starts here or it carries no turn parameter, so the position stays prose.
+fn url_at(text: &str, i: usize) -> Option<(TurnId, usize)> {
     let bytes = text.as_bytes();
-    let mut prose_start = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        if let Some((turn, len)) = bracket_ref_at(text, i) {
-            flush_prose(&mut segments, &text[prose_start..i]);
-            segments.push(Segment::Ref(turn));
-            i += len;
-            prose_start = i;
-            continue;
-        }
-        if url_start_at(bytes, i) {
-            let end = url_token_end(bytes, i);
-            if let Some(turn) = url_ref(&text[i..end]) {
-                flush_prose(&mut segments, &text[prose_start..i]);
-                segments.push(Segment::Ref(turn));
-                i = end;
-                prose_start = i;
-                continue;
-            }
-        }
-        i += 1;
+    if !url_start_at(bytes, i) {
+        return None;
     }
-    flush_prose(&mut segments, &text[prose_start..]);
-    segments
+    let end = url_token_end(bytes, i);
+    let turn = url_ref(text.get(i..end)?)?;
+    Some((turn, end - i))
 }
 
 /// Rebuild `text` with every reference rendered as the canonical `[turn:<ulid>]` token — collapsing a
@@ -123,78 +120,11 @@ pub fn url_ref(url: &str) -> Option<TurnId> {
 const PREFIX_BODY: &str = "turn:";
 /// The `[turn:` opener a bracket reference starts with.
 const BRACKET_OPEN: &str = "[turn:";
-/// A Crockford ULID is exactly 26 characters (all ASCII), so a reference body is a fixed-width slice.
-const ULID_LEN: usize = 26;
-
-/// A bracket reference starting at byte `i`, if `text[i..]` is `[turn:<ulid>]` — returning the parsed
-/// id and the token's byte length. A non-ULID body yields `None`, so `[turn: whenever]` stays prose.
-fn bracket_ref_at(text: &str, i: usize) -> Option<(TurnId, usize)> {
-    let rest = text.get(i..)?.strip_prefix(BRACKET_OPEN)?;
-    // ULID characters are ASCII, so a 26-byte slice is exactly 26 characters.
-    let body = rest.get(..ULID_LEN)?;
-    if rest.as_bytes().get(ULID_LEN) != Some(&b']') {
-        return None;
-    }
-    let turn = parse_ulid(body)?;
-    Some((turn, BRACKET_OPEN.len() + ULID_LEN + 1))
-}
-
-/// Whether an `http://`/`https://` URL token begins at byte `i`, and at a token boundary (start of
-/// text or after a non-alphanumeric byte) so a scheme embedded mid-word is not mistaken for a link.
-/// Byte-wise on purpose: the scanner's `i` walks every byte, including the middle of a multibyte
-/// character, where a `&text[i..]` slice would panic — matching on bytes cannot land off a boundary,
-/// and a match guarantees `i` sits on ASCII `h`, a boundary, so the caller's slices are safe.
-fn url_start_at(bytes: &[u8], i: usize) -> bool {
-    if i > 0 && bytes[i - 1].is_ascii_alphanumeric() {
-        return false;
-    }
-    bytes[i..].starts_with(b"http://") || bytes[i..].starts_with(b"https://")
-}
-
-/// The byte index one past a URL token starting at `i`: it runs to the next whitespace or URL
-/// delimiter, then trailing sentence punctuation is returned to the prose (so `see …?turn=<ulid>.`
-/// keeps its period).
-fn url_token_end(bytes: &[u8], i: usize) -> usize {
-    let mut end = i;
-    while end < bytes.len() && !is_url_terminator(bytes[end]) {
-        end += 1;
-    }
-    while end > i && is_trailing_punctuation(bytes[end - 1]) {
-        end -= 1;
-    }
-    end
-}
-
-/// A byte that cannot appear inside a URL, so it bounds a URL token: ASCII whitespace and the RFC 3986
-/// delimiters a link never contains unescaped.
-fn is_url_terminator(byte: u8) -> bool {
-    byte.is_ascii_whitespace()
-        || matches!(
-            byte,
-            b'<' | b'>' | b'"' | b'`' | b'{' | b'}' | b'|' | b'^' | b'\\'
-        )
-}
-
-/// Trailing punctuation trimmed off a URL token so it reads as sentence punctuation, not part of the
-/// link (a link glued to a `.`, a `,`, or a closing bracket).
-fn is_trailing_punctuation(byte: u8) -> bool {
-    matches!(
-        byte,
-        b'.' | b',' | b';' | b':' | b'!' | b'?' | b')' | b']' | b'}' | b'\'' | b'"'
-    )
-}
 
 /// Parse a Crockford ULID string into a [`TurnId`], or `None` if it is not a valid ULID. The single
 /// point where "does this denote a turn" is decided, so both reference forms reject the same way.
 fn parse_ulid(body: &str) -> Option<TurnId> {
     Ulid::from_string(body).ok().map(TurnId)
-}
-
-/// Push a prose segment, dropping it when empty so adjacent references leave no empty spans.
-fn flush_prose<'a>(segments: &mut Vec<Segment<'a>>, prose: &'a str) {
-    if !prose.is_empty() {
-        segments.push(Segment::Prose(prose));
-    }
 }
 
 #[cfg(test)]
@@ -214,7 +144,7 @@ mod tests {
         let token = construct(turn);
         assert!(token.starts_with("[turn:"));
         assert!(token.ends_with(']'));
-        assert_eq!(token.len(), "[turn:]".len() + ULID_LEN);
+        assert_eq!(token.len(), "[turn:]".len() + ref_token::ULID_LEN);
     }
 
     #[test]
