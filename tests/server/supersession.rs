@@ -336,13 +336,17 @@ async fn the_superseded_generation_ends_with_an_abandoned_frame_on_its_own_turn(
 async fn a_chain_of_batches_supersedes_to_the_newest() {
     let (server, _clock) = born_agent();
     let server = std::sync::Arc::new(server);
-    // Only the third batch's turn ends up carrying all three markers, so it is the sole winner; the
-    // second may supersede without ever generating (the level-trigger).
+    // Only the third batch's turn ends up carrying all three markers, so it is the sole winner: the
+    // first and second turns each park mid-generation and are superseded in turn. Each link in the
+    // chain is gated on the previous turn genuinely parking — an unsequenced burst would let the
+    // second and third arrivals race, and a second turn that replays the third's already-durable
+    // inbound sees every marker and answers as the winner itself.
     let gate = GateModel::new(&[FIRST_MARK, SECOND_MARK, THIRD_MARK]);
 
     let first = spawn_batch(server.clone(), gate.clone(), FIRST_TEXT);
     await_parked(&gate, 1).await;
     let second = spawn_batch(server.clone(), gate.clone(), SECOND_TEXT);
+    await_parked(&gate, 2).await;
     let third = spawn_batch(server.clone(), gate.clone(), THIRD_TEXT);
 
     let (outcome1, _) = timeout(WAIT, first).await.unwrap().unwrap();
