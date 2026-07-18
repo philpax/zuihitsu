@@ -82,12 +82,13 @@ impl std::fmt::Display for LinkError {
         match self {
             LinkError::SameAsForbidden => write!(
                 f,
-                "platform link: a connector may not assert same_as; cross-platform identity is \
-                 operator-confirmed"
+                "platform link: a platform connector may not assert same_as; cross-platform identity \
+                 is operator-confirmed"
             ),
             LinkError::UnknownRelation(relation) => write!(
                 f,
-                "platform link: unknown relation {:?}; a connector may link only registered relations",
+                "platform link: unknown relation {:?}; a platform connector may link only registered \
+                 relations",
                 relation.as_str()
             ),
             LinkError::Instance(error) => write!(f, "platform link: {error}"),
@@ -538,7 +539,7 @@ impl Platform<'_> {
     pub fn write_context(
         &self,
         locator: &ConversationLocator,
-        connector_id: &str,
+        platform: &str,
         entries: &[ContextEntry],
     ) -> Result<(), InstanceError> {
         if entries.is_empty() {
@@ -582,7 +583,7 @@ impl Platform<'_> {
         let now = engine.clock.now();
         engine.store.lock().append(
             now,
-            EventSource::Connector(connector_id.to_owned()),
+            EventSource::Connector(platform.to_owned()),
             block.into_effects().events,
         )?;
         engine
@@ -605,7 +606,7 @@ impl Platform<'_> {
     pub fn project(
         &self,
         target: &LinkNode,
-        connector_id: &str,
+        platform: &str,
         attributes: &[ParticipantAttribute],
     ) -> Result<Vec<Option<EntryId>>, InstanceError> {
         if attributes.is_empty() {
@@ -656,7 +657,7 @@ impl Platform<'_> {
         let now = engine.clock.now();
         engine.store.lock().append(
             now,
-            EventSource::Connector(connector_id.to_owned()),
+            EventSource::Connector(platform.to_owned()),
             block.into_effects().events,
         )?;
         engine
@@ -681,7 +682,7 @@ impl Platform<'_> {
         from: &LinkNode,
         to: &LinkNode,
         relation: &str,
-        connector_id: &str,
+        platform: &str,
         remove: bool,
     ) -> Result<(), LinkError> {
         let relation = RelationName::new(relation);
@@ -720,7 +721,7 @@ impl Platform<'_> {
                 to_id,
                 relation,
                 LinkPosture {
-                    source: LinkSource::Connector(connector_id.to_owned()),
+                    source: LinkSource::Connector(platform.to_owned()),
                     // No teller and no told_in: a connector's structural edge has no human behind it,
                     // mirroring the operator-authored `same_as`.
                     told_by: None,
@@ -732,7 +733,7 @@ impl Platform<'_> {
         let now = engine.clock.now();
         engine.store.lock().append(
             now,
-            EventSource::Connector(connector_id.to_owned()),
+            EventSource::Connector(platform.to_owned()),
             vec![payload],
         )?;
         engine

@@ -129,10 +129,11 @@ url = "https://mcp.example.com/mcp"
 # header values serialise redacted in the config view.
 headers = { Authorization = "Bearer your-token" }
 
-# Connectors: one [connectors.<id>] entry each. The id is the platform (discord,
-# slack, or direct); a /platform/* request bearing that connector's key is scoped
-# to and attributed to that platform. The key serialises redacted.
-[connectors]
+# Platform connectors: one [platform_connectors.<platform>] entry each. The entry
+# key is the platform the connector serves (discord, slack, or direct); a
+# /platform/* request bearing that connector's key is scoped to and attributed to
+# that platform. The key serialises redacted.
+[platform_connectors]
 discord = { key = "00000000-0000-0000-0000-000000000000" }
 ```
 

@@ -130,10 +130,10 @@ async fn a_connector_key_scopes_a_write_to_its_own_platform() {
     // the operator's `direct` interface. Regression for the loopback-first scoping bug.
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
-    let connectors: Arc<[(String, String)]> =
+    let platform_connectors: Arc<[(String, String)]> =
         Arc::from([("discord".to_owned(), "discord-key".to_owned())]);
     let app = router(AppState {
-        connectors,
+        platform_connectors,
         ..test_state(server.clone())
     });
     let response = app

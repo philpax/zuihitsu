@@ -19,13 +19,13 @@ use zuihitsu::ids::DIRECT_PLATFORM;
 
 use crate::http_server::AppState;
 
-/// The connector a `/platform/*` request is authenticated as: the id is both the platform every
-/// operation acts on and the connector its events are attributed to. Inserted into the request by
-/// [`require_platform_key`] and read by each participant handler; the handler never trusts a platform
-/// from the body, because there is none.
+/// The platform a `/platform/*` request is authenticated for: the key resolves to the connector's
+/// platform, every operation is scoped to it, and writes are attributed to its connector. Inserted into
+/// the request by [`require_platform_key`] and read by each participant handler; the handler never
+/// trusts a platform from the body, because there is none.
 #[derive(Clone, Debug)]
-pub(super) struct ConnectorScope {
-    pub id: String,
+pub(super) struct PlatformConnectorScope {
+    pub platform: String,
 }
 
 /// Operator-surface auth: a loopback peer passes without a key; a remote peer must present a valid
@@ -40,7 +40,7 @@ pub(super) async fn require_control_key(
 }
 
 /// Participant-surface auth and scoping: resolve the request to exactly one connector, and stamp its
-/// [`ConnectorScope`] onto the request for the handler to act under. The key is checked *first*, so a
+/// [`PlatformConnectorScope`] onto the request for the handler to act under. The key is checked *first*, so a
 /// connector running on the same host as the server (a bot on `localhost`, the common deployment) is
 /// still scoped to its own platform by its key rather than mistaken for the operator's console. A
 /// request bearing a registered connector's key is scoped to that connector, wherever it connects from;
@@ -56,12 +56,12 @@ pub(super) async fn require_platform_key(
     next: Next,
 ) -> Response {
     let scope = match presented_key(&request) {
-        Some(key) => match resolve_connector(&state.connectors, key) {
-            Some(id) => ConnectorScope { id },
+        Some(key) => match resolve_platform_connector(&state.platform_connectors, key) {
+            Some(platform) => PlatformConnectorScope { platform },
             None => return StatusCode::UNAUTHORIZED.into_response(),
         },
-        None if peer.ip().is_loopback() => ConnectorScope {
-            id: DIRECT_PLATFORM.to_owned(),
+        None if peer.ip().is_loopback() => PlatformConnectorScope {
+            platform: DIRECT_PLATFORM.to_owned(),
         },
         None => return StatusCode::UNAUTHORIZED.into_response(),
     };
@@ -78,16 +78,19 @@ fn presented_key(request: &Request) -> Option<&str> {
         .and_then(|value| value.strip_prefix("Bearer "))
 }
 
-/// Resolve a presented bearer key to the connector id it registers, or `None` if it matches none.
-/// Compares fixed-width SHA-256 digests and scans the whole registry unconditionally (no early
-/// return), so neither the key's length nor the matching connector's position leaks through timing —
-/// the same discipline as [`key_is_valid`].
-fn resolve_connector(connectors: &[(String, String)], presented: &str) -> Option<String> {
+/// Resolve a presented bearer key to the platform the connector it registers serves, or `None` if it
+/// matches none. Compares fixed-width SHA-256 digests and scans the whole registry unconditionally (no
+/// early return), so neither the key's length nor the matching connector's position leaks through timing
+/// — the same discipline as [`key_is_valid`].
+fn resolve_platform_connector(
+    platform_connectors: &[(String, String)],
+    presented: &str,
+) -> Option<String> {
     let presented = Sha256::digest(presented.as_bytes());
     let mut matched = None;
-    for (id, key) in connectors {
+    for (platform, key) in platform_connectors {
         if presented == Sha256::digest(key.as_bytes()) {
-            matched = Some(id.clone());
+            matched = Some(platform.clone());
         }
     }
     matched

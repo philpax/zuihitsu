@@ -1,18 +1,18 @@
 use super::*;
-fn keyed_app(control: &[&str], connectors: &[&str]) -> axum::Router {
+fn keyed_app(control: &[&str], platform_connectors: &[&str]) -> axum::Router {
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
     let control_keys: Arc<[String]> = control.iter().map(|s| s.to_string()).collect();
-    // Each connector key registers under a distinct id — the id scopes the request; the auth tests
-    // only assert the key is accepted, so a generated id suffices.
-    let connectors: Arc<[(String, String)]> = connectors
+    // Each connector key registers under a distinct platform — the platform scopes the request; the auth
+    // tests only assert the key is accepted, so a generated platform suffices.
+    let platform_connectors: Arc<[(String, String)]> = platform_connectors
         .iter()
         .enumerate()
         .map(|(index, key)| (format!("connector{index}"), key.to_string()))
         .collect();
     router(AppState {
         control_keys,
-        connectors,
+        platform_connectors,
         ..test_state(server)
     })
 }

@@ -102,18 +102,18 @@ fn control_keys_default_empty_and_parse_as_arrays() {
 #[test]
 fn connectors_parse_as_a_platform_keyed_map() {
     // No connectors by default — nothing may reach the platform surface remotely.
-    assert!(EnvConfig::default().connectors.is_empty());
+    assert!(EnvConfig::default().platform_connectors.is_empty());
 
     let config = EnvConfig::load_from_string(
-        "[connectors]\n\
+        "[platform_connectors]\n\
          discord = { key = \"discord-key\" }\n\
          slack = { key = \"slack-key\" }\n",
         base(),
     )
     .unwrap();
-    assert_eq!(config.connectors.len(), 2);
-    assert_eq!(config.connectors["discord"].key, "discord-key");
-    assert_eq!(config.connectors["slack"].key, "slack-key");
+    assert_eq!(config.platform_connectors.len(), 2);
+    assert_eq!(config.platform_connectors["discord"].key, "discord-key");
+    assert_eq!(config.platform_connectors["slack"].key, "slack-key");
 }
 
 #[test]

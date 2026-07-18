@@ -19,17 +19,17 @@ use zuihitsu::{
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
-use crate::http_server::{AppState, auth::ConnectorScope, error::ApiError};
+use crate::http_server::{AppState, auth::PlatformConnectorScope, error::ApiError};
 
 /// The locator for `scope_path` under the request's connector — the platform is the scope's, never the
 /// body's.
-fn locator(scope: &ConnectorScope, scope_path: String) -> ConversationLocator {
-    ConversationLocator::new(scope.id.clone(), scope_path)
+fn locator(scope: &PlatformConnectorScope, scope_path: String) -> ConversationLocator {
+    ConversationLocator::new(scope.platform.clone(), scope_path)
 }
 
 /// The participant identity for a bare id under the request's connector.
-fn person(scope: &ConnectorScope, id: String) -> PersonId {
-    PersonId::new(scope.id.clone(), id)
+fn person(scope: &PlatformConnectorScope, id: String) -> PersonId {
+    PersonId::new(scope.platform.clone(), id)
 }
 
 /// One inbound message on the wire: the sender's bare id (the platform is the request's scope) and its
@@ -53,7 +53,7 @@ pub(super) struct MessageRequest {
 
 pub(super) async fn message(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<Json<PlatformResponse>, ApiError> {
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
@@ -90,7 +90,7 @@ pub(super) struct JoinRequest {
 
 pub(super) async fn join(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<JoinRequest>,
 ) -> Result<StatusCode, ApiError> {
     state
@@ -127,7 +127,7 @@ pub(super) struct RosterResyncBody {
 
 pub(super) async fn roster(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<RosterRequest>,
 ) -> Result<Json<RosterResyncBody>, ApiError> {
     let roster: Vec<PersonId> = request
@@ -165,12 +165,12 @@ pub(super) struct ContextRequest {
 
 pub(super) async fn write_context(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ContextRequest>,
 ) -> Result<StatusCode, ApiError> {
     state.server.platform().write_context(
         &locator(&scope, request.scope_path),
-        &scope.id,
+        &scope.platform,
         &request.entries,
     )?;
     Ok(StatusCode::NO_CONTENT)
@@ -189,12 +189,12 @@ pub(super) struct ProjectRequest {
 
 pub(super) async fn project(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ProjectRequest>,
 ) -> Result<Json<Vec<Option<EntryId>>>, ApiError> {
     let ids = state.server.platform().project(
         &link_node(&scope, request.target),
-        &scope.id,
+        &scope.platform,
         &request.attributes,
     )?;
     Ok(Json(ids))
@@ -224,7 +224,7 @@ pub(super) struct LinkRequest {
 
 pub(super) async fn link(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<LinkRequest>,
 ) -> Result<StatusCode, ApiError> {
     let from = link_node(&scope, request.from);
@@ -232,14 +232,20 @@ pub(super) async fn link(
     state
         .server
         .platform()
-        .link(&from, &to, &request.relation, &scope.id, request.remove)
+        .link(
+            &from,
+            &to,
+            &request.relation,
+            &scope.platform,
+            request.remove,
+        )
         .map_err(link_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// Scope a wire link endpoint to the request's connector — the platform is the scope's, never the
 /// body's, mirroring [`person`] and [`locator`].
-fn link_node(scope: &ConnectorScope, node: WireLinkNode) -> LinkNode {
+fn link_node(scope: &PlatformConnectorScope, node: WireLinkNode) -> LinkNode {
     match node {
         WireLinkNode::Participant { id } => LinkNode::Participant(person(scope, id)),
         WireLinkNode::Context { scope_path } => LinkNode::Context(locator(scope, scope_path)),
@@ -275,7 +281,7 @@ fn link_error(error: LinkError) -> ApiError {
 /// it as a `StreamFrame`.
 pub(super) async fn message_stream(
     State(state): State<AppState>,
-    Extension(scope): Extension<ConnectorScope>,
+    Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let model = state.model.clone().ok_or(ApiError::NoModel)?;
