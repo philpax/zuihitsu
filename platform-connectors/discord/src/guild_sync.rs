@@ -11,11 +11,11 @@ use std::collections::HashSet;
 
 use tokio::sync::Mutex;
 
-use zuihitsu_connector_api::{LinkEndpoint, PlatformClient};
 use zuihitsu_core::{
     ids::{ConversationLocator, PersonId},
     vocabulary::RelationName,
 };
+use zuihitsu_platform_connector_api::{LinkEndpoint, PlatformClient};
 
 use crate::{error::Result, locator::guild_locator};
 

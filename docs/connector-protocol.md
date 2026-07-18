@@ -182,7 +182,7 @@ Returns `204 No Content` on success. An unregistered relation or an attempt at `
 
 Both streaming endpoints (`/platform/messages/stream` and `/control/events/stream`) use the same wire format: an SSE stream where every event has a `data:` payload that is a JSON `StreamFrame`. No `event:` field is emitted — the frame's type lives inside the JSON (`{"type":"progress",…}`), so a consumer reads SSE events, takes each `data:` field, and deserialises it as a `StreamFrame`.
 
-The `StreamFrame` enum is defined in `zuihitsu-frontend-types` and shared by the server, the `zuihitsu-connector-api` crate, and the console's TypeScript bindings.
+The `StreamFrame` enum is defined in `zuihitsu-frontend-types` and shared by the server, the `zuihitsu-platform-connector-api` crate, and the console's TypeScript bindings.
 
 ### Wire format
 
@@ -214,4 +214,4 @@ data: {"type":"outcome","outcome":{"Reply":"Hello there, Dave."},"participant_tu
 
 Parse the SSE wire format (split on blank lines, extract `data:` lines) and JSON-parse each `data:` payload as a `StreamFrame`. The `type` field discriminates the variant. Partial frames (a chunk boundary splitting a JSON object) are buffered until the next blank line.
 
-The `zuihitsu-connector-api` crate provides a `PlatformClient` that handles the HTTP transport, SSE parsing, and `StreamFrame` deserialisation. The console has its own `SseDecoder` in `liveStream.ts` for the same purpose.
+The `zuihitsu-platform-connector-api` crate provides a `PlatformClient` that handles the HTTP transport, SSE parsing, and `StreamFrame` deserialisation. The console has its own `SseDecoder` in `liveStream.ts` for the same purpose.

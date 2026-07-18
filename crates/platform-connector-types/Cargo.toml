@@ -1,14 +1,14 @@
-# Connector-facing wire types shared between the main crate, the connector-api crate, and
-# the console.
+# Connector-facing wire types shared between the main crate, the platform-connector-api crate,
+# and the console.
 #
 # The `ts` feature enables `ts-rs` so the export binary can emit TypeScript bindings.
 [package]
-name = "zuihitsu-connector-types"
+name = "zuihitsu-platform-connector-types"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "zuihitsu_connector_types"
+name = "zuihitsu_platform_connector_types"
 path = "src/lib.rs"
 
 [features]

@@ -8,7 +8,7 @@
 //! with a `platform client:` context prefix, so a chained error from a connector reads as
 //! nested context.
 
-pub use zuihitsu_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
+pub use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
 
 use std::fmt;
 

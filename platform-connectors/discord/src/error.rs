@@ -103,8 +103,8 @@ impl std::error::Error for Error {
     }
 }
 
-impl From<zuihitsu_connector_api::Error> for Error {
-    fn from(error: zuihitsu_connector_api::Error) -> Self {
+impl From<zuihitsu_platform_connector_api::Error> for Error {
+    fn from(error: zuihitsu_platform_connector_api::Error) -> Self {
         Error {
             kind: ErrorKind::Platform,
             context: error.to_string(),

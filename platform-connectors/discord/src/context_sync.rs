@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use serenity::model::id::ChannelId;
 use tokio::sync::Mutex;
 
-use zuihitsu_connector_api::{ContextEntry, PlatformClient};
+use zuihitsu_platform_connector_api::{ContextEntry, PlatformClient};
 
 use crate::error::Result;
 

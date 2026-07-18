@@ -17,7 +17,7 @@ use zuihitsu::{
     ContextEntry, ConversationLocator, EntryId, LinkError, LinkNode, MessageInput,
     ParticipantAttribute, PersonId, RosterResync,
 };
-use zuihitsu_connector_types::{PlatformResponse, StreamFrame};
+use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
 use crate::http_server::{AppState, auth::ConnectorScope, error::ApiError};
 

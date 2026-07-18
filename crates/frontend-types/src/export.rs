@@ -21,7 +21,6 @@ pub fn export_types(dir: &Path) -> Result<()> {
         live::LiveEvent,
         package::{EvalPackage, PackageSummary},
     };
-    use zuihitsu_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
     use zuihitsu_core::{
         ids::{Namespace, NamespacedMemoryName, PersonId},
         progress::TurnProgress,
@@ -30,6 +29,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
             RecencySettings, SchedulerSettings, SearchSettings, TauDays, TurnSettings,
         },
     };
+    use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
 
     EvalPackage::export_all_to(dir).context("exporting EvalPackage")?;
     PackageSummary::export_all_to(dir).context("exporting PackageSummary")?;

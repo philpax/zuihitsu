@@ -17,11 +17,11 @@ name = "export-types"
 path = "src/bin/export_types.rs"
 
 [features]
-ts = ["dep:ts-rs", "dep:anyhow", "zuihitsu-core/ts", "zuihitsu-connector-types/ts"]
+ts = ["dep:ts-rs", "dep:anyhow", "zuihitsu-core/ts", "zuihitsu-platform-connector-types/ts"]
 
 [dependencies]
 zuihitsu-core = { workspace = true }
-zuihitsu-connector-types = { workspace = true }
+zuihitsu-platform-connector-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ts-rs = { workspace = true, optional = true }

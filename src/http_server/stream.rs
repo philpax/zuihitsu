@@ -19,7 +19,7 @@ use axum::{
 };
 use tokio::sync::broadcast;
 use zuihitsu::{Event, ids::Seq};
-use zuihitsu_connector_types::StreamFrame;
+use zuihitsu_platform_connector_types::StreamFrame;
 
 use crate::http_server::{AppState, control::FromQuery, error::ApiError};
 

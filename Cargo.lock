@@ -4722,31 +4722,9 @@ dependencies = [
  "wasm-bindgen-cli-support",
  "wasm-opt",
  "whatlang",
- "zuihitsu-connector-types",
  "zuihitsu-core",
  "zuihitsu-frontend-types",
-]
-
-[[package]]
-name = "zuihitsu-connector-api"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "reqwest 0.13.4",
- "serde",
- "serde_json",
- "tracing",
- "zuihitsu-connector-types",
- "zuihitsu-core",
-]
-
-[[package]]
-name = "zuihitsu-connector-types"
-version = "0.1.0"
-dependencies = [
- "serde",
- "ts-rs",
- "zuihitsu-core",
+ "zuihitsu-platform-connector-types",
 ]
 
 [[package]]
@@ -4783,8 +4761,8 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ulid",
- "zuihitsu-connector-api",
  "zuihitsu-core",
+ "zuihitsu-platform-connector-api",
 ]
 
 [[package]]
@@ -4818,6 +4796,28 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
- "zuihitsu-connector-types",
+ "zuihitsu-core",
+ "zuihitsu-platform-connector-types",
+]
+
+[[package]]
+name = "zuihitsu-platform-connector-api"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "tracing",
+ "zuihitsu-core",
+ "zuihitsu-platform-connector-types",
+]
+
+[[package]]
+name = "zuihitsu-platform-connector-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "ts-rs",
  "zuihitsu-core",
 ]

@@ -1,5 +1,5 @@
 //! Connector-facing wire types: the response a connector receives, and the streaming protocol's
-//! typed frame. Shared between the main crate, the `zuihitsu-connector-api` crate, and the
+//! typed frame. Shared between the main crate, the `zuihitsu-platform-connector-api` crate, and the
 //! console's TypeScript bindings.
 //!
 //! The `ts` feature gates the `ts_rs::TS` derives. The export pipeline (in `frontend-types`)

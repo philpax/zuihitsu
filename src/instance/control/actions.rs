@@ -31,7 +31,7 @@ use crate::{
     settings::Settings,
     vocabulary::RelationName,
 };
-use zuihitsu_connector_types::PlatformResponse;
+use zuihitsu_platform_connector_types::PlatformResponse;
 
 impl Control<'_> {
     /// Run one operator message of the imprint interview: the console conversation where the
