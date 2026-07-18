@@ -306,9 +306,13 @@ fn the_comparison_detects_flips_and_computes_rates() {
 
 /// Boot a fresh, retrieval-free agent whose turns reply from `model`.
 async fn booted(model: ScriptedModel) -> RunContext {
-    RunContext::new(&deps(model), InstanceFeatures::default())
-        .await
-        .expect("a fresh agent boots")
+    RunContext::new(
+        &deps(model),
+        InstanceFeatures::default(),
+        &crate::context::default_seed(),
+    )
+    .await
+    .expect("a fresh agent boots")
 }
 
 fn deps(model: ScriptedModel) -> RunDeps {

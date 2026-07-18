@@ -292,9 +292,13 @@ mod tests {
             dimensions: 0,
             web: crate::fetch_fixture::web_fetcher(),
         };
-        let ctx = RunContext::new(&deps, InstanceFeatures::default())
-            .await
-            .expect("a fresh agent boots");
+        let ctx = RunContext::new(
+            &deps,
+            InstanceFeatures::default(),
+            &crate::context::default_seed(),
+        )
+        .await
+        .expect("a fresh agent boots");
         let steps = vec![a_turn()];
         let journal = execute(&steps, &ctx).await.expect("the turn drives");
         let events = ctx.events().expect("the run's log");

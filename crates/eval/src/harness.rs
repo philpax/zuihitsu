@@ -147,7 +147,7 @@ async fn drive_streaming(
     run_index: u32,
 ) -> Result<Result<(Vec<Event>, Vec<StepRecord>), String>, EvalError> {
     let features = scenario.features();
-    let ctx = match RunContext::new(deps, features).await {
+    let ctx = match RunContext::new(deps, features, &scenario.seed()).await {
         Ok(ctx) => ctx,
         Err(error) => return Ok(Err(error.to_string())),
     };

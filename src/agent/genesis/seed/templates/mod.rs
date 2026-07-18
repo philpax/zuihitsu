@@ -42,7 +42,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::Imprint,
-            version: 2,
+            version: 3,
             body: body_of(include_str!("turn/imprint.md")),
         },
         // A coined directional relation is easy to link the wrong way round, so the body has the

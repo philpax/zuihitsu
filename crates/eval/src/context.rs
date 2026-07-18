@@ -81,11 +81,18 @@ impl RunContext {
     /// Build, boot, and birth a fresh agent for one run, with the scenario's feature set narrowing the
     /// agent's API surface (so a scenario like `InfersLinkFromContent` can disable `linking` and test
     /// the inference pass as the sole path to a link).
-    pub async fn new(deps: &RunDeps, features: InstanceFeatures) -> Result<RunContext, EvalError> {
+    /// Birth a fresh agent from `seed` — its name, charter persona, and seed disposition entries. Most
+    /// runs pass [`default_seed`]; an onboarding scenario overrides it (via [`Scenario::seed`]) to give
+    /// the agent a rich, specific charter the imprint has real material to reason about.
+    pub async fn new(
+        deps: &RunDeps,
+        features: InstanceFeatures,
+        seed: &SeedSelf,
+    ) -> Result<RunContext, EvalError> {
         let clock = ManualClock::new(Timestamp::from_millis(RUN_START_MS));
         let server = assemble(deps, features, &clock, Box::new(MemoryStore::new())).await?;
         // A fresh run is born: genesis writes the birth events into the empty log.
-        server.control().create_agent(&seed())?;
+        server.control().create_agent(seed)?;
         Ok(RunContext {
             server,
             model: deps.model.clone(),
@@ -498,8 +505,8 @@ fn server_error(error: zuihitsu::StoreError) -> EvalError {
     EvalError::Server(Box::new(error.into()))
 }
 
-/// The agent every run is born as.
-fn seed() -> SeedSelf {
+/// The agent every run is born as, unless the scenario overrides it via [`Scenario::seed`].
+pub(crate) fn default_seed() -> SeedSelf {
     SeedSelf {
         agent_name: "Kestrel".to_owned(),
         persona: "A thoughtful, discreet companion with a long memory.".to_owned(),

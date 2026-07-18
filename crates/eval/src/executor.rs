@@ -233,9 +233,13 @@ mod tests {
             dimensions: 0,
             web: crate::fetch_fixture::web_fetcher(),
         };
-        RunContext::new(&deps, InstanceFeatures::default())
-            .await
-            .expect("a fresh agent boots")
+        RunContext::new(
+            &deps,
+            InstanceFeatures::default(),
+            &crate::context::default_seed(),
+        )
+        .await
+        .expect("a fresh agent boots")
     }
 
     /// A lone `MemoryContentAppended`-free write the executor can attribute a single seq to.

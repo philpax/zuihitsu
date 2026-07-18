@@ -6,9 +6,10 @@
 //! run is still the event log, which `assess` reads.
 
 use async_trait::async_trait;
-use zuihitsu::{Event, InstanceFeatures};
+use zuihitsu::{Event, InstanceFeatures, SeedSelf};
 
 use crate::{
+    context::default_seed,
     judge::Judge,
     package::{ScenarioMeta, Verdict},
     step::EvalStep,
@@ -30,6 +31,13 @@ pub trait Scenario: Send + Sync {
     /// pass as the sole path to a link). Defaults to all-on; a scenario overrides this to narrow.
     fn features(&self) -> InstanceFeatures {
         InstanceFeatures::default()
+    }
+
+    /// The [`SeedSelf`] the scenario's instance is born with — its name, charter persona, and seed
+    /// disposition entries. Defaults to the shared [`default_seed`]; an onboarding scenario overrides it
+    /// to give the agent a rich, specific charter the imprint can reason about.
+    fn seed(&self) -> SeedSelf {
+        default_seed()
     }
 
     /// The scenario's script — the ordered steps the executor drives the agent through. Pure,
