@@ -91,7 +91,7 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
 
     // The entries are attributed to the connector, not the agent.
     let projected = server.control().events().unwrap().into_iter().any(|event| {
-        matches!(&event.source, EventSource::Connector(id) if id == "discord")
+        matches!(&event.source, EventSource::PlatformConnector(id) if id == "discord")
             && matches!(&event.payload, EventPayload::MemoryContentAppended { text, .. }
                 if text == "Discord username: dave5678")
     });

@@ -34,7 +34,7 @@ The agent acts by reading and writing that memory. Each turn, it emits Lua again
 
 ## Configuration
 
-The agent server reads one **environmental config** file that says where and how this instance runs: its database paths, the model and embedding endpoints, the bind address, and any MCP servers or connectors. It's operational, not behavioural (behavioural settings live in the log as events), and it's per-instance and never committed, since endpoints, credentials, and database paths differ from machine to machine.
+The agent server reads one **environmental config** file that says where and how this instance runs: its database paths, the model and embedding endpoints, the bind address, and any MCP servers or platform connectors. It's operational, not behavioural (behavioural settings live in the log as events), and it's per-instance and never committed, since endpoints, credentials, and database paths differ from machine to machine.
 
 Pass it with `--config`. A missing file falls back to defaults: a loopback server writing to `data/` beside the config. Relative paths resolve against the config file's own directory, so you can relocate an instance by moving it. Secrets never cross the read-only config view (`GET /control/config`): control keys serialise as a count, environment variables and HTTP headers as their names alone, and endpoint URLs with their credentials stripped.
 
@@ -129,10 +129,11 @@ url = "https://mcp.example.com/mcp"
 # header values serialise redacted in the config view.
 headers = { Authorization = "Bearer your-token" }
 
-# Connectors: one [connectors.<id>] entry each. The id is the platform (discord,
-# slack, or direct); a /platform/* request bearing that connector's key is scoped
-# to and attributed to that platform. The key serialises redacted.
-[connectors]
+# Platform connectors: one [platform_connectors.<platform>] entry each. The entry
+# key is the platform the connector serves (discord, slack, or direct); a
+# /platform/* request bearing that connector's key is scoped to and attributed to
+# that platform. The key serialises redacted.
+[platform_connectors]
 discord = { key = "00000000-0000-0000-0000-000000000000" }
 ```
 

@@ -1,5 +1,5 @@
 [package]
-name = "zuihitsu-connector-api"
+name = "zuihitsu-platform-connector-api"
 version = "0.1.0"
 edition = "2024"
 
@@ -14,4 +14,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 zuihitsu-core = { workspace = true }
-zuihitsu-connector-types = { workspace = true }
+zuihitsu-platform-connector-types = { workspace = true }

@@ -5,7 +5,7 @@ use crate::agent::lua::tables::modules::{metatables::*, *};
 /// The `convo` global: `turn(id)` resolves a conversation turn link — the id carried in a
 /// `[turn:<ulid>]` token, the canonical agent-facing reference form — to that moment and a small
 /// window of the surrounding turns in its session. A console deep-link's `?turn=<ulid>` never reaches
-/// here: the connector normalizes any pasted URL to the token before the message reaches the agent
+/// here: the platform connector normalizes any pasted URL to the token before the message reaches the agent
 /// (see [`turn_ref`](zuihitsu_core::turn_ref)), so this resolver reads a bare ULID and nothing more.
 /// The result is a table `{ id, ref, text, speaker, role, at,
 /// window }` — the focal turn's fields at the top (`ref` the canonical `[turn:…]` to cite it by), and

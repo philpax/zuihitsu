@@ -1,5 +1,6 @@
-//! Connector-facing wire types: the response a connector receives, and the streaming protocol's
-//! typed frame. Shared between the main crate, the `zuihitsu-connector-api` crate, and the
+//! Platform-connector-facing wire types: the response a platform connector receives, and the
+//! streaming protocol's typed frame. Shared between the main crate, the
+//! `zuihitsu-platform-connector-api` crate, and the
 //! console's TypeScript bindings.
 //!
 //! The `ts` feature gates the `ts_rs::TS` derives. The export pipeline (in `frontend-types`)
@@ -52,7 +53,7 @@ pub struct PlatformResponse {
     pub participant_turn_ids: Vec<String>,
 }
 
-/// The streaming protocol's typed frame. See `docs/connector-protocol.md` for the full protocol
+/// The streaming protocol's typed frame. See `docs/platform-connector-protocol.md` for the full protocol
 /// specification — endpoints, request/response shapes, wire format, and frame semantics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

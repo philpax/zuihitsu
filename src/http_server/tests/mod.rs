@@ -22,8 +22,8 @@ fn no_keys() -> Arc<[String]> {
     Vec::new().into()
 }
 
-/// No configured connectors — the existing platform tests run loopback, scoped to `direct`.
-fn no_connectors() -> Arc<[(String, String)]> {
+/// No configured platform connectors — the existing platform tests run loopback, scoped to `direct`.
+fn no_platform_connectors() -> Arc<[(String, String)]> {
     Vec::new().into()
 }
 
@@ -41,7 +41,7 @@ fn test_state(server: Arc<Server>) -> AppState {
         metrics: None,
         boot: std::time::Instant::now(),
         control_keys: no_keys(),
-        connectors: no_connectors(),
+        platform_connectors: no_platform_connectors(),
         config: Arc::new(zuihitsu::EnvConfig::default()),
     }
 }

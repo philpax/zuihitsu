@@ -14,8 +14,8 @@ use std::{path::PathBuf, time::Duration};
 use rusqlite::{Connection, OptionalExtension, params};
 use tokio::sync::Mutex;
 
-use zuihitsu_connector_api::{LinkEndpoint, ParticipantAttribute, PlatformClient};
 use zuihitsu_core::ids::EntryId;
+use zuihitsu_platform_connector_api::{LinkEndpoint, ParticipantAttribute, PlatformClient};
 
 use crate::error::Result;
 

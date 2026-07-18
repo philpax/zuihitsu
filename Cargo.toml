@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "connectors/*"]
+members = ["crates/*", "platform-connectors/*"]
 
 # Dependencies shared across the workspace crates live here, so their versions cannot drift.
 # Per-crate feature sets are added at the use site (features union across the workspace).
@@ -46,9 +46,9 @@ wasm-opt = "0.116"
 # The wasm-compatible materializer core, shared by the main crate and (later) the console-wasm
 # wrapper. Path dep so a local checkout always builds against the in-tree version.
 zuihitsu-core = { path = "crates/core" }
-# Internal wire-type and connector crates.
-zuihitsu-connector-api = { path = "crates/connector-api" }
-zuihitsu-connector-types = { path = "crates/connector-types" }
+# Internal wire-type and platform-connector crates.
+zuihitsu-platform-connector-api = { path = "crates/platform-connector-api" }
+zuihitsu-platform-connector-types = { path = "crates/platform-connector-types" }
 zuihitsu-frontend-types = { path = "crates/frontend-types" }
 zuihitsu = { path = ".", features = ["console"] }
 settings-metadata-derive = { path = "crates/settings-metadata-derive" }
@@ -131,7 +131,7 @@ ulid = { workspace = true }
 url = "2.5"
 whatlang = "0.18"
 zuihitsu-core = { workspace = true }
-zuihitsu-connector-types = { workspace = true }
+zuihitsu-platform-connector-types = { workspace = true }
 zuihitsu-frontend-types = { workspace = true }
 
 [build-dependencies]

@@ -575,21 +575,27 @@ fn model_call_aborted_round_trips() {
 }
 
 #[test]
-fn link_source_connector_round_trips_through_the_stored_label() {
+fn link_source_platform_connector_round_trips_through_the_stored_label() {
     // The graph `links.source` column stores `LinkSource::as_str` and reads it back with `FromStr`, so
     // a connector edge must round-trip its identifier through that label — not just through serde.
-    let source = LinkSource::Connector("discord".to_owned());
+    let source = LinkSource::PlatformConnector("discord".to_owned());
     let label = source.as_str();
-    assert_eq!(label, "Connector(discord)");
+    assert_eq!(label, "PlatformConnector(discord)");
     assert_eq!(label.parse::<LinkSource>().unwrap(), source);
 
-    // The prefix is case-insensitive, matching the other variants' parse.
+    // The prefix is case-insensitive, matching the other variants' parse, and the underscored
+    // agent-facing Lua label parses back too.
     assert_eq!(
-        "connector(discord)".parse::<LinkSource>().unwrap(),
-        LinkSource::Connector("discord".to_owned())
+        "platformconnector(discord)".parse::<LinkSource>().unwrap(),
+        LinkSource::PlatformConnector("discord".to_owned())
+    );
+    assert_eq!(
+        source.as_str_lowercase().parse::<LinkSource>().unwrap(),
+        source
     );
 
-    // A bare `Connector` with no parenthesised identifier is not a valid label.
-    assert!("Connector".parse::<LinkSource>().is_err());
-    assert!("Connectorish".parse::<LinkSource>().is_err());
+    // A bare `PlatformConnector` with no parenthesised identifier is not a valid label.
+    assert!("PlatformConnector".parse::<LinkSource>().is_err());
+    assert!("PlatformConnectorish".parse::<LinkSource>().is_err());
+    assert!("platform_connector".parse::<LinkSource>().is_err());
 }

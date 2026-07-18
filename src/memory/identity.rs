@@ -137,7 +137,7 @@ pub fn resolve_or_mint_participant(
 /// Resolve a scope to its [`Namespace::Context`] memory, minting one on first contact. The context
 /// memory is keyed by its name (`context/<platform>:<scope_path>`), independent of any conversation:
 /// a room's context and a standalone context — a guild that hosts channels but has no messages of its
-/// own — resolve the same way, so a connector can establish context for a scope that never becomes a
+/// own — resolve the same way, so a platform connector can establish context for a scope that never becomes a
 /// conversation. A room's [`resolve_or_mint_conversation`] reuses this same memory by name, so a scope
 /// has exactly one context memory whichever path first mints it (spec §Contexts are first-class
 /// memories). The caller materializes the graph to see a freshly minted one.
@@ -161,7 +161,7 @@ pub fn resolve_or_mint_context(
 }
 
 /// Resolve a scope to its [`Namespace::Context`] memory without minting one — `None` when the scope
-/// has no context memory yet. The retract counterpart to [`resolve_or_mint_context`]: a connector
+/// has no context memory yet. The retract counterpart to [`resolve_or_mint_context`]: a platform connector
 /// removing a structural link resolves the nodes it already established rather than minting them
 /// afresh, so a retract naming an unknown scope is a no-op rather than a pointless mint.
 pub fn resolve_context(

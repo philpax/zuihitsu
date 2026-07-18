@@ -18,12 +18,12 @@ use serenity::{
 };
 use tokio::sync::Mutex;
 
-use zuihitsu_connector_api::{
-    LinkEndpoint, PlatformClient, PlatformMessage, StreamOutcome, TurnOutcome,
-};
 use zuihitsu_core::{
     ids::{ConversationLocator, PersonId, TurnId},
     progress::{ProgressKind, TurnProgress},
+};
+use zuihitsu_platform_connector_api::{
+    LinkEndpoint, PlatformClient, PlatformMessage, StreamOutcome, TurnOutcome,
 };
 
 use crate::{

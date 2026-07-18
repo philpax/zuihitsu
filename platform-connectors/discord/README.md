@@ -2,8 +2,8 @@
 
 A Discord bot that bridges Discord messages, presence, and joins into the zuihitsu platform API.
 
-The connector owns pacing, addressing, typing, and silence decisions at the Discord layer — where
-real-time events are available — rather than deferring them to the agent. It is a platform client
+This platform connector owns pacing, addressing, typing, and silence decisions at the Discord layer,
+where real-time events are available, rather than deferring them to the agent. It is a platform client
 that calls the zuihitsu HTTP API; it holds a platform key for `/platform/*`.
 
 ## setup

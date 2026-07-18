@@ -75,11 +75,11 @@ struct AppState {
     /// Valid API keys for `/control/*`; a remote peer must present one, a loopback peer is trusted
     /// without one. `Arc<[String]>` so the per-request state clone is a refcount bump.
     control_keys: Arc<[String]>,
-    /// The registered connectors as `(id, key)` pairs — the platform surface's credentials. A
-    /// `/platform/*` request's bearer key resolves to exactly one id, which scopes every operation to
-    /// that platform (a loopback request is the `direct` interface). `Arc<[…]>` so the per-request state
-    /// clone is a refcount bump.
-    connectors: Arc<[(String, String)]>,
+    /// The registered platform connectors as `(platform, key)` pairs — the platform surface's
+    /// credentials. A `/platform/*` request's bearer key resolves to exactly one platform, which scopes
+    /// every operation to that platform (a loopback request is the `direct` interface). `Arc<[…]>` so the
+    /// per-request state clone is a refcount bump.
+    platform_connectors: Arc<[(String, String)]>,
     /// The environmental config this instance booted from, for the read-only config view. Serializing
     /// it redacts the secrets (API keys serialize as counts, MCP env and HTTP headers as their names).
     config: Arc<EnvConfig>,
@@ -395,10 +395,10 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         metrics,
         boot,
         control_keys: config.serving.control_keys.into(),
-        connectors: config
-            .connectors
+        platform_connectors: config
+            .platform_connectors
             .iter()
-            .map(|(id, connector)| (id.clone(), connector.key.clone()))
+            .map(|(platform, connector)| (platform.clone(), connector.key.clone()))
             .collect(),
         config: env_config,
     });
