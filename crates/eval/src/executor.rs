@@ -7,7 +7,7 @@
 use zuihitsu::{Event, EventPayload, MemoryId, PersonId, Seq, TurnRole};
 
 use crate::{
-    context::RunContext,
+    context::{BurstDelivery, RunContext},
     error::EvalError,
     step::{EvalStep, OnMissing, StepText},
 };
@@ -75,6 +75,37 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
             ctx.turn(&turn.platform, &turn.scope, &sender, &text, &present)
                 .await?;
         }
+        EvalStep::InterruptedTurn(burst) => {
+            let first_text = resolve_text(&burst.first.text, ctx)?;
+            let interrupt_text = resolve_text(&burst.interrupt.text, ctx)?;
+            let first_sender = PersonId::new(&burst.platform, &burst.first.sender);
+            let interrupt_sender = PersonId::new(&burst.platform, &burst.interrupt.sender);
+            let present: Vec<PersonId> = burst
+                .present
+                .iter()
+                .map(|uid| PersonId::new(&burst.platform, uid))
+                .collect();
+            let (first_outcome, interrupt_outcome) = ctx
+                .interrupted_turn(
+                    &burst.platform,
+                    &burst.scope,
+                    BurstDelivery {
+                        sender: &first_sender,
+                        text: &first_text,
+                    },
+                    BurstDelivery {
+                        sender: &interrupt_sender,
+                        text: &interrupt_text,
+                    },
+                    &present,
+                )
+                .await?;
+            tracing::debug!(
+                ?first_outcome,
+                ?interrupt_outcome,
+                "interrupted-turn burst completed"
+            );
+        }
         EvalStep::Imprint { text } => {
             ctx.imprint(text).await?;
         }
@@ -86,6 +117,7 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
             ctx.checkpoint_sweep().await?;
         }
         EvalStep::SeedEvents(events) => ctx.seed_events(events.clone())?,
+        EvalStep::TuneSupersession { window_seconds } => ctx.tune_supersession(*window_seconds)?,
         EvalStep::TightenCompaction {
             token_budget,
             flush_min_turns,
@@ -186,9 +218,10 @@ mod tests {
 
     use super::{execute, head_seq};
     use crate::{
+        analysis,
         context::{RunContext, RunDeps},
         error::EvalError,
-        step::{EvalStep, OnMissing, StepText, Turn},
+        step::{BurstMessage, EvalStep, InterruptedTurn, OnMissing, StepText, Turn},
     };
 
     /// Boot a fresh, retrieval-free agent whose turns reply from `model`. The in-memory backends make
@@ -263,6 +296,65 @@ mod tests {
 
         // The last watermark is the log head.
         assert_eq!(journal.last().unwrap().seq_after, final_head);
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_turn_burst_journals_one_tiled_span() {
+        // The two burst texts, held so the participant-turn assertions match exactly what was delivered.
+        const FIRST: &str = "Pull together everything we've settled for Saturday.";
+        const CORRECTION: &str = "Scratch the 7pm — moved the booking to 8:30.";
+
+        // ScriptedModel replies instantly, so turn A usually wins the phase-1 race and completes before
+        // the interrupt is delivered — the completed-early path. Two completions: one per turn.
+        let ctx = booted(ScriptedModel::new([
+            Completion::Reply("Here is the summary.".to_owned()),
+            Completion::Reply("Updated: the table is now 8:30.".to_owned()),
+        ]))
+        .await;
+        let genesis_head = head_seq(&ctx).expect("a genesis head");
+
+        let steps = vec![
+            EvalStep::TuneSupersession {
+                window_seconds: 600,
+            },
+            InterruptedTurn::new(
+                TEST_PLATFORM,
+                "dinner",
+                BurstMessage::new("noor", FIRST),
+                BurstMessage::new("noor", CORRECTION),
+            )
+            .into(),
+        ];
+        let journal = execute(&steps, &ctx).await.expect("the burst executes");
+        assert_eq!(journal.len(), 2);
+
+        // The burst is one journal entry: the whole concurrent burst — both turns' interleaved events —
+        // reads as a single serial step, ending at the log head.
+        let burst = &journal[1];
+        let (first, last) = (
+            burst.first_seq.expect("the burst appended events"),
+            burst.last_seq.expect("the burst appended events"),
+        );
+        assert!(first <= last);
+        let final_head = head_seq(&ctx).expect("a final head");
+        assert_eq!(last, final_head, "the burst span reaches the log head");
+        assert_eq!(burst.seq_after, final_head);
+
+        // The two steps' spans tile contiguously from just past genesis to the head, with no gap or
+        // overlap: the tune step's settings-change event, then the burst's events.
+        let mut covered: Vec<u64> = Vec::new();
+        for record in &journal {
+            if let (Some(f), Some(l)) = (record.first_seq, record.last_seq) {
+                covered.extend(f.0..=l.0);
+            }
+        }
+        let expected: Vec<u64> = ((genesis_head.0 + 1)..=final_head.0).collect();
+        assert_eq!(covered, expected, "the spans tile the steps' events");
+
+        // Both burst messages landed durably as participant turns, whichever way the race fell.
+        let events = ctx.events().expect("the log");
+        assert!(analysis::participant_turn_recorded(&events, FIRST));
+        assert!(analysis::participant_turn_recorded(&events, CORRECTION));
     }
 
     #[tokio::test]

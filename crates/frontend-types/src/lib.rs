@@ -28,7 +28,7 @@ pub use package::{
     RunRecord, RunSummary, ScenarioMeta, ScenarioReport, ScenarioSummary, Stat, TokenStat, Verdict,
     VerdictKind,
 };
-pub use step::{EvalStep, OnMissing, StepText, Turn};
+pub use step::{BurstMessage, EvalStep, InterruptedTurn, OnMissing, StepText, Turn};
 
 // Re-export the wire types the crate depends on, so the eval crate can reach them through a
 // single dependency rather than threading `zuihitsu-core` separately for just these few items.

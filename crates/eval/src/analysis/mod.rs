@@ -8,8 +8,8 @@ mod state;
 use std::collections::BTreeSet;
 
 use zuihitsu::{
-    Event, EventPayload, Initiation, LinkSource, MemoryId, Teller, TurnId, TurnRole, Visibility,
-    Volatility,
+    Event, EventPayload, Initiation, LinkSource, MemoryId, SUPERSEDED_CAUSE, Seq, Teller, TurnId,
+    TurnRole, Visibility, Volatility,
 };
 
 pub use events::*;
@@ -339,6 +339,42 @@ pub fn merge_committed(events: &[Event]) -> bool {
                 if relation.as_str() == "same_as"
         )
     })
+}
+
+/// Whether the run recorded a supersession abort — a `ModelCallAborted` whose cause is
+/// [`SUPERSEDED_CAUSE`], the durable marker that a newer inbound batch cancelled an in-flight generation
+/// mid-stream. This is the "the interrupt landed" signal: absent it, a supersession scenario's burst
+/// never actually raced (the first turn finished before the interrupt arrived), so the behaviour under
+/// test was never exercised and the run's conditional oracles do not apply.
+pub fn superseded_abort_present(events: &[Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            &event.payload,
+            EventPayload::ModelCallAborted { cause, .. } if cause == SUPERSEDED_CAUSE
+        )
+    })
+}
+
+/// How many agent replies (`Responding` `ConversationTurn`s) the run recorded strictly after `seq` — the
+/// count an oracle uses to assert a burst was answered exactly once. A superseded turn records no agent
+/// turn at all (its generation is discarded without a `record_agent_turn`), so a correctly-superseded
+/// burst leaves exactly one reply after its first inbound; two would be the double-response bug, where a
+/// superseded turn posted anyway. Initiated turns (a flush, a wake-up) are not replies and do not count.
+pub fn agent_replies_after(events: &[Event], seq: Seq) -> usize {
+    events
+        .iter()
+        .filter(|event| {
+            event.seq > seq
+                && matches!(
+                    &event.payload,
+                    EventPayload::ConversationTurn {
+                        role: TurnRole::Agent,
+                        initiation: Initiation::Responding,
+                        ..
+                    }
+                )
+        })
+        .count()
 }
 
 /// Whether the run marked any memory `High` volatility — the agent classified a fast-changing memory

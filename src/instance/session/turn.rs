@@ -6,7 +6,7 @@ use tracing::Instrument;
 
 use crate::{
     agent::{
-        Turn, TurnError, TurnOutcome, TurnRecord, TurnReport, TurnView, append_turn,
+        Supersession, Turn, TurnError, TurnOutcome, TurnRecord, TurnReport, TurnView, append_turn,
         bounded_buffer_turns, run_turn,
     },
     event::{Initiation, PromptTemplateName, TurnRole},
@@ -27,6 +27,7 @@ impl Instance {
         &self,
         model: &dyn ModelClient,
         routed: &RoutedTurn<'_>,
+        supersession: Option<Supersession>,
     ) -> Result<(TurnReport, Vec<TurnView>), InstanceError> {
         // The per-turn observability span (spec §Observability → per-turn spans): wraps the whole
         // turn — session open, the forced catch-up, and the model step loop — so its close carries
@@ -47,7 +48,7 @@ impl Instance {
             prompt_tokens = tracing::field::Empty,
         );
         let result = self
-            .run_session_turn_inner(model, routed)
+            .run_session_turn_inner(model, routed, supersession)
             .instrument(span.clone())
             .await;
         let duration = started.elapsed();
@@ -62,6 +63,7 @@ impl Instance {
                     TurnOutcome::Silent => "silent",
                     TurnOutcome::MaxStepsExceeded => "max_steps",
                     TurnOutcome::Deferred => "deferred",
+                    TurnOutcome::Superseded => "superseded",
                 };
                 span.record("turn_id", tracing::field::debug(&report.turn_id));
                 span.record("outcome", outcome);
@@ -94,6 +96,7 @@ impl Instance {
         &self,
         model: &dyn ModelClient,
         routed: &RoutedTurn<'_>,
+        supersession: Option<Supersession>,
     ) -> Result<(TurnReport, Vec<TurnView>), InstanceError> {
         // `ensure_session` returns the open session as an `Arc`, so the turn holds it across
         // `run_turn().await` without keeping the `sessions` map guard. The inbound senders are the
@@ -207,6 +210,7 @@ impl Instance {
             max_block_attempts,
             max_entry_chars,
             capture,
+            supersession,
         })
         .await
         .map_err(|error| InstanceError::Turn {

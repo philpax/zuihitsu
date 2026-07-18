@@ -14,6 +14,12 @@ use zuihitsu_core::event::EventPayload;
 pub enum EvalStep {
     /// Route one inbound participant message and run the agent's turn.
     Turn(Turn),
+    /// Route a two-message burst into one room where the second lands mid-generation: the `first`
+    /// message starts a turn, and the `interrupt` arrives while that turn is still generating, so the
+    /// platform's supersession machinery cancels the in-flight generation and answers once with both
+    /// messages in context. The concurrency is contained inside this single step — the executor drives
+    /// both deliveries within one journal entry — so the recorded journal stays serial.
+    InterruptedTurn(InterruptedTurn),
     /// Drive one operator imprint-interview turn.
     Imprint { text: String },
     /// Let both background synthesis passes settle — the describer, then the vector indexer.
@@ -31,6 +37,13 @@ pub enum EvalStep {
     CheckpointSweep,
     /// Append raw events to the store and materialize the graph.
     SeedEvents(Vec<EventPayload>),
+    /// Pin the per-conversation supersession window so a scripted burst lands inside it. A real turn
+    /// can outlast the 60s default, so a supersession scenario widens the window (600s) to guarantee the
+    /// interrupt still cancels the in-flight generation rather than queueing behind it.
+    TuneSupersession {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        window_seconds: i64,
+    },
     /// Tighten the compaction trigger so a short scripted session crosses the token budget.
     TightenCompaction {
         #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -83,7 +96,10 @@ impl EvalStep {
     /// The `infra_failed` detector reads this to tell a run whose every turn deferred (the model
     /// backend was unreachable) from a scenario that legitimately never calls the model at all.
     pub fn drives_model(&self) -> bool {
-        matches!(self, EvalStep::Turn(_) | EvalStep::Imprint { .. })
+        matches!(
+            self,
+            EvalStep::Turn(_) | EvalStep::InterruptedTurn(_) | EvalStep::Imprint { .. }
+        )
     }
 }
 
@@ -134,6 +150,84 @@ impl Turn {
 impl From<Turn> for EvalStep {
     fn from(turn: Turn) -> EvalStep {
         EvalStep::Turn(turn)
+    }
+}
+
+/// A two-message burst delivered into one room where the second lands mid-generation — the payload of
+/// [`EvalStep::InterruptedTurn`]. `first` opens a turn; `interrupt` arrives while that turn is still
+/// generating, so the platform supersedes the in-flight generation and answers once with both messages
+/// in context. `present` is the room's membership for both deliveries (both senders always among them),
+/// since who else is present changes what the visibility predicate surfaces.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct InterruptedTurn {
+    pub platform: String,
+    pub scope: String,
+    pub first: BurstMessage,
+    pub interrupt: BurstMessage,
+    pub present: Vec<String>,
+}
+
+/// One message of an [`InterruptedTurn`] burst: its sender and text. The text is a [`StepText`], so a
+/// burst message may reference an earlier recorded turn via [`StepText::WithTurnRef`] like an ordinary
+/// turn.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct BurstMessage {
+    pub sender: String,
+    pub text: StepText,
+}
+
+impl BurstMessage {
+    /// A burst message from `sender` carrying `text` (a bare `&str`/`String` becomes a
+    /// [`StepText::Literal`]).
+    pub fn new(sender: impl Into<String>, text: impl Into<StepText>) -> BurstMessage {
+        BurstMessage {
+            sender: sender.into(),
+            text: text.into(),
+        }
+    }
+}
+
+impl InterruptedTurn {
+    /// A burst in `platform`/`scope` whose `first` message opens a turn and whose `interrupt` lands
+    /// mid-generation. Both senders are present by default; [`InterruptedTurn::with_present`] widens the
+    /// room when others share it.
+    pub fn new(
+        platform: impl Into<String>,
+        scope: impl Into<String>,
+        first: BurstMessage,
+        interrupt: BurstMessage,
+    ) -> InterruptedTurn {
+        let mut present = vec![first.sender.clone()];
+        if !present.contains(&interrupt.sender) {
+            present.push(interrupt.sender.clone());
+        }
+        InterruptedTurn {
+            platform: platform.into(),
+            scope: scope.into(),
+            first,
+            interrupt,
+            present,
+        }
+    }
+
+    /// Override who is present for the burst (the default is the two senders alone). Both senders are
+    /// always present, so each is added if the caller's set omits it.
+    pub fn with_present(mut self, present: &[&str]) -> InterruptedTurn {
+        self.present = present.iter().map(|name| (*name).to_owned()).collect();
+        for sender in [&self.first.sender, &self.interrupt.sender] {
+            if !self.present.contains(sender) {
+                self.present.push(sender.clone());
+            }
+        }
+        self
+    }
+}
+
+impl From<InterruptedTurn> for EvalStep {
+    fn from(turn: InterruptedTurn) -> EvalStep {
+        EvalStep::InterruptedTurn(turn)
     }
 }
 

@@ -44,9 +44,11 @@ pub enum ProgressKind {
     /// The retry wrapper discarded the attempt streamed so far and is re-driving the request: a
     /// viewer voids everything accumulated for this step. `text` carries the failure's cause.
     Restart,
-    /// The generation died with no durable successor — retries exhausted, the turn defers. A
-    /// deferral records no agent `ConversationTurn`, so without this marker a viewer would show a
-    /// frozen "generating…" turn and pulse the room until some later turn happened to land; on it,
-    /// a viewer drops the step's accumulation outright. `text` carries the failure's cause.
+    /// The step's accumulation is being discarded with no durable successor on this turn — either
+    /// the generation died with retries exhausted (the turn defers), or a newer inbound batch
+    /// superseded the turn (the successor answers with everything in context). Neither case records
+    /// an agent `ConversationTurn`, so without this marker a viewer would show a frozen "generating…"
+    /// turn and pulse the room until some later turn happened to land; on it, a viewer drops the
+    /// step's accumulation outright. `text` carries the cause.
     Abandoned,
 }

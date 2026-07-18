@@ -68,6 +68,12 @@ pub struct Instance {
     engine: Arc<Engine>,
     /// The live session map and its lifecycle/carryover state, grouped as [`SessionStore`].
     sessions: SessionStore,
+    /// The per-conversation turn ledger (spec §Concurrency → per-conversation supersession): the
+    /// serialization slot and arrival-epoch signal a room's turns share, so batches for one
+    /// conversation serialize and a newer batch cooperatively supersedes an in-flight turn. Pure
+    /// runtime state — never logged; an agent restart drops it and the next batch rebuilds a
+    /// conversation's entry on first contact.
+    turns: TurnLedger,
     /// The off-hot-path synthesis cursors and their serialization guards, grouped as
     /// [`BackgroundPasses`]. Each cursor tracks how far a background pass has progressed; its guard
     /// serializes that pass against the explicit catch-up.
@@ -116,8 +122,10 @@ pub(crate) struct BackgroundPasses {
 }
 
 mod session_store;
+mod turn_ledger;
 
 pub(crate) use session_store::SessionStore;
+pub(crate) use turn_ledger::TurnLedger;
 
 /// The connected MCP runtime: the host that spawns server instances and the catalogue probed from it
 /// once at startup (shared into every session opened thereafter).
@@ -192,6 +200,7 @@ impl Instance {
         Instance {
             engine,
             sessions: SessionStore::new(),
+            turns: TurnLedger::new(),
             passes: BackgroundPasses::new(Seq::ZERO),
             streams,
             mcp: None,

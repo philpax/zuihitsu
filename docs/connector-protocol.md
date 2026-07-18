@@ -47,7 +47,7 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
 }
 ```
 
-- `outcome` — the turn's conversational outcome: `{"Reply": "…"}`, `"Silent"`, `"MaxStepsExceeded"`, or `"Deferred"`.
+- `outcome` — the turn's conversational outcome: `{"Reply": "…"}`, `"Silent"`, `"MaxStepsExceeded"`, `"Deferred"`, or `"Superseded"`. `"Superseded"` means a newer inbound batch arrived for the same conversation while this turn was generating: the newer batch's turn answers once with everything in context, so no reply comes via this request — a connector treats it like `"Silent"`. The `participant_turn_ids` still carry this batch's recorded inbound turns, so the connector can map its message ids even though the messages were folded into the successor's answer.
 - `participant_turn_ids` — the durable turn ids (Crockford ULID strings), one per inbound message. A connector uses these to map its own message ids to zuihitsu turns, so it can inject a `[turn:<id>]` token when a user replies to one of those messages later.
 
 Returns `503` if no model is configured.
@@ -206,7 +206,7 @@ data: {"type":"outcome","outcome":{"Reply":"Hello there, Dave."},"participant_tu
 
 ### Endpoint behaviour
 
-**`POST /platform/messages/stream`** sends `progress` frames while the agent deliberates, then one terminal frame (`outcome` on success, `error` on failure). The stream ends after the terminal.
+**`POST /platform/messages/stream`** sends `progress` frames while the agent deliberates, then one terminal frame (`outcome` on success, `error` on failure). The stream ends after the terminal. When a newer batch supersedes this request's turn, the stream terminates promptly with a normal `outcome` frame carrying `"Superseded"` — well before the successor completes, since the successor answers with everything in context through its own request.
 
 **`GET /control/events/stream?from=N`** sends `event` frames for committed events (the snapshot replay from seq `N`, then the live tail), interleaved with `progress` frames for ephemeral generation progress. The stream stays open until the server shuts down or the consumer lags off the broadcast, at which point it emits an `end` frame and closes. Reconnect with `?from=<last seen seq + 1>`.
 

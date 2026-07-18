@@ -23,7 +23,10 @@ mod record;
 mod recording;
 mod resolve;
 mod run;
+mod supersede;
 mod tools;
+
+pub use supersede::Supersession;
 
 pub use buffer::{
     ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, flushed_up_to,
@@ -192,6 +195,12 @@ pub struct Turn<'a> {
     pub max_entry_chars: usize,
     /// How much of each model call to capture in the model-interaction record (spec §Observability).
     pub capture: CaptureLevel,
+    /// The cooperative-cancellation handle, when the turn runs under a supersession slot (spec
+    /// §Concurrency → per-conversation supersession). `Some` for a platform or imprint turn admitted
+    /// through the turn ledger; `None` for a turn with no newer-batch signal to watch. Checked at
+    /// each turn boundary and mid-stream — a newer inbound batch cancels the in-flight generation so
+    /// the newer batch answers with everything in context.
+    pub supersession: Option<Supersession>,
 }
 
 /// Everything the pre-compaction flush turn needs (spec §Compaction → pre-compaction flush). Like
@@ -237,6 +246,10 @@ pub(super) struct Steps<'a> {
     pub(super) provenance: Option<ProducedBy>,
     pub(super) max_steps: usize,
     pub(super) capture: CaptureLevel,
+    /// The cooperative-cancellation handle threaded from the turn, or `None` for the flush and any
+    /// turn with no supersession slot. Checked at each step-loop boundary and passed to each
+    /// `generate` for the mid-stream check.
+    pub(super) supersession: Option<Supersession>,
 }
 
 #[cfg(test)]

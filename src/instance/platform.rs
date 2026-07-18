@@ -180,16 +180,6 @@ impl Platform<'_> {
         messages: &[MessageInput],
         present: &[PersonId],
     ) -> Result<PlatformResponse, InstanceError> {
-        // Hold a stream permit for this batch's whole handling — the turn and any compaction flush
-        // it triggers — so no more than `max_concurrent_streams` messages crowd the shared model at
-        // once (spec §Concurrency). Released when this scope returns.
-        let _stream = self
-            .server
-            .streams
-            .acquire()
-            .await
-            .expect("the stream semaphore is never closed");
-
         // Resolve the room (minting its context memory on first contact), then the participants.
         // Each resolution borrows the store, clock, and graph fields disjointly and releases before
         // the next, so the interleaved `materialize_from` calls are free to take the graph mutably.
@@ -243,7 +233,43 @@ impl Platform<'_> {
             participant_turn_ids.push(turn_id);
         }
 
-        // Open or continue the session and run the turn under ordinary platform authority.
+        // Read the supersession window before registering the arrival. The window is store-backed and
+        // read per batch, so it is runtime-tunable; a zero (or negative) window leaves the admitted
+        // turn uncancellable while serialization stays on. Reading it first means a failed settings
+        // read short-circuits before `arrive`, so the supersession signal never fires for a batch that
+        // then evaporates — an arrival that bumped the watch but never admitted would spuriously
+        // supersede an in-flight turn.
+        let window_seconds = Settings::from_store(self.server.engine.store.lock().as_ref())?
+            .turn
+            .supersede_window_seconds;
+        let window = std::time::Duration::from_secs(window_seconds.max(0) as u64);
+
+        // Register the batch's arrival before queueing for anything, so a turn already generating for
+        // this conversation is signalled the moment this batch lands, not after it has waited for a
+        // slot or a permit (spec §Concurrency → per-conversation supersession). Resolution and minting
+        // above ran under no permit — the permit caps concurrent model work, which none of that is.
+        let ticket = self
+            .server
+            .turns
+            .arrive(conversation, self.server.engine.clock.now());
+
+        // Take the conversation's turn slot: this batch's turn waits here behind any earlier turn for
+        // the same conversation, so a room's turns never overlap on the shared session VM.
+        let mut admission = ticket.admit(window).await;
+
+        // Hold a stream permit for the model work this batch drives — the turn and any compaction flush
+        // it triggers — so no more than `max_concurrent_streams` turns crowd the shared model at once
+        // (spec §Concurrency). Taken only after slot admission so waiting batches never camp on a
+        // permit; released when this scope returns.
+        let _stream = self
+            .server
+            .streams
+            .acquire()
+            .await
+            .expect("the stream semaphore is never closed");
+
+        // Open or continue the session and run the turn under ordinary platform authority, handing the
+        // turn its supersession handle so a newer batch's arrival can cooperatively cancel it.
         let (report, buffer) = self
             .server
             .run_session_turn(
@@ -256,12 +282,25 @@ impl Platform<'_> {
                     template: PromptTemplateName::Scaffold,
                     authority: Authority::Platform,
                 },
+                Some(admission.supersession()),
             )
             .await?;
 
-        // A deferred turn skips the compaction check entirely: the model just proved unreachable,
-        // so the pre-compaction flush could not run anyway, and the buffer gained no agent turn.
-        if report.outcome == TurnOutcome::Deferred {
+        // A deferred or superseded turn skips the compaction check entirely. A deferred turn's model
+        // proved unreachable, so the pre-compaction flush could not run anyway and the buffer gained
+        // no agent turn. A superseded turn lost its slot to a newer batch whose turn now owns the
+        // buffer: running compaction from this loser would race the winner, so the winner's own
+        // handling performs the compaction check instead.
+        if matches!(
+            report.outcome,
+            TurnOutcome::Deferred | TurnOutcome::Superseded
+        ) {
+            // A superseded turn lost its slot to a newer batch: leave its arrival anchoring the burst
+            // (the successor measures its window from the original origin and clears the arrivals when
+            // it completes) rather than pruning as a completed turn would.
+            if matches!(report.outcome, TurnOutcome::Superseded) {
+                admission.mark_superseded();
+            }
             return Ok(PlatformResponse {
                 outcome: report.outcome,
                 participant_turn_ids: report

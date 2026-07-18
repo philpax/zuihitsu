@@ -107,6 +107,9 @@ export function Room({
             present: [handle],
           });
       if (response.outcome === "Deferred") setDeferred({ baseline });
+      // `Superseded` deliberately gets no marker: a newer batch's turn answers this one with
+      // everything in context, and that successor's reply arrives through the live tail like any
+      // other agent turn — there is nothing quiet to explain, unlike a deferral.
     } catch (error) {
       setOptimistic(null); // the send failed — drop the optimistic turn (the composer restores the draft).
       throw error;

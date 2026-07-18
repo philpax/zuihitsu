@@ -28,6 +28,14 @@ pub enum TurnOutcome {
     /// channel to platform clients besides the message-response path, and agent-initiated contact
     /// is a deliberately deferred design area.
     Deferred,
+    /// The turn was cooperatively cancelled: a newer inbound message batch arrived for the same
+    /// conversation while this turn was generating, and the newer batch's turn answers once with
+    /// everything in context. No reply is coming via this request. Connectors treat it like
+    /// [`TurnOutcome::Silent`] — there is nothing to post, because the successor's reply reaches the
+    /// client through its own request. `participant_turn_ids` still carries the recorded inbound turn
+    /// ids, so a connector can map its own message ids to zuihitsu turns for later `[turn:<id>]`
+    /// injection even though this batch's messages were folded into the successor's answer.
+    Superseded,
 }
 
 /// The response from `POST /platform/messages` and `POST /platform/messages/stream`: the turn's

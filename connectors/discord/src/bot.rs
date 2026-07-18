@@ -590,6 +590,12 @@ async fn process_message(
             TurnOutcome::Deferred => {
                 tracing::info!("discord connector: turn deferred");
             }
+            TurnOutcome::Superseded => {
+                // A newer inbound batch superseded this turn: normal operation, like `Deferred`. No
+                // reply to post and no `turn_map` record — the successor's turn answers with
+                // everything in context, and its reply reaches the channel through its own stream.
+                tracing::info!("discord connector: turn superseded by a newer message batch");
+            }
         },
         StreamOutcome::Error(error) => {
             tracing::warn!(%error, "discord connector: turn error from platform");

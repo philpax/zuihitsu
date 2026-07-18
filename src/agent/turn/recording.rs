@@ -15,7 +15,7 @@ use zuihitsu_core::progress::{ProgressKind, TurnProgress};
 use crate::{
     clock::Clock,
     engine::Engine,
-    event::{EventPayload, EventSource, ModelPhase, RequestRecord, TurnRole},
+    event::{EventPayload, EventSource, ModelPhase, RequestRecord, SUPERSEDED_CAUSE, TurnRole},
     ids::{MemoryId, Seq, TurnId},
     metrics::observe_model_call,
     model::{
@@ -29,13 +29,41 @@ use crate::{
 
 use crate::{
     agent::turn::{
-        Steps, TurnError, TurnOutcome,
+        Steps, Supersession, TurnError, TurnOutcome,
         record::{TurnRecord, append_turn},
         run::tool_call_id,
         tools::{ToolCallResult, run_lua_tool, run_tool_call},
     },
     ids::ConversationId,
 };
+
+/// The outcome of a recorded model call: the completed response, or a cooperative cancellation
+/// because a newer inbound batch superseded the turn mid-generation (spec §Concurrency →
+/// per-conversation supersession). `Superseded` is only ever produced when the call was armed with a
+/// [`Supersession`] handle, so a background pass — which arms none — uses [`Generation::expect_completed`]
+/// to unwrap the response without an unreachable match arm.
+pub(crate) enum Generation {
+    /// The generation ran to its terminal.
+    Completed(GenerateResponse),
+    /// A newer inbound batch cancelled the generation; the discarded partial was recorded as a
+    /// `ModelCallAborted` and an `Abandoned` progress frame was published before returning.
+    Superseded,
+}
+
+impl Generation {
+    /// Unwrap the completed response for a call site that armed no supersession handle, where
+    /// `Superseded` is therefore unreachable. Panics if the invariant is violated — only a
+    /// participant or imprint turn arms a handle, so a background describe or link-inference call can
+    /// never be superseded.
+    pub(crate) fn expect_completed(self) -> GenerateResponse {
+        match self {
+            Generation::Completed(response) => response,
+            Generation::Superseded => {
+                unreachable!("a model call with no supersession handle cannot be superseded")
+            }
+        }
+    }
+}
 
 /// The cohesive context every model call needs to write its model-interaction record (spec
 /// §Observability): which `conversation` and `turn_id` the call belongs to, and how much to
@@ -87,11 +115,19 @@ impl Recording {
         request: &GenerateRequest,
         phase: ModelPhase,
         record: Option<RequestRecord>,
-    ) -> Result<GenerateResponse, ModelError> {
+        supersession: Option<&mut Supersession>,
+    ) -> Result<Generation, ModelError> {
         let started = Instant::now();
-        let response = self
-            .generate_streaming(engine, model, request, phase)
-            .await?;
+        let response = match self
+            .generate_streaming(engine, model, request, phase, supersession)
+            .await?
+        {
+            Generation::Completed(response) => response,
+            // A superseded call recorded its own `ModelCallAborted` and published its `Abandoned`
+            // frame inside `generate_streaming`; it never counted usage, so it emits no
+            // `ModelCalled` telemetry and observes no latency metric here.
+            Generation::Superseded => return Ok(Generation::Superseded),
+        };
         let duration = started.elapsed();
         // The metrics chokepoint (spec §Observability → metrics): every model call — a turn step, a
         // flush, or a background describe pass — observes its latency and token usage here, so the
@@ -125,7 +161,23 @@ impl Recording {
                 tracing::warn!(%error, "could not record the model-interaction event; the turn continues");
             }
         }
-        Ok(response)
+        Ok(Generation::Completed(response))
+    }
+
+    /// Publish an `Abandoned` progress frame for a boundary supersession — a cancellation observed
+    /// between generations, where (unlike the mid-stream case) no stream was in flight to publish it.
+    /// The `step` counter names the generation the viewer drops; `phase` matches the loop's `Step`.
+    pub(crate) fn publish_abandoned(&self, engine: &Engine, phase: ModelPhase) {
+        if let Some(conversation) = self.conversation {
+            engine.progress.publish(TurnProgress {
+                conversation,
+                turn_id: self.turn_id,
+                phase,
+                kind: ProgressKind::Abandoned,
+                text: SUPERSEDED_CAUSE.to_owned(),
+                step: self.steps_started.load(Ordering::Relaxed),
+            });
+        }
     }
 
     /// Drive the streaming call: publish each text fragment as a progress frame, accumulate the
@@ -143,7 +195,8 @@ impl Recording {
         model: &dyn ModelClient,
         request: &GenerateRequest,
         phase: ModelPhase,
-    ) -> Result<GenerateResponse, ModelError> {
+        mut supersession: Option<&mut Supersession>,
+    ) -> Result<Generation, ModelError> {
         let step = self.steps_started.fetch_add(1, Ordering::Relaxed);
         let publish = |kind: ProgressKind, text: String| {
             if let Some(conversation) = self.conversation {
@@ -159,8 +212,55 @@ impl Recording {
         };
         let mut partial_reasoning = String::new();
         let mut partial_reply = String::new();
+        // Restarts the retry wrapper reported during this call, so a supersession abort names the
+        // attempt it cancelled (`restarts + 1`) the way a restart abort names the attempt that failed.
+        let mut restarts: u32 = 0;
         let mut stream = model.generate_stream(request).await;
-        while let Some(delta) = stream.next().await {
+        loop {
+            let delta = tokio::select! {
+                // Biased toward the stream: while fragments arrive we drain them, and fall to the
+                // supersession branch only in a gap between tokens. A generation that is genuinely
+                // about to finish is thus preferred over a cancellation that would discard it —
+                // supersession still fires promptly, since a stream gap is exactly when a newer batch's
+                // signal matters, but a stream with a terminal already ready is never abandoned for a
+                // signal observed in the same poll.
+                biased;
+                delta = stream.next() => match delta {
+                    Some(delta) => delta,
+                    None => break,
+                },
+                () = wait_superseded(supersession.as_deref_mut(), engine.clock.as_ref()) => {
+                    // A newer inbound batch superseded this turn mid-generation. Record the discarded
+                    // partial as a `ModelCallAborted` (capture-gated, best-effort — telemetry never
+                    // breaks a turn), mirroring the `Restarted` path below; the attempt is the restarts
+                    // seen this call plus one. Publish `Abandoned` so a viewer drops the dead
+                    // generation, then return `Superseded`.
+                    if self.capture != CaptureLevel::Off
+                        && let Some(conversation) = self.conversation
+                    {
+                        let aborted = EventPayload::ModelCallAborted {
+                            conversation,
+                            turn_id: self.turn_id,
+                            phase,
+                            attempt: restarts + 1,
+                            cause: SUPERSEDED_CAUSE.to_owned(),
+                            partial_reasoning: std::mem::take(&mut partial_reasoning),
+                            partial_reply: std::mem::take(&mut partial_reply),
+                        };
+                        let now = engine.clock.now();
+                        if let Err(error) =
+                            engine
+                                .store
+                                .lock()
+                                .append(now, EventSource::Agent, vec![aborted])
+                        {
+                            tracing::warn!(%error, "could not record the superseded model call; the turn is abandoned");
+                        }
+                    }
+                    publish(ProgressKind::Abandoned, SUPERSEDED_CAUSE.to_owned());
+                    return Ok(Generation::Superseded);
+                }
+            };
             let delta = match delta {
                 Ok(delta) => delta,
                 Err(error) => {
@@ -178,6 +278,7 @@ impl Recording {
                     publish(ProgressKind::Reply, text);
                 }
                 GenerateDelta::Restarted { attempt, cause } => {
+                    restarts += 1;
                     // Gated exactly like `ModelCalled`: at `CaptureLevel::Off` the log records no
                     // deliberation text, discarded or not.
                     if self.capture != CaptureLevel::Off
@@ -207,7 +308,7 @@ impl Recording {
                     }
                     publish(ProgressKind::Restart, cause);
                 }
-                GenerateDelta::Finished(response) => return Ok(response),
+                GenerateDelta::Finished(response) => return Ok(Generation::Completed(response)),
             }
         }
         let error = ModelError::Backend {
@@ -248,6 +349,16 @@ impl Recording {
     }
 }
 
+/// Resolve when `supersession` fires, or pend forever when there is none — the `tokio::select!`
+/// branch a call uses whether or not it is armed, so the select shape stays uniform. A `None` handle
+/// (a background pass, or a turn with no supersession slot) simply never wins the select.
+async fn wait_superseded(supersession: Option<&mut Supersession>, clock: &dyn Clock) {
+    match supersession {
+        Some(sup) => sup.wait(clock).await,
+        None => std::future::pending().await,
+    }
+}
+
 /// A `sha2::Sha256` digest (hex) over the full serialized request, recorded on every `ModelCalled`
 /// so a prompt reconstructed from the deltas can be checked against the call actually sent.
 fn request_digest(request: &GenerateRequest) -> String {
@@ -280,6 +391,7 @@ pub(crate) async fn run_steps(
         provenance,
         max_steps,
         capture,
+        mut supersession,
     } = steps;
     let conversation = session
         .conversation()
@@ -312,6 +424,19 @@ pub(crate) async fn run_steps(
     let mut prev_sent_len: Option<usize> = None;
     let outcome = 'cycle: {
         for step_index in 0..max_steps {
+            // Supersession boundary check, at the top of the step loop: a newer inbound batch may
+            // have arrived while the previous step's block ran. The check is cooperative — never
+            // mid-block — so it lands here, between generations. On supersession, publish one
+            // `Abandoned` frame (no stream is mid-flight to publish it) and break without recording an
+            // agent turn: the participant turns are durable, and any blocks this turn committed stay
+            // orphaned under the dead turn id — the `Deferred` shape, which buffer replay ignores while
+            // the winner's replay carries everything.
+            if let Some(supersession) = supersession.as_mut()
+                && supersession.superseded(engine.clock.now())
+            {
+                recording.publish_abandoned(&engine, ModelPhase::Step);
+                break 'cycle TurnOutcome::Superseded;
+            }
             // Nearing-budget nudge: two steps from the bound, tell the model to wrap up — once, not
             // every remaining step. It rides the in-memory step frame as a trailing system message
             // (like the flush instruction), never recorded to the log; it persists into the following
@@ -340,11 +465,24 @@ pub(crate) async fn run_steps(
             };
             let record = recording.request_record(&request, prev_sent_len, system_sections);
             prev_sent_len = Some(messages.len());
+            let generation = recording
+                .generate(
+                    &engine,
+                    model,
+                    &request,
+                    ModelPhase::Step,
+                    record,
+                    supersession.as_mut(),
+                )
+                .await?;
             let GenerateResponse {
                 completion, usage, ..
-            } = recording
-                .generate(&engine, model, &request, ModelPhase::Step, record)
-                .await?;
+            } = match generation {
+                Generation::Completed(response) => response,
+                // Superseded mid-stream: `generate_streaming` already published the `Abandoned` frame
+                // and recorded the discarded partial, so break straight out with no agent turn.
+                Generation::Superseded => break 'cycle TurnOutcome::Superseded,
+            };
             steps += 1;
             peak_prompt_tokens = peak_prompt_tokens.max(usage.prompt_tokens);
             match completion {
@@ -367,6 +505,17 @@ pub(crate) async fn run_steps(
                             ToolCallResult::Continue(result) => {
                                 blocks += 1;
                                 messages.push(Message::tool_result(call.id.clone(), result));
+                                // Supersession boundary check between tool calls: the winning turn is
+                                // blocked on the slot, so every extra call this loser dispatches is
+                                // answer latency. The just-committed block stays committed (blocks are
+                                // atomic); undispatched calls live only in the in-memory `messages`
+                                // vec and are dropped. Break without recording an agent turn.
+                                if let Some(supersession) = supersession.as_mut()
+                                    && supersession.superseded(engine.clock.now())
+                                {
+                                    recording.publish_abandoned(&engine, ModelPhase::Step);
+                                    break 'cycle TurnOutcome::Superseded;
+                                }
                             }
                             ToolCallResult::SkipTurn => {
                                 // A `turn.skip()` inside the block signalled the turn should end
@@ -398,9 +547,21 @@ pub(crate) async fn run_steps(
                     );
                     let retry_record =
                         recording.request_record(&request, prev_sent_len, system_sections);
-                    let retry = recording
-                        .generate(&engine, model, &request, ModelPhase::Step, retry_record)
-                        .await?;
+                    let retry = match recording
+                        .generate(
+                            &engine,
+                            model,
+                            &request,
+                            ModelPhase::Step,
+                            retry_record,
+                            supersession.as_mut(),
+                        )
+                        .await?
+                    {
+                        Generation::Completed(response) => response,
+                        // A superseded resample breaks out the same way as the primary generation.
+                        Generation::Superseded => break 'cycle TurnOutcome::Superseded,
+                    };
                     steps += 1;
                     peak_prompt_tokens = peak_prompt_tokens.max(retry.usage.prompt_tokens);
                     match retry.completion {

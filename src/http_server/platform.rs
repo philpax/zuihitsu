@@ -265,6 +265,10 @@ fn link_error(error: LinkError) -> ApiError {
 /// frames are ephemeral (never stored), and a turn's failure arrives as a terminal `error` frame
 /// with the failure's message.
 ///
+/// When a newer inbound batch supersedes this request's turn, the stream terminates promptly with a
+/// normal `outcome` frame carrying `TurnOutcome::Superseded` — well before the successor completes,
+/// since the successor's turn answers with everything in context through its own request.
+///
 /// The response is an SSE stream. Every event has a `data:` payload that is a JSON `StreamFrame`
 /// (see `zuihitsu_frontend_types::StreamFrame`). No `event:` field is emitted — the frame's type
 /// is inside the JSON. A consumer reads SSE events, takes each `data:` field, and deserialises

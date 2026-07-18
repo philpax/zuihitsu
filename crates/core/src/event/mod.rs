@@ -572,7 +572,7 @@ mod accessors;
 mod constructors;
 mod payload;
 
-pub use payload::{AmbientHit, EventPayload};
+pub use payload::{AmbientHit, EventPayload, SUPERSEDED_CAUSE};
 
 #[cfg(test)]
 mod tests;

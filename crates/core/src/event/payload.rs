@@ -365,12 +365,15 @@ pub enum EventPayload {
         usage: Usage,
         duration_ms: u64,
     },
-    /// A partially streamed model call the retry wrapper discarded after a transient mid-stream
-    /// failure, before re-driving the request (spec §Transport resilience). Log-only telemetry like
-    /// `ModelCalled` — the materializer ignores it, so replay is unaffected — but durable, so an
-    /// operator can see after the fact that a turn's generation restarted, which attempt failed,
-    /// why, and what text was thrown away. The successful attempt still lands as the one
-    /// `ModelCalled`; an aborted attempt never carries usage (the backend did not finish counting).
+    /// A streamed model call discarded before it finished, recorded so an operator can see after the
+    /// fact that a turn's generation was thrown away, which attempt it was, why, and what text was
+    /// lost. Two producers write it: the retry wrapper, when a transient mid-stream failure discards
+    /// an attempt before it re-drives the request (spec §Transport resilience), with `cause` naming
+    /// the transient failure; and turn supersession, when a newer inbound batch cancels the in-flight
+    /// generation, with `cause` set to [`SUPERSEDED_CAUSE`]. Log-only telemetry like `ModelCalled` —
+    /// the materializer ignores it, so replay is unaffected — but durable. The successful attempt
+    /// still lands as the one `ModelCalled`; an aborted attempt never carries usage (the backend did
+    /// not finish counting), and a superseded turn records no `ModelCalled` at all.
     ModelCallAborted {
         conversation: ConversationId,
         turn_id: TurnId,
@@ -497,6 +500,14 @@ pub enum EventPayload {
         platform_user_id: SmolStr,
     },
 }
+
+/// The `cause` an [`EventPayload::ModelCallAborted`] carries when turn supersession — not the retry
+/// wrapper — discarded the generation: a newer inbound message batch arrived for the conversation
+/// while the turn was generating, so the in-flight call was cooperatively cancelled and the newer
+/// batch answers with everything in context. A well-known string rather than a distinct event type,
+/// since the abort record's shape is identical whichever producer wrote it (spec §Concurrency →
+/// per-conversation supersession).
+pub const SUPERSEDED_CAUSE: &str = "superseded by a newer inbound message batch";
 
 /// One memory the ambient recall pass surfaced, with its best (most negative) bm25 score across the
 /// queries that matched it — the substance an [`EventPayload::AmbientRecallSurfaced`] record carries.

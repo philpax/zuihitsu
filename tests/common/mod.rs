@@ -319,6 +319,7 @@ mod harness {
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 capture,
+                supersession: None,
             }
         }
 
@@ -355,6 +356,7 @@ mod harness {
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 capture: CaptureLevel::Full,
+                supersession: None,
             }
         }
 

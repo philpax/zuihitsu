@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    ConversationId, EntryId, Event, EventPayload, Initiation, MemoryId, Teller, TemporalRef,
+    ConversationId, EntryId, Event, EventPayload, Initiation, MemoryId, Seq, Teller, TemporalRef,
     TurnRole, Visibility,
 };
 
@@ -91,6 +91,27 @@ pub fn scheduled_item_surfaced(events: &[Event]) -> bool {
     events
         .iter()
         .any(|event| matches!(&event.payload, EventPayload::ScheduledItemSurfaced { .. }))
+}
+
+/// The seq of the first participant `ConversationTurn` whose text is exactly `text`, if the run recorded
+/// one — the anchor an oracle scopes an after-this-message query to, and the structural proof that a
+/// specific inbound message landed durably as a participant turn.
+pub fn participant_turn_seq(events: &[Event], text: &str) -> Option<Seq> {
+    events.iter().find_map(|event| match &event.payload {
+        EventPayload::ConversationTurn {
+            role: TurnRole::Participant,
+            text: turn_text,
+            ..
+        } if turn_text == text => Some(event.seq),
+        _ => None,
+    })
+}
+
+/// Whether a participant `ConversationTurn` whose text is exactly `text` was recorded — the platform
+/// contract that every inbound message is durably logged as a participant turn before the agent answers,
+/// regardless of whether the turn it opened went on to be superseded.
+pub fn participant_turn_recorded(events: &[Event], text: &str) -> bool {
+    participant_turn_seq(events, text).is_some()
 }
 
 /// The id of the memory created under the exact handle `name`, if the run created one — so an oracle

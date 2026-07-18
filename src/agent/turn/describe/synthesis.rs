@@ -113,9 +113,12 @@ pub(super) async fn ask_structured<T>(
         // The synthesis prompt is not the six-section assembled prompt, so it carries no typed
         // section spans.
         let record = recording.request_record(request, None, &[]);
+        // Description synthesis is background work: it arms no supersession handle, so the generation
+        // can never be `Superseded` and `expect_completed` unwraps the response.
         let GenerateResponse { completion, .. } = recording
-            .generate(engine, model, request, ModelPhase::Synthesis, record)
-            .await?;
+            .generate(engine, model, request, ModelPhase::Synthesis, record, None)
+            .await?
+            .expect_completed();
         if let Completion::Reply(content) = completion
             && let Some(args) = parse(&content)
         {

@@ -12,4 +12,6 @@
 //!
 //! The types are defined in `zuihitsu-frontend-types` and re-exported here.
 
-pub use zuihitsu_frontend_types::{EvalStep, OnMissing, StepText, Turn};
+pub use zuihitsu_frontend_types::{
+    BurstMessage, EvalStep, InterruptedTurn, OnMissing, StepText, Turn,
+};

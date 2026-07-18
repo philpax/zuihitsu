@@ -46,6 +46,7 @@ mod links;
 mod participant;
 mod routing;
 mod streaming;
+mod supersession;
 
 pub(crate) fn born_agent() -> (Server, ManualClock) {
     let clock = ManualClock::new(TEST_NOW);

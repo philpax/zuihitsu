@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     agent::{
-        BlockContext, InboundMessage,
+        BlockContext, InboundMessage, TurnOutcome,
         api_doc::ApiEntry,
         genesis::{self, Rollout, SeedSelf},
         lua::{self, BlockOutcome, Session},
@@ -47,14 +47,6 @@ impl Control<'_> {
         model: &dyn ModelClient,
         text: &str,
     ) -> Result<PlatformResponse, InstanceError> {
-        // The imprint runs the model too, so it takes a stream permit like any other turn (spec
-        // §Concurrency), held across the interview turn below.
-        let _stream = self
-            .server
-            .streams
-            .acquire()
-            .await
-            .expect("the stream semaphore is never closed");
         let operator = self.server.resolve_or_mint_operator()?;
         let conversation = {
             // Graph before store, per the lock-ordering rule (this resolve holds both at once).
@@ -71,6 +63,31 @@ impl Control<'_> {
             .graph
             .lock()
             .materialize_from(self.server.engine.store.lock().as_ref())?;
+
+        // Serialize and supersede the imprint's own conversation, like a platform batch (spec
+        // §Concurrency → per-conversation supersession): two rapid imprints serialize and the newer
+        // supersedes the in-flight one instead of racing the shared VM. The window is read per call
+        // from the same store-backed setting, before `arrive`, so a failed settings read never leaves
+        // an arrival that bumped the supersede watch without ever admitting.
+        let window_seconds = Settings::from_store(self.server.engine.store.lock().as_ref())?
+            .turn
+            .supersede_window_seconds;
+        let window = Duration::from_secs(window_seconds.max(0) as u64);
+        let ticket = self
+            .server
+            .turns
+            .arrive(conversation, self.server.engine.clock.now());
+        let mut admission = ticket.admit(window).await;
+
+        // The imprint runs the model too, so it takes a stream permit like any other turn (spec
+        // §Concurrency), held across the interview turn below and taken only after slot admission so a
+        // waiting imprint never camps on a permit.
+        let _stream = self
+            .server
+            .streams
+            .acquire()
+            .await
+            .expect("the stream semaphore is never closed");
         // Build the inbound batch and turn ids; the participant turn is recorded inside
         // `run_session_turn` after the session opens (so the session's `start_seq` precedes it).
         let participant_turn_id = TurnId::generate();
@@ -91,8 +108,14 @@ impl Control<'_> {
                     template: PromptTemplateName::Imprint,
                     authority: Authority::Operator,
                 },
+                Some(admission.supersession()),
             )
             .await?;
+        // A superseded imprint lost its slot to a newer one: leave its arrival anchoring the burst for
+        // the successor rather than pruning it, matching the platform path.
+        if matches!(report.outcome, TurnOutcome::Superseded) {
+            admission.mark_superseded();
+        }
         Ok(PlatformResponse {
             outcome: report.outcome,
             participant_turn_ids: report

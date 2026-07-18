@@ -81,9 +81,16 @@ export function summarizeStep(step: EvalStep): string {
     const turn = step.turn;
     return `Turn ${turn.platform}/${turn.scope} ${turn.sender}: ${summarizeText(turn.text)}`;
   }
+  if ("interrupted_turn" in step) {
+    const burst = step.interrupted_turn;
+    return `InterruptedTurn ${burst.platform}/${burst.scope} ${burst.first.sender}: ${summarizeText(burst.first.text)} | interrupt ${burst.interrupt.sender}: ${summarizeText(burst.interrupt.text)}`;
+  }
   if ("imprint" in step) return `Imprint: "${clip(step.imprint.text)}"`;
   if ("advance" in step) return `Advance ${humaneDuration(step.advance.millis)}`;
   if ("seed_events" in step) return `SeedEvents (×${step.seed_events.length})`;
+  if ("tune_supersession" in step) {
+    return `TuneSupersession window_seconds=${step.tune_supersession.window_seconds}`;
+  }
   if ("tighten_compaction" in step) {
     const { token_budget, flush_min_turns } = step.tighten_compaction;
     return `TightenCompaction budget=${token_budget} flush_min_turns=${flush_min_turns}`;

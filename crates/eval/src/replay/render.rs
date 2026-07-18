@@ -27,6 +27,15 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
             turn.sender,
             summarize_text(&turn.text),
         ),
+        EvalStep::InterruptedTurn(burst) => format!(
+            "InterruptedTurn {}/{} {}: {} | interrupt {}: {}",
+            burst.platform,
+            burst.scope,
+            burst.first.sender,
+            summarize_text(&burst.first.text),
+            burst.interrupt.sender,
+            summarize_text(&burst.interrupt.text),
+        ),
         EvalStep::Imprint { text } => format!("Imprint: \"{}\"", trunc(text, SUMMARY_CLIP)),
         EvalStep::Settle => "Settle".to_owned(),
         EvalStep::Advance { millis } => format!("Advance {}", humane_duration(*millis)),
@@ -34,6 +43,9 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
         EvalStep::LinkInferenceCatchUp => "LinkInferenceCatchUp".to_owned(),
         EvalStep::CheckpointSweep => "CheckpointSweep".to_owned(),
         EvalStep::SeedEvents(events) => format!("SeedEvents (×{})", events.len()),
+        EvalStep::TuneSupersession { window_seconds } => {
+            format!("TuneSupersession window_seconds={window_seconds}")
+        }
         EvalStep::TightenCompaction {
             token_budget,
             flush_min_turns,

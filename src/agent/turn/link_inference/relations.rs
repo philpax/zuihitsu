@@ -64,9 +64,12 @@ pub(super) async fn infer_relationships(
         // The link-inference prompt is not the six-section assembled prompt, so it carries no typed
         // section spans.
         let record = recording.request_record(&request, None, &[]);
+        // Link inference is background work: it arms no supersession handle, so the generation can
+        // never be `Superseded` and `expect_completed` unwraps the response.
         let GenerateResponse { completion, .. } = recording
-            .generate(engine, model, &request, ModelPhase::Synthesis, record)
-            .await?;
+            .generate(engine, model, &request, ModelPhase::Synthesis, record, None)
+            .await?
+            .expect_completed();
         if let Completion::Reply(content) = completion
             && let Some(json) = extract_json_object(&content)
             && let Ok(value) = serde_json::from_str::<serde_json::Value>(json)

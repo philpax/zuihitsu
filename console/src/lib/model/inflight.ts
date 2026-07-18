@@ -27,8 +27,9 @@ export interface InFlightGeneration {
 /// inputs must change identity per frame, or the React Compiler's memoisation (correctly) bails on
 /// the same reference and the panel freezes on the step's first token. A frame for a new turn,
 /// step, or phase starts a fresh accumulation; a `restart` frame voids the step's text and counts
-/// the retry; an `abandoned` frame — the generation died with no durable successor, e.g. a
-/// deferral — returns `undefined`, telling the caller to drop the accumulation outright.
+/// the retry; an `abandoned` frame — the step's accumulation has no durable successor, whether the
+/// generation died and the turn deferred or a newer batch superseded the turn — returns `undefined`,
+/// telling the caller to drop the accumulation outright.
 export function foldFrame(
   current: InFlightGeneration | undefined,
   frame: TurnProgress,
@@ -62,8 +63,8 @@ export function foldFrame(
 
 /// The conversation whose in-flight accumulation a committed event supersedes, or `null`. A
 /// `ModelCalled` makes the step's generation durable; the agent's `ConversationTurn` is the turn's
-/// true end. (A deferred turn commits neither — its generation ends via the `abandoned` progress
-/// frame in `foldFrame`, not through an event.)
+/// true end. (A deferred or superseded turn commits neither — its generation ends via the
+/// `abandoned` progress frame in `foldFrame`, not through an event.)
 export function supersededConversation(event: Event): string | null {
   const payload = event.payload as { type?: string; conversation?: string; role?: string };
   if (!payload.conversation) return null;

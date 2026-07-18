@@ -176,6 +176,10 @@ impl PlatformClient {
     ///
     /// The response body is a newline-delimited JSON stream of `StreamFrame` values. Each line is
     /// one complete JSON object; the client reads lines and deserialises each as a `StreamFrame`.
+    ///
+    /// When a newer batch supersedes this request's turn, the stream terminates promptly with a
+    /// normal `Outcome` frame carrying [`TurnOutcome::Superseded`] — the successor's turn answers
+    /// with everything in context, so there is nothing to post for this request.
     pub async fn send_message_stream(
         &self,
         locator: &ConversationLocator,

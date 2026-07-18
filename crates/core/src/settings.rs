@@ -200,6 +200,15 @@ pub struct TurnSettings {
     /// call is never retried, regardless of this bound.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_block_attempts: i64,
+    /// The window, in seconds, during which a new inbound message batch supersedes the conversation's
+    /// in-flight turn (spec §Concurrency → per-conversation supersession). Measured from the arrival of
+    /// the burst's first unanswered message: within it, a fresh batch cooperatively cancels the
+    /// generating turn so the newer batch answers once with everything in context; once it has elapsed,
+    /// the in-flight turn runs to completion and a later batch waits its turn instead. `0` disables
+    /// supersession entirely — every batch waits for the previous turn to finish — while the
+    /// per-conversation serialization stays on regardless.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub supersede_window_seconds: i64,
 }
 
 /// Concurrency limits (spec §Concurrency): how many conversation streams may run at once. The shared
@@ -424,6 +433,7 @@ impl Default for TurnSettings {
             max_steps: 12,
             block_timeout_seconds: 3 * MINUTE,
             max_block_attempts: 3,
+            supersede_window_seconds: MINUTE,
         }
     }
 }
@@ -536,6 +546,7 @@ mod tests {
         assert_eq!(turn.max_steps, 12);
         assert_eq!(turn.block_timeout_seconds, 180);
         assert_eq!(turn.max_block_attempts, 3);
+        assert_eq!(turn.supersede_window_seconds, 60);
     }
 
     #[test]
@@ -569,6 +580,11 @@ mod tests {
         assert_eq!(
             settings.turn.block_timeout_seconds,
             TurnSettings::default().block_timeout_seconds
+        );
+        // `supersede_window_seconds` postdates the turn group; its absence adopts the build default.
+        assert_eq!(
+            settings.turn.supersede_window_seconds,
+            TurnSettings::default().supersede_window_seconds
         );
         assert_eq!(
             settings.concurrency.max_concurrent_streams,

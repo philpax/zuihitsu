@@ -10,7 +10,7 @@ use crate::{
     },
     ids::{MemoryId, TurnId},
     memory::memory_block::Authority,
-    metrics::observe_turn_deferred,
+    metrics::{observe_turn_deferred, observe_turn_superseded},
     model::Message,
     time::{Timestamp, format_stamp},
 };
@@ -44,6 +44,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_block_attempts,
         max_entry_chars,
         capture,
+        mut supersession,
     } = turn;
     let conversation = session
         .conversation()
@@ -111,6 +112,29 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         )));
     }
 
+    // Supersession admission check: a newer inbound batch may have arrived while this turn queued for
+    // its slot. Superseded before any generation showed, the turn records nothing — no ambient recall
+    // event, no agent turn — and returns a `Superseded` report with zero steps and blocks. No
+    // `Abandoned` frame is published: nothing ever streamed, so there is no accumulation for a viewer
+    // to drop. The participant turns the caller already recorded stay durable; the winner's buffer
+    // replay carries them. Should supersession instead land *after* this point — during the ambient
+    // pass (synchronous, no await) or at the first step-loop boundary — the ambient
+    // `AmbientRecallSurfaced` event is left orphaned under a turn with no agent reply, matching the
+    // `Deferred` precedent (buffer replay reads participant and system turns regardless).
+    if let Some(supersession) = supersession.as_mut()
+        && supersession.superseded(engine.clock.now())
+    {
+        observe_turn_superseded();
+        return Ok(TurnReport {
+            outcome: TurnOutcome::Superseded,
+            prompt_tokens: None,
+            steps: 0,
+            blocks: 0,
+            turn_id,
+            participant_turn_ids: participant_turn_ids.to_vec(),
+        });
+    }
+
     // Ambient recall: a fast lexical pass over the inbound messages surfaces memories the frozen brief
     // did not, injected as a system message so the agent recalls what it would not have thought to
     // search for (spec §Conversations and briefs → ambient recall). It rides after the inbound, so it
@@ -173,6 +197,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         provenance: agent_provenance,
         max_steps,
         capture,
+        supersession,
     })
     .await;
     let (outcome, peak_prompt_tokens, steps, blocks) = match steps_result {
@@ -193,6 +218,12 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         }
         Err(error) => return Err(error),
     };
+
+    // A turn superseded at a step-loop boundary or mid-stream counts here, the counterpart to the
+    // admission-check count above, so every superseded turn is observed exactly once.
+    if matches!(outcome, TurnOutcome::Superseded) {
+        observe_turn_superseded();
+    }
 
     // Description regeneration and temporal extraction for the memories this turn wrote run off the hot
     // path, in the background describer (spec §Write path → regenerate off the hot path, as a
@@ -305,6 +336,9 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         provenance,
         max_steps,
         capture,
+        // The flush is agent-initiated background synthesis with no inbound batch behind it, so there
+        // is nothing to supersede it.
+        supersession: None,
     })
     .await?;
 

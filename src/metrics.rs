@@ -52,6 +52,7 @@ pub const MODEL_RETRIES_TOTAL: &str = "zuihitsu_model_retries_total";
 pub const MODEL_CIRCUIT_FAST_FAILS_TOTAL: &str = "zuihitsu_model_circuit_fast_fails_total";
 pub const MODEL_CIRCUIT_STATE: &str = "zuihitsu_model_circuit_state";
 pub const TURNS_DEFERRED_TOTAL: &str = "zuihitsu_turns_deferred_total";
+pub const TURNS_SUPERSEDED_TOTAL: &str = "zuihitsu_turns_superseded_total";
 
 // Turn-over-background priority at the shared model client.
 pub const BACKGROUND_MODEL_DEFERRALS_TOTAL: &str = "zuihitsu_background_model_deferrals_total";
@@ -133,6 +134,11 @@ pub fn describe() {
         TURNS_DEFERRED_TOTAL,
         "Routed turns deferred because the model backend was unreachable (the inbound stays \
          durable; the next successful turn covers it)."
+    );
+    describe_counter!(
+        TURNS_SUPERSEDED_TOTAL,
+        "Routed turns superseded because a newer inbound batch arrived mid-generation (the newer \
+         batch's turn answers with everything in context)."
     );
     describe_counter!(
         BACKGROUND_MODEL_DEFERRALS_TOTAL,
@@ -271,6 +277,13 @@ pub fn observe_model_circuit_fast_fail() {
 /// unreachable, so no response cycle ran (the next successful turn's buffer replay covers it).
 pub fn observe_turn_deferred() {
     counter!(TURNS_DEFERRED_TOTAL).increment(1);
+}
+
+/// Record that a routed turn was superseded: a newer inbound batch arrived for the conversation while
+/// this turn was generating, so the in-flight generation was cooperatively cancelled and the newer
+/// batch's turn answers with everything in context (spec §Concurrency → per-conversation supersession).
+pub fn observe_turn_superseded() {
+    counter!(TURNS_SUPERSEDED_TOTAL).increment(1);
 }
 
 /// Set the model circuit-breaker state gauge: `0` closed, `1` half-open, `2` open.
@@ -441,6 +454,7 @@ mod tests {
             observe_model_retry();
             observe_model_circuit_fast_fail();
             observe_turn_deferred();
+            observe_turn_superseded();
             set_model_circuit_state(CircuitState::Open);
             observe_search(Duration::from_millis(10));
             observe_wakeups_fired(1);
@@ -475,6 +489,7 @@ mod tests {
             MODEL_CIRCUIT_FAST_FAILS_TOTAL,
             MODEL_CIRCUIT_STATE,
             TURNS_DEFERRED_TOTAL,
+            TURNS_SUPERSEDED_TOTAL,
             MODEL_PROMPT_TOKENS_TOTAL,
             MODEL_COMPLETION_TOKENS_TOTAL,
             TURNS_DURATION_SECONDS,

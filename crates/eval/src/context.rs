@@ -3,7 +3,13 @@
 //! is independent (its own in-memory store, graph, and — when retrieval is configured — vector index),
 //! which is what lets runs parallelize.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use tokio::sync::broadcast::{Receiver, error::RecvError};
+use zuihitsu::progress::{ProgressKind, TurnProgress};
 
 use zuihitsu::{
     CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeWebFetcher, Graph,
@@ -27,6 +33,18 @@ pub(crate) use zuihitsu::time::{MILLIS_PER_DAY, MILLIS_PER_HOUR};
 /// scheduling scenario makes, so it does not perturb those.
 const HUMAN_PAUSE_MS: i64 = 10_000;
 
+/// How long [`RunContext::interrupted_turn`] waits for turn A's first generation frame before delivering
+/// the interrupt regardless. Prefill on a local model is slow, so this is generous: if A produces no
+/// frame within it — or completes with none — the interrupt is delivered anyway. The step never hangs on
+/// the race, and the log records whatever happened for the oracles to judge.
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The human beat between noticing the agent has started replying and sending the correction — the clock
+/// advance [`RunContext::interrupted_turn`] applies after the first generation frame (or the timeout) and
+/// before the interrupt is delivered, so the interrupt's arrival sits a realistic moment after the first
+/// message's.
+const INTERRUPT_PAUSE_MS: i64 = 3_000;
+
 /// Just past the default idle gap (1800s), so the next turn after an [`RunContext::advance`] of this
 /// much opens a fresh session. Shared by the scenarios that cross the idle seam without a day-scale
 /// advance (an operator imprint lapsing, a room going quiet between sessions).
@@ -42,6 +60,14 @@ pub struct RunDeps {
     pub embedder: Option<Arc<dyn Embedder>>,
     pub dimensions: usize,
     pub web: Arc<FakeWebFetcher>,
+}
+
+/// One message of an [`RunContext::interrupted_turn`] burst, resolved to its sender stub and text — the
+/// executor builds the two the platform delivers, keeping the method's argument list within house-style
+/// bounds while reading as "the first delivery" and "the interrupt".
+pub(crate) struct BurstDelivery<'a> {
+    pub sender: &'a PersonId,
+    pub text: &'a str,
 }
 
 /// One run's booted agent and the clock it runs against.
@@ -130,6 +156,95 @@ impl RunContext {
         self.clock
             .advance_millis(started.elapsed().as_millis() as i64);
         Ok(response.outcome)
+    }
+
+    /// Drive a two-message burst into one room where the second message lands mid-generation, so the
+    /// platform's per-conversation supersession cancels the in-flight generation and answers once with
+    /// both messages in context. The concurrency is contained entirely within this call: turn A (the
+    /// `first` message) is not spawned — [`Server`] is not `Clone` — so its future is pinned and driven
+    /// here under `select!`/`join!`, and the whole burst reads as one journal step.
+    ///
+    /// The pacing mirrors [`RunContext::turn`] but counts once for the burst rather than once per
+    /// message: one human pause before the first message, a short "noticed and corrected" beat before the
+    /// interrupt, and one elapsed-think-time advance at the end (calling `turn` twice would double-count
+    /// the per-call pauses). Phase 1 waits for A to begin generating (its first `Reasoning`/`Reply`
+    /// frame), to complete early, or a generous timeout — whichever comes first; all three proceed. Phase
+    /// 2 delivers the interrupt: if A already completed, B is simply awaited; otherwise both are driven
+    /// concurrently so the interrupt lands while A generates. Every race outcome proceeds — the step never
+    /// hangs and never fails on the race — and both outcomes are returned for the caller to inspect (the
+    /// executor discards them; the event log is the assessed product).
+    pub(crate) async fn interrupted_turn(
+        &self,
+        platform: &str,
+        scope: &str,
+        first: BurstDelivery<'_>,
+        interrupt: BurstDelivery<'_>,
+        present: &[PersonId],
+    ) -> Result<(TurnOutcome, TurnOutcome), EvalError> {
+        // Subscribe before launching A, so no frame A emits between launch and the phase-1 select is
+        // missed — the run is quiescent when the burst begins, so the first generation frame is A's.
+        let mut progress = self.subscribe_progress();
+
+        // One human pause for the whole burst, and one elapsed-think advance at the end: driving the two
+        // messages through `turn` would advance the clock twice, double-counting the pacing.
+        self.clock.advance_millis(HUMAN_PAUSE_MS);
+        let locator = ConversationLocator::new(platform, scope);
+        let started = Instant::now();
+        let platform = self.server.platform();
+
+        // Turn A opens the turn. Pinned rather than spawned (no `'static`), so it is polled by the
+        // phase-1 select and, if it does not complete there, the phase-2 join.
+        let a_future = platform.route_message(
+            self.model.as_ref(),
+            &locator,
+            first.sender,
+            first.text,
+            present,
+        );
+        tokio::pin!(a_future);
+
+        // Phase 1: proceed as soon as A starts generating, completes early, or the timeout elapses.
+        let mut a_outcome: Option<TurnOutcome> = None;
+        tokio::select! {
+            result = &mut a_future => a_outcome = Some(result?.outcome),
+            () = first_generation_frame(&mut progress) => {}
+            () = tokio::time::sleep(FIRST_FRAME_TIMEOUT) => {}
+        }
+
+        // The human beat between noticing the reply and sending the correction.
+        self.clock.advance_millis(INTERRUPT_PAUSE_MS);
+
+        // Phase 2: deliver the interrupt. If A already completed, just await B; otherwise drive both so
+        // the interrupt lands mid-generation and supersedes A.
+        let b_future = platform.route_message(
+            self.model.as_ref(),
+            &locator,
+            interrupt.sender,
+            interrupt.text,
+            present,
+        );
+        let (a_outcome, b_outcome) = match a_outcome {
+            Some(a) => (a, b_future.await?.outcome),
+            None => {
+                let (a, b) = tokio::join!(&mut a_future, b_future);
+                (a?.outcome, b?.outcome)
+            }
+        };
+
+        self.clock
+            .advance_millis(started.elapsed().as_millis() as i64);
+        Ok((a_outcome, b_outcome))
+    }
+
+    /// Pin the per-conversation supersession window (`TurnSettings::supersede_window_seconds`) so a
+    /// scripted burst lands inside it — a real turn can outlast the 60s default, so a supersession
+    /// scenario widens the window and the interrupt reliably cancels rather than queueing. Mirrors
+    /// [`RunContext::tighten_compaction`], leaving the rest of the settings as seeded.
+    pub(crate) fn tune_supersession(&self, window_seconds: i64) -> Result<(), EvalError> {
+        let mut settings = self.server.control().settings()?;
+        settings.turn.supersede_window_seconds = window_seconds;
+        self.server.control().set_settings(settings)?;
+        Ok(())
     }
 
     /// Drive one operator imprint-interview turn — the `operator/imprint` channel, under operator
@@ -299,6 +414,23 @@ impl RunContext {
     /// drives, reading only what is new since the last poll.
     pub(crate) fn events_from(&self, from: Seq) -> Result<Vec<Event>, EvalError> {
         Ok(self.server.control().events_from(from)?)
+    }
+}
+
+/// Await the first progress frame signalling that turn A has begun generating — a `Reasoning` or `Reply`
+/// fragment. `Lagged` (the lossy broadcast dropped frames under load) is skipped and the wait continues;
+/// `Closed` (every sender dropped) behaves like the timeout, returning so phase 2 proceeds rather than
+/// hanging. The run is quiescent when the burst begins, so the first such frame is unambiguously A's.
+async fn first_generation_frame(progress: &mut Receiver<TurnProgress>) {
+    loop {
+        match progress.recv().await {
+            Ok(frame) if matches!(frame.kind, ProgressKind::Reasoning | ProgressKind::Reply) => {
+                return;
+            }
+            Ok(_) => continue,
+            Err(RecvError::Lagged(_)) => continue,
+            Err(RecvError::Closed) => return,
+        }
     }
 }
 
