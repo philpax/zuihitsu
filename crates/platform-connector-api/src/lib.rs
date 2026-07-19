@@ -14,9 +14,9 @@ use std::fmt;
 
 use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use zuihitsu_core::{
-    ids::{ConversationLocator, EntryId, PersonId},
+    ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     progress::TurnProgress,
 };
 
@@ -115,6 +115,17 @@ pub struct ContextEntry {
 pub struct ParticipantAttribute {
     pub text: Option<String>,
     pub supersedes: Option<EntryId>,
+}
+
+/// The response to `POST /platform/project`: the memory the projection landed on (resolved or minted
+/// from the target) and the new entry id per attribute, in request order — `Some` for a recorded value,
+/// `None` for a cleared one. A connector holds `memory_id` to splice a `[mem:<id>]` reference for the
+/// subject without a round trip on an unchanged identity, and the entry ids to supersede on the next
+/// change.
+#[derive(Deserialize)]
+pub struct ProjectResponse {
+    pub memory_id: MemoryId,
+    pub entries: Vec<Option<EntryId>>,
 }
 
 /// One inbound message to submit to the platform API.
@@ -373,14 +384,15 @@ impl PlatformClient {
     /// `POST /platform/project` — project attributes onto a scoped memory as public entries: a
     /// participant's identity (username, display name, nickname) onto their `person/*` stub, or a
     /// guild's name onto its `context/*` memory. Each attribute records a new value or clears one,
-    /// superseding or retracting the entry a prior projection returned for it. Returns the new entry id
-    /// per attribute, in request order — `Some` for a recorded value, `None` for a cleared one — which
-    /// the connector holds to supersede on the next change.
+    /// superseding or retracting the entry a prior projection returned for it. Returns the memory id the
+    /// projection landed on and the new entry id per attribute, in request order — `Some` for a recorded
+    /// value, `None` for a cleared one — which the connector holds to reference the subject and to
+    /// supersede on the next change.
     pub async fn project(
         &self,
         target: &LinkEndpoint,
         attributes: &[ParticipantAttribute],
-    ) -> Result<Vec<Option<EntryId>>> {
+    ) -> Result<ProjectResponse> {
         /// The request body for `POST /platform/project`.
         #[derive(Serialize)]
         struct ProjectBody<'a> {
@@ -415,7 +427,7 @@ impl PlatformClient {
             });
         }
         response
-            .json::<Vec<Option<EntryId>>>()
+            .json::<ProjectResponse>()
             .await
             .map_err(|e| Error::Http {
                 operation: Operation::Project,

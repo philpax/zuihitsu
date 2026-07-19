@@ -52,6 +52,19 @@ pub struct ParticipantAttribute {
     pub supersedes: Option<EntryId>,
 }
 
+/// The outcome of a [`Platform::project`] call: the id of the memory the attributes landed on (resolved
+/// or minted), and the new entry id per attribute in request order — `Some` for a recorded value, `None`
+/// for a cleared or absent one. A connector holds the memory id to splice a `[mem:<id>]` reference for
+/// the subject (an @mention rewritten to a canonical memory token) without a round trip on an unchanged
+/// identity, and the entry ids to supersede on the next change.
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectOutcome {
+    /// The memory the projection landed on, resolved or minted from the target.
+    pub memory_id: MemoryId,
+    /// The new entry id per attribute, in request order.
+    pub entries: Vec<Option<EntryId>>,
+}
+
 /// One endpoint of a connector-authored structural link ([`Platform::link`]) — a participant or a
 /// context, each named under the connector's own platform. A connector can only ever link memories it
 /// owns, so both nodes are scoped to its platform by construction.
@@ -599,26 +612,33 @@ impl Platform<'_> {
     /// clears a value no longer set, retracting that entry. The connector holds the entry ids, so the
     /// server keys nothing itself.
     ///
-    /// The target is resolved (or minted), so a projection lands even on first contact. Returns the new
-    /// entry id per attribute, in request order: `Some` for a recorded value, `None` for a cleared or
-    /// absent one. A supersede or retract target the agent has since dropped is a no-op — the fresh
-    /// append still stands — so a projection never fails on a target that moved underneath it.
+    /// The target is resolved (or minted), so a projection lands even on first contact. Returns the
+    /// memory id it landed on and the new entry id per attribute, in request order: `Some` for a
+    /// recorded value, `None` for a cleared or absent one. The memory id is returned even when no
+    /// attribute changed (an empty `attributes`), so a connector can learn a subject's memory id to
+    /// reference it without recording anything. A supersede or retract target the agent has since
+    /// dropped is a no-op — the fresh append still stands — so a projection never fails on a target that
+    /// moved underneath it.
     pub fn project(
         &self,
         target: &LinkNode,
         platform: &str,
         attributes: &[ParticipantAttribute],
-    ) -> Result<Vec<Option<EntryId>>, InstanceError> {
-        if attributes.is_empty() {
-            return Ok(Vec::new());
-        }
+    ) -> Result<ProjectOutcome, InstanceError> {
         let engine = &self.server.engine;
-        // Resolve (or mint) the target memory, the same path a message or a link takes.
+        // Resolve (or mint) the target memory, the same path a message or a link takes. It is resolved
+        // even with no attributes, so the caller always learns the subject's memory id.
         let memory = self.resolve_or_mint_node(target)?;
         engine
             .graph
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
+        if attributes.is_empty() {
+            return Ok(ProjectOutcome {
+                memory_id: memory,
+                entries: Vec::new(),
+            });
+        }
 
         // No conversation to attribute to — a projection is about the subject, not a room.
         let mut block = MemoryBlock::new(
@@ -664,7 +684,10 @@ impl Platform<'_> {
             .graph
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
-        Ok(results)
+        Ok(ProjectOutcome {
+            memory_id: memory,
+            entries: results,
+        })
     }
 
     /// Assert (or, with `remove`, retract) a structural link a connector authored between two of its

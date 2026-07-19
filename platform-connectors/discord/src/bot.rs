@@ -19,7 +19,8 @@ use serenity::{
 use tokio::sync::Mutex;
 
 use zuihitsu_core::{
-    ids::{ConversationLocator, PersonId, TurnId},
+    ids::{ConversationLocator, MemoryId, PersonId, TurnId},
+    mem_ref,
     progress::{ProgressKind, TurnProgress},
 };
 use zuihitsu_platform_connector_api::{
@@ -249,6 +250,49 @@ impl EventHandler for Handler {
             tracing::warn!(%error, "discord connector: could not project participant identity");
         }
 
+        // Project every @mentioned user's identity — username and display name, the fields a mention
+        // carries — the same path the sender takes, minus presence: a mentioned user is referenced, not
+        // present, so it is never added to the channel's present set (which would mint a phantom stub and
+        // mislead the subject guard). The bot's own mention is addressing, not a reference, so it is
+        // skipped. Each projection caches the mentioned user's memory id, which the splice below reads to
+        // rewrite the raw `<@id>` mention as a canonical `[mem:<id>]` token.
+        let mut mention_memory_ids: HashMap<UserId, MemoryId> = HashMap::new();
+        for user in &msg.mentions {
+            if user.id == bot_id {
+                continue;
+            }
+            let person = PersonId::new(DISCORD_PLATFORM, user.id.to_string());
+            if let Err(error) = state
+                .projection_sync
+                .sync(
+                    &state.platform,
+                    &LinkEndpoint::Participant(person.clone()),
+                    person.id.as_str(),
+                    &observed_mention_identity(user),
+                )
+                .await
+            {
+                // A failed projection degrades to the raw mention — the message still posts, just
+                // without a spliced token for this user. Never a dropped message.
+                tracing::warn!(
+                    %error,
+                    user_id = user.id.get(),
+                    "discord connector: could not project mentioned user identity"
+                );
+                continue;
+            }
+            if let Some(memory_id) = state
+                .projection_sync
+                .memory_id_for(person.id.as_str())
+                .await
+            {
+                mention_memory_ids.insert(user.id, memory_id);
+            }
+        }
+        // Splice a `[mem:<id>]` token in place of each projected mention, alongside the reply-turnref
+        // injection already folded into `text` above. The bot's own mention keeps its raw form.
+        let text = splice_mentions(&text, &mention_memory_ids);
+
         // In a guild, keep the guild's context and its structural links current: project the server
         // name onto the guild's context memory (superseding it on a rename), place the channel in the
         // guild, and place the sender in the guild as a durable member.
@@ -444,6 +488,125 @@ fn observed_identity(msg: &Message, guild_name: &str) -> Vec<ObservedAttribute> 
     observed
 }
 
+/// The identity attributes to project for an @mentioned user: the account username and display name a
+/// mention carries. A mention's `User` has no guild member data, so no nickname is observed — the keys
+/// match [`observed_identity`]'s `username` and `display_name` exactly, so a later message from this user
+/// as a sender adds the nickname and updates in place rather than fighting the mention's entries.
+fn observed_mention_identity(user: &User) -> Vec<ObservedAttribute> {
+    vec![
+        ObservedAttribute {
+            key: "username".to_owned(),
+            value: Some(user.name.clone()),
+            entry_text: format!("Discord username: {}", user.name),
+        },
+        ObservedAttribute {
+            key: "display_name".to_owned(),
+            entry_text: user
+                .global_name
+                .as_deref()
+                .map(|name| format!("Discord display name: {name}"))
+                .unwrap_or_default(),
+            value: user.global_name.clone(),
+        },
+    ]
+}
+
+/// Rewrite each raw Discord mention (`<@id>` and the nickname form `<@!id>`) of a projected user as the
+/// canonical `[mem:<id>]` memory token, so the agent reads a stable reference rather than an opaque
+/// platform mention and the console renders a link. A user absent from `memory_ids` keeps its raw
+/// mention: the bot's own mention (addressing, not reference) is never in the map, and a mention whose
+/// projection failed degrades to its raw form. Parsing `<@…>` is the connector reading its own platform's
+/// syntax.
+///
+/// A mention inside a Discord code span — a backtick-delimited inline run or a triple-backtick fenced
+/// block — is left raw, since there it is a literal code sample, not a reference. An unclosed backtick
+/// run is not a span at all (Discord renders the backticks literally), so scanning resumes after it and
+/// any mention in the prose beyond still splices.
+fn splice_mentions(text: &str, memory_ids: &HashMap<UserId, MemoryId>) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            let run = backtick_run(bytes, i);
+            if let Some(end) = closing_run(bytes, i + run, run) {
+                // A closed code span: copy it verbatim, backticks and content alike, so a mention
+                // inside stays a literal code sample.
+                out.push_str(&text[i..end]);
+                i = end;
+            } else {
+                // An unclosed run: the backticks are literal, not a span. Emit them and resume normal
+                // scanning, so a mention in the prose beyond still splices.
+                out.push_str(&text[i..i + run]);
+                i += run;
+            }
+            continue;
+        }
+        if let Some((user_id, len)) = mention_at(text, i)
+            && let Some(memory_id) = memory_ids.get(&user_id)
+        {
+            out.push_str(&mem_ref::construct(*memory_id));
+            i += len;
+            continue;
+        }
+        // Not a mention we splice: copy one whole character so the scan never slices mid-character.
+        let ch = text[i..].chars().next().expect("i is a char boundary");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// The length in bytes of the run of backticks starting at `i` (where `bytes[i]` is a backtick). Backticks
+/// are ASCII, so the run boundary is always a character boundary.
+fn backtick_run(bytes: &[u8], i: usize) -> usize {
+    let mut n = 0;
+    while i + n < bytes.len() && bytes[i + n] == b'`' {
+        n += 1;
+    }
+    n
+}
+
+/// The byte offset just past the backtick run that closes a code span of length `run`, searching from
+/// `from`, or `None` when the span never closes. Discord closes a span on the next run of exactly the
+/// opening length: a run of a different length is skipped whole, so its backticks are never miscounted as
+/// a partial close.
+fn closing_run(bytes: &[u8], from: usize, run: usize) -> Option<usize> {
+    let mut j = from;
+    while j < bytes.len() {
+        if bytes[j] == b'`' {
+            let len = backtick_run(bytes, j);
+            if len == run {
+                return Some(j + run);
+            }
+            j += len;
+        } else {
+            j += 1;
+        }
+    }
+    None
+}
+
+/// The Discord mention starting at byte `i`, if `text[i..]` opens `<@id>` or the nickname form `<@!id>`
+/// with a numeric id, and the mention's byte length. `None` when no mention opens there.
+fn mention_at(text: &str, i: usize) -> Option<(UserId, usize)> {
+    let rest = text.get(i..)?.strip_prefix("<@")?;
+    // The nickname form carries a leading `!` before the id; both forms name the same user.
+    let after_bang = rest.strip_prefix('!').unwrap_or(rest);
+    let bang_len = rest.len() - after_bang.len();
+    let digits: String = after_bang
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    if digits.is_empty() || !after_bang[digits.len()..].starts_with('>') {
+        return None;
+    }
+    let id = digits.parse::<u64>().ok()?;
+    // "<@" + optional "!" + digits + ">".
+    let len = "<@".len() + bang_len + digits.len() + '>'.len_utf8();
+    Some((UserId::new(id), len))
+}
+
 /// Project a guild's server name onto its context memory, superseding it on a rename. A blank name (the
 /// cache cold and the fetch failed) is skipped rather than recorded as an empty attribute.
 async fn sync_guild_name(state: &BotState, guild_id: u64, guild_name: &str) -> Result<()> {
@@ -608,4 +771,148 @@ pub struct BotStateKey;
 
 impl TypeMapKey for BotStateKey {
     type Value = Arc<BotState>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn memory_id(bits: u128) -> MemoryId {
+        MemoryId(ulid::Ulid::from(bits))
+    }
+
+    #[test]
+    fn splice_rewrites_both_mention_forms_of_a_projected_user() {
+        let dave = UserId::new(123);
+        let mem = memory_id(1);
+        let map = HashMap::from([(dave, mem)]);
+        let token = mem_ref::construct(mem);
+
+        // Both the plain and the nickname form of the same user splice to the same token.
+        assert_eq!(
+            splice_mentions("hey <@123> around?", &map),
+            format!("hey {token} around?")
+        );
+        assert_eq!(
+            splice_mentions("hey <@!123> around?", &map),
+            format!("hey {token} around?")
+        );
+    }
+
+    #[test]
+    fn splice_leaves_an_unprojected_mention_raw() {
+        // The bot's own mention (and any user whose projection failed) is absent from the map, so its
+        // raw form is preserved verbatim — addressing, not a reference.
+        let map: HashMap<UserId, MemoryId> = HashMap::new();
+        assert_eq!(splice_mentions("<@999> hello", &map), "<@999> hello");
+        assert_eq!(splice_mentions("<@!999> hi", &map), "<@!999> hi");
+    }
+
+    #[test]
+    fn splice_rewrites_only_projected_users_among_several_mentions() {
+        let dave = UserId::new(123);
+        let mem = memory_id(2);
+        let map = HashMap::from([(dave, mem)]);
+        let token = mem_ref::construct(mem);
+        // Dave splices; Erin (unprojected) and the surrounding prose stay exactly as written.
+        assert_eq!(
+            splice_mentions("cc <@123> and <@456> please", &map),
+            format!("cc {token} and <@456> please")
+        );
+    }
+
+    #[test]
+    fn splice_preserves_non_mention_and_multibyte_text() {
+        let map: HashMap<UserId, MemoryId> = HashMap::new();
+        // A lone `<`, an email-ish `@`, and multibyte prose must scan without panicking or corruption.
+        for text in [
+            "plain text",
+            "a < b and c@d",
+            "さっき <@ not a mention",
+            "emoji 🎉 done",
+        ] {
+            assert_eq!(splice_mentions(text, &map), text);
+        }
+    }
+
+    #[test]
+    fn splice_leaves_a_mention_in_inline_code_raw() {
+        let dave = UserId::new(123);
+        let map = HashMap::from([(dave, memory_id(3))]);
+        // A mention inside a backtick-delimited inline run is a literal code sample, not a reference.
+        assert_eq!(
+            splice_mentions("use `<@123>` to ping", &map),
+            "use `<@123>` to ping"
+        );
+        // A double-backtick run (used so the content may itself contain a single backtick) closes only
+        // on a matching double run, leaving the mention within it raw.
+        assert_eq!(
+            splice_mentions("run ``<@123>`` now", &map),
+            "run ``<@123>`` now"
+        );
+    }
+
+    #[test]
+    fn splice_leaves_a_mention_in_a_fenced_block_raw() {
+        let dave = UserId::new(123);
+        let map = HashMap::from([(dave, memory_id(4))]);
+        // A triple-backtick fenced block copies through untouched, mention and all.
+        assert_eq!(
+            splice_mentions("```\nping <@123> here\n```", &map),
+            "```\nping <@123> here\n```"
+        );
+    }
+
+    #[test]
+    fn splice_rewrites_prose_but_not_code_in_a_mixed_message() {
+        let dave = UserId::new(123);
+        let mem = memory_id(5);
+        let map = HashMap::from([(dave, mem)]);
+        let token = mem_ref::construct(mem);
+        // The prose mention splices; the identical mention inside the inline code stays a raw sample.
+        assert_eq!(
+            splice_mentions("cc <@123> — sample `<@123>`", &map),
+            format!("cc {token} — sample `<@123>`")
+        );
+    }
+
+    #[test]
+    fn splice_treats_an_unclosed_backtick_run_as_literal_and_splices_past_it() {
+        let dave = UserId::new(123);
+        let mem = memory_id(6);
+        let map = HashMap::from([(dave, mem)]);
+        let token = mem_ref::construct(mem);
+        // Discord renders an unclosed backtick literally, so it opens no span: the backtick is emitted
+        // as-is and the mention beyond it still splices.
+        assert_eq!(
+            splice_mentions("oops `<@123> unclosed", &map),
+            format!("oops `{token} unclosed")
+        );
+    }
+
+    #[test]
+    fn mention_at_rejects_malformed_forms() {
+        // No id, a non-numeric id, and an unterminated mention are not mentions.
+        assert_eq!(mention_at("<@>", 0), None);
+        assert_eq!(mention_at("<@abc>", 0), None);
+        assert_eq!(mention_at("<@123", 0), None);
+        // A well-formed mention reports the right byte length (plain and nickname forms).
+        assert_eq!(mention_at("<@123>", 0).map(|(_, len)| len), Some(6));
+        assert_eq!(mention_at("<@!123>", 0).map(|(_, len)| len), Some(7));
+    }
+
+    #[test]
+    fn observed_mention_identity_matches_the_sender_username_shape() {
+        // The mention's username and display-name attributes carry the same keys and entry-text shape as
+        // the sender's, so a later sender message updates in place rather than fighting the mention's
+        // entries. A `User` default carries an empty global name, so display_name is cleared (`None`).
+        let mut user = User::default();
+        user.name = "dave1234".to_owned();
+        let observed = observed_mention_identity(&user);
+        assert_eq!(observed[0].key, "username");
+        assert_eq!(observed[0].value.as_deref(), Some("dave1234"));
+        assert_eq!(observed[0].entry_text, "Discord username: dave1234");
+        assert_eq!(observed[1].key, "display_name");
+        assert_eq!(observed[1].value, None);
+    }
 }

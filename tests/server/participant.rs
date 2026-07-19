@@ -38,7 +38,14 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
             ],
         )
         .unwrap();
-    let (username_id, display_id) = (ids[0].unwrap(), ids[1].unwrap());
+    // The response names the memory the projection landed on — what a connector holds to reference the
+    // subject (a `[mem:<id>]` splice) — alongside the per-attribute entry ids.
+    assert_eq!(
+        ids.memory_id,
+        server.control().memory(profile).unwrap().unwrap().id,
+        "the response names the memory the projection landed on"
+    );
+    let (username_id, display_id) = (ids.entries[0].unwrap(), ids.entries[1].unwrap());
     let texts = entry_texts(&server, profile);
     assert!(texts.contains(&"Discord username: dave1234".to_owned()));
     assert!(texts.contains(&"Discord display name: Dave".to_owned()));
@@ -56,7 +63,7 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
             }],
         )
         .unwrap();
-    let new_username_id = ids[0].unwrap();
+    let new_username_id = ids.entries[0].unwrap();
     let texts = entry_texts(&server, profile);
     assert!(texts.contains(&"Discord username: dave5678".to_owned()));
     assert!(
@@ -77,7 +84,11 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
             }],
         )
         .unwrap();
-    assert_eq!(ids, vec![None], "a cleared attribute returns no new entry");
+    assert_eq!(
+        ids.entries,
+        vec![None],
+        "a cleared attribute returns no new entry"
+    );
     let texts = entry_texts(&server, profile);
     assert!(
         !texts.contains(&"Discord display name: Dave".to_owned()),
@@ -110,24 +121,28 @@ async fn projecting_identity_appends_supersedes_and_retracts() {
             }],
         )
         .unwrap();
-    assert!(ids[0].is_some());
+    assert!(ids.entries[0].is_some());
 }
 
 #[tokio::test]
-async fn projecting_no_attributes_is_a_no_op() {
+async fn projecting_no_attributes_returns_the_resolved_memory_id() {
     let (server, _clock) = born_agent();
     let dave = PersonId::new(TEST_PLATFORM, "dave");
-    let ids = server
+    let outcome = server
         .platform()
         .project(&LinkNode::Participant(dave.clone()), "discord", &[])
         .unwrap();
-    assert!(ids.is_empty());
-    // No stub is minted for an empty projection.
-    assert!(
-        server
-            .control()
-            .memory("person/dave@chat")
-            .unwrap()
-            .is_none()
+    // No attributes means no content entries, but the subject's memory id still comes back — resolved
+    // (and minted on first contact), so a connector can learn a subject's memory id to reference it
+    // without recording anything.
+    assert!(outcome.entries.is_empty(), "no attributes, no entries");
+    let stub = server
+        .control()
+        .memory("person/dave@chat")
+        .unwrap()
+        .expect("the subject stub is resolved and minted");
+    assert_eq!(
+        outcome.memory_id, stub.id,
+        "the response names the resolved memory"
     );
 }

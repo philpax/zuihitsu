@@ -14,8 +14,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ContextEntry, ConversationLocator, EntryId, LinkError, LinkNode, MessageInput,
-    ParticipantAttribute, PersonId, RosterResync,
+    ContextEntry, ConversationLocator, LinkError, LinkNode, MessageInput, ParticipantAttribute,
+    PersonId, ProjectOutcome, RosterResync,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
@@ -180,7 +180,7 @@ pub(super) async fn write_context(
 /// participant's identity (username, display name, nickname) onto their `person/*` stub, or a guild's
 /// name onto its `context/*` memory. Each attribute records a new value or clears one, superseding or
 /// retracting the entry a prior projection returned. The write is attributed to the request's connector;
-/// the response is the new entry id per attribute, in order.
+/// the response is the memory id the projection landed on and the new entry id per attribute, in order.
 #[derive(Deserialize)]
 pub(super) struct ProjectRequest {
     target: WireLinkNode,
@@ -191,13 +191,13 @@ pub(super) async fn project(
     State(state): State<AppState>,
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ProjectRequest>,
-) -> Result<Json<Vec<Option<EntryId>>>, ApiError> {
-    let ids = state.server.platform().project(
+) -> Result<Json<ProjectOutcome>, ApiError> {
+    let outcome = state.server.platform().project(
         &link_node(&scope, request.target),
         &scope.platform,
         &request.attributes,
     )?;
-    Ok(Json(ids))
+    Ok(Json(outcome))
 }
 
 /// One endpoint of a link on the wire — a bare participant id or a bare scope path, each resolved

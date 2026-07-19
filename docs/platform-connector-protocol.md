@@ -149,7 +149,17 @@ Each attribute either records a new value or clears one, and the platform connec
 - `text` — the value to record now, or `null` to clear a value that is no longer set.
 - `supersedes` — the entry id a prior projection of this attribute returned, to supersede (on a change) or retract (on a clear); `null` on first contact. A target the agent has since dropped is a no-op: the fresh value still lands.
 
-Returns a JSON array of the new entry id per attribute, in request order: a string for a recorded value, `null` for a cleared one. The connector stores these to supersede on the next change.
+**Response body (`200 OK`):**
+
+```json
+{
+  "memory_id": "01J…",
+  "entries": ["01J…", "01J…", null]
+}
+```
+
+- `memory_id` — the id of the memory the projection landed on, resolved or minted from the target. The connector holds it to reference the subject — splicing a `[mem:<memory-id>]` token in place of an @mention, say — without another round trip when the identity has not changed. It is returned even when `attributes` is empty, so a connector can learn a subject's memory id without recording anything.
+- `entries` — the new entry id per attribute, in request order: a string for a recorded value, `null` for a cleared one. The connector stores these to supersede on the next change.
 
 ## Linking scoped memories
 
