@@ -316,7 +316,7 @@ pub struct MarkerTurn {
 /// teller, and — when the entry's `told_in` room is known — the room and, if the room is
 /// `#confidential`, that it was said in confidence: `[teller-private, told by Erin in #leads
 /// (confidential) [turn:01KX…]]`. When a turn id is known, a `[turn:<ulid>]` token is embedded so
-/// the frontend's `scanTurnRefs` can render a cross-linkable chip. The marker is baked into
+/// a renderer can resolve the reference into a link. The marker is baked into
 /// `recent_facts` at brief-build time, so a later cross-context surfacing can be recognized as one.
 pub fn teller_private_marker(teller: &str, marker: Option<&MarkerTurn>) -> String {
     let room = marker.and_then(|m| m.room.as_ref());
@@ -368,8 +368,8 @@ pub fn attributed_marker(teller: &str, marker: Option<&MarkerTurn>) -> String {
 }
 
 /// Append a `[turn:<ulid>]` token inside the closing bracket of a marker string, when a turn id is
-/// known. The token is picked up by the frontend's `scanTurnRefs` so it can render a cross-linkable
-/// chip. Without a turn id, the marker is returned unchanged.
+/// known. The token is the canonical reference form, so a renderer can resolve it into a link.
+/// Without a turn id, the marker is returned unchanged.
 fn format_turn(marker: &str, turn: Option<&TurnId>) -> String {
     match turn {
         Some(id) => {

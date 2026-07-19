@@ -5,96 +5,32 @@
 //! present set, inject `[turn:<id>]` if replying to a mapped message, call the platform API stream,
 //! watch for reply progress to start the typing indicator, and post the outcome back to Discord.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::HashMap;
 
-use parking_lot::Mutex as SyncMutex;
 use serenity::{
-    all::{ChannelId, GuildChannel, GuildId, Member, Message, Ready, ResumedEvent, User, UserId},
+    all::{GuildChannel, GuildId, Member, Message, Ready, ResumedEvent, User, UserId},
     async_trait,
     prelude::*,
 };
-use tokio::sync::Mutex;
 
-use zuihitsu_core::{
-    ids::{ConversationLocator, PersonId, TurnId},
-    progress::{ProgressKind, TurnProgress},
-};
-use zuihitsu_platform_connector_api::{
-    LinkEndpoint, PlatformClient, PlatformMessage, StreamOutcome, TurnOutcome,
-};
+use zuihitsu_core::ids::{MemoryId, PersonId};
+use zuihitsu_platform_connector_api::LinkEndpoint;
 
 use crate::{
     addressing::{AddressingDecision, MessageContext, should_respond},
-    bot_loop::BotLoopGuard,
-    config::DiscordConfig,
-    context_sync::{ContextParams, ContextSync},
-    error::{Error, Result},
-    guild_sync::GuildSync,
-    locator::{ChannelContext, DISCORD_PLATFORM, guild_locator},
-    pacing::{DebounceState, PendingMessage},
-    projection_sync::{ObservedAttribute, ProjectionSync},
-    turn_map::TurnMap,
+    bot::{
+        BotStateKey,
+        identity::{
+            channel_metadata, guild_name, observed_identity, observed_mention_identity,
+            sync_guild_name,
+        },
+        mentions::splice_mentions,
+        process::process_message,
+    },
+    context_sync::ContextParams,
+    locator::{ChannelContext, DISCORD_PLATFORM},
+    pacing::PendingMessage,
 };
-
-/// The shared bot state, stored in serenity's `TypeMap` via `Arc`.
-pub struct BotState {
-    pub config: DiscordConfig,
-    pub platform: PlatformClient,
-    pub bot_id: Mutex<Option<UserId>>,
-    pub turn_map: Mutex<TurnMap>,
-    pub context_sync: ContextSync,
-    pub guild_sync: GuildSync,
-    pub projection_sync: ProjectionSync,
-    /// Per-channel present sets: users who have spoken in a channel the bot operates in. Grown
-    /// lazily — a user is added when they send a message the bot processes, not eagerly from the
-    /// guild member list. Keyed by channel so presence is per-conversation, not global. A user who
-    /// leaves the guild is removed from every channel they were in.
-    pub present_members: Mutex<HashMap<ChannelId, HashSet<UserId>>>,
-    pub debounce: DebounceState,
-    /// Guards against a bot-to-bot reply loop by capping consecutive bot-initiated turns per channel.
-    pub bot_loop: BotLoopGuard,
-}
-
-impl BotState {
-    pub fn new(config: DiscordConfig) -> Result<Self> {
-        let debounce_ms = config.pacing.debounce_ms;
-        let max_consecutive_bot_turns = config.behavior.max_consecutive_bot_turns;
-        let db_path = config.storage.db_path.clone();
-        let platform = PlatformClient::new(
-            config.server.url.clone(),
-            config.server.platform_key.clone(),
-        );
-        // The turn map and the identity sync are two tables in the connector's one SQLite state DB,
-        // each opening its own connection to `db_path`.
-        let turn_map = TurnMap::open(&db_path).map_err(|e| {
-            Error::config(format!(
-                "could not open the state db at {}: {e}",
-                db_path.display()
-            ))
-        })?;
-        let projection_sync = ProjectionSync::open(&db_path).map_err(|e| {
-            Error::config(format!(
-                "could not open the state db at {}: {e}",
-                db_path.display()
-            ))
-        })?;
-        Ok(BotState {
-            platform,
-            config,
-            bot_id: Mutex::new(None),
-            turn_map: Mutex::new(turn_map),
-            context_sync: ContextSync::new(),
-            guild_sync: GuildSync::new(),
-            projection_sync,
-            present_members: Mutex::new(HashMap::new()),
-            debounce: DebounceState::new(debounce_ms),
-            bot_loop: BotLoopGuard::new(max_consecutive_bot_turns),
-        })
-    }
-}
 
 /// The event handler. Each method is the Discord-facing side of one platform concern.
 pub struct Handler;
@@ -248,6 +184,77 @@ impl EventHandler for Handler {
         {
             tracing::warn!(%error, "discord connector: could not project participant identity");
         }
+
+        // Project every @mentioned user's identity — username and display name, the fields a mention
+        // carries — the same path the sender takes, minus presence: a mentioned user is referenced, not
+        // present, so it is never added to the channel's present set (which would mint a phantom stub and
+        // mislead the subject guard). The bot's own mention resolves to the agent's reserved `self`
+        // memory instead — never projected as a person, but referenced like any other mention. Each
+        // projection caches the mentioned user's memory id, which the splice below reads to rewrite the
+        // raw `<@id>` mention as a canonical `[mem:<id>]` token.
+        let mut mention_memory_ids: HashMap<UserId, MemoryId> = HashMap::new();
+        for user in &msg.mentions {
+            if user.id == bot_id {
+                // The agent must never be minted as a person, so the bot's own mention is not projected.
+                // It still resolves to a reference — the agent's reserved `self` memory, fetched from the
+                // server once per boot and cached. A failed self lookup degrades the mention to its raw
+                // form rather than dropping the message, matching the failed-projection fallback below.
+                match state
+                    .self_memory
+                    .get_or_try_init(|| async {
+                        state
+                            .platform
+                            .self_memory()
+                            .await
+                            .map(|body| body.memory_id)
+                    })
+                    .await
+                {
+                    Ok(&self_id) => {
+                        mention_memory_ids.insert(user.id, self_id);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "discord connector: could not resolve the agent's self memory; leaving the bot mention raw"
+                        );
+                    }
+                }
+                continue;
+            }
+            let person = PersonId::new(DISCORD_PLATFORM, user.id.to_string());
+            if let Err(error) = state
+                .projection_sync
+                .sync(
+                    &state.platform,
+                    &LinkEndpoint::Participant(person.clone()),
+                    person.id.as_str(),
+                    &observed_mention_identity(user),
+                )
+                .await
+            {
+                // A failed projection degrades to the raw mention — the message still posts, just
+                // without a spliced token for this user. Never a dropped message.
+                tracing::warn!(
+                    %error,
+                    user_id = user.id.get(),
+                    "discord connector: could not project mentioned user identity"
+                );
+                continue;
+            }
+            if let Some(memory_id) = state
+                .projection_sync
+                .memory_id_for(person.id.as_str())
+                .await
+            {
+                mention_memory_ids.insert(user.id, memory_id);
+            }
+        }
+        // Splice a `[mem:<id>]` token in place of each projected mention, alongside the reply-turnref
+        // injection already folded into `text` above. The bot's own mention resolves to the agent's
+        // reserved `self` memory (never projected as a person); only a failed projection or self lookup
+        // leaves a mention in its raw form.
+        let text = splice_mentions(&text, &mention_memory_ids);
 
         // In a guild, keep the guild's context and its structural links current: project the server
         // name onto the guild's context memory (superseding it on a rename), place the channel in the
@@ -406,206 +413,4 @@ impl EventHandler for Handler {
     async fn resume(&self, _ctx: Context, _: ResumedEvent) {
         tracing::info!("discord connector: gateway resumed");
     }
-}
-
-/// The identity attributes to project for a message's sender: the account username and display name
-/// (global to Discord), and the server nickname (per guild, keyed by guild id). An unset display name
-/// or nickname is carried as `None`, so clearing it later retracts the prior projection rather than
-/// leaving a stale handle. The nickname is only observed in a guild — a DM has none.
-fn observed_identity(msg: &Message, guild_name: &str) -> Vec<ObservedAttribute> {
-    let mut observed = vec![
-        ObservedAttribute {
-            key: "username".to_owned(),
-            value: Some(msg.author.name.clone()),
-            entry_text: format!("Discord username: {}", msg.author.name),
-        },
-        ObservedAttribute {
-            key: "display_name".to_owned(),
-            entry_text: msg
-                .author
-                .global_name
-                .as_deref()
-                .map(|name| format!("Discord display name: {name}"))
-                .unwrap_or_default(),
-            value: msg.author.global_name.clone(),
-        },
-    ];
-    if let Some(guild_id) = msg.guild_id {
-        let nick = msg.member.as_ref().and_then(|member| member.nick.clone());
-        observed.push(ObservedAttribute {
-            key: format!("nickname:{}", guild_id.get()),
-            entry_text: nick
-                .as_deref()
-                .map(|nick| format!("Discord nickname in {guild_name}: {nick}"))
-                .unwrap_or_default(),
-            value: nick,
-        });
-    }
-    observed
-}
-
-/// Project a guild's server name onto its context memory, superseding it on a rename. A blank name (the
-/// cache cold and the fetch failed) is skipped rather than recorded as an empty attribute.
-async fn sync_guild_name(state: &BotState, guild_id: u64, guild_name: &str) -> Result<()> {
-    if guild_name.is_empty() {
-        return Ok(());
-    }
-    state
-        .projection_sync
-        .sync(
-            &state.platform,
-            &LinkEndpoint::Context(guild_locator(guild_id)),
-            &format!("guild/{guild_id}"),
-            &[ObservedAttribute {
-                key: "server_name".to_owned(),
-                value: Some(guild_name.to_owned()),
-                entry_text: format!("Discord server: {guild_name}"),
-            }],
-        )
-        .await
-}
-
-/// The guild's name — from the cache when it is warm, else fetched over HTTP, so the very first
-/// message (before `GUILD_CREATE` populates the cache) still resolves the real name. Empty only if
-/// both the cache miss and the fetch fails.
-async fn guild_name(ctx: &Context, guild_id: GuildId) -> String {
-    if let Some(name) = ctx.cache.guild(guild_id).map(|guild| guild.name.clone()) {
-        return name;
-    }
-    guild_id
-        .to_partial_guild(&ctx.http)
-        .await
-        .map(|guild| guild.name)
-        .unwrap_or_default()
-}
-
-/// Extract `(name, topic)` from a channel, returning empty strings if unavailable.
-async fn channel_metadata(ctx: &Context, channel_id: serenity::all::ChannelId) -> (String, String) {
-    match channel_id.to_channel(&ctx.http).await {
-        Ok(serenity::all::Channel::Guild(gc)) => {
-            (gc.name.clone(), gc.topic.clone().unwrap_or_default())
-        }
-        _ => (String::new(), String::new()),
-    }
-}
-
-/// Process a debounced batch: send it to the platform, watch progress, post the outcome.
-async fn process_message(
-    ctx: &Context,
-    state: &Arc<BotState>,
-    locator: &ConversationLocator,
-    batch: Vec<PendingMessage>,
-    present: &[PersonId],
-    channel_id: serenity::all::ChannelId,
-) {
-    let messages: Vec<PlatformMessage> = batch
-        .into_iter()
-        .map(|m| PlatformMessage {
-            sender: PersonId::new(DISCORD_PLATFORM, &m.sender),
-            text: m.text,
-        })
-        .collect();
-
-    // The typing indicator starts on the first Reply progress fragment and is refreshed until
-    // the outcome arrives. The callback fires as each fragment streams in, so typing starts
-    // during reply emission, not after the whole stream completes.
-    //
-    // Only the participant turn's own progress frames drive typing. A compaction flush may run
-    // inside the same `route_message` call (after the reply but before the outcome frame), and
-    // its progress frames carry a different `turn_id` — those are an internal system detail the
-    // connector must not surface. So we record the first turn_id we see and ignore frames from
-    // any other turn.
-    let typing_started = std::sync::atomic::AtomicBool::new(false);
-    let typing_handle: SyncMutex<Option<tokio::task::JoinHandle<()>>> = SyncMutex::new(None);
-    let active_turn_id: SyncMutex<Option<TurnId>> = SyncMutex::new(None);
-    let refresh_secs = state.config.pacing.typing_refresh_secs;
-    let ctx_for_typing = ctx.clone();
-    let channel_for_typing = channel_id;
-
-    let on_progress = |progress: &TurnProgress| {
-        // Track which turn the first progress frame belongs to. Frames from a different turn
-        // (a compaction flush) are ignored — the connector must not surface internal work.
-        {
-            let mut active = active_turn_id.lock();
-            match *active {
-                None => *active = Some(progress.turn_id),
-                Some(id) if id != progress.turn_id => return,
-                _ => {}
-            }
-        }
-        if progress.kind == ProgressKind::Reply
-            && !typing_started.swap(true, std::sync::atomic::Ordering::Relaxed)
-        {
-            let ctx_clone = ctx_for_typing.clone();
-            let channel = channel_for_typing;
-            *typing_handle.lock() = Some(tokio::spawn(async move {
-                let interval = std::time::Duration::from_secs(refresh_secs);
-                loop {
-                    let _ = channel.broadcast_typing(&ctx_clone.http).await;
-                    tokio::time::sleep(interval).await;
-                }
-            }));
-        }
-    };
-
-    // Send via the streaming endpoint, processing progress as it arrives.
-    let outcome = match state
-        .platform
-        .send_message_stream(locator, &messages, present, on_progress)
-        .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            tracing::warn!(%error, "discord connector: platform stream failed");
-            return;
-        }
-    };
-
-    // Abort the typing task — the outcome has arrived.
-    if let Some(handle) = typing_handle.lock().take() {
-        handle.abort();
-    }
-
-    match outcome {
-        StreamOutcome::Outcome(response) => match response.outcome {
-            TurnOutcome::Reply(reply_text) => match channel_id.say(&ctx.http, &reply_text).await {
-                Ok(sent_msg) => {
-                    // Record the last participant turn id (the most recent message) for
-                    // [turn:<id>] injection when a user replies to the bot's message.
-                    if let Some(tid_str) = response.participant_turn_ids.last()
-                        && let Ok(tid) = tid_str.parse::<ulid::Ulid>()
-                    {
-                        let mut turn_map = state.turn_map.lock().await;
-                        turn_map.record(sent_msg.id, TurnId(tid));
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "discord connector: could not post reply");
-                }
-            },
-            TurnOutcome::Silent => {}
-            TurnOutcome::MaxStepsExceeded => {
-                tracing::warn!("discord connector: turn exceeded max steps");
-            }
-            TurnOutcome::Deferred => {
-                tracing::info!("discord connector: turn deferred");
-            }
-            TurnOutcome::Superseded => {
-                // A newer inbound batch superseded this turn: normal operation, like `Deferred`. No
-                // reply to post and no `turn_map` record — the successor's turn answers with
-                // everything in context, and its reply reaches the channel through its own stream.
-                tracing::info!("discord connector: turn superseded by a newer message batch");
-            }
-        },
-        StreamOutcome::Error(error) => {
-            tracing::warn!(%error, "discord connector: turn error from platform");
-        }
-    }
-}
-
-/// A `TypeMap` key for the bot state.
-pub struct BotStateKey;
-
-impl TypeMapKey for BotStateKey {
-    type Value = Arc<BotState>;
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { EntryView, MemoryView } from "../../lib/model/graph.ts";
+import type { EntryView } from "@zuihitsu/wire/types/EntryView.ts";
+import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { RecurringItem } from "../../lib/model/audit.ts";
 import ReactMarkdown from "react-markdown";

@@ -1,25 +1,29 @@
 import initWasm, {
   Replica as WasmReplica,
+  memRefConstruct,
+  refNormalize,
+  refScan,
   turnRefConstruct,
-  turnRefExtract,
-  turnRefNormalize,
-  turnRefScan,
 } from "@zuihitsu/wire/wasm/console_wasm.js";
 import wasmUrl from "@zuihitsu/wire/wasm/console_wasm_bg.wasm?url";
 
-import type { Event } from "@zuihitsu/wire/types/Event.ts";
-import type { NamespacedMemoryName } from "@zuihitsu/wire/types/NamespacedMemoryName.ts";
-import type { BriefTrace } from "../model/brief.ts";
 import type {
   AgendaItem,
   ConversationDetail,
+  DigestCheck,
+  MemRefResolution,
   MemoryDetail,
-  MemoryView,
   MergeProposalView,
-  RecurringEntry,
-  RelationView,
-  TagVocabularyEntry,
-} from "../model/graph.ts";
+  RefSegment,
+} from "@zuihitsu/wire/wasm/console_wasm.js";
+
+import type { BriefTrace } from "@zuihitsu/wire/types/BriefTrace.ts";
+import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
+import type { NamespacedMemoryName } from "@zuihitsu/wire/types/NamespacedMemoryName.ts";
+import type { RecurringEntry } from "@zuihitsu/wire/types/RecurringEntry.ts";
+import type { RelationView } from "@zuihitsu/wire/types/RelationView.ts";
+import type { TagVocabularyEntry } from "@zuihitsu/wire/types/TagVocabularyEntry.ts";
 
 /// The wasm module initializes once per page; every replica shares it.
 let wasmReady: Promise<unknown> | null = null;
@@ -28,52 +32,44 @@ function ensureWasm(): Promise<unknown> {
   return wasmReady;
 }
 
-/// One span of scanned turn-reference text: literal prose, or a reference resolved to its turn's
-/// ULID. The wire shape of the wasm scanner's segments (see `RefSegment` in console-wasm).
-export type TurnRefSegment = { kind: "prose"; text: string } | { kind: "ref"; id: string };
+// The reference parser, crossing from `zuihitsu_core::message_refs` — the same definition the agent's
+// `convo.turn` resolver reads, so what the console highlights, normalizes, and mints cannot drift from
+// what the agent resolves. These are pure functions of their text, exported free rather than as
+// `Replica` methods; they still require the wasm module, which is guaranteed initialized wherever they
+// are called (every view renders under a `Replica` built by `fromEvents`, which awaits `ensureWasm`
+// first). Core recognizes token syntax only; a deep-link URL is recognized by the frontend's own route
+// matching (`lib/nav/refRoutes.ts`) and rewritten to a token before these see it.
 
-/// How one model call's recorded prompt compares against the digest stamped at send time (see
-/// `DigestCheck` in console-wasm). `unverifiable` marks a structured synthesis call, whose response
-/// format is not recorded; `unrecorded` marks a call whose request was not captured.
-export type DigestStatus = "verified" | "mismatch" | "unverifiable" | "unrecorded";
-
-export interface DigestCheck {
-  seq: number;
-  status: DigestStatus;
+/// Split text into prose spans, turn references, and memory references in one pass — the transcript's
+/// pretty projection, so both reference-token vocabularies render as chips from a single wasm call.
+/// Token syntax is parsed only in Rust; the caller dispatches on `kind`.
+export function scanRefs(text: string): RefSegment[] {
+  return refScan(text);
 }
 
-// The turn-reference parser, crossing from `zuihitsu_core::turn_ref` — the same definition the
-// agent's `convo.turn` resolver reads, so what the console highlights, normalizes, and extracts
-// cannot drift from what the agent resolves. These are pure functions of their text, exported free
-// rather than as `Replica` methods; they still require the wasm module, which is guaranteed
-// initialized wherever they are called (every view renders under a `Replica` built by `fromEvents`,
-// which awaits `ensureWasm` first).
-
-/// Split text into prose spans and turn references (`[turn:<ulid>]` tokens and `?turn=<ulid>` URLs).
-export function scanTurnRefs(text: string): TurnRefSegment[] {
-  return turnRefScan(text) as TurnRefSegment[];
+/// Rebuild text with every reference token — turn or memory — collapsed to its canonical form. The
+/// composer runs this after the nav layer has rewritten any deep-link URL to a token, so a message that
+/// leaves the console carries only canonical token syntax.
+export function normalizeRefTokens(text: string): string {
+  return refNormalize(text);
 }
 
-/// Rebuild text with every turn reference collapsed to the canonical `[turn:<ulid>]` token — the
-/// composer's send-time normalization.
-export function normalizeTurnRefs(text: string): string {
-  return turnRefNormalize(text);
-}
-
-/// Every turn id referenced in text, in order of appearance.
-export function extractTurnRefIds(text: string): string[] {
-  return turnRefExtract(text) as string[];
-}
-
-/// The canonical `[turn:<ulid>]` token for a turn id — minted by the same constructor the agent's
-/// `ref` field uses. Throws if `id` is not a ULID.
+/// The canonical turn-reference token for a turn id — minted by the same constructor the agent's `ref`
+/// field uses. Throws if `id` is not a valid id.
 export function constructTurnRef(id: string): string {
   return turnRefConstruct(id);
 }
 
+/// The canonical memory-reference token for a memory id. Throws if `id` is not a valid id.
+export function constructMemRef(id: string): string {
+  return memRefConstruct(id);
+}
+
 /// A typed handle over the console-wasm `Replica`: an event log folded through the agent's own
-/// materializer, queried for the graph-backed views. The wasm methods return `JsValue`; this is the
-/// one place those crossings are cast to the `graph.ts` shapes, so the views stay fully typed.
+/// materializer, queried for the graph-backed views. Methods returning a console-wasm DTO are typed
+/// at the boundary, so they pass the value straight through; methods returning a core view type
+/// cross as an untyped `JsValue` and are cast here — the one place those crossings are given their
+/// `wire/types` shape, so the views stay fully typed.
 export class Replica {
   readonly #inner: WasmReplica;
 
@@ -128,7 +124,28 @@ export class Replica {
   }
 
   memory(name: string): MemoryDetail | null {
-    return this.#inner.memory(name) as MemoryDetail | null;
+    return this.#inner.memory(name) ?? null;
+  }
+
+  /// Resolve a memory reference to the memory the transcript chip should display for it,
+  /// collapsed to its `same_as` class primary — the primary's id and handle, or `null` when the id
+  /// names no memory at the current fold horizon (so the chip degrades to a muted token).
+  resolveMemRef(id: string): MemRefResolution | null {
+    return this.#inner.resolveMemRef(id) ?? null;
+  }
+
+  /// The id of the live memory a handle currently names, or `null` when none does — the composer's
+  /// first step in turning a pasted state-view deep link into a token (route matching decodes the
+  /// handle; this answers which memory it is). A plain graph lookup by name.
+  memoryIdByName(name: string): string | null {
+    return (this.#inner.memoryIdByName(name) ?? null) as string | null;
+  }
+
+  /// The id of the live memory that used to go by `name` under a since-changed handle, or `null` — the
+  /// alias fallback behind a stale pasted state-view link normalizing after a rename. Consulted only
+  /// after `memoryIdByName` misses.
+  memoryIdForFormerName(name: string): string | null {
+    return (this.#inner.memoryIdForFormerName(name) ?? null) as string | null;
   }
 
   tags(): TagVocabularyEntry[] {
@@ -148,24 +165,24 @@ export class Replica {
   /// Every cross-platform merge proposal in the folded log, in first-proposal order, each tagged with
   /// its resolution state (pending or merged) at the current fold cursor.
   mergeProposals(): MergeProposalView[] {
-    return this.#inner.mergeProposals() as MergeProposalView[];
+    return this.#inner.mergeProposals();
   }
 
   conversations(): ConversationDetail[] {
-    return this.#inner.conversations() as ConversationDetail[];
+    return this.#inner.conversations();
   }
 
   /// The agent's upcoming agenda within `horizonDays` of `nowMs` — one-off and recurring occurrences
   /// merged and ordered soonest first, using the agent's own next-occurrence logic.
   agenda(nowMs: number, horizonDays: number): AgendaItem[] {
-    return this.#inner.agenda(nowMs, horizonDays) as AgendaItem[];
+    return this.#inner.agenda(nowMs, horizonDays);
   }
 
   /// Verify every model call's recorded prompt against the digest stamped at send time — the
   /// reconstruction re-hashed with the recorder's own serialization. `verified` means the displayed
   /// prompt provably matches the wire request; `mismatch` means it must not be trusted silently.
   requestDigests(): DigestCheck[] {
-    return this.#inner.requestDigests() as DigestCheck[];
+    return this.#inner.requestDigests();
   }
 
   /// Re-derive a session's brief and the trace of how it was composed, against the graph at the

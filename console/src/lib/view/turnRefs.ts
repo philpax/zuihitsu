@@ -1,15 +1,43 @@
 import { createContext } from "react";
 
+import type { RefSegment } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { TurnModel } from "../model/conversation.ts";
-import { scanTurnRefs } from "../replica/replica.ts";
+import { constructTurnRef, normalizeRefTokens, scanRefs } from "../replica/replica.ts";
+import { rewriteTurnUrls } from "../nav/refRoutes.ts";
+import { MEM_CHIP_SCHEME } from "./memRefs.ts";
 
 // The non-component half of turn references (spec §Conversations → Transcript references): the
-// lookup context the Conversation view fills, and the remark plugin that lifts scanned references
-// out of an agent turn's Markdown. The chips themselves live in `components/TurnRefs.tsx`.
+// lookup context the Conversation view fills, the remark plugin that lifts scanned references out of an
+// agent turn's Markdown, and the composer's send-time normalization. The chips themselves live in
+// `components/TurnRefs.tsx`. The one remark pass lifts both reference kinds in a single combined wasm
+// scan (`scanRefs`) — both token vocabularies — dispatching only on the returned `kind`, never
+// inspecting token syntax. A deep-link URL routes by console page, not by token syntax, so it is matched
+// by the transcript's anchor override (route matching), not lifted here: a memory's State-view link by
+// handle, a conversation link by its pinned `?turn=` moment.
+
+/// Normalize a console-composed message's turn references before it posts — the send-time counterpart to
+/// `normalizeMemRefs`. Every console Conversation-view deep link on an origin the console owns (`origins`)
+/// whose `?turn=` id is well-formed collapses to its canonical turn-reference token; a foreign link, or
+/// one with a malformed id, is left untouched. Any reference token already in the text is canonicalized
+/// too. So a message that leaves the console carries only token syntax.
+export function normalizeTurnRefs(text: string, origins: readonly string[]): string {
+  const withTokens = rewriteTurnUrls(text, mintTurnRef, origins);
+  return normalizeRefTokens(withTokens);
+}
+
+/// Mint the canonical turn-reference token for a pinned turn id, or `null` when the id is malformed
+/// (`constructTurnRef` throws), so the deep link is left as an ordinary URL rather than a broken token.
+function mintTurnRef(id: string): string | null {
+  try {
+    return constructTurnRef(id);
+  } catch {
+    return null;
+  }
+}
 
 /// The URL scheme the remark plugin smuggles a reference through react-markdown with: a scanned ref
-/// becomes a link node `turnref:<ulid>`, which the anchor override renders as a chip.
-export const TURNREF_SCHEME = "turnref:";
+/// becomes a link node `turn-chip:<id>`, which the anchor override renders as a chip.
+export const TURN_CHIP_SCHEME = "turn-chip:";
 
 /// Where a referenced turn lives in the folded log: the moment itself, the room that holds it (as
 /// the sidebar's channel key, for the deep link), and its immediate neighbors for the hover preview.
@@ -42,9 +70,9 @@ interface MdNode {
   children?: MdNode[];
 }
 
-/// A remark plugin that turns scanned references in an agent turn's Markdown into `turnref:` link
-/// nodes, which the anchor override renders as chips. Operates on the mdast text nodes, so code
-/// blocks and inline code are naturally untouched (their content is not a text node).
+/// A remark plugin that turns scanned references in an agent turn's Markdown into `turn-chip:` and
+/// `mem-chip:` link nodes, which the anchor override renders as chips. Operates on the mdast text nodes,
+/// so code blocks and inline code are naturally untouched (their content is not a text node).
 export function remarkTurnRefs() {
   return (tree: MdNode) => splitRefs(tree);
 }
@@ -53,26 +81,17 @@ function splitRefs(node: MdNode): void {
   if (!node.children) return;
   const next: MdNode[] = [];
   for (const child of node.children) {
-    // A GFM-autolinked deep-link URL becomes a chip for the whole link. A link the author labeled
-    // (`[see here](…?turn=…)`) keeps its label and renders as an ordinary anchor, and no chip is
-    // ever nested inside another anchor — so links are never descended into.
+    // A link node carries a URL, never a bracket token, so there is nothing to lift out of it here: a
+    // deep-link URL becomes a chip by route matching in the anchor override, and no chip is ever nested
+    // inside another anchor — so links are kept whole and never descended into.
     if (child.type === "link") {
-      const autolink =
-        child.children?.length === 1 &&
-        child.children[0].type === "text" &&
-        child.children[0].value === child.url;
-      const ids = autolink ? extractIds(child.url ?? "") : [];
-      next.push(ids.length === 1 ? refLink(ids[0]) : child);
+      next.push(child);
       continue;
     }
     if (child.type === "text" && child.value) {
-      const segments = scanTurnRefs(child.value);
-      if (segments.some((segment) => segment.kind === "ref")) {
-        for (const segment of segments) {
-          next.push(
-            segment.kind === "prose" ? { type: "text", value: segment.text } : refLink(segment.id),
-          );
-        }
+      const nodes = splitRefText(child.value);
+      if (nodes) {
+        next.push(...nodes);
         continue;
       }
     }
@@ -82,16 +101,29 @@ function splitRefs(node: MdNode): void {
   node.children = next;
 }
 
-/// A `turnref:` link node for the anchor override to catch.
-function refLink(id: string): MdNode {
-  return {
-    type: "link",
-    url: TURNREF_SCHEME + id,
-    children: [{ type: "text", value: id }],
-  };
+/// Split a text node's value into prose and reference link nodes, or `null` when it carries none — one
+/// combined wasm scan over both token vocabularies, the caller dispatching only on `kind`.
+function splitRefText(value: string): MdNode[] | null {
+  const nodes: MdNode[] = [];
+  let any = false;
+  for (const segment of scanRefs(value)) {
+    if (segment.kind === "prose") {
+      nodes.push({ type: "text", value: segment.text });
+    } else {
+      nodes.push(refChipLink(segment));
+      any = true;
+    }
+  }
+  return any ? nodes : null;
 }
 
-/// The turn ids a bare URL references, via the same scanner (a URL is one scannable token).
-function extractIds(url: string): string[] {
-  return scanTurnRefs(url).flatMap((segment) => (segment.kind === "ref" ? [segment.id] : []));
+/// The link node a scanned reference becomes — a `turn-chip:` or `mem-chip:` scheme the anchor override
+/// catches and renders as the matching chip.
+function refChipLink(segment: Exclude<RefSegment, { kind: "prose" }>): MdNode {
+  const scheme = segment.kind === "turn" ? TURN_CHIP_SCHEME : MEM_CHIP_SCHEME;
+  return {
+    type: "link",
+    url: scheme + segment.id,
+    children: [{ type: "text", value: segment.id }],
+  };
 }

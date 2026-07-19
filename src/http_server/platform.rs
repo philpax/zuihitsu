@@ -14,8 +14,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ContextEntry, ConversationLocator, EntryId, LinkError, LinkNode, MessageInput,
-    ParticipantAttribute, PersonId, RosterResync,
+    ContextEntry, ConversationLocator, LinkError, LinkNode, MemoryId, MessageInput,
+    ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
@@ -180,7 +180,7 @@ pub(super) async fn write_context(
 /// participant's identity (username, display name, nickname) onto their `person/*` stub, or a guild's
 /// name onto its `context/*` memory. Each attribute records a new value or clears one, superseding or
 /// retracting the entry a prior projection returned. The write is attributed to the request's connector;
-/// the response is the new entry id per attribute, in order.
+/// the response is the memory id the projection landed on and the new entry id per attribute, in order.
 #[derive(Deserialize)]
 pub(super) struct ProjectRequest {
     target: WireLinkNode,
@@ -191,13 +191,27 @@ pub(super) async fn project(
     State(state): State<AppState>,
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ProjectRequest>,
-) -> Result<Json<Vec<Option<EntryId>>>, ApiError> {
-    let ids = state.server.platform().project(
+) -> Result<Json<ProjectOutcome>, ApiError> {
+    let outcome = state.server.platform().project(
         &link_node(&scope, request.target),
         &scope.platform,
         &request.attributes,
     )?;
-    Ok(Json(ids))
+    Ok(Json(outcome))
+}
+
+/// The response to `GET /platform/self`: the id of the agent's own reserved `self` memory.
+#[derive(Serialize)]
+pub(super) struct SelfBody {
+    memory_id: MemoryId,
+}
+
+/// `GET /platform/self` — the id of the agent's own reserved `self` memory. A connector uses it to
+/// splice a `[mem:<id>]` reference when the agent itself is @mentioned, the way a mentioned
+/// participant's projection returns their memory id.
+pub(super) async fn self_memory(State(state): State<AppState>) -> Result<Json<SelfBody>, ApiError> {
+    let memory_id = state.server.platform().self_memory()?;
+    Ok(Json(SelfBody { memory_id }))
 }
 
 /// One endpoint of a link on the wire — a bare participant id or a bare scope path, each resolved

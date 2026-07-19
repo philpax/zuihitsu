@@ -132,4 +132,4 @@ async fn renaming_onto_an_occupied_handle_is_a_teachable_error() {
 // resolve, the audience-mismatch warning (same room, later session a newcomer joined), cross-room
 // resolves permitted by the loosening (solo DM and two-person DM where all attended), the two-person
 // DM where one did not attend, the unknown- and malformed-id errors, a mid-session join filtering the
-// window, the `ref` field round-tripping through `turn_ref::scan`, and the feature-off nil-call.
+// window, the `ref` field round-tripping through `message_refs::scan`, and the feature-off nil-call.

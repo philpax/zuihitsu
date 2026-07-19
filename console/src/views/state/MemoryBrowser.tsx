@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
-import type { MemoryView } from "../../lib/model/graph.ts";
+import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
 import { nameById } from "../../lib/model/labels.ts";
 import { type RecurringItem, arbitrationsFor } from "../../lib/model/audit.ts";
 import { Select } from "../../components/primitives.tsx";

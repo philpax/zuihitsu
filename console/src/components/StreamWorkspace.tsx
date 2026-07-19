@@ -31,6 +31,7 @@ import { buildConversations } from "../lib/model/conversation.ts";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
 import { channelKey } from "../views/conversation/channelUtilities.ts";
 import { type TurnRefTarget, TurnRefs } from "../lib/view/turnRefs.ts";
+import { type MemRefResolver, MemRefs } from "../lib/view/memRefs.ts";
 
 // The relations view pulls a force-graph/canvas library, so it loads only when the Relations tab is opened.
 const RelationsView = lazy(() =>
@@ -139,6 +140,32 @@ export function StreamWorkspace({
       });
     });
   }
+  // A memory-reference resolver over the replica at the current fold — the transcript's `MemRefChip`
+  // resolves each reference through this, so a chip reads against exactly what the timeline shows (the
+  // replica is already folded to the cursor above). `byId` collapses a scanned reference's id to its
+  // class primary; `byHandle` resolves a matched State-view URL's handle to an id (by current name, then
+  // a former-name alias, matching the composer) and collapses that through the same class primary, so a
+  // handle and an id for the same memory land on one chip.
+  const memRefs: MemRefResolver = {
+    byId: (id) => replica.resolveMemRef(id),
+    byHandle: (handle) => {
+      const id = replica.memoryIdByName(handle) ?? replica.memoryIdForFormerName(handle);
+      return id === null ? null : replica.resolveMemRef(id);
+    },
+    // The chip's hover preview: called when a preview opens, not per render, since the full memory
+    // read composes several graph queries. Returns the memory's description and its most recent few
+    // entries (in commit order), or `null` when the handle names no memory at this fold horizon.
+    preview: (handle) => {
+      const detail = replica.memory(handle);
+      if (detail === null) return null;
+      return {
+        description: detail.memory.description,
+        entries: detail.entries
+          .slice(-3)
+          .map((entry) => ({ id: entry.entry_id, text: entry.text })),
+      };
+    },
+  };
 
   // The bottom dock a view can float its controls into (the conversation composer), held as state
   // rather than a ref so the provider re-renders its consumers once the element lands.
@@ -192,91 +219,96 @@ export function StreamWorkspace({
         <Names.Provider value={names}>
           <ConversationNames.Provider value={convNames}>
             <TurnRefs.Provider value={refTargets}>
-              <DockContext.Provider value={dock}>
-                <AnimatePresence mode="popLayout" custom={direction} initial={false}>
-                  <motion.div
-                    key={view}
-                    custom={direction}
-                    initial={{ x: direction * shift, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: direction * -shift, opacity: 0 }}
-                    transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
-                  >
-                    {view === "state" && (
-                      <StateView
-                        replica={replica}
-                        events={events}
-                        cursor={cursor}
-                        onEditSelf={
-                          participant && cursor >= head
-                            ? (text, supersedes) =>
-                                editSelf(participant.connection, text, supersedes).then(() => {})
-                            : undefined
-                        }
-                        onRetract={
-                          participant && cursor >= head
-                            ? (memory, entry, reason) =>
-                                retractEntry(participant.connection, memory, entry, reason)
-                            : undefined
-                        }
-                      />
-                    )}
-                    {view === "relations" && (
-                      <Suspense
-                        fallback={
-                          <div className="py-16 text-center text-sm text-ink-faint">
-                            Loading relations…
-                          </div>
-                        }
-                      >
-                        <RelationsView
-                          key={cursor}
+              <MemRefs.Provider value={memRefs}>
+                <DockContext.Provider value={dock}>
+                  <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+                    <motion.div
+                      key={view}
+                      custom={direction}
+                      initial={{ x: direction * shift, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      exit={{ x: direction * -shift, opacity: 0 }}
+                      transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+                    >
+                      {view === "state" && (
+                        <StateView
                           replica={replica}
+                          events={events}
                           cursor={cursor}
-                          merge={
+                          onEditSelf={
                             participant && cursor >= head
-                              ? {
-                                  resolve: (from, to) =>
-                                    confirmMerge(participant.connection, from, to),
-                                  unmerge: (from, to) => unmerge(participant.connection, from, to),
-                                  designatePrimary: (memory, designated) =>
-                                    designatePrimary(participant.connection, memory, designated),
-                                }
+                              ? (text, supersedes) =>
+                                  editSelf(participant.connection, text, supersedes).then(() => {})
+                              : undefined
+                          }
+                          onRetract={
+                            participant && cursor >= head
+                              ? (memory, entry, reason) =>
+                                  retractEntry(participant.connection, memory, entry, reason)
                               : undefined
                           }
                         />
-                      </Suspense>
-                    )}
-                    {view === "conversation" && (
-                      <ConversationView
-                        replica={replica}
-                        events={events}
-                        cursor={cursor}
-                        atHead={cursor >= head}
-                        participate={participant}
-                        progress={progress}
-                      />
-                    )}
-                    {view === "agenda" && (
-                      <AgendaView replica={replica} events={events} cursor={cursor} />
-                    )}
-                    {view === "background" && (
-                      <BackgroundView replica={replica} events={events} cursor={cursor} />
-                    )}
-                    {view === "events" && (
-                      <EventsView
-                        replica={replica}
-                        events={events}
-                        cursor={cursor}
-                        journal={journal}
-                        resumedFromStep={resumedFromStep}
-                      />
-                    )}
-                    {view === "compare" && <DiffView events={events} cursor={cursor} head={head} />}
-                    {extra?.node}
-                  </motion.div>
-                </AnimatePresence>
-              </DockContext.Provider>
+                      )}
+                      {view === "relations" && (
+                        <Suspense
+                          fallback={
+                            <div className="py-16 text-center text-sm text-ink-faint">
+                              Loading relations…
+                            </div>
+                          }
+                        >
+                          <RelationsView
+                            key={cursor}
+                            replica={replica}
+                            cursor={cursor}
+                            merge={
+                              participant && cursor >= head
+                                ? {
+                                    resolve: (from, to) =>
+                                      confirmMerge(participant.connection, from, to),
+                                    unmerge: (from, to) =>
+                                      unmerge(participant.connection, from, to),
+                                    designatePrimary: (memory, designated) =>
+                                      designatePrimary(participant.connection, memory, designated),
+                                  }
+                                : undefined
+                            }
+                          />
+                        </Suspense>
+                      )}
+                      {view === "conversation" && (
+                        <ConversationView
+                          replica={replica}
+                          events={events}
+                          cursor={cursor}
+                          atHead={cursor >= head}
+                          participate={participant}
+                          progress={progress}
+                        />
+                      )}
+                      {view === "agenda" && (
+                        <AgendaView replica={replica} events={events} cursor={cursor} />
+                      )}
+                      {view === "background" && (
+                        <BackgroundView replica={replica} events={events} cursor={cursor} />
+                      )}
+                      {view === "events" && (
+                        <EventsView
+                          replica={replica}
+                          events={events}
+                          cursor={cursor}
+                          journal={journal}
+                          resumedFromStep={resumedFromStep}
+                        />
+                      )}
+                      {view === "compare" && (
+                        <DiffView events={events} cursor={cursor} head={head} />
+                      )}
+                      {extra?.node}
+                    </motion.div>
+                  </AnimatePresence>
+                </DockContext.Provider>
+              </MemRefs.Provider>
             </TurnRefs.Provider>
           </ConversationNames.Provider>
         </Names.Provider>

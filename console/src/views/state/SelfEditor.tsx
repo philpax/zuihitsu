@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
-import type { EntryView } from "../../lib/model/graph.ts";
+import type { EntryView } from "@zuihitsu/wire/types/EntryView.ts";
 import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 
 /// The operator's `self`-editing panel, shown on the `self` memory in the live agent frame at the head.

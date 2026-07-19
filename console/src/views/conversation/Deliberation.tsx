@@ -112,7 +112,7 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
 
 /// The pre-turn ambient recall hint — memories the frozen brief did not carry, surfaced by the
 /// lexical pass and shown to the model as a system note before it generated. Rendered as quiet system
-/// material (faint ink), the hint text verbatim. A token-only hint (a `[turn:<id>]` pointer with no
+/// material (faint ink), the hint text verbatim. A token-only hint (a turn-reference pointer with no
 /// lexical hit) carries no memories, so the count is shown only when there are hits to count.
 function AmbientStep({ step }: { step: Extract<DeliberationStep, { kind: "ambient" }> }) {
   return (

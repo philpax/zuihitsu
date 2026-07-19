@@ -1,5 +1,5 @@
 import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
-import type { MemoryView } from "./graph.ts";
+import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
 import type { Teller } from "@zuihitsu/wire/types/Teller.ts";
 import type { TerminalCause } from "@zuihitsu/wire/types/TerminalCause.ts";
 import type { Visibility } from "@zuihitsu/wire/types/Visibility.ts";

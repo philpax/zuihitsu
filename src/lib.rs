@@ -25,8 +25,8 @@ pub mod web;
 // is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
 pub use zuihitsu_core::{
-    brief, decay, event, graph, ids, instance_features::InstanceFeatures, progress, prompt,
-    settings, time, turn_ref, vocabulary,
+    brief, decay, event, graph, ids, instance_features::InstanceFeatures, mem_ref, message_refs,
+    progress, prompt, settings, time, turn_ref, vocabulary,
 };
 
 // The TypeScript wire-contract types live in `zuihitsu-frontend-types` (a separate crate that
@@ -100,8 +100,8 @@ pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView
 pub use instance::{
     Arbitration, CheckpointTrigger, ContextEntry, Control, DesignateOutcome, Instance,
     InstanceError, LinkError, LinkNode, LuaConsoleOutcome, MergeProposal, MessageInput, ModelCall,
-    ParticipantAttribute, RetractOutcome, RosterResync, SelfEditOutcome, SnapshotSchedule,
-    UnmergeOutcome,
+    ParticipantAttribute, ProjectOutcome, RetractOutcome, RosterResync, SelfEditOutcome,
+    SnapshotSchedule, UnmergeOutcome,
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,

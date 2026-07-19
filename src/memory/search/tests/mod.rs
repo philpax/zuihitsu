@@ -427,6 +427,7 @@ impl Corpus {
     }
 }
 
+mod merging;
 mod occurrences;
 mod privacy;
 mod ranking;

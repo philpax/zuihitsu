@@ -52,6 +52,19 @@ pub struct ParticipantAttribute {
     pub supersedes: Option<EntryId>,
 }
 
+/// The outcome of a [`Platform::project`] call: the id of the memory the attributes landed on (resolved
+/// or minted), and the new entry id per attribute in request order — `Some` for a recorded value, `None`
+/// for a cleared or absent one. A connector holds the memory id to splice a `[mem:<id>]` reference for
+/// the subject (an @mention rewritten to a canonical memory token) without a round trip on an unchanged
+/// identity, and the entry ids to supersede on the next change.
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectOutcome {
+    /// The memory the projection landed on, resolved or minted from the target.
+    pub memory_id: MemoryId,
+    /// The new entry id per attribute, in request order.
+    pub entries: Vec<Option<EntryId>>,
+}
+
 /// One endpoint of a connector-authored structural link ([`Platform::link`]) — a participant or a
 /// context, each named under the connector's own platform. A connector can only ever link memories it
 /// owns, so both nodes are scoped to its platform by construction.
@@ -181,14 +194,14 @@ impl Platform<'_> {
         messages: &[MessageInput],
         present: &[PersonId],
     ) -> Result<PlatformResponse, InstanceError> {
-        // Resolve the room (minting its context memory on first contact), then the participants.
-        // Each resolution borrows the store, clock, and graph fields disjointly and releases before
-        // the next, so the interleaved `materialize_from` calls are free to take the graph mutably.
+        // Resolve the room (minting its context memory on first contact), then the participants. Each
+        // resolution is atomic under the graph lock (resolve, mint, and materialize under one guard),
+        // so a concurrent first contact for the same room or identity cannot double-mint.
         let conversation = self.ensure_conversation(locator)?;
 
-        // The unique platform ids to resolve: everyone present, plus every sender. Deduplicating
-        // matters because resolution reads the graph, which is not re-materialized between mints
-        // within this call — the same id seen twice would otherwise be minted twice.
+        // The unique platform ids to resolve: everyone present, plus every sender. Deduplicating spares
+        // the redundant resolve-and-materialize cycle for an id seen twice; each first-contact mint is
+        // already made atomic by `resolve_or_mint_person`.
         let mut uids: Vec<&PersonId> = Vec::new();
         for person in present.iter().chain(messages.iter().map(|m| &m.sender)) {
             if !uids.contains(&person) {
@@ -198,25 +211,10 @@ impl Platform<'_> {
         let mut present_set = Vec::new();
         let mut participant_ids: HashMap<&PersonId, MemoryId> = HashMap::new();
         for person in &uids {
-            let id = {
-                // Graph before store, per the lock-ordering rule.
-                let graph = self.server.engine.graph.lock();
-                resolve_or_mint_participant(
-                    self.server.engine.store.lock().as_mut(),
-                    self.server.engine.clock.as_ref(),
-                    &graph,
-                    person.platform.as_str(),
-                    person.id.as_str(),
-                )?
-            };
+            let id = self.resolve_or_mint_person(person)?;
             participant_ids.insert(*person, id);
             present_set.push(id);
         }
-        self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
 
         // Build the inbound batch and generate turn ids. The participant turns are recorded inside
         // `run_session_turn` (after `ensure_session` opens the session) so the session's `start_seq`
@@ -392,23 +390,7 @@ impl Platform<'_> {
             return Ok(());
         };
 
-        let joiner = {
-            // Graph before store, per the lock-ordering rule.
-            let graph = self.server.engine.graph.lock();
-            resolve_or_mint_participant(
-                self.server.engine.store.lock().as_mut(),
-                self.server.engine.clock.as_ref(),
-                &graph,
-                participant.platform.as_str(),
-                participant.id.as_str(),
-            )?
-        };
-        self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
-
+        let joiner = self.resolve_or_mint_person(participant)?;
         self.server
             .join_participant(model, conversation, session, joiner)
             .await
@@ -467,9 +449,9 @@ impl Platform<'_> {
             return Ok(RosterResync::default());
         };
 
-        // Resolve the roster to memory ids, deduplicating first: resolution reads the graph, which is
-        // not re-materialized between mints within this pass, so the same id seen twice would
-        // otherwise be minted twice.
+        // Resolve the roster to memory ids, deduplicating first to spare the redundant
+        // resolve-and-materialize cycle for a repeated id; each first-contact mint is made atomic by
+        // `resolve_or_mint_person`.
         let mut uids: Vec<&PersonId> = Vec::new();
         for person in roster {
             if !uids.contains(&person) {
@@ -478,24 +460,8 @@ impl Platform<'_> {
         }
         let mut present_ids = Vec::with_capacity(uids.len());
         for person in &uids {
-            let id = {
-                // Graph before store, per the lock-ordering rule.
-                let graph = self.server.engine.graph.lock();
-                resolve_or_mint_participant(
-                    self.server.engine.store.lock().as_mut(),
-                    self.server.engine.clock.as_ref(),
-                    &graph,
-                    person.platform.as_str(),
-                    person.id.as_str(),
-                )?
-            };
-            present_ids.push(id);
+            present_ids.push(self.resolve_or_mint_person(person)?);
         }
-        self.server
-            .engine
-            .graph
-            .lock()
-            .materialize_from(self.server.engine.store.lock().as_ref())?;
 
         // Diff against the session's members, read once. An id present but not a member is an arrival
         // to brief in; a member absent from the roster is a departure to acknowledge. Two distinct
@@ -546,21 +512,22 @@ impl Platform<'_> {
             return Ok(());
         }
         // Resolve (or mint) the scope's context memory by name — no conversation, so this works for a
-        // guild as well as a room. We materialize so the append sees a freshly minted one.
+        // guild as well as a room. One graph guard spans the resolve, the mint, and the materialize
+        // (as in `ensure_conversation`), so a concurrent first contact for the same scope cannot mint a
+        // second context memory whose duplicate name would wedge every later fold. Graph before store,
+        // per the lock-ordering rule; the store is locked transiently within the span.
         let engine = &self.server.engine;
         let context_memory = {
-            let graph = engine.graph.lock();
-            resolve_or_mint_context(
+            let mut graph = engine.graph.lock();
+            let id = resolve_or_mint_context(
                 engine.store.lock().as_mut(),
                 engine.clock.as_ref(),
                 &graph,
                 locator,
-            )?
+            )?;
+            graph.materialize_from(engine.store.lock().as_ref())?;
+            id
         };
-        engine
-            .graph
-            .lock()
-            .materialize_from(engine.store.lock().as_ref())?;
 
         let mut block = MemoryBlock::new(
             engine.clone(),
@@ -599,26 +566,30 @@ impl Platform<'_> {
     /// clears a value no longer set, retracting that entry. The connector holds the entry ids, so the
     /// server keys nothing itself.
     ///
-    /// The target is resolved (or minted), so a projection lands even on first contact. Returns the new
-    /// entry id per attribute, in request order: `Some` for a recorded value, `None` for a cleared or
-    /// absent one. A supersede or retract target the agent has since dropped is a no-op — the fresh
-    /// append still stands — so a projection never fails on a target that moved underneath it.
+    /// The target is resolved (or minted), so a projection lands even on first contact. Returns the
+    /// memory id it landed on and the new entry id per attribute, in request order: `Some` for a
+    /// recorded value, `None` for a cleared or absent one. The memory id is returned even when no
+    /// attribute changed (an empty `attributes`), so a connector can learn a subject's memory id to
+    /// reference it without recording anything. A supersede or retract target the agent has since
+    /// dropped is a no-op — the fresh append still stands — so a projection never fails on a target that
+    /// moved underneath it.
     pub fn project(
         &self,
         target: &LinkNode,
         platform: &str,
         attributes: &[ParticipantAttribute],
-    ) -> Result<Vec<Option<EntryId>>, InstanceError> {
-        if attributes.is_empty() {
-            return Ok(Vec::new());
-        }
+    ) -> Result<ProjectOutcome, InstanceError> {
         let engine = &self.server.engine;
-        // Resolve (or mint) the target memory, the same path a message or a link takes.
+        // Resolve (or mint) the target memory, the same path a message or a link takes. It is resolved
+        // even with no attributes, so the caller always learns the subject's memory id.
+        // `resolve_or_mint_node` already materializes the mint under its lock.
         let memory = self.resolve_or_mint_node(target)?;
-        engine
-            .graph
-            .lock()
-            .materialize_from(engine.store.lock().as_ref())?;
+        if attributes.is_empty() {
+            return Ok(ProjectOutcome {
+                memory_id: memory,
+                entries: Vec::new(),
+            });
+        }
 
         // No conversation to attribute to — a projection is about the subject, not a room.
         let mut block = MemoryBlock::new(
@@ -664,7 +635,25 @@ impl Platform<'_> {
             .graph
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
-        Ok(results)
+        Ok(ProjectOutcome {
+            memory_id: memory,
+            entries: results,
+        })
+    }
+
+    /// The id of the agent's reserved `self` memory, resolved from the graph by its handle. A connector
+    /// reads it to splice a `[mem:<id>]` reference when the agent itself is @mentioned — the same
+    /// canonical memory token a mentioned participant's projection returns, so the agent's own mention
+    /// reads as a reference rather than an opaque platform mention. `self` is minted at genesis, so its
+    /// absence is an internal invariant failure, surfaced as a corrupt-projection graph error rather than
+    /// a distinct variant.
+    pub fn self_memory(&self) -> Result<MemoryId, InstanceError> {
+        let self_memory = self.server.engine.graph.lock().self_memory()?;
+        self_memory.map(|view| view.id).ok_or_else(|| {
+            InstanceError::Graph(GraphError::Malformed(
+                "the reserved `self` memory is absent, which cannot occur after genesis".to_owned(),
+            ))
+        })
     }
 
     /// Assert (or, with `remove`, retract) a structural link a connector authored between two of its
@@ -700,13 +689,10 @@ impl Platform<'_> {
                 _ => None,
             }
         } else {
+            // Each resolve mints and materializes its endpoint under one lock, so both classes are
+            // already visible to the edge apply below.
             let from_id = self.resolve_or_mint_node(from)?;
             let to_id = self.resolve_or_mint_node(to)?;
-            // Materialize the freshly minted endpoints so the edge apply resolves their classes.
-            engine
-                .graph
-                .lock()
-                .materialize_from(engine.store.lock().as_ref())?;
             Some((from_id, to_id))
         };
         let Some((from_id, to_id)) = endpoints else {
@@ -743,11 +729,20 @@ impl Platform<'_> {
         Ok(())
     }
 
-    /// Resolve a link endpoint to its memory id, minting one on first contact — the assert path, where
-    /// a guild or member seen for the first time should still take the edge.
+    /// Resolve a link endpoint to its memory id, minting one on first contact and leaving the mint
+    /// materialized before returning — the assert path, where a guild or member seen for the first time
+    /// should still take the edge.
+    ///
+    /// One graph guard spans the resolve, the mint's append, and the materialize (mirroring
+    /// [`ensure_conversation`](Self::ensure_conversation)). Released between the append and the
+    /// materialize, a concurrent first contact for the same identity would resolve against a graph that
+    /// does not yet hold the mint and append a second `MemoryCreated` under the same qualified name;
+    /// materializing that pair collides on the `memories.name` UNIQUE index and wedges every later fold.
+    /// Graph before store, per the lock-ordering rule; the store is locked transiently within the span.
     fn resolve_or_mint_node(&self, node: &LinkNode) -> Result<MemoryId, InstanceError> {
         let engine = &self.server.engine;
-        let graph = engine.graph.lock();
+        let mut graph = engine.graph.lock();
+        let head_before = engine.store.lock().head()?;
         let id = match node {
             LinkNode::Participant(person) => resolve_or_mint_participant(
                 engine.store.lock().as_mut(),
@@ -763,6 +758,35 @@ impl Platform<'_> {
                 locator,
             )?,
         };
+        // Materialize only when the resolver actually minted (the store head moved): a pure
+        // resolve-hit folds nothing, so skipping keeps the guard span short and spares the in-memory
+        // store's full-log read on hot paths like a roster loop.
+        if engine.store.lock().head()? != head_before {
+            graph.materialize_from(engine.store.lock().as_ref())?;
+        }
+        Ok(id)
+    }
+
+    /// Resolve a platform participant to their `person/*` stub, minting one on first contact and leaving
+    /// the mint materialized before returning. The participant counterpart to
+    /// [`resolve_or_mint_node`](Self::resolve_or_mint_node): the same single-guard atomicity, so two
+    /// racing first-contact resolutions for the same identity cannot both miss and double-mint the stub.
+    fn resolve_or_mint_person(&self, person: &PersonId) -> Result<MemoryId, InstanceError> {
+        let engine = &self.server.engine;
+        let mut graph = engine.graph.lock();
+        let head_before = engine.store.lock().head()?;
+        let id = resolve_or_mint_participant(
+            engine.store.lock().as_mut(),
+            engine.clock.as_ref(),
+            &graph,
+            person.platform.as_str(),
+            person.id.as_str(),
+        )?;
+        // Materialize only when the resolver actually minted (the store head moved); see
+        // [`resolve_or_mint_node`](Self::resolve_or_mint_node).
+        if engine.store.lock().head()? != head_before {
+            graph.materialize_from(engine.store.lock().as_ref())?;
+        }
         Ok(id)
     }
 

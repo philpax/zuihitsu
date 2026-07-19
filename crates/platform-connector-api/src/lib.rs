@@ -14,9 +14,9 @@ use std::fmt;
 
 use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use zuihitsu_core::{
-    ids::{ConversationLocator, EntryId, PersonId},
+    ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     progress::TurnProgress,
 };
 
@@ -48,6 +48,8 @@ pub enum Operation {
     WriteContext,
     /// `POST /platform/project` — projecting attributes onto a scoped memory.
     Project,
+    /// `GET /platform/self` — reading the agent's own reserved `self` memory id.
+    SelfMemory,
     /// `POST /platform/link` — asserting or retracting a structural link.
     Link,
 }
@@ -59,6 +61,7 @@ impl fmt::Display for Operation {
             Operation::Join => write!(f, "join"),
             Operation::WriteContext => write!(f, "write context"),
             Operation::Project => write!(f, "project"),
+            Operation::SelfMemory => write!(f, "self memory"),
             Operation::Link => write!(f, "link"),
         }
     }
@@ -115,6 +118,26 @@ pub struct ContextEntry {
 pub struct ParticipantAttribute {
     pub text: Option<String>,
     pub supersedes: Option<EntryId>,
+}
+
+/// The response to `POST /platform/project`: the memory the projection landed on (resolved or minted
+/// from the target) and the new entry id per attribute, in request order — `Some` for a recorded value,
+/// `None` for a cleared one. A connector holds `memory_id` to splice a `[mem:<id>]` reference for the
+/// subject without a round trip on an unchanged identity, and the entry ids to supersede on the next
+/// change.
+#[derive(Deserialize)]
+pub struct ProjectResponse {
+    pub memory_id: MemoryId,
+    pub entries: Vec<Option<EntryId>>,
+}
+
+/// The response to `GET /platform/self`: the id of the agent's own reserved `self` memory. A connector
+/// holds it to splice a `[mem:<id>]` reference when the agent itself is @mentioned, the same canonical
+/// memory token a mentioned participant's projection returns. The id is genesis-stable, so a connector
+/// fetches it once per boot and caches it.
+#[derive(Deserialize)]
+pub struct SelfMemoryResponse {
+    pub memory_id: MemoryId,
 }
 
 /// One inbound message to submit to the platform API.
@@ -373,14 +396,15 @@ impl PlatformClient {
     /// `POST /platform/project` — project attributes onto a scoped memory as public entries: a
     /// participant's identity (username, display name, nickname) onto their `person/*` stub, or a
     /// guild's name onto its `context/*` memory. Each attribute records a new value or clears one,
-    /// superseding or retracting the entry a prior projection returned for it. Returns the new entry id
-    /// per attribute, in request order — `Some` for a recorded value, `None` for a cleared one — which
-    /// the connector holds to supersede on the next change.
+    /// superseding or retracting the entry a prior projection returned for it. Returns the memory id the
+    /// projection landed on and the new entry id per attribute, in request order — `Some` for a recorded
+    /// value, `None` for a cleared one — which the connector holds to reference the subject and to
+    /// supersede on the next change.
     pub async fn project(
         &self,
         target: &LinkEndpoint,
         attributes: &[ParticipantAttribute],
-    ) -> Result<Vec<Option<EntryId>>> {
+    ) -> Result<ProjectResponse> {
         /// The request body for `POST /platform/project`.
         #[derive(Serialize)]
         struct ProjectBody<'a> {
@@ -415,10 +439,45 @@ impl PlatformClient {
             });
         }
         response
-            .json::<Vec<Option<EntryId>>>()
+            .json::<ProjectResponse>()
             .await
             .map_err(|e| Error::Http {
                 operation: Operation::Project,
+                source: e,
+            })
+    }
+
+    /// `GET /platform/self` — the id of the agent's own reserved `self` memory. A connector uses it to
+    /// splice a `[mem:<id>]` reference when the agent itself is @mentioned, the same canonical memory
+    /// token a mentioned participant's projection returns. The id is genesis-stable, so a connector
+    /// fetches it once per boot and caches it.
+    pub async fn self_memory(&self) -> Result<SelfMemoryResponse> {
+        let url = format!("{}/platform/self", self.base_url);
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.platform_key)
+            .send()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::SelfMemory,
+                source: e,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::SelfMemory,
+                status,
+                body,
+            });
+        }
+        response
+            .json::<SelfMemoryResponse>()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::SelfMemory,
                 source: e,
             })
     }

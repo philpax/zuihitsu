@@ -1,6 +1,6 @@
 import { type NodeObject } from "react-force-graph-2d";
 
-import type { RelationView } from "../../lib/model/graph.ts";
+import type { RelationView } from "@zuihitsu/wire/types/RelationView.ts";
 import type { MemoryGraph, MemoryGraphNode } from "../../lib/model/memoryGraph.ts";
 
 /// World-space sizes for the graph canvas, gathered so the whole drawing scales from one place.

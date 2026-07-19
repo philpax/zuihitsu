@@ -525,7 +525,7 @@ pub enum Teller {
 /// A reference to a location in a conversation — either a specific turn or the
 /// conversation (room) itself. Used for attribution (`told_in`), session carryover
 /// (`seeded_from_turn`), and participant joins (`at_turn`), so the frontend can uniformly
-/// render every conversation reference as a cross-linkable chip. Carrying the
+/// render every conversation reference as a link. Carrying the
 /// `ConversationId` lets the frontend navigate to the right room without searching.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

@@ -8,13 +8,22 @@
 //! a connector restart keeps superseding in place rather than re-appending a duplicate. The subject key
 //! namespaces the two kinds (a participant by user id, a guild by its scope path), and the attribute key
 //! carries the guild id for a nickname, since a user may be nicknamed differently in each server.
+//!
+//! Each projection also returns the memory id it landed on, cached per subject in a sibling table. That
+//! cache is what lets the connector splice a `[mem:<id>]` reference for a subject — an @mentioned user,
+//! say — without a projection round trip on the hot path. The cache is not filled by the change path
+//! alone: a subject whose attributes are unchanged still needs its id learned (the backfill, on first
+//! sight of a subject that already carries projection state) and re-verified once per process boot
+//! (healing a server-side soft-delete or re-mint), both through an empty projection — the documented
+//! no-record round trip. [`ProjectionSync::memory_id_for`] reads the cache back.
 
-use std::{path::PathBuf, time::Duration};
+use std::{collections::HashSet, path::PathBuf, time::Duration};
 
+use parking_lot::Mutex as SyncMutex;
 use rusqlite::{Connection, OptionalExtension, params};
 use tokio::sync::Mutex;
 
-use zuihitsu_core::ids::EntryId;
+use zuihitsu_core::ids::{EntryId, MemoryId};
 use zuihitsu_platform_connector_api::{LinkEndpoint, ParticipantAttribute, PlatformClient};
 
 use crate::error::Result;
@@ -34,6 +43,11 @@ pub struct ObservedAttribute {
 /// Created in memory, it is lost on restart (tests only).
 pub struct ProjectionSync {
     conn: Mutex<Connection>,
+    /// Subjects whose cached memory id has been re-verified against the server this process boot. The
+    /// first sync per subject refreshes the id through an empty projection (healing a server-side
+    /// soft-delete or re-mint between boots); later syncs trust the cache. In memory, so a restart
+    /// re-verifies every subject exactly once.
+    verified_this_boot: SyncMutex<HashSet<String>>,
 }
 
 impl ProjectionSync {
@@ -43,6 +57,7 @@ impl ProjectionSync {
         Self::init(&conn)?;
         Ok(ProjectionSync {
             conn: Mutex::new(conn),
+            verified_this_boot: SyncMutex::new(HashSet::new()),
         })
     }
 
@@ -53,6 +68,7 @@ impl ProjectionSync {
         Self::init(&conn)?;
         Ok(ProjectionSync {
             conn: Mutex::new(conn),
+            verified_this_boot: SyncMutex::new(HashSet::new()),
         })
     }
 
@@ -67,8 +83,19 @@ impl ProjectionSync {
                 value    TEXT,
                 entry_id TEXT,
                 PRIMARY KEY (subject, attr_key)
+            );
+            CREATE TABLE IF NOT EXISTS projection_memory (
+                subject   TEXT PRIMARY KEY,
+                memory_id TEXT NOT NULL
             );",
         )
+    }
+
+    /// The memory id a prior projection of `subject` landed on, or `None` if the subject has never been
+    /// projected. A connector reads this to reference the subject (splicing a `[mem:<id>]` token for an
+    /// @mention) without a projection round trip when the identity has not changed.
+    pub async fn memory_id_for(&self, subject: &str) -> Option<MemoryId> {
+        read_memory_id(&*self.conn.lock().await, subject)
     }
 
     /// Project a subject's observed attributes onto `target`, sending only those whose value changed
@@ -103,21 +130,81 @@ impl ProjectionSync {
             changed.push((obs.key.as_str(), obs.value.clone()));
         }
         if attributes.is_empty() {
-            tracing::debug!(
-                subject,
-                "attributes unchanged since last projection — nothing to send"
-            );
+            // No attribute changed, so nothing to supersede. The memory-id cache may still need work:
+            // it is empty on first sight of a subject that already carries projection state (the
+            // backfill), and it is re-verified once per process boot against the server (which returns
+            // the current resolved-or-minted id, healing a server-side soft-delete or re-mint between
+            // boots). Both learn the id through an empty projection. A refresh failure keeps the cached
+            // value: stale beats none.
+            let uncached = read_memory_id(&conn, subject).is_none();
+            let first_this_boot = self.mark_verified(subject);
+            if !uncached && !first_this_boot {
+                tracing::debug!(
+                    subject,
+                    "attributes unchanged since last projection — nothing to send"
+                );
+                return Ok(());
+            }
+            match client.project(target, &[]).await {
+                Ok(response) => write_memory_id(&conn, subject, response.memory_id),
+                Err(error) => tracing::warn!(
+                    %error,
+                    subject,
+                    "could not refresh the cached memory id — keeping the cached value"
+                ),
+            }
             return Ok(());
         }
 
         let keys: Vec<&str> = changed.iter().map(|(key, _)| *key).collect();
         tracing::info!(subject, ?keys, "projecting attributes");
-        let results = client.project(target, &attributes).await?;
+        let response = client.project(target, &attributes).await?;
 
-        for ((key, value), entry_id) in changed.into_iter().zip(results) {
+        // A real projection returns the subject's current memory id, so it doubles as this boot's
+        // verification — record it so no redundant empty projection follows for this subject.
+        self.mark_verified(subject);
+        // Cache the memory id the projection landed on, so a later reference to this subject (an
+        // @mention splice) needs no round trip when the identity is unchanged.
+        write_memory_id(&conn, subject, response.memory_id);
+        for ((key, value), entry_id) in changed.into_iter().zip(response.entries) {
             write_state(&conn, subject, key, value.as_deref(), entry_id);
         }
         Ok(())
+    }
+
+    /// Record that `subject`'s cached memory id has been verified against the server this boot,
+    /// returning whether this call was the first — the caller refreshes the id on the first, and trusts
+    /// the cache thereafter, so verification costs one round trip per subject per process lifetime.
+    fn mark_verified(&self, subject: &str) -> bool {
+        self.verified_this_boot.lock().insert(subject.to_owned())
+    }
+}
+
+/// Read the cached memory id for `subject`, or `None` if it has never been projected.
+fn read_memory_id(conn: &Connection, subject: &str) -> Option<MemoryId> {
+    conn.query_row(
+        "SELECT memory_id FROM projection_memory WHERE subject = ?1",
+        params![subject],
+        |row| row.get::<_, String>("memory_id"),
+    )
+    .optional()
+    .ok()
+    .flatten()
+    .and_then(|s| s.parse::<ulid::Ulid>().ok().map(MemoryId))
+}
+
+/// Record the memory id `subject` projects onto, replacing any prior row. The mapping is not immutable:
+/// the server may soft-delete or re-mint a subject's memory between boots, so the id is cached, verified
+/// once per process boot (see [`ProjectionSync::sync`]), and can be stale in the window between a
+/// server-side deletion and the next boot's first sync for the subject.
+fn write_memory_id(conn: &Connection, subject: &str, memory_id: MemoryId) {
+    if let Err(error) = conn.execute(
+        "INSERT OR REPLACE INTO projection_memory (subject, memory_id) VALUES (?1, ?2)",
+        params![subject, memory_id.0.to_string()],
+    ) {
+        // Non-fatal: a failed cache write costs a projection round trip on the next reference to the
+        // subject, never a dropped message.
+        tracing::warn!(%error, subject, "could not cache the projected memory id");
     }
 }
 
@@ -172,6 +259,49 @@ mod tests {
 
     fn entry_id(bits: u128) -> EntryId {
         EntryId(ulid::Ulid::from(bits))
+    }
+
+    fn memory_id(bits: u128) -> MemoryId {
+        MemoryId(ulid::Ulid::from(bits))
+    }
+
+    #[tokio::test]
+    async fn memory_id_cache_round_trips_per_subject() {
+        let sync = ProjectionSync::in_memory().unwrap();
+
+        // An unseen subject has no cached memory id.
+        assert_eq!(sync.memory_id_for("42").await, None);
+
+        // A recorded memory id round-trips, and the next projection confirms it.
+        {
+            let conn = sync.conn.lock().await;
+            write_memory_id(&conn, "42", memory_id(7));
+        }
+        assert_eq!(sync.memory_id_for("42").await, Some(memory_id(7)));
+
+        // Subjects are independent — a guild's memory id is tracked apart from a participant's.
+        {
+            let conn = sync.conn.lock().await;
+            write_memory_id(&conn, "guild/9", memory_id(11));
+        }
+        assert_eq!(sync.memory_id_for("guild/9").await, Some(memory_id(11)));
+        assert_eq!(sync.memory_id_for("42").await, Some(memory_id(7)));
+    }
+
+    #[test]
+    fn mark_verified_reports_only_the_first_call_per_subject() {
+        let sync = ProjectionSync::in_memory().unwrap();
+
+        // The first sight of a subject this boot is the one that refreshes its cached id; every later
+        // sight trusts the cache, so verification costs one round trip per subject per boot.
+        assert!(sync.mark_verified("42"));
+        assert!(!sync.mark_verified("42"));
+        assert!(!sync.mark_verified("42"));
+
+        // Subjects are tracked independently.
+        assert!(sync.mark_verified("guild/9"));
+        assert!(!sync.mark_verified("guild/9"));
+        assert!(!sync.mark_verified("42"));
     }
 
     #[tokio::test]

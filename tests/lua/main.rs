@@ -19,7 +19,7 @@ pub(crate) use zuihitsu::{
     Teller, TemporalRef, TerminalCause, Timestamp, TurnId, TurnRole, Visibility,
     event::{ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation},
     ids::ConversationId,
-    resolve_or_mint_conversation, turn_ref,
+    message_refs, resolve_or_mint_conversation,
 };
 
 /// A block-duration budget generous enough that these in-memory blocks never trip it.

@@ -16,6 +16,8 @@ pub mod event;
 pub mod graph;
 pub mod ids;
 pub mod instance_features;
+pub mod mem_ref;
+pub mod message_refs;
 pub mod model;
 pub mod progress;
 pub mod prompt;

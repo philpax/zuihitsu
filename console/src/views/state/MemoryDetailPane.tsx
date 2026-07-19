@@ -1,5 +1,5 @@
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
-import type { MemoryDetail } from "../../lib/model/graph.ts";
+import type { MemoryDetail } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { Arbitration, RecurringItem } from "../../lib/model/audit.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
 import { relationColor } from "../../lib/format/relationColor.ts";

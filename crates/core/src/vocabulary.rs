@@ -12,6 +12,7 @@ use smol_str::SmolStr;
 /// and everything else falls to `Other`. It serializes as its bare name, so the wire format is just
 /// the string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(as = "String"))]
 pub enum TagName {
     Confidential,
     Other(SmolStr),
@@ -68,6 +69,7 @@ impl std::str::FromStr for TagName {
 /// (mentorship, venues, employment) — falls to `Other`. It serializes as its bare name, so the wire
 /// format is just the string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(as = "String"))]
 pub enum RelationName {
     CreatedBy,
     OperatorOf,

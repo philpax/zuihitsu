@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { Replica } from "../../lib/replica/replica.ts";
 import type { SessionModel } from "../../lib/model/conversation.ts";
-import type { BriefTrace } from "../../lib/model/brief.ts";
+import type { BriefTrace } from "@zuihitsu/wire/types/BriefTrace.ts";
 import { Disclosure, Excerpt } from "../../components/primitives.tsx";
 import { BriefSections } from "./BriefTrace.tsx";
 
