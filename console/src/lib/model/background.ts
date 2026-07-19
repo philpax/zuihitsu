@@ -3,9 +3,10 @@ import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import { type EventCategory, eventCategory, eventSummary, isBackgroundEvent } from "./events.ts";
 
-/// One background-pass event (a description regeneration, a belief arbitration, or an inferred link
-/// set), summarized for the Background view and carrying the full payload so a row can expand into
-/// the same specialized viewer the Events tab uses — the same shape as [`TurnOutcome`].
+/// One background-pass event (a description regeneration, a temporal resolution or its recorded
+/// drop, a belief arbitration, or an inferred link set), summarized for the Background view and
+/// carrying the full payload so a row can expand into the same specialized viewer the Events tab
+/// uses — the same shape as [`TurnOutcome`].
 export interface BackgroundEvent {
   seq: number;
   recordedAt: number;
@@ -30,11 +31,14 @@ export interface BackgroundEvent {
 }
 
 /// The memory ids a background-pass event targets — mirrors [`outcomeMemoryIds`] but for the
-/// background types. `MemoryDescriptionRegenerated` uses `payload.id` (the memory being described);
-/// `BeliefArbitrated` and `LinksInferred` use `payload.memory`.
+/// background types. `MemoryDescriptionRegenerated` and the temporal-resolution pair use
+/// `payload.id` (the memory whose entry the pass touched); `BeliefArbitrated` and `LinksInferred`
+/// use `payload.memory`.
 function backgroundMemoryIds(payload: EventPayload): string[] {
   switch (payload.type) {
     case "MemoryDescriptionRegenerated":
+    case "EntryTemporalResolved":
+    case "EntryTemporalResolveFailed":
       return [payload.id];
     case "BeliefArbitrated":
     case "LinksInferred":

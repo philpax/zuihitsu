@@ -57,6 +57,7 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "MemorySuperseded":
     case "EntryRetracted":
     case "EntryTemporalResolved":
+    case "EntryTemporalResolveFailed":
     case "EntryDescriptionMirrored":
     case "MemoryDescriptionRegenerated":
     case "BeliefArbitrated":
@@ -97,12 +98,14 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
 /// turn attribution. They surface in the Background view rather than the Conversation transcript.
 export const BACKGROUND_TYPES = new Set<EventPayload["type"]>([
   "MemoryDescriptionRegenerated",
+  "EntryTemporalResolved",
+  "EntryTemporalResolveFailed",
   "BeliefArbitrated",
   "LinksInferred",
 ]);
 
-/// Whether an event type is produced by a background pass (the describer, belief arbitration, or
-/// link-inference), and so belongs in the Background view.
+/// Whether an event type is produced by a background pass (the describer, temporal extraction,
+/// belief arbitration, or link-inference), and so belongs in the Background view.
 export function isBackgroundEvent(type: EventPayload["type"]): boolean {
   return BACKGROUND_TYPES.has(type);
 }
@@ -125,6 +128,7 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "MemoryDeleted":
     case "MemorySuperseded":
     case "EntryTemporalResolved":
+    case "EntryTemporalResolveFailed":
     case "EntryDescriptionMirrored":
     case "MemoryDescriptionRegenerated":
     case "MemoryVolatilitySet":
@@ -180,6 +184,8 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${ref(payload.memory)} — an entry retracted`;
     case "EntryTemporalResolved":
       return `${ref(payload.id)} — time resolved`;
+    case "EntryTemporalResolveFailed":
+      return `${ref(payload.id)} — time resolution dropped`;
     case "EntryDescriptionMirrored":
       return `${ref(payload.id)} — description mirror`;
     case "MemoryDescriptionRegenerated":

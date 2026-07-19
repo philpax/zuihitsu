@@ -126,6 +126,18 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "EntryTemporalResolveFailed":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.id)}</Field>
+          <Field label="raw">
+            <Mono>{payload.raw}</Mono>
+          </Field>
+          <Field label="reason">{payload.reason}</Field>
+          {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
+        </Fields>
+      );
+
     case "EntryDescriptionMirrored":
       return (
         <Fields>

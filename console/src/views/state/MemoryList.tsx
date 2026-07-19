@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { turnComponents } from "../../components/markdownComponents.tsx";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
+import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { groupByNamespace, leafName } from "./memoryUtilities.ts";
 
@@ -142,6 +143,23 @@ export function EntryItem({
         <time dateTime={new Date(entry.asserted_at).toISOString()}>
           {formatDateTime(entry.asserted_at)}
         </time>
+        {/* The bi-temporal pair: occurred beside asserted, with the extraction-resolved marker so a
+            guessed date never masquerades as a stated one. */}
+        {entry.occurred_at && (
+          <>
+            <span className="text-ink-faint/45">·</span>
+            <span
+              title={
+                entry.occurred_authored
+                  ? "the occurrence was authored at append"
+                  : "the occurrence was resolved by the turn-end temporal extraction"
+              }
+            >
+              occurred {temporalRefLabel(entry.occurred_at)}
+              {!entry.occurred_authored && " (extracted)"}
+            </span>
+          </>
+        )}
         {!faded && memoryName && onRetract && (
           <RetractButton memoryName={memoryName} entryId={entry.entry_id} onRetract={onRetract} />
         )}

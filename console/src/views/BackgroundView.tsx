@@ -7,8 +7,9 @@ import { EventRow } from "../components/EventRow.tsx";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 
-/// The Background view: the background passes' (describer, belief arbitration, link-inference)
-/// log-only audit events, collected from the run's event stream and grouped by pass type. These
+/// The Background view: the background passes' (describer, temporal extraction, belief
+/// arbitration, link-inference) log-only audit events, collected from the run's event stream and
+/// grouped by pass type. These
 /// events carry no conversation or turn attribution — they run asynchronously, potentially long
 /// after the turn that inspired them — so they surface here as a top-level timeline alongside the
 /// Conversation view rather than mis-attributed to a turn or silently dropped. Each row is the
@@ -79,6 +80,9 @@ function passGroupId(type: EventPayload["type"]): string {
   switch (type) {
     case "MemoryDescriptionRegenerated":
       return "description";
+    case "EntryTemporalResolved":
+    case "EntryTemporalResolveFailed":
+      return "temporal-extraction";
     case "BeliefArbitrated":
       return "arbitration";
     case "LinksInferred":
@@ -92,9 +96,10 @@ function passGroupId(type: EventPayload["type"]): string {
 /// events within each group by seq (they are already seq-sorted from `buildBackgroundEvents`, but
 /// the explicit sort guards against any drift).
 function groupByPass(events: BackgroundEvent[]): PassGroup[] {
-  const order = ["description", "arbitration", "link-inference", "other"];
+  const order = ["description", "temporal-extraction", "arbitration", "link-inference", "other"];
   const labels: Record<string, string> = {
     description: "description",
+    "temporal-extraction": "temporal extraction",
     arbitration: "arbitration",
     "link-inference": "link inference",
     other: "other",
