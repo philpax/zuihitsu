@@ -18,12 +18,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use zuihitsu::{
     EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, TEST_PLATFORM, Teller,
-    Timestamp, Visibility,
+    Visibility,
 };
 
 use crate::{
     analysis,
-    context::{MILLIS_PER_DAY, RUN_START_MS},
+    context::{MILLIS_PER_DAY, run_start},
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,

@@ -20,9 +20,16 @@ use zuihitsu::{
 
 use crate::{error::EvalError, fetch_fixture::FIXTURE_MAX_MARKDOWN_CHARS};
 
-/// The fixed clock anchor every run starts at (2026-06-08T00:00:00Z), so scenario timing is
+/// The fixed clock anchor every run starts at — midnight UTC, 8 June 2026 — so scenario timing is
 /// reproducible; scenarios advance from here.
-pub(crate) const RUN_START_MS: i64 = 1_780_876_800_000;
+pub(crate) fn run_start() -> Timestamp {
+    civil_timestamp(2026, 6, 8)
+}
+
+/// The named-civil-date constructor (`civil_timestamp(2026, 10, 3)`), re-exported from core so a
+/// scenario states a fixed calendar date as a date rather than as an epoch literal or a day-offset
+/// sum.
+pub(crate) use zuihitsu::time::civil_timestamp;
 
 /// The shared day/hour units every scenario expresses its clock advances and windows in, re-exported
 /// from core so the derivation lives in one place rather than being redefined per scenario module.
@@ -89,7 +96,7 @@ impl RunContext {
         features: InstanceFeatures,
         seed: &SeedSelf,
     ) -> Result<RunContext, EvalError> {
-        let clock = ManualClock::new(Timestamp::from_millis(RUN_START_MS));
+        let clock = ManualClock::new(run_start());
         let server = assemble(deps, features, &clock, Box::new(MemoryStore::new())).await?;
         // A fresh run is born: genesis writes the birth events into the empty log.
         server.control().create_agent(seed)?;
@@ -106,7 +113,7 @@ impl RunContext {
     /// each event's `recorded_at`, so the seqs regenerate `1..=N` in their recorded order and the
     /// materialized graph rebuilds at exactly the point the recording held. The clock starts at the last
     /// restored event's `recorded_at`, so the continuation's timestamps continue the recorded timeline
-    /// rather than resetting to [`RUN_START_MS`]. Genesis already sits in the restored log, so this
+    /// rather than resetting to [`run_start`]. Genesis already sits in the restored log, so this
     /// boots into an existing log — the deployment restart path — rather than creating an agent.
     pub async fn restored(
         deps: &RunDeps,
@@ -129,7 +136,7 @@ impl RunContext {
         let last_ms = events
             .last()
             .map(|event| event.recorded_at.as_millisecond())
-            .unwrap_or(RUN_START_MS);
+            .unwrap_or(run_start().as_millisecond());
         let clock = ManualClock::new(Timestamp::from_millis(last_ms));
         let server = assemble(deps, features, &clock, Box::new(store)).await?;
         Ok(RunContext {

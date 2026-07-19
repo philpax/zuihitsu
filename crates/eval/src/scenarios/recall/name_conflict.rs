@@ -10,12 +10,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use zuihitsu::{
     EntryId, Event, EventPayload, MemoryId, MemoryName, Namespace, TEST_PLATFORM, Teller,
-    TerminalCause, Timestamp, Visibility,
+    TerminalCause, Visibility,
 };
 
 use crate::{
     analysis,
-    context::RUN_START_MS,
+    context::run_start,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
@@ -178,7 +178,7 @@ impl Scenario for RecoversFromASeededCollision {
         // obvious handle collides against real state.
         let dave = MemoryId::generate();
         let dave_ops = MemoryId::generate();
-        let now = Timestamp::from_millis(RUN_START_MS);
+        let now = run_start();
         let seed = vec![
             EventPayload::memory_created(dave, MemoryName::new("person/dave")),
             EventPayload::MemoryContentAppended {

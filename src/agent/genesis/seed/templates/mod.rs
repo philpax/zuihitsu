@@ -32,7 +32,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         // one merely sends the reader to the entry.
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            version: 4,
+            version: 5,
             body: body_of(include_str!("synthesis/temporal_extraction.md")),
         },
         TemplateDef {

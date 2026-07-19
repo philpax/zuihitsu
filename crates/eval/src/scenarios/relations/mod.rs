@@ -28,12 +28,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use zuihitsu::{
     ConversationId, ConversationLocator, EntryId, Event, EventPayload, Initiation, MemoryId,
-    MemoryName, SessionId, TEST_PLATFORM, Teller, Timestamp, TurnId, TurnRole, Visibility,
+    MemoryName, SessionId, TEST_PLATFORM, Teller, TurnId, TurnRole, Visibility,
 };
 
 use crate::{
     analysis,
-    context::RUN_START_MS,
+    context::run_start,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,

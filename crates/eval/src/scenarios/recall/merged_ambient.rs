@@ -12,12 +12,12 @@ use std::{collections::BTreeSet, sync::Arc};
 use async_trait::async_trait;
 use zuihitsu::{
     EntryId, Event, EventPayload, LinkPosture, LinkSource, MemoryId, MemoryName, RelationName,
-    TEST_PLATFORM, Teller, Timestamp, TurnId, Visibility,
+    TEST_PLATFORM, Teller, TurnId, Visibility,
 };
 
 use crate::{
     analysis,
-    context::RUN_START_MS,
+    context::run_start,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
@@ -175,7 +175,7 @@ fn person_stub(id: MemoryId, name: &str, text: &str) -> Vec<EventPayload> {
         EventPayload::MemoryContentAppended {
             id,
             entry_id: EntryId::generate(),
-            asserted_at: Timestamp::from_millis(RUN_START_MS),
+            asserted_at: run_start(),
             occurred_at: None,
             text: text.to_owned(),
             told_by: Teller::Agent,

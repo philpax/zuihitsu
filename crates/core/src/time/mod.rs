@@ -108,6 +108,17 @@ pub const MILLIS_PER_HOUR: i64 = MILLIS_PER_MINUTE * MINUTES_PER_HOUR;
 pub const MILLIS_PER_DAY: i64 = MILLIS_PER_HOUR * HOURS_PER_DAY;
 pub const MILLIS_PER_WEEK: i64 = MILLIS_PER_DAY * DAYS_PER_WEEK;
 
+/// Midnight UTC of a numeric civil date as a [`Timestamp`] — the constructor for a date named in
+/// code (`civil_timestamp(2026, 6, 8)`), where [`civil_date_to_millis`] parses a runtime string.
+/// Panics on an impossible date, which any use surfaces immediately.
+pub fn civil_timestamp(year: i16, month: i8, day: i8) -> Timestamp {
+    jiff::civil::date(year, month, day)
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .expect("midnight UTC of a valid civil date is always representable")
+        .timestamp()
+        .into()
+}
+
 /// Midnight UTC of a `YYYY-MM-DD` civil day as epoch milliseconds, or `None` if it is not a valid
 /// calendar date. jiff parses and validates (rejecting e.g. a non-leap Feb 29, an unpadded
 /// `2026-6-8`, or a year outside ±9999) so a malformed value never silently rolls over into a

@@ -10,13 +10,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use zuihitsu::{
-    EntryId, Event, EventPayload, MemoryId, MemoryName, TEST_PLATFORM, Teller, Timestamp,
-    Visibility,
+    EntryId, Event, EventPayload, MemoryId, MemoryName, TEST_PLATFORM, Teller, Visibility,
 };
 
 use crate::{
     analysis,
-    context::RUN_START_MS,
+    context::run_start,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
@@ -64,7 +63,7 @@ impl Scenario for RetractsAMisfiledFact {
         // confidence (which the foreign-confidence gate would protect).
         let david = MemoryId::generate();
         let davina = MemoryId::generate();
-        let now = Timestamp::from_millis(RUN_START_MS);
+        let now = run_start();
         let seed = vec![
             EventPayload::memory_created(david, MemoryName::new("person/david")),
             EventPayload::MemoryContentAppended {

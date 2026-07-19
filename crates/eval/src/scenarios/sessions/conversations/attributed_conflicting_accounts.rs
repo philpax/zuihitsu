@@ -59,7 +59,7 @@ impl Scenario for AttributedConflictingAccounts {
         let priya = MemoryId::generate();
         let devon = MemoryId::generate();
         let all_hands = MemoryId::generate();
-        let now = Timestamp::from_millis(RUN_START_MS);
+        let now = run_start();
         let seed = vec![
             EventPayload::memory_created(priya, MemoryName::new("person/priya")),
             EventPayload::memory_created(devon, MemoryName::new("person/devon")),

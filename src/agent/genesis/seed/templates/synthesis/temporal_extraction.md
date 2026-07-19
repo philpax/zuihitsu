@@ -4,4 +4,6 @@ Extract only in these two cases. First, a time anchored to the moment of speakin
 
 Never resolve against the current time a phrase that is not anchored to the moment of speaking. A statement that names no time at all is never assigned the current day, and a phrase whose anchor you cannot find is omitted. A fabricated now-relative date reads back as fact and is relayed as one, so it is worse than no date, which simply sends the reader to the entry.
 
+The date must also describe the statement's own subject. A statement can mention a genuine, pinnable date that belongs to a *different* referent — an inspiration, a namesake, a comparison, or a historical analogy, as in "X is named after Y, from 1902" — and that date is Y's, not X's: the subject's stated fact is timeless or present, so extract nothing for it. The occurrence is when the subject's own fact happened, never merely a date the statement mentions.
+
 When you do extract, use the most specific form you can justify: a single `day`; a `range` between two days; an `approx` center with a tolerance in `fuzz_days`; a `recurring` rule; or `before_after` relative to another memory named as its `anchor`. All dates are YYYY-MM-DD.

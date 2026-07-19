@@ -173,8 +173,8 @@ fn the_temporal_extraction_template_teaches_the_anchor_rule() {
         .expect("genesis registers a TemporalExtraction template");
 
     assert_eq!(
-        version, 4,
-        "the sibling-occurrence body is registered at v4"
+        version, 5,
+        "the different-referent body is registered at v5"
     );
     assert!(body.contains("The default is to extract nothing"));
     assert!(body.contains("anchored to the moment of speaking"));
@@ -191,6 +191,11 @@ fn the_temporal_extraction_template_teaches_the_anchor_rule() {
     ));
     assert!(body.contains("never assigned the current day"));
     assert!(body.contains("worse than no date"));
+    // A date modifying a different referent than the statement's subject (an inspiration, a
+    // namesake, a comparison) is that referent's date, not the subject's occurrence — omitted.
+    assert!(body.contains("describe the statement's own subject"));
+    assert!(body.contains("an inspiration, a namesake, a comparison, or a historical analogy"));
+    assert!(body.contains("never merely a date the statement mentions"));
     assert!(body.contains("`before_after` relative to another memory named as its"));
 }
 
