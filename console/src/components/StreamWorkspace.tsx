@@ -152,6 +152,19 @@ export function StreamWorkspace({
       const id = replica.memoryIdByName(handle) ?? replica.memoryIdForFormerName(handle);
       return id === null ? null : replica.resolveMemRef(id);
     },
+    // The chip's hover preview: called when a preview opens, not per render, since the full memory
+    // read composes several graph queries. Returns the memory's description and its most recent few
+    // entries (in commit order), or `null` when the handle names no memory at this fold horizon.
+    preview: (handle) => {
+      const detail = replica.memory(handle);
+      if (detail === null) return null;
+      return {
+        description: detail.memory.description,
+        entries: detail.entries
+          .slice(-3)
+          .map((entry) => ({ id: entry.entry_id, text: entry.text })),
+      };
+    },
   };
 
   // The bottom dock a view can float its controls into (the conversation composer), held as state

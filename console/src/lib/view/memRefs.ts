@@ -23,18 +23,38 @@ export const MEM_CHIP_SCHEME = "mem-chip:";
 /// id-carrying one (`mem-chip:<id>`).
 export const MEM_CHIP_HANDLE_SIGIL = "@";
 
+/// One content entry in a chip's hover preview: its stable id (for a React key) and its text, clamped
+/// at display.
+export interface MemPreviewEntry {
+  id: string;
+  text: string;
+}
+
+/// What a memory chip's hover preview shows: the memory's description and its most recent few content
+/// entries. The console is the operator's surface, so this is not audience-filtered — it mirrors the
+/// turn preview's stance, showing what the fold holds.
+export interface MemPreview {
+  description: string;
+  entries: MemPreviewEntry[];
+}
+
 /// Resolve a memory reference to its display target, or `null` when it names no memory in the folded
 /// graph (so the chip degrades). `byId` resolves a scanned token's id to its `same_as` class primary;
-/// `byHandle` resolves a State-view URL's handle directly. Filled by the workspace from the replica at
-/// the current fold cursor; the default resolves nothing, for a tree rendered without a provider.
+/// `byHandle` resolves a State-view URL's handle directly. `preview` is the chip's lazy detail
+/// lookup — the full memory read is heavyweight, so it is called when a preview opens, never per
+/// render — returning the memory's description and recent entries, or `null` when the handle names no
+/// memory at the fold cursor. Filled by the workspace from the replica at the current fold cursor;
+/// the default resolves nothing, for a tree rendered without a provider.
 export interface MemRefResolver {
   byId: (id: string) => MemRefResolution | null;
   byHandle: (handle: string) => MemRefResolution | null;
+  preview: (handle: string) => MemPreview | null;
 }
 
 export const MemRefs = createContext<MemRefResolver>({
   byId: () => null,
   byHandle: () => null,
+  preview: () => null,
 });
 
 /// Normalize a console-composed message's memory references before it posts — the send-time counterpart
