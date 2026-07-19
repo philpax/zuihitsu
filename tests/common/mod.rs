@@ -92,7 +92,7 @@ mod harness {
         run_describe_catch_up, run_link_inference_catch_up,
     };
 
-    use super::time::TEST_NOW;
+    use super::time::test_now;
 
     /// A block-duration budget generous enough that no in-memory test block ever trips it; the
     /// timeout's firing path is exercised directly in the MCP tests with a deliberately slow server.
@@ -128,7 +128,7 @@ mod harness {
 
     impl Default for Harness {
         fn default() -> Self {
-            let clock = ManualClock::new(TEST_NOW);
+            let clock = ManualClock::new(test_now());
             Harness {
                 engine: Engine::new(
                     Box::new(MemoryStore::new()),
@@ -161,7 +161,7 @@ mod harness {
         /// vector index), for exercising `memory.search`. Drive [`Harness::index`] after a write to
         /// embed it before searching.
         pub fn with_retrieval() -> Harness {
-            let clock = ManualClock::new(TEST_NOW);
+            let clock = ManualClock::new(test_now());
             let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new(TEST_EMBED_DIMS));
             let vectors: Box<dyn VectorIndex> = Box::new(InMemoryVectorIndex::new());
             Harness {
@@ -189,7 +189,7 @@ mod harness {
         /// behaviour in isolation (e.g. disabling `linking` to verify the agent cannot call
         /// `links.create` while the link-inference pass still creates the link).
         pub fn with_features(features: InstanceFeatures) -> Harness {
-            let clock = ManualClock::new(TEST_NOW);
+            let clock = ManualClock::new(test_now());
             Harness {
                 engine: Engine::new(
                     Box::new(MemoryStore::new()),

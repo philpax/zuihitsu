@@ -5,10 +5,9 @@ use crate::{
     event::{ConversationRef, Teller},
     graph::{
         ConversationView, Graph, GraphError, OpenSessionView, ParticipantMint, SessionView,
-        backend, parse_ulid,
+        backend, parse_ulid, timestamp_column,
     },
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
-    time::Timestamp,
     visibility::{MarkerRoom, MarkerTurn, room_display},
     vocabulary::TagName,
 };
@@ -215,7 +214,7 @@ impl Graph {
             Ok::<_, GraphError>(OpenSessionView {
                 id: SessionId(parse_ulid(&id)?),
                 brief: row.get("brief")?,
-                started_at: Timestamp::from_millis(row.get("started_at")?),
+                started_at: timestamp_column(row.get("started_at")?, "started_at")?,
                 start_seq: Seq(row.get::<_, i64>("seq")? as u64),
                 seeded: seeded.is_some(),
             })
@@ -286,7 +285,7 @@ impl Graph {
                 OpenSessionView {
                     id: SessionId(parse_ulid(&id)?),
                     brief: row.get("brief")?,
-                    started_at: Timestamp::from_millis(row.get("started_at")?),
+                    started_at: timestamp_column(row.get("started_at")?, "started_at")?,
                     start_seq: Seq(row.get::<_, i64>("seq")? as u64),
                     seeded: seeded.is_some(),
                 },
@@ -336,7 +335,7 @@ impl Graph {
         Ok(SessionView {
             id,
             conversation: ConversationId(parse_ulid(&conversation)?),
-            started_at: Timestamp::from_millis(row.get("started_at")?),
+            started_at: timestamp_column(row.get("started_at")?, "started_at")?,
             seeded_from_turn: seeded_from_turn
                 .map(|json| serde_json::from_str(&json))
                 .transpose()?,

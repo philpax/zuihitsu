@@ -227,7 +227,7 @@ async fn the_agent_reaches_web_markdown_through_the_whole_server_path() {
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(common::time::TEST_NOW)),
+        Box::new(ManualClock::new(common::time::test_now())),
     );
     server
         .control()

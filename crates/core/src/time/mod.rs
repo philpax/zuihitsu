@@ -4,8 +4,9 @@
 //! an entry carries in `occurred_at`, and its denormalization. Centralized so the date logic lives in
 //! one place rather than being re-derived per module.
 //!
-//! The constants, pure civil-date math, and [`temporal`] are dependency-free; the datetime parsing,
-//! formatting, and recurrence-instance computation ([`next_occurrence`]) are backed by `jiff`.
+//! The constants and [`temporal`]'s bounds derivation are pure arithmetic; the civil-date
+//! conversion, datetime parsing, formatting, and recurrence-instance computation
+//! ([`next_occurrence`]) are backed by `jiff`.
 
 pub mod temporal;
 
@@ -13,22 +14,86 @@ pub use temporal::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
 };
 
-use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
-/// Wall-clock time as milliseconds since the Unix epoch, UTC. A denormalized convenience for
-/// human-readable queries and recency math; `Seq` is the authoritative timeline, and `Seq` breaks
-/// ties (see spec §Time → sequence vs wall-clock).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+/// Wall-clock time as an instant, UTC. A denormalized convenience for human-readable queries and
+/// recency math; `Seq` is the authoritative timeline, and `Seq` breaks ties (see spec §Time →
+/// sequence vs wall-clock). Wraps [`jiff::Timestamp`] so call sites reach jiff's full API (`.to_zoned`,
+/// span arithmetic, comparison) through [`Deref`], while [`Serialize`]/[`Deserialize`] and the ts-rs
+/// export keep the wire shape a bare epoch-millisecond `i64`, exactly as the pre-jiff newtype did —
+/// the event log and the console wire depend on that shape staying unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct Timestamp(#[cfg_attr(feature = "ts", ts(type = "number"))] pub i64);
+pub struct Timestamp(#[cfg_attr(feature = "ts", ts(type = "number"))] jiff::Timestamp);
 
 impl Timestamp {
+    /// Wrap an epoch-millisecond value trusted to be within jiff's representable range (year -9999
+    /// to 9999). Panics on an out-of-range input, so this is for trusted internal arithmetic (clock
+    /// advances, day-window math) — route untrusted input (deserialized wire values, Lua temporal
+    /// arguments, SQLite rows) through [`Timestamp::try_from_millis`] instead.
     pub fn from_millis(millis: i64) -> Timestamp {
-        Timestamp(millis)
+        Timestamp::try_from_millis(millis).unwrap_or_else(|| {
+            panic!(
+                "timestamp: {millis} milliseconds since the Unix epoch is outside jiff's \
+                 representable range"
+            )
+        })
     }
 
-    pub fn as_millis(self) -> i64 {
-        self.0
+    /// Wrap an epoch-millisecond value, or `None` if it is outside jiff's representable range — the
+    /// fallible constructor for untrusted input.
+    pub fn try_from_millis(millis: i64) -> Option<Timestamp> {
+        jiff::Timestamp::from_millisecond(millis)
+            .ok()
+            .map(Timestamp)
+    }
+
+    /// A `const`-evaluable constructor from whole seconds since the Unix epoch, for a `const`
+    /// fixture (a test's named reference instant) that needs a compile-time value rather than a
+    /// runtime call. Panics (at compile time, for a `const` binding) when `seconds` is outside jiff's
+    /// representable range — see [`jiff::Timestamp::constant`].
+    pub const fn from_epoch_seconds(seconds: i64) -> Timestamp {
+        Timestamp(jiff::Timestamp::constant(seconds, 0))
+    }
+}
+
+impl Deref for Timestamp {
+    type Target = jiff::Timestamp;
+
+    fn deref(&self) -> &jiff::Timestamp {
+        &self.0
+    }
+}
+
+impl DerefMut for Timestamp {
+    fn deref_mut(&mut self) -> &mut jiff::Timestamp {
+        &mut self.0
+    }
+}
+
+impl From<jiff::Timestamp> for Timestamp {
+    fn from(value: jiff::Timestamp) -> Timestamp {
+        Timestamp(value)
+    }
+}
+
+impl From<Timestamp> for jiff::Timestamp {
+    fn from(value: Timestamp) -> jiff::Timestamp {
+        value.0
+    }
+}
+
+impl Serialize for Timestamp {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        jiff::fmt::serde::timestamp::millisecond::required::serialize(&self.0, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Timestamp {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Timestamp, D::Error> {
+        jiff::fmt::serde::timestamp::millisecond::required::deserialize(deserializer).map(Timestamp)
     }
 }
 
@@ -44,11 +109,13 @@ pub const MILLIS_PER_DAY: i64 = MILLIS_PER_HOUR * HOURS_PER_DAY;
 pub const MILLIS_PER_WEEK: i64 = MILLIS_PER_DAY * DAYS_PER_WEEK;
 
 /// Midnight UTC of a `YYYY-MM-DD` civil day as epoch milliseconds, or `None` if it is not a valid
-/// calendar date. Validates the date (rejecting e.g. a non-leap Feb 29) so a malformed value never
-/// silently rolls over into a neighboring month.
+/// calendar date. jiff parses and validates (rejecting e.g. a non-leap Feb 29, an unpadded
+/// `2026-6-8`, or a year outside ±9999) so a malformed value never silently rolls over into a
+/// neighboring month.
 pub fn civil_date_to_millis(date: &str) -> Option<i64> {
-    let (year, month, day) = parse_ymd(date)?;
-    Some(days_from_civil(year, month, day) * MILLIS_PER_DAY)
+    let date: jiff::civil::Date = date.parse().ok()?;
+    let zoned = date.to_zoned(jiff::tz::TimeZone::UTC).ok()?;
+    Some(zoned.timestamp().as_millisecond())
 }
 
 /// The `[midnight, end-of-day]` millisecond window of a `YYYY-MM-DD` civil day, or `None` if it does
@@ -79,23 +146,21 @@ pub fn parse_duration_millis(text: &str) -> Option<i64> {
     count.checked_mul(per_unit)
 }
 
-/// Epoch milliseconds of an ISO 8601 datetime (e.g. `2026-06-02T00:00:00Z`), or `None` if it does not
-/// parse.
-pub fn datetime_to_millis(text: &str) -> Option<i64> {
-    text.trim()
-        .parse::<jiff::Timestamp>()
-        .ok()
-        .map(|timestamp| timestamp.as_millisecond())
-}
-
-/// Epoch milliseconds of either a `YYYY-MM-DD` day (taken at midnight) or an ISO datetime, or `None`.
+/// Epoch milliseconds of either a `YYYY-MM-DD` day (taken at midnight) or an ISO 8601 datetime
+/// (e.g. `2026-06-02T09:30:00Z`), or `None` — the "either form" seam the temporal extractor maps
+/// model-emitted date strings through.
 pub fn date_or_datetime_to_millis(text: &str) -> Option<i64> {
-    civil_date_to_millis(text.trim()).or_else(|| datetime_to_millis(text))
+    let text = text.trim();
+    civil_date_to_millis(text).or_else(|| {
+        text.parse::<jiff::Timestamp>()
+            .ok()
+            .map(|timestamp| timestamp.as_millisecond())
+    })
 }
 
-/// Render a timestamp as a human-readable UTC datetime (e.g. `Thursday, 01 January 1970, 00:00 UTC`),
-/// falling back to raw epoch milliseconds for a time outside the supported range. Declared at
-/// conversation start and used as the reference for resolving relative phrases in extraction.
+/// Render a timestamp as a human-readable UTC datetime (e.g. `Thursday, 01 January 1970, 00:00 UTC`).
+/// Declared at conversation start and used as the reference for resolving relative phrases in
+/// extraction.
 pub fn format_datetime(at: Timestamp) -> String {
     format_with(at, "%A, %d %B %Y, %H:%M UTC")
 }
@@ -117,16 +182,12 @@ pub fn format_day(at: Timestamp) -> String {
 /// Render a timestamp as an ISO 8601 / RFC 3339 instant in the operator's local timezone, offset and
 /// all (e.g. `2026-06-08T16:36:22+02:00`) — the machine-sortable, second-resolution form for
 /// diagnostic output on the operator's own machine, where local wall-clock reads more naturally than
-/// UTC. Falls back to raw epoch milliseconds for a time outside the supported range. Distinct from the
-/// UTC helpers above, which anchor the agent's own reasoning; this one is purely for operator display.
+/// UTC. Distinct from the UTC helpers above, which anchor the agent's own reasoning; this one is
+/// purely for operator display.
 pub fn format_iso8601(at: Timestamp) -> String {
-    match jiff::Timestamp::from_millisecond(at.as_millis()) {
-        Ok(timestamp) => timestamp
-            .to_zoned(jiff::tz::TimeZone::system())
-            .strftime("%Y-%m-%dT%H:%M:%S%:z")
-            .to_string(),
-        Err(_) => format!("{} milliseconds since the Unix epoch", at.as_millis()),
-    }
+    at.to_zoned(jiff::tz::TimeZone::system())
+        .strftime("%Y-%m-%dT%H:%M:%S%:z")
+        .to_string()
 }
 
 /// Render an entry's [`TemporalRef`] occurrence as a compact, human-readable phrase for a read —
@@ -212,20 +273,16 @@ pub fn next_weekday(now: Timestamp, name: &str) -> Option<String> {
 }
 
 fn format_with(at: Timestamp, format: &str) -> String {
-    match jiff::Timestamp::from_millisecond(at.as_millis()) {
-        Ok(timestamp) => timestamp
-            .to_zoned(jiff::tz::TimeZone::UTC)
-            .strftime(format)
-            .to_string(),
-        Err(_) => format!("{} milliseconds since the Unix epoch", at.as_millis()),
-    }
+    at.to_zoned(jiff::tz::TimeZone::UTC)
+        .strftime(format)
+        .to_string()
 }
 mod recurrence;
 
+use recurrence::add_calendar;
 pub use recurrence::{
     Freq, MAX_RECURRENCE_STEPS, next_occurrence, parse_rrule, rrule_is_supported,
 };
-use recurrence::{add_calendar, days_from_civil, parse_ymd};
 
 #[cfg(test)]
 mod tests;

@@ -122,14 +122,14 @@ impl TemporalRef {
                 None => OccurrenceBounds::default(),
             },
             TemporalRef::Range { start, end } => {
-                let (lo, hi) = if start.as_millis() <= end.as_millis() {
+                let (lo, hi) = if start.as_millisecond() <= end.as_millisecond() {
                     (*start, *end)
                 } else {
                     (*end, *start)
                 };
                 OccurrenceBounds {
                     sort: Some(Timestamp::from_millis(
-                        (lo.as_millis() + hi.as_millis()) / 2,
+                        (lo.as_millisecond() + hi.as_millisecond()) / 2,
                     )),
                     lo: Some(lo),
                     hi: Some(hi),
@@ -139,8 +139,8 @@ impl TemporalRef {
                 let fuzz = i64::from(*fuzz_days) * MILLIS_PER_DAY;
                 OccurrenceBounds {
                     sort: Some(*center),
-                    lo: Some(Timestamp::from_millis(center.as_millis() - fuzz)),
-                    hi: Some(Timestamp::from_millis(center.as_millis() + fuzz)),
+                    lo: Some(Timestamp::from_millis(center.as_millisecond() - fuzz)),
+                    hi: Some(Timestamp::from_millis(center.as_millisecond() + fuzz)),
                 }
             }
             // No fixed instant; concrete instances are computed on the fly via `next_occurrence`.
@@ -156,7 +156,7 @@ impl TemporalRef {
                     Direction::Before => -epsilon_millis,
                     Direction::After => epsilon_millis,
                 };
-                let sort = Timestamp::from_millis(anchor_sort.as_millis() + shift);
+                let sort = Timestamp::from_millis(anchor_sort.as_millisecond() + shift);
                 // Propagate the anchor's interval when it is vague (lo != hi), shifted with it; for a
                 // point anchor the shifted instant is the whole interval.
                 let vague = anchor.lo != anchor.hi;
@@ -203,7 +203,7 @@ impl CivilDate {
 }
 
 fn shifted(at: Option<Timestamp>, shift: i64) -> Option<Timestamp> {
-    at.map(|at| Timestamp::from_millis(at.as_millis() + shift))
+    at.map(|at| Timestamp::from_millis(at.as_millisecond() + shift))
 }
 
 #[cfg(test)]

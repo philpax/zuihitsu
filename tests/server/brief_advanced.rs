@@ -19,7 +19,7 @@ async fn a_describe_backlog_survives_a_restart() {
     // A memory written but not yet described before shutdown stays stale in the log-derived
     // described-state, so after a rebuild the background describer picks it up — the backlog is not
     // silently dropped at boot.
-    let clock = ManualClock::new(TEST_NOW);
+    let clock = ManualClock::new(test_now());
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // First process: a turn writes a topic that the pre-brief pass does not describe (it is not in the

@@ -11,7 +11,7 @@ fn next(rule: &str, dtstart: i64, after: i64) -> Option<i64> {
         Timestamp::from_millis(dtstart),
         Timestamp::from_millis(after),
     )
-    .map(Timestamp::as_millis)
+    .map(|at| at.as_millisecond())
 }
 
 /// Midnight-UTC millis of a `YYYY-MM-DD` day (the tests' calendar anchors).
@@ -154,6 +154,10 @@ fn civil_date_validates_and_converts() {
     // 2026 is not a leap year, so Feb 29 is rejected rather than rolling into March.
     assert_eq!(civil_date_to_millis("2026-02-29"), None);
     assert_eq!(civil_date_to_millis("nonsense"), None);
+    // jiff's parse is strict ISO: an unpadded date is rejected rather than leniently resolved, so a
+    // model-emitted `2026-6-8` lands in the extractor's drop-with-resolve-failed path, never on a
+    // guessed day.
+    assert_eq!(civil_date_to_millis("2026-6-8"), None);
 }
 
 #[test]
@@ -173,4 +177,22 @@ fn duration_parses_days_and_weeks() {
     assert_eq!(parse_duration_millis("soon"), None);
     assert_eq!(parse_duration_millis("3 fortnights"), None);
     assert_eq!(parse_duration_millis("-1 days"), None);
+}
+
+/// `Timestamp` wraps `jiff::Timestamp` internally, but the event log and the console wire depend on
+/// it serializing as a bare epoch-millisecond number, exactly as the pre-jiff newtype did. Pins that
+/// shape (not just that it round-trips) so a future change to the `Serialize`/`Deserialize` impls
+/// cannot silently switch the wire to an object or a string.
+#[test]
+fn timestamp_serializes_as_a_bare_epoch_millisecond_number() {
+    let timestamp = Timestamp::from_millis(1_234);
+    assert_eq!(serde_json::to_string(&timestamp).unwrap(), "1234");
+    assert_eq!(
+        serde_json::from_str::<Timestamp>("1234").unwrap(),
+        timestamp
+    );
+
+    // A value that fits an i64 but falls outside jiff's representable range (year -9999..=9999) is a
+    // proper deserialize error, never a panic — the seam untrusted wire input crosses.
+    assert!(serde_json::from_str::<Timestamp>(&i64::MAX.to_string()).is_err());
 }

@@ -155,7 +155,7 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     // deferred from Stage 9 (spec §Scheduled work). Two clocks are in play: `tokio::time::advance`
     // drives the tick (virtual time), while firing reads the `ManualClock`, so we move the manual clock
     // past the occurrence and then advance tokio time to trip a tick.
-    let clock = ManualClock::new(TEST_NOW);
+    let clock = ManualClock::new(test_now());
     let mut store = MemoryStore::new();
     // Watch the log directly, so we observe the driver's firing without opening a session (which would
     // fire via the open-time catch-up and blur which path fired it).
@@ -351,7 +351,7 @@ async fn the_idle_sweep_closes_and_flushes_a_stale_session() {
 
 #[tokio::test]
 async fn a_restart_within_the_idle_gap_resumes_the_open_session() {
-    let clock = ManualClock::new(TEST_NOW);
+    let clock = ManualClock::new(test_now());
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("one".to_owned()),
@@ -419,7 +419,7 @@ async fn a_reopen_after_a_restart_reconstructs_the_prior_tail_from_the_log() {
     // in-memory stash always lost. Process 1 idle-sweeps a session closed (its `SessionEnded` lands in
     // the log with no successor), then only its *log* is carried into a fresh process 2 (its session map
     // and any runtime state reset), which must still carry that session's messages into the reopen.
-    let clock = ManualClock::new(TEST_NOW);
+    let clock = ManualClock::new(test_now());
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let dave = PersonId::new(TEST_PLATFORM, "dave");
 

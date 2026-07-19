@@ -219,7 +219,7 @@ pub fn recent_touched(
     let mut seen = BTreeSet::new();
     let mut ordered = Vec::new();
     for event in events.into_iter().rev() {
-        if event.recorded_at.as_millis() < since.as_millis() {
+        if event.recorded_at.as_millisecond() < since.as_millisecond() {
             continue;
         }
         if let EventPayload::LuaExecuted { touched, .. } = event.payload {

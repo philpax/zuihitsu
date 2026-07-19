@@ -227,7 +227,7 @@ fn relationships(
         // The neighbour's latest visible activity is the edge's recency signal; a neighbour with no
         // visible entry ranks last on recency (it still keeps its type-weight).
         let recency = latest_visible_entry(graph, &memory, present_set, class_of)?
-            .map_or(i64::MIN, |entry| entry.asserted_at.as_millis());
+            .map_or(i64::MIN, |entry| entry.asserted_at.as_millisecond());
         // Orient the edge against this identity: an incoming edge runs neighbour → subject, an outgoing
         // one runs subject → neighbour, so the rendered line names both ends in stored order.
         let (source, target) = if link.incoming {
@@ -318,7 +318,7 @@ pub(super) fn ranked_present(
         let latest = graph
             .class_entries(id)?
             .iter()
-            .map(|entry| entry.asserted_at.as_millis())
+            .map(|entry| entry.asserted_at.as_millisecond())
             .max()
             .unwrap_or(i64::MIN);
         keyed.push((latest, id));

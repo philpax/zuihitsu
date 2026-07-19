@@ -1,7 +1,7 @@
 use super::*;
 #[tokio::test]
 async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
-    let clock = ManualClock::new(TEST_NOW);
+    let clock = ManualClock::new(test_now());
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
     let model = ScriptedModel::new([
         Completion::Reply("one".to_owned()),
@@ -602,7 +602,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
 
     // Turn 1: the agent records a note on Dave's memory and the turn-end synthesis dates it to
-    // 2026-07-01 — a calendared item scheduled weeks after the present TEST_NOW.
+    // 2026-07-01 — a calendared item scheduled weeks after the present test_now().
     let plant = ScriptedModel::new([
         run_lua_call(
             r#"memory.get("person/dave@chat"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
@@ -773,7 +773,7 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     let seen = model.recorded_messages();
     assert_eq!(seen.len(), 2);
     // Turn 1's prompt is just the inbound message, stamped with who spoke and the time it was recorded
-    // (TEST_NOW; the clock does not advance in this test). The agent reads it, so it carries a
+    // (test_now(); the clock does not advance in this test). The agent reads it, so it carries a
     // speaker-and-time prefix that lets it attribute the turn in a multi-party room.
     let turn1: Vec<&str> = seen[0]
         .iter()

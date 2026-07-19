@@ -83,8 +83,8 @@ impl ExtractedTime {
         match self {
             ExtractedTime::Instant(text) => match civil_date(&text) {
                 Some(day) => Some(TemporalRef::Day(day)),
-                None => Some(TemporalRef::Instant(Timestamp::from_millis(
-                    time::datetime_to_millis(&text)?,
+                None => Some(TemporalRef::Instant(Timestamp::from(
+                    text.trim().parse::<jiff::Timestamp>().ok()?,
                 ))),
             },
             ExtractedTime::Day(text) => civil_date(&text).map(TemporalRef::Day),

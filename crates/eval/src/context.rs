@@ -128,7 +128,7 @@ impl RunContext {
         // The continuation's clock continues the recorded timeline from the last restored event.
         let last_ms = events
             .last()
-            .map(|event| event.recorded_at.as_millis())
+            .map(|event| event.recorded_at.as_millisecond())
             .unwrap_or(RUN_START_MS);
         let clock = ManualClock::new(Timestamp::from_millis(last_ms));
         let server = assemble(deps, features, &clock, Box::new(store)).await?;

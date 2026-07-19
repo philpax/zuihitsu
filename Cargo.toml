@@ -12,7 +12,7 @@ axum = "0.8"
 anyhow = "1.0"
 clap = { version = "4.6.1", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-jiff = "0.2.28"
+jiff = { version = "0.2.28", features = ["serde"] }
 parking_lot = "0.12.5"
 proptest = "1.11"
 reqwest = { version = "0.13", default-features = false }

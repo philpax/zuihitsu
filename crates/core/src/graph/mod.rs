@@ -559,7 +559,7 @@ impl Graph {
             volatility: volatility.parse().map_err(|()| {
                 GraphError::Malformed(format!("unknown volatility {volatility:?}"))
             })?,
-            created_at: Timestamp::from_millis(created_at),
+            created_at: timestamp_column(created_at, "created_at")?,
             tags: self.tags_of(&id)?,
         })
     }
@@ -609,6 +609,18 @@ fn hash_value(hasher: &mut Sha256, value: ValueRef<'_>) {
 fn parse_ulid(text: &str) -> Result<Ulid, GraphError> {
     Ulid::from_string(text)
         .map_err(|e| GraphError::Malformed(format!("invalid ulid {text:?}: {e}")))
+}
+
+/// Decode a `column`'s epoch-millisecond value into a [`Timestamp`], or a [`GraphError::Malformed`]
+/// if it falls outside jiff's representable range — the projection is derived from the event log, so
+/// an out-of-range value here means the log itself carries a value the wire's [`Timestamp`] serde
+/// impl would have rejected, not a value this read can silently coerce.
+pub(super) fn timestamp_column(millis: i64, column: &str) -> Result<Timestamp, GraphError> {
+    Timestamp::try_from_millis(millis).ok_or_else(|| {
+        GraphError::Malformed(format!(
+            "{column} {millis} milliseconds since the Unix epoch is outside the representable range"
+        ))
+    })
 }
 
 pub(super) fn backend(error: rusqlite::Error) -> GraphError {

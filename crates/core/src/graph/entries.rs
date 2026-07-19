@@ -3,9 +3,12 @@
 use crate::{
     db::{query_map_into, query_opt_into},
     event::Cardinality,
-    graph::{EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid},
+    graph::{
+        EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid,
+        timestamp_column,
+    },
     ids::{EntryId, MemoryId, Namespace},
-    time::{Timestamp, temporal::TemporalRef},
+    time::temporal::TemporalRef,
     vocabulary::RelationName,
 };
 use rusqlite::params;
@@ -214,10 +217,11 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
     let occurred_at: Option<String> = row.get("occurred_at")?;
     Ok(EntryView {
         entry_id: EntryId(parse_ulid(&entry_id)?),
-        asserted_at: Timestamp::from_millis(row.get("asserted_at")?),
+        asserted_at: timestamp_column(row.get("asserted_at")?, "asserted_at")?,
         occurred_sort: row
             .get::<_, Option<i64>>("occurred_sort")?
-            .map(Timestamp::from_millis),
+            .map(|millis| timestamp_column(millis, "occurred_sort"))
+            .transpose()?,
         occurred_at: occurred_at
             .map(|json| serde_json::from_str(&json))
             .transpose()?,

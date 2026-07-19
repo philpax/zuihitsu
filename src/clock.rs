@@ -40,13 +40,13 @@ pub struct ManualClock {
 impl ManualClock {
     pub fn new(start: Timestamp) -> ManualClock {
         ManualClock {
-            millis: Arc::new(AtomicI64::new(start.as_millis())),
+            millis: Arc::new(AtomicI64::new(start.as_millisecond())),
         }
     }
 
     /// Set the clock to an absolute time.
     pub fn set(&self, now: Timestamp) {
-        self.millis.store(now.as_millis(), Ordering::SeqCst);
+        self.millis.store(now.as_millisecond(), Ordering::SeqCst);
     }
 
     /// Move the clock forward by a number of milliseconds.

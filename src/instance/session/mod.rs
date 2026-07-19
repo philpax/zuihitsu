@@ -82,7 +82,8 @@ impl OpenSession {
 
     /// Record `now` as the last activity (the idle-reuse bump).
     pub fn touch(&self, now: Timestamp) {
-        self.last_activity.store(now.as_millis(), Ordering::Relaxed);
+        self.last_activity
+            .store(now.as_millisecond(), Ordering::Relaxed);
     }
 }
 

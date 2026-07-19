@@ -212,10 +212,9 @@ impl Instance {
             let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
             let now = self.engine.clock.now();
             let idle_gap_ms = settings.compaction.idle_gap_seconds.saturating_mul(1_000);
-            let will_reuse = self
-                .sessions
-                .get(conversation)
-                .is_some_and(|open| now.as_millis() - open.last_activity_millis() <= idle_gap_ms);
+            let will_reuse = self.sessions.get(conversation).is_some_and(|open| {
+                now.as_millisecond() - open.last_activity_millis() <= idle_gap_ms
+            });
             if settings.checkpoint.flush_on_open && !will_reuse {
                 match self
                     .checkpoint_live_sessions(model, CheckpointTrigger::SessionOpen(conversation))
@@ -258,7 +257,7 @@ impl Instance {
         // a true cold start — a stale live one is closed-and-reopened by the path further down.
         let live_present = {
             match self.sessions.get(conversation) {
-                Some(open) if now.as_millis() - open.last_activity_millis() <= idle_gap_ms => {
+                Some(open) if now.as_millisecond() - open.last_activity_millis() <= idle_gap_ms => {
                     open.touch(now);
                     return Ok(open);
                 }
@@ -291,8 +290,8 @@ impl Instance {
             let last_activity = buffer
                 .last()
                 .map_or(recovered.started_at, |turn| turn.recorded_at);
-            let resumable =
-                !recovered.seeded && now.as_millis() - last_activity.as_millis() <= idle_gap_ms;
+            let resumable = !recovered.seeded
+                && now.as_millisecond() - last_activity.as_millisecond() <= idle_gap_ms;
             let open = OpenSession {
                 id: recovered.id,
                 vm: self.mint_vm(conversation),
@@ -302,7 +301,7 @@ impl Instance {
                 // session, at worst repeating a memory the brief already names.
                 brief_memories: Vec::new(),
                 started_at: recovered.started_at,
-                last_activity: AtomicI64::new(last_activity.as_millis()),
+                last_activity: AtomicI64::new(last_activity.as_millisecond()),
                 start_seq: recovered.start_seq,
                 session_start_seq: recovered.start_seq,
             };
@@ -365,9 +364,9 @@ impl Instance {
         // picks the working-set *source*, both re-filtered through the same visibility predicate against
         // the new present set, and the raw tail is carried either way (spec §Compaction → working-set
         // carryover). The recorded `SessionEnded.cause` is provenance; this decision reads the gap.
-        let warm = tail
-            .as_ref()
-            .is_some_and(|tail| now.as_millis() - tail.last_activity.as_millis() < idle_gap_ms);
+        let warm = tail.as_ref().is_some_and(|tail| {
+            now.as_millisecond() - tail.last_activity.as_millisecond() < idle_gap_ms
+        });
         let working_set: Vec<MemoryId> = if warm {
             let previous_start = previous_start.expect("a tail implies a previous session");
             session_touched(
@@ -382,7 +381,7 @@ impl Instance {
                 Vec::new()
             } else {
                 let since = Timestamp::from_millis(
-                    now.as_millis()
+                    now.as_millisecond()
                         .saturating_sub(window_days * time::MILLIS_PER_DAY),
                 );
                 recent_touched(self.engine.store.lock().as_ref(), since, limit)?
@@ -453,7 +452,7 @@ impl Instance {
             brief,
             brief_memories,
             started_at: now,
-            last_activity: AtomicI64::new(now.as_millis()),
+            last_activity: AtomicI64::new(now.as_millisecond()),
             start_seq: tail
                 .map(|tail| tail.seed.from_seq)
                 .unwrap_or(session_start_seq),

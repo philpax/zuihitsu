@@ -110,7 +110,7 @@ fn print_grouped(record: &RunRecord, truncate: usize) {
 
 /// Print one event line: seq, offset from the run's first event, payload type, and compact summary.
 fn print_event(event: &Event, base: i64, names: &crate::replay::render::NameMap, truncate: usize) {
-    let offset = humane_offset(event.recorded_at.as_millis() - base);
+    let offset = humane_offset(event.recorded_at.as_millisecond() - base);
     println!(
         "  {:>5}  {:<8}  {:<24}  {}",
         event.seq.0,
@@ -140,7 +140,7 @@ fn span_label_from(events: &[&Event]) -> String {
 fn base_millis(events: &[Event]) -> i64 {
     events
         .first()
-        .map(|event| event.recorded_at.as_millis())
+        .map(|event| event.recorded_at.as_millisecond())
         .unwrap_or(0)
 }
 

@@ -499,7 +499,7 @@ impl Replica {
                 recurring: true,
             });
         }
-        items.sort_by_key(|item| item.when.as_millis());
+        items.sort_by_key(|item| item.when.as_millisecond());
         Ok(AgendaList(items))
     }
 

@@ -23,7 +23,7 @@ impl Graph {
                         params![
                             id.0.to_string(),
                             name.as_str(),
-                            event.recorded_at.as_millis(),
+                            event.recorded_at.as_millisecond(),
                             event.seq.0 as i64,
                         ],
                     )
@@ -146,7 +146,7 @@ impl Graph {
                         params![
                             entry_id.0.to_string(),
                             id.0.to_string(),
-                            asserted_at.as_millis(),
+                            asserted_at.as_millisecond(),
                             occurrence.json,
                             occurrence.sort,
                             occurrence.lo,
@@ -265,7 +265,7 @@ impl Graph {
                     .execute(
                         "UPDATE content_entries SET fired_at = ?1, surfaced_at = NULL \
                          WHERE entry_id = ?2",
-                        params![fired_at.as_millis(), entry_id.0.to_string()],
+                        params![fired_at.as_millisecond(), entry_id.0.to_string()],
                     )
                     .map_err(backend)?;
             }
@@ -277,7 +277,7 @@ impl Graph {
                 self.conn
                     .execute(
                         "UPDATE content_entries SET surfaced_at = ?1 WHERE entry_id = ?2",
-                        params![surfaced_at.as_millis(), entry_id.0.to_string()],
+                        params![surfaced_at.as_millisecond(), entry_id.0.to_string()],
                     )
                     .map_err(backend)?;
             }

@@ -29,7 +29,9 @@ pub fn next_occurrence(rule: &Rrule, dtstart: Timestamp, after: Timestamp) -> Op
     }
     // Day/week steps are uniform, so the index is a direct division; month/year steps vary in length,
     // so scan forward from a lower-bound estimate. Either way, find the first occurrence past `after`.
-    let elapsed = after.as_millis().checked_sub(dtstart.as_millis())?;
+    let elapsed = after
+        .as_millisecond()
+        .checked_sub(dtstart.as_millisecond())?;
     let start = match freq {
         Freq::Daily => elapsed / (interval * MILLIS_PER_DAY) + 1,
         Freq::Weekly => elapsed / (interval * MILLIS_PER_WEEK) + 1,
@@ -102,69 +104,24 @@ pub fn parse_rrule(rule: &str) -> Option<(Freq, i64)> {
     Some((freq?, interval))
 }
 
-/// `from` shifted by `delta` milliseconds, or `None` on overflow.
+/// `from` shifted by `delta` milliseconds, or `None` on `i64` overflow or if the result falls outside
+/// jiff's representable range.
 fn add_millis(from: Timestamp, delta: i64) -> Option<Timestamp> {
-    from.as_millis()
+    from.as_millisecond()
         .checked_add(delta)
-        .map(Timestamp::from_millis)
+        .and_then(Timestamp::try_from_millis)
 }
 
 /// `from` shifted by `months` months and `years` years using calendar arithmetic (via `jiff`), so a
 /// month step lands on the same day-of-month where it exists and clamps where it does not (31 Jan +
-/// 1 month → 28/29 Feb). `None` if the timestamp or the shifted result falls outside the supported
-/// range.
+/// 1 month → 28/29 Feb). `None` if the shifted result falls outside the supported range.
 pub(super) fn add_calendar(from: Timestamp, months: i64, years: i64) -> Option<Timestamp> {
-    let zoned = jiff::Timestamp::from_millisecond(from.as_millis())
-        .ok()?
-        .to_zoned(jiff::tz::TimeZone::UTC);
+    let zoned = from.to_zoned(jiff::tz::TimeZone::UTC);
     let span = jiff::Span::new()
         .try_months(months)
         .ok()?
         .try_years(years)
         .ok()?;
     let shifted = zoned.checked_add(span).ok()?;
-    Some(Timestamp::from_millis(shifted.timestamp().as_millisecond()))
-}
-
-/// Parse `YYYY-MM-DD` into a validated `(year, month, day)`, rejecting impossible dates (bad month, or
-/// a day past the month's length, leap years included).
-pub(super) fn parse_ymd(text: &str) -> Option<(i64, u32, u32)> {
-    let mut parts = text.split('-');
-    let year: i64 = parts.next()?.parse().ok()?;
-    let month: u32 = parts.next()?.parse().ok()?;
-    let day: u32 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
-        return None;
-    }
-    Some((year, month, day))
-}
-
-fn days_in_month(year: i64, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => 0,
-    }
-}
-
-fn is_leap_year(year: i64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}
-
-/// Days since the Unix epoch (1970-01-01) for a civil date, via Howard Hinnant's `days_from_civil`
-/// algorithm — exact for the proleptic Gregorian calendar with no date-crate dependency.
-pub(super) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month = i64::from(month);
-    let day = i64::from(day);
-    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
+    Some(Timestamp::from(shifted.timestamp()))
 }

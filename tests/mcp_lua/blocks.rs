@@ -278,7 +278,7 @@ async fn the_agent_reaches_an_mcp_tool_through_the_whole_server_path() {
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(common::time::TEST_NOW)),
+        Box::new(ManualClock::new(common::time::test_now())),
     );
     server
         .control()
@@ -340,7 +340,7 @@ async fn a_turn_runs_on_a_worker_thread() {
     let mut server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(common::time::TEST_NOW)),
+        Box::new(ManualClock::new(common::time::test_now())),
     );
     server
         .control()
@@ -411,7 +411,7 @@ async fn concurrent_turns_on_distinct_conversations_share_one_server() {
     let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),
-        Box::new(ManualClock::new(common::time::TEST_NOW)),
+        Box::new(ManualClock::new(common::time::test_now())),
     );
     server
         .control()

@@ -16,10 +16,10 @@ use zuihitsu::{
     SeedSelf, Seq, Server, TEST_PLATFORM, TurnError, TurnOutcome, TurnRole, event::EventPayload,
 };
 
-use common::time::TEST_NOW;
+use common::time::test_now;
 
 fn born_server() -> Server {
-    let server = Server::in_memory(Box::new(ManualClock::new(TEST_NOW))).unwrap();
+    let server = Server::in_memory(Box::new(ManualClock::new(test_now()))).unwrap();
     server
         .control()
         .create_agent(&SeedSelf {

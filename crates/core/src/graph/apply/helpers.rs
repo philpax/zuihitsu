@@ -36,9 +36,9 @@ impl Graph {
                 .map(serde_json::to_string)
                 .transpose()
                 .map_err(GraphError::Serialize)?,
-            sort: bounds.sort.map(Timestamp::as_millis),
-            lo: bounds.lo.map(Timestamp::as_millis),
-            hi: bounds.hi.map(Timestamp::as_millis),
+            sort: bounds.sort.map(|at| at.as_millisecond()),
+            lo: bounds.lo.map(|at| at.as_millisecond()),
+            hi: bounds.hi.map(|at| at.as_millisecond()),
         })
     }
 

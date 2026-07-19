@@ -86,7 +86,7 @@ pub fn resolves_near(occurred_at: &TemporalRef, anchor_ms: i64, window_ms: i64) 
     occurred_at
         .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
         .sort
-        .is_some_and(|sort| (sort.as_millis() - anchor_ms).abs() <= window_ms)
+        .is_some_and(|sort| (sort.as_millisecond() - anchor_ms).abs() <= window_ms)
 }
 
 /// The anchor memory a `BeforeAfter` reference names, if `occurred_at` is one — the honest resolution for

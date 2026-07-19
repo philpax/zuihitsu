@@ -298,8 +298,8 @@ impl Instance {
             .engine
             .clock
             .now()
-            .as_millis()
-            .saturating_sub(changed_at.as_millis());
+            .as_millisecond()
+            .saturating_sub(changed_at.as_millisecond());
         Ok(age_ms >= escape_seconds.saturating_mul(1_000))
     }
 

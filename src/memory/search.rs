@@ -441,11 +441,16 @@ fn recency_bonus(
     let latest_relevant = graph
         .class_entries(memory.id)?
         .iter()
-        .map(|entry| entry.occurred_sort.unwrap_or(entry.asserted_at).as_millis())
+        .map(|entry| {
+            entry
+                .occurred_sort
+                .unwrap_or(entry.asserted_at)
+                .as_millisecond()
+        })
         .max()
-        .unwrap_or_else(|| memory.created_at.as_millis());
+        .unwrap_or_else(|| memory.created_at.as_millisecond());
     let delta_days =
-        (now.as_millis() - latest_relevant).max(0) as f32 / time::MILLIS_PER_DAY as f32;
+        (now.as_millisecond() - latest_relevant).max(0) as f32 / time::MILLIS_PER_DAY as f32;
     let tau = match memory.volatility {
         Volatility::High => settings.recency.tau_days.high,
         Volatility::Medium => settings.recency.tau_days.medium,

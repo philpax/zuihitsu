@@ -17,7 +17,7 @@ use zuihitsu::{
     time::MILLIS_PER_DAY,
 };
 
-use common::time::TEST_NOW;
+use common::time::test_now;
 
 use std::sync::{
     Arc, Mutex,
@@ -33,7 +33,7 @@ pub(crate) fn seed() -> SeedSelf {
 }
 
 pub(crate) fn clock() -> Box<ManualClock> {
-    Box::new(ManualClock::new(TEST_NOW))
+    Box::new(ManualClock::new(test_now()))
 }
 mod brief;
 mod brief_advanced;
@@ -49,7 +49,7 @@ mod streaming;
 mod supersession;
 
 pub(crate) fn born_agent() -> (Server, ManualClock) {
-    let clock = ManualClock::new(TEST_NOW);
+    let clock = ManualClock::new(test_now());
     let server = Server::new(
         Box::new(MemoryStore::new()),
         Graph::open_in_memory().unwrap(),

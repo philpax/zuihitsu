@@ -80,8 +80,8 @@ impl Supersession {
             return false;
         }
         let elapsed = now
-            .as_millis()
-            .saturating_sub(self.burst_started_at.as_millis());
+            .as_millisecond()
+            .saturating_sub(self.burst_started_at.as_millisecond());
         if elapsed > self.window.as_millis() as i64 {
             self.armed = false;
             return false;

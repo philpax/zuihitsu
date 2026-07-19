@@ -380,14 +380,14 @@ async fn restored_reproduces_the_head_seq_and_continues_the_clock() {
     }
 
     // The clock continues from the last restored event: a seeded event stamps that recorded_at.
-    let last_ms = prefix.last().unwrap().recorded_at.as_millis();
+    let last_ms = prefix.last().unwrap().recorded_at.as_millisecond();
     ctx.seed_events(vec![zuihitsu::EventPayload::genesis_completed(
         "probe",
         Default::default(),
     )])
     .expect("a probe event seeds");
     let seeded = ctx.events().expect("the log");
-    assert_eq!(seeded.last().unwrap().recorded_at.as_millis(), last_ms);
+    assert_eq!(seeded.last().unwrap().recorded_at.as_millisecond(), last_ms);
 }
 
 #[tokio::test]
@@ -430,14 +430,14 @@ async fn resume_restores_the_prefix_verbatim_and_continues_the_journal() {
     assert_eq!(indices, vec![0, 1, 2]);
 
     // The first live event's recorded_at is not before the restored prefix head's.
-    let prefix_head_ms = prefix.last().unwrap().recorded_at.as_millis();
+    let prefix_head_ms = prefix.last().unwrap().recorded_at.as_millisecond();
     let full = ctx.events().expect("the full log");
     let first_live = full
         .iter()
         .find(|event| event.seq.0 > prefix.last().unwrap().seq.0)
         .expect("a live continuation event");
     assert!(
-        first_live.recorded_at.as_millis() >= prefix_head_ms,
+        first_live.recorded_at.as_millisecond() >= prefix_head_ms,
         "the continuation continues the recorded timeline",
     );
     // A live participant turn was routed.

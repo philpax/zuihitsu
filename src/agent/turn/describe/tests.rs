@@ -74,7 +74,7 @@ fn instant_date_only_coerces_to_day() {
 
 #[test]
 fn instant_with_a_time_stays_an_instant() {
-    let at = time::datetime_to_millis("2026-06-02T09:30:00Z").unwrap();
+    let at = time::date_or_datetime_to_millis("2026-06-02T09:30:00Z").unwrap();
     assert_eq!(
         ExtractedTime::Instant("2026-06-02T09:30:00Z".to_owned()).into_temporal_ref(),
         Some(TemporalRef::Instant(Timestamp::from_millis(at)))

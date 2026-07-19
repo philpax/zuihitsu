@@ -127,7 +127,7 @@ async fn an_authored_occurrence_survives_a_current_day_extraction() {
     h.baseline_descriptions();
 
     // A memory created with an authored October occurrence, then an untimed back-pointing entry ("this date") that
-    // the extraction mis-resolves to the conversation's now (2026-06-08, the suite's TEST_NOW).
+    // the extraction mis-resolves to the conversation's now (2026-06-08, the suite's test_now()).
     let model = ScriptedModel::new([
         run_lua_call(
             r#"local demo = memory.create("event/demo", "Vendor demo", { occurred_at = "2026-10-03", visibility = "public" })

@@ -503,7 +503,7 @@ pub(super) fn compose_packed(
     let max_items = settings.max_upcoming_items.max(0) as usize;
     if window_days > 0 && max_items > 0 {
         let to = Timestamp::from_millis(
-            now.as_millis()
+            now.as_millisecond()
                 .saturating_add(window_days * time::MILLIS_PER_DAY),
         );
         let mut lines = Vec::new();

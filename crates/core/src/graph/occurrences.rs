@@ -4,7 +4,7 @@ use crate::{
     db::query_map_into,
     graph::{
         EntryView, Graph, GraphError, MemoryColumns, MemoryView, entries::entry_from_row,
-        parse_ulid,
+        parse_ulid, timestamp_column,
     },
     ids::{EntryId, MemoryId},
     time::{self, TemporalRef, Timestamp},
@@ -33,9 +33,11 @@ impl Graph {
                AND e.occurred_sort BETWEEN ?1 AND ?2
              ORDER BY e.occurred_sort, e.seq",
         )?;
-        query_map_into(stmt, params![from.as_millis(), to.as_millis()], |row| {
-            self.occurrence_row(row)
-        })
+        query_map_into(
+            stmt,
+            params![from.as_millisecond(), to.as_millisecond()],
+            |row| self.occurrence_row(row),
+        )
     }
 
     /// Live entries whose scheduled occurrence has come due but not yet fired — the scheduler's input
@@ -52,7 +54,7 @@ impl Graph {
                AND e.occurred_sort <= ?1
              ORDER BY e.occurred_sort, e.seq",
         )?;
-        query_map_into(stmt, params![now.as_millis()], |row| {
+        query_map_into(stmt, params![now.as_millisecond()], |row| {
             let memory: String = row.get("memory_id")?;
             let entry: String = row.get("entry_id")?;
             Ok::<_, GraphError>((MemoryId(parse_ulid(&memory)?), EntryId(parse_ulid(&entry)?)))
@@ -94,8 +96,11 @@ impl Graph {
             else {
                 continue;
             };
-            let asserted_at = Timestamp::from_millis(asserted_at);
-            let baseline = fired_at.map_or(asserted_at, Timestamp::from_millis);
+            let asserted_at = timestamp_column(asserted_at, "asserted_at")?;
+            let baseline = match fired_at {
+                Some(millis) => timestamp_column(millis, "fired_at")?,
+                None => asserted_at,
+            };
             if let Some(instant) = time::next_occurrence(&rrule, asserted_at, baseline)
                 && instant <= now
             {
@@ -193,7 +198,7 @@ impl Graph {
         })?;
 
         // `from - 1` as the "strictly after" bound so an instance landing exactly on `from` counts.
-        let after = Timestamp::from_millis(from.as_millis().saturating_sub(1));
+        let after = Timestamp::from_millis(from.as_millisecond().saturating_sub(1));
         let mut hits = Vec::new();
         for (columns, asserted_at, occurred_json) in rows {
             let Ok(TemporalRef::Recurring(rrule)) =
@@ -201,7 +206,7 @@ impl Graph {
             else {
                 continue;
             };
-            let asserted_at = Timestamp::from_millis(asserted_at);
+            let asserted_at = timestamp_column(asserted_at, "asserted_at")?;
             if let Some(instant) = time::next_occurrence(&rrule, asserted_at, after)
                 && instant >= from
                 && instant <= to
@@ -260,7 +265,7 @@ impl Graph {
         })?;
 
         // `from - 1` as the "strictly after" seed so an instance landing exactly on `from` counts.
-        let seed = Timestamp::from_millis(from.as_millis().saturating_sub(1));
+        let seed = Timestamp::from_millis(from.as_millisecond().saturating_sub(1));
         let mut hits = Vec::new();
         for (columns, asserted_at, occurred_json, text) in rows {
             let Ok(TemporalRef::Recurring(rrule)) =
@@ -268,7 +273,7 @@ impl Graph {
             else {
                 continue;
             };
-            let asserted_at = Timestamp::from_millis(asserted_at);
+            let asserted_at = timestamp_column(asserted_at, "asserted_at")?;
             let memory = self.assemble_memory(columns)?;
             let mut after = seed;
             for _ in 0..max_per_entry {

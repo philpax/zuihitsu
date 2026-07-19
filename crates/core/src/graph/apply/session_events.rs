@@ -63,7 +63,7 @@ impl Graph {
                         params![
                             id.0.to_string(),
                             conversation.0.to_string(),
-                            started_at.as_millis(),
+                            started_at.as_millisecond(),
                             seeded_from_turn
                                 .as_ref()
                                 .map(|r| {

@@ -57,9 +57,9 @@ fn occurrence_columns_match_the_derived_bounds() {
         )
         .unwrap();
     let bounds = occurred.bounds(None, 0);
-    assert_eq!(columns.0, bounds.sort.map(Timestamp::as_millis));
-    assert_eq!(columns.1, bounds.lo.map(Timestamp::as_millis));
-    assert_eq!(columns.2, bounds.hi.map(Timestamp::as_millis));
+    assert_eq!(columns.0, bounds.sort.map(|at| at.as_millisecond()));
+    assert_eq!(columns.1, bounds.lo.map(|at| at.as_millisecond()));
+    assert_eq!(columns.2, bounds.hi.map(|at| at.as_millisecond()));
     assert!(columns.1 < columns.0 && columns.0 < columns.2);
 }
 
@@ -309,7 +309,7 @@ fn recurring_in_window_surfaces_a_weekly_instance() {
 
     // Query the following week — the next instance (2026-06-22) is ~6 days into the 7-day window.
     let from = Timestamp::from_millis(1_781_568_034_855); // 2026-06-16T00:00:34.
-    let to = Timestamp::from_millis(from.as_millis() + 7 * MILLIS_PER_DAY);
+    let to = Timestamp::from_millis(from.as_millisecond() + 7 * MILLIS_PER_DAY);
     let hits = graph.recurring_in_window(from, to).unwrap();
     assert_eq!(
         hits.len(),

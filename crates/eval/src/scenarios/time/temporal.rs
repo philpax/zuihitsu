@@ -144,7 +144,11 @@ impl Scenario for AnchorsARelativePlanHonestly {
                 .into_iter()
                 .flatten()
                 .any(|occ| {
-                    analysis::resolves_near(occ, entry.asserted_at.as_millis(), NEAR_NOW_WINDOW_MS)
+                    analysis::resolves_near(
+                        occ,
+                        entry.asserted_at.as_millisecond(),
+                        NEAR_NOW_WINDOW_MS,
+                    )
                 })
         });
 
@@ -333,7 +337,11 @@ impl Scenario for AnAuthoredDateSurvivesExtraction {
                 .into_iter()
                 .flatten()
                 .any(|occ| {
-                    analysis::resolves_near(occ, entry.asserted_at.as_millis(), NEAR_NOW_WINDOW_MS)
+                    analysis::resolves_near(
+                        occ,
+                        entry.asserted_at.as_millisecond(),
+                        NEAR_NOW_WINDOW_MS,
+                    )
                 })
         });
 

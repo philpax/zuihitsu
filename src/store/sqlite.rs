@@ -134,7 +134,7 @@ impl Store for SqliteStore {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     seq,
-                    recorded_at.as_millis(),
+                    recorded_at.as_millisecond(),
                     payload.kind(),
                     payload.target_id(),
                     payload.version(),
@@ -167,7 +167,12 @@ impl Store for SqliteStore {
             let payload: String = row.get("payload")?;
             Ok(Event {
                 seq: Seq(seq as u64),
-                recorded_at: Timestamp::from_millis(recorded_at),
+                recorded_at: Timestamp::try_from_millis(recorded_at).ok_or_else(|| {
+                    StoreError::Backend(format!(
+                        "recorded_at {recorded_at} milliseconds since the Unix epoch is outside \
+                         the representable range"
+                    ))
+                })?,
                 // A back-filled or legacy row carries the `Agent` default (the column default and the
                 // serde fallback agree), so an unrecognised label falling back to it stays faithful.
                 source: source.parse().unwrap_or_default(),

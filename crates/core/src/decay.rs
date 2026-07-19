@@ -37,8 +37,8 @@ pub fn is_stale(volatility: Volatility, effective_time: Timestamp, now: Timestam
     if volatility != Volatility::High {
         return false;
     }
-    let age_days =
-        (now.as_millis() - effective_time.as_millis()).max(0) as f64 / time::MILLIS_PER_DAY as f64;
+    let age_days = (now.as_millisecond() - effective_time.as_millisecond()).max(0) as f64
+        / time::MILLIS_PER_DAY as f64;
     age_days > STALE_HIGH_DAYS
 }
 

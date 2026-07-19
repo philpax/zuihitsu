@@ -117,14 +117,14 @@ pub(super) fn resolve_occurrences(
 /// match, so a `Range`, `Approx`, `Recurring`, or `BeforeAfter` (each spanning or deferring more than
 /// one day) never trips the guard and applies as extracted.
 fn lands_on_now(occurred_at: &TemporalRef, now: Timestamp) -> bool {
-    single_day_midnight(occurred_at) == Some(day_midnight(now.as_millis()))
+    single_day_midnight(occurred_at) == Some(day_midnight(now.as_millisecond()))
 }
 
 /// Whether some sibling occurrence names a single civil day other than `now`'s — the second half of the
 /// guard's condition. Only single-day siblings count, matching [`lands_on_now`]'s conservatism, so a
 /// vague sibling never forces a suppression.
 fn has_differently_dated_sibling(ctx: &ResolveContext<'_>) -> bool {
-    let today = day_midnight(ctx.now.as_millis());
+    let today = day_midnight(ctx.now.as_millisecond());
     ctx.siblings
         .iter()
         .filter_map(single_day_midnight)
@@ -135,7 +135,7 @@ fn has_differently_dated_sibling(ctx: &ResolveContext<'_>) -> bool {
 /// (the day it falls in) or a `Day` — or `None` for the vaguer shapes.
 fn single_day_midnight(occurred_at: &TemporalRef) -> Option<i64> {
     match occurred_at {
-        TemporalRef::Instant(at) => Some(day_midnight(at.as_millis())),
+        TemporalRef::Instant(at) => Some(day_midnight(at.as_millisecond())),
         TemporalRef::Day(date) => date.midnight_millis(),
         TemporalRef::Range { .. }
         | TemporalRef::Approx { .. }

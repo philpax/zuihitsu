@@ -26,7 +26,7 @@ impl MemoryBlock {
                 .ok_or_else(|| MemoryError::BadCalendarArg(text.to_owned()))?,
             None => DEFAULT_UPCOMING_DAYS * time::MILLIS_PER_DAY,
         };
-        let now = self.engine.clock.now().as_millis();
+        let now = self.engine.clock.now().as_millisecond();
         self.occurrence_memories(
             Timestamp::from_millis(now),
             Timestamp::from_millis(now.saturating_add(within_millis)),
@@ -47,7 +47,7 @@ impl MemoryBlock {
                 .ok_or_else(|| MemoryError::BadCalendarArg(text.to_owned()))?,
             None => DEFAULT_OVERDUE_DAYS * time::MILLIS_PER_DAY,
         };
-        let now = self.engine.clock.now().as_millis();
+        let now = self.engine.clock.now().as_millisecond();
         self.occurrence_memories(
             Timestamp::from_millis(now.saturating_sub(within_millis)),
             Timestamp::from_millis(now),

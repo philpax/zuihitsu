@@ -192,9 +192,9 @@ impl Instance {
                 )?
                 .last()
                 .map_or(recovered.started_at, |turn| turn.recorded_at)
-                .as_millis(),
+                .as_millisecond(),
             };
-            if now.as_millis() - last_activity_ms <= idle_gap_ms {
+            if now.as_millisecond() - last_activity_ms <= idle_gap_ms {
                 continue;
             }
             // Hold the conversation's lifecycle lock across the close, so a message arriving mid-flush
@@ -448,7 +448,7 @@ impl Instance {
         // The cooldown and audience gates apply to the timer sweep only; a session open waives both
         // (see [`CheckpointTrigger`]).
         if trigger.applies_cooldown_and_audience() {
-            if now.as_millis() - anchor.as_millis()
+            if now.as_millisecond() - anchor.as_millisecond()
                 < checkpoint.cooldown_seconds.saturating_mul(1_000)
             {
                 return Ok(None);
@@ -457,7 +457,7 @@ impl Instance {
             // Activity "since the watermark" is inclusive: a tie (coarse clocks stamp a burst at one
             // instant) errs toward flushing, the safe direction.
             let audience = self.sessions.live().iter().any(|(other, session)| {
-                *other != conversation && session.last_activity_millis() >= anchor.as_millis()
+                *other != conversation && session.last_activity_millis() >= anchor.as_millisecond()
             });
             if !audience {
                 return Ok(None);
