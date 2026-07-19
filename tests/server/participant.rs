@@ -146,3 +146,73 @@ async fn projecting_no_attributes_returns_the_resolved_memory_id() {
         "the response names the resolved memory"
     );
 }
+
+/// How many `MemoryCreated` events named `name` the log holds — a double-minted stub shows as two.
+fn creations(server: &Server, name: &str) -> usize {
+    server
+        .control()
+        .events()
+        .unwrap()
+        .into_iter()
+        .filter(|event| {
+            matches!(&event.payload, EventPayload::MemoryCreated { name: created, .. }
+                if created.as_str() == name)
+        })
+        .count()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_first_contact_mints_one_stub() {
+    // Racing first-contact projections for the same never-seen participant must resolve to a single
+    // stub. The resolve-miss, mint, and materialize have to be atomic under the graph lock: released
+    // between the mint's append and the materialize, every racer misses and each appends a
+    // `MemoryCreated` under the same qualified name, and folding that pair collides on the
+    // `memories.name` UNIQUE index — wedging every later materialize and fragmenting the identity
+    // across duplicate stubs. The mention feature multiplied how often `/platform/project` fires for a
+    // never-seen user, so this window is hit in production, not just in theory.
+    //
+    // The racers run on real OS threads (`project` is synchronous), so they genuinely contend on the
+    // `parking_lot` graph mutex rather than cooperatively interleaving. A barrier aligns their entry,
+    // and the trial count makes a pre-fix miss near-certain — the first double-mint wedges the shared
+    // graph, so every subsequent projection then errors on the stuck fold.
+    let (server, _clock) = born_agent();
+    let server = std::sync::Arc::new(server);
+
+    for n in 0..48 {
+        let person = PersonId::new(TEST_PLATFORM, format!("racer{n}"));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let server = std::sync::Arc::clone(&server);
+                let barrier = std::sync::Arc::clone(&barrier);
+                let person = person.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    server
+                        .platform()
+                        .project(&LinkNode::Participant(person), "discord", &[])
+                        .map(|outcome| outcome.memory_id)
+                })
+            })
+            .collect();
+        let ids: Vec<MemoryId> = handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap()
+                    .expect("a first-contact projection must not fail")
+            })
+            .collect();
+
+        assert!(
+            ids.iter().all(|id| *id == ids[0]),
+            "every racer resolves to the same stub for racer{n}",
+        );
+        assert_eq!(
+            creations(&server, &format!("person/racer{n}@chat")),
+            1,
+            "first contact mints exactly one stub for racer{n}",
+        );
+    }
+}
