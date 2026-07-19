@@ -1,4 +1,4 @@
-import type { MemoryView } from "../../lib/model/graph.ts";
+import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
 import { groupBy } from "../../lib/format/collections.ts";
 
 /// Group memories by their namespace prefix (`person/dave` → `person`), `self` standing alone, with

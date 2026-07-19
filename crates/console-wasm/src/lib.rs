@@ -6,13 +6,20 @@
 //! queries it for the State and Time-travel views. The event-stream views (Events, Conversation)
 //! and the surrounding chrome render off the JSON directly, so they need nothing here.
 //!
-//! The boundary discipline: events come in as raw JSON bytes parsed by `serde` *inside* the module
-//! (one copy across the boundary), and results go out through `serde-wasm-bindgen`'s JSON-compatible
-//! serializer, so numbers land as JS numbers rather than `BigInt` — matching the ts-rs bindings,
-//! which type `Seq` and the timestamps as `number`.
+//! The boundary discipline: events come in as raw JSON bytes parsed *inside* the module (one copy
+//! across the boundary). Results go out one of two ways, both landing the same JSON shape. A
+//! composed query DTO (see [`types`]) is returned by value, typed at the crossing. A core view
+//! type — shared with the views that render it — goes out as a `JsValue` through [`to_js`]: numbers
+//! land as JS numbers rather than `BigInt`, a map as a plain object, and a `None` as `null`, so
+//! either path matches the generated bindings, which type `Seq` and the timestamps as `number`.
 
 use std::collections::BTreeMap;
 
+use crate::types::{
+    AgendaItem, AgendaList, ConversationDetail, ConversationList, DigestCheck, DigestCheckList,
+    DigestStatus, MemRefResolution, MemoryDetail, MergeProposalList, MergeProposalView,
+    MergeStatus, SessionSummary,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
@@ -126,13 +133,13 @@ impl Replica {
     /// The full State-view detail for one memory by name, or `null` if there is no such memory at
     /// the current fold horizon. Bundles its live entries, its history, its links, and its `same_as`
     /// class so the frontend opens a memory in a single call.
-    pub fn memory(&self, name: &str) -> Result<JsValue, JsError> {
+    pub fn memory(&self, name: &str) -> Result<Option<MemoryDetail>, JsError> {
         let Some(memory) = self
             .graph
             .memory_by_name(MemoryName::new(name))
             .map_err(graph_error)?
         else {
-            return Ok(JsValue::NULL);
+            return Ok(None);
         };
         let entries = self.graph.entries_local(memory.id).map_err(graph_error)?;
         let history = self
@@ -152,14 +159,14 @@ impl Replica {
             .map_err(graph_error)?
             .into_iter()
             .collect();
-        to_js(&MemoryDetail {
+        Ok(Some(MemoryDetail {
             memory,
             entries,
             history,
             links,
             class,
             disputed,
-        })
+        }))
     }
 
     /// Resolve a `[mem:<ulid>]` reference to the memory the console should display for it, collapsed to
@@ -169,7 +176,7 @@ impl Replica {
     /// lookup. Returns the primary's id and handle, as `MemRefResolution`, or `null` when the id names
     /// no memory at the current fold horizon (so the chip degrades to a muted token).
     #[wasm_bindgen(js_name = resolveMemRef)]
-    pub fn resolve_mem_ref(&self, id: &str) -> Result<JsValue, JsError> {
+    pub fn resolve_mem_ref(&self, id: &str) -> Result<Option<MemRefResolution>, JsError> {
         let memory_id = parse_memory_id(id)?;
         let primary = self
             .graph
@@ -177,12 +184,12 @@ impl Replica {
             .map_err(graph_error)?
             .unwrap_or(memory_id);
         let Some(view) = self.graph.memory_by_id(primary).map_err(graph_error)? else {
-            return Ok(JsValue::NULL);
+            return Ok(None);
         };
-        to_js(&MemRefResolution {
+        Ok(Some(MemRefResolution {
             primary_id: primary.0.to_string(),
             handle: view.name.as_str().to_string(),
-        })
+        }))
     }
 
     /// The id of the live memory a handle currently names, or `null` when none does — a plain graph
@@ -237,7 +244,7 @@ impl Replica {
     /// (order-independent) form since `same_as` is symmetric, but the first proposal's direction and
     /// stated grounds are kept for a stable display.
     #[wasm_bindgen(js_name = mergeProposals)]
-    pub fn merge_proposals(&self) -> Result<JsValue, JsError> {
+    pub fn merge_proposals(&self) -> Result<MergeProposalList, JsError> {
         let mut order: Vec<(MemoryId, MemoryId)> = Vec::new();
         let mut source: BTreeMap<(MemoryId, MemoryId), MergeProposalSource> = BTreeMap::new();
         let mut rationale: BTreeMap<(MemoryId, MemoryId), Option<String>> = BTreeMap::new();
@@ -303,7 +310,7 @@ impl Replica {
                 to_designated: self.graph.is_primary_designated(to).map_err(graph_error)?,
             });
         }
-        to_js(&out)
+        Ok(MergeProposalList(out))
     }
 
     /// Verify every model call's recorded prompt against the digest stamped at send time: each
@@ -312,7 +319,7 @@ impl Replica {
     /// path. A `verified` call's displayed prompt provably matches the request that was sent; a
     /// `mismatch` means the reconstruction diverged and must not be trusted silently.
     #[wasm_bindgen(js_name = requestDigests)]
-    pub fn request_digests(&self) -> Result<JsValue, JsError> {
+    pub fn request_digests(&self) -> Result<DigestCheckList, JsError> {
         struct Group {
             system: String,
             messages: Vec<Message>,
@@ -362,7 +369,7 @@ impl Replica {
                         None => {
                             checks.push(DigestCheck {
                                 seq: event.seq.0,
-                                status: "unrecorded",
+                                status: DigestStatus::Unrecorded,
                             });
                             continue;
                         }
@@ -371,7 +378,7 @@ impl Replica {
                 None => {
                     checks.push(DigestCheck {
                         seq: event.seq.0,
-                        status: "unrecorded",
+                        status: DigestStatus::Unrecorded,
                     });
                     continue;
                 }
@@ -395,17 +402,17 @@ impl Replica {
             checks.push(DigestCheck {
                 seq: event.seq.0,
                 status: if digest == *request_digest {
-                    "verified"
+                    DigestStatus::Verified
                 } else if matches!(phase, zuihitsu_core::event::ModelPhase::Synthesis) {
                     // A structured synthesis call carries a `response_format` the record does not
                     // store, so its digest cannot be reproduced — unverifiable, not a mismatch.
-                    "unverifiable"
+                    DigestStatus::Unverifiable
                 } else {
-                    "mismatch"
+                    DigestStatus::Mismatch
                 },
             });
         }
-        to_js(&checks)
+        Ok(DigestCheckList(checks))
     }
 
     /// Re-derive a session's contextual brief and the trace of how it was composed — every memory the
@@ -458,7 +465,7 @@ impl Replica {
     /// flood it) — recurring needs a horizon since it is unbounded, one-offs do not. Merged and
     /// ordered soonest first. Each recurring instance comes from the agent's own `next_occurrence`,
     /// so the console never reimplements RRULE expansion and cannot drift from the agent's calendar.
-    pub fn agenda(&self, now_ms: f64, horizon_days: f64) -> Result<JsValue, JsError> {
+    pub fn agenda(&self, now_ms: f64, horizon_days: f64) -> Result<AgendaList, JsError> {
         let from = Timestamp::from_millis(now_ms as i64);
         let horizon =
             Timestamp::from_millis(now_ms as i64 + (horizon_days as i64) * MILLIS_PER_DAY);
@@ -493,7 +500,7 @@ impl Replica {
             });
         }
         items.sort_by_key(|item| item.when.as_millis());
-        to_js(&items)
+        Ok(AgendaList(items))
     }
 
     /// Every live conversation at the current fold horizon, each with its sessions — the structure
@@ -501,7 +508,7 @@ impl Replica {
     /// participant handles resolved from ids the raw log only carries opaquely. Read from the graph's
     /// own conversation projection (not a re-scan of the log), so a conversation whose room was deleted
     /// is already gone here — the graph is the single authority on which conversations exist.
-    pub fn conversations(&self) -> Result<JsValue, JsError> {
+    pub fn conversations(&self) -> Result<ConversationList, JsError> {
         let mut conversations = Vec::new();
         for conversation in self.graph.conversations().map_err(graph_error)? {
             let context_name = self
@@ -538,7 +545,7 @@ impl Replica {
                 sessions,
             });
         }
-        to_js(&conversations)
+        Ok(ConversationList(conversations))
     }
 
     /// The memory name a freshly minted [`Namespace::Person`] participant would receive, given
@@ -621,13 +628,6 @@ impl Replica {
     }
 }
 
-/// One call's digest verification result, keyed by the `ModelCalled` event's seq.
-#[derive(Serialize)]
-struct DigestCheck {
-    seq: u64,
-    status: &'static str,
-}
-
 /// Mirrors `zuihitsu::model::GenerateRequest`'s serialized shape exactly — same field names, order,
 /// and inner types — so the digest computed here matches the recorder's `serde_json::to_vec` byte
 /// for byte. The record does not carry `response_format`, so only requests without one (every Step
@@ -644,7 +644,7 @@ struct RequestDigestView<'a> {
 }
 
 /// Serialize a value to a JS value with the JSON-compatible number policy (plain numbers, not
-/// `BigInt`), so the result matches the ts-rs bindings the frontend is typed against.
+/// `BigInt`), so the result matches the generated bindings the frontend is typed against.
 pub(crate) fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
     value
         .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
@@ -669,23 +669,10 @@ fn parse_memory_id(id: &str) -> Result<MemoryId, JsError> {
         .map_err(|error| JsError::new(&format!("console: invalid memory id {id:?}: {error}")))
 }
 
-/// A resolved memory reference, crossing to the console's `MemRefChip`: the `same_as` class primary the
-/// reference collapses to (the memory the chip opens) and its handle (the chip's label).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MemRefResolution {
-    primary_id: String,
-    handle: String,
-}
-
 pub mod mem_ref;
 pub mod refs;
 pub mod turn_ref;
 pub mod types;
-
-pub use types::{
-    AgendaItem, ConversationDetail, MemoryDetail, MergeProposalView, MergeStatus, SessionSummary,
-};
 
 #[cfg(test)]
 mod digest_tests {

@@ -1,12 +1,8 @@
 import { createContext } from "react";
 
 import { rewriteStateUrls } from "../nav/refRoutes.ts";
-import {
-  type MemRefTarget,
-  type Replica,
-  constructMemRef,
-  normalizeMemRefTokens,
-} from "../replica/replica.ts";
+import type { MemRefResolution } from "@zuihitsu/wire/wasm/console_wasm.js";
+import { type Replica, constructMemRef, normalizeMemRefTokens } from "../replica/replica.ts";
 
 // The non-component half of memory references: the resolver context the workspace fills, the
 // console-internal chip scheme the remark pass smuggles a scanned reference through react-markdown
@@ -32,8 +28,8 @@ export const MEM_CHIP_HANDLE_SIGIL = "@";
 /// `byHandle` resolves a State-view URL's handle directly. Filled by the workspace from the replica at
 /// the current fold cursor; the default resolves nothing, for a tree rendered without a provider.
 export interface MemRefResolver {
-  byId: (id: string) => MemRefTarget | null;
-  byHandle: (handle: string) => MemRefTarget | null;
+  byId: (id: string) => MemRefResolution | null;
+  byHandle: (handle: string) => MemRefResolution | null;
 }
 
 export const MemRefs = createContext<MemRefResolver>({

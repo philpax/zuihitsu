@@ -23,3 +23,6 @@ ulid = { workspace = true }
 # must produce compatible output.
 wasm-bindgen = { workspace = true }
 serde-wasm-bindgen = { workspace = true }
+# Derives the wasm ABI and the TypeScript declaration for the query DTOs in `types` from one
+# definition, so the boundary is typed without a hand-written TS mirror or a `JsValue` cast.
+tsify-next = { workspace = true }

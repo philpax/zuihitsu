@@ -1,34 +1,27 @@
-use serde::Serialize;
 use ulid::Ulid;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{ids::TurnId, turn_ref};
 
-use crate::to_js;
-
-/// borrows and carries a typed id; the crossing wants owned strings).
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum RefSegment<'a> {
-    Prose { text: &'a str },
-    Ref { id: String },
-}
+use crate::types::{TurnRefSegment, TurnRefSegmentList};
 
 /// Split `text` into prose spans and turn references — the console's pretty projection runs each
 /// turn's text through this so a `[turn:<ulid>]` token or a pasted deep-link URL renders as a chip.
 /// The parser is `zuihitsu_core::turn_ref::scan`, the same definition the agent's resolver reads, so
 /// what the console highlights and what the agent resolves cannot drift.
 #[wasm_bindgen(js_name = turnRefScan)]
-pub fn turn_ref_scan(text: &str) -> Result<JsValue, JsError> {
-    let segments: Vec<RefSegment> = turn_ref::scan(text)
+pub fn turn_ref_scan(text: &str) -> TurnRefSegmentList {
+    let segments: Vec<TurnRefSegment> = turn_ref::scan(text)
         .into_iter()
         .map(|segment| match segment {
-            turn_ref::Segment::Prose(prose) => RefSegment::Prose { text: prose },
-            turn_ref::Segment::Ref(turn) => RefSegment::Ref {
+            turn_ref::Segment::Prose(prose) => TurnRefSegment::Prose {
+                text: prose.to_string(),
+            },
+            turn_ref::Segment::Ref(turn) => TurnRefSegment::Ref {
                 id: turn.0.to_string(),
             },
         })
         .collect();
-    to_js(&segments)
+    TurnRefSegmentList(segments)
 }
 
 /// Rebuild `text` with every turn reference rendered as the canonical `[turn:<ulid>]` token — the
@@ -41,12 +34,11 @@ pub fn turn_ref_normalize(text: &str) -> String {
 
 /// Every turn id referenced in `text`, in order of appearance — the extract-all-ids path.
 #[wasm_bindgen(js_name = turnRefExtract)]
-pub fn turn_ref_extract(text: &str) -> Result<JsValue, JsError> {
-    let ids: Vec<String> = turn_ref::extract_ids(text)
+pub fn turn_ref_extract(text: &str) -> Vec<String> {
+    turn_ref::extract_ids(text)
         .into_iter()
         .map(|turn| turn.0.to_string())
-        .collect();
-    to_js(&ids)
+        .collect()
 }
 
 /// The canonical `[turn:<ulid>]` token for a turn id, or an error if `id` is not a ULID — so the

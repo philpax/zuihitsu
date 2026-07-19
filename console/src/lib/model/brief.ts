@@ -1,40 +1,5 @@
-import type { MemoryName } from "@zuihitsu/wire/types/MemoryName.ts";
-import type { Visibility } from "@zuihitsu/wire/types/Visibility.ts";
-
-// The shapes the console-wasm `brief()` returns — the composed brief plus the trace of how it was
-// built. Field types are generated ts-rs bindings; only the groupings are hand-written (mirroring
-// zuihitsu_core::brief), as with graph.ts.
-
-export type VisibilityDecision =
-  | "Public"
-  | "Attributed"
-  | "TellerPresent"
-  | "NotExcluded"
-  | "Superseded"
-  | "TellerAbsent"
-  | "SubjectPresent"
-  | "ExcludeePresent";
-
-export type SectionKind = "SelfBrief" | "CurrentRoom" | "Participant" | "ActiveThread";
-
-export interface EntryTrace {
-  text: string;
-  visibility: Visibility;
-  decision: VisibilityDecision;
-  in_brief: boolean;
-}
-
-export interface BriefSectionTrace {
-  kind: SectionKind;
-  memory: MemoryName;
-  confidential: boolean;
-  entries: EntryTrace[];
-}
-
-export interface BriefTrace {
-  text: string;
-  sections: BriefSectionTrace[];
-}
+import type { SectionKind } from "@zuihitsu/wire/types/SectionKind.ts";
+import type { VisibilityDecision } from "@zuihitsu/wire/types/VisibilityDecision.ts";
 
 /// Whether a verdict surfaced the entry, and a short human reason for the trace.
 export function decisionInfo(decision: VisibilityDecision): { visible: boolean; reason: string } {

@@ -11,22 +11,10 @@
 //! existing turn behavior; memory deep links, which route by handle, are matched and resolved in
 //! TypeScript.
 
-use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{mem_ref, turn_ref};
 
-use crate::to_js;
-
-/// One span of a combined scan, crossing to the console's remark pass: literal prose, a turn
-/// reference, or a memory reference, each carrying its subject's ULID. The `kind` tag is what the
-/// remark pass dispatches on to mint the matching chip.
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum RefSegment<'a> {
-    Prose { text: &'a str },
-    Turn { id: String },
-    Mem { id: String },
-}
+use crate::types::{RefSegment, RefSegmentList};
 
 /// Split `text` into prose, turn references, and memory references in one pass — the transcript's
 /// pretty projection runs each turn's text through this so both `[turn:<ulid>]` and `[mem:<ulid>]`
@@ -34,7 +22,7 @@ enum RefSegment<'a> {
 /// parser, which also folds in a `?turn=` deep link), then memory references within each remaining
 /// prose span (the core `mem_ref` parser, tokens only); the two token vocabularies never overlap.
 #[wasm_bindgen(js_name = refScan)]
-pub fn ref_scan(text: &str) -> Result<JsValue, JsError> {
+pub fn ref_scan(text: &str) -> RefSegmentList {
     let mut segments = Vec::new();
     for turn_segment in turn_ref::scan(text) {
         match turn_segment {
@@ -47,11 +35,13 @@ pub fn ref_scan(text: &str) -> Result<JsValue, JsError> {
                         mem_ref::Segment::Ref(memory) => segments.push(RefSegment::Mem {
                             id: memory.0.to_string(),
                         }),
-                        mem_ref::Segment::Prose(text) => segments.push(RefSegment::Prose { text }),
+                        mem_ref::Segment::Prose(text) => segments.push(RefSegment::Prose {
+                            text: text.to_string(),
+                        }),
                     }
                 }
             }
         }
     }
-    to_js(&segments)
+    RefSegmentList(segments)
 }

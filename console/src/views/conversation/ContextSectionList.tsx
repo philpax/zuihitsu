@@ -6,7 +6,7 @@ import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.t
 import type { ToolCall } from "@zuihitsu/wire/types/ToolCall.ts";
 import type { CacheVerdict } from "../../lib/model/cachePath.ts";
 import type { ModelInteraction } from "../../lib/model/interactions.ts";
-import type { DigestStatus } from "../../lib/replica/replica.ts";
+import type { DigestStatus } from "@zuihitsu/wire/wasm/console_wasm.js";
 import { type Warmth, causeLabel } from "./turnUtilities.ts";
 import {
   type AttributedRow,

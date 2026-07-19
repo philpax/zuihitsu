@@ -1,7 +1,7 @@
 import { createContext } from "react";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
-import type { DigestStatus } from "../../lib/replica/replica.ts";
+import type { DigestStatus } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { ContextDebug } from "../../lib/model/contextDebug.ts";
 import type { LiveConnection } from "../../lib/api/live.ts";
 

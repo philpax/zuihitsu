@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { RelationView } from "../../lib/model/graph.ts";
+import type { RelationView } from "@zuihitsu/wire/types/RelationView.ts";
 import type { MemoryGraph, MemoryGraphLink } from "../../lib/model/memoryGraph.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { Checkbox } from "../../components/primitives.tsx";

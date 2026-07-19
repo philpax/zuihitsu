@@ -1,5 +1,5 @@
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
-import type { AgendaItem } from "../lib/model/graph.ts";
+import type { AgendaItem } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { Replica } from "../lib/replica/replica.ts";
 import { formatDate } from "../lib/format/format.ts";
 import { Link } from "../lib/nav/history.tsx";

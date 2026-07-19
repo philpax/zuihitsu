@@ -1,4 +1,4 @@
-//! The export pipeline: ts-rs type export, console constants, and settings metadata generation.
+//! The export pipeline: TypeScript type export, console constants, and settings metadata generation.
 //!
 //! The settings metadata is extracted at compile time by the `SettingsMetadata` derive (a
 //! proc-macro in `crates/settings-metadata-derive`), which reads the `///` doc comments and field
@@ -22,7 +22,12 @@ pub fn export_types(dir: &Path) -> Result<()> {
         package::{EvalPackage, PackageSummary},
     };
     use zuihitsu_core::{
-        ids::{Namespace, NamespacedMemoryName, PersonId},
+        brief::BriefTrace,
+        event::MergeProposalSource,
+        graph::{
+            EntryView, LinkView, MemoryView, RecurringEntry, RelationView, TagVocabularyEntry,
+        },
+        ids::{ConversationId, Namespace, NamespacedMemoryName, PersonId, SessionId},
         progress::TurnProgress,
         settings::{
             BriefSettings, CompactionSettings, ConcurrencySettings, ObservabilitySettings,
@@ -46,6 +51,28 @@ pub fn export_types(dir: &Path) -> Result<()> {
     // console reference renders (`GET /control/lua-api`).
     ApiEntry::export_all_to(dir).context("exporting ApiEntry")?;
     TurnProgress::export_all_to(dir).context("exporting TurnProgress")?;
+
+    // The core view types the console renders and the console-wasm DTOs compose from.
+    // `export_all_to` writes each type and its transitive dependencies, so exporting `BriefTrace`
+    // also emits its nested `BriefSectionTrace`, `EntryTrace`, and `SectionKind` parts. The
+    // wasm-crossing DTOs themselves are typed in `console-wasm` and emitted into the wasm package's
+    // declarations, not here — this crate carries only the JSON wire contract.
+    MemoryView::export_all_to(dir).context("exporting MemoryView")?;
+    EntryView::export_all_to(dir).context("exporting EntryView")?;
+    LinkView::export_all_to(dir).context("exporting LinkView")?;
+    RelationView::export_all_to(dir).context("exporting RelationView")?;
+    TagVocabularyEntry::export_all_to(dir).context("exporting TagVocabularyEntry")?;
+    RecurringEntry::export_all_to(dir).context("exporting RecurringEntry")?;
+    BriefTrace::export_all_to(dir).context("exporting BriefTrace")?;
+    // The console-wasm DTOs reference these by name across the wasm boundary (see the import bridge
+    // in `console-wasm`'s `types` module), but no kept view export pulls them transitively —
+    // `ConversationRef` inlines `ConversationId` as a string, and `SessionId`/`MergeProposalSource`
+    // appeared only through the DTOs that have moved — so they are exported by name here to keep the
+    // single definition the bridge imports.
+    ConversationId::export_all_to(dir).context("exporting ConversationId")?;
+    SessionId::export_all_to(dir).context("exporting SessionId")?;
+    MergeProposalSource::export_all_to(dir).context("exporting MergeProposalSource")?;
+
     write_console_constants(dir).context("writing console constants")?;
 
     // Collect settings metadata from every settings struct via the `SettingsMetadata` derive.
@@ -75,8 +102,8 @@ pub fn export_types(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Emit the Rust constants the console needs as runtime *values* (ts-rs exports types, not consts),
-/// so Rust stays the single source of truth for values that are load-bearing on both sides. Today
+/// Emit the Rust constants the console needs as runtime *values* (the type export emits types, not
+/// consts), so Rust stays the single source of truth for values load-bearing on both sides. Today
 /// that is the `DIRECT_PLATFORM` key: identity resolution merges an arrival on it under operator
 /// authority (spec §Cross-platform identity), and the console builds its own room locators with it —
 /// a drift between the two would silently break that reconciliation.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { type VisibilityDecision, decisionInfo } from "./brief.ts";
+import type { VisibilityDecision } from "@zuihitsu/wire/types/VisibilityDecision.ts";
+import { decisionInfo } from "./brief.ts";
 
 const DECISIONS: VisibilityDecision[] = [
   "Public",

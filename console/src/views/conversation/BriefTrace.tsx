@@ -1,11 +1,8 @@
 import { useContext } from "react";
 
-import {
-  type BriefSectionTrace,
-  type EntryTrace,
-  decisionInfo,
-  sectionLabel,
-} from "../../lib/model/brief.ts";
+import type { BriefSectionTrace } from "@zuihitsu/wire/types/BriefSectionTrace.ts";
+import type { EntryTrace } from "@zuihitsu/wire/types/EntryTrace.ts";
+import { decisionInfo, sectionLabel } from "../../lib/model/brief.ts";
 import { visibilityLabel } from "../../lib/model/labels.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { Names } from "./conversationContexts.ts";

@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
-import type { MergeProposalView, MergeStatus } from "../../lib/model/graph.ts";
+import type { MergeProposalView } from "@zuihitsu/wire/wasm/console_wasm.js";
+import type { MergeStatus } from "@zuihitsu/wire/wasm/console_wasm.js";
 import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 

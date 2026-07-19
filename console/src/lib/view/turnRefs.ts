@@ -1,6 +1,6 @@
 import { createContext } from "react";
 
-import type { RefSegment } from "../replica/replica.ts";
+import type { RefSegment } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { TurnModel } from "../model/conversation.ts";
 import { scanRefs } from "../replica/replica.ts";
 import { MEM_CHIP_SCHEME } from "./memRefs.ts";

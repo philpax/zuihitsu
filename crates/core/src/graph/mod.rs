@@ -38,6 +38,7 @@ pub use search::LexicalHit;
 
 /// A memory as projected, with its applied tags. Soft-deleted memories are never returned here.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MemoryView {
     pub id: MemoryId,
     pub name: MemoryName,
@@ -52,6 +53,7 @@ pub struct MemoryView {
 /// carry recurring occurrences from the graph rather than a re-fold of the log (see
 /// [`Graph::recurring_entries`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RecurringEntry {
     pub memory: MemoryId,
     pub text: String,
@@ -62,6 +64,7 @@ pub struct RecurringEntry {
 /// denormalized representative instant of the entry's `occurred_at` (spec §Time), or `None` when the
 /// entry carries no occurrence (or only a `Recurring` one); recency ranking reads it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EntryView {
     pub entry_id: EntryId,
     pub asserted_at: Timestamp,
@@ -96,6 +99,7 @@ pub struct EntryView {
 
 /// A registered relation as projected.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RelationView {
     pub name: RelationName,
     pub inverse: RelationName,
@@ -110,9 +114,11 @@ pub struct RelationView {
 /// A tag in the vocabulary as projected: its name, its one-line purpose, and how many live memories
 /// carry it. Backs `tags.list` and the system prompt's tag-vocabulary block.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TagVocabularyEntry {
     pub name: TagName,
     pub description: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub count: usize,
 }
 
@@ -131,6 +137,7 @@ pub struct LinkVis {
 
 /// A stored edge in its canonical direction, carrying its visibility posture and provenance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LinkView {
     pub from: MemoryId,
     pub to: MemoryId,

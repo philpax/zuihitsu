@@ -15,6 +15,7 @@ use crate::brief::{BriefError, BriefRequest, compose_packed, helpers::ranked_pre
 /// their entries, the visibility verdict and whether it reached the brief. Re-derived (not stored),
 /// since composition is deterministic — this is the console's "how the brief was composed" surface.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefTrace {
     /// The composed brief, identical to [`compose`]'s output.
     pub text: String,
@@ -25,6 +26,7 @@ pub struct BriefTrace {
 /// One memory's contribution to the brief: which it is, the role it played, and the fate of each of
 /// its entries.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BriefSectionTrace {
     pub kind: SectionKind,
     pub memory: MemoryName,
@@ -35,6 +37,7 @@ pub struct BriefSectionTrace {
 
 /// The role a memory played in the brief (spec §Composition).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SectionKind {
     /// The agent's own `self` memory.
     SelfBrief,
@@ -49,6 +52,7 @@ pub enum SectionKind {
 /// One entry's fate during composition: its text, its declared visibility, the predicate's verdict,
 /// and whether — given the verdict and the recency window — it actually reached the brief.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EntryTrace {
     pub text: String,
     pub visibility: Visibility,
