@@ -2,16 +2,38 @@ import { createContext } from "react";
 
 import type { RefSegment } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { TurnModel } from "../model/conversation.ts";
-import { scanRefs } from "../replica/replica.ts";
+import { constructTurnRef, normalizeRefTokens, scanRefs } from "../replica/replica.ts";
+import { rewriteTurnUrls } from "../nav/refRoutes.ts";
 import { MEM_CHIP_SCHEME } from "./memRefs.ts";
 
 // The non-component half of turn references (spec §Conversations → Transcript references): the
-// lookup context the Conversation view fills, and the remark plugin that lifts scanned references
-// out of an agent turn's Markdown. The chips themselves live in `components/TurnRefs.tsx`. The one
-// remark pass lifts both reference kinds in a single combined wasm scan (`scanRefs`) — both
-// token vocabularies — dispatching only on the returned `kind`, never inspecting token syntax.
-// A memory's console State-view deep-link URL routes by handle, so it is matched by the transcript's
-// anchor override (route matching, not token parsing), not lifted here.
+// lookup context the Conversation view fills, the remark plugin that lifts scanned references out of an
+// agent turn's Markdown, and the composer's send-time normalization. The chips themselves live in
+// `components/TurnRefs.tsx`. The one remark pass lifts both reference kinds in a single combined wasm
+// scan (`scanRefs`) — both token vocabularies — dispatching only on the returned `kind`, never
+// inspecting token syntax. A deep-link URL routes by console page, not by token syntax, so it is matched
+// by the transcript's anchor override (route matching), not lifted here: a memory's State-view link by
+// handle, a conversation link by its pinned `?turn=` moment.
+
+/// Normalize a console-composed message's turn references before it posts — the send-time counterpart to
+/// `normalizeMemRefs`. Every console Conversation-view deep link on an origin the console owns (`origins`)
+/// whose `?turn=` id is well-formed collapses to its canonical turn-reference token; a foreign link, or
+/// one with a malformed id, is left untouched. Any reference token already in the text is canonicalized
+/// too. So a message that leaves the console carries only token syntax.
+export function normalizeTurnRefs(text: string, origins: readonly string[]): string {
+  const withTokens = rewriteTurnUrls(text, mintTurnRef, origins);
+  return normalizeRefTokens(withTokens);
+}
+
+/// Mint the canonical turn-reference token for a pinned turn id, or `null` when the id is malformed
+/// (`constructTurnRef` throws), so the deep link is left as an ordinary URL rather than a broken token.
+function mintTurnRef(id: string): string | null {
+  try {
+    return constructTurnRef(id);
+  } catch {
+    return null;
+  }
+}
 
 /// The URL scheme the remark plugin smuggles a reference through react-markdown with: a scanned ref
 /// becomes a link node `turn-chip:<id>`, which the anchor override renders as a chip.
@@ -59,12 +81,11 @@ function splitRefs(node: MdNode): void {
   if (!node.children) return;
   const next: MdNode[] = [];
   for (const child of node.children) {
-    // A GFM-autolinked deep-link URL becomes a chip for the whole link. A link the author labeled
-    // (`[see here](…?turn=…)`) keeps its label and renders as an ordinary anchor, and no chip is
-    // ever nested inside another anchor — so links are never descended into.
+    // A link node carries a URL, never a bracket token, so there is nothing to lift out of it here: a
+    // deep-link URL becomes a chip by route matching in the anchor override, and no chip is ever nested
+    // inside another anchor — so links are kept whole and never descended into.
     if (child.type === "link") {
-      const link = autolinkRef(child);
-      next.push(link ?? child);
+      next.push(child);
       continue;
     }
     if (child.type === "text" && child.value) {
@@ -78,21 +99,6 @@ function splitRefs(node: MdNode): void {
     next.push(child);
   }
   node.children = next;
-}
-
-/// The reference chip an autolinked URL resolves to, or `null` when the URL carries no token reference
-/// (so it renders as an ordinary anchor — a State-view URL, matched by handle, is caught there by the
-/// anchor override instead). The whole URL is one scannable token: a `?turn=` deep link scans to a
-/// single turn reference, which becomes the chip.
-function autolinkRef(child: MdNode): MdNode | null {
-  const autolink =
-    child.children?.length === 1 &&
-    child.children[0].type === "text" &&
-    child.children[0].value === child.url;
-  if (!autolink) return null;
-  const segments = scanRefs(child.url ?? "");
-  const [only] = segments;
-  return segments.length === 1 && only.kind !== "prose" ? refChipLink(only) : null;
 }
 
 /// Split a text node's value into prose and reference link nodes, or `null` when it carries none — one

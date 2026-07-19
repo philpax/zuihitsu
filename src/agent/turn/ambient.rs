@@ -22,8 +22,8 @@ use crate::{
     event::AmbientHit,
     graph::{Graph, GraphError},
     ids::{MemoryId, MemoryName, TurnId},
+    message_refs,
     settings::AmbientSettings,
-    turn_ref,
 };
 
 /// The most queries a single message fans out — a bound so a pathological message stays cheap. The
@@ -78,7 +78,7 @@ pub(crate) fn ambient_recall(
     let tokens: Vec<TurnId> = if transcripts_enabled {
         // A message repeating one token gets one line: dedup (first occurrence wins) before the cap.
         let mut seen = HashSet::new();
-        let mut ids: Vec<TurnId> = turn_ref::extract_ids(inbound)
+        let mut ids: Vec<TurnId> = message_refs::extract_turn_ids(inbound)
             .into_iter()
             .filter(|id| seen.insert(*id))
             .collect();
@@ -383,7 +383,7 @@ fn is_url_boundary(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ResolvedHit, ambient_recall, extract_queries, extract_urls, render, turn_ref};
+    use super::{ResolvedHit, ambient_recall, extract_queries, extract_urls, render};
     use crate::{
         event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
         graph::Graph,
@@ -391,6 +391,7 @@ mod tests {
         settings::AmbientSettings,
         store::{MemoryStore, Store},
         time::Timestamp,
+        turn_ref,
         vocabulary::RelationName,
     };
     use std::collections::HashSet;

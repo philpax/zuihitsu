@@ -178,7 +178,7 @@ async fn convo_turn_resolves_within_audience_and_carries_a_ref() {
     let BlockOutcome::Committed { result } = outcome else {
         panic!("expected commit, got {outcome:?}");
     };
-    assert_eq!(turn_ref::extract_ids(&result), vec![focus]);
+    assert_eq!(message_refs::extract_turn_ids(&result), vec![focus]);
 }
 
 #[tokio::test]

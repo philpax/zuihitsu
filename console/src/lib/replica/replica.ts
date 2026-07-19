@@ -1,12 +1,9 @@
 import initWasm, {
   Replica as WasmReplica,
   memRefConstruct,
-  memRefNormalize,
+  refNormalize,
   refScan,
   turnRefConstruct,
-  turnRefExtract,
-  turnRefNormalize,
-  turnRefScan,
 } from "@zuihitsu/wire/wasm/console_wasm.js";
 import wasmUrl from "@zuihitsu/wire/wasm/console_wasm_bg.wasm?url";
 
@@ -18,7 +15,6 @@ import type {
   MemoryDetail,
   MergeProposalView,
   RefSegment,
-  TurnRefSegment,
 } from "@zuihitsu/wire/wasm/console_wasm.js";
 
 import type { BriefTrace } from "@zuihitsu/wire/types/BriefTrace.ts";
@@ -36,57 +32,37 @@ function ensureWasm(): Promise<unknown> {
   return wasmReady;
 }
 
-// The turn-reference parser, crossing from `zuihitsu_core::turn_ref` — the same definition the
-// agent's `convo.turn` resolver reads, so what the console highlights, normalizes, and extracts
-// cannot drift from what the agent resolves. These are pure functions of their text, exported free
-// rather than as `Replica` methods; they still require the wasm module, which is guaranteed
-// initialized wherever they are called (every view renders under a `Replica` built by `fromEvents`,
-// which awaits `ensureWasm` first).
+// The reference parser, crossing from `zuihitsu_core::message_refs` — the same definition the agent's
+// `convo.turn` resolver reads, so what the console highlights, normalizes, and mints cannot drift from
+// what the agent resolves. These are pure functions of their text, exported free rather than as
+// `Replica` methods; they still require the wasm module, which is guaranteed initialized wherever they
+// are called (every view renders under a `Replica` built by `fromEvents`, which awaits `ensureWasm`
+// first). Core recognizes token syntax only; a deep-link URL is recognized by the frontend's own route
+// matching (`lib/nav/refRoutes.ts`) and rewritten to a token before these see it.
 
-/// Split text into prose spans and turn references (reference tokens and `?turn=` deep-link URLs).
-export function scanTurnRefs(text: string): TurnRefSegment[] {
-  return turnRefScan(text);
+/// Split text into prose spans, turn references, and memory references in one pass — the transcript's
+/// pretty projection, so both reference-token vocabularies render as chips from a single wasm call.
+/// Token syntax is parsed only in Rust; the caller dispatches on `kind`.
+export function scanRefs(text: string): RefSegment[] {
+  return refScan(text);
 }
 
-/// Rebuild text with every turn reference collapsed to its canonical token — the
-/// composer's send-time normalization.
-export function normalizeTurnRefs(text: string): string {
-  return turnRefNormalize(text);
+/// Rebuild text with every reference token — turn or memory — collapsed to its canonical form. The
+/// composer runs this after the nav layer has rewritten any deep-link URL to a token, so a message that
+/// leaves the console carries only canonical token syntax.
+export function normalizeRefTokens(text: string): string {
+  return refNormalize(text);
 }
 
-/// Every turn id referenced in text, in order of appearance.
-export function extractTurnRefIds(text: string): string[] {
-  return turnRefExtract(text);
-}
-
-/// The canonical turn-reference token for a turn id — minted by the same constructor the agent's
-/// `ref` field uses. Throws if `id` is not a valid id.
+/// The canonical turn-reference token for a turn id — minted by the same constructor the agent's `ref`
+/// field uses. Throws if `id` is not a valid id.
 export function constructTurnRef(id: string): string {
   return turnRefConstruct(id);
-}
-
-// The memory-reference vocabulary, crossing from `zuihitsu_core::mem_ref` — the token half only. A
-// memory's deep-link URL routes by handle, so its URL recognition is the frontend's own route matching
-// (`lib/nav/refRoutes.ts`), not a wasm parser; these mint and canonicalize the tokens that matching
-// resolves to.
-
-/// Rebuild text with every memory-reference token canonicalized — the token half of the
-/// composer's memory-reference normalization; the URL half is route matching in `lib/nav/refRoutes.ts`.
-export function normalizeMemRefTokens(text: string): string {
-  return memRefNormalize(text);
 }
 
 /// The canonical memory-reference token for a memory id. Throws if `id` is not a valid id.
 export function constructMemRef(id: string): string {
   return memRefConstruct(id);
-}
-
-/// Split text into prose spans, turn references, and memory references in one pass — the transcript's
-/// pretty projection, so both reference-token vocabularies (and a `?turn=` deep link the
-/// turn parser folds in) render as chips from a single wasm call. Token syntax is parsed only in Rust;
-/// the caller dispatches on `kind`.
-export function scanRefs(text: string): RefSegment[] {
-  return refScan(text);
 }
 
 /// A typed handle over the console-wasm `Replica`: an event log folded through the agent's own

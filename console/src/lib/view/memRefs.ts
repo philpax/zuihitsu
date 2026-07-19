@@ -2,7 +2,7 @@ import { createContext } from "react";
 
 import { rewriteStateUrls } from "../nav/refRoutes.ts";
 import type { MemRefResolution } from "@zuihitsu/wire/wasm/console_wasm.js";
-import { type Replica, constructMemRef, normalizeMemRefTokens } from "../replica/replica.ts";
+import { type Replica, constructMemRef, normalizeRefTokens } from "../replica/replica.ts";
 
 // The non-component half of memory references: the resolver context the workspace fills, the
 // console-internal chip scheme the remark pass smuggles a scanned reference through react-markdown
@@ -38,14 +38,23 @@ export const MemRefs = createContext<MemRefResolver>({
 });
 
 /// Normalize a console-composed message's memory references before it posts — the send-time counterpart
-/// to `normalizeTurnRefs`. Every console State-view deep link whose handle resolves to a memory (by
-/// current name, then by a former-name alias, so a stale pasted link still normalizes) collapses to its
-/// canonical memory-reference token; an unresolved link is left untouched. Any reference token already in
-/// the text is canonicalized too. So a message that leaves the console carries only token syntax.
-export function normalizeMemRefs(text: string, replica: Replica): string {
-  const withTokens = rewriteStateUrls(text, (handle) => {
-    const id = replica.memoryIdByName(handle) ?? replica.memoryIdForFormerName(handle);
-    return id === null ? null : constructMemRef(id);
-  });
-  return normalizeMemRefTokens(withTokens);
+/// to `normalizeTurnRefs`. Every console State-view deep link on an origin the console owns (`origins`)
+/// whose handle resolves to a memory (by current name, then by a former-name alias, so a stale pasted
+/// link still normalizes) collapses to its canonical memory-reference token; a foreign or unresolved link
+/// is left untouched. Any reference token already in the text is canonicalized too. So a message that
+/// leaves the console carries only token syntax.
+export function normalizeMemRefs(
+  text: string,
+  replica: Replica,
+  origins: readonly string[],
+): string {
+  const withTokens = rewriteStateUrls(
+    text,
+    (handle) => {
+      const id = replica.memoryIdByName(handle) ?? replica.memoryIdForFormerName(handle);
+      return id === null ? null : constructMemRef(id);
+    },
+    origins,
+  );
+  return normalizeRefTokens(withTokens);
 }

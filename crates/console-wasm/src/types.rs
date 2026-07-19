@@ -167,17 +167,6 @@ pub enum DigestStatus {
     Unrecorded,
 }
 
-/// One span of a scanned single-vocabulary reference pass, crossing to the console: literal prose, or a
-/// reference resolved to its subject's ULID. The `kind` tag is what the console's remark pass dispatches
-/// on. Produced by the turn-reference and memory-reference scans, which share this shape.
-#[derive(Serialize, Tsify)]
-#[tsify(into_wasm_abi, missing_as_null, hashmap_as_object)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum TurnRefSegment {
-    Prose { text: String },
-    Ref { id: String },
-}
-
 /// One span of the combined reference scan, crossing to the console's remark pass: literal prose, a turn
 /// reference, or a memory reference, each carrying its subject's ULID. The `kind` tag is what the remark
 /// pass dispatches on to mint the matching chip.
@@ -219,13 +208,6 @@ pub struct ConversationList(pub Vec<ConversationDetail>);
 #[tsify(into_wasm_abi, missing_as_null, hashmap_as_object)]
 #[serde(transparent)]
 pub struct DigestCheckList(pub Vec<DigestCheck>);
-
-/// A JSON array of [`TurnRefSegment`] as it crosses the boundary. See [`MergeProposalList`] for why the
-/// list is wrapped.
-#[derive(Serialize, Tsify)]
-#[tsify(into_wasm_abi, missing_as_null, hashmap_as_object)]
-#[serde(transparent)]
-pub struct TurnRefSegmentList(pub Vec<TurnRefSegment>);
 
 /// A JSON array of [`RefSegment`] as it crosses the boundary. See [`MergeProposalList`] for why the
 /// list is wrapped.

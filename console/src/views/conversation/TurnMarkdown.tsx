@@ -7,9 +7,9 @@ import remarkMath from "remark-math";
 
 import { useContext } from "react";
 
-import { TURN_CHIP_SCHEME, remarkTurnRefs } from "../../lib/view/turnRefs.ts";
+import { TURN_CHIP_SCHEME, TurnRefs, remarkTurnRefs } from "../../lib/view/turnRefs.ts";
 import { MEM_CHIP_HANDLE_SIGIL, MEM_CHIP_SCHEME, MemRefs } from "../../lib/view/memRefs.ts";
-import { stateHandleFromUrl } from "../../lib/nav/refRoutes.ts";
+import { stateHandleFromUrl, turnIdFromUrl } from "../../lib/nav/refRoutes.ts";
 import { turnComponents } from "../../components/markdownComponents.tsx";
 import { TurnRefChip } from "./TurnRefs.tsx";
 import { MemRefChip } from "./MemRefs.tsx";
@@ -44,8 +44,9 @@ const BaseAnchor = turnComponents.a as ComponentType<ComponentProps<"a">>;
 
 /// The turn components plus a reference-aware anchor: a `turn-chip:` or `mem-chip:` link (minted by the
 /// remark plugin) renders as the matching chip; an ordinary link is matched against the console's own
-/// State-view route, and — only when its handle resolves to a memory — renders as a memory chip;
-/// everything else keeps the ordinary styled anchor.
+/// routes — a Conversation deep link whose `?turn=` moment is in view renders as a turn chip, a
+/// State-view link whose handle resolves to a memory renders as a memory chip — and everything else
+/// keeps the ordinary styled anchor.
 const components: Components = {
   ...turnComponents,
   a: ({ href, children, ...rest }) =>
@@ -60,12 +61,19 @@ const components: Components = {
     ),
 };
 
-/// An ordinary link that becomes a memory chip when it is a console State-view deep link whose handle
-/// resolves to a memory, and stays an ordinary anchor otherwise. Route matching is the frontend's own
-/// concern (`stateHandleFromUrl`); an unresolved handle is left as a plain link, never a chip, so a
-/// stale or foreign State link reads as the URL it is.
+/// An ordinary link that becomes a reference chip when it is a console deep link the current fold can
+/// resolve, and stays an ordinary anchor otherwise. Route matching is the frontend's own concern
+/// (`turnIdFromUrl`, `stateHandleFromUrl`): a Conversation link renders a turn chip only when its pinned
+/// moment is a folded turn, and a State link renders a memory chip only when its handle resolves — an
+/// unresolved, stale, or foreign link is left as a plain link, never a chip, so it reads as the URL it
+/// is.
 function RefAwareAnchor({ href, children, ...rest }: ComponentProps<"a">) {
+  const turnTargets = useContext(TurnRefs);
   const resolver = useContext(MemRefs);
+  const turnId = typeof href === "string" ? turnIdFromUrl(href) : null;
+  if (turnId !== null && turnTargets.has(turnId)) {
+    return <TurnRefChip id={turnId} />;
+  }
   const handle = typeof href === "string" ? stateHandleFromUrl(href) : null;
   if (handle !== null && resolver.byHandle(handle) !== null) {
     return <MemRefChip payload={MEM_CHIP_HANDLE_SIGIL + handle} />;

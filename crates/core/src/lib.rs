@@ -17,10 +17,10 @@ pub mod graph;
 pub mod ids;
 pub mod instance_features;
 pub mod mem_ref;
+pub mod message_refs;
 pub mod model;
 pub mod progress;
 pub mod prompt;
-pub(crate) mod ref_token;
 pub mod settings;
 #[cfg(feature = "ts")]
 pub mod settings_metadata;

@@ -1,9 +1,10 @@
 import { useContext, useState } from "react";
 
 import type { Replica } from "../../lib/replica/replica.ts";
-import { normalizeTurnRefs } from "../../lib/replica/replica.ts";
+import { normalizeTurnRefs } from "../../lib/view/turnRefs.ts";
 import { normalizeMemRefs } from "../../lib/view/memRefs.ts";
 import { imprint } from "../../lib/api/operator.ts";
+import { consoleOrigins } from "../../lib/api/http.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../../lib/api/participant.ts";
 import { formatTokens } from "../../lib/format/format.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
@@ -95,7 +96,12 @@ export function Room({
     // operator imprint), so no console-originated message escapes normalization. The log, and every
     // downstream consumer including the agent's token-only resolver, then sees only ref syntax. The
     // optimistic echo shows the normalized text, matching the turn the live tail will fold in.
-    const message = normalizeMemRefs(normalizeTurnRefs(text), replica);
+    //
+    // Only a deep link on an origin the console owns (its own, or its configured backend) is rewritten,
+    // so a foreign URL that merely shares the console's path shape stays prose rather than being replaced
+    // by a token.
+    const origins = consoleOrigins(participate.connection);
+    const message = normalizeMemRefs(normalizeTurnRefs(text, origins), replica, origins);
     const baseline = channel.conversation?.turns.length ?? 0;
     setOptimistic({ text: message, baseline });
     setDeferred(null);

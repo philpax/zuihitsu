@@ -51,9 +51,10 @@ host (`src/App.tsx`):
   (view-context helpers that consume both model and replica).
 
 **The Replica wrapper is the single typed wasm crossing.** `src/lib/replica/replica.ts` is the only
-place the wasm `JsValue` results are given types; every view consumes that typed surface, never the
-raw boundary. The wrapper's Rust half lives in `crates/console-wasm` over `zuihitsu-core`'s
-materialiser.
+place the boundary is given types: composed query DTOs cross already typed (their declarations are
+generated from the Rust structs), and the remaining core-view-type results are cast there and
+nowhere else. Every view consumes that typed surface, never the raw boundary. The wrapper's Rust
+half lives in `crates/console-wasm` over `zuihitsu-core`'s materialiser.
 
 **Generated artefacts, never hand-edited.** Three trees are generated from Rust and gitignored: the
 TypeScript bindings in `packages/wire/types/`, the settings metadata in
