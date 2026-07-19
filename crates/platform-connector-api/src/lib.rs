@@ -48,6 +48,8 @@ pub enum Operation {
     WriteContext,
     /// `POST /platform/project` — projecting attributes onto a scoped memory.
     Project,
+    /// `GET /platform/self` — reading the agent's own reserved `self` memory id.
+    SelfMemory,
     /// `POST /platform/link` — asserting or retracting a structural link.
     Link,
 }
@@ -59,6 +61,7 @@ impl fmt::Display for Operation {
             Operation::Join => write!(f, "join"),
             Operation::WriteContext => write!(f, "write context"),
             Operation::Project => write!(f, "project"),
+            Operation::SelfMemory => write!(f, "self memory"),
             Operation::Link => write!(f, "link"),
         }
     }
@@ -126,6 +129,15 @@ pub struct ParticipantAttribute {
 pub struct ProjectResponse {
     pub memory_id: MemoryId,
     pub entries: Vec<Option<EntryId>>,
+}
+
+/// The response to `GET /platform/self`: the id of the agent's own reserved `self` memory. A connector
+/// holds it to splice a `[mem:<id>]` reference when the agent itself is @mentioned, the same canonical
+/// memory token a mentioned participant's projection returns. The id is genesis-stable, so a connector
+/// fetches it once per boot and caches it.
+#[derive(Deserialize)]
+pub struct SelfMemoryResponse {
+    pub memory_id: MemoryId,
 }
 
 /// One inbound message to submit to the platform API.
@@ -431,6 +443,41 @@ impl PlatformClient {
             .await
             .map_err(|e| Error::Http {
                 operation: Operation::Project,
+                source: e,
+            })
+    }
+
+    /// `GET /platform/self` — the id of the agent's own reserved `self` memory. A connector uses it to
+    /// splice a `[mem:<id>]` reference when the agent itself is @mentioned, the same canonical memory
+    /// token a mentioned participant's projection returns. The id is genesis-stable, so a connector
+    /// fetches it once per boot and caches it.
+    pub async fn self_memory(&self) -> Result<SelfMemoryResponse> {
+        let url = format!("{}/platform/self", self.base_url);
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.platform_key)
+            .send()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::SelfMemory,
+                source: e,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::SelfMemory,
+                status,
+                body,
+            });
+        }
+        response
+            .json::<SelfMemoryResponse>()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::SelfMemory,
                 source: e,
             })
     }

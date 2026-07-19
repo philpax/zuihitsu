@@ -21,7 +21,7 @@ use serenity::{
     all::{ChannelId, UserId},
     prelude::*,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 
 use crate::{
     bot_loop::BotLoopGuard,
@@ -33,6 +33,7 @@ use crate::{
     projection_sync::ProjectionSync,
     turn_map::TurnMap,
 };
+use zuihitsu_core::ids::MemoryId;
 use zuihitsu_platform_connector_api::PlatformClient;
 
 pub use handler::Handler;
@@ -42,6 +43,12 @@ pub struct BotState {
     pub config: DiscordConfig,
     pub platform: PlatformClient,
     pub bot_id: Mutex<Option<UserId>>,
+    /// The agent's own reserved `self` memory id, fetched from the server on first use and cached —
+    /// the splice target for the bot's own mention. The agent is never projected as a person, but its
+    /// mention resolves to this canonical memory token like any other. Genesis-stable, so a successful
+    /// fetch holds for the life of the process; a failed fetch leaves the cell empty, so the next
+    /// mention retries.
+    pub self_memory: OnceCell<MemoryId>,
     pub turn_map: Mutex<TurnMap>,
     pub context_sync: ContextSync,
     pub guild_sync: GuildSync,
@@ -83,6 +90,7 @@ impl BotState {
             platform,
             config,
             bot_id: Mutex::new(None),
+            self_memory: OnceCell::new(),
             turn_map: Mutex::new(turn_map),
             context_sync: ContextSync::new(),
             guild_sync: GuildSync::new(),

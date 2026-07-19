@@ -161,6 +161,20 @@ Each attribute either records a new value or clears one, and the platform connec
 - `memory_id` — the id of the memory the projection landed on, resolved or minted from the target. The connector holds it to reference the subject — splicing a `[mem:<memory-id>]` token in place of an @mention, say — without another round trip when the identity has not changed. It is returned even when `attributes` is empty, so a connector can learn a subject's memory id without recording anything.
 - `entries` — the new entry id per attribute, in request order: a string for a recorded value, `null` for a cleared one. The connector stores these to supersede on the next change.
 
+### `GET /platform/self`
+
+Return the id of the agent's own reserved `self` memory. A platform connector uses it to splice a `[mem:<memory-id>]` token when the agent itself is @mentioned, the same canonical memory token a mentioned participant's projection returns — so the agent reads its own mention as a reference rather than an opaque platform mention. The agent is never projected as a person, but its mention still resolves to a reference. The id is seeded at genesis and never changes, so a connector fetches it once per boot and caches it.
+
+**Response body (`200 OK`):**
+
+```json
+{
+  "memory_id": "01J…"
+}
+```
+
+- `memory_id` — the id of the agent's reserved `self` memory.
+
 ## Linking scoped memories
 
 ### `POST /platform/link`

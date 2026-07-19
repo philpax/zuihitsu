@@ -62,3 +62,19 @@ fn render_writes_a_mem_line_decoding_the_token() {
         )
     );
 }
+
+#[test]
+fn render_names_a_self_reference_without_a_read_suggestion() {
+    // The reserved `self` memory is already in context, so its decode line names the agent itself
+    // rather than suggesting a redundant read.
+    let token = MemoryId::generate();
+    let mems = vec![ResolvedMem {
+        token,
+        name: MemoryName::self_handle(),
+    }];
+    let out = render(&mems, &[], &[], &[]);
+    assert_eq!(
+        out,
+        format!("[mem:{}] refers to self — that is you.", token.0)
+    );
+}

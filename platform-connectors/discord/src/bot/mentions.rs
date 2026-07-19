@@ -10,8 +10,9 @@ use zuihitsu_core::{ids::MemoryId, mem_ref};
 /// Rewrite each raw Discord mention (`<@id>` and the nickname form `<@!id>`) of a projected user as the
 /// canonical `[mem:<id>]` memory token, so the agent reads a stable reference rather than an opaque
 /// platform mention and the console renders a link. A user absent from `memory_ids` keeps its raw
-/// mention: the bot's own mention (addressing, not reference) is never in the map, and a mention whose
-/// projection failed degrades to its raw form. Parsing `<@…>` is the connector reading its own platform's
+/// mention: only a mention whose projection failed degrades to its raw form. The bot's own mention is in
+/// the map too, resolved to the agent's reserved `self` memory (never projected as a person), and stays
+/// raw only when that self lookup failed. Parsing `<@…>` is the connector reading its own platform's
 /// syntax.
 ///
 /// A mention inside a Discord code span — a backtick-delimited inline run or a triple-backtick fenced
@@ -131,11 +132,30 @@ mod tests {
 
     #[test]
     fn splice_leaves_an_unprojected_mention_raw() {
-        // The bot's own mention (and any user whose projection failed) is absent from the map, so its
-        // raw form is preserved verbatim — addressing, not a reference.
+        // A user whose projection failed (or, for the bot's own mention, whose self lookup failed) is
+        // absent from the map, so its raw form is preserved verbatim.
         let map: HashMap<UserId, MemoryId> = HashMap::new();
         assert_eq!(splice_mentions("<@999> hello", &map), "<@999> hello");
         assert_eq!(splice_mentions("<@!999> hi", &map), "<@!999> hi");
+    }
+
+    #[test]
+    fn splice_rewrites_the_bots_own_mention_when_mapped() {
+        // The handler resolves the bot's own mention to the agent's reserved `self` memory and inserts it
+        // into the map, so it splices like any other mapped mention. This pins the contract the handler
+        // relies on, exercising no new code path here.
+        let bot = UserId::new(777);
+        let mem = memory_id(7);
+        let map = HashMap::from([(bot, mem)]);
+        let token = mem_ref::construct(mem);
+        assert_eq!(
+            splice_mentions("hey <@777> here", &map),
+            format!("hey {token} here")
+        );
+        assert_eq!(
+            splice_mentions("hey <@!777> here", &map),
+            format!("hey {token} here")
+        );
     }
 
     #[test]

@@ -72,6 +72,41 @@ async fn create_then_inspect_over_the_control_api() {
 }
 
 #[tokio::test]
+async fn the_platform_self_endpoint_returns_the_reserved_self_memory_id() {
+    // A born agent mints `self` at genesis; `GET /platform/self` reports its id, so a connector can
+    // splice a `[mem:<id>]` reference for the agent's own @mention.
+    let server = Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap();
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let expected = server.control().memory("self").unwrap().unwrap().id;
+    let server = Arc::new(server);
+    let app = router(test_state(server));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .uri("/platform/self")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["memory_id"], serde_json::json!(expected.0.to_string()));
+}
+
+#[tokio::test]
 async fn a_platform_message_runs_a_turn() {
     // A born agent with a scripted model in app state: a /platform/messages delivers a participant
     // turn and returns the agent's reply.

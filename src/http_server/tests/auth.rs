@@ -49,6 +49,13 @@ async fn a_remote_peer_without_a_valid_key_is_rejected() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    // The auth layer is method-agnostic: a GET platform route is guarded the same as the POSTs.
+    let response = app
+        .clone()
+        .oneshot(get(remote(), "/platform/self", None))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     // A wrong key → 401.
     let response = app
         .oneshot(get(remote(), "/control/genesis", Some("nope")))

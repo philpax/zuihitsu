@@ -39,13 +39,24 @@ pub(super) fn render(
         if !out.is_empty() {
             out.push('\n');
         }
-        let _ = write!(
-            out,
-            "[mem:{}] refers to {} — read it with memory.get(\"{}\") if useful.",
-            mem.token.0,
-            mem.name.as_str(),
-            mem.name.as_str()
-        );
+        // A reference to the reserved `self` memory decodes to the agent itself, which is already in
+        // context — so the line names it without the redundant read suggestion.
+        if mem.name.is_self() {
+            let _ = write!(
+                out,
+                "[mem:{}] refers to {} — that is you.",
+                mem.token.0,
+                mem.name.as_str()
+            );
+        } else {
+            let _ = write!(
+                out,
+                "[mem:{}] refers to {} — read it with memory.get(\"{}\") if useful.",
+                mem.token.0,
+                mem.name.as_str(),
+                mem.name.as_str()
+            );
+        }
     }
     for token in tokens {
         if !out.is_empty() {

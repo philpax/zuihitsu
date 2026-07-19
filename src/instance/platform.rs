@@ -641,6 +641,21 @@ impl Platform<'_> {
         })
     }
 
+    /// The id of the agent's reserved `self` memory, resolved from the graph by its handle. A connector
+    /// reads it to splice a `[mem:<id>]` reference when the agent itself is @mentioned — the same
+    /// canonical memory token a mentioned participant's projection returns, so the agent's own mention
+    /// reads as a reference rather than an opaque platform mention. `self` is minted at genesis, so its
+    /// absence is an internal invariant failure, surfaced as a corrupt-projection graph error rather than
+    /// a distinct variant.
+    pub fn self_memory(&self) -> Result<MemoryId, InstanceError> {
+        let self_memory = self.server.engine.graph.lock().self_memory()?;
+        self_memory.map(|view| view.id).ok_or_else(|| {
+            InstanceError::Graph(GraphError::Malformed(
+                "the reserved `self` memory is absent, which cannot occur after genesis".to_owned(),
+            ))
+        })
+    }
+
     /// Assert (or, with `remove`, retract) a structural link a connector authored between two of its
     /// own scoped memories — a channel's or a participant's placement in a guild, say. Both endpoints
     /// are named under the connector's platform, so a connector can only ever link memories it owns.

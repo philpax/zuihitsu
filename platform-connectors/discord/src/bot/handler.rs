@@ -188,12 +188,38 @@ impl EventHandler for Handler {
         // Project every @mentioned user's identity — username and display name, the fields a mention
         // carries — the same path the sender takes, minus presence: a mentioned user is referenced, not
         // present, so it is never added to the channel's present set (which would mint a phantom stub and
-        // mislead the subject guard). The bot's own mention is addressing, not a reference, so it is
-        // skipped. Each projection caches the mentioned user's memory id, which the splice below reads to
-        // rewrite the raw `<@id>` mention as a canonical `[mem:<id>]` token.
+        // mislead the subject guard). The bot's own mention resolves to the agent's reserved `self`
+        // memory instead — never projected as a person, but referenced like any other mention. Each
+        // projection caches the mentioned user's memory id, which the splice below reads to rewrite the
+        // raw `<@id>` mention as a canonical `[mem:<id>]` token.
         let mut mention_memory_ids: HashMap<UserId, MemoryId> = HashMap::new();
         for user in &msg.mentions {
             if user.id == bot_id {
+                // The agent must never be minted as a person, so the bot's own mention is not projected.
+                // It still resolves to a reference — the agent's reserved `self` memory, fetched from the
+                // server once per boot and cached. A failed self lookup degrades the mention to its raw
+                // form rather than dropping the message, matching the failed-projection fallback below.
+                match state
+                    .self_memory
+                    .get_or_try_init(|| async {
+                        state
+                            .platform
+                            .self_memory()
+                            .await
+                            .map(|body| body.memory_id)
+                    })
+                    .await
+                {
+                    Ok(&self_id) => {
+                        mention_memory_ids.insert(user.id, self_id);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "discord connector: could not resolve the agent's self memory; leaving the bot mention raw"
+                        );
+                    }
+                }
                 continue;
             }
             let person = PersonId::new(DISCORD_PLATFORM, user.id.to_string());
@@ -225,7 +251,9 @@ impl EventHandler for Handler {
             }
         }
         // Splice a `[mem:<id>]` token in place of each projected mention, alongside the reply-turnref
-        // injection already folded into `text` above. The bot's own mention keeps its raw form.
+        // injection already folded into `text` above. The bot's own mention resolves to the agent's
+        // reserved `self` memory (never projected as a person); only a failed projection or self lookup
+        // leaves a mention in its raw form.
         let text = splice_mentions(&text, &mention_memory_ids);
 
         // In a guild, keep the guild's context and its structural links current: project the server

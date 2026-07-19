@@ -14,8 +14,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ContextEntry, ConversationLocator, LinkError, LinkNode, MessageInput, ParticipantAttribute,
-    PersonId, ProjectOutcome, RosterResync,
+    ContextEntry, ConversationLocator, LinkError, LinkNode, MemoryId, MessageInput,
+    ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
@@ -198,6 +198,20 @@ pub(super) async fn project(
         &request.attributes,
     )?;
     Ok(Json(outcome))
+}
+
+/// The response to `GET /platform/self`: the id of the agent's own reserved `self` memory.
+#[derive(Serialize)]
+pub(super) struct SelfBody {
+    memory_id: MemoryId,
+}
+
+/// `GET /platform/self` — the id of the agent's own reserved `self` memory. A connector uses it to
+/// splice a `[mem:<id>]` reference when the agent itself is @mentioned, the way a mentioned
+/// participant's projection returns their memory id.
+pub(super) async fn self_memory(State(state): State<AppState>) -> Result<Json<SelfBody>, ApiError> {
+    let memory_id = state.server.platform().self_memory()?;
+    Ok(Json(SelfBody { memory_id }))
 }
 
 /// One endpoint of a link on the wire — a bare participant id or a bare scope path, each resolved
