@@ -63,6 +63,13 @@ pub enum MemoryError {
     /// so it must classify the entry rather than fall silently to public (which is how a re-recorded
     /// confidence leaks).
     VisibilityRequired,
+    /// An inline seed entry (`create(name, content)`) about a person was written with no explicit
+    /// visibility, regardless of teller. The seed would take the write-time default silently — for a
+    /// participant-told fact about a third party, `PrivateToTeller` — and the fact would vanish for
+    /// every other audience, discovered only when someone else is refused it. The bare `:append`
+    /// default is untouched: there the private landing is the aside guard working as designed, and
+    /// this gate exists to make the create shortcut's acceptance of it loud instead of silent.
+    VisibilityRequiredOnCreate,
     /// A `set_volatility` named a level that is not `low`, `medium`, or `high`.
     UnknownVolatility(String),
     /// An append or link set both `visibility` and `exclude`. An exclude *is* a private posture (a
@@ -180,6 +187,14 @@ impl std::fmt::Display for MemoryError {
                 "set this entry's visibility explicitly — pass {{ visibility = \"public\" }} or \
                  {{ visibility = \"private\" }}; an agent-authored note about a person has no safe \
                  default"
+            ),
+            MemoryError::VisibilityRequiredOnCreate => write!(
+                f,
+                "set the seed entry's visibility explicitly — pass opts like {{ visibility = \
+                 \"attributed\" }} (or \"public\"/\"private\"), or create the memory bare and \
+                 append under the guard; inline content about a person otherwise takes a silent \
+                 default, private-to-teller for a participant-told fact, and the fact is lost to \
+                 every other audience"
             ),
             MemoryError::UnknownVolatility(level) => write!(
                 f,

@@ -40,8 +40,10 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              visibility, exclude, occurred_at, and volatility. Seed content is an entry like any \
              other: memory.create(name, \"<summary>\") with no opts lands the summary at the \
              write-time default — Public on a non-person memory — so a guarded fact seeded this way \
-             sits in the open beside its guarded siblings. For a guarded memory, prefer creating it \
-             bare and appending under the guard",
+             sits in the open beside its guarded siblings. On a person memory the default runs the \
+             other way — a participant-told fact would land private to its teller — so an \
+             unclassified seed there is refused: state the visibility. Either way, for a guarded \
+             memory prefer creating it bare and appending under the guard",
         )
         .returns(AT::Handle);
 
@@ -96,8 +98,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             "the same overrides <memory>:append takes, applied to the first entry when the memory is \
              created (ignored if it exists) — including visibility, exclude, occurred_at, and \
              volatility. As with memory.create, unclassified seed content takes the write-time \
-             default (Public on a non-person memory); for a guarded memory, prefer creating it bare \
-             and appending under the guard",
+             default (Public on a non-person memory), and on a person memory an unclassified seed \
+             is refused — state the visibility; for a guarded memory, prefer creating it bare and \
+             appending under the guard",
         )
         .returns(AT::Handle);
 

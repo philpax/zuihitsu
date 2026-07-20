@@ -4,11 +4,12 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::GraphError,
     ids::{EntryId, MemoryId, MemoryName},
+    memory::visibility::subject_participant,
     time::TemporalRef,
 };
 
 use crate::memory::memory_block::{
-    AppendOptions, EntrySelector, MemoryBlock, MemoryError, reconcile_forced_visibility,
+    AppendOptions, Authority, EntrySelector, MemoryBlock, MemoryError, reconcile_forced_visibility,
     suggest::most_similar,
 };
 
@@ -51,6 +52,20 @@ impl MemoryBlock {
                     let mut opts = opts.unwrap_or_default();
                     let teller = entry_teller(&opts, &block.teller);
                     let forced = reconcile_forced_visibility(opts.visibility, opts.exclude.take())?;
+                    // An unclassified inline seed about a person is refused regardless of teller:
+                    // it would take the write-time default silently — PrivateToTeller for a
+                    // participant-told fact — and the fact would vanish for every other audience,
+                    // discovered only when someone else is refused it. Create-path-only: a bare
+                    // `:append`'s private landing is the aside guard working as designed, and a
+                    // `#confidential` room's blanket private firm-up is likewise deliberate. The
+                    // operator's console writes may take the default, as with the link gate.
+                    if forced.is_none()
+                        && !block.confidential_context
+                        && block.authority == Authority::Platform
+                        && subject_participant(name.as_str(), id).is_some()
+                    {
+                        return Err(MemoryError::VisibilityRequiredOnCreate);
+                    }
                     let unforced = forced.is_none();
                     let visibility =
                         block.resolve_visibility(Some(name.as_str()), id, &teller, forced)?;

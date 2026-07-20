@@ -40,6 +40,64 @@ fn link_rejects_an_unregistered_relation() {
 }
 
 #[test]
+fn an_inline_seed_about_a_person_requires_explicit_visibility_from_any_teller() {
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let speaker = MemoryId::generate();
+    let mut block = block(
+        graph,
+        clock,
+        Teller::Participant(speaker),
+        Authority::Platform,
+    );
+
+    // A participant-told inline seed about a third party is refused rather than silently landing at
+    // the PrivateToTeller default — the fact would vanish for every other audience.
+    let rowan = Namespace::Person.with_name("rowan");
+    assert!(matches!(
+        block.create(&rowan, Some("backend lead")).unwrap_err(),
+        MemoryError::VisibilityRequiredOnCreate
+    ));
+
+    // An explicit classification is honored, and a non-person memory has no subject to guard, so its
+    // unclassified seed keeps the write-time default.
+    block
+        .create_with_opts(
+            &rowan,
+            Some("backend lead"),
+            Some(AppendOptions {
+                visibility: Some(VisibilityChoice::Attributed),
+                ..AppendOptions::default()
+            }),
+        )
+        .unwrap();
+    block
+        .create(
+            Namespace::Topic.with_name("roadmap"),
+            Some("ship on Friday"),
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_operator_seed_about_a_person_takes_the_default_unclassified() {
+    // The operator is explicitly asserting from the console and may take the default, matching the
+    // link gate's authority scoping — the create gate keys on platform authority, not the teller.
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let speaker = MemoryId::generate();
+    let mut block = block(
+        graph,
+        clock,
+        Teller::Participant(speaker),
+        Authority::Operator,
+    );
+    block
+        .create(Namespace::Person.with_name("rowan"), Some("backend lead"))
+        .unwrap();
+}
+
+#[test]
 fn an_aside_about_another_person_defaults_private() {
     let graph = Graph::open_in_memory().unwrap();
     let clock = ManualClock::new(Timestamp::from_millis(1_000));
@@ -78,12 +136,13 @@ fn agent_authored_writes_about_a_person_require_explicit_visibility() {
 
     // An agent-authored entry about a person has no protective default, so it must be classified:
     // both a create-with-content and a bare append fail teachably without an explicit visibility.
+    // The create path fails with the create-specific error, whose message teaches the seed shape.
     let erin = Namespace::Person.with_name("erin");
     assert!(matches!(
         block
             .create(&erin, Some("may be leaving the team"))
             .unwrap_err(),
-        MemoryError::VisibilityRequired
+        MemoryError::VisibilityRequiredOnCreate
     ));
     let erin = block.create(&erin, None).unwrap();
     assert!(matches!(
@@ -279,8 +338,9 @@ fn exclude_is_accepted_beside_a_deliberately_classified_seed() {
 
 #[test]
 fn exclude_is_accepted_when_the_defaulted_seed_landed_private() {
-    // A participant's aside about another person defaults PrivateToTeller — not open — so a
-    // same-block exclude append is not a leak and passes.
+    // A seed that landed private — here classified explicitly, since an unclassified person seed is
+    // refused by the create gate — is not open, so a same-block exclude append is not a leak and
+    // passes.
     let speaker = MemoryId::generate();
     let dave = MemoryId::generate();
     let mut block = block(
@@ -290,9 +350,13 @@ fn exclude_is_accepted_when_the_defaulted_seed_landed_private() {
         Authority::Platform,
     );
     let marcus = block
-        .create(
+        .create_with_opts(
             Namespace::Person.with_name("marcus"),
             Some("mentioned in passing"),
+            Some(AppendOptions {
+                visibility: Some(VisibilityChoice::Private),
+                ..AppendOptions::default()
+            }),
         )
         .unwrap();
     block

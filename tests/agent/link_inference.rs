@@ -28,7 +28,7 @@ async fn link_inference_registers_and_links_from_content() {
     // The agent does NOT call links.create — the inference pass should extract the relationship.
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"memory.create(PERSON_DAVE, "a person")
+            r#"memory.create(PERSON_DAVE, "a person", { visibility = "private" })
                local zephyr = memory.create("topic/zephyr")
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
@@ -133,7 +133,7 @@ async fn link_inference_honors_a_seeded_inverse_label() {
 
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"memory.create("person/clara", "a person")
+            r#"memory.create("person/clara", "a person", { visibility = "private" })
                local zephyr = memory.create("topic/zephyr")
                zephyr:append("This project was created by Clara", { by_agent = true, visibility = "public" })"#,
         ),
@@ -209,7 +209,7 @@ async fn link_inference_is_idempotent() {
     h.baseline_link_inference();
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"memory.create(PERSON_DAVE, "a person")
+            r#"memory.create(PERSON_DAVE, "a person", { visibility = "private" })
                local zephyr = memory.create("topic/zephyr")
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
@@ -298,7 +298,7 @@ async fn link_inference_degrades_gracefully_with_no_usable_reply() {
 
     let model = ScriptedModel::new([
         run_lua_call(
-            r#"memory.create(PERSON_DAVE, "a person")
+            r#"memory.create(PERSON_DAVE, "a person", { visibility = "private" })
                local zephyr = memory.create("topic/zephyr")
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
@@ -368,7 +368,7 @@ async fn disabled_linking_rejects_links_create_but_inference_still_links() {
     // correctly), appending the authorship entry to topic/zephyr — but NOT calling links.create.
     let create_model = ScriptedModel::new([
         run_lua_call(
-            r#"memory.create(PERSON_DAVE, "a person")
+            r#"memory.create(PERSON_DAVE, "a person", { visibility = "private" })
                local zephyr = memory.create("topic/zephyr")
                zephyr:append("Authored by Dave", { by_agent = true, visibility = "public" })"#,
         ),
