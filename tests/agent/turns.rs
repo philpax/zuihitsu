@@ -3,7 +3,9 @@ use super::*;
 async fn tool_call_then_reply_commits_and_replies() {
     let mut h = Harness::new();
     let model = ScriptedModel::new([
-        run_lua_call(r#"memory.create(PERSON_DAVE, "Met at the climbing gym", { visibility = "public" })"#),
+        run_lua_call(
+            r#"memory.create(PERSON_DAVE, "Met at the climbing gym", { visibility = "public" })"#,
+        ),
         Completion::Reply("Noted — I'll remember Dave.".to_owned()),
     ]);
 
