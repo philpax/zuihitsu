@@ -235,6 +235,111 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     driver.await.expect("the driver task joins");
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_wakeup_fired_before_the_idle_close_surfaces_at_the_reopen() {
+    // The interleaving under test: the background driver fires a due wake-up while the session is
+    // still open, the idle sweep then closes that session, and the next message reopens the
+    // conversation. The reopened session's open-time drain must surface the fired item — a fire that
+    // precedes the close must not strand the reminder waiting for a further session.
+    let clock = ManualClock::new(test_now());
+    let mut store = MemoryStore::new();
+    let events = store.subscribe();
+    let server = Server::new(
+        Box::new(store),
+        Graph::open_in_memory().unwrap(),
+        Box::new(clock.clone()),
+    );
+    server.control().create_agent(&seed()).unwrap();
+    let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
+
+    // Plant a calendared item dated weeks ahead, scheduled by the turn-end synthesis.
+    let plant = ScriptedModel::new([
+        run_lua_call(
+            r#"memory.get("person/dave@chat"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+        ),
+        Completion::Reply("noted".to_owned()),
+        Completion::Reply(
+            serde_json::json!({
+                "description": "Dave.",
+                "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
+            })
+            .to_string(),
+        ),
+    ]);
+    server
+        .platform()
+        .route_message(
+            &plant,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "remind me about the dentist",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
+        .await
+        .unwrap();
+    server.describe_catch_up(&plant).await.unwrap();
+
+    // Move past the occurrence and the idle gap in one jump — the eval's Advance — and fire via the
+    // background driver while session 1 is still open (the sweep has not run yet).
+    clock.advance_millis(30 * MILLIS_PER_DAY);
+    let server = Arc::new(server);
+    let (stop, shutdown) = tokio::sync::oneshot::channel::<()>();
+    let driver = tokio::spawn(
+        server
+            .clone()
+            .run_scheduler(Duration::from_secs(60), async move {
+                let _ = shutdown.await;
+            }),
+    );
+    tokio::time::advance(Duration::from_secs(61)).await;
+    let mut fired = false;
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event.payload, EventPayload::ScheduledJobFired { .. }) {
+                fired = true;
+            }
+        }
+        if fired {
+            break;
+        }
+    }
+    assert!(
+        fired,
+        "the driver should fire the due wake-up before the close"
+    );
+    let _ = stop.send(());
+    driver.await.expect("the driver task joins");
+
+    // The idle sweep now closes session 1 — after the fire, matching the observed event order.
+    let sweep_model = ScriptedModel::new([Completion::Reply("flushed".to_owned())]);
+    assert_eq!(server.sweep_idle_sessions(&sweep_model).await.unwrap(), 1);
+
+    // The next message reopens the conversation; the open-time drain must raise the fired item into
+    // the session, and the framing must reach the model.
+    let reopened = ScriptedModel::new([Completion::Reply("sure".to_owned())]);
+    server
+        .platform()
+        .route_message(
+            &reopened,
+            &leads,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            "what's up",
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
+        .await
+        .unwrap();
+    assert!(
+        reopened
+            .recorded_messages()
+            .iter()
+            .flatten()
+            .any(|message| message.content.contains("have come due")),
+        "the reopened session's drain should surface the pre-close fire: {:?}",
+        reopened.recorded_messages()
+    );
+}
+
 #[tokio::test]
 async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
     let (server, clock) = born_agent();

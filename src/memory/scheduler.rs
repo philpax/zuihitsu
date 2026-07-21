@@ -113,17 +113,43 @@ pub fn drain(
     let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
     let mut lines = Vec::new();
     let mut entries = Vec::new();
-    for (memory, entry) in graph.pending_wakeups()? {
+    let pending = graph.pending_wakeups()?;
+    let pending_count = pending.len();
+    let mut filtered = 0usize;
+    for (memory, entry) in pending {
         if entries.len() >= cap {
             break;
         }
         if !visibility::visible(&entry, &memory, present_set, &class_of)?
             || !visibility::targets_present(&entry, &memory, present_set, &class_of)?
         {
+            filtered += 1;
             continue;
         }
         lines.push(format_wakeup(&memory, &entry));
         entries.push((entry.entry_id, memory.id));
+    }
+    // A fired item the drain saw but did not raise is otherwise invisible until the next session
+    // open, so record the split — how many were pending, how many the visibility and targeting
+    // predicates held back, and against how large a present set. Raising nothing despite pending
+    // items logs at info (not warn): a held-back item is routine when its audience is absent from
+    // the room, but the split is exactly what diagnoses a wake-up that should have surfaced and did
+    // not. The everything-raised case stays at debug.
+    if pending_count > 0 && entries.is_empty() {
+        tracing::info!(
+            pending = pending_count,
+            filtered,
+            present = present_set.len(),
+            "session-open wake-up drain raised nothing; every pending item was held back"
+        );
+    } else {
+        tracing::debug!(
+            pending = pending_count,
+            eligible = entries.len(),
+            filtered,
+            present = present_set.len(),
+            "session-open wake-up drain"
+        );
     }
     if entries.is_empty() {
         return Ok(None);
