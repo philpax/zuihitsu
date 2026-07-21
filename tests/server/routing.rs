@@ -379,7 +379,7 @@ async fn a_session_is_reused_within_the_idle_gap_and_reopened_after() {
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 
     // After a gap beyond the idle threshold (1800s), the next message reopens a fresh session.
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(
@@ -436,7 +436,7 @@ async fn the_idle_sweep_closes_and_flushes_a_stale_session() {
     assert_eq!(server.control().sessions(&leads).unwrap().len(), 1);
 
     // Past the idle gap, the sweep closes-with-flush it without any message arriving.
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     assert_eq!(server.sweep_idle_sessions(&model).await.unwrap(), 1);
 
     // The session is now ended, so the next message opens a fresh one — confirming the close.
@@ -552,7 +552,7 @@ async fn a_reopen_after_a_restart_reconstructs_the_prior_tail_from_the_log() {
             )
             .await
             .unwrap();
-        clock.advance_millis(1_801 * 1_000);
+        advance_past_idle_gap(&server, &clock);
         assert_eq!(
             server.sweep_idle_sessions(&model).await.unwrap(),
             1,

@@ -182,8 +182,14 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
         .iter()
         .map(|m| m.content.chars().count())
         .sum();
+    let char_budget = server
+        .control()
+        .settings()
+        .unwrap()
+        .compaction
+        .carryover_char_budget;
     assert!(
-        last_chars <= 4_000 + 1_000,
+        last_chars <= (char_budget + 1_000) as usize,
         "the last prompt's char size {last_chars} exceeds the bound",
     );
 }

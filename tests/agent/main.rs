@@ -12,7 +12,7 @@ use zuihitsu::{
     InferredLink, InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace,
     NewRelationSpec, OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq,
     TemporalRef, TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole,
-    Usage, buffer_turns, genesis, prompt::PromptSectionKind, run_turn,
+    Usage, buffer_turns, genesis, prompt::PromptSectionKind, run_turn, time::MILLIS_PER_DAY,
 };
 
 pub(crate) use temporal::{

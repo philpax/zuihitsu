@@ -14,8 +14,12 @@ async fn calendar_upcoming_surfaces_a_recurring_instance() {
         "#,
     )
     .await;
-    // Advance past the first instance into the next week, as the scenario does before the fresh turn.
-    h.clock.advance_millis(8 * 86_400_000 + 34_000);
+    // Advance one week plus a short offset past midnight, so the clock has crossed into the next
+    // Monday rather than landing exactly on its boundary — `calendar.upcoming` then sees the
+    // following Monday's instance rather than the one the clock just touched.
+    const PAST_MIDNIGHT_OFFSET_MS: i64 = 34_000;
+    h.clock
+        .advance_millis(8 * MILLIS_PER_DAY + PAST_MIDNIGHT_OFFSET_MS);
     let outcome = h
         .run(
             r#"

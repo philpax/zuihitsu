@@ -56,7 +56,7 @@ async fn a_restart_past_the_idle_gap_flushes_and_reopens() {
         Box::new(clock.clone()),
     );
     server.boot().unwrap();
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(
@@ -633,7 +633,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     server.describe_catch_up(&plant).await.unwrap();
 
     // Advance past the occurrence and the idle gap, so the next message opens a fresh session.
-    clock.advance_millis(30 * 86_400_000_i64);
+    clock.advance_millis(30 * MILLIS_PER_DAY);
 
     // Turn 2: opening this session fires the now-due wake-up and drains it as a system turn the agent
     // sees in its buffer.
@@ -664,7 +664,7 @@ async fn a_due_wakeup_is_drained_into_the_next_eligible_session() {
     // tail (issue #86), so its buffer may still *carry* the earlier "have come due" system turn as
     // conversational history — that is the tail faithfully replaying what was said, not a fresh drain.
     // The structural check is the surfacing count: the item is surfaced exactly once across the log.
-    clock.advance_millis(2 * 86_400_000_i64);
+    clock.advance_millis(2 * MILLIS_PER_DAY);
     let quiet = ScriptedModel::new([Completion::Reply("ok".to_owned())]);
     server
         .platform()

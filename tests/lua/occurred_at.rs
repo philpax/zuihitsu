@@ -180,8 +180,9 @@ async fn occurred_at_accepts_a_range_from_date_objects_or_strings() {
         .unwrap();
     let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
     assert_eq!(entries.len(), 1);
-    let start = Timestamp::from_millis(20_614 * 86_400_000); // 2026-06-10 midnight UTC.
-    let end = Timestamp::from_millis(20_616 * 86_400_000 + 86_400_000 - 1); // 2026-06-12, last ms.
+    let start = civil_timestamp(2026, 6, 10);
+    let end =
+        Timestamp::from_millis(civil_timestamp(2026, 6, 12).as_millisecond() + MILLIS_PER_DAY - 1);
     let expected = TemporalRef::Range { start, end }
         .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
         .sort;
@@ -250,7 +251,7 @@ async fn occurred_at_accepts_an_instant_as_a_date_string() {
     let entries = h.engine.graph.lock().entries_local(ev.id).unwrap();
     assert_eq!(entries.len(), 1);
     // The string landed at the day's first millisecond, as a precise Instant (not a whole-day Day).
-    let expected = TemporalRef::Instant(Timestamp::from_millis(20_614 * 86_400_000)) // 2026-06-10 midnight UTC.
+    let expected = TemporalRef::Instant(civil_timestamp(2026, 6, 10))
         .bounds(None, BEFORE_AFTER_EPSILON_MILLIS)
         .sort;
     assert_eq!(entries[0].occurred_sort, expected);

@@ -33,7 +33,7 @@ pub(crate) use zuihitsu::time::civil_timestamp;
 
 /// The shared day/hour units every scenario expresses its clock advances and windows in, re-exported
 /// from core so the derivation lives in one place rather than being redefined per scenario module.
-pub(crate) use zuihitsu::time::{MILLIS_PER_DAY, MILLIS_PER_HOUR};
+pub(crate) use zuihitsu::time::{MILLIS_PER_DAY, MILLIS_PER_HOUR, MILLIS_PER_SECOND};
 
 /// A human's pause before sending a message — applied before each inbound turn so consecutive turns in
 /// a busy room are spaced apart, not stacked at one instant. Small against the day-scale advances a
@@ -51,11 +51,6 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(120);
 /// before the interrupt is delivered, so the interrupt's arrival sits a realistic moment after the first
 /// message's.
 const INTERRUPT_PAUSE_MS: i64 = 3_000;
-
-/// Just past the default idle gap (1800s), so the next turn after an [`RunContext::advance`] of this
-/// much opens a fresh session. Shared by the scenarios that cross the idle seam without a day-scale
-/// advance (an operator imprint lapsing, a room going quiet between sessions).
-pub(crate) const PAST_IDLE_GAP_MS: i64 = 1_801 * 1_000;
 
 /// The shared, build-once inputs every run needs: the model, — when an embedding endpoint is
 /// configured — the embedder and its dimensionality (a fresh vector index is built per run), and the
@@ -308,6 +303,21 @@ impl RunContext {
     /// Advance the run's clock by `delta_ms` — to cross a recurrence instance or an idle gap.
     pub(crate) fn advance(&self, delta_ms: i64) {
         self.clock.advance_millis(delta_ms);
+    }
+
+    /// Advance the run's clock just past the configured idle gap (plus a 1-second epsilon), so the
+    /// next turn opens a fresh session. Reads the live `idle_gap_seconds` setting rather than baking
+    /// the default into a compile-time constant — a default change cannot silently break the cross.
+    pub(crate) fn advance_past_idle_gap(&self) {
+        let idle_gap_ms = self
+            .server
+            .control()
+            .settings()
+            .expect("settings read during eval")
+            .compaction
+            .idle_gap_seconds
+            * MILLIS_PER_SECOND;
+        self.clock.advance_millis(idle_gap_ms + MILLIS_PER_SECOND);
     }
 
     /// Tighten the compaction trigger so a short scripted session crosses the token budget and flushes

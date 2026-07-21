@@ -415,9 +415,9 @@ fn storm_1902() -> Timestamp {
 }
 
 /// How close to the storm date an occurrence has to land to read as the namesake's date on the subject
-/// — two years of slack, so a year-precision guess ("1902" as January 1st, or an `approx` centred in
-/// the year) still trips it.
-const STORM_WINDOW_MS: i64 = 730 * MILLIS_PER_DAY;
+/// — two years of slack (2 × 365 days), so a year-precision guess ("1902" as January 1st, or an
+/// `approx` centred in the year) still trips it.
+const STORM_WINDOW_MS: i64 = 2 * 365 * MILLIS_PER_DAY;
 
 #[async_trait]
 impl Scenario for AnInspirationsDateStaysOffTheSubject {

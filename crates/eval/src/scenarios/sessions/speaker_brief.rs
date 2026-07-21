@@ -23,7 +23,6 @@ use zuihitsu::{Event, EventPayload, MemoryId, MemoryName, PersonId, Seq, TEST_PL
 
 use crate::{
     analysis,
-    context::PAST_IDLE_GAP_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
@@ -114,9 +113,7 @@ impl Scenario for SpeakerGuaranteedAFullBriefBlock {
             // durable before the seam.
             EvalStep::Settle,
             // The room goes quiet past the idle gap: the next message opens a fresh, cold session.
-            EvalStep::Advance {
-                millis: PAST_IDLE_GAP_MS,
-            },
+            EvalStep::AdvancePastIdleGap,
             // The speaker returns and opens the fresh session with rowan present. wren is the recency
             // loser but the initiating speaker, so the brief for this session must brief wren in full.
             Turn::new(

@@ -20,7 +20,6 @@ use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
-    context::PAST_IDLE_GAP_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
@@ -93,9 +92,7 @@ impl Scenario for IdleReopenCarriesThePriorTail {
             EvalStep::Settle,
             // The room goes quiet past the idle gap: the next message opens a fresh session, which
             // issue #86 seeds from the prior tail rather than opening blank on the transcript.
-            EvalStep::Advance {
-                millis: PAST_IDLE_GAP_MS,
-            },
+            EvalStep::AdvancePastIdleGap,
             // rowan returns and asks vaguely to reconfirm. The reconfirmation leans on the carried tail.
             Turn::new(
                 TEST_PLATFORM,

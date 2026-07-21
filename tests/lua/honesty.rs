@@ -255,8 +255,10 @@ async fn a_high_volatility_fact_reads_stale_after_aging() {
         "#,
     )
     .await;
-    // Age past the 30-day staleness horizon.
-    h.clock.advance_millis(40 * 86_400_000);
+    // Age past the staleness horizon (STALE_HIGH_DAYS + a buffer) so the High-volatility entry reads
+    // as stale.
+    h.clock
+        .advance_millis((STALE_HIGH_DAYS as i64 + 10) * MILLIS_PER_DAY);
 
     let read = r#"
         local e = memory.get("MEM"):entries()[1]

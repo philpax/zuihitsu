@@ -39,7 +39,7 @@ async fn the_compaction_working_set_is_the_touched_set_only() {
         .await
         .unwrap();
     // An idle gap reopens a fresh session 2 (which will not touch the thread).
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(
@@ -105,7 +105,7 @@ async fn a_cold_open_resurfaces_a_recently_touched_thread() {
         )
         .await
         .unwrap();
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(
@@ -448,7 +448,7 @@ async fn imprint_records_the_creator_and_links_created_by() {
 
     // A later imprint turn (after the idle gap) opens a fresh session, whose frozen brief surfaces the
     // `created_by` link in the self block — the structural assertion the interview exists to make.
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .control()
         .imprint(&model, "anything else I should know?")
@@ -568,7 +568,7 @@ async fn the_pre_brief_pass_describes_only_the_briefs_memories() {
         .await
         .unwrap();
     // A fresh session past the idle gap runs the narrowed pre-brief describe over its read set.
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(
@@ -628,7 +628,7 @@ async fn a_prior_turns_write_is_described_before_the_next_briefs_composition() {
         )
         .await
         .unwrap();
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(
@@ -690,7 +690,7 @@ async fn a_mid_session_join_catches_the_joiners_description_up_before_the_brief(
         .unwrap();
     // Past the idle gap, Dave alone opens session 2 — Erin is not in its brief's read set, so her
     // description stays stale.
-    clock.advance_millis(1_801 * 1_000);
+    advance_past_idle_gap(&server, &clock);
     server
         .platform()
         .route_message(

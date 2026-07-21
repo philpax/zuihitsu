@@ -402,9 +402,16 @@ async fn a_batch_beyond_the_window_waits_instead_of_superseding() {
     let first = spawn_batch(server.clone(), gate.clone(), FIRST_TEXT);
     await_parked(&gate, 1).await;
 
-    // Move past the default 60s window while turn #1 is mid-generation: a later batch can no longer
-    // cancel it, so it must run to completion and the newcomer queues behind it.
-    clock.advance_millis(61 * 1_000);
+    // Move past the supersession window while turn #1 is mid-generation: a later batch can no
+    // longer cancel it, so it must run to completion and the newcomer queues behind it.
+    let window_ms = server
+        .control()
+        .settings()
+        .unwrap()
+        .turn
+        .supersede_window_seconds
+        * MILLIS_PER_SECOND;
+    clock.advance_millis(window_ms + MILLIS_PER_SECOND);
 
     let second = spawn_batch(server.clone(), gate.clone(), SECOND_TEXT);
     // Let the (uncancellable) in-flight turn finish; turn #2 then takes the slot behind it.

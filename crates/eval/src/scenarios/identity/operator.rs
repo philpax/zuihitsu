@@ -12,7 +12,6 @@ use zuihitsu::{Event, MemoryName, NamespacedMemoryName};
 
 use crate::{
     analysis,
-    context::PAST_IDLE_GAP_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict},
     scenario::Scenario,
@@ -57,9 +56,7 @@ impl Scenario for OperatorSecondNameLandsOnTheExistingProfile {
             EvalStep::DescribeCatchUp,
             // The session lapses; a fresh one opens. The operator shares their real name — it should
             // be added to the existing profile, not start a new one.
-            EvalStep::Advance {
-                millis: PAST_IDLE_GAP_MS,
-            },
+            EvalStep::AdvancePastIdleGap,
             EvalStep::imprint(
                 "Oh, by the way — my real name is Tomas, in case that's useful to record.",
             ),

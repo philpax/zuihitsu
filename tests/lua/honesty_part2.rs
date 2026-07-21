@@ -9,9 +9,10 @@ async fn a_superseded_aged_entry_is_not_marked_stale_in_history() {
         "#,
     )
     .await;
-    // Age past the 30-day horizon so the first entry is stale, then supersede it with a newer fact
-    // that is itself fresh.
-    h.clock.advance_millis(40 * 86_400_000);
+    // Age past the staleness horizon (STALE_HIGH_DAYS + a buffer) so the first entry is stale,
+    // then supersede it with a newer fact that is itself fresh.
+    h.clock
+        .advance_millis((STALE_HIGH_DAYS as i64 + 10) * MILLIS_PER_DAY);
     let dave = MemoryName::from(Namespace::Person.with_name("dave"))
         .as_str()
         .to_owned();

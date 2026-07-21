@@ -21,7 +21,10 @@ fn control_creates_and_inspects_an_agent() {
             .as_str(),
         "self"
     );
-    assert_eq!(server.control().settings().unwrap().turn.max_steps, 12);
+    assert_eq!(
+        server.control().settings().unwrap().turn.max_steps,
+        zuihitsu::TurnSettings::default().max_steps,
+    );
     assert!(server.control().memory("person/nobody").unwrap().is_none());
 
     // Creating again is a no-op on a born agent.

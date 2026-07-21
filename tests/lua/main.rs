@@ -17,9 +17,11 @@ pub(crate) use zuihitsu::{
     Clock, ConversationLocator, Engine, Graph, InstanceFeatures, ManualClock, MemoryId, MemoryName,
     MemoryStore, Namespace, RelationName, Session, SessionId, Store, TEST_PLATFORM, TagName,
     Teller, TemporalRef, TerminalCause, Timestamp, TurnId, TurnRole, Visibility,
+    decay::STALE_HIGH_DAYS,
     event::{ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation},
     ids::ConversationId,
     message_refs, resolve_or_mint_conversation,
+    time::{MILLIS_PER_DAY, civil_timestamp},
 };
 
 /// A block-duration budget generous enough that these in-memory blocks never trip it.

@@ -11,7 +11,6 @@ use zuihitsu::{ConversationRef, Event, EventPayload, TEST_PLATFORM, TurnRole};
 
 use crate::{
     analysis,
-    context::PAST_IDLE_GAP_MS,
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
@@ -72,9 +71,7 @@ impl Scenario for JoinBriefHoldsTheAside {
             .with_present(&["maya", "tom", "priya"])
             .into(),
             // Past the idle gap: the next message opens a fresh session, without Priya.
-            EvalStep::Advance {
-                millis: PAST_IDLE_GAP_MS,
-            },
+            EvalStep::AdvancePastIdleGap,
             // Maya and Tom pick the book; mid-chatter, Tom confides an aside about the absent Priya.
             Turn::new(
                 TEST_PLATFORM,

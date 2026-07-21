@@ -2,7 +2,7 @@ use super::*;
 /// Day-noon millis for a `YYYY-MM-DD`, the `occurred_sort` a `Day` occurrence denormalizes to.
 pub(super) fn day_noon(date: &str) -> Timestamp {
     let midnight = CivilDate(date.into()).midnight_millis().unwrap();
-    Timestamp::from_millis(midnight + 86_400_000 / 2)
+    Timestamp::from_millis(midnight + MILLIS_PER_DAY / 2)
 }
 
 /// The post-turn synthesis is now a `response_format`-constrained call: the model returns the

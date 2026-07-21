@@ -20,7 +20,7 @@ async fn each_turn_carries_its_own_recorded_time() {
         .await
         .unwrap();
     // Ten minutes later, within the idle gap, so the same session continues and the buffer replays.
-    clock.advance_millis(600 * 1_000);
+    clock.advance_millis(10 * MILLIS_PER_MINUTE);
     server
         .platform()
         .route_message(
@@ -273,7 +273,14 @@ async fn a_checkpoint_waits_out_the_cooldown() {
 
     // Past the cooldown (still within the idle gap), the sweep flushes room A. Room B's delta stays
     // under the substance threshold, so it does not ride along.
-    clock.advance_millis(601 * 1_000);
+    let cooldown_ms = server
+        .control()
+        .settings()
+        .unwrap()
+        .checkpoint
+        .cooldown_seconds
+        * MILLIS_PER_SECOND;
+    clock.advance_millis(cooldown_ms + MILLIS_PER_SECOND);
     assert_eq!(
         server
             .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)

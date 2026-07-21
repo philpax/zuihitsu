@@ -46,7 +46,7 @@ pub fn is_stale(volatility: Volatility, effective_time: Timestamp, now: Timestam
 /// stale. `High` is the agent's own signal that the fact dates quickly (a current role, project,
 /// location, or status), so a month-old one is worth hedging; it sits inside the `High` ranking `tau`
 /// (90 days), so a fact reads stale while still ranking relevant enough to surface.
-const STALE_HIGH_DAYS: f64 = 30.0;
+pub const STALE_HIGH_DAYS: f64 = 30.0;
 
 #[cfg(test)]
 mod tests {

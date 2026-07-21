@@ -39,6 +39,7 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
         EvalStep::Imprint { text } => format!("Imprint: \"{}\"", trunc(text, SUMMARY_CLIP)),
         EvalStep::Settle => "Settle".to_owned(),
         EvalStep::Advance { millis } => format!("Advance {}", humane_duration(*millis)),
+        EvalStep::AdvancePastIdleGap => "AdvancePastIdleGap".to_owned(),
         EvalStep::DescribeCatchUp => "DescribeCatchUp".to_owned(),
         EvalStep::LinkInferenceCatchUp => "LinkInferenceCatchUp".to_owned(),
         EvalStep::CheckpointSweep => "CheckpointSweep".to_owned(),

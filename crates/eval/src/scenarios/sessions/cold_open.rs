@@ -18,7 +18,6 @@ use zuihitsu::{Event, TEST_PLATFORM};
 
 use crate::{
     analysis,
-    context::PAST_IDLE_GAP_MS,
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
@@ -95,9 +94,7 @@ impl Scenario for ColdOpenResurfacesRecentThreads {
             EvalStep::Settle,
             // The room goes quiet past the idle gap: the next message opens a fresh session, with no
             // compaction carryover — the cold open the active-threads derivation is for.
-            EvalStep::Advance {
-                millis: PAST_IDLE_GAP_MS,
-            },
+            EvalStep::AdvancePastIdleGap,
             // sam returns and asks vaguely where the thread landed. With an empty buffer, the re-entry
             // leans on what the cold-open brief re-surfaced.
             Turn::new(

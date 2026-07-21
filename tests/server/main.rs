@@ -14,7 +14,7 @@ use zuihitsu::{
     event::{EventPayload, EventSource, PromptTemplateName},
     genesis::{GenesisStatus, Rollout},
     stream_response,
-    time::MILLIS_PER_DAY,
+    time::{MILLIS_PER_DAY, MILLIS_PER_MINUTE, MILLIS_PER_SECOND},
 };
 
 use common::time::test_now;
@@ -57,6 +57,20 @@ pub(crate) fn born_agent() -> (Server, ManualClock) {
     );
     server.control().create_agent(&seed()).unwrap();
     (server, clock)
+}
+
+/// Advance the clock just past the configured idle gap, so the next message opens a fresh
+/// session. Reads the live `idle_gap_seconds` rather than baking the default into a literal —
+/// the default's move cannot silently make the advance stop crossing the gap.
+pub(crate) fn advance_past_idle_gap(server: &Server, clock: &ManualClock) {
+    let idle_gap_ms = server
+        .control()
+        .settings()
+        .unwrap()
+        .compaction
+        .idle_gap_seconds
+        * MILLIS_PER_SECOND;
+    clock.advance_millis(idle_gap_ms + MILLIS_PER_SECOND);
 }
 
 pub(crate) fn run_lua_call(script: &str) -> Completion {

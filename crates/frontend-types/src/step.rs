@@ -71,6 +71,10 @@ pub enum EvalStep {
     /// merge is authored. When no proposal is present, `on_missing` decides — skip the step or fail
     /// the run.
     ConfirmProposedMerge { on_missing: OnMissing },
+    /// Advance the run's clock just past the configured idle gap, so the next turn opens a fresh
+    /// session. The millis are derived at execution time from the live `idle_gap_seconds` setting,
+    /// so a default change cannot silently make the advance stop crossing the gap.
+    AdvancePastIdleGap,
 }
 
 /// The serde default for [`EvalStep::TuneCheckpoint`]'s `flush_on_open`, matching the setting's own
