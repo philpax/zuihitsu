@@ -58,6 +58,12 @@ export function foldFrame(
       return { ...base, reasoning: "", reply: "", restarts: base.restarts + 1 };
     case "abandoned":
       return undefined;
+    default: {
+      // Exhaustive over ProgressKind: a new frame kind fails typecheck here rather than being
+      // silently dropped.
+      const unhandled: never = frame.kind;
+      return unhandled;
+    }
   }
 }
 

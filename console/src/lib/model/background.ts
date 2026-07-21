@@ -44,7 +44,10 @@ function backgroundMemoryIds(payload: EventPayload): string[] {
     case "LinksInferred":
       return [payload.memory];
     default:
-      return [];
+      // Only ever called for BACKGROUND_TYPES members (the caller gates on `isBackgroundEvent`), so
+      // any other variant reaching here means BACKGROUND_TYPES and this switch have drifted apart —
+      // add the new background type to the set and give it a case above.
+      throw new Error(`backgroundMemoryIds: ${payload.type} is not a background-pass type`);
   }
 }
 

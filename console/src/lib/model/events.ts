@@ -74,6 +74,7 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "LinksInferred":
       return "link";
     case "ConversationTurn":
+    case "TurnSuperseded":
     case "ParticipantJoined":
     case "ParticipantIdentified":
       return "conversation";
@@ -89,8 +90,22 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "ScheduledJobFired":
     case "ScheduledItemSurfaced":
       return "lifecycle";
-    default:
+    case "GenesisCompleted":
+    case "ConfigSet":
+    case "PromptTemplateRegistered":
+    case "EmbeddingModelChanged":
+    case "DescribePassCompleted":
+    case "ClassPrimaryDesignated":
       return "infra";
+    default: {
+      // The console's new-event tripwire (CONTRIBUTING: surface new state in the frontend). This
+      // switch is deliberately exhaustive: a new EventPayload variant regenerates into the wire
+      // union on the next `cargo build -p zuihitsu`, and typecheck fails here until the variant is
+      // categorised — and while you are here, give it a summary below and, if it renders, a viewer
+      // or transcript surface.
+      const unhandled: never = type;
+      return unhandled;
+    }
   }
 }
 
@@ -160,8 +175,28 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
       return payload.touched.includes(memoryId);
     case "AmbientRecallSurfaced":
       return payload.hits.some((hit) => hit.memory === memoryId);
-    default:
+    // Schema, lifecycle, and deliberation events with no single memory subject — they never key a
+    // per-memory history jump.
+    case "TagCreated":
+    case "TagDescriptionChanged":
+    case "LinkTypeRegistered":
+    case "TurnSuperseded":
+    case "ModelCalled":
+    case "ModelCallAborted":
+    case "ConversationEnded":
+    case "SessionEnded":
+    case "GenesisCompleted":
+    case "ConfigSet":
+    case "PromptTemplateRegistered":
+    case "EmbeddingModelChanged":
+    case "DescribePassCompleted":
+    case "ClassPrimaryDesignated":
       return false;
+    default: {
+      // Exhaustive — the new-event tripwire lives on eventCategory; categorise there first, then here.
+      const unhandled: never = payload;
+      return unhandled;
+    }
   }
 }
 
@@ -226,6 +261,8 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `attempt ${payload.attempt} discarded — ${payload.cause}`;
     case "AmbientRecallSurfaced":
       return `ambient recall — ${payload.hits.map((hit) => ref(hit.memory)).join(", ") || "nothing"}`;
+    case "TurnSuperseded":
+      return "a turn superseded before its reply";
     case "LuaExecuted":
       return payload.terminal_cause
         ? terminalCauseLabel(payload.terminal_cause)
@@ -240,8 +277,27 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${payload.name} v${payload.version}`;
     case "GenesisCompleted":
       return "genesis";
-    default:
-      return "";
+    case "TagDescriptionChanged":
+      return `#${payload.name} — ${payload.new_description}`;
+    case "ParticipantJoined":
+      return `${ref(payload.participant)} joined`;
+    case "ScheduledItemSurfaced":
+      return `${ref(payload.memory)} surfaced`;
+    case "SessionEnded":
+      return payload.cause ? `session ended — ${payload.cause.toLowerCase()}` : "session ended";
+    case "ConversationEnded":
+      return "conversation ended";
+    case "EmbeddingModelChanged":
+      return `${payload.from} → ${payload.to}`;
+    case "DescribePassCompleted":
+      return `described ${payload.memories.length} ${payload.memories.length === 1 ? "memory" : "memories"}`;
+    case "ClassPrimaryDesignated":
+      return `${ref(payload.memory)} — ${payload.designated ? "primary" : "no longer primary"}`;
+    default: {
+      // Exhaustive — the new-event tripwire lives on eventCategory; categorise there first, then here.
+      const unhandled: never = payload;
+      return unhandled;
+    }
   }
 }
 

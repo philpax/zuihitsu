@@ -561,6 +561,8 @@ function badgeTitle(provenance: TokenProvenance): string {
 }
 
 function sectionSwatch(kind: PromptSectionKind | undefined): string {
+  // A row with no section (a tool set, the message history) carries no swatch colour of its own.
+  if (kind === undefined) return "bg-line";
   switch (kind) {
     case "Scaffold":
       return "bg-ink";
@@ -574,7 +576,10 @@ function sectionSwatch(kind: PromptSectionKind | undefined): string {
       return "bg-sage-soft";
     case "CurrentTime":
       return "bg-clay-soft";
-    default:
-      return "bg-line";
+    default: {
+      // Exhaustive over PromptSectionKind: a new section kind fails typecheck here until it is named.
+      const unhandled: never = kind;
+      return unhandled;
+    }
   }
 }

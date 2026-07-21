@@ -88,7 +88,10 @@ function passGroupId(type: EventPayload["type"]): string {
     case "LinksInferred":
       return "link-inference";
     default:
-      return "other";
+      // Only ever called for BACKGROUND_TYPES members (`buildBackgroundEvents` filters to them), so
+      // any other variant reaching here means BACKGROUND_TYPES and this switch have drifted apart —
+      // add the new background type to the set and give it a group above.
+      throw new Error(`passGroupId: ${type} is not a background-pass type`);
   }
 }
 
@@ -96,13 +99,12 @@ function passGroupId(type: EventPayload["type"]): string {
 /// events within each group by seq (they are already seq-sorted from `buildBackgroundEvents`, but
 /// the explicit sort guards against any drift).
 function groupByPass(events: BackgroundEvent[]): PassGroup[] {
-  const order = ["description", "temporal-extraction", "arbitration", "link-inference", "other"];
+  const order = ["description", "temporal-extraction", "arbitration", "link-inference"];
   const labels: Record<string, string> = {
     description: "description",
     "temporal-extraction": "temporal extraction",
     arbitration: "arbitration",
     "link-inference": "link inference",
-    other: "other",
   };
   const byGroup = new Map<string, BackgroundEvent[]>();
   for (const event of events) {

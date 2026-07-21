@@ -7,6 +7,8 @@ import { LabeledDivider } from "../../components/primitives.tsx";
 /// cut, an idle timeout, or a recovery close (issue #86). `null` — a pre-cause log — falls back to the
 /// generic "continued".
 function seamLabel(previousEndCause: SessionEndCause | null): string {
+  // A pre-cause log records no cause — fall back to the generic "continued".
+  if (previousEndCause === null) return "re-briefed · continued";
   switch (previousEndCause) {
     case "Compaction":
       return "re-briefed · compaction";
@@ -14,8 +16,11 @@ function seamLabel(previousEndCause: SessionEndCause | null): string {
       return "re-briefed · idle gap";
     case "Recovery":
       return "re-briefed · recovered";
-    default:
-      return "re-briefed · continued";
+    default: {
+      // Exhaustive over SessionEndCause: a new cause fails typecheck here until it is named.
+      const unhandled: never = previousEndCause;
+      return unhandled;
+    }
   }
 }
 

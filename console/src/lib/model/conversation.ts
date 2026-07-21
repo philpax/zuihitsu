@@ -380,7 +380,42 @@ export function buildConversations(
         for (const id of payload.touched) touched.add(id);
         break;
       }
-      default: {
+      // Not transcript material: a graph-mutating outcome an agent's Lua committed is gathered as a
+      // candidate here (gated by OUTCOME_TYPES and the in-flight turn) and attributed to that turn in
+      // the second pass below; every other kind is folded elsewhere (the Background and Events views)
+      // and ignored here. Enumerated so a new EventPayload variant trips the never-check rather than
+      // being silently dropped.
+      case "MemoryCreated":
+      case "MemoryRenamed":
+      case "MemoryDeleted":
+      case "MemoryContentAppended":
+      case "MemorySuperseded":
+      case "EntryRetracted":
+      case "EntryTemporalResolved":
+      case "EntryTemporalResolveFailed":
+      case "EntryDescriptionMirrored":
+      case "MemoryDescriptionRegenerated":
+      case "BeliefArbitrated":
+      case "MemoryVolatilitySet":
+      case "TagCreated":
+      case "TagDescriptionChanged":
+      case "TagAppliedToMemory":
+      case "TagRemovedFromMemory":
+      case "LinkTypeRegistered":
+      case "LinkCreated":
+      case "LinkRemoved":
+      case "MergeProposed":
+      case "LinksInferred":
+      case "ParticipantJoined":
+      case "ParticipantIdentified":
+      case "ConversationEnded":
+      case "ScheduledJobFired":
+      case "GenesisCompleted":
+      case "ConfigSet":
+      case "PromptTemplateRegistered":
+      case "EmbeddingModelChanged":
+      case "DescribePassCompleted":
+      case "ClassPrimaryDesignated": {
         if (currentTurnId && OUTCOME_TYPES.has(payload.type)) {
           candidates.push({
             turnId: currentTurnId,
@@ -390,6 +425,12 @@ export function buildConversations(
             payload,
           });
         }
+        break;
+      }
+      default: {
+        // Exhaustive — the new-event tripwire lives on eventCategory; categorise there first, then here.
+        const unhandled: never = payload;
+        void unhandled;
       }
     }
   }
@@ -459,7 +500,16 @@ function outcomeMemoryIds(payload: EventPayload): string[] {
     case "LinkCreated":
     case "LinkRemoved":
       return [payload.from, payload.to];
-    default:
+    // Schema outcomes — a tag or relation registration — target no memory: attributed by being
+    // inside a turn at all. They are OUTCOME_TYPES members, so they reach here legitimately.
+    case "TagCreated":
+    case "TagDescriptionChanged":
+    case "LinkTypeRegistered":
       return [];
+    default:
+      // Only ever called for OUTCOME_TYPES members (the second-pass candidates are gated by the
+      // set), so any other variant reaching here means OUTCOME_TYPES and this switch have drifted
+      // apart — add the new outcome type to the set and give it a case above.
+      throw new Error(`outcomeMemoryIds: ${payload.type} is not an outcome type`);
   }
 }

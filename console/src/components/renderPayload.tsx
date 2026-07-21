@@ -261,5 +261,9 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
 /// Dispatch a payload to its bespoke render, trying the interaction cases first (the larger set),
 /// then the memory cases, then the readable tree fallback.
 export function renderPayload(ctx: RenderContext): ReactNode {
+  // The `Tree` fallback is a deliberate, visible catch-all: an unhandled payload renders as raw but
+  // legible JSON rather than vanishing, so a new variant is never silently dropped from the viewer.
+  // Conscious handling is forced upstream — the exhaustive tripwire pair in `lib/model/events.ts`
+  // (`eventCategory`, then `eventSummary`) fails the build until a new event is categorised.
   return renderInteractionPayload(ctx) ?? renderMemoryPayload(ctx) ?? <Tree value={ctx.payload} />;
 }
