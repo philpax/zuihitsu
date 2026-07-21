@@ -4,8 +4,7 @@
 //! the runtime rejects — the scaffold is one of three gates (with the Lua registration and the API
 //! reference) that move in lockstep.
 //!
-//! Editing a body changes the baked scaffold, so bump that template's version. The trailing spaces
-//! in `synthesis/link_inference.md` are load-bearing, kept so the body stays byte-stable.
+//! Editing a body changes the baked scaffold, so bump that template's version.
 
 use crate::{
     InstanceFeatures,
@@ -46,11 +45,11 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             body: body_of(include_str!("turn/imprint.md")),
         },
         // A coined directional relation is easy to link the wrong way round, so the body has the
-        // model restate the edge against each relation's rendered sentence reading before choosing
-        // `direction`.
+        // model express each link as a subject–relation–object sentence — the direction is carried
+        // by the sentence itself, not by a separate flag the model would have to reason out.
         TemplateDef {
             name: PromptTemplateName::LinkInference,
-            version: 4,
+            version: 5,
             body: body_of(include_str!("synthesis/link_inference.md")),
         },
     ]
