@@ -15,6 +15,53 @@ use crate::{
     store::StoreError,
 };
 
+/// A wrongly-shaped argument to a Lua API function — a table where a string was wanted, or the
+/// reverse — caught at the argument boundary and reworded from mlua's raw "error converting Lua table
+/// to String" (which names neither the function nor the fix) into a teachable message. It names the
+/// function, what the position expected, what arrived, and the correct one-line call, so a shape slip
+/// teaches the signature at its point of failure rather than leaving the agent to guess. Raised by the
+/// [`arg`](crate::agent::lua::runtime::arg) helper, which delegates to the real `FromLua` conversion
+/// and only rewords its failure, so Luau's own string/number coercion is preserved.
+#[derive(Debug)]
+pub(super) struct ArgError {
+    /// The function's agent-facing name, e.g. `"memory.search"` or `"mem:append"`.
+    pub function: &'static str,
+    /// What the argument position expects, in the agent's words, e.g. `"a query string"`.
+    pub expected: &'static str,
+    /// The Luau type that arrived instead, e.g. `"table"`.
+    pub got: &'static str,
+    /// The correct call, shown so the agent reissues it directly, e.g.
+    /// `"pass the search text directly, memory.search(\"dave\")"`.
+    pub hint: &'static str,
+}
+
+impl std::fmt::Display for ArgError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ArgError {
+            function,
+            expected,
+            got,
+            hint,
+        } = self;
+        // Read "got a table" for a value in the wrong shape, but "got nil" for an omitted argument, so
+        // the wording stays natural whichever way the call was malformed.
+        let arrived = if *got == "nil" {
+            "nil".to_owned()
+        } else {
+            format!("a {got}")
+        };
+        write!(f, "{function}: expected {expected}, got {arrived} — {hint}")
+    }
+}
+
+impl std::error::Error for ArgError {}
+
+impl From<ArgError> for LuaError {
+    fn from(error: ArgError) -> Self {
+        LuaError::RuntimeError(error.to_string())
+    }
+}
+
 /// A bad argument to a `calendar.*` constructor or a date-arithmetic method.
 #[derive(Debug)]
 pub(super) enum CalendarError {

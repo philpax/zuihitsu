@@ -20,9 +20,16 @@ pub(crate) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
         "create",
         lua.create_async_function({
             let api = api.clone();
-            move |lua, (subject, relation, object, opts): (Value, String, Value, Value)| {
+            move |lua, (subject, relation, object, opts): (Value, Value, Value, Value)| {
                 let api = api.clone();
                 async move {
+                    let relation: String = arg(
+                        &lua,
+                        relation,
+                        "links.create",
+                        "a relation name string",
+                        "links.create(subject, \"knows\", object)",
+                    )?;
                     // Neither endpoint may be a fuzzy search hit the query did not name — a
                     // relationship recorded against the wrong referent is the same error `:append`
                     // guards, so gate both before resolving them.
@@ -55,9 +62,16 @@ pub(crate) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
         "remove",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (subject, relation, object): (Value, String, Value)| {
+            move |lua, (subject, relation, object): (Value, Value, Value)| {
                 let api = api.clone();
                 async move {
+                    let relation: String = arg(
+                        &lua,
+                        relation,
+                        "links.remove",
+                        "a relation name string",
+                        "links.remove(subject, \"knows\", object)",
+                    )?;
                     let from = link_target_id(&api, subject)?;
                     let to = link_target_id(&api, object)?;
                     api.lock_all([from, to]).await;
@@ -120,10 +134,17 @@ pub(crate) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
         "get",
         lua.create_async_function({
             let api = api.clone();
-            move |lua, name: String| {
+            move |lua, name: Value| {
                 let api = api.clone();
                 let result_metatable = result_metatable.clone();
                 async move {
+                    let name: String = arg(
+                        &lua,
+                        name,
+                        "links.get",
+                        "a relation name string",
+                        "links.get(\"knows\")",
+                    )?;
                     let view = api
                         .block
                         .lock()

@@ -110,7 +110,14 @@ pub(crate) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
     calendar.set("next", {
         let api = api.clone();
         let dmt = date_metatable.clone();
-        lua.create_function(move |lua, weekday: String| {
+        lua.create_function(move |lua, weekday: Value| {
+            let weekday: String = arg(
+                lua,
+                weekday,
+                "calendar.next",
+                "a weekday name string",
+                "calendar.next(\"monday\")",
+            )?;
             let now = api.block.lock().now();
             let day = time::next_weekday(now, &weekday)
                 .ok_or(CalendarError::NotAWeekday { input: weekday })?;
@@ -135,7 +142,14 @@ pub(crate) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> ml
     }
     calendar.set("date", {
         let dmt = date_metatable.clone();
-        lua.create_function(move |lua, day: String| {
+        lua.create_function(move |lua, day: Value| {
+            let day: String = arg(
+                lua,
+                day,
+                "calendar.date",
+                "a \"YYYY-MM-DD\" date string",
+                "calendar.date(\"2026-06-03\")",
+            )?;
             if time::civil_date_to_millis(&day).is_none() {
                 return Err(CalendarError::InvalidDate { input: day }.into());
             }

@@ -2,6 +2,7 @@
 //! the lifecycle (`mod.rs`) and the Lua-table builders (`tables.rs`): lock acquisition and release,
 //! handle minting, error routing, the `memory.search` runner, and value rendering.
 
+mod args;
 mod handles;
 mod inspect;
 mod placeholder;
@@ -24,6 +25,7 @@ use crate::{
 
 use crate::agent::lua::error::MissingReturnError;
 
+pub(crate) use args::arg;
 pub(crate) use handles::{
     HandleSelf, SEARCH_QUERY_FIELD, entry_handle_id, entry_selector, fold_lower, get_argument_name,
     guard_search_taint, guard_search_write, handle_id, link_target_id, make_capped_handle_list,

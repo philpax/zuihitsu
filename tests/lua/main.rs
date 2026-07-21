@@ -30,6 +30,7 @@ pub(crate) const TEST_MAX_BLOCK_ATTEMPTS: u32 = 3;
 /// passes, while still exercising the limit in the dedicated oversized-content tests.
 pub(crate) const TEST_MAX_ENTRY_CHARS: usize = 10_000;
 
+mod arg_shape;
 mod block;
 mod block_part2;
 mod calendar;

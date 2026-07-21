@@ -20,10 +20,24 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, (name, content, opts): (String, Option<String>, Value)| {
+            move |lua, (name, content, opts): (Value, Value, Value)| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
+                    let name: String = arg(
+                        &lua,
+                        name,
+                        "memory.create",
+                        "a memory name string",
+                        "pass the handle directly, memory.create(\"person/dave\")",
+                    )?;
+                    let content: Option<String> = arg(
+                        &lua,
+                        content,
+                        "memory.create",
+                        "the first entry's text as a string (or nil for none)",
+                        "memory.create(\"person/dave\", \"met at the conference\")",
+                    )?;
                     check_interpolated("memory name", &name)?;
                     if let Some(content) = &content {
                         check_interpolated("entry text", content)?;
@@ -77,11 +91,18 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
         lua.create_async_function({
             let api = api.clone();
             let metatable = metatable.clone();
-            move |lua, (target, content, opts): (Value, Option<String>, Value)| {
+            move |lua, (target, content, opts): (Value, Value, Value)| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 async move {
                     let name = get_argument_name(&api, target)?;
+                    let content: Option<String> = arg(
+                        &lua,
+                        content,
+                        "memory.get_or_create",
+                        "the first entry's text as a string (or nil for none)",
+                        "memory.get_or_create(\"person/dave\", \"met at the conference\")",
+                    )?;
                     if let Some(content) = &content {
                         check_interpolated("entry text", content)?;
                     }
@@ -122,10 +143,17 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
         lua.create_async_function({
             let api = api.clone();
             let result_metatable = result_metatable.clone();
-            move |lua, (query, opts): (String, Value)| {
+            move |lua, (query, opts): (Value, Value)| {
                 let api = api.clone();
                 let result_metatable = result_metatable.clone();
                 async move {
+                    let query: String = arg(
+                        &lua,
+                        query,
+                        "memory.search",
+                        "a query string",
+                        "pass the search text directly, memory.search(\"dave\")",
+                    )?;
                     check_interpolated("search query", &query)?;
                     let (engine, present_set) = api.block.lock().retrieval_handle();
                     let opts: SearchOpts = if opts.is_nil() {
@@ -219,11 +247,18 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
             let api = api.clone();
             let metatable = metatable.clone();
             let list_metatable = list_metatable.clone();
-            move |lua, prefix: Option<String>| {
+            move |lua, prefix: Value| {
                 let api = api.clone();
                 let metatable = metatable.clone();
                 let list_metatable = list_metatable.clone();
                 async move {
+                    let prefix: Option<String> = arg(
+                        &lua,
+                        prefix,
+                        "memory.list",
+                        "a name-prefix string like \"person/\"",
+                        "memory.list(\"person/\") to find handles by stem",
+                    )?;
                     let prefix = prefix.unwrap_or_default();
                     if prefix.trim().is_empty() {
                         return Err(ListError::EmptyPrefix.into());

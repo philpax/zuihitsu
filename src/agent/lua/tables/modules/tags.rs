@@ -12,9 +12,23 @@ pub(crate) fn tags_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
         "create",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (name, description): (String, String)| {
+            move |lua, (name, description): (Value, Value)| {
                 let api = api.clone();
                 async move {
+                    let name: String = arg(
+                        &lua,
+                        name,
+                        "tags.create",
+                        "a tag name string",
+                        "tags.create(\"priority\", \"needs attention this week\")",
+                    )?;
+                    let description: String = arg(
+                        &lua,
+                        description,
+                        "tags.create",
+                        "a one-line purpose string",
+                        "tags.create(\"priority\", \"needs attention this week\")",
+                    )?;
                     check_interpolated("tag name", &name)?;
                     check_interpolated("tag purpose", &description)?;
                     api.block
@@ -30,9 +44,23 @@ pub(crate) fn tags_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
         "describe",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (name, description): (String, String)| {
+            move |lua, (name, description): (Value, Value)| {
                 let api = api.clone();
                 async move {
+                    let name: String = arg(
+                        &lua,
+                        name,
+                        "tags.describe",
+                        "a tag name string",
+                        "tags.describe(\"priority\", \"needs attention this week\")",
+                    )?;
+                    let description: String = arg(
+                        &lua,
+                        description,
+                        "tags.describe",
+                        "a one-line purpose string",
+                        "tags.describe(\"priority\", \"needs attention this week\")",
+                    )?;
                     check_interpolated("tag purpose", &description)?;
                     api.block
                         .lock()

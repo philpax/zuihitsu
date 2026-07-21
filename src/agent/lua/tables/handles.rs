@@ -32,10 +32,17 @@ pub(super) fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, (this, text, opts): (HandleSelf, String, Value)| {
+            move |lua, (this, text, opts): (HandleSelf, Value, Value)| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
+                    let text: String = arg(
+                        &lua,
+                        text,
+                        "mem:append",
+                        "the entry text as a string",
+                        "mem:append(\"leads the volcano project\")",
+                    )?;
                     check_interpolated("entry text", &text)?;
                     guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
@@ -94,10 +101,17 @@ pub(super) fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, (this, text): (HandleSelf, String)| {
+            move |lua, (this, text): (HandleSelf, Value)| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
+                    let text: String = arg(
+                        &lua,
+                        text,
+                        "mem:find_entry",
+                        "a distinctive phrase string from the entry",
+                        "mem:find_entry(\"leads the volcano project\")",
+                    )?;
                     let needle = fold_lower(text.trim());
                     if needle.is_empty() {
                         return Err(FindEntryError::EmptyNeedle.into());
@@ -235,9 +249,16 @@ pub(super) fn install_handle_methods(
         "retract",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, entry, reason): (HandleSelf, Value, String)| {
+            move |lua, (this, entry, reason): (HandleSelf, Value, Value)| {
                 let api = api.clone();
                 async move {
+                    let reason: String = arg(
+                        &lua,
+                        reason,
+                        "mem:retract",
+                        "the reason as a string",
+                        "mem:retract(entry, \"filed on the wrong memory\")",
+                    )?;
                     check_interpolated("retraction reason", &reason)?;
                     guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
@@ -262,10 +283,24 @@ pub(super) fn install_handle_methods(
         lua.create_async_function({
             let api = api.clone();
             let entry_metatable = entry_metatable.clone();
-            move |lua, (this, old, text, opts): (HandleSelf, Table, String, Value)| {
+            move |lua, (this, old, text, opts): (HandleSelf, Value, Value, Value)| {
                 let api = api.clone();
                 let entry_metatable = entry_metatable.clone();
                 async move {
+                    let old: Table = arg(
+                        &lua,
+                        old,
+                        "mem:revise",
+                        "the entry handle being corrected (from mem:entries or mem:find_entry)",
+                        "mem:revise(mem:find_entry(\"old text\"), \"corrected text\")",
+                    )?;
+                    let text: String = arg(
+                        &lua,
+                        text,
+                        "mem:revise",
+                        "the corrected text as a string",
+                        "mem:revise(entry, \"corrected text\")",
+                    )?;
                     check_interpolated("entry text", &text)?;
                     guard_search_write(&this.0)?;
                     let id = handle_id(&this.0)?;
@@ -303,11 +338,26 @@ pub(super) fn install_handle_methods(
                     let api = api.clone();
                     let memory_metatable = memory_metatable.clone();
                     let link_metatable = link_metatable.clone();
-                    move |lua, (this, relation): (HandleSelf, String)| {
+                    move |lua, (this, relation): (HandleSelf, Value)| {
                         let api = api.clone();
                         let memory_metatable = memory_metatable.clone();
                         let link_metatable = link_metatable.clone();
                         async move {
+                            let relation: String = arg(
+                                &lua,
+                                relation,
+                                if incoming {
+                                    "mem:incoming"
+                                } else {
+                                    "mem:outgoing"
+                                },
+                                "a relation name string",
+                                if incoming {
+                                    "mem:incoming(\"knows\")"
+                                } else {
+                                    "mem:outgoing(\"knows\")"
+                                },
+                            )?;
                             let id = handle_id(&this.0)?;
                             api.lock_class(id).await?;
                             let links = {
@@ -362,9 +412,16 @@ pub(super) fn install_handle_methods(
             "propose_merge",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, other, opts): (HandleSelf, Table, Option<Table>)| {
+                move |lua, (this, other, opts): (HandleSelf, Value, Option<Table>)| {
                     let api = api.clone();
                     async move {
+                        let other: Table = arg(
+                            &lua,
+                            other,
+                            "mem:propose_merge",
+                            "the other memory's handle (from memory.get or memory.create)",
+                            "mem:propose_merge(memory.get(\"person/dave@slack\"))",
+                        )?;
                         let (from, to) = (handle_id(&this.0)?, handle_id(&other)?);
                         let rationale = match opts {
                             Some(opts) => opts
@@ -395,9 +452,16 @@ pub(super) fn install_handle_methods(
             "tag",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, name): (HandleSelf, String)| {
+                move |lua, (this, name): (HandleSelf, Value)| {
                     let api = api.clone();
                     async move {
+                        let name: String = arg(
+                            &lua,
+                            name,
+                            "mem:tag",
+                            "a tag name string",
+                            "mem:tag(\"priority\")",
+                        )?;
                         let id = handle_id(&this.0)?;
                         api.lock(id).await;
                         api.block
@@ -412,9 +476,16 @@ pub(super) fn install_handle_methods(
             "untag",
             lua.create_async_function({
                 let api = api.clone();
-                move |_, (this, name): (HandleSelf, String)| {
+                move |lua, (this, name): (HandleSelf, Value)| {
                     let api = api.clone();
                     async move {
+                        let name: String = arg(
+                            &lua,
+                            name,
+                            "mem:untag",
+                            "a tag name string",
+                            "mem:untag(\"priority\")",
+                        )?;
                         let id = handle_id(&this.0)?;
                         api.lock(id).await;
                         api.block
@@ -434,9 +505,16 @@ pub(super) fn install_handle_methods(
         "set_volatility",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, level): (HandleSelf, String)| {
+            move |lua, (this, level): (HandleSelf, Value)| {
                 let api = api.clone();
                 async move {
+                    let level: String = arg(
+                        &lua,
+                        level,
+                        "mem:set_volatility",
+                        "one of the level strings \"low\", \"medium\", or \"high\"",
+                        "mem:set_volatility(\"high\")",
+                    )?;
                     let id = handle_id(&this.0)?;
                     api.lock(id).await;
                     api.block
@@ -454,9 +532,16 @@ pub(super) fn install_handle_methods(
         "rename",
         lua.create_async_function({
             let api = api.clone();
-            move |_, (this, new_name): (HandleSelf, String)| {
+            move |lua, (this, new_name): (HandleSelf, Value)| {
                 let api = api.clone();
                 async move {
+                    let new_name: String = arg(
+                        &lua,
+                        new_name,
+                        "mem:rename",
+                        "the new handle as a string",
+                        "mem:rename(\"person/sarah\")",
+                    )?;
                     check_interpolated("memory name", &new_name)?;
                     // Renaming rewrites identity, so it is guarded like the content writers: a rename
                     // through a mismatched search hit — or of a name this block's searches tainted —

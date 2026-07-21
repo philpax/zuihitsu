@@ -25,7 +25,14 @@ pub(crate) fn convo_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
             let api = api.clone();
             let line_metatable = line_metatable.clone();
             let window_metatable = window_metatable.clone();
-            move |lua, id: String| {
+            move |lua, id: Value| {
+                let id: String = arg(
+                    lua,
+                    id,
+                    "convo.turn",
+                    "the turn id string from a [turn:<id>] token",
+                    "convo.turn(\"01J...\")",
+                )?;
                 let turn_id = TurnId(Ulid::from_string(&id).map_err(|source| {
                     TurnResolveError::InvalidTurnId {
                         id: id.clone(),
