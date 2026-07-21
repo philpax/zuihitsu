@@ -59,7 +59,8 @@ impl Graph {
             // buffer read path (which reads the store, not the graph), never folded into the projection.
             EventPayload::ModelCalled { .. }
             | EventPayload::ModelCallAborted { .. }
-            | EventPayload::AmbientRecallSurfaced { .. } => {}
+            | EventPayload::AmbientRecallSurfaced { .. }
+            | EventPayload::TurnSuperseded { .. } => {}
             // An embedding-model swap bears only on the vector index (a separate projection); it is
             // acted on at boot, never in the graph materializer.
             EventPayload::EmbeddingModelChanged { .. } => {}

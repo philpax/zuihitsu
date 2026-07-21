@@ -404,6 +404,19 @@ pub enum EventPayload {
         text: String,
         hits: Vec<AmbientHit>,
     },
+    /// Records a turn's cooperative supersession: a newer inbound batch overtook `turn_id` before its
+    /// reply was sent, so the turn ended with no agent `ConversationTurn`, and any blocks it committed
+    /// stay orphaned under it. Part of the prompt record, not graph state: the materializer projects
+    /// nothing from it, but the buffer read path replays `text` as a system message so the successor
+    /// turn is told the seam exists — without it, two back-to-back participant messages read as "the
+    /// earlier one was answered", and the successor answers only the interrupt. `text` is the exact
+    /// rendered hint, stored verbatim so a later replay is byte-identical to the live prompt (the
+    /// serving layer's prefix cache then survives).
+    TurnSuperseded {
+        conversation: ConversationId,
+        turn_id: TurnId,
+        text: String,
+    },
     /// A turn in the conversation: an inbound participant message, the agent's response (a reply, a
     /// silent terminal with empty `text`, or a surfaced `max_steps` error), or a system message.
     /// `participant` is the speaker of an inbound message (`None` for the agent's own and system

@@ -37,6 +37,7 @@ impl EventPayload {
             EventPayload::ModelCalled { .. } => "ModelCalled",
             EventPayload::ModelCallAborted { .. } => "ModelCallAborted",
             EventPayload::AmbientRecallSurfaced { .. } => "AmbientRecallSurfaced",
+            EventPayload::TurnSuperseded { .. } => "TurnSuperseded",
             EventPayload::ConversationTurn { .. } => "ConversationTurn",
             EventPayload::ConversationStarted { .. } => "ConversationStarted",
             EventPayload::ConversationEnded { .. } => "ConversationEnded",
@@ -108,6 +109,7 @@ impl EventPayload {
             | EventPayload::ModelCalled { conversation, .. }
             | EventPayload::ModelCallAborted { conversation, .. }
             | EventPayload::AmbientRecallSurfaced { conversation, .. }
+            | EventPayload::TurnSuperseded { conversation, .. }
             | EventPayload::ConversationTurn { conversation, .. }
             | EventPayload::SessionStarted { conversation, .. }
             | EventPayload::SessionEnded { conversation, .. }

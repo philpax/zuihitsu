@@ -97,6 +97,25 @@ pub fn buffer_turns(
                     produced_by,
                 });
             }
+            // The supersession seam hint replays as a system turn at its log position — right after
+            // the interrupting participant turn — so the successor is told the earlier message was
+            // never answered. Byte-identity reasoning on the payload's doc.
+            EventPayload::TurnSuperseded {
+                conversation: turn_conversation,
+                turn_id,
+                text,
+            } if turn_conversation == conversation => {
+                turns.push(TurnView {
+                    seq: event.seq,
+                    turn_id,
+                    role: TurnRole::System,
+                    text,
+                    participant: None,
+                    recorded_at: event.recorded_at,
+                    steps: Vec::new(),
+                    produced_by: None,
+                });
+            }
             // The ambient recall hint replays as a system turn at its log position — the byte-identity
             // reasoning lives on the payload's doc.
             EventPayload::AmbientRecallSurfaced {

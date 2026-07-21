@@ -236,6 +236,18 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "TurnSuperseded":
+      return (
+        <Fields>
+          <Field label="turn">
+            <span className="font-mono text-2xs">{payload.turn_id}</span>
+          </Field>
+          <Field label="hint">
+            <span className="whitespace-pre-wrap text-ink-faint">{payload.text}</span>
+          </Field>
+        </Fields>
+      );
+
     case "ConversationTurn":
       return (
         <Fields>

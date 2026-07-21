@@ -355,6 +355,18 @@ impl EventPayload {
         }
     }
 
+    pub fn turn_superseded(
+        conversation: ConversationId,
+        turn_id: TurnId,
+        text: impl Into<String>,
+    ) -> EventPayload {
+        EventPayload::TurnSuperseded {
+            conversation,
+            turn_id,
+            text: text.into(),
+        }
+    }
+
     pub fn session_ended(
         conversation: ConversationId,
         id: SessionId,

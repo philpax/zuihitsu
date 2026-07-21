@@ -159,6 +159,14 @@ export type DeliberationStep =
       seq: number;
       text: string;
       memories: string[];
+    }
+  | {
+      /// The supersession seam marker: the turn was overtaken by a newer message before its reply
+      /// was sent, so its committed steps stand with no answer beneath them. The `text` is the exact
+      /// system hint the successor turn's buffer replays.
+      kind: "superseded";
+      seq: number;
+      text: string;
     };
 
 /// The shape a turn materialises through. A turn is built up incrementally — the fold creates it at
@@ -342,6 +350,16 @@ export function buildConversations(
           memories: payload.hits.map((hit) => hit.memory),
         });
         currentTurnId = payload.turn_id;
+        break;
+      }
+      case "TurnSuperseded": {
+        // The marker closes the dead turn's deliberation: the steps above it are the committed
+        // record, and the marker states that no reply followed.
+        turn(payload.conversation, payload.turn_id, event.seq).deliberation.push({
+          kind: "superseded",
+          seq: event.seq,
+          text: payload.text,
+        });
         break;
       }
       case "LuaExecuted": {

@@ -305,6 +305,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         EventPayload::AmbientRecallSurfaced { hits, .. } => {
             format!("ambient recall: {} memories", hits.len())
         }
+        EventPayload::TurnSuperseded { turn_id, .. } => {
+            format!("turn {} superseded before its reply", turn_id.0)
+        }
         EventPayload::EmbeddingModelChanged { from, to } => {
             format!("embedding model {from} → {to}")
         }
@@ -412,6 +415,7 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         EventPayload::ModelCalled { .. }
         | EventPayload::ModelCallAborted { .. }
         | EventPayload::AmbientRecallSurfaced { .. }
+        | EventPayload::TurnSuperseded { .. }
         | EventPayload::LuaExecuted { .. }
         | EventPayload::GenesisCompleted { .. }
         | EventPayload::ConfigSet { .. }

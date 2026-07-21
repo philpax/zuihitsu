@@ -281,6 +281,19 @@ async fn a_second_batch_supersedes_the_in_flight_turn() {
         winner_prompt.contains(FIRST_MARK) && winner_prompt.contains(SECOND_MARK),
         "the winner's prompt carries both the first message and the correction"
     );
+
+    // The supersession seam marker: durable in the log (one per supersession), and replayed into the
+    // winner's prompt as a system turn, so the successor is told the earlier request went unanswered
+    // rather than reading two back-to-back messages as "the first was handled".
+    let markers = events
+        .iter()
+        .filter(|event| matches!(event.payload, EventPayload::TurnSuperseded { .. }))
+        .count();
+    assert_eq!(markers, 1, "one seam marker per supersession");
+    assert!(
+        winner_prompt.contains("superseded by the newest message"),
+        "the winner's prompt carries the seam hint"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -617,8 +617,33 @@ pub(crate) async fn run_steps(
         TurnOutcome::MaxStepsExceeded
     };
 
+    // A superseded turn ends with no agent `ConversationTurn`, so nothing in the log would tell the
+    // successor the earlier message went unanswered — two back-to-back participant messages read as
+    // "the first was handled", and the successor answers only the interrupt. Record the seam as a
+    // replayed system hint (the ambient-recall shape: the exact text stored verbatim, so every later
+    // replay is byte-identical and the prefix cache survives). Appended after the interrupting
+    // participant turn, which is where the seam sits in the buffer.
+    if matches!(outcome, TurnOutcome::Superseded) {
+        engine.store.lock().append(
+            engine.clock.now(),
+            EventSource::Orchestration,
+            vec![EventPayload::turn_superseded(
+                conversation,
+                context.turn_id,
+                SUPERSEDED_HINT,
+            )],
+        )?;
+    }
+
     Ok((outcome, peak_prompt_tokens, steps, blocks))
 }
+
+/// The seam hint a superseded turn leaves for its successor — the one place the burst's shape is
+/// stated. Structural on purpose: it points at the seam and states that nothing was sent, letting
+/// the model reread the outstanding messages itself rather than trusting a summarized restatement.
+const SUPERSEDED_HINT: &str = "The reply being composed to the conversation above was superseded \
+    by the newest message before anything was sent — the earlier request has not been answered. \
+    Answer the outstanding messages as one reply; work already recorded above stands.";
 
 /// Whether a reply's text leaks model chat-template special-token markup — the `<|` or `|>`
 /// delimiters that wrap a backend's special tokens (`<|tool_call|>`, `<|im_start|>`, and the like).

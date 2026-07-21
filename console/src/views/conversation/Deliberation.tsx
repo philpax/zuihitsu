@@ -53,6 +53,8 @@ export function Deliberation({
               <AbortedStep key={index} step={step} />
             ) : step.kind === "ambient" ? (
               <AmbientStep key={index} step={step} />
+            ) : step.kind === "superseded" ? (
+              <SupersededStep key={index} step={step} />
             ) : (
               <LuaStep key={index} step={step} />
             ),
@@ -106,6 +108,17 @@ function LuaStep({ step }: { step: Extract<DeliberationStep, { kind: "lua" }> })
           </p>
         )
       )}
+    </div>
+  );
+}
+
+/// The supersession seam marker — the turn was overtaken by a newer message before its reply went
+/// out. Rendered as quiet system material with a clay label, the replayed hint verbatim.
+function SupersededStep({ step }: { step: Extract<DeliberationStep, { kind: "superseded" }> }) {
+  return (
+    <div>
+      <div className="font-mono text-2xs text-clay lowercase">superseded</div>
+      <div className="mt-1 font-mono text-xs whitespace-pre-wrap text-ink-soft">{step.text}</div>
     </div>
   );
 }
