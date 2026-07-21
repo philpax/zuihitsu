@@ -98,6 +98,46 @@ fn an_operator_seed_about_a_person_takes_the_default_unclassified() {
 }
 
 #[test]
+fn agent_renames_stay_out_of_the_platform_namespace() {
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+    let stub = block
+        .create(Namespace::Person.with_name("rowan@chat"), None)
+        .unwrap();
+    let profile = block
+        .create(Namespace::Person.with_name("rowan"), None)
+        .unwrap();
+
+    // Moving a stub's name is refused: it mirrors the platform's view and follows the platform.
+    assert!(matches!(
+        block.rename(stub, "person/wren").unwrap_err(),
+        MemoryError::RenameOfPlatformHandle { .. }
+    ));
+    // Claiming the qualified shape for another memory is refused: first contact binds a platform
+    // identity by name, so the rename would squat a future participant's binding.
+    assert!(matches!(
+        block.rename(profile, "person/wren@chat").unwrap_err(),
+        MemoryError::RenameOntoPlatformHandle { .. }
+    ));
+    // The bare profile renames freely — the agent's own namespace.
+    block.rename(profile, "person/wren").unwrap();
+}
+
+#[test]
+fn operator_renames_may_touch_platform_handles() {
+    // The operator asserts from the console with connector-level authority, so the platform-namespace
+    // rename guards do not apply.
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Operator);
+    let stub = block
+        .create(Namespace::Person.with_name("rowan@chat"), None)
+        .unwrap();
+    block.rename(stub, "person/wren@chat").unwrap();
+}
+
+#[test]
 fn an_aside_about_another_person_defaults_private() {
     let graph = Graph::open_in_memory().unwrap();
     let clock = ManualClock::new(Timestamp::from_millis(1_000));

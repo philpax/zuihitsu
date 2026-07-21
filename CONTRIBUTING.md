@@ -154,6 +154,8 @@ The block VM is Luau, frozen with `Lua::sandbox(true)` (`src/agent/lua/mod.rs`).
 
 Console and platform URLs never reach the agent. A platform connector normalises every deep link to a canonical reference token — `[turn:<id>]` for a moment, `[mem:<id>]` for a memory — before a message posts; the console composer is one such connector, matching its own routes in the nav layer and minting tokens through the one parser (`message_refs` in `crates/core`). Core recognises tokens only: URL recognition is each frontend's own route matching, never the parser's. Agent-facing surfaces — the scaffold, the API reference, error messages — speak tokens only, never a URL.
 
+A connector also owns the platform-qualified namespace (`person/<user>@<platform>`): a stub's name mirrors the platform's view of the account, and agent renames are refused in both directions (see Identity → Renaming in `docs/data-model.md` for the full contract). A connector keyed by mutable handles renames its stubs when the platform-side name changes. One keyed by stable opaque ids — the Discord connector's snowflakes — never needs to: name changes arrive as identified attributes, and readable naming is delivered by a canonical bare `person/<name>` profile merged onto the stub.
+
 ### The seed ontology
 
 The relations seeded at genesis (`seed_relations()` in `src/agent/genesis/seed/mod.rs`) are a minimum-viable ontology: the structural universals the system itself leans on — identity, participation, composition, placement, origin, operatorship, and acquaintance. Social and environmental semantics are the agent's to coin at runtime, not ours to preload. Document any change to the set at `seed_relations()`, and point new prose there rather than restating it.

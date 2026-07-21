@@ -263,6 +263,18 @@ impl NamespacedMemoryName {
     pub fn operator() -> NamespacedMemoryName {
         Namespace::Person.with_name("operator")
     }
+
+    /// Whether this is a platform-qualified participant handle (`person/<user>@<platform>`) — the
+    /// shape [`Graph::participant_mint`](crate::graph::Graph::participant_mint) builds and
+    /// first-contact binding claims by name. The namespace is connector-owned: minted at first
+    /// contact, kept in step by the connector, and bound to whatever memory bears the qualified name
+    /// — so agent renames stay out of it in both directions. Any `@` in a person subject reads as
+    /// qualified: the convention reserves the character, so an email-shaped bare handle
+    /// (`person/dave@example.com`) is deliberately treated as platform territory too rather than
+    /// guessing which suffixes are platforms.
+    pub fn is_platform_qualified(&self) -> bool {
+        self.namespace == Namespace::Person && self.subject.contains('@')
+    }
 }
 
 impl From<NamespacedMemoryName> for MemoryName {

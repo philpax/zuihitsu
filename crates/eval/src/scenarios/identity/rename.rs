@@ -4,6 +4,12 @@
 //! through several conversations and checks the person's relationships and history carry across it;
 //! `ARenamedPersonIsRecognizedByTheirOldName` checks the agent still bridges the prior name — spoken by
 //! someone who hasn't heard of the change — to the renamed person, under the new name.
+//!
+//! The renamed person is always a third party the speakers report on, never a speaker: a speaker
+//! carries a platform-qualified stub (`person/<user>@<platform>`), and that namespace is
+//! connector-owned — the connector renames a stub when the platform-side name changes, which the
+//! harness cannot replicate and is not the property under test. Keeping the subject un-platformed
+//! makes the rename land on the bare profile, the one handle the agent legitimately renames.
 
 use std::sync::Arc;
 
@@ -30,10 +36,11 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
     ]
 }
 
-/// The full arc: Dave introduces himself, Erin says she knows him; in a later conversation Dave
-/// transitions and goes by Sarah; in a later one still, a newcomer asks who Sarah is. A correct agent
-/// renamed Dave's memory, so Sarah is the same person Erin knows — the friendship survived the rename —
-/// and the agent answers under the new name rather than treating Sarah as a stranger.
+/// The full arc: a colleague introduces Dave (a third party, never a speaker), Erin says she knows
+/// him; in a later conversation Erin relays that Dave has transitioned and goes by Sarah; in a later
+/// one still, a newcomer asks who Sarah is. A correct agent renamed Dave's memory, so Sarah is the
+/// same person Erin knows — the friendship survived the rename — and the agent answers under the new
+/// name rather than treating Sarah as a stranger.
 pub struct ARenameHoldsUp;
 
 #[async_trait]
@@ -42,9 +49,10 @@ impl Scenario for ARenameHoldsUp {
         ScenarioMeta {
             name: "a_rename_holds_up_across_conversations".to_owned(),
             category: Category::Identity,
-            description: "Dave introduces himself and Erin says she knows him; later he transitions \
-                          and goes by Sarah; later still a newcomer asks who Sarah is. The agent \
-                          should have renamed Dave's memory, so Sarah is the same person Erin knows."
+            description: "A colleague introduces Dave, and Erin says she knows him; later Erin \
+                          relays that Dave has transitioned and goes by Sarah; later still a \
+                          newcomer asks who Sarah is. The agent should have renamed Dave's memory, \
+                          so Sarah is the same person Erin knows."
                 .to_owned(),
             bar: Bar::Metric { threshold: 0.5 },
         }
@@ -58,12 +66,13 @@ impl Scenario for ARenameHoldsUp {
         vec![
             // Each phase is its own conversation in a different room, with time passing between, so the
             // agent cannot read a shared buffer — connecting them across the rename forces retrieval.
-            // Dave introduces himself.
+            // Marcus introduces Dave, who is not on the platform himself.
             Turn::new(
                 TEST_PLATFORM,
                 "onboarding",
-                "dave",
-                "Hi, I'm Dave — just started on the team this week.",
+                "marcus",
+                "Team news: Dave joined the platform crew this week — he's not on chat yet, but \
+                 you'll see his name on the rota.",
             )
             .into(),
             EvalStep::Settle,
@@ -82,12 +91,13 @@ impl Scenario for ARenameHoldsUp {
             EvalStep::Advance {
                 millis: PHASE_GAP_MS,
             },
-            // A separate conversation: Dave transitions and asks to be called Sarah.
+            // A separate conversation: Erin relays that Dave has transitioned and goes by Sarah.
             Turn::new(
                 TEST_PLATFORM,
-                "dave-dm",
-                "dave",
-                "Hey — I've transitioned, and I go by Sarah now (she/her). Please use that from here on.",
+                "team-news",
+                "erin",
+                "An update from Dave, with her blessing to share: she's transitioned and goes by \
+                 Sarah now (she/her). Please use Sarah from here on.",
             )
             .into(),
             EvalStep::Settle,
@@ -98,7 +108,7 @@ impl Scenario for ARenameHoldsUp {
             Turn::new(
                 TEST_PLATFORM,
                 "hallway",
-                "marcus",
+                "frank",
                 "I keep hearing the name Sarah around here — who is she, and does anyone know her well?",
             )
             .into(),
@@ -110,10 +120,10 @@ impl Scenario for ARenameHoldsUp {
         let renamed = analysis::memory_renamed(events);
 
         let evidence = format!(
-            "Earlier, Dave introduced himself to the team, and Erin said she knows him well — they \
-             went to college together. In a later conversation Dave said he had transitioned and now \
-             goes by Sarah. Later still, a newcomer asked who Sarah is and whether anyone knows her. \
-             The agent replied:\n\"{reply}\""
+            "Earlier, a colleague introduced Dave to the team, and Erin said she knows him well — \
+             they went to college together. In a later conversation Erin relayed, with Dave's \
+             blessing, that Dave has transitioned and now goes by Sarah. Later still, a newcomer \
+             asked who Sarah is and whether anyone knows her. The agent replied:\n\"{reply}\""
         );
         let judged = judge
             .assess(
@@ -153,9 +163,10 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
             name: "a_renamed_person_is_recognized_by_their_old_name".to_owned(),
             category: Category::Identity,
             description:
-                "Dave goes by Sarah after a transition; later someone who only knew the old \
-                          name asks after Dave. The agent should recognize Dave is now Sarah and \
-                          answer under the new name, not as an unknown person."
+                "A colleague reports that Dave, who handles deploys, has transitioned and goes \
+                          by Sarah; later someone who only knew the old name asks after Dave. The \
+                          agent should recognize Dave is now Sarah and answer under the new name, \
+                          not as an unknown person."
                     .to_owned(),
             bar: Bar::Metric { threshold: 0.5 },
         }
@@ -168,24 +179,26 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
     fn steps(&self) -> Vec<EvalStep> {
         vec![
             // Independent conversations across rooms and time, so the final answer must come from memory.
-            // Dave introduces himself and what he does.
+            // Erin puts Dave — not on the platform himself — on the record.
             Turn::new(
                 TEST_PLATFORM,
                 "ops",
-                "dave",
-                "Hey, I'm Dave — I handle the deploys around here.",
+                "erin",
+                "For the record: Dave handles the deploys around here — anything release-shaped \
+                 goes through him.",
             )
             .into(),
             EvalStep::Settle,
             EvalStep::Advance {
                 millis: PHASE_GAP_MS,
             },
-            // A separate conversation: Dave transitions and goes by Sarah.
+            // A separate conversation: Erin relays the transition.
             Turn::new(
                 TEST_PLATFORM,
-                "dave-dm",
-                "dave",
-                "Heads up: I've transitioned and go by Sarah now (she/her) — please use Sarah.",
+                "team-news",
+                "erin",
+                "Heads up from Dave, shared with her blessing: she's transitioned and goes by \
+                 Sarah now (she/her) — please use Sarah.",
             )
             .into(),
             EvalStep::Settle,
@@ -207,9 +220,10 @@ impl Scenario for ARenamedPersonIsRecognizedByTheirOldName {
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
 
         let evidence = format!(
-            "Earlier, Dave (who handles deploys) said he had transitioned and now goes by Sarah. \
-             Later, in another room, Frank — who only knew the old name — asked whether Dave still \
-             handles deploys. The agent replied:\n\"{reply}\""
+            "Earlier, a colleague put on record that Dave handles deploys, and later relayed — \
+             with Dave's blessing — that Dave has transitioned and now goes by Sarah. Later, in \
+             another room, Frank — who only knew the old name — asked whether Dave still handles \
+             deploys. The agent replied:\n\"{reply}\""
         );
         let judged = judge
             .assess(

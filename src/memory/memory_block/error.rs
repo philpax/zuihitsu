@@ -70,6 +70,14 @@ pub enum MemoryError {
     /// default is untouched: there the private landing is the aside guard working as designed, and
     /// this gate exists to make the create shortcut's acceptance of it loud instead of silent.
     VisibilityRequiredOnCreate,
+    /// An agent rename tried to move a platform-qualified stub's name. The stub's name mirrors the
+    /// platform's view of the account and follows the platform — the connector renames it when the
+    /// platform-side name changes — so the agent renames the person's bare profile instead.
+    RenameOfPlatformHandle { name: MemoryName },
+    /// An agent rename targeted a platform-qualified name (`person/<user>@<platform>`) for another
+    /// memory. First contact binds a platform identity to whatever memory bears the qualified name,
+    /// so claiming the shape would squat a future participant's binding.
+    RenameOntoPlatformHandle { name: MemoryName },
     /// A `set_volatility` named a level that is not `low`, `medium`, or `high`.
     UnknownVolatility(String),
     /// An append or link set both `visibility` and `exclude`. An exclude *is* a private posture (a
@@ -195,6 +203,20 @@ impl std::fmt::Display for MemoryError {
                  append under the guard; inline content about a person otherwise takes a silent \
                  default, private-to-teller for a participant-told fact, and the fact is lost to \
                  every other audience"
+            ),
+            MemoryError::RenameOfPlatformHandle { name } => write!(
+                f,
+                "{:?} is the platform's own handle for this account — its name is the connector's \
+                 concern and follows the platform's side. Rename the person's bare person/<name> \
+                 profile instead, or propose a merge if two identities need joining",
+                name.as_str()
+            ),
+            MemoryError::RenameOntoPlatformHandle { name } => write!(
+                f,
+                "{:?} is shaped like a platform handle (person/<user>@<platform>), a \
+                 namespace the connectors own — a future first contact from that platform would \
+                 bind to whatever memory holds this name. Use a bare person/<name> for the profile",
+                name.as_str()
             ),
             MemoryError::UnknownVolatility(level) => write!(
                 f,

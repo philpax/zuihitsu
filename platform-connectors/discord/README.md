@@ -95,6 +95,12 @@ set `reply_to = "addressed"` to forward only mentions and replies.
 - **Presence**: the present set is per-channel and grows lazily — a user is added when they send a
   message the bot processes. Departures remove the user from every channel. The connector does not
   call `/platform/join`; presence is communicated per-message through the `present` field.
+- **Identity**: every participant is keyed by their stable snowflake — stubs mint as
+  `person/<snowflake>@discord`, and the `(platform, platform_user_id)` binding, not the name, routes
+  messages. A username or display-name change on Discord therefore never renames the stub; the new
+  names arrive as identified attributes instead. Readable naming is the semantic layer's job — a
+  canonical bare `person/<name>` profile merged onto the stub — per the connector rename contract
+  (Identity → Renaming in `docs/data-model.md`).
 
 ## manual e2e test procedure
 

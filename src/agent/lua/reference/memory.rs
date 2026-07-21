@@ -376,7 +376,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                  than creating a new one, which would split the person in two. It keeps all its facts, \
                  links, and history; the old name stops resolving, so use the new name from now on. \
                  Renaming onto a handle that already belongs to a different memory is an error — that is \
-                 two people, not a rename."
+                 two people, not a rename. Platform handles ({person}<user>@<platform>) are the \
+                 connectors' own and follow the platform: rename the person's bare {person}<name> \
+                 profile, never a platform handle."
             ),
         )
         .required("name", AT::String, format!("the new handle, e.g. \"{person}sarah\""));

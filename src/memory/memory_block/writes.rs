@@ -122,20 +122,38 @@ impl MemoryBlock {
     /// a memory to the name it already holds is a no-op.
     pub fn rename(&mut self, id: MemoryId, new_name: &str) -> Result<(), MemoryError> {
         self.guard_self(id)?;
-        match self.resolve(new_name)? {
-            Some(existing) if existing == id => return Ok(()),
-            Some(_) => {
-                let name = MemoryName::new(new_name);
-                let similar = self.similar_names(&name)?;
-                return Err(MemoryError::NameExists { name, similar });
-            }
-            None => {}
+        // The no-op first, so renaming any memory — a platform stub included — to its own current
+        // name stays the documented no-op rather than tripping the shape guard below with a message
+        // about squatting a binding the memory already holds.
+        let existing = self.resolve(new_name)?;
+        if existing == Some(id) {
+            return Ok(());
+        }
+        // The platform-qualified namespace (`person/<user>@<platform>`) is connector-owned in both
+        // directions under platform authority: a first contact binds a platform identity to whatever
+        // memory bears the qualified name, so renaming onto the shape would squat a future
+        // participant's binding.
+        if self.authority == Authority::Platform && platform_qualified(new_name) {
+            return Err(MemoryError::RenameOntoPlatformHandle {
+                name: MemoryName::new(new_name),
+            });
+        }
+        if existing.is_some() {
+            let name = MemoryName::new(new_name);
+            let similar = self.similar_names(&name)?;
+            return Err(MemoryError::NameExists { name, similar });
         }
         // A rename always reaches here from a live handle, so the old name resolves; a vanished memory
         // is a defensive no-op (the materializer's update would touch no rows either).
         let Some(old_name) = self.resolve_name(id)? else {
             return Ok(());
         };
+        // The other direction of the same ownership: a bound stub's name mirrors the platform's view
+        // of the account and follows the platform — the connector renames it when the platform-side
+        // name changes. The agent renames the person's bare profile instead.
+        if self.authority == Authority::Platform && platform_qualified(old_name.as_str()) {
+            return Err(MemoryError::RenameOfPlatformHandle { name: old_name });
+        }
         self.touched.insert(id);
         self.buffer.push(EventPayload::memory_renamed(
             id,
@@ -388,6 +406,15 @@ impl MemoryBlock {
             .collect();
         Ok(most_similar(&namespaced.subject, candidates))
     }
+}
+
+/// Whether `name` is a platform-qualified participant handle (`person/<user>@<platform>`) — the
+/// connector-owned shape the rename guards key on. Parse failures read as unqualified, so a
+/// malformed name falls through to the ordinary checks rather than being mistaken for a stub.
+fn platform_qualified(name: &str) -> bool {
+    MemoryName::new(name)
+        .namespaced()
+        .is_ok_and(|name| name.is_platform_qualified())
 }
 
 /// The teller a content entry is stamped with: an explicit `told_by` (a relayed claim attributed to

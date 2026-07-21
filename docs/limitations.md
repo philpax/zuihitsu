@@ -42,7 +42,7 @@ This document is the register of the system's accepted residual risks and its re
 
 ## Recorded decisions
 
-- *No platform connectors are built.* No named platform adapters or external platform connectors exist (Discord, Slack, or others). The client surface is the web console's direct interface and the CLI's `send` and `join`; both normalise deep links to canonical `[turn:<id>]` tokens, so the [platform connector contract](../CONTRIBUTING.md#the-platform-connector-contract) is honoured, but no connector implements it. The Discord connector is tracked at #28.
+- *One platform connector is built.* The Discord connector (`platform-connectors/discord`) is the sole external platform adapter; Slack and others remain unbuilt. The console composer and the CLI's `send` and `join` honour the [platform connector contract](../CONTRIBUTING.md#the-platform-connector-contract) natively, and the Discord connector implements it — token normalisation, and the rename contract's id-keyed shape (snowflake-named stubs whose readable naming rides as identified attributes). Revisit as further platforms are wanted.
 
 - *A relationship-aware disclosure layer is not built.* The system does not bias disclosure by whether the present audience should hear about the subject's affairs; it needs a who-should-know-what model the system does not carry. Revisit if relationship-scoped disclosure becomes a real need rather than a hypothetical one.
 
