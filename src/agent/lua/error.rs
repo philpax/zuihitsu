@@ -8,7 +8,12 @@
 use mlua::Error as LuaError;
 use ulid::DecodeError as UlidError;
 
-use crate::{ids::EntryId, memory::search::SearchError, model::ModelError, store::StoreError};
+use crate::{
+    ids::{EntryId, MemoryName, NamespacedMemoryName},
+    memory::search::SearchError,
+    model::ModelError,
+    store::StoreError,
+};
 
 /// A bad argument to a `calendar.*` constructor or a date-arithmetic method.
 #[derive(Debug)]
@@ -294,10 +299,25 @@ impl std::fmt::Display for HandleError {
                 "retract's entry must be an entry object (from <memory>:entries or \
                  <memory>:history) or an entry-id string, got {type_name}"
             ),
-            HandleError::UnknownLinkTarget { name } => write!(
-                f,
-                "no memory named \"{name}\" — create it first, or check the casing"
-            ),
+            HandleError::UnknownLinkTarget { name } => {
+                // The operator anchor is minted by the imprint, never by the agent, so the generic
+                // "create it first" advice would steer a write at a reserved handle. Teach the real
+                // shape instead: operator facts and links belong on the operator's actual profile.
+                if name == MemoryName::from(NamespacedMemoryName::operator()).as_str() {
+                    write!(
+                        f,
+                        "person/operator does not exist yet — it is a provisional anchor minted \
+                         when an operator imprints, never created directly. Link to the operator's \
+                         real person/<name> profile instead; if you do not know who the operator \
+                         is, there is nothing to link"
+                    )
+                } else {
+                    write!(
+                        f,
+                        "no memory named \"{name}\" — create it first, or check the casing"
+                    )
+                }
+            }
             HandleError::WrongLinkTargetType { type_name } => write!(
                 f,
                 "a link's subject and object must each be a memory handle (from memory.get/create) \
