@@ -141,6 +141,11 @@ impl Client {
         self.checked(request)?.json().map_err(ClientError::Decode)
     }
 
+    /// `POST` to `path` with no body and deserialize the JSON response.
+    pub fn post_no_body<T: DeserializeOwned>(&self, path: &str) -> Result<T, ClientError> {
+        self.json(self.http.post(self.url(path)))
+    }
+
     /// Like [`Client::json`], but a `404` is `None` rather than an error (a not-found lookup).
     fn optional<T: DeserializeOwned>(
         &self,

@@ -21,6 +21,7 @@ use crate::cli::{
     debug::{self, DebugCommand},
     error::CliError,
     interact::{self, InteractCommand},
+    maintenance::{self, MaintenanceCommand},
     root,
     state::{self, StateCommand},
 };
@@ -76,6 +77,9 @@ enum Command {
     /// Diagnostics against the event log directly: events, briefs, reverts, and catalogues.
     #[command(subcommand)]
     Debug(DebugCommand),
+    /// Run maintenance passes on demand.
+    #[command(subcommand)]
+    Maintenance(MaintenanceCommand),
 }
 
 fn run() -> ExitCode {
@@ -126,6 +130,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Command::Interact(command) => interact::dispatch(&client, command),
         Command::State(command) => state::dispatch(&client, command),
         Command::Debug(command) => debug::dispatch(&client, &config, command),
+        Command::Maintenance(command) => maintenance::dispatch(&client, command),
     }
 }
 
