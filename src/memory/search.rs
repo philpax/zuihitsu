@@ -188,6 +188,8 @@ pub fn search(
                     }
                 }
             }
+            // Contextual vectors are for dedup/consolidation, not search.
+            Some(VectorKey::EntryContextual(_)) => {}
             None => {}
         }
     }

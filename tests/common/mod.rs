@@ -212,7 +212,7 @@ mod harness {
             let retrieval = self.engine.retrieval.as_ref().expect("retrieval attached");
             let from = retrieval.vectors.lock().cursor().unwrap().next();
             let events = self.engine.store.lock().read_from(from).unwrap();
-            let batch = embed_batch(retrieval.embedder.as_ref(), &events)
+            let batch = embed_batch(retrieval.embedder.as_ref(), &events, None)
                 .await
                 .unwrap();
             apply_batch(&mut **retrieval.vectors.lock(), batch).unwrap();

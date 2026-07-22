@@ -201,7 +201,7 @@ impl MemoryBlock {
                 if hit.score < threshold {
                     break;
                 }
-                if let Some(crate::model::index::VectorKey::Entry(entry_id)) =
+                if let Some(crate::model::index::VectorKey::EntryContextual(entry_id)) =
                     crate::model::index::VectorKey::parse(&hit.id)
                 {
                     // Check whether this entry is on the same class and still live.

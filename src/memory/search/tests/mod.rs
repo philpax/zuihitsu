@@ -17,7 +17,7 @@ use crate::{
     settings::{SearchSettings, Settings},
     store::{MemoryStore, Store},
     time::{CivilDate, TemporalRef, Timestamp},
-    vector::InMemoryVectorIndex,
+    vector::{InMemoryVectorIndex, VectorIndex},
     vocabulary::{RelationName, TagName},
 };
 
@@ -431,3 +431,46 @@ mod merging;
 mod occurrences;
 mod privacy;
 mod ranking;
+
+#[tokio::test]
+async fn search_ignores_entry_contextual_vectors() {
+    // Search should return hits from the Entry space but silently drop EntryContextual hits.
+    // Both spaces are populated with identical text (via the indexer with a resolver), so the
+    // search query matches both — but only the Entry hit should surface.
+    let mut corpus = Corpus::new();
+    let id = corpus
+        .add("topic/test", "A test memory", "a searchable fact", 0)
+        .await;
+
+    // Manually insert an EntryContextual vector using the same embedding as the raw Entry
+    // vector, so the only reason it doesn't surface is the explicit drop arm (not a low score).
+    let entry_id = EntryId::generate();
+    let raw_embedding = corpus
+        .embedder
+        .embed(&["a searchable fact".to_owned()])
+        .await
+        .unwrap()[0]
+        .clone();
+    corpus
+        .index
+        .upsert(crate::vector::VectorRecord {
+            id: crate::model::index::VectorKey::EntryContextual(entry_id).to_vector_id(),
+            embedding: raw_embedding,
+            model_id: corpus.embedder.model_id().into(),
+        })
+        .unwrap();
+
+    // Search for "a searchable fact" — the Entry hit should surface, but the
+    // EntryContextual hit should be silently dropped.
+    let hits = corpus.query("a searchable fact", 0, 10).await;
+    assert!(
+        !hits.is_empty(),
+        "search should return the Entry hit for the memory",
+    );
+    assert_eq!(
+        hits.len(),
+        1,
+        "search should not surface the EntryContextual hit"
+    );
+    assert_eq!(hits[0], id);
+}

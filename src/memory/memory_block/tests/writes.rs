@@ -2,17 +2,21 @@
 
 use std::collections::BTreeSet;
 
-use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
+use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block, block_with_retrieval};
 use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
     graph::{Graph, GraphError},
-    ids::{EntryId, MemoryId, Namespace},
+    ids::{EntryId, MemoryId, MemoryName, Namespace},
     memory::memory_block::{LinkOptions, RelationSpec},
+    model::embed::{Embedder, FakeEmbedder},
     store::{MemoryStore, Store},
     time::{Rrule, TemporalRef, Timestamp},
+    vector::{InMemoryVectorIndex, VectorIndex, VectorRecord},
     vocabulary::RelationName,
 };
+
+use std::sync::Arc;
 
 #[test]
 fn create_rejects_a_duplicate_name() {
@@ -1206,5 +1210,81 @@ fn graph_error_carries_a_memory_context_prefix() {
     assert_eq!(
         error.to_string(),
         "memory: materialized graph (malformed): a corrupt id"
+    );
+}
+
+#[tokio::test]
+async fn append_dedup_rejects_contextual_duplicate() {
+    // The dedup check should search the EntryContextual space, not the Entry space. Seed an
+    // EntryContextual vector for an existing live entry, then call append_dedup with the same
+    // contextual embedding — the FakeEmbedder is deterministic, so the same text embeds to the
+    // same vector, and the dedup check should reject the duplicate.
+    const DIMS: usize = 16;
+    let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new(DIMS));
+
+    let dave_name: MemoryName = Namespace::Person.with_name("dave").into();
+    let dave: MemoryId = MemoryId::generate();
+    let existing_entry = EntryId::generate();
+    let existing_text = "is a senior developer";
+
+    // Build a graph with the memory and its entry.
+    let mut store = MemoryStore::new();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            EventSource::Agent,
+            vec![
+                EventPayload::memory_created(dave, dave_name.clone()),
+                EventPayload::MemoryContentAppended {
+                    id: dave,
+                    entry_id: existing_entry,
+                    asserted_at: Timestamp::from_millis(1_000),
+                    occurred_at: None,
+                    text: existing_text.to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ],
+        )
+        .unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    // Seed the EntryContextual vector with the contextual embedding of the existing entry.
+    let mut vectors = InMemoryVectorIndex::new();
+    let contextual_text = crate::model::embed::contextual_text(dave_name.as_str(), existing_text);
+    let contextual_embedding = embedder.embed(&[contextual_text]).await.unwrap().remove(0);
+    vectors
+        .upsert(VectorRecord {
+            id: crate::model::index::VectorKey::EntryContextual(existing_entry).to_vector_id(),
+            embedding: contextual_embedding.clone(),
+            model_id: embedder.model_id().into(),
+        })
+        .unwrap();
+
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block_with_retrieval(
+        graph,
+        clock,
+        Teller::Agent,
+        Authority::Platform,
+        embedder,
+        Box::new(vectors),
+    );
+
+    // The same contextual embedding is passed as the dedup embedding — the dedup check should
+    // find the seeded EntryContextual vector above the threshold and reject the append.
+    let error = block
+        .append_dedup(
+            dave,
+            "is a senior developer",
+            AppendOptions::default(),
+            Some(&contextual_embedding),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, MemoryError::DuplicateEntry { .. }),
+        "expected DuplicateEntry, got {error:?}",
     );
 }

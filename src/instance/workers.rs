@@ -13,7 +13,7 @@ use crate::{
         maintenance, run_describe_catch_up, run_describe_catch_up_for, run_link_inference_catch_up,
     },
     event::{EventPayload, EventSource},
-    ids::{MemoryId, Seq},
+    ids::{MemoryId, MemoryName, Seq},
     metrics::{observe_describe_priority_escape, observe_worker_error},
     model::{
         ModelArbiter, ModelClient,
@@ -79,7 +79,26 @@ impl BackgroundPasses {
             .read_from(from)
             .map_err(IndexError::Store)?;
         let count = events.len();
-        let batch = embed_batch(retrieval.embedder.as_ref(), &events).await?;
+        // Resolve memory names for contextual embeddings before the embed, so the slow
+        // `embed().await` holds no graph lock. Only `MemoryContentAppended` events need a
+        // name — the contextual embedding's handle prefix. Uses the current name, not the
+        // name at append time — intentional, matching the dedup check's name resolution.
+        let name_map: std::collections::BTreeMap<MemoryId, MemoryName> = {
+            let graph = engine.graph.lock();
+            events
+                .iter()
+                .filter_map(|event| match &event.payload {
+                    EventPayload::MemoryContentAppended { id, .. } => graph
+                        .memory_by_id(*id)
+                        .ok()
+                        .flatten()
+                        .map(|memory| (*id, memory.name)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let name_resolver = |id: MemoryId| name_map.get(&id).cloned();
+        let batch = embed_batch(retrieval.embedder.as_ref(), &events, Some(&name_resolver)).await?;
         apply_batch(retrieval.vectors.lock().as_mut(), batch).map_err(IndexError::Vector)?;
         Ok(count)
     }

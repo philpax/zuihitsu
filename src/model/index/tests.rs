@@ -2,11 +2,14 @@
 //! driven from a full-log rebuild, a subscription drain, or a raw event batch. Uses the
 //! deterministic fake embedder, so the same text embeds identically and a query of a memory's own
 //! description retrieves it.
-use super::{Indexer, VectorKey};
+use super::{Indexer, ResolvedOp, VectorKey};
 use crate::{
-    event::{Event, EventPayload, EventSource},
-    ids::{MemoryId, Namespace},
-    model::embed::{Embedder, FakeEmbedder},
+    event::{Event, EventPayload, EventSource, Teller, Visibility},
+    ids::{EntryId, MemoryId, MemoryName, Namespace},
+    model::{
+        embed::{Embedder, FakeEmbedder},
+        index::{apply_batch, embed_batch},
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vector::{InMemoryVectorIndex, VectorIndex},
@@ -267,4 +270,258 @@ fn events(store: &mut MemoryStore, id: MemoryId, description: &str) -> Vec<Event
             )],
         )
         .unwrap()
+}
+
+// --- EntryContextual tests ---
+
+#[test]
+fn vector_key_entry_contextual_round_trips() {
+    let entry_id = EntryId::generate();
+    let key = VectorKey::EntryContextual(entry_id);
+    let vector_id = key.to_vector_id();
+    assert_eq!(
+        VectorKey::parse(&vector_id),
+        Some(VectorKey::EntryContextual(entry_id)),
+    );
+    // The prefix is `entryctx:`, not `entry:` — the two must not collide.
+    assert!(vector_id.0.starts_with("entryctx:"));
+    assert!(!vector_id.0.starts_with("entry:"));
+}
+
+/// A content-append event for a memory, returning the events to feed `embed_batch` directly.
+fn content_appended(id: MemoryId, entry_id: EntryId, text: &str) -> Vec<Event> {
+    MemoryStore::new()
+        .append(
+            at(1),
+            EventSource::Agent,
+            vec![EventPayload::MemoryContentAppended {
+                id,
+                entry_id,
+                asserted_at: at(1),
+                occurred_at: None,
+                text: text.to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            }],
+        )
+        .unwrap()
+}
+
+#[tokio::test]
+async fn embed_batch_produces_both_spaces_with_resolver() {
+    let dave = MemoryId::generate();
+    let entry = EntryId::generate();
+    let events = content_appended(dave, entry, "is a senior developer");
+
+    let embedder = FakeEmbedder::new(DIMS);
+    let name: MemoryName = Namespace::Person.with_name("dave").into();
+    let resolver = move |_id: MemoryId| Some(name.clone());
+    let batch = embed_batch(&embedder, &events, Some(&resolver))
+        .await
+        .unwrap();
+
+    let mut has_entry = false;
+    let mut has_entry_contextual = false;
+    for op in &batch.ops {
+        if let ResolvedOp::Upsert(record) = op {
+            if record.id == VectorKey::Entry(entry).to_vector_id() {
+                has_entry = true;
+            }
+            if record.id == VectorKey::EntryContextual(entry).to_vector_id() {
+                has_entry_contextual = true;
+            }
+        }
+    }
+    assert!(has_entry, "embed_batch should produce an Entry vector");
+    assert!(
+        has_entry_contextual,
+        "embed_batch should produce an EntryContextual vector when a resolver is provided",
+    );
+}
+
+#[tokio::test]
+async fn embed_batch_produces_only_entry_without_resolver() {
+    let dave = MemoryId::generate();
+    let entry = EntryId::generate();
+    let events = content_appended(dave, entry, "is a senior developer");
+
+    let embedder = FakeEmbedder::new(DIMS);
+    let batch = embed_batch(&embedder, &events, None).await.unwrap();
+
+    let mut has_entry = false;
+    let mut has_entry_contextual = false;
+    for op in &batch.ops {
+        if let ResolvedOp::Upsert(record) = op {
+            if record.id == VectorKey::Entry(entry).to_vector_id() {
+                has_entry = true;
+            }
+            if record.id == VectorKey::EntryContextual(entry).to_vector_id() {
+                has_entry_contextual = true;
+            }
+        }
+    }
+    assert!(has_entry, "embed_batch should produce an Entry vector");
+    assert!(
+        !has_entry_contextual,
+        "embed_batch should not produce an EntryContextual vector without a resolver",
+    );
+}
+
+#[tokio::test]
+async fn embed_batch_gcs_both_spaces_on_supersede() {
+    let dave = MemoryId::generate();
+    let old = EntryId::generate();
+    let new = EntryId::generate();
+
+    let embedder = FakeEmbedder::new(DIMS);
+    let mut vectors = InMemoryVectorIndex::new();
+
+    // Index the entry with a resolver, so both Entry and EntryContextual vectors are produced.
+    let appended = content_appended(dave, old, "old fact");
+    let name: MemoryName = Namespace::Person.with_name("dave").into();
+    let resolver = move |_id: MemoryId| Some(name.clone());
+    let batch = embed_batch(&embedder, &appended, Some(&resolver))
+        .await
+        .unwrap();
+    apply_batch(&mut vectors, batch).unwrap();
+    assert_eq!(
+        vectors.len().unwrap(),
+        2,
+        "both Entry and EntryContextual vectors should exist",
+    );
+
+    // Now supersede it.
+    let superseded = MemoryStore::new()
+        .append(
+            at(2),
+            EventSource::Agent,
+            vec![EventPayload::memory_superseded(dave, old, new)],
+        )
+        .unwrap();
+    let batch = embed_batch(&embedder, &superseded, None).await.unwrap();
+    apply_batch(&mut vectors, batch).unwrap();
+
+    assert!(
+        vectors.is_empty().unwrap(),
+        "supersede should remove both Entry and EntryContextual vectors",
+    );
+}
+
+#[tokio::test]
+async fn embed_batch_gcs_both_spaces_on_retract() {
+    let dave = MemoryId::generate();
+    let entry = EntryId::generate();
+
+    let embedder = FakeEmbedder::new(DIMS);
+    let mut vectors = InMemoryVectorIndex::new();
+
+    // Index the entry with a resolver, so both Entry and EntryContextual vectors are produced.
+    let appended = content_appended(dave, entry, "a fact to retract");
+    let name: MemoryName = Namespace::Person.with_name("dave").into();
+    let resolver = move |_id: MemoryId| Some(name.clone());
+    let batch = embed_batch(&embedder, &appended, Some(&resolver))
+        .await
+        .unwrap();
+    apply_batch(&mut vectors, batch).unwrap();
+    assert_eq!(
+        vectors.len().unwrap(),
+        2,
+        "both Entry and EntryContextual vectors should exist",
+    );
+
+    // Now retract it.
+    let retracted = MemoryStore::new()
+        .append(
+            at(2),
+            EventSource::Agent,
+            vec![EventPayload::entry_retracted(
+                dave,
+                entry,
+                "wrong memory",
+                None,
+            )],
+        )
+        .unwrap();
+    let batch = embed_batch(&embedder, &retracted, None).await.unwrap();
+    apply_batch(&mut vectors, batch).unwrap();
+
+    assert!(
+        vectors.is_empty().unwrap(),
+        "retract should remove both Entry and EntryContextual vectors",
+    );
+}
+
+#[tokio::test]
+async fn embed_batch_gcs_both_spaces_on_consolidated() {
+    let dave = MemoryId::generate();
+    let source_a = EntryId::generate();
+    let source_b = EntryId::generate();
+    let replacement = EntryId::generate();
+
+    let embedder = FakeEmbedder::new(DIMS);
+    let mut vectors = InMemoryVectorIndex::new();
+
+    // Index two source entries with a resolver, so both Entry and EntryContextual vectors
+    // are produced for each entry (4 vectors total).
+    let appended: Vec<Event> = MemoryStore::new()
+        .append(
+            at(1),
+            EventSource::Agent,
+            vec![
+                EventPayload::MemoryContentAppended {
+                    id: dave,
+                    entry_id: source_a,
+                    asserted_at: at(1),
+                    occurred_at: None,
+                    text: "fact A".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+                EventPayload::MemoryContentAppended {
+                    id: dave,
+                    entry_id: source_b,
+                    asserted_at: at(1),
+                    occurred_at: None,
+                    text: "fact B".to_owned(),
+                    told_by: Teller::Agent,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ],
+        )
+        .unwrap();
+    let name: MemoryName = Namespace::Person.with_name("dave").into();
+    let resolver = move |_id: MemoryId| Some(name.clone());
+    let batch = embed_batch(&embedder, &appended, Some(&resolver))
+        .await
+        .unwrap();
+    apply_batch(&mut vectors, batch).unwrap();
+    assert_eq!(
+        vectors.len().unwrap(),
+        4,
+        "both Entry and EntryContextual vectors for both entries should exist",
+    );
+
+    // Now consolidate them into a replacement.
+    let consolidated = MemoryStore::new()
+        .append(
+            at(2),
+            EventSource::Agent,
+            vec![EventPayload::entries_consolidated(
+                dave,
+                vec![source_a, source_b],
+                replacement,
+                None,
+            )],
+        )
+        .unwrap();
+    let batch = embed_batch(&embedder, &consolidated, None).await.unwrap();
+    apply_batch(&mut vectors, batch).unwrap();
+
+    assert!(
+        vectors.is_empty().unwrap(),
+        "consolidation should remove both Entry and EntryContextual vectors for both sources",
+    );
 }

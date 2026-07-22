@@ -51,12 +51,35 @@ pub(super) fn install_handle_methods(
                     let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
                     // Embed the candidate for the dedup check, if retrieval is configured. The
                     // embedding is computed off the block lock (it is async), then passed into
-                    // `append_dedup` which searches the vector index under a brief sync lock.
+                    // `append_dedup` which searches the vector index under a brief sync lock. The
+                    // candidate is embedded as `"{handle}: {text}"` so it matches the contextual
+                    // embedding space the dedup check searches — normalizing name-bearing and
+                    // name-less phrasings of the same fact.
                     let (engine, _) = api.block.lock().retrieval_handle();
                     let embedding = if let Some(retrieval) = &engine.retrieval {
+                        let name = {
+                            let graph = engine.graph.lock();
+                            graph
+                                .memory_by_id(id)
+                                .ok()
+                                .flatten()
+                                .map(|memory| memory.name)
+                        };
+                        let text_to_embed = match &name {
+                            Some(name) => {
+                                crate::model::embed::contextual_text(name.as_str(), &text)
+                            }
+                            None => {
+                                tracing::debug!(
+                                    "dedup: memory name did not resolve; embedding raw text \
+                                     without a contextual prefix",
+                                );
+                                text.clone()
+                            }
+                        };
                         retrieval
                             .embedder
-                            .embed(std::slice::from_ref(&text))
+                            .embed(std::slice::from_ref(&text_to_embed))
                             .await
                             .ok()
                             .and_then(|v| v.into_iter().next())

@@ -9,6 +9,13 @@ use crate::model::ModelError;
 /// A dense embedding vector. Dimensionality is fixed per embedder.
 pub type Embedding = Vec<f32>;
 
+/// Format an entry's text for contextual embedding: `"{handle}: {text}"`. The handle gives the
+/// embedding model the subject context, normalizing entries that include the subject name with
+/// those that don't.
+pub fn contextual_text(handle: &str, text: &str) -> String {
+    format!("{handle}: {text}")
+}
+
 /// Turns text into vectors. Errors share [`ModelError`] with the model seam, since both are
 /// inference over the same serving layer.
 #[async_trait]

@@ -36,6 +36,8 @@ pub(crate) enum CliError {
     MarkdownFetch(String),
     /// The `embed` command could not embed the inputs or compute the similarity.
     Embed(String),
+    /// The `reindex` command could not delete the vector index.
+    Reindex(String),
 }
 
 impl From<ClientError> for CliError {
@@ -72,6 +74,7 @@ impl std::fmt::Display for CliError {
             CliError::DeleteMemory(message) => write!(f, "delete-memory: {message}"),
             CliError::MarkdownFetch(message) => write!(f, "markdown-fetch: {message}"),
             CliError::Embed(message) => write!(f, "embed: {message}"),
+            CliError::Reindex(message) => write!(f, "reindex: {message}"),
         }
     }
 }
@@ -91,7 +94,8 @@ impl std::error::Error for CliError {
             | CliError::Revert(_)
             | CliError::DeleteMemory(_)
             | CliError::MarkdownFetch(_)
-            | CliError::Embed(_) => None,
+            | CliError::Embed(_)
+            | CliError::Reindex(_) => None,
         }
     }
 }

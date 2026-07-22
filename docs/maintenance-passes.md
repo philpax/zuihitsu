@@ -18,6 +18,17 @@ The pass also absorbs entries whose content is purely a description of a link th
 
 Consolidated entries carry `Teller::Agent` and the least-restrictive visibility of their sources. Same-visibility clusters consolidate to that class; cross-visibility near-duplicates consolidate to the least restrictive (public > attributed > private).
 
+#### Two embedding spaces
+
+Each entry has two embedding vectors, maintained in lockstep by the indexer:
+
+- **`Entry`** — the raw entry text. Serves search, where the query has no subject-name prefix.
+- **`EntryContextual`** — `"{handle}: {text}"`. Serves the dedup check and consolidation pass, where entries within the same memory are compared. The handle prefix normalizes entries that include the subject name with those that don't — without it, "Rowan is a senior developer" and "is a senior developer" score ~0.52 cosine despite being the same fact, because the name token dominates the embedding.
+
+Both spaces are GC'd on supersession, retraction, and consolidation. The `Entry` space is unaffected by renames; the `EntryContextual` space becomes stale after a rename (the prefix changes) until the entry is next re-embedded — an accepted floor, since the stale embedding still works (it just has the old prefix).
+
+After upgrading an existing agent, the `EntryContextual` space starts empty. Run `zuihitsu debug reindex` (followed by a restart) to rebuild the full vector index from the log. The indexer's normal catch-up handles new entries; old entries get their contextual vectors when they're next re-embedded (on content change or consolidation).
+
 ### Canonical profiles
 
 Gives platform stubs (`person/<id>@<platform>`) readable named identities. The pass reads a stub's entries, calls the model to identify the most name-like text, and mints a bare `person/<name>` canonical profile. If the name already exists for a different person, a disambiguated profile (`person/<name>-2`, etc.) is created.

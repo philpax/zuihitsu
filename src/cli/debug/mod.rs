@@ -14,6 +14,7 @@ mod embed;
 mod events;
 mod markdown_fetch;
 mod mcp;
+mod reindex;
 mod revert;
 
 use brief::{BriefSelector, brief};
@@ -107,6 +108,14 @@ pub(crate) enum DebugCommand {
         /// The second text to compare.
         b: String,
     },
+    /// Delete the vector index so the next boot rebuilds it from the event log. Used as a
+    /// post-upgrade step when the vector schema changes (e.g. the addition of the contextual
+    /// embedding space). The agent must be stopped first. Requires `--yes`.
+    Reindex {
+        /// Confirm the deletion. Without it, the command only reports what it would do.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 pub(crate) fn dispatch(
@@ -158,5 +167,6 @@ pub(crate) fn dispatch(
             markdown_fetch::markdown_fetch(config, url, *allow_private)
         }
         DebugCommand::Embed { a, b } => embed::embed(config, a, b),
+        DebugCommand::Reindex { yes } => reindex::reindex(config, *yes),
     }
 }
