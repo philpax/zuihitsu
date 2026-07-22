@@ -1,6 +1,8 @@
 //! The authority, anchor, and merge write gates.
 
-use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block, graph_with_self};
+use super::{
+    AppendOptions, Authority, MemoryError, VisibilityChoice, block, graph_with_self, told,
+};
 use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, EventSource, LinkSource, MergeProposalSource, Teller},
@@ -209,4 +211,81 @@ fn operator_authority_may_assert_a_same_as_merge() {
     block
         .link(dave, dave_chat, RelationName::SameAs, None)
         .unwrap();
+}
+
+#[test]
+fn agent_authority_can_supersede_foreign_confidence() {
+    // A maintenance pass (Agent authority) can supersede a confidence told by a different participant —
+    // the foreign-confidence gate passes for non-Platform authority. Platform would be blocked.
+    let graph = Graph::open_in_memory().unwrap();
+    let clock = ManualClock::new(Timestamp::from_millis(1_000));
+    let other = MemoryId::generate();
+    let mut block = block(graph, clock, Teller::Agent, Authority::Agent);
+    let topic = block
+        .create(Namespace::Topic.with_name("aside"), None)
+        .unwrap();
+    let old = block
+        .append(
+            topic,
+            "confided",
+            told(Teller::Participant(other), VisibilityChoice::Private),
+        )
+        .unwrap();
+    let new = block
+        .append(
+            topic,
+            "consolidated",
+            told(Teller::Agent, VisibilityChoice::Public),
+        )
+        .unwrap();
+    // Under Platform authority this would return ForeignConfidenceSupersedeForbidden.
+    block.supersede(topic, old, new).unwrap();
+}
+
+#[test]
+fn agent_authority_cannot_write_self() {
+    // The Agent authority has supersede and same_as powers, but self writes are still operator-only.
+    let (graph, self_id) = graph_with_self();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Agent);
+
+    assert!(matches!(
+        block
+            .append(self_id, "I am sentient", AppendOptions::default())
+            .unwrap_err(),
+        MemoryError::SelfWriteForbidden
+    ));
+}
+
+#[test]
+fn agent_authority_can_assert_same_as() {
+    // A maintenance pass asserts same_as directly — no merge proposal, no operator confirmation needed.
+    // Platform authority would route to a MergeProposed; Agent authority asserts the link.
+    let (graph, _self_id) = graph_with_self();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph, clock, Teller::Agent, Authority::Agent);
+    let dave = block
+        .create(Namespace::Person.with_name("dave"), None)
+        .unwrap();
+    let dave_canonical = block
+        .create(Namespace::Person.with_name("dave-canonical"), None)
+        .unwrap();
+
+    block
+        .link(dave, dave_canonical, RelationName::SameAs, None)
+        .unwrap();
+
+    // The link is a direct same_as assertion, not a MergeProposed.
+    let events = block.into_effects().events;
+    let has_same_as = events.iter().any(|event| {
+        matches!(
+            event,
+            EventPayload::LinkCreated { relation, .. } if *relation == RelationName::SameAs
+        )
+    });
+    assert!(has_same_as, "Agent authority asserts same_as directly");
+    let no_proposal = !events
+        .iter()
+        .any(|event| matches!(event, EventPayload::MergeProposed { .. }));
+    assert!(no_proposal, "no MergeProposed is buffered");
 }

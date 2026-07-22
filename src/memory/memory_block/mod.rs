@@ -60,11 +60,17 @@ pub(super) const MIN_ENTRY_PREFIX: usize = 4;
 
 /// Who is driving a block's writes. Operator authority is the console; it is the only path
 /// permitted to edit `self`, and it authors its links as `Operator` rather than `Agent` (spec
-/// §Imprint interview). Platform authority is an ordinary conversation turn.
+/// §Imprint interview). Platform authority is an ordinary conversation turn. Agent authority
+/// is a maintenance pass running off the hot path — consolidation, canonical-profile minting,
+/// and link-redundant entry cleanup. It permits cross-teller supersede and free `same_as`
+/// assertion (the powers these passes need) while still blocking `self` writes (`guard_self`
+/// blocks all non-Operator authority). Narrower than a full self-evolution tier: no self-model
+/// writes, no persona-source entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Authority {
     Platform,
     Operator,
+    Agent,
 }
 
 /// One block's in-progress memory mutations. Built fresh per block, mutated through its operations,

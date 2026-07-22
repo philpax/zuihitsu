@@ -253,7 +253,9 @@ impl MemoryBlock {
         // for `link("same_as", other)` as "these are the same person" — its stated intent is a merge —
         // so a create routes to the proposal path (an inert `MergeProposed` the operator confirms)
         // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
-        // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
+        // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn. The
+        // `Agent` authority (maintenance passes) asserts `same_as` directly — the canonical-profile pass
+        // mints an empty profile and binds it, the "free merge" case with no visibility risk.
         if relation == RelationName::SameAs && self.authority == Authority::Platform {
             if create {
                 return self.propose_merge(from, to, None);
@@ -263,12 +265,14 @@ impl MemoryBlock {
         // A link from or to `self` modifies the self model — barred outside the console.
         self.guard_self(from)?;
         self.guard_self(to)?;
-        // Operator-authored links carry operator provenance; the agent's own carry `Agent`. (The
-        // merging `same_as` is authored by the operator's console merge directly, not through a block,
-        // so it never reaches this seam — it carries `LinkSource::Operator`.)
+        // Operator-authored links carry operator provenance; the agent's own (a platform turn or a
+        // maintenance pass) carry `Agent`. (The merging `same_as` is authored by the operator's console
+        // merge directly, not through a block, so it never reaches this seam — it carries
+        // `LinkSource::Operator`. The `Agent` authority's `same_as` assertion reaches here and carries
+        // `Agent` provenance.)
         let source = match self.authority {
             Authority::Operator => LinkSource::Operator,
-            Authority::Platform => LinkSource::Agent,
+            Authority::Platform | Authority::Agent => LinkSource::Agent,
         };
         let (visibility, told_in) = if create {
             let from_name = self.resolve_name(from)?;

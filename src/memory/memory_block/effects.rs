@@ -109,12 +109,14 @@ impl MemoryBlock {
         }
     }
 
-    /// Reject a platform-authority write that touches `self`. The console (operator authority)
-    /// is the only path permitted to edit `self`, so the self model cannot be forged from a
-    /// conversation (spec §Imprint interview). `create("self")` needs no guard — it is already blocked
-    /// by `NameExists`, since `self` is seeded at genesis.
+    /// Reject a non-operator write that touches `self`. The console (operator authority) is the
+    /// only path permitted to edit `self`, so the self model cannot be forged from a conversation
+    /// (spec §Imprint interview). A maintenance pass (`Agent` authority) is equally barred: it
+    /// has the powers to supersede and link freely, but self-model writes remain operator-only.
+    /// `create("self")` needs no guard — it is already blocked by `NameExists`, since `self` is
+    /// seeded at genesis.
     pub(super) fn guard_self(&self, id: MemoryId) -> Result<(), MemoryError> {
-        if self.authority == Authority::Platform && Some(id) == self.self_id {
+        if self.authority != Authority::Operator && Some(id) == self.self_id {
             return Err(MemoryError::SelfWriteForbidden);
         }
         Ok(())
