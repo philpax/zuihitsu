@@ -149,19 +149,27 @@ pub(crate) fn ambient_recall(
 
     // The best (most negative bm25) score seen for each class across every query that matched it, with
     // the snippet of that best-scoring query — so an identity hit by several queries or across its
-    // merged stubs keeps its strongest evidence and surfaces once, under its class primary.
+    // merged stubs keeps its strongest evidence and surfaces once, under its class primary. A
+    // content-bearing hit (snippet from content or description) is strictly preferable to a name-only
+    // hit, regardless of bm25 score — a name-only snippet is degenerate, repeating the handle the hint
+    // line already shows.
     let queries = extract_queries(inbound);
-    let mut best: HashMap<MemoryId, (f32, String)> = HashMap::new();
+    let mut best: HashMap<MemoryId, ClassHit> = HashMap::new();
     for query in &queries {
         for hit in graph.search_lexical(query, PER_QUERY_LIMIT)? {
             let primary = graph.class_id(hit.id)?.unwrap_or(hit.id);
             if excluded.contains(&primary) {
                 continue;
             }
+            let new = ClassHit {
+                score: hit.score,
+                snippet: hit.snippet,
+                content_bearing: hit.content_bearing,
+            };
             match best.get(&primary) {
-                Some((score, _)) if *score <= hit.score => {}
+                Some(existing) if !prefers_new(existing, &new) => {}
                 _ => {
-                    best.insert(primary, (hit.score, hit.snippet));
+                    best.insert(primary, new);
                 }
             }
         }
@@ -172,8 +180,8 @@ pub(crate) fn ambient_recall(
     let min_score = settings.min_score as f32;
     let mut candidates: Vec<(MemoryId, f32, String)> = best
         .into_iter()
-        .filter(|(_, (score, _))| *score <= min_score)
-        .map(|(id, (score, snippet))| (id, score, snippet))
+        .filter(|(_, hit)| hit.score <= min_score)
+        .map(|(id, hit)| (id, hit.score, hit.snippet))
         .collect();
     // Strongest first, breaking ties by id so the order is deterministic under replay.
     candidates.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.0.cmp(&b.0.0)));
@@ -207,4 +215,24 @@ pub(crate) fn ambient_recall(
         message: render(&mems, &tokens, &urls, &resolved),
         hits,
     }))
+}
+
+/// The best hit for a class across all queries that matched it: the strongest (most negative) bm25
+/// score, the snippet of that best-scoring query, and whether that snippet is content-bearing.
+struct ClassHit {
+    score: f32,
+    snippet: String,
+    content_bearing: bool,
+}
+
+/// Whether a new hit should replace the existing best for a class. A content-bearing hit (snippet
+/// from content or description) is strictly preferable to a name-only hit, regardless of bm25 score
+/// — a name-only snippet is degenerate, repeating the handle the hint line already shows. Among hits
+/// of the same bearing, the stronger (more negative) bm25 score wins.
+fn prefers_new(existing: &ClassHit, new: &ClassHit) -> bool {
+    match (existing.content_bearing, new.content_bearing) {
+        (false, true) => true,
+        (true, false) => false,
+        _ => new.score < existing.score,
+    }
 }

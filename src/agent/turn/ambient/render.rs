@@ -84,7 +84,7 @@ pub(super) fn render(
         out.push_str("Possibly relevant to the message above — read with memory.get if useful:");
         for hit in hits {
             let snippet = hit.snippet.trim();
-            if snippet.is_empty() {
+            if snippet.is_empty() || snippet == hit.name.as_str() {
                 let _ = write!(out, "\n- {}", hit.name.as_str());
             } else {
                 let _ = write!(out, "\n- {} — \"{snippet}\"", hit.name.as_str());

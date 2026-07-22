@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use super::{corpus, merged_rowan, topic};
+use super::{corpus, merged_rowan, person, topic};
 use crate::{agent::turn::ambient::ambient_recall, ids::MemoryId, settings::AmbientSettings};
 
 #[test]
@@ -194,5 +194,39 @@ fn disabled_surfaces_nothing() {
         )
         .unwrap()
         .is_none()
+    );
+}
+
+#[test]
+fn a_content_bearing_hit_is_preferred_over_a_name_only_hit() {
+    // "dave" matches the name only; "backend" matches the content only. The accumulation should
+    // prefer the content-bearing hit, so the snippet is from content, not the degenerate name.
+    let dave = MemoryId::generate();
+    let graph = corpus(person(
+        dave,
+        "person/dave",
+        "The team's backend lead and a long-time contributor.",
+    ));
+    let hint = ambient_recall(
+        &graph,
+        &AmbientSettings::default(),
+        "dave is our backend lead",
+        &HashSet::new(),
+        true,
+        true,
+    )
+    .unwrap()
+    .expect("a salient hit surfaces");
+    assert_eq!(hint.hits.len(), 1);
+    assert_eq!(hint.hits[0].memory, dave);
+    assert!(
+        hint.message.contains("backend lead"),
+        "the hint should show the content snippet, not the degenerate name: {}",
+        hint.message
+    );
+    assert!(
+        !hint.message.contains("\"person/dave\""),
+        "the hint should not show the degenerate name snippet: {}",
+        hint.message
     );
 }

@@ -9,6 +9,7 @@ pub(crate) mod ambient;
 pub(crate) mod mention_memref;
 pub(crate) mod merged_ambient;
 pub(crate) mod name_conflict;
+pub(crate) mod name_only_hint;
 pub(crate) mod reuse;
 
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub(super) fn scenarios() -> Vec<Arc<dyn Scenario>> {
         ambient::scenarios(),
         merged_ambient::scenarios(),
         mention_memref::scenarios(),
+        name_only_hint::scenarios(),
     ]
     .into_iter()
     .flatten()

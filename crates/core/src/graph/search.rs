@@ -8,13 +8,18 @@ use crate::{
 use rusqlite::params;
 
 /// A lexical (FTS5) hit: the memory, its raw bm25 score (more negative is a better match), and a
-/// `snippet` of the matched text — FTS5's own extract over whichever indexed column matched, with
-/// elided context marked by an ellipsis. The FTS index holds only public content (spec §Visibility →
-/// public-only lexical indexing), so the snippet is public-safe and needs no visibility filter.
+/// `snippet` of the matched text — FTS5's own extract over the matched column, with elided context
+/// marked by an ellipsis. The FTS index holds only public content (spec §Visibility → public-only
+/// lexical indexing), so the snippet is public-safe and needs no visibility filter. `content_bearing`
+/// is `true` when the snippet came from the content or description column rather than the name column
+/// — a content-bearing snippet carries information beyond the handle a result line already shows, while
+/// a name-only snippet is degenerate, repeating the handle as the snippet.
+#[derive(Debug)]
 pub struct LexicalHit {
     pub id: MemoryId,
     pub score: f32,
     pub snippet: String,
+    pub content_bearing: bool,
 }
 
 impl Graph {
@@ -49,27 +54,51 @@ impl Graph {
 
     /// Lexical hits with their raw FTS5 bm25 score (more negative is a better match) and a snippet of
     /// the matched text, for the multi-signal ranker to normalize, blend, and render. Deleted memories
-    /// are excluded. `snippet(memories_fts, -1, …)` extracts around the match in whichever indexed
-    /// column matched (name, description, or content), marking elided context with an ellipsis and
-    /// capping the window at ~10 tokens so the fragment stays legible on a result line.
+    /// are excluded. The snippet prefers a content-bearing extract (the content column, then the
+    /// description) over the best-BM25 column, which for a short name field is often the name itself —
+    /// a degenerate snippet that repeats the handle a result line already shows. Column-specific
+    /// `snippet()` calls wrap matched terms in sentinel markers (`\x01`/`\x02`); a column's snippet
+    /// carries the markers only when that column matched, so the row mapper can detect which column
+    /// bore the match and prefer content or description over name. When no content or description
+    /// column matched, the snippet falls back to the best-BM25 column (the name), and
+    /// `content_bearing` is `false`. Each `snippet(table, col, …)` call caps the window at ~10 tokens
+    /// so the fragment stays legible on a result line, with elided context marked by an ellipsis.
     pub fn search_lexical(&self, query: &str, limit: usize) -> Result<Vec<LexicalHit>, GraphError> {
         let match_query = build_match(query);
         if match_query.is_empty() {
             return Ok(Vec::new());
         }
         let stmt = self.conn.prepare(
-            "SELECT f.memory_id, bm25(memories_fts) AS score,
-                    snippet(memories_fts, -1, '', '', '…', 10) AS snip
+            "SELECT f.memory_id AS memory_id, bm25(memories_fts) AS score,
+                    snippet(memories_fts, -1, '', '', '…', 10) AS snip,
+                    snippet(memories_fts, 2, '\x01', '\x02', '…', 10) AS content_marked,
+                    snippet(memories_fts, 1, '\x01', '\x02', '…', 10) AS desc_marked
              FROM memories_fts f JOIN memories m ON m.id = f.memory_id
              WHERE memories_fts MATCH ?1 AND m.deleted = 0
              ORDER BY score LIMIT ?2",
         )?;
         query_map_into(stmt, params![match_query, limit as i64], |row| {
-            let (id, score, snippet): (String, f64, String) = row.try_into()?;
+            let id: String = row.get("memory_id")?;
+            let score: f64 = row.get("score")?;
+            let snip: String = row.get("snip")?;
+            let content_marked: String = row.get("content_marked")?;
+            let desc_marked: String = row.get("desc_marked")?;
+            // A column-specific snippet carries the sentinel markers only when that column matched.
+            // Prefer a content-bearing snippet (content column, then description) over the best-BM25
+            // column, which is the name when the name field matched. The markers are stripped from the
+            // returned snippet.
+            let (snippet, content_bearing) = if content_marked.contains('\x01') {
+                (strip_markers(&content_marked), true)
+            } else if desc_marked.contains('\x01') {
+                (strip_markers(&desc_marked), true)
+            } else {
+                (snip, false)
+            };
             Ok(LexicalHit {
                 id: MemoryId(parse_ulid(&id)?),
                 score: score as f32,
                 snippet,
+                content_bearing,
             })
         })
     }
@@ -98,6 +127,13 @@ impl Graph {
         let stmt = self.conn.prepare(sql)?;
         query_map_into(stmt, params![id, relation], |row| Ok(row.get(0)?))
     }
+}
+
+/// Strip the FTS5 highlight sentinel markers (`\x01`/`\x02`) from a column-specific snippet, leaving
+/// the clean text. The markers are only used to detect which column matched; the returned snippet
+/// carries no markup.
+fn strip_markers(snippet: &str) -> String {
+    snippet.replace(['\x01', '\x02'], "")
 }
 
 /// Build an FTS5 MATCH expression from free text: each whitespace-separated term becomes a quoted

@@ -78,3 +78,36 @@ fn render_names_a_self_reference_without_a_read_suggestion() {
         format!("[mem:{}] refers to self — that is you.", token.0)
     );
 }
+
+#[test]
+fn render_strips_a_name_shaped_snippet() {
+    // A snippet that is exactly the handle renders as a bare handle, not a fabricated quote — the
+    // degenerate name-as-snippet pattern where the hint would otherwise repeat the handle as a quote.
+    let hits = vec![ResolvedHit {
+        name: MemoryName::new("person/dave"),
+        snippet: "person/dave".to_owned(),
+    }];
+    let out = render(&[], &[], &[], &hits);
+    let lines: Vec<&str> = out.lines().filter(|l| l.starts_with("- ")).collect();
+    assert_eq!(
+        lines[0], "- person/dave",
+        "a name-shaped snippet renders as a bare handle"
+    );
+}
+
+#[test]
+fn render_keeps_a_content_bearing_snippet() {
+    // A content-bearing snippet distinct from the name still renders with the quote, showing the
+    // informative extract rather than collapsing it to a bare handle.
+    let hits = vec![ResolvedHit {
+        name: MemoryName::new("person/dave"),
+        snippet: "the team's backend lead".to_owned(),
+    }];
+    let out = render(&[], &[], &[], &hits);
+    let lines: Vec<&str> = out.lines().filter(|l| l.starts_with("- ")).collect();
+    assert!(
+        lines[0].contains("— \"the team's backend lead\""),
+        "a content-bearing snippet renders with the quote: {}",
+        lines[0]
+    );
+}
