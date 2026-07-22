@@ -62,7 +62,7 @@ pub use model::{
     Completion, FlakyModel, GenerateDelta, GenerateRequest, GenerateResponse, GenerateStream,
     Message, ModelArbiter, ModelClient, ModelError, ResponseSchema, Role, ScriptedModel, ToolCall,
     ToolChoice, ToolSpec, Usage,
-    embed::{Embedder, Embedding, FakeEmbedder},
+    embed::{Embedder, Embedding},
     extract_json_object,
     index::{IndexError, Indexer},
     parse_structured,

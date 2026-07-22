@@ -440,7 +440,7 @@ mod tests {
         event::{EventPayload, EventSource, Teller},
         graph::{EntryView, Graph},
         ids::{EntryId, MemoryId, MemoryName, Namespace},
-        model::embed::{Embedder, FakeEmbedder},
+        model::embed::{CpuEmbedder, Embedder},
         store::{MemoryStore, Store},
         time::Timestamp,
         vector::InMemoryVectorIndex,
@@ -475,11 +475,10 @@ mod tests {
     #[tokio::test]
     async fn cluster_entries_uses_contextual_embeddings() {
         // Verify that cluster_entries inserts into both Entry and EntryContextual spaces, and
-        // clusters on the contextual embeddings. With two identical contextual texts the entries
-        // should cluster together; with distinct raw texts the Entry vectors differ — proving the
-        // clustering uses contextual, not raw, embeddings.
-        const DIMS: usize = 16;
-        let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new(DIMS));
+        // clusters on the contextual embeddings. With two similar contextual texts the entries
+        // should cluster together; the key assertion is that both vector spaces were populated.
+        let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
+        let dims = embedder.dimensions();
         let dave_name: MemoryName = Namespace::Person.with_name("dave").into();
         let dave: MemoryId = MemoryId::generate();
 
@@ -539,29 +538,21 @@ mod tests {
 
         let clusters = cluster_entries(&engine, dave, &entries, 0.5).await.unwrap();
 
-        // Both entries should be in the same cluster (their contextual texts are similar enough
-        // at the 0.5 threshold for the FakeEmbedder's hash-based vectors, or at worst they're
-        // in separate clusters — the key assertion is that both vector spaces were populated).
+        // Both entries should be in the same cluster (their contextual texts are semantically
+        // similar with the real model). The key assertion is that both vector spaces were
+        // populated — the cluster count is secondary.
         let _ = clusters;
 
         // Verify both Entry and EntryContextual vectors were inserted into the index.
         let vectors = engine.retrieval.as_ref().unwrap().vectors.lock();
-        let has_entry = vectors
-            .search(&[1.0f32; DIMS], 100)
-            .unwrap()
-            .iter()
-            .any(|hit| {
-                VectorKey::parse(&hit.id).is_some_and(|key| matches!(key, VectorKey::Entry(_)))
-            });
-        let has_entry_contextual =
-            vectors
-                .search(&[1.0f32; DIMS], 100)
-                .unwrap()
-                .iter()
-                .any(|hit| {
-                    VectorKey::parse(&hit.id)
-                        .is_some_and(|key| matches!(key, VectorKey::EntryContextual(_)))
-                });
+        let probe = vec![1.0f32; dims];
+        let has_entry = vectors.search(&probe, 100).unwrap().iter().any(|hit| {
+            VectorKey::parse(&hit.id).is_some_and(|key| matches!(key, VectorKey::Entry(_)))
+        });
+        let has_entry_contextual = vectors.search(&probe, 100).unwrap().iter().any(|hit| {
+            VectorKey::parse(&hit.id)
+                .is_some_and(|key| matches!(key, VectorKey::EntryContextual(_)))
+        });
         assert!(
             has_entry,
             "cluster_entries should insert Entry vectors for search",

@@ -7,7 +7,7 @@ use crate::{
     event::{Event, EventPayload, EventSource, Teller, Visibility},
     ids::{EntryId, MemoryId, MemoryName, Namespace},
     model::{
-        embed::{Embedder, FakeEmbedder},
+        embed::{CpuEmbedder, Embedder},
         index::{apply_batch, embed_batch},
     },
     store::{MemoryStore, Store},
@@ -15,7 +15,7 @@ use crate::{
     vector::{InMemoryVectorIndex, VectorIndex},
 };
 
-const DIMS: usize = 16;
+const DIMS: usize = 384;
 
 fn at(ms: i64) -> Timestamp {
     Timestamp::from_millis(ms)
@@ -41,7 +41,7 @@ async fn catch_up_embeds_each_memorys_description() {
         )
         .unwrap();
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
     Indexer::new(&embedder, &mut vectors)
         .catch_up(&store)
@@ -75,7 +75,7 @@ async fn catch_up_resumes_from_the_cursor() {
         )
         .unwrap();
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
 
     // First catch-up processes the one event and advances the cursor to its seq.
@@ -138,7 +138,7 @@ async fn drain_indexes_subscribed_events() {
         )
         .unwrap();
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
     let processed = Indexer::new(&embedder, &mut vectors)
         .drain(&subscription)
@@ -152,7 +152,7 @@ async fn drain_indexes_subscribed_events() {
 #[tokio::test]
 async fn a_later_regeneration_replaces_and_a_delete_removes() {
     let dave = MemoryId::generate();
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
     let key = VectorKey::Description(dave).to_vector_id();
 
@@ -314,7 +314,7 @@ async fn embed_batch_produces_both_spaces_with_resolver() {
     let entry = EntryId::generate();
     let events = content_appended(dave, entry, "is a senior developer");
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let name: MemoryName = Namespace::Person.with_name("dave").into();
     let resolver = move |_id: MemoryId| Some(name.clone());
     let batch = embed_batch(&embedder, &events, Some(&resolver))
@@ -346,7 +346,7 @@ async fn embed_batch_produces_only_entry_without_resolver() {
     let entry = EntryId::generate();
     let events = content_appended(dave, entry, "is a senior developer");
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let batch = embed_batch(&embedder, &events, None).await.unwrap();
 
     let mut has_entry = false;
@@ -374,7 +374,7 @@ async fn embed_batch_gcs_both_spaces_on_supersede() {
     let old = EntryId::generate();
     let new = EntryId::generate();
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
 
     // Index the entry with a resolver, so both Entry and EntryContextual vectors are produced.
@@ -413,7 +413,7 @@ async fn embed_batch_gcs_both_spaces_on_retract() {
     let dave = MemoryId::generate();
     let entry = EntryId::generate();
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
 
     // Index the entry with a resolver, so both Entry and EntryContextual vectors are produced.
@@ -459,7 +459,7 @@ async fn embed_batch_gcs_both_spaces_on_consolidated() {
     let source_b = EntryId::generate();
     let replacement = EntryId::generate();
 
-    let embedder = FakeEmbedder::new(DIMS);
+    let embedder = CpuEmbedder::try_new().unwrap();
     let mut vectors = InMemoryVectorIndex::new();
 
     // Index two source entries with a resolver, so both Entry and EntryContextual vectors

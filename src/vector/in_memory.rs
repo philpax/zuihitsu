@@ -90,16 +90,16 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    //! The in-memory index ranks nearest-first and honours upsert-replace and remove. Driven by the
-    //! deterministic fake embedder, so no model is needed.
+    //! The in-memory index ranks nearest-first and honours upsert-replace and remove. Driven by
+    //! the CPU embedder, so identical text embeds identically for exact-match ranking.
     use crate::{
-        model::embed::{Embedder, FakeEmbedder},
+        model::embed::{CpuEmbedder, Embedder},
         vector::{InMemoryVectorIndex, VectorId, VectorIndex, VectorRecord},
     };
 
     #[tokio::test]
     async fn ranks_nearest_first() {
-        let embedder = FakeEmbedder::new(32);
+        let embedder = CpuEmbedder::try_new().unwrap();
         let mut index = InMemoryVectorIndex::new();
         for text in ["climbing gym", "sourdough bread", "tax return"] {
             let embedding = embedder.embed(&[text.to_owned()]).await.unwrap().remove(0);

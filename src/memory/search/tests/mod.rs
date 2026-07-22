@@ -11,7 +11,7 @@ use crate::{
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq},
     memory::memory_block::LinkDirection,
     model::{
-        embed::{Embedder, FakeEmbedder},
+        embed::{CpuEmbedder, Embedder},
         index::Indexer,
     },
     settings::{SearchSettings, Settings},
@@ -22,7 +22,6 @@ use crate::{
 };
 
 const DAY: i64 = 86_400_000;
-const DIMS: usize = 32;
 
 fn event(seq: u64, payload: EventPayload) -> Event {
     Event {
@@ -160,14 +159,14 @@ fn a_future_occurrence_does_not_decay() {
     assert!(bonus(&graph, id, now) > 0.99);
 }
 
-/// A write + index harness for the multi-signal blend. The fake embedder isn't semantic, but it
-/// is deterministic — the same text embeds to the same vector — so querying a memory's exact
-/// description gives it cosine 1, which exercises the semantic signal without a real model.
+/// A write + index harness for the multi-signal blend. The CPU embedder produces real semantic
+/// vectors — querying a memory's exact description gives it cosine ~1.0, which exercises the
+/// semantic signal, while semantically distinct texts embed to distinct vectors.
 struct Corpus {
     store: MemoryStore,
     graph: Graph,
     index: InMemoryVectorIndex,
-    embedder: FakeEmbedder,
+    embedder: CpuEmbedder,
 }
 
 impl Corpus {
@@ -176,7 +175,7 @@ impl Corpus {
             store: MemoryStore::new(),
             graph: Graph::open_in_memory().unwrap(),
             index: InMemoryVectorIndex::new(),
-            embedder: FakeEmbedder::new(DIMS),
+            embedder: CpuEmbedder::try_new().unwrap(),
         }
     }
 

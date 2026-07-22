@@ -171,20 +171,20 @@ fn backend(error: impl std::fmt::Display) -> VectorError {
 #[cfg(test)]
 mod tests {
     //! The sqlite-vec backend: nearest-neighbour ranking, upsert-replaces semantics, and the
-    //! dimension-mismatch guard. Uses the deterministic fake embedder so no model is needed.
+    //! dimension-mismatch guard. Uses the CPU embedder so identical text embeds identically.
     use crate::{
         ids::Seq,
-        model::embed::{Embedder, FakeEmbedder},
+        model::embed::{CpuEmbedder, Embedder},
         vector::{SqliteVectorIndex, VectorError, VectorId, VectorIndex, VectorRecord},
     };
 
-    const DIMS: usize = 32;
+    const DIMS: usize = 384;
 
-    async fn vector(embedder: &FakeEmbedder, text: &str) -> Vec<f32> {
+    async fn vector(embedder: &CpuEmbedder, text: &str) -> Vec<f32> {
         embedder.embed(&[text.to_owned()]).await.unwrap().remove(0)
     }
 
-    async fn record(embedder: &FakeEmbedder, id: &str, text: &str) -> VectorRecord {
+    async fn record(embedder: &CpuEmbedder, id: &str, text: &str) -> VectorRecord {
         VectorRecord {
             id: VectorId::new(id),
             embedding: vector(embedder, text).await,
@@ -194,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn ranks_nearest_first_and_replaces_on_reinsert() {
-        let embedder = FakeEmbedder::new(DIMS);
+        let embedder = CpuEmbedder::try_new().unwrap();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
         assert!(index.is_empty().unwrap());
 
@@ -235,7 +235,7 @@ mod tests {
         let record = VectorRecord {
             id: VectorId::new("x"),
             embedding: wrong.clone(),
-            model_id: "fake-embedder".into(),
+            model_id: "all-MiniLM-L6-v2-cpu".into(),
         };
         assert!(matches!(
             index.upsert(record),
@@ -254,7 +254,7 @@ mod tests {
     async fn model_id_reads_back_the_stored_model_and_clear_resets_the_index() {
         // The boot-time embedding-swap detection turns on these two against the live vec0 backend: the
         // model the stored vectors carry, and clearing them for a re-embed (spec §Storage → vector store).
-        let embedder = FakeEmbedder::new(DIMS);
+        let embedder = CpuEmbedder::try_new().unwrap();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
 
         // An empty index identifies no model and sits at the start of the log.

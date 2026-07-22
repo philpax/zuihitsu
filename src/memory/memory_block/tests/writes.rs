@@ -9,7 +9,7 @@ use crate::{
     graph::{Graph, GraphError},
     ids::{EntryId, MemoryId, MemoryName, Namespace},
     memory::memory_block::{LinkOptions, RelationSpec},
-    model::embed::{Embedder, FakeEmbedder},
+    model::embed::{CpuEmbedder, Embedder},
     store::{MemoryStore, Store},
     time::{Rrule, TemporalRef, Timestamp},
     vector::{InMemoryVectorIndex, VectorIndex, VectorRecord},
@@ -1217,10 +1217,9 @@ fn graph_error_carries_a_memory_context_prefix() {
 async fn append_dedup_rejects_contextual_duplicate() {
     // The dedup check should search the EntryContextual space, not the Entry space. Seed an
     // EntryContextual vector for an existing live entry, then call append_dedup with the same
-    // contextual embedding — the FakeEmbedder is deterministic, so the same text embeds to the
-    // same vector, and the dedup check should reject the duplicate.
-    const DIMS: usize = 16;
-    let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new(DIMS));
+    // contextual embedding — the same text embeds to the same vector, and the dedup check
+    // should reject the duplicate.
+    let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
 
     let dave_name: MemoryName = Namespace::Person.with_name("dave").into();
     let dave: MemoryId = MemoryId::generate();

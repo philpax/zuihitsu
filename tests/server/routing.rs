@@ -1,7 +1,8 @@
 use super::*;
 #[tokio::test]
 async fn the_indexer_catches_the_vector_index_up_to_the_log() {
-    let embedder: std::sync::Arc<dyn Embedder> = std::sync::Arc::new(FakeEmbedder::new(16));
+    let embedder: std::sync::Arc<dyn Embedder> =
+        std::sync::Arc::new(common::CpuEmbedder::try_new().unwrap());
     let vectors: Box<dyn VectorIndex> = Box::new(InMemoryVectorIndex::new());
     let mut server = Server::with_retrieval(
         Box::new(MemoryStore::new()),
