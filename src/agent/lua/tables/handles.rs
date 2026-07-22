@@ -49,10 +49,24 @@ pub(super) fn install_handle_methods(
                     guard_search_taint(&api, id)?;
                     api.lock(id).await;
                     let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
+                    // Embed the candidate for the dedup check, if retrieval is configured. The
+                    // embedding is computed off the block lock (it is async), then passed into
+                    // `append_dedup` which searches the vector index under a brief sync lock.
+                    let (engine, _) = api.block.lock().retrieval_handle();
+                    let embedding = if let Some(retrieval) = &engine.retrieval {
+                        retrieval
+                            .embedder
+                            .embed(std::slice::from_ref(&text))
+                            .await
+                            .ok()
+                            .and_then(|v| v.into_iter().next())
+                    } else {
+                        None
+                    };
                     let entry = {
                         let mut block = api.block.lock();
                         let entry_id = block
-                            .append(id, &text, opts)
+                            .append_dedup(id, &text, opts, embedding.as_deref())
                             .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                         block.entry_ref_by_id(entry_id)
                     };

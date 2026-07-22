@@ -164,6 +164,65 @@ impl MemoryBlock {
     }
 
     /// Append a content entry to `id`. `opts.told_by` stamps a specific teller (a relayed claim's
+    /// As [`MemoryBlock::append`], but first checks the candidate's embedding against the vector
+    /// index for a near-identical live entry on the same identity class. If one is found above the
+    /// dedup similarity threshold, the append is rejected with [`MemoryError::DuplicateEntry`],
+    /// naming the existing entry so the agent can supersede it if the fact genuinely changed or
+    /// skip the write.
+    ///
+    /// The dedup check is best-effort: the vector index lags behind the log (the indexer runs on a
+    /// timer), so entries appended in the current block or the last few seconds are not yet indexed.
+    /// Same-block duplicates are missed — the consolidation pass catches these retroactively. A
+    /// `None` embedding (graph-only instance, or an embed failure) skips the check.
+    pub fn append_dedup(
+        &mut self,
+        id: MemoryId,
+        text: &str,
+        opts: AppendOptions,
+        dedup_embedding: Option<&[f32]>,
+    ) -> Result<EntryId, MemoryError> {
+        if let Some(embedding) = dedup_embedding
+            && let Some(retrieval) = &self.engine.retrieval
+        {
+            let settings = crate::settings::Settings::from_store(self.engine.store.lock().as_ref())
+                .unwrap_or_default();
+            let threshold = settings.maintenance.dedup_similarity_threshold as f32;
+            let hits = retrieval
+                .vectors
+                .lock()
+                .search(embedding, 50)
+                .map_err(|e| MemoryError::Graph(GraphError::Malformed(e.to_string())))?;
+            let class_target = self.class_write_target(id)?;
+            let target_class = {
+                let graph = self.engine.graph.lock();
+                graph.class_id(class_target)?.unwrap_or(class_target)
+            };
+            for hit in &hits {
+                if hit.score < threshold {
+                    break;
+                }
+                if let Some(crate::model::index::VectorKey::Entry(entry_id)) =
+                    crate::model::index::VectorKey::parse(&hit.id)
+                {
+                    // Check whether this entry is on the same class and still live.
+                    let graph = self.engine.graph.lock();
+                    if let Some((memory, entry)) = graph.entry_by_id(entry_id)? {
+                        let entry_class = graph.class_id(memory.id)?.unwrap_or(memory.id);
+                        if entry.superseded_by.is_none() && entry_class == target_class {
+                            return Err(MemoryError::DuplicateEntry {
+                                existing_entry_id: entry_id,
+                                snippet: entry.text,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        self.append(id, text, opts)
+    }
+
+    /// Buffer a content entry for `id` — the agent's primary write, recording a fact, an
+    /// observation, or a relayed claim. `opts.told_by` overrides the speaker (a relayed claim's
     /// source); `opts.by_agent` attributes it to the agent; with neither, it is the current speaker.
     /// `opts.visibility` forces the visibility; otherwise the write-time default applies (a
     /// `#confidential` room, or an aside about an absent third party, defaults private to the teller).

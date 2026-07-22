@@ -134,6 +134,15 @@ pub enum MemoryError {
     /// content — the agent should summarize what it learned in under the limit rather than pasting a
     /// fetched page or raw transcript.
     ContentTooLong { length: usize, limit: usize },
+    /// An append whose meaning is already held as a live entry on the same identity class. The dedup
+    /// check embedded the candidate and found a near-identical entry (cosine above the threshold). The
+    /// error names the existing entry's id and a snippet, so the agent can supersede it if the fact
+    /// genuinely changed or skip the write. Mirrors [`MemoryError::NameExists`]'s teachable-error
+    /// pattern.
+    DuplicateEntry {
+        existing_entry_id: EntryId,
+        snippet: String,
+    },
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -292,6 +301,19 @@ impl std::fmt::Display for MemoryError {
                  content — summarize what you learned in under {limit} characters, drawing on the \
                  content you fetched or read in your tool results rather than pasting it verbatim"
             ),
+            MemoryError::DuplicateEntry {
+                existing_entry_id,
+                snippet,
+            } => {
+                let preview = snippet_for(snippet);
+                write!(
+                    f,
+                    "this fact is already held as entry {:?} — {preview}; supersede \
+                     it with mem:supersede(entry, text) if the fact genuinely changed, or skip the \
+                     write if it has not",
+                    existing_entry_id.0
+                )
+            }
             MemoryError::Graph(error) => write!(f, "memory: {error}"),
         }
     }
