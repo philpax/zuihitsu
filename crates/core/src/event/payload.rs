@@ -71,6 +71,28 @@ pub enum EventPayload {
         entry: EntryId,
         superseded_by: EntryId,
     },
+    /// Consolidates multiple entries into one synthesized replacement: a maintenance pass
+    /// clustered semantically-overlapping live entries and synthesized a single richer entry
+    /// that preserves their interrelated clauses. Each source entry is tombstoned (stamped
+    /// `superseded_by` = the replacement entry id, like a supersession), dropping it from
+    /// live surfaces while preserving it in history. Unlike [`EventPayload::MemorySuperseded`]
+    /// (one-to-one: "this entry was wrong, here's the replacement"), this event carries the
+    /// full many-to-one relationship — the list of source entry ids and the synthesized
+    /// replacement — so a reader can trace exactly which entries were consolidated.
+    ///
+    /// `produced_by` carries the consolidation model's provenance. The replacement entry is
+    /// appended as a normal [`EventPayload::MemoryContentAppended`] (with `Teller::Agent` and
+    /// the appropriate visibility), then this event tombstones the sources and records the
+    /// relationship.
+    EntriesConsolidated {
+        id: MemoryId,
+        /// The source entries consolidated into the replacement, tombstoned by this event.
+        sources: Vec<EntryId>,
+        /// The synthesized replacement entry, already appended via `MemoryContentAppended`.
+        replacement: EntryId,
+        /// The consolidation model's provenance.
+        produced_by: Option<ProducedBy>,
+    },
     /// Retracts an entry to a tombstone: the agent withdraws a fact outright rather than replacing it
     /// with a correction in place, recording why (spec §Visibility → superseded entries are not live).
     /// Unlike [`EventPayload::MemorySuperseded`], there is no successor — a retraction is the honest

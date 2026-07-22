@@ -105,6 +105,22 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "EntriesConsolidated":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.id)}</Field>
+          <Field label="replacement">
+            <Mono>{payload.replacement}</Mono>
+          </Field>
+          <Field label="sources">
+            {payload.sources.map((s) => (
+              <Mono key={s}>{s}</Mono>
+            ))}
+          </Field>
+          {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
+        </Fields>
+      );
+
     case "EntryRetracted":
       return (
         <Fields>

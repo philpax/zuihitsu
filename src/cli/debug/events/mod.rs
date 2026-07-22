@@ -242,6 +242,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         } => format!("renamed {} → {}", old_name.as_str(), new_name.as_str()),
         EventPayload::MemoryDeleted { id } => format!("deleted {}", name(id)),
         EventPayload::MemorySuperseded { id, .. } => format!("{}: superseded an entry", name(id)),
+        EventPayload::EntriesConsolidated { id, sources, .. } => {
+            format!("{}: consolidated {} entries", name(id), sources.len())
+        }
         EventPayload::EntryRetracted { memory, reason, .. } => {
             format!("{}: retracted an entry ({reason})", name(memory))
         }
@@ -387,6 +390,7 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         | EventPayload::MemoryRenamed { .. }
         | EventPayload::MemoryDeleted { .. }
         | EventPayload::MemorySuperseded { .. }
+        | EventPayload::EntriesConsolidated { .. }
         | EventPayload::EntryRetracted { .. }
         | EventPayload::MemoryDescriptionRegenerated { .. }
         | EventPayload::MemoryVolatilitySet { .. }

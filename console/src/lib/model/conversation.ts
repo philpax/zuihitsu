@@ -390,6 +390,7 @@ export function buildConversations(
       case "MemoryDeleted":
       case "MemoryContentAppended":
       case "MemorySuperseded":
+      case "EntriesConsolidated":
       case "EntryRetracted":
       case "EntryTemporalResolved":
       case "EntryTemporalResolveFailed":
@@ -486,6 +487,7 @@ function outcomeMemoryIds(payload: EventPayload): string[] {
     case "MemoryDeleted":
     case "MemoryContentAppended":
     case "MemorySuperseded":
+    case "EntriesConsolidated":
     case "MemoryVolatilitySet":
     case "MemoryDescriptionRegenerated":
     case "EntryTemporalResolved":

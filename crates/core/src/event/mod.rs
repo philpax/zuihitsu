@@ -390,6 +390,9 @@ pub enum PromptTemplateName {
     /// off-hot-path link-inference catch-up is gated on this template's presence: no template
     /// registered, no pass (spec §Write path → link inference).
     LinkInference,
+    /// Synthesizes a consolidated entry from a cluster of semantically-overlapping entries.
+    /// The off-hot-path consolidation pass is gated on this template's presence.
+    EntryConsolidation,
 }
 
 impl PromptTemplateName {
@@ -401,6 +404,7 @@ impl PromptTemplateName {
             PromptTemplateName::Flush => "flush",
             PromptTemplateName::Imprint => "imprint",
             PromptTemplateName::LinkInference => "link-inference",
+            PromptTemplateName::EntryConsolidation => "entry-consolidation",
         }
     }
 }

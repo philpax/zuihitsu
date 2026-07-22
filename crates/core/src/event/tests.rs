@@ -196,6 +196,22 @@ fn memory_superseded_round_trips() {
 }
 
 #[test]
+fn entries_consolidated_round_trips() {
+    let event = EventPayload::entries_consolidated(
+        MemoryId::generate(),
+        vec![
+            EntryId::generate(),
+            EntryId::generate(),
+            EntryId::generate(),
+        ],
+        EntryId::generate(),
+        None,
+    );
+    let json = serde_json::to_string(&event).unwrap();
+    assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+}
+
+#[test]
 fn scheduled_job_fired_round_trips() {
     let event = EventPayload::ScheduledJobFired {
         entry_id: EntryId::generate(),

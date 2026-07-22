@@ -204,6 +204,26 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::EntriesConsolidated {
+                sources,
+                replacement,
+                ..
+            } => {
+                // Tombstone each source entry by stamping `superseded_by` = the replacement entry id,
+                // the same mechanism `MemorySuperseded` uses for a single entry. Live reads exclude
+                // them (`superseded_by IS NULL`); history reads keep them. The `EntriesConsolidated`
+                // event itself carries the full many-to-one relationship that `MemorySuperseded`'s
+                // one-to-one shape cannot express — a reader finds the consolidation relationship by
+                // reading the event, not a side table.
+                for source in sources {
+                    self.conn
+                        .execute(
+                            "UPDATE content_entries SET superseded_by = ?1 WHERE entry_id = ?2",
+                            params![replacement.0.to_string(), source.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
+            }
             EventPayload::EntryRetracted { entry, reason, .. } => {
                 // Tombstone the retracted entry: stamp its own id into superseded_by so every live
                 // filter (`superseded_by IS NULL`) hides it exactly as a supersession would — with no

@@ -202,6 +202,25 @@ impl Graph {
         let stmt = self.conn.prepare(sql)?;
         query_map_into(stmt, params![id.0.to_string()], entry_from_row)
     }
+
+    /// The source entries consolidated into `replacement` by an `EntriesConsolidated` event, in
+    /// commit order. Each source's `superseded_by` column points to the replacement (the same
+    /// mechanism `MemorySuperseded` uses), so this reads the materialized graph rather than
+    /// scanning the event log: it returns every tombstoned entry whose successor is `replacement`.
+    /// A history read uses this to show the consolidation relationship.
+    pub fn consolidation_sources(
+        &self,
+        replacement: EntryId,
+    ) -> Result<Vec<EntryView>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
+                    superseded_by, retracted_reason
+             FROM content_entries
+             WHERE superseded_by = ?1
+             ORDER BY seq",
+        )?;
+        query_map_into(stmt, params![replacement.0.to_string()], entry_from_row)
+    }
 }
 
 /// Decode one content-entry row into an [`EntryView`], deserializing the structured `told_by` /

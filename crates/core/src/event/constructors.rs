@@ -62,6 +62,20 @@ impl EventPayload {
         }
     }
 
+    pub fn entries_consolidated(
+        id: MemoryId,
+        sources: Vec<EntryId>,
+        replacement: EntryId,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::EntriesConsolidated {
+            id,
+            sources,
+            replacement,
+            produced_by,
+        }
+    }
+
     pub fn entry_retracted(
         memory: MemoryId,
         entry: EntryId,
