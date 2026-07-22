@@ -76,6 +76,7 @@ export function summarizeStep(step: EvalStep): string {
   if (step === "describe_catch_up") return "DescribeCatchUp";
   if (step === "link_inference_catch_up") return "LinkInferenceCatchUp";
   if (step === "checkpoint_sweep") return "CheckpointSweep";
+  if (step === "maintenance_catch_up") return "MaintenanceCatchUp";
   if (step === "advance_past_idle_gap") return "AdvancePastIdleGap";
 
   if ("turn" in step) {

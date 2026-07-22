@@ -96,6 +96,7 @@ dom_smoothie = "0.18"
 fs2 = "0.4.3"
 htmd = "0.5"
 jiff = { workspace = true }
+kodama = "0.3"
 mlua = { version = "0.11.6", features = ["luau", "serde", "async", "send"] }
 parking_lot = { workspace = true }
 metrics = "0.24.1"

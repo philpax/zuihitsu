@@ -436,6 +436,7 @@ impl Control<'_> {
         // handler already marked the seeded `self` described in the graph materialization above, so the
         // first describe pass over it regenerates nothing.
         self.server.baseline_link_inference_cursor()?;
+        self.server.baseline_maintenance_cursors()?;
         Ok(outcome)
     }
 

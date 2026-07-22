@@ -12,6 +12,7 @@
 pub mod api_doc;
 pub mod genesis;
 pub mod lua;
+pub mod maintenance;
 mod mcp_api;
 pub use mcp_api::McpCatalogue;
 pub mod system_prompt;

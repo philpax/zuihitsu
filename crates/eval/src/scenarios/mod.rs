@@ -4,6 +4,7 @@
 //! order both fill the console's category groups contiguously.
 
 mod identity;
+mod maintenance;
 mod privacy;
 mod recall;
 mod relations;
@@ -30,6 +31,7 @@ pub fn all() -> Vec<Arc<dyn Scenario>> {
         sessions::scenarios(),
         writes::scenarios(),
         synthesis::scenarios(),
+        maintenance::scenarios(),
     ]
     .into_iter()
     .flatten()

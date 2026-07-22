@@ -119,6 +119,20 @@ pub(crate) struct BackgroundPasses {
     describe_guard: tokio::sync::Mutex<()>,
     /// As `describe_guard`, serializing the link-inference catch-up.
     link_inference_guard: tokio::sync::Mutex<()>,
+    /// The consolidation pass's cursor: the log seq through which entries have been considered for
+    /// consolidation. Re-seeded to log-head at boot, like the link-inference cursor.
+    consolidation_cursor: Mutex<Seq>,
+    /// Serializes consolidation sweeps so two do not overlap.
+    consolidation_guard: tokio::sync::Mutex<()>,
+    /// The canonicalize pass's cursor: the log seq through which platform stubs have been considered.
+    canonicalize_cursor: Mutex<Seq>,
+    /// Serializes canonicalize sweeps.
+    canonicalize_guard: tokio::sync::Mutex<()>,
+    /// The link-cleanup pass's cursor: the log seq through which entries have been considered for
+    /// link-redundancy cleanup.
+    link_cleanup_cursor: Mutex<Seq>,
+    /// Serializes link-cleanup sweeps.
+    link_cleanup_guard: tokio::sync::Mutex<()>,
 }
 
 mod session_store;
@@ -403,6 +417,37 @@ impl Instance {
 
     pub(crate) fn baseline_link_inference_cursor(&self) -> Result<(), InstanceError> {
         self.passes.baseline_link_inference_cursor(&self.engine)
+    }
+
+    /// Seed the maintenance pass cursors to log-head, so a restart does not re-process old content.
+    pub(crate) fn baseline_maintenance_cursors(&self) -> Result<(), InstanceError> {
+        self.passes.baseline_maintenance_cursors(&self.engine)
+    }
+
+    /// Drive the consolidation pass. Returns how many memories were considered.
+    pub async fn consolidation_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes
+            .consolidation_catch_up(&self.engine, model)
+            .await
+    }
+
+    /// Drive the canonical-profile pass. Returns how many stubs were considered.
+    pub async fn canonicalize_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes.canonicalize_catch_up(&self.engine, model).await
+    }
+
+    /// Drive the link-redundant entry cleanup pass. Returns how many memories were considered.
+    pub async fn link_cleanup_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes.link_cleanup_catch_up(&self.engine, model).await
     }
 
     /// The lazily-minted async lock serializing `conversation`'s session lifecycle. Delegates to

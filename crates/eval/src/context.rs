@@ -421,6 +421,21 @@ impl RunContext {
         Ok(())
     }
 
+    /// Run the maintenance passes — consolidation, canonicalize, and link cleanup — so a scenario
+    /// that asserts on consolidated entries or canonical profiles drives them explicitly.
+    pub(crate) async fn maintenance_catch_up(&self) -> Result<(), EvalError> {
+        self.server
+            .consolidation_catch_up(self.model.as_ref())
+            .await?;
+        self.server
+            .canonicalize_catch_up(self.model.as_ref())
+            .await?;
+        self.server
+            .link_cleanup_catch_up(self.model.as_ref())
+            .await?;
+        Ok(())
+    }
+
     /// The run's whole event log — the record the harness embeds and assessment reads.
     pub(crate) fn events(&self) -> Result<Vec<Event>, EvalError> {
         Ok(self.server.control().events()?)

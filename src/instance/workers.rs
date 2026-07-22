@@ -9,7 +9,9 @@ use parking_lot::Mutex;
 
 use crate::{
     InstanceError,
-    agent::{run_describe_catch_up, run_describe_catch_up_for, run_link_inference_catch_up},
+    agent::{
+        maintenance, run_describe_catch_up, run_describe_catch_up_for, run_link_inference_catch_up,
+    },
     event::{EventPayload, EventSource},
     ids::{MemoryId, Seq},
     metrics::{observe_describe_priority_escape, observe_worker_error},
@@ -35,6 +37,12 @@ impl BackgroundPasses {
             link_inference_cursor: Mutex::new(head),
             describe_guard: tokio::sync::Mutex::new(()),
             link_inference_guard: tokio::sync::Mutex::new(()),
+            consolidation_cursor: Mutex::new(head),
+            consolidation_guard: tokio::sync::Mutex::new(()),
+            canonicalize_cursor: Mutex::new(head),
+            canonicalize_guard: tokio::sync::Mutex::new(()),
+            link_cleanup_cursor: Mutex::new(head),
+            link_cleanup_guard: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -45,6 +53,9 @@ impl BackgroundPasses {
     /// (genesis baselines the seeded `self` via `GenesisCompleted`).
     pub(crate) fn reseed(&self, head: Seq) {
         *self.link_inference_cursor.lock() = head;
+        *self.consolidation_cursor.lock() = head;
+        *self.canonicalize_cursor.lock() = head;
+        *self.link_cleanup_cursor.lock() = head;
     }
 
     /// Catch the vector index up to the log (spec §Storage → vector store). Reads the cursor and the
@@ -183,6 +194,60 @@ impl BackgroundPasses {
         engine: &Engine,
     ) -> Result<(), InstanceError> {
         *self.link_inference_cursor.lock() = engine.store.lock().head()?;
+        Ok(())
+    }
+
+    /// Catch the consolidation pass up to the log. Returns how many memories it considered. The
+    /// activity gate (events since last cursor advance) must be checked by the caller before invoking
+    /// this — the background driver does so; the on-demand CLI/console paths always run.
+    pub async fn consolidation_catch_up(
+        &self,
+        engine: &Engine,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        let _guard = self.consolidation_guard.lock().await;
+        let cursor = *self.consolidation_cursor.lock();
+        let (advanced, count) = maintenance::consolidation::catch_up(engine, model, cursor).await?;
+        *self.consolidation_cursor.lock() = advanced;
+        Ok(count)
+    }
+
+    /// Catch the canonicalize pass up to the log. Returns how many stubs it considered.
+    pub async fn canonicalize_catch_up(
+        &self,
+        engine: &Engine,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        let _guard = self.canonicalize_guard.lock().await;
+        let cursor = *self.canonicalize_cursor.lock();
+        let (advanced, count) = maintenance::canonicalize::catch_up(engine, model, cursor).await?;
+        *self.canonicalize_cursor.lock() = advanced;
+        Ok(count)
+    }
+
+    /// Catch the link-cleanup pass up to the log. Returns how many memories it considered.
+    pub async fn link_cleanup_catch_up(
+        &self,
+        engine: &Engine,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        let _guard = self.link_cleanup_guard.lock().await;
+        let cursor = *self.link_cleanup_cursor.lock();
+        let (advanced, count) = maintenance::link_cleanup::catch_up(engine, model, cursor).await?;
+        *self.link_cleanup_cursor.lock() = advanced;
+        Ok(count)
+    }
+
+    /// Seed the maintenance pass cursors to log-head, treating everything so far as already
+    /// processed. Called at boot and at agent creation, like the link-inference cursor.
+    pub(crate) fn baseline_maintenance_cursors(
+        &self,
+        engine: &Engine,
+    ) -> Result<(), InstanceError> {
+        let head = engine.store.lock().head()?;
+        *self.consolidation_cursor.lock() = head;
+        *self.canonicalize_cursor.lock() = head;
+        *self.link_cleanup_cursor.lock() = head;
         Ok(())
     }
 }
@@ -332,5 +397,81 @@ impl Instance {
             }
         }
         tracing::info!("link inference stopped");
+    }
+
+    /// The maintenance driver: on each tick, run each maintenance pass if its activity gate fires
+    /// (spec §Write path → maintenance passes). Each pass is cursor-resumed and idempotent, so an
+    /// idle tick is cheap. Stops on the shutdown signal; a failure is logged, not fatal. Spawned
+    /// only when a model is configured; without one there is nothing to run the synthesis calls.
+    pub async fn run_maintenance(
+        self: Arc<Self>,
+        model: Arc<dyn ModelClient>,
+        interval: Duration,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut ticker = tokio::time::interval(interval);
+        tokio::pin!(shutdown);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    let settings = Settings::from_store(self.engine.store.lock().as_ref())
+                        .unwrap_or_default();
+                    if !settings.maintenance.enabled {
+                        continue;
+                    }
+                    // Each pass runs if its activity gate fires.
+                    if maintenance::activity_gate(
+                        &self.engine,
+                        *self.passes.consolidation_cursor.lock(),
+                        settings.maintenance.consolidation_min_activity,
+                    ).unwrap_or(false) {
+                        match self.passes.consolidation_catch_up(&self.engine, model.as_ref()).await {
+                            Ok(considered) if considered > 0 => {
+                                tracing::debug!(considered, "consolidation pass consolidated entries")
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                observe_worker_error("consolidation");
+                                tracing::error!(%error, "consolidation: catch-up failed")
+                            }
+                        }
+                    }
+                    if maintenance::activity_gate(
+                        &self.engine,
+                        *self.passes.canonicalize_cursor.lock(),
+                        settings.maintenance.canonicalize_min_activity,
+                    ).unwrap_or(false) {
+                        match self.passes.canonicalize_catch_up(&self.engine, model.as_ref()).await {
+                            Ok(considered) if considered > 0 => {
+                                tracing::debug!(considered, "canonicalize pass minted profiles")
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                observe_worker_error("canonicalize");
+                                tracing::error!(%error, "canonicalize: catch-up failed")
+                            }
+                        }
+                    }
+                    if maintenance::activity_gate(
+                        &self.engine,
+                        *self.passes.link_cleanup_cursor.lock(),
+                        settings.maintenance.link_cleanup_min_activity,
+                    ).unwrap_or(false) {
+                        match self.passes.link_cleanup_catch_up(&self.engine, model.as_ref()).await {
+                            Ok(considered) if considered > 0 => {
+                                tracing::debug!(considered, "link cleanup pass retracted redundant entries")
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                observe_worker_error("link_cleanup");
+                                tracing::error!(%error, "link cleanup: catch-up failed")
+                            }
+                        }
+                    }
+                }
+                _ = &mut shutdown => break,
+            }
+        }
+        tracing::info!("maintenance driver stopped");
     }
 }

@@ -176,15 +176,23 @@ pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
         .collect()
 }
 
-/// The set of entry ids that have been superseded, from `MemorySuperseded` events.
+/// The set of entry ids that have been superseded, from `MemorySuperseded` events and
+/// `EntriesConsolidated` source lists (both tombstone entries via the graph's `superseded_by`
+/// column).
 pub fn superseded_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
-    events
-        .iter()
-        .filter_map(|event| match &event.payload {
-            EventPayload::MemorySuperseded { entry, .. } => Some(*entry),
-            _ => None,
-        })
-        .collect()
+    let mut ids = BTreeSet::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::MemorySuperseded { entry, .. } => {
+                ids.insert(*entry);
+            }
+            EventPayload::EntriesConsolidated { sources, .. } => {
+                ids.extend(sources.iter().copied());
+            }
+            _ => {}
+        }
+    }
+    ids
 }
 
 /// The set of entry ids withdrawn by a retraction (`EntryRetracted`) — hidden from every live surface
@@ -197,6 +205,24 @@ pub fn retracted_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
             _ => None,
         })
         .collect()
+}
+
+/// Whether a live entry on a memory whose name contains `subject` has text that *exactly* matches
+/// `needle` (case-insensitive). Unlike [`live_entry_on`], this does not match substrings — the
+/// replacement entry from a consolidation may contain overlapping words, so an exact match is
+/// needed to check whether a specific source entry is still live.
+pub fn live_entry_exact(events: &[Event], subject: &str, needle: &str) -> bool {
+    let hidden: BTreeSet<EntryId> = superseded_entry_ids(events)
+        .union(&retracted_entry_ids(events))
+        .copied()
+        .collect();
+    let subject = subject.to_lowercase();
+    let needle = needle.trim().to_lowercase();
+    entries(events).into_iter().any(|entry| {
+        entry.memory.to_lowercase().contains(&subject)
+            && entry.text.trim().to_lowercase() == needle
+            && !hidden.contains(&entry.entry_id)
+    })
 }
 
 /// Whether the run retracted an entry with a stated (non-empty) reason — the structured, auditable

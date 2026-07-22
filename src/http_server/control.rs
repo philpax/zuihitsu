@@ -473,3 +473,48 @@ pub(super) async fn register_prompt(
         .register_prompt(request.name, &request.body)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Drive the consolidation pass on demand. Returns how many memories were considered.
+pub(super) async fn maintenance_consolidate(
+    State(state): State<AppState>,
+) -> Result<Json<usize>, ApiError> {
+    let Some(model) = &state.model else {
+        return Err(ApiError::NoModel);
+    };
+    let count = state
+        .server
+        .consolidation_catch_up(model.as_ref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(count))
+}
+
+/// Drive the canonical-profile pass on demand. Returns how many stubs were considered.
+pub(super) async fn maintenance_canonicalize(
+    State(state): State<AppState>,
+) -> Result<Json<usize>, ApiError> {
+    let Some(model) = &state.model else {
+        return Err(ApiError::NoModel);
+    };
+    let count = state
+        .server
+        .canonicalize_catch_up(model.as_ref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(count))
+}
+
+/// Drive the link-redundant entry cleanup pass on demand. Returns how many memories were considered.
+pub(super) async fn maintenance_link_cleanup(
+    State(state): State<AppState>,
+) -> Result<Json<usize>, ApiError> {
+    let Some(model) = &state.model else {
+        return Err(ApiError::NoModel);
+    };
+    let count = state
+        .server
+        .link_cleanup_catch_up(model.as_ref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(count))
+}

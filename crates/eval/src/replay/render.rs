@@ -42,6 +42,7 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
         EvalStep::AdvancePastIdleGap => "AdvancePastIdleGap".to_owned(),
         EvalStep::DescribeCatchUp => "DescribeCatchUp".to_owned(),
         EvalStep::LinkInferenceCatchUp => "LinkInferenceCatchUp".to_owned(),
+        EvalStep::MaintenanceCatchUp => "MaintenanceCatchUp".to_owned(),
         EvalStep::CheckpointSweep => "CheckpointSweep".to_owned(),
         EvalStep::SeedEvents(events) => format!("SeedEvents (×{})", events.len()),
         EvalStep::TuneSupersession { window_seconds } => {

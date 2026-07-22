@@ -43,6 +43,7 @@ pub struct Settings {
     pub memory: MemorySettings,
     pub web: WebSettings,
     pub ambient: AmbientSettings,
+    pub maintenance: MaintenanceSettings,
 }
 
 /// Session segmentation and the carryover across a compaction seam.
@@ -380,6 +381,49 @@ pub struct TauDays {
     pub low: f32,
 }
 
+/// Maintenance pass scheduling (spec §Write path → maintenance passes). Each pass runs on
+/// a timer, but only when enough activity has accrued since its last run — a pass that finds
+/// nothing to do is cheap, and a pass that runs too soon after the last one wastes a model
+/// call. The activity gate is per-pass: each tracks events since its last cursor advance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "maintenance")
+)]
+pub struct MaintenanceSettings {
+    /// Whether maintenance passes run at all. When false, the passes are registered but never fire
+    /// on the timer; they can still be invoked on demand via the CLI/console.
+    pub enabled: bool,
+    /// How often the maintenance driver ticks, in seconds. The maintenance passes are heavier than
+    /// describe/link-inference, so this defaults to a longer interval.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub tick_seconds: i64,
+    /// Minimum number of events since the last consolidation run before the next consolidation sweep
+    /// fires. Zero disables the activity gate (runs every tick).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub consolidation_min_activity: i64,
+    /// Minimum number of events since the last canonicalize run before the next canonicalize sweep
+    /// fires.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub canonicalize_min_activity: i64,
+    /// Minimum number of events since the last link-cleanup run before the next sweep fires.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub link_cleanup_min_activity: i64,
+    /// The cosine similarity threshold above which two entries are considered semantic duplicates
+    /// for consolidation clustering. A high floor (e.g. 0.85) minimizes false positives — the
+    /// consolidation model still synthesizes a replacement, so a loose cluster just means more
+    /// entries in the synthesis prompt.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub consolidation_similarity_threshold: f64,
+    /// The cosine similarity threshold for the append-time dedup check. Higher than the
+    /// consolidation threshold (e.g. 0.95) because a write-time rejection is more disruptive than a
+    /// loose consolidation cluster.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub dedup_similarity_threshold: f64,
+}
+
 impl Default for CompactionSettings {
     fn default() -> Self {
         CompactionSettings {
@@ -511,6 +555,20 @@ impl Default for TauDays {
             high: 90.0,
             medium: 365.0,
             low: 3650.0,
+        }
+    }
+}
+
+impl Default for MaintenanceSettings {
+    fn default() -> Self {
+        MaintenanceSettings {
+            enabled: true,
+            tick_seconds: 60,
+            consolidation_min_activity: 20,
+            canonicalize_min_activity: 5,
+            link_cleanup_min_activity: 20,
+            consolidation_similarity_threshold: 0.85,
+            dedup_similarity_threshold: 0.95,
         }
     }
 }

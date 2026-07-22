@@ -71,8 +71,8 @@ pub use model::{
 };
 pub use settings::{
     AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings,
-    ConcurrencySettings, ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings,
-    Settings, TauDays, TurnSettings, WebSettings,
+    ConcurrencySettings, MaintenanceSettings, ObservabilitySettings, RecencySettings,
+    SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings, WebSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{

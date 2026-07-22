@@ -18,7 +18,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 23,
+            version: 24,
             body: scaffold_body(features),
         },
         TemplateDef {
@@ -51,6 +51,11 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             name: PromptTemplateName::LinkInference,
             version: 5,
             body: body_of(include_str!("synthesis/link_inference.md")),
+        },
+        TemplateDef {
+            name: PromptTemplateName::EntryConsolidation,
+            version: 1,
+            body: body_of(include_str!("synthesis/entry_consolidation.md")),
         },
     ]
 }
