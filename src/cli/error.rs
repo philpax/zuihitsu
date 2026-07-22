@@ -34,6 +34,8 @@ pub(crate) enum CliError {
     DeleteMemory(String),
     /// The `markdown-fetch` command could not fetch the page or extract its content.
     MarkdownFetch(String),
+    /// The `embed` command could not embed the inputs or compute the similarity.
+    Embed(String),
 }
 
 impl From<ClientError> for CliError {
@@ -69,6 +71,7 @@ impl std::fmt::Display for CliError {
             CliError::Revert(message) => write!(f, "revert: {message}"),
             CliError::DeleteMemory(message) => write!(f, "delete-memory: {message}"),
             CliError::MarkdownFetch(message) => write!(f, "markdown-fetch: {message}"),
+            CliError::Embed(message) => write!(f, "embed: {message}"),
         }
     }
 }
@@ -87,7 +90,8 @@ impl std::error::Error for CliError {
             | CliError::Brief(_)
             | CliError::Revert(_)
             | CliError::DeleteMemory(_)
-            | CliError::MarkdownFetch(_) => None,
+            | CliError::MarkdownFetch(_)
+            | CliError::Embed(_) => None,
         }
     }
 }

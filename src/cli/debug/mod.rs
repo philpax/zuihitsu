@@ -10,6 +10,7 @@ use crate::cli::{client::Client, error::CliError, print_json};
 
 mod brief;
 mod delete_memory;
+mod embed;
 mod events;
 mod markdown_fetch;
 mod mcp;
@@ -98,6 +99,14 @@ pub(crate) enum DebugCommand {
         #[arg(long)]
         allow_private: bool,
     },
+    /// Embed two strings and report their cosine similarity — a debug utility for tuning the dedup
+    /// and consolidation similarity thresholds.
+    Embed {
+        /// The first text to compare.
+        a: String,
+        /// The second text to compare.
+        b: String,
+    },
 }
 
 pub(crate) fn dispatch(
@@ -148,5 +157,6 @@ pub(crate) fn dispatch(
         DebugCommand::MarkdownFetch { url, allow_private } => {
             markdown_fetch::markdown_fetch(config, url, *allow_private)
         }
+        DebugCommand::Embed { a, b } => embed::embed(config, a, b),
     }
 }
