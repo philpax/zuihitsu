@@ -41,9 +41,9 @@ async fn catch_up_embeds_each_memorys_description() {
         )
         .unwrap();
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
-    Indexer::new(&embedder, &mut vectors)
+    Indexer::new(&*embedder, &mut vectors)
         .catch_up(&store)
         .await
         .unwrap();
@@ -75,12 +75,12 @@ async fn catch_up_resumes_from_the_cursor() {
         )
         .unwrap();
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
 
     // First catch-up processes the one event and advances the cursor to its seq.
     assert_eq!(
-        Indexer::new(&embedder, &mut vectors)
+        Indexer::new(&*embedder, &mut vectors)
             .catch_up(&store)
             .await
             .unwrap(),
@@ -90,7 +90,7 @@ async fn catch_up_resumes_from_the_cursor() {
 
     // With nothing new in the log, a second catch-up is a no-op (doesn't re-embed).
     assert_eq!(
-        Indexer::new(&embedder, &mut vectors)
+        Indexer::new(&*embedder, &mut vectors)
             .catch_up(&store)
             .await
             .unwrap(),
@@ -111,7 +111,7 @@ async fn catch_up_resumes_from_the_cursor() {
         )
         .unwrap();
     assert_eq!(
-        Indexer::new(&embedder, &mut vectors)
+        Indexer::new(&*embedder, &mut vectors)
             .catch_up(&store)
             .await
             .unwrap(),
@@ -138,9 +138,9 @@ async fn drain_indexes_subscribed_events() {
         )
         .unwrap();
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
-    let processed = Indexer::new(&embedder, &mut vectors)
+    let processed = Indexer::new(&*embedder, &mut vectors)
         .drain(&subscription)
         .await
         .unwrap();
@@ -152,12 +152,12 @@ async fn drain_indexes_subscribed_events() {
 #[tokio::test]
 async fn a_later_regeneration_replaces_and_a_delete_removes() {
     let dave = MemoryId::generate();
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
     let key = VectorKey::Description(dave).to_vector_id();
 
     {
-        let mut indexer = Indexer::new(&embedder, &mut vectors);
+        let mut indexer = Indexer::new(&*embedder, &mut vectors);
         // A re-description replaces in place rather than adding a second vector.
         indexer
             .index_batch(&events(&mut MemoryStore::new(), dave, "old description"))
@@ -185,7 +185,7 @@ async fn a_later_regeneration_replaces_and_a_delete_removes() {
             vec![EventPayload::memory_deleted(dave)],
         )
         .unwrap();
-    Indexer::new(&embedder, &mut vectors)
+    Indexer::new(&*embedder, &mut vectors)
         .index_batch(&deletion)
         .await
         .unwrap();
@@ -314,10 +314,10 @@ async fn embed_batch_produces_both_spaces_with_resolver() {
     let entry = EntryId::generate();
     let events = content_appended(dave, entry, "is a senior developer");
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let name: MemoryName = Namespace::Person.with_name("dave").into();
     let resolver = move |_id: MemoryId| Some(name.clone());
-    let batch = embed_batch(&embedder, &events, Some(&resolver))
+    let batch = embed_batch(&*embedder, &events, Some(&resolver))
         .await
         .unwrap();
 
@@ -346,8 +346,8 @@ async fn embed_batch_produces_only_entry_without_resolver() {
     let entry = EntryId::generate();
     let events = content_appended(dave, entry, "is a senior developer");
 
-    let embedder = CpuEmbedder::try_new().unwrap();
-    let batch = embed_batch(&embedder, &events, None).await.unwrap();
+    let embedder = CpuEmbedder::shared();
+    let batch = embed_batch(&*embedder, &events, None).await.unwrap();
 
     let mut has_entry = false;
     let mut has_entry_contextual = false;
@@ -374,14 +374,14 @@ async fn embed_batch_gcs_both_spaces_on_supersede() {
     let old = EntryId::generate();
     let new = EntryId::generate();
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
 
     // Index the entry with a resolver, so both Entry and EntryContextual vectors are produced.
     let appended = content_appended(dave, old, "old fact");
     let name: MemoryName = Namespace::Person.with_name("dave").into();
     let resolver = move |_id: MemoryId| Some(name.clone());
-    let batch = embed_batch(&embedder, &appended, Some(&resolver))
+    let batch = embed_batch(&*embedder, &appended, Some(&resolver))
         .await
         .unwrap();
     apply_batch(&mut vectors, batch).unwrap();
@@ -399,7 +399,7 @@ async fn embed_batch_gcs_both_spaces_on_supersede() {
             vec![EventPayload::memory_superseded(dave, old, new)],
         )
         .unwrap();
-    let batch = embed_batch(&embedder, &superseded, None).await.unwrap();
+    let batch = embed_batch(&*embedder, &superseded, None).await.unwrap();
     apply_batch(&mut vectors, batch).unwrap();
 
     assert!(
@@ -413,14 +413,14 @@ async fn embed_batch_gcs_both_spaces_on_retract() {
     let dave = MemoryId::generate();
     let entry = EntryId::generate();
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
 
     // Index the entry with a resolver, so both Entry and EntryContextual vectors are produced.
     let appended = content_appended(dave, entry, "a fact to retract");
     let name: MemoryName = Namespace::Person.with_name("dave").into();
     let resolver = move |_id: MemoryId| Some(name.clone());
-    let batch = embed_batch(&embedder, &appended, Some(&resolver))
+    let batch = embed_batch(&*embedder, &appended, Some(&resolver))
         .await
         .unwrap();
     apply_batch(&mut vectors, batch).unwrap();
@@ -443,7 +443,7 @@ async fn embed_batch_gcs_both_spaces_on_retract() {
             )],
         )
         .unwrap();
-    let batch = embed_batch(&embedder, &retracted, None).await.unwrap();
+    let batch = embed_batch(&*embedder, &retracted, None).await.unwrap();
     apply_batch(&mut vectors, batch).unwrap();
 
     assert!(
@@ -459,7 +459,7 @@ async fn embed_batch_gcs_both_spaces_on_consolidated() {
     let source_b = EntryId::generate();
     let replacement = EntryId::generate();
 
-    let embedder = CpuEmbedder::try_new().unwrap();
+    let embedder = CpuEmbedder::shared();
     let mut vectors = InMemoryVectorIndex::new();
 
     // Index two source entries with a resolver, so both Entry and EntryContextual vectors
@@ -494,7 +494,7 @@ async fn embed_batch_gcs_both_spaces_on_consolidated() {
         .unwrap();
     let name: MemoryName = Namespace::Person.with_name("dave").into();
     let resolver = move |_id: MemoryId| Some(name.clone());
-    let batch = embed_batch(&embedder, &appended, Some(&resolver))
+    let batch = embed_batch(&*embedder, &appended, Some(&resolver))
         .await
         .unwrap();
     apply_batch(&mut vectors, batch).unwrap();
@@ -517,7 +517,7 @@ async fn embed_batch_gcs_both_spaces_on_consolidated() {
             )],
         )
         .unwrap();
-    let batch = embed_batch(&embedder, &consolidated, None).await.unwrap();
+    let batch = embed_batch(&*embedder, &consolidated, None).await.unwrap();
     apply_batch(&mut vectors, batch).unwrap();
 
     assert!(

@@ -60,6 +60,20 @@ impl CpuEmbedder {
 
     /// The dimensionality of the `all-MiniLM-L6-v2` model.
     const DIMENSIONS: usize = 384;
+
+    /// The one shared test embedder. fastembed downloads the model weights on first construction,
+    /// and parallel tests each constructing their own raced that download on a cold cache — a
+    /// latent CI flake. Sharing a single lazily-built instance serialises the download and load
+    /// exactly once; the inner lock already serialises embeds, which stay millisecond-cheap.
+    pub(crate) fn shared() -> std::sync::Arc<CpuEmbedder> {
+        static SHARED: std::sync::LazyLock<std::sync::Arc<CpuEmbedder>> =
+            std::sync::LazyLock::new(|| {
+                std::sync::Arc::new(
+                    CpuEmbedder::try_new().expect("the shared test embedder constructs"),
+                )
+            });
+        SHARED.clone()
+    }
 }
 
 #[cfg(test)]
@@ -99,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn cpu_embedder_is_deterministic() {
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
         let hello_a = embedder.embed(&["hello".to_owned()]).await.unwrap();
         let hello_b = embedder.embed(&["hello".to_owned()]).await.unwrap();
         let world = embedder.embed(&["world".to_owned()]).await.unwrap();
@@ -132,7 +146,7 @@ mod cpu_embedder_tests {
 
     #[tokio::test]
     async fn cpu_embedder_produces_384_dimensional_vectors() {
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
         let embeddings = embedder
             .embed(&["a senior developer".to_owned()])
             .await
@@ -146,7 +160,7 @@ mod cpu_embedder_tests {
         // The core hypothesis: the same fact stated with and without the subject name scores
         // below the dedup threshold (0.95) on raw text, but above it when the handle prefix is
         // applied to both.
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
 
         // Raw text: "Dave is a senior developer" vs "is a senior developer" — same fact, but the
         // name token dominates the raw embedding.
@@ -204,7 +218,7 @@ mod cpu_embedder_tests {
         // A stricter check: the contextual embedding of the name-less duplicate should score
         // above the dedup threshold (0.95) against the contextual embedding of the name-bearing
         // original. This is what the dedup check relies on.
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
 
         let ctx_original = embedder
             .embed(&[contextual_text("person/dave", "Dave is a senior developer")])

@@ -166,7 +166,7 @@ struct Corpus {
     store: MemoryStore,
     graph: Graph,
     index: InMemoryVectorIndex,
-    embedder: CpuEmbedder,
+    embedder: std::sync::Arc<CpuEmbedder>,
 }
 
 impl Corpus {
@@ -175,7 +175,7 @@ impl Corpus {
             store: MemoryStore::new(),
             graph: Graph::open_in_memory().unwrap(),
             index: InMemoryVectorIndex::new(),
-            embedder: CpuEmbedder::try_new().unwrap(),
+            embedder: CpuEmbedder::shared(),
         }
     }
 
@@ -186,7 +186,7 @@ impl Corpus {
             .append(Timestamp::from_millis(at_ms), EventSource::Agent, events)
             .unwrap();
         self.graph.materialize_from(&self.store).unwrap();
-        Indexer::new(&self.embedder, &mut self.index)
+        Indexer::new(&*self.embedder, &mut self.index)
             .catch_up(&self.store)
             .await
             .unwrap();

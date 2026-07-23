@@ -35,7 +35,7 @@ fn engine_with_retrieval(
     agent_events: Vec<EventPayload>,
     connector_events: Vec<EventPayload>,
 ) -> Arc<Engine> {
-    let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
+    let embedder: Arc<dyn Embedder> = CpuEmbedder::shared();
     let mut store = MemoryStore::new();
     store
         .append(

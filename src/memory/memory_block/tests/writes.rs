@@ -1219,7 +1219,7 @@ async fn append_dedup_rejects_contextual_duplicate() {
     // EntryContextual vector for an existing live entry, then call append_dedup with the same
     // contextual embedding — the same text embeds to the same vector, and the dedup check
     // should reject the duplicate.
-    let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
+    let embedder: Arc<dyn Embedder> = CpuEmbedder::shared();
 
     let dave_name: MemoryName = Namespace::Person.with_name("dave").into();
     let dave: MemoryId = MemoryId::generate();
@@ -1294,7 +1294,7 @@ async fn append_dedup_ignores_another_tellers_confidence() {
     // confidence: the incoming speaker was never told it, so their independent statement appends
     // normally rather than being rejected against — or shown a snippet of — a fact confided by
     // someone else. The confiding teller's own repeat still captures.
-    let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
+    let embedder: Arc<dyn Embedder> = CpuEmbedder::shared();
 
     let dave_name: MemoryName = Namespace::Person.with_name("dave").into();
     let dave: MemoryId = MemoryId::generate();
@@ -1385,7 +1385,7 @@ async fn seeded_entry(
     told_by: Teller,
     visibility: Visibility,
 ) -> (Graph, InMemoryVectorIndex, Arc<dyn Embedder>, Vec<f32>) {
-    let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
+    let embedder: Arc<dyn Embedder> = CpuEmbedder::shared();
     let dave_name: MemoryName = Namespace::Person.with_name("dave").into();
     let mut store = MemoryStore::new();
     store
@@ -1845,7 +1845,7 @@ async fn a_cross_class_near_duplicate_surfaces_an_advisory_note() {
     // teaching advisory, steering the agent toward one record plus links instead of one re-phrasing
     // per participant. A cross-class confidence must stay wholly invisible: no advisory, no
     // snippet, no existence.
-    let embedder: Arc<dyn Embedder> = Arc::new(CpuEmbedder::try_new().unwrap());
+    let embedder: Arc<dyn Embedder> = CpuEmbedder::shared();
 
     let rowan_name: MemoryName = Namespace::Person.with_name("rowan").into();
     let rowan: MemoryId = MemoryId::generate();

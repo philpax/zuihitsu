@@ -222,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     async fn ranks_nearest_first_and_replaces_on_reinsert() {
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
         assert!(index.is_empty().unwrap());
 
@@ -260,7 +260,7 @@ mod tests {
     async fn get_reads_back_the_stored_vector_and_reports_a_missing_key() {
         // The consolidation pass reads an already-indexed vector back rather than re-embedding it, so
         // the decoded vector must round-trip the stored one within f32 round-trip error.
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
         let embedding = vector(&embedder, "climbing gym").await;
         index
@@ -308,7 +308,7 @@ mod tests {
     async fn model_id_reads_back_the_stored_model_and_clear_resets_the_index() {
         // The boot-time embedding-swap detection turns on these two against the live vec0 backend: the
         // model the stored vectors carry, and clearing them for a re-embed (spec §Storage → vector store).
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
 
         // An empty index identifies no model and sits at the start of the log.

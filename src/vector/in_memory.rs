@@ -108,7 +108,7 @@ mod tests {
 
     #[tokio::test]
     async fn ranks_nearest_first() {
-        let embedder = CpuEmbedder::try_new().unwrap();
+        let embedder = CpuEmbedder::shared();
         let mut index = InMemoryVectorIndex::new();
         for text in ["climbing gym", "sourdough bread", "tax return"] {
             let embedding = embedder.embed(&[text.to_owned()]).await.unwrap().remove(0);
