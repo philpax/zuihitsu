@@ -101,6 +101,7 @@ export function MemoryDetailPane({
                 entry={entry}
                 nameById={nameById}
                 disputed={disputed.has(entry.entry_id)}
+                expanded
                 memoryName={memory.name}
                 onRetract={onRetract}
               />
@@ -151,7 +152,7 @@ export function MemoryDetailPane({
         <Section label={`superseded · ${superseded.length}`}>
           <ul className="flex flex-col gap-4">
             {superseded.map((entry) => (
-              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded />
+              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded expanded />
             ))}
           </ul>
         </Section>
@@ -161,7 +162,7 @@ export function MemoryDetailPane({
         <Section label={`retracted · ${retracted.length}`}>
           <ul className="flex flex-col gap-4">
             {retracted.map((entry) => (
-              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded />
+              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded expanded />
             ))}
           </ul>
         </Section>

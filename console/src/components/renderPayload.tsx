@@ -133,6 +133,59 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         </Fields>
       );
 
+    case "EntryAttested":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.memory)}</Field>
+          <Field label="entry">
+            <Mono>{payload.entry}</Mono>
+          </Field>
+          <Field label="teller">{tellerLabel(payload.teller, nameById)}</Field>
+          <Field label="posture">
+            <span className={isPrivate(payload.posture) ? "text-clay" : undefined}>
+              {visibilityLabel(payload.posture, nameById)}
+            </span>
+          </Field>
+          {payload.phrasing && (
+            <Field label="phrasing">
+              <span className="font-serif text-ink-soft italic">{payload.phrasing}</span>
+            </Field>
+          )}
+          {/* An attestation carried onto the surviving entry by a consolidation names the retired
+              source it came from — the same back-reference `EntriesConsolidated` shows for its
+              sources. */}
+          {payload.source_entry && (
+            <Field label="carried from">
+              <Mono>{payload.source_entry}</Mono>
+            </Field>
+          )}
+          {payload.told_in && (
+            <Field label="told in">
+              <ConversationRefLink
+                value={payload.told_in}
+                nameById={nameById}
+                conversationNameById={conversationNameById}
+                seq={seq}
+              />
+            </Field>
+          )}
+          {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
+        </Fields>
+      );
+
+    case "AttestationRetracted":
+      return (
+        <Fields>
+          <Field label="memory">{ref(payload.memory)}</Field>
+          <Field label="entry">
+            <Mono>{payload.entry}</Mono>
+          </Field>
+          <Field label="teller">{tellerLabel(payload.teller, nameById)}</Field>
+          <Field label="reason">{payload.reason}</Field>
+          {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
+        </Fields>
+      );
+
     case "EntryTemporalResolved":
       return (
         <Fields>
