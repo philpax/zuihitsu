@@ -71,11 +71,22 @@ pub(super) async fn message(
         .into_iter()
         .map(|id| person(&scope, id))
         .collect();
-    let response = state
-        .server
-        .platform()
-        .route_messages(model.as_ref(), &locator, &messages, &present)
-        .await?;
+    // The turn runs in its own task, like the streaming variant's spawn: a client that gives up
+    // and drops the connection cancels this handler's future, and an inline turn would die
+    // mid-step with no terminal recorded — observed live when a client timeout killed a turn two
+    // seconds into a model call. Detached, the turn always runs to its durable terminal; a
+    // disconnected client merely never sees the reply, which the next delivery's buffer replay
+    // covers.
+    let model = model.clone();
+    let server = state.server.clone();
+    let response = tokio::spawn(async move {
+        server
+            .platform()
+            .route_messages(model.as_ref(), &locator, &messages, &present)
+            .await
+    })
+    .await
+    .map_err(|join| ApiError::Internal(format!("platform: the turn task failed: {join}")))??;
     Ok(Json(response))
 }
 

@@ -97,6 +97,7 @@ impl Client {
         self.json(
             self.http
                 .post(self.url("/control/imprint"))
+                .timeout(std::time::Duration::from_secs(60 * 60))
                 .json(&ImprintBody { text }),
         )
     }
@@ -116,7 +117,16 @@ impl Client {
             messages: vec![WireMessage { sender, text }],
             present: present.iter().map(String::as_str).collect(),
         };
-        self.json(self.http.post(self.url("/platform/messages")).json(&body))
+        // An agent turn routinely outlives the default request timeout; a client that gives up
+        // early would once have cancelled the turn mid-step (the handler now detaches the turn,
+        // but the reply would still be lost to this client). The same generous ceiling the
+        // maintenance posts carry.
+        self.json(
+            self.http
+                .post(self.url("/platform/messages"))
+                .timeout(std::time::Duration::from_secs(60 * 60))
+                .json(&body),
+        )
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session, under the `direct` scope.
