@@ -102,7 +102,13 @@ function passGroupId(type: EventPayload["type"]): string {
 /// events within each group by seq (they are already seq-sorted from `buildBackgroundEvents`, but
 /// the explicit sort guards against any drift).
 function groupByPass(events: BackgroundEvent[]): PassGroup[] {
-  const order = ["description", "temporal-extraction", "arbitration", "link-inference", "consolidation"];
+  const order = [
+    "description",
+    "temporal-extraction",
+    "arbitration",
+    "link-inference",
+    "consolidation",
+  ];
   const labels: Record<string, string> = {
     description: "description",
     "temporal-extraction": "temporal extraction",

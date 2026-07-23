@@ -1,7 +1,13 @@
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
-import { type BackgroundEventType, type EventCategory, eventCategory, eventSummary, isBackgroundEvent } from "./events.ts";
+import {
+  type BackgroundEventType,
+  type EventCategory,
+  eventCategory,
+  eventSummary,
+  isBackgroundEvent,
+} from "./events.ts";
 
 /// One background-pass event (a description regeneration, a temporal resolution or its recorded
 /// drop, a belief arbitration, or an inferred link set), summarized for the Background view and

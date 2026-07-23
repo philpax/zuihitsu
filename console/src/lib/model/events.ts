@@ -126,7 +126,7 @@ export const BACKGROUND_TYPES = new Set<EventPayload["type"]>([
 
 /// The narrowed type of [`BACKGROUND_TYPES`] — the event types a background pass emits. Extracted
 /// from the set's contents so the type and the set are one source of truth.
-export type BackgroundEventType = (typeof BACKGROUND_TYPES) extends Set<infer T> ? T : never;
+export type BackgroundEventType = typeof BACKGROUND_TYPES extends Set<infer T> ? T : never;
 
 /// Whether an event type is produced by a background pass (the describer, temporal extraction,
 /// belief arbitration, link-inference, or consolidation), and so belongs in the Background view.
