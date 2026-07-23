@@ -150,14 +150,20 @@ pub enum EventPayload {
         reason: String,
         produced_by: Option<ProducedBy>,
     },
-    /// Resolves an entry's `occurred_at` after the fact: the turn-end extraction pass read the
-    /// entry's natural language ("last Tuesday") and produced a structured [`TemporalRef`]. The
-    /// original `MemoryContentAppended` stays immutable; applying this recomputes the entry's
-    /// denormalized occurrence columns. `produced_by` records the extracting inference.
+    /// Resolves an entry's `occurred_at` after the fact, or withdraws one already resolved. `Some`
+    /// carries a structured [`TemporalRef`] the turn-end extraction pass produced from the entry's
+    /// natural language ("last Tuesday"), resolved as of today; applying it recomputes the entry's
+    /// denormalized occurrence columns. `None` **withdraws** the occurrence — the entry returns to
+    /// untimed (its occurrence columns are cleared and `occurred_authored` reset to 0), and any wake-up
+    /// armed off the old occurrence is disarmed. The operator's `clear-occurrence` correction is the one
+    /// producer of the `None` shape; the extraction pass only ever writes `Some`. The original
+    /// `MemoryContentAppended` stays immutable. `produced_by` records the extracting inference (`None`
+    /// for the operator's mechanical withdrawal). Every event written before withdrawal existed carries
+    /// a temporal reference, which deserializes as `Some`, so old logs replay identically.
     EntryTemporalResolved {
         id: MemoryId,
         entry_id: EntryId,
-        occurred_at: TemporalRef,
+        occurred_at: Option<TemporalRef>,
         produced_by: Option<ProducedBy>,
     },
     /// Records that the turn-end extraction pass declined an extracted occurrence for this entry —

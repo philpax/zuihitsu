@@ -380,11 +380,12 @@ impl Graph {
                 occurred_at,
                 ..
             } => {
-                // The extraction pass resolved this entry's occurrence after it was appended;
-                // recompute its denormalized columns in place (text and FTS are untouched). This
-                // occurrence is inferred, not authored, so `occurred_authored` stays 0 — a
-                // representative-date projection must not let this guess shadow a stated date.
-                let occurrence = self.occurrence_columns(Some(occurred_at))?;
+                // Resolve or withdraw this entry's occurrence after it was appended; recompute its
+                // denormalized columns in place (text and FTS are untouched). A resolved occurrence is
+                // inferred, not authored, so `occurred_authored` stays 0 — a representative-date
+                // projection must not let this guess shadow a stated date — and a withdrawal (`None`)
+                // clears every occurrence column back to NULL, returning the entry to untimed.
+                let occurrence = self.occurrence_columns(occurred_at.as_ref())?;
                 self.conn
                     .execute(
                         "UPDATE content_entries
@@ -400,6 +401,20 @@ impl Graph {
                         ],
                     )
                     .map_err(backend)?;
+                // A withdrawal also disarms any wake-up armed off the old occurrence: the scheduler
+                // keys a recurring firing on `occurred_at IS NOT NULL` and the pending surface on
+                // `fired_at IS NOT NULL AND surfaced_at IS NULL`, so clearing the occurrence alone
+                // unarms a not-yet-fired entry, and clearing `fired_at`/`surfaced_at` retracts one that
+                // already fired but has not surfaced. Both are needed to fully unarm an errant wake-up.
+                if occurred_at.is_none() {
+                    self.conn
+                        .execute(
+                            "UPDATE content_entries SET fired_at = NULL, surfaced_at = NULL \
+                             WHERE entry_id = ?1",
+                            params![entry_id.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
             }
             EventPayload::ScheduledJobFired {
                 entry_id, fired_at, ..

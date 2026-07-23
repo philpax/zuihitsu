@@ -77,7 +77,7 @@ pub use settings::{
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
-    Timestamp,
+    Timestamp, format_occurrence,
 };
 pub use vector::{
     InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,

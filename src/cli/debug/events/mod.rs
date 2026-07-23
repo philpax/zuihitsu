@@ -287,7 +287,12 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         EventPayload::ScheduledItemSurfaced { memory, .. } => {
             format!("wake-up surfaced ({})", name(memory))
         }
-        EventPayload::EntryTemporalResolved { id, .. } => format!("{}: resolved a date", name(id)),
+        EventPayload::EntryTemporalResolved {
+            id, occurred_at, ..
+        } => match occurred_at {
+            Some(_) => format!("{}: resolved a date", name(id)),
+            None => format!("{}: withdrew an occurrence", name(id)),
+        },
         EventPayload::EntryTemporalResolveFailed { id, .. } => {
             format!("{}: failed to resolve a date", name(id))
         }

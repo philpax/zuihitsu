@@ -189,6 +189,11 @@ The `debug` subcommands read the event log directly and read-only, so they are s
 - `cargo run -- debug events` lists the log. `--seq N` prints one event's full payload; `--type SessionStarted` (case-insensitive) filters by payload type; `--target <id-or-prefix>` follows one conversation or memory; `--summary` counts events by type and lays out the session timeline (each session's open/close seqs and brief size).
 - `cargo run -- debug brief --seq N` reproduces the brief of the session active at seq `N`, printing the brief frozen at session start beside the one the current code composes from the same recorded inputs — the way to see a composition change against real data. Select by `--session <id>` instead to name a session directly.
 
+Two `debug` subcommands are deliberate write exceptions — offline operator corrections that append one forward, operator-sourced event each (nothing is rewritten; each fix is itself revertible). Because they take the single-writer log lock, **the agent must be stopped first**: the open fails while a running agent holds the lock. They append rather than truncate, so unlike `revert` they preserve history.
+
+- `cargo run -- debug retract --entry <id-or-unique-prefix> --reason <text>` withdraws a content entry to a tombstone, recording why. It resolves the entry by its full id or a unique prefix (an ambiguous prefix lists the candidates), verifies the entry is still live, appends an [`EntryRetracted`] under [`EventSource::Operator`], and reports the memory and a text snippet. The reason is required — an unaudited retraction is unauditable.
+- `cargo run -- debug clear-occurrence --entry <id-or-unique-prefix>` withdraws an entry's resolved occurrence so it returns to untimed, disarming any wake-up the occurrence armed. It resolves the entry the same way, verifies it currently carries an occurrence, appends an [`EntryTemporalResolved`] with no occurrence under [`EventSource::Operator`], and reports the occurrence it cleared.
+
 Keep the default (`console`-featured) build for these so the build cache stays warm across runs.
 
 ## Evaluations

@@ -47,10 +47,13 @@ pub(crate) fn diagnostic_summary(payload: &EventPayload) -> Option<String> {
             entry_id,
             occurred_at,
             ..
-        } => Some(format!(
-            "resolved {entry_id:?} occurred_at={}",
-            serde_json::to_string(occurred_at).unwrap_or_default(),
-        )),
+        } => Some(match occurred_at {
+            Some(occurred_at) => format!(
+                "resolved {entry_id:?} occurred_at={}",
+                serde_json::to_string(occurred_at).unwrap_or_default(),
+            ),
+            None => format!("withdrew occurrence {entry_id:?}"),
+        }),
         EventPayload::ScheduledJobFired {
             memory, fired_at, ..
         } => Some(format!("fired {memory:?} @ {fired_at:?}")),

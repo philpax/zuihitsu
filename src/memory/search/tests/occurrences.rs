@@ -78,7 +78,7 @@ async fn an_authored_date_outranks_a_newer_extracted_date_on_a_hit() {
             vec![EventPayload::entry_temporal_resolved(
                 id,
                 extracted,
-                june.clone(),
+                Some(june.clone()),
                 None,
             )],
         )
@@ -137,7 +137,7 @@ async fn an_extracted_date_still_surfaces_when_no_authored_date_exists() {
             vec![EventPayload::entry_temporal_resolved(
                 id,
                 entry,
-                june.clone(),
+                Some(june.clone()),
                 None,
             )],
         )

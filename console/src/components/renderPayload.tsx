@@ -190,7 +190,11 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
       return (
         <Fields>
           <Field label="memory">{ref(payload.id)}</Field>
-          <Field label="occurred">{temporalRefLabel(payload.occurred_at)}</Field>
+          {payload.occurred_at ? (
+            <Field label="occurred">{temporalRefLabel(payload.occurred_at)}</Field>
+          ) : (
+            <Field label="occurred">occurrence withdrawn</Field>
+          )}
           {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
         </Fields>
       );

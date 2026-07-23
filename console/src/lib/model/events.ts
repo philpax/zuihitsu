@@ -239,7 +239,9 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
     case "AttestationRetracted":
       return `${ref(payload.memory)} — ${tellerLabel(payload.teller, nameById)}'s attestation withdrawn`;
     case "EntryTemporalResolved":
-      return `${ref(payload.id)} — time resolved`;
+      return payload.occurred_at
+        ? `${ref(payload.id)} — time resolved`
+        : `${ref(payload.id)} — occurrence withdrawn`;
     case "EntryTemporalResolveFailed":
       return `${ref(payload.id)} — time resolution dropped`;
     case "EntryDescriptionMirrored":

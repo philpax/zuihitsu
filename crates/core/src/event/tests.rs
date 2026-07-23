@@ -161,14 +161,35 @@ fn content_append_round_trips_occurred_at() {
 
 #[test]
 fn entry_temporal_resolved_round_trips() {
-    let event = EventPayload::EntryTemporalResolved {
-        id: MemoryId::generate(),
-        entry_id: EntryId::generate(),
-        occurred_at: TemporalRef::Day(CivilDate("2026-06-03".into())),
+    let id = MemoryId::generate();
+    let entry_id = EntryId::generate();
+    // Both a resolution (`Some`) and a withdrawal (`None`) survive the wire.
+    let resolved = EventPayload::EntryTemporalResolved {
+        id,
+        entry_id,
+        occurred_at: Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
         produced_by: None,
     };
-    let json = serde_json::to_string(&event).unwrap();
-    assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    let withdrawn = EventPayload::EntryTemporalResolved {
+        id,
+        entry_id,
+        occurred_at: None,
+        produced_by: None,
+    };
+    for event in [&resolved, &withdrawn] {
+        let json = serde_json::to_string(event).unwrap();
+        assert_eq!(&serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+    }
+    // `Some` serializes transparently — the temporal reference sits inline, exactly as a log written
+    // before withdrawal existed carries it, with no `null` — so old logs deserialize as `Some` and
+    // replay identically. A withdrawal is the only shape that writes `occurred_at: null`.
+    let resolved_json = serde_json::to_string(&resolved).unwrap();
+    assert!(resolved_json.contains("\"occurred_at\":{\"day\":"));
+    assert!(
+        serde_json::to_string(&withdrawn)
+            .unwrap()
+            .contains("\"occurred_at\":null")
+    );
 }
 
 #[test]

@@ -56,8 +56,10 @@ pub fn entry_occurrences(events: &[Event]) -> Vec<EntryOccurrence> {
                 occurred_at,
                 ..
             } => {
+                // A resolution fills the extracted slot; a withdrawal (`None`) clears it back to
+                // untimed, mirroring the graph fold.
                 if let Some(&position) = index.get(entry_id) {
-                    occurrences[position].extracted = Some(occurred_at.clone());
+                    occurrences[position].extracted = occurred_at.clone();
                 }
             }
             _ => {}

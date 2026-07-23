@@ -109,7 +109,7 @@ impl EventPayload {
     pub fn entry_temporal_resolved(
         id: MemoryId,
         entry_id: EntryId,
-        occurred_at: TemporalRef,
+        occurred_at: Option<TemporalRef>,
         produced_by: Option<ProducedBy>,
     ) -> EventPayload {
         EventPayload::EntryTemporalResolved {

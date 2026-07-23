@@ -468,7 +468,7 @@ mod tests {
         graph
             .apply(&event(
                 4,
-                EventPayload::entry_temporal_resolved(id, extracted, june.clone(), None),
+                EventPayload::entry_temporal_resolved(id, extracted, Some(june.clone()), None),
             ))
             .unwrap();
 
@@ -506,7 +506,7 @@ mod tests {
         graph
             .apply(&event(
                 3,
-                EventPayload::entry_temporal_resolved(only, entry, june.clone(), None),
+                EventPayload::entry_temporal_resolved(only, entry, Some(june.clone()), None),
             ))
             .unwrap();
         assert_eq!(

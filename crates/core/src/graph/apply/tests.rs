@@ -117,7 +117,7 @@ fn entry_temporal_resolved_updates_columns_in_place() {
             EventPayload::entry_temporal_resolved(
                 dependent,
                 entry,
-                TemporalRef::after(Namespace::Event.with_name("wedding")),
+                Some(TemporalRef::after(Namespace::Event.with_name("wedding"))),
                 None,
             ),
         ))
@@ -131,6 +131,94 @@ fn entry_temporal_resolved_updates_columns_in_place() {
         )
         .unwrap();
     assert_eq!(sort_after, Some(anchor_at + BEFORE_AFTER_EPSILON_MILLIS));
+}
+
+/// Withdrawing a resolved occurrence (an `EntryTemporalResolved` carrying `None`) returns the entry to
+/// untimed and disarms the wake-up its old occurrence armed: a daily-recurring entry that has already
+/// fired sits pending, and the withdrawal must clear both its occurrence columns and its firing state so
+/// nothing surfaces. Reproduces the live-instance fix — an errant daily occurrence cleared offline.
+#[test]
+fn withdrawing_an_occurrence_returns_the_entry_to_untimed_and_disarms_its_wakeup() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    let memory = MemoryId::generate();
+    let entry = EntryId::generate();
+    let asserted = Timestamp::from_millis(1_780_876_810_000); // 2026-06-08T00:00:10.
+    graph
+        .apply(&event(
+            1,
+            EventPayload::memory_created(memory, Namespace::Event.with_name("someone-elses-cron")),
+        ))
+        .unwrap();
+    // The entry is appended untimed, then the extraction pass mis-resolves it to a daily recurrence.
+    graph
+        .apply(&event(
+            2,
+            EventPayload::MemoryContentAppended {
+                id: memory,
+                entry_id: entry,
+                asserted_at: asserted,
+                occurred_at: None,
+                text: "Context seeded daily with over 10k tokens".to_owned(),
+                told_by: Teller::Agent,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ))
+        .unwrap();
+    graph
+        .apply(&event(
+            3,
+            EventPayload::entry_temporal_resolved(
+                memory,
+                entry,
+                Some(TemporalRef::Recurring(Rrule("FREQ=DAILY".into()))),
+                None,
+            ),
+        ))
+        .unwrap();
+    // The recurrence arms the recurring scheduler, and a firing leaves it pending in the wake-up surface.
+    let now = Timestamp::from_millis(asserted.as_millisecond() + 2 * MILLIS_PER_DAY);
+    assert_eq!(
+        graph.due_recurring(now).unwrap(),
+        vec![(memory, entry)],
+        "the daily recurrence is due to fire"
+    );
+    graph
+        .apply(&event(
+            4,
+            EventPayload::scheduled_job_fired(entry, memory, now),
+        ))
+        .unwrap();
+    assert_eq!(
+        graph.pending_wakeups().unwrap().len(),
+        1,
+        "the fired occurrence waits in the wake-up surface"
+    );
+
+    // Withdraw the occurrence: the entry reads untimed again, and neither the recurring scheduler nor
+    // the pending surface still holds it.
+    graph
+        .apply(&event(
+            5,
+            EventPayload::entry_temporal_resolved(memory, entry, None, None),
+        ))
+        .unwrap();
+    let (_, view) = graph
+        .entry_by_id(entry)
+        .unwrap()
+        .expect("the entry projects");
+    assert!(
+        view.occurred_at.is_none() && view.occurred_sort.is_none() && !view.occurred_authored,
+        "the withdrawn entry carries no occurrence and is not authored"
+    );
+    assert!(
+        graph.due_recurring(now).unwrap().is_empty(),
+        "the recurring scheduler no longer arms the withdrawn entry"
+    );
+    assert!(
+        graph.pending_wakeups().unwrap().is_empty(),
+        "the withdrawal disarmed the pending wake-up"
+    );
 }
 
 /// An unresolved arbitration (crediting neither side) projects its competing entries as disputed;
@@ -251,7 +339,7 @@ fn occurred_authored_distinguishes_authored_from_extracted() {
             EventPayload::entry_temporal_resolved(
                 memory,
                 extracted,
-                TemporalRef::Day(CivilDate("2026-06-08".into())),
+                Some(TemporalRef::Day(CivilDate("2026-06-08".into()))),
                 None,
             ),
         ))

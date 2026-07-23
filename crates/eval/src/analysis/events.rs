@@ -151,6 +151,50 @@ pub fn recurring_memory_names(events: &[Event]) -> Vec<String> {
         .collect()
 }
 
+/// Whether any entry on a memory whose name contains `subject` acquired a recurring occurrence — either
+/// stamped inline on the append or resolved later by the turn-end extraction. Both paths produce a
+/// `{"recurring":…}` reference; matching is case-insensitive and substring-based, so it reads the
+/// occurrence however the run cased or prefixed the handle. The structural gate for "a third party's
+/// cadence was scheduled as the agent's own".
+pub fn recurring_occurrence_on(events: &[Event], subject: &str) -> bool {
+    let names = memory_names(events);
+    let subject = subject.to_lowercase();
+    let on_subject = |id: &MemoryId| {
+        names
+            .get(id)
+            .is_some_and(|name| name.to_lowercase().contains(&subject))
+    };
+    events.iter().any(|event| match &event.payload {
+        EventPayload::MemoryContentAppended {
+            id,
+            occurred_at: Some(TemporalRef::Recurring(_)),
+            ..
+        }
+        | EventPayload::EntryTemporalResolved {
+            id,
+            occurred_at: Some(TemporalRef::Recurring(_)),
+            ..
+        } => on_subject(id),
+        _ => false,
+    })
+}
+
+/// Whether any wake-up fired for an entry on a memory whose name contains `subject` — a
+/// `ScheduledJobFired` targeting that memory. The complement to [`recurring_occurrence_on`]: even if a
+/// recurrence slipped through, the end-to-end harm is a wake-up firing for someone else's routine, so
+/// this is the gate an after-the-advance assessment checks. Matching is case-insensitive and
+/// substring-based.
+pub fn scheduled_job_fired_on(events: &[Event], subject: &str) -> bool {
+    let names = memory_names(events);
+    let subject = subject.to_lowercase();
+    events.iter().any(|event| match &event.payload {
+        EventPayload::ScheduledJobFired { memory, .. } => names
+            .get(memory)
+            .is_some_and(|name| name.to_lowercase().contains(&subject)),
+        _ => false,
+    })
+}
+
 /// Every durable content entry written in the run, with the memory it landed on and its visibility.
 pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
     let names = memory_names(events);
@@ -446,7 +490,7 @@ pub fn has_recurring_occurrence(events: &[Event]) -> bool {
                 occurred_at: Some(TemporalRef::Recurring(_)),
                 ..
             } | EventPayload::EntryTemporalResolved {
-                occurred_at: TemporalRef::Recurring(_),
+                occurred_at: Some(TemporalRef::Recurring(_)),
                 ..
             }
         )

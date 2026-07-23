@@ -106,7 +106,7 @@ pub(super) fn resolve_occurrences(
         events.push(EventPayload::entry_temporal_resolved(
             entry_memory,
             entry.entry_id,
-            occurred_at,
+            Some(occurred_at),
             Some(provenance.clone()),
         ));
     }

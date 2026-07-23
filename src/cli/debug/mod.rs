@@ -2,6 +2,11 @@
 //! they take no write lock), plus the belief-arbitration and model-interaction records and the MCP
 //! catalogue. These read either the running server (arbitrations, interactions) or the config-selected
 //! store and servers (events, brief, revert, mcp), so the dispatch takes both a client and a config.
+//!
+//! Most commands are read-only, but four write: `revert` and `delete-memory` (documented on their own
+//! variants), and the two operator corrections `retract` and `clear-occurrence`. The corrections append
+//! one forward, operator-sourced event each — a retraction, or an occurrence withdrawal — so they need
+//! the single-writer log lock and the agent must be stopped first (see [`correction`]).
 
 use clap::Subcommand;
 use zuihitsu::config::EnvConfig;
@@ -9,6 +14,7 @@ use zuihitsu::config::EnvConfig;
 use crate::cli::{client::Client, error::CliError, print_json};
 
 mod brief;
+mod correction;
 mod delete_memory;
 mod embed;
 mod events;
@@ -81,6 +87,27 @@ pub(crate) enum DebugCommand {
         /// Confirm the soft delete. Without it, the command only reports what it would do.
         #[arg(long)]
         yes: bool,
+    },
+    /// Retract a content entry to a tombstone, recording why: append an operator-sourced
+    /// `EntryRetracted` so it drops from every live surface on the next fold, while its content stays in
+    /// the log for audit. Appends forward rather than rewriting history — the fix is itself revertible.
+    /// It opens the log read-write, so the agent must be stopped first.
+    Retract {
+        /// The entry to retract: its full id or a unique prefix of one.
+        #[arg(long)]
+        entry: String,
+        /// Why the entry is being withdrawn. Required — an unaudited retraction is unauditable.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Clear a content entry's resolved occurrence: append an operator-sourced `EntryTemporalResolved`
+    /// carrying no occurrence, so the entry returns to untimed and any wake-up its occurrence armed is
+    /// disarmed on the next fold. Appends forward rather than rewriting history. It opens the log
+    /// read-write, so the agent must be stopped first.
+    ClearOccurrence {
+        /// The entry whose occurrence to clear: its full id or a unique prefix of one.
+        #[arg(long)]
+        entry: String,
     },
     /// List the recorded model interactions (per-call request, deliberation, tokens, and latency).
     Interactions,
@@ -160,6 +187,8 @@ pub(crate) fn dispatch(
         DebugCommand::DeleteMemory { memory, yes } => {
             delete_memory::delete_memory(config, memory, *yes)
         }
+        DebugCommand::Retract { entry, reason } => correction::retract(config, entry, reason),
+        DebugCommand::ClearOccurrence { entry } => correction::clear_occurrence(config, entry),
         DebugCommand::Interactions => print_json(&client.interactions()?),
         DebugCommand::Arbitrations => print_json(&client.arbitrations()?),
         DebugCommand::Mcp => mcp::mcp(config),

@@ -208,6 +208,23 @@ impl Graph {
             .map(|m| (m, entry)))
     }
 
+    /// Every entry id that begins with `prefix` (a full id matches itself), across all memories and
+    /// regardless of the owning memory's live state or the entry's own supersession — the resolution
+    /// primitive the operator's offline correction commands use to turn a typed id or unique prefix into
+    /// exactly one entry, erroring when the prefix is ambiguous. The prefix is matched
+    /// case-insensitively against the stored uppercase ULID, so an operator may paste either casing.
+    /// Ordered by id for a stable candidate listing.
+    pub fn entry_ids_with_prefix(&self, prefix: &str) -> Result<Vec<EntryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT entry_id FROM content_entries
+             WHERE entry_id LIKE ?1 || '%' ORDER BY entry_id",
+        )?;
+        let ids: Vec<String> = query_map_into(stmt, params![prefix.to_uppercase()], |row| {
+            Ok::<_, GraphError>(row.get("entry_id")?)
+        })?;
+        ids.iter().map(|id| Ok(EntryId(parse_ulid(id)?))).collect()
+    }
+
     /// Run an entry query whose sole bound parameter is a memory id, mapping each row to an
     /// [`EntryView`] through [`entry_from_row`]. Shared by the live and history entry reads; each must
     /// select the columns [`entry_from_row`] reads.

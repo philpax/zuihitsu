@@ -173,8 +173,8 @@ fn the_temporal_extraction_template_teaches_the_anchor_rule() {
         .expect("genesis registers a TemporalExtraction template");
 
     assert_eq!(
-        version, 5,
-        "the different-referent body is registered at v5"
+        version, 6,
+        "the third-party-routine body is registered at v6"
     );
     assert!(body.contains("The default is to extract nothing"));
     assert!(body.contains("anchored to the moment of speaking"));
@@ -196,6 +196,11 @@ fn the_temporal_extraction_template_teaches_the_anchor_rule() {
     assert!(body.contains("describe the statement's own subject"));
     assert!(body.contains("an inspiration, a namesake, a comparison, or a historical analogy"));
     assert!(body.contains("never merely a date the statement mentions"));
+    // A recurrence describing another system's or person's own routine dates that mechanism, not the
+    // statement, so it is omitted; only a recurrence the agent itself should track is emitted.
+    assert!(body.contains("dates the statement only when it is the agent's own to track"));
+    assert!(body.contains("their cron job, their nightly rebuild, their weekly publication"));
+    assert!(body.contains("Only a recurrence the agent itself should keep"));
     assert!(body.contains("`before_after` relative to another memory named as its"));
 }
 
