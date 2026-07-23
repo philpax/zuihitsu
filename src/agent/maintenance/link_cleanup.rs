@@ -27,7 +27,10 @@ use crate::{
     settings::{CaptureLevel, Settings},
 };
 
-use crate::agent::turn::{Recording, collect_written_memories};
+use crate::agent::{
+    maintenance::dedupe_by_class,
+    turn::{Recording, collect_written_memories},
+};
 
 /// Run one link-cleanup sweep. Returns `(new_cursor, memories_considered)`.
 pub async fn catch_up(
@@ -49,6 +52,7 @@ pub async fn catch_up(
     };
 
     let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
+    let written = dedupe_by_class(engine, written)?;
     if written.is_empty() {
         return Ok((head, 0));
     }

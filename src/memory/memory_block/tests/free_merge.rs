@@ -119,3 +119,63 @@ fn binding_two_populated_profiles_proposes_a_merge() {
         "no same_as is asserted directly between two populated profiles"
     );
 }
+
+#[test]
+fn a_member_entry_is_retractable_when_addressed_via_the_platform_stub() {
+    // The maintenance passes iterate per memory and may address a class entry through the
+    // platform-qualified stub rather than the bare member the entry lives on. The write target
+    // stays the stub (connector-owned handles never redirect), but the liveness read spans the
+    // whole `same_as` class, so the retraction must land.
+    let bare = MemoryId::generate();
+    let stub = MemoryId::generate();
+    let entry = EntryId::generate();
+    let mut events = vec![EventPayload::LinkTypeRegistered {
+        name: RelationName::SameAs,
+        inverse: RelationName::SameAs,
+        from_card: Cardinality::Many,
+        to_card: Cardinality::Many,
+        symmetric: true,
+        reflexive: false,
+        description: String::new(),
+    }];
+    events.push(EventPayload::memory_created(
+        bare,
+        Namespace::Person.with_name("rowan"),
+    ));
+    events.push(EventPayload::memory_created(
+        stub,
+        Namespace::Person.with_name("1234567890@testchat"),
+    ));
+    events.push(EventPayload::MemoryContentAppended {
+        id: bare,
+        entry_id: entry,
+        asserted_at: Timestamp::from_millis(1_000),
+        occurred_at: None,
+        text: "bot belonging to rowan".to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+    });
+    events.push(EventPayload::link_created(
+        stub,
+        bare,
+        RelationName::SameAs,
+        crate::event::LinkPosture {
+            source: crate::event::LinkSource::Operator,
+            told_by: None,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+    ));
+    let mut store = MemoryStore::new();
+    store
+        .append(Timestamp::from_millis(1_000), EventSource::Agent, events)
+        .unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut b = block(graph, clock, Teller::Agent, Authority::Agent);
+    b.retract(stub, entry, "captured by the operated_by link", None)
+        .expect("a class member's entry must be retractable via the stub");
+}

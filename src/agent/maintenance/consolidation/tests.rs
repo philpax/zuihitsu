@@ -231,3 +231,44 @@ async fn tier2_retires_a_recorded_private_duplicate_into_its_public_entry() {
         "the private near-duplicate is retired into the existing public entry"
     );
 }
+
+#[test]
+fn a_sweep_set_collapses_a_class_to_one_representative() {
+    // A merged identity's members would each drive a full cluster-and-write iteration over the
+    // same class entries; the sweep set collapses to the class id, so a class is processed once.
+    let bare = MemoryId::generate();
+    let stub = MemoryId::generate();
+    let engine = engine_with_retrieval(
+        vec![
+            EventPayload::LinkTypeRegistered {
+                name: crate::vocabulary::RelationName::SameAs,
+                inverse: crate::vocabulary::RelationName::SameAs,
+                from_card: crate::event::Cardinality::Many,
+                to_card: crate::event::Cardinality::Many,
+                symmetric: true,
+                reflexive: false,
+                description: String::new(),
+            },
+            EventPayload::memory_created(bare, Namespace::Person.with_name("rowan")),
+            EventPayload::memory_created(stub, Namespace::Person.with_name("1234567890@testchat")),
+            EventPayload::link_created(
+                stub,
+                bare,
+                crate::vocabulary::RelationName::SameAs,
+                crate::event::LinkPosture {
+                    source: crate::event::LinkSource::Operator,
+                    told_by: None,
+                    told_in: None,
+                    visibility: Visibility::Public,
+                },
+            ),
+        ],
+        Vec::new(),
+    );
+    let deduped = crate::agent::maintenance::dedupe_by_class(&engine, vec![bare, stub]).unwrap();
+    assert_eq!(
+        deduped.len(),
+        1,
+        "both members collapse to one class representative: {deduped:?}"
+    );
+}

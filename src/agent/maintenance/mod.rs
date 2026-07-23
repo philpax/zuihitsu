@@ -21,6 +21,10 @@
 //! since a fresh instance seeds every cursor to log-head at boot and an incremental cursor would make
 //! the manual pass a no-op (see [`crate::instance`]'s pass facade).
 
+use std::collections::BTreeSet;
+
+use crate::{InstanceError, engine::Engine, ids::MemoryId};
+
 pub mod canonicalize;
 pub mod consolidation;
 pub mod link_cleanup;
@@ -28,3 +32,24 @@ pub mod link_cleanup;
 mod scheduling;
 
 pub use scheduling::activity_gate;
+
+/// Collapse a sweep set to one representative per `same_as` class: the class id itself, the member
+/// class resolution funnels writes to anyway. A merged identity's members otherwise each drive a
+/// full cluster-and-write iteration over the same class entries — the duplicates cost a model call
+/// per extra member, and the later iterations' writes bounce off the pending-tombstone fold as
+/// spurious rejections.
+pub(crate) fn dedupe_by_class(
+    engine: &Engine,
+    ids: Vec<MemoryId>,
+) -> Result<Vec<MemoryId>, InstanceError> {
+    let graph = engine.graph.lock();
+    let mut seen = BTreeSet::new();
+    let mut ordered = Vec::new();
+    for id in ids {
+        let class = graph.class_id(id)?.unwrap_or(id);
+        if seen.insert(class) {
+            ordered.push(class);
+        }
+    }
+    Ok(ordered)
+}
